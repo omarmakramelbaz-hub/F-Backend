@@ -137,6 +137,9 @@ class PosServiceTicket
             if($old=$this->command($v['branch'],$actor->id,$v['idempotency_key']))return $this->replay($old,$hash,$actor);
             if($requireServiceConsent&&$channel==='phone'&&$v['action']==='send_kitchen')$this->requirePhoneServiceConsent($v);
             $row=$this->locked($channel,$id,$v['branch']);$this->mutable($row);abort_unless((int)$v['expected_revision']===(int)$row->revision,409,'تغيرت الفاتورة.');
+            if($channel==='dine'&&$v['action']==='send_kitchen'){
+                abort_unless(!$row->last_kitchen_id,409,'تم إرسال الأوردر للمطبخ بالفعل. تُحفظ التعديلات عند طباعة طلب الحساب.');
+            }
             $cart=json_decode($row->cart_snapshot,true);if($v['action']!=='cancel')abort_unless(count($cart['items']),422,'الفاتورة فارغة.');
             $status=$row->status;$revision=(int)$row->revision+1;$when=now('UTC');$changes=['revision'=>$revision,'updated_at'=>$when];$meta=[];
             if($v['action']==='cancel'){abort_unless(!$row->last_kitchen_id,409,'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');$status='cancelled';$changes['cancel_reason']=trim($v['reason']);}

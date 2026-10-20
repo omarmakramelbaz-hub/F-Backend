@@ -3,14 +3,14 @@
   "expected_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
   "before_source": {
     "format": 1,
-    "files": 1157,
-    "sha256": "2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f",
+    "files": 1164,
+    "sha256": "105f42de8dd0392af33c7d730541f860919a624b736dd9d277275aabce4487c7",
     "framework": "8.83.29"
   },
   "after_source": {
     "format": 1,
-    "files": 1317,
-    "sha256": "4288c371691750f5278d145b4d036be0d78d7c170d18fd7d61217954c2866a56",
+    "files": 1324,
+    "sha256": "e1c889bfd170466c7c81e1d8da5d375606eda60d7526b8a48ae348ce36cad1f7",
     "framework": "8.83.29"
   },
   "sources": [
@@ -1006,8 +1006,8 @@
     },
     {
       "path": "app/Services/Dashboard/BranchShiftClosing.php",
-      "before_blob": "6eb5b4dc7b64ea87974a6b39089156b9186f940e",
-      "after_blob": "7669fac79438f8ff2d4dce6f3ed820922a3c8bc7",
+      "before_blob": "7d43f6c9944d9402e254f320425e3e6012f9848f",
+      "after_blob": "5a0d6b3f5b1cd67281c7d32974add5fd277408da",
       "phase": 2
     },
     {
@@ -1107,12 +1107,6 @@
       "phase": 2
     },
     {
-      "path": "public/dashboard/css/branch-expenses.css",
-      "before_blob": "63dba3dcf1ec126ca760bd16d5eda9e521a6ed56",
-      "after_blob": "2babc6278260e7cd30d5b17104de59699551b9b1",
-      "phase": 2
-    },
-    {
       "path": "public/dashboard/css/branch-operations.css",
       "before_blob": "1e1f201071fecbc9c464bc095e0e3155852a9422",
       "after_blob": "30fc86c263e34129db4905dc7d1f5e8b2e536094",
@@ -1122,12 +1116,6 @@
       "path": "public/dashboard/css/phone-orders.css",
       "before_blob": "8da9635eb715b79dcc95cca3e3637beb65378194",
       "after_blob": "3223bb010e066518e435ed3c78a760eb95a243c1",
-      "phase": 2
-    },
-    {
-      "path": "public/dashboard/js/branch-expenses.js",
-      "before_blob": "edb787383deeec804ca6c7deb5307f0f779a157f",
-      "after_blob": "8106ce07fb5d620b51d2f318ece16052df31722e",
       "phase": 2
     },
     {
@@ -1144,8 +1132,8 @@
     },
     {
       "path": "public/dashboard/js/branch-shifts.js",
-      "before_blob": "d441027bd27724cf13be5ce4e0e0c06dabc3eb40",
-      "after_blob": "daafc97fb9b74c0fb9377feec35e91f4d74f866e",
+      "before_blob": "64c3a18f9a7874608c9459257a508ca06d0ff85f",
+      "after_blob": "bb5e38a82b8ce873efff0f7d1289bbcd237670ba",
       "phase": 2
     },
     {
@@ -1288,8 +1276,8 @@
     },
     {
       "path": "app/Console/Kernel.php",
-      "before_blob": "e0813e16b32fc760cf6f3cc868905c73a279f751",
-      "after_blob": "95630c5d2ac87bc1a28ba84114504304a9b80923",
+      "before_blob": "4cb562144eb1f9e6fc5857aa56ce8221be2974e3",
+      "after_blob": "b6b28cbe6cb1098a1861bd3b4c905c61a0f58ef8",
       "phase": 2
     },
     {
@@ -1347,12 +1335,6 @@
       "phase": 2
     },
     {
-      "path": "resources/lang/ar/expenses.php",
-      "before_blob": "186c94998f8813268b118ce91f4d1af593c936e3",
-      "after_blob": "a938d185e126b4c82a131b7da0d4076456619842",
-      "phase": 2
-    },
-    {
       "path": "resources/lang/ar/validation.php",
       "before_blob": "6dd4b49e77e5b07e894d249d9f56a8e0f3687b5b",
       "after_blob": "04115483cd5b33719dc6cf05719083475d2553e1",
@@ -1362,12 +1344,6 @@
       "path": "resources/lang/en/dashboard_inbox.php",
       "before_blob": "e07f82db98e76a50db69633069f233a5544011ef",
       "after_blob": "f07c12fedba4d04ab23dfb1572a7b5c5b3225f88",
-      "phase": 2
-    },
-    {
-      "path": "resources/lang/en/expenses.php",
-      "before_blob": "88b7001a61a962b96c2ea647f3a98a987f7426c3",
-      "after_blob": "adcbe5f76a3d6125a72ebaaba466f6cdf3404207",
       "phase": 2
     },
     {
@@ -1619,6 +1595,2566 @@
   ],
   "protected": [
     {
+      "path": "app/Charts/UserChart.php",
+      "blob": "e04c4a9a9e12a1ab1b19cfe0410a097112297074"
+    },
+    {
+      "path": "app/Console/Commands/AddUsersTokens.php",
+      "blob": "cb6eba367ef56163a53a3c5d73b1d67a7ed6f1ac"
+    },
+    {
+      "path": "app/Console/Commands/AdvanceOrderBoard.php",
+      "blob": "8073f0ca5093e987df58f604c497e206a9f23245"
+    },
+    {
+      "path": "app/Console/Commands/ApplyApprovedMenuPrices.php",
+      "blob": "e3667375819f05014699ca532d39d8af6909c271"
+    },
+    {
+      "path": "app/Console/Commands/ApplyStoreDeliveryRates.php",
+      "blob": "0003f10ead20b2f4ced2e65231fd35a8d8546763"
+    },
+    {
+      "path": "app/Console/Commands/ApplyZayedStorePrices.php",
+      "blob": "a67b189565fd971aa1a9c27d6e388ebe7fb156bd"
+    },
+    {
+      "path": "app/Console/Commands/CancelledShippingOrderCommand.php",
+      "blob": "4aa1a2aae996963a7d7478458a8f9fbf374513d7"
+    },
+    {
+      "path": "app/Console/Commands/CapEmployeeAttendanceDeductions.php",
+      "blob": "c5e5dfea46a7d50d4e0367ef9928e1b1216ebfac"
+    },
+    {
+      "path": "app/Console/Commands/CheckCustomerCrm.php",
+      "blob": "e4ecf4b950e8c39ec1fc94473f2be957450f275b"
+    },
+    {
+      "path": "app/Console/Commands/ConfigureMetaMessages.php",
+      "blob": "f959dfaf73b81edeeb77db5577a0e92afb18b22c"
+    },
+    {
+      "path": "app/Console/Commands/ConsumeWhatsAppInbox.php",
+      "blob": "dbd621a5117f2e92fd2f80d004305fcbcc467d4a"
+    },
+    {
+      "path": "app/Console/Commands/CouponWheelCommand.php",
+      "blob": "7c2a0dcde00df00c410e72fc1e33158f2487c253"
+    },
+    {
+      "path": "app/Console/Commands/DelegateNotificationCommand.php",
+      "blob": "372d3cfa8af357a345891e86e1ec8a88cdf37b77"
+    },
+    {
+      "path": "app/Console/Commands/DispatchBranchStockMinimumAlerts.php",
+      "blob": "0f68c66169299a6f3ccef5b6258a9234773b3634"
+    },
+    {
+      "path": "app/Console/Commands/DispatchDashboardPush.php",
+      "blob": "7c96b646a2a0dd453718b0c726a2bdca1fb73200"
+    },
+    {
+      "path": "app/Console/Commands/FreezeBranchBasicRecipes.php",
+      "blob": "6a07a2b3c8e3c48b50121f59f03f97111ee6440c"
+    },
+    {
+      "path": "app/Console/Commands/GoServiceDispatch.php",
+      "blob": "697100ee0b354214a0a0ac3c22dfb25c20039604"
+    },
+    {
+      "path": "app/Console/Commands/OpenCloseResturantCommand.php",
+      "blob": "eb373e00e54452ca5cc886f84cf3b006cc7f7a57"
+    },
+    {
+      "path": "app/Console/Commands/ProcessCustomerWhatsApp.php",
+      "blob": "ae744c9d6c82cbd5358a76a90f118bac61ffe49d"
+    },
+    {
+      "path": "app/Console/Commands/ProcessMetaAiMessages.php",
+      "blob": "9a953aceba5bd0c6cae0d4da60c1b23e42c9c0e7"
+    },
+    {
+      "path": "app/Console/Commands/ProcessMetaCommentReplies.php",
+      "blob": "a36a6f3950d5320f9cedd6473378c36515c2e25c"
+    },
+    {
+      "path": "app/Console/Commands/ProcessMetaMessages.php",
+      "blob": "14b354fe2167b5679cb9976da1ceb51a21f6ea81"
+    },
+    {
+      "path": "app/Console/Commands/ProcessWhatsAppOrders.php",
+      "blob": "b7b18533efe8eb608315e0efbc6740080b25e1a7"
+    },
+    {
+      "path": "app/Console/Commands/PruneGoStoreSignupUploads.php",
+      "blob": "d322ea9af2a39e7218bdc006b0313e1eca772f9b"
+    },
+    {
+      "path": "app/Console/Commands/RecordEmployeeAutomaticAbsence.php",
+      "blob": "2b18db3e348b5423b9e07f45b5e2e3b5a33c2ef7"
+    },
+    {
+      "path": "app/Console/Commands/RefreshMetaProfiles.php",
+      "blob": "a3460199727e193ea60d6e4cfe4a8ff14b02a381"
+    },
+    {
+      "path": "app/Console/Commands/ResetOrderNumbers.php",
+      "blob": "6301192a1016a059875bd97311f689f2c76e9644"
+    },
+    {
+      "path": "app/Console/Commands/RetryOrderLiveActivities.php",
+      "blob": "3de044e13de8916bd08d924a77ff42e4a076bb59"
+    },
+    {
+      "path": "app/Console/Commands/ScheduleOrder.php",
+      "blob": "48c4da5b381bf05f36af76489558a6457e831227"
+    },
+    {
+      "path": "app/Console/Commands/SendDailyDelegateReportCommand.php",
+      "blob": "4e0d917069d99ddf61f5abaf209fa4e16b8e59ed"
+    },
+    {
+      "path": "app/Console/Commands/SendDailyReportCommand.php",
+      "blob": "3ad4649ddb5b786bab5f0d672702112d097bdf94"
+    },
+    {
+      "path": "app/Console/Commands/SendDelegateBalanceCommand.php",
+      "blob": "7afa75d0dfc67de60bded10476e996b80b1df2de"
+    },
+    {
+      "path": "app/Console/Commands/SendMinWalletBalnaceCommand.php",
+      "blob": "8f052b54be9bb8b1ab3d380d286583739aa6e15b"
+    },
+    {
+      "path": "app/Console/Commands/SendMonthlyDelegateReportCommand.php",
+      "blob": "57f83ff6d7af3c5fad37e81884748ea73bcb85b0"
+    },
+    {
+      "path": "app/Console/Commands/SendMonthlyReportCommand.php",
+      "blob": "a8159da861f11ad73e68fdea5551d01e24f81ce9"
+    },
+    {
+      "path": "app/Console/Commands/SendPercentageCommand.php",
+      "blob": "33307ab242abb81dfdee2fc64b2465fb5d1f2826"
+    },
+    {
+      "path": "app/Console/Commands/SendUserMoneybackCommand.php",
+      "blob": "8f50b7c9f8c6a175522cea1ab0bf4b7c3417f3f8"
+    },
+    {
+      "path": "app/Console/Commands/SendVendorBalanceCommand.php",
+      "blob": "8c4f12916bbb67619b82d4ca1c465b187aa5a9b1"
+    },
+    {
+      "path": "app/Console/Commands/SendYearlyDelegateReportCommand.php",
+      "blob": "fde61f1b80b3d7520a41738ae99b34678aedcea9"
+    },
+    {
+      "path": "app/Console/Commands/SendYearlyReportCommand.php",
+      "blob": "ed1cdd50345f430daca2fdd30924985d7f637991"
+    },
+    {
+      "path": "app/Console/Commands/SyncCrmCustomers.php",
+      "blob": "978ccf171aaad7be003fe013a22187db91c219f8"
+    },
+    {
+      "path": "app/Enums/CategoryTypeEnum.php",
+      "blob": "ae2a85b11a46d95f0d9fb3cdc2bb20b04880219b"
+    },
+    {
+      "path": "app/Enums/CharityStatusEnum.php",
+      "blob": "b27779eb1d5257d478b8b8833db87d98cbd26717"
+    },
+    {
+      "path": "app/Enums/ProductStatusEnum.php",
+      "blob": "8e91070c6e2dbe98caf4e69ffdce01098a6eafa5"
+    },
+    {
+      "path": "app/Events/BalanceUpdated.php",
+      "blob": "9a1437bb936939d94b423b8d29a693c2ccb9a9b1"
+    },
+    {
+      "path": "app/Events/CancelledShippingUpdated.php",
+      "blob": "6928c52fff5421eba2985ef052bd829995fed576"
+    },
+    {
+      "path": "app/Events/CouponWheelUpdated.php",
+      "blob": "33aba557b1babb76f89aece272d50f2aec76bfb5"
+    },
+    {
+      "path": "app/Events/DelegateShippingUpdated.php",
+      "blob": "153a6d28d7ec41e9c5afeec260054989604339a3"
+    },
+    {
+      "path": "app/Events/DelegateUpdated.php",
+      "blob": "512f8847ac3457c23f244cc70cda3a5801e31f15"
+    },
+    {
+      "path": "app/Events/NewNotification.php",
+      "blob": "eec2b32b1110baa96f73a1a62318e925a9ceeb71"
+    },
+    {
+      "path": "app/Events/NotificationUpdated.php",
+      "blob": "f6cd7872a614b277357f25875de49a1749ea8e8b"
+    },
+    {
+      "path": "app/Events/OrderFinishedUpdated.php",
+      "blob": "678abaffadf83ceca38763c0dc7b8b62233438e3"
+    },
+    {
+      "path": "app/Events/OrderStatusUpdated.php",
+      "blob": "0dfbd967004415d32094beedbfddff6b14f729f8"
+    },
+    {
+      "path": "app/Events/OrderUpdated.php",
+      "blob": "daef068f2a27b2016a4bcf152c0077e782ae8538"
+    },
+    {
+      "path": "app/Events/ResturantProductUpdated.php",
+      "blob": "2728800c90149592af43204f6312c719838729cc"
+    },
+    {
+      "path": "app/Events/ResturantUpdated.php",
+      "blob": "55172e292f8a0a18eb0d4420e2d842b664de61fe"
+    },
+    {
+      "path": "app/Events/ShippingUpdated.php",
+      "blob": "2844a26d1c5a144ae8c4867b6b8eda96090052ef"
+    },
+    {
+      "path": "app/Events/UserUpdated.php",
+      "blob": "7806eec83e36122131c03a3178575bcb1c759eac"
+    },
+    {
+      "path": "app/Events/VendorUpdated.php",
+      "blob": "09e3aa62545d3f74841ef171bba60fe695ee8418"
+    },
+    {
+      "path": "app/Exports/ExportPackages.php",
+      "blob": "ef09504fca39748f032fc947bacc41a7f6e0369c"
+    },
+    {
+      "path": "app/Exports/ExportTickets.php",
+      "blob": "0cc611d66460588fae519874b94daf6b6d3ed9cb"
+    },
+    {
+      "path": "app/Exports/ExportValetTrackers.php",
+      "blob": "8ca74c9dc6864511b2e8c498a82886ddc16759ba"
+    },
+    {
+      "path": "app/Helpers/helper.php",
+      "blob": "348edda385eddde4a8aaaeef3218a8868841761e"
+    },
+    {
+      "path": "app/Http/Controllers/Api/DesktopPosController.php",
+      "blob": "842c9ace2801e98a8965e70286c5fb280b50e829"
+    },
+    {
+      "path": "app/Http/Controllers/Api/NotificationController.php",
+      "blob": "34b4be46785392c974f8c47bea83ca560209b50c"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Auth/AddressController.php",
+      "blob": "3a38f4031f90d649155c8fae4e5ed6ba5c7b2a2a"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Auth/AuthController.php",
+      "blob": "c2beea76783dda2cf320b80e0a3a748e20158cf4"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Auth/SocialAuthController.php",
+      "blob": "7d93ea950418ac45428659b85c4af9beac7b3fe7"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Auth/UserController.php",
+      "blob": "c5581c0036f5eb94cad4353f9726da1fe6c16b0d"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Delegate/DelegateOrderController.php",
+      "blob": "352d06f985d7729304f406a59c8fba321e2cd463"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/GoServiceMarketplaceController.php",
+      "blob": "034e753617d0487fb365ebb8760e80b3785e59dd"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/GoStores/CatalogController.php",
+      "blob": "777436a600c34ccc6195fecf4cc6a297c5db7476"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Home/CategoryController.php",
+      "blob": "6e598f9c51537d12522d24a0f44a8e9b73f40eda"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Home/CouponWheelController.php",
+      "blob": "84b299d82c142067399a2fadd5b82480ea178b59"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Home/MainController.php",
+      "blob": "57771dbedb6aa74c7592d3de9b0aa791d08641fc"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/MetaMessagingWebhookController.php",
+      "blob": "b8d05e05c89c8055b5e5a7b061fa7a07a939f142"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/PartnerApplicationController.php",
+      "blob": "8564eea8a1861b9d9789a4d7d131bee938f738aa"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/PartnerEmailAuthController.php",
+      "blob": "804180d13fdfea063b9ba1b74bd5e7fa23b17a82"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/PartnerServiceRequestController.php",
+      "blob": "ce3baa7ca8e50ce5d387ac7ac68609177407e3aa"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/ShippingController.php",
+      "blob": "47ec166f0f1a97c68f331479d47d9302292f0e01"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/ConversationController.php",
+      "blob": "3e899d952e4b4dc88f59741f265f0265159f4806"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/CustomerConsentController.php",
+      "blob": "bebd65bf862e3ec872d8f19d2e660ad3b6c35e90"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/OrderCancellationController.php",
+      "blob": "d29b9e45807e46cbf20a14bcf6b4444698ba0354"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/OrderLiveActivityController.php",
+      "blob": "73a41cf3138853f173a6c0ca8ed1e74eb515a023"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/WalletController.php",
+      "blob": "e1a73a1ac3b6abcfe52bceab1edd5c045ca14d59"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Vendor/OrderController.php",
+      "blob": "c935139f637f34d3e7f1c3d30292b93ec5a5b0b1"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Vendor/ResturantController.php",
+      "blob": "29555cd0f1906e76bcd74504843c29b3a4f88b14"
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/WhatsAppWebhookController.php",
+      "blob": "8632422bc40a6e952d2989bdf6a24ea6568dba76"
+    },
+    {
+      "path": "app/Http/Controllers/CheckoutController.php",
+      "blob": "00efa1050e81c210bd921f665afb1cdf5d89889d"
+    },
+    {
+      "path": "app/Http/Controllers/Controller.php",
+      "blob": "a0a2a8a34a6221e4dceb24a759ed14e911f74c57"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/AdminsController.php",
+      "blob": "3e2aabf9bc7c343c7973a3b6d74ef6808bd91060"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/AdvertisingController.php",
+      "blob": "4c44bed139305d0e15221a7f67d733143b8a51b9"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BannerController.php",
+      "blob": "9361f1cc0ec753daba65a82348b0a69cb719cf1d"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchExpensesController.php",
+      "blob": "ce209cf595f3ed6c646bf5567908a2e513e03dd0"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchOrdersController.php",
+      "blob": "ea8d028a391aa1aa08485e38e6d7bdfd2690886a"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchShiftClosingController.php",
+      "blob": "a034aaaf0d0e1b9bbd6f6881118d889dfcfc5a06"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchShiftPrintingController.php",
+      "blob": "6dd24f12d89cc7ab5c0528e3f479f0825c7a7e89"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchStockController.php",
+      "blob": "ce14e146502d7480d43bfc606380ab3847bb09b3"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/BranchStockMinimumController.php",
+      "blob": "cc699bf5aa17cd27d5bd12b032a12f436348ac12"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ComplaintController.php",
+      "blob": "0d010b092ffd96d77839b8f585d1a257a9ad28be"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/CouponWheelController.php",
+      "blob": "bc9c778326e821ea102cf2b08ea63dc7c5492ade"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/DashboardInboxController.php",
+      "blob": "5587c5364aed6638bf789aca8218b602c57b989e"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/DesktopPosController.php",
+      "blob": "425f69b30a60fb026325a4b0c1fe0d818e088c54"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/DineInController.php",
+      "blob": "9e78573f30481e8894f196c7aada83122331ccb3"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/FcmNotificationsController.php",
+      "blob": "194bb0310c27018b5d40a94c088924fc76cb1895"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/GoStores/StoreController.php",
+      "blob": "fc80ab10eb0a3b33e0bc75872d8a0ffc2d9e729e"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaAiControlController.php",
+      "blob": "5b21e15e8519f31994b4bc3145c118adb070d79e"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaCommentAiController.php",
+      "blob": "53b4fa5dfc0082b8d376bf8b77ea837d13cec88e"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaCommentsController.php",
+      "blob": "f4a4165e61c1c539368bcf390cc698c71980c512"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaConnectionController.php",
+      "blob": "b12c8fa35b4923657a587988cefeff00f6ac4a97"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaInboxController.php",
+      "blob": "2ea48e57353be531027fc3dfb503e5471f4b5fd7"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaInboxReadController.php",
+      "blob": "aa45fef645c2a5efd735bfa91b59b382e6675b21"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaMessageActionsController.php",
+      "blob": "4865633b11675f44863564c05829a4bc75d5568c"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaOrderController.php",
+      "blob": "c44b3ad41ad00a137bd2de4be4155cb09b1d2c06"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/MetaReplyController.php",
+      "blob": "e44f77d67aeb2b519ae66b182080ebb88afdb7a8"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/OrderBoardMenuController.php",
+      "blob": "93f26adf871a3d4098c3441a57255db11cef3233"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/OrderController.php",
+      "blob": "c0088c531855f879276587c2d4b8ee493cac16bb"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/PendingVendorController.php",
+      "blob": "f76f59291f038a1fc1b1e3981d9c02a3d42e292f"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/PhoneOrdersController.php",
+      "blob": "a99cb9eb7d7cff1278dbe07ba82c6997a4fe61e7"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/PosServiceController.php",
+      "blob": "29d72038068f96d981d4931e7233476499394f4c"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/PrintSettingsController.php",
+      "blob": "84a6d318e55e30f2170f6df406e6cba6f1e7d415"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ProductFeatureController.php",
+      "blob": "f5eab772174e1aaba30dea340c9933099e632fb0"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ReportController.php",
+      "blob": "f5cc718a166f1427079205175de7dd7392a5a90a"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ResturantController.php",
+      "blob": "b9ac2a893a06dc2bd63806c05a94fce7d14af901"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/SlidearController.php",
+      "blob": "aaab7a3c0fc0f028561aabe376c846631d24c3d0"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/SubscriberController.php",
+      "blob": "1fef61dd853694cadd5862141671928bd3565bf3"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/TakeawayController.php",
+      "blob": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/UserController.php",
+      "blob": "6747d12086b78220527ad3c1f9d718c7d3cd7313"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppInboxController.php",
+      "blob": "6f1da086e5b930f8248eb856a09f0c9572fb9545"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppInboxMessageController.php",
+      "blob": "55bb1ac0cb35eed7e788735cc4793791d074745d"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppInboxReadController.php",
+      "blob": "e893f79a2696aa033ed0cdcd71e4d735cf153b9b"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppOrderController.php",
+      "blob": "b4d45ad05fc9fda7a5fcab3031448dc05e8ebd47"
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WhatsAppReplyController.php",
+      "blob": "7223022bcf5b9acd374ba501a5e17609d9ad05b8"
+    },
+    {
+      "path": "app/Http/Controllers/Payment/PaymobController.php",
+      "blob": "13e48a6675303c651ad72ee5d79c88b6e56d520c"
+    },
+    {
+      "path": "app/Http/Controllers/Payment/WalletTopupController.php",
+      "blob": "eb2ce489b79fe5cc56486bbed18ea9b2b44ce168"
+    },
+    {
+      "path": "app/Http/Controllers/Site/HomeController.php",
+      "blob": "f9466bf9d5103a2a597c2069eef4b4b3f70b72b9"
+    },
+    {
+      "path": "app/Http/Controllers/Site/StorefrontController.php",
+      "blob": "14eda1647fddc1c79a8dafec85f9bfeca3b0f290"
+    },
+    {
+      "path": "app/Http/Controllers/Site/StorefrontSeoController.php",
+      "blob": "1e097c8255f2b810a02b9f3e24c284a322209283"
+    },
+    {
+      "path": "app/Http/Middleware/AppScopeGuard.php",
+      "blob": "44cb6a8db394ae69d7099191df79a8b82e03f66c"
+    },
+    {
+      "path": "app/Http/Middleware/Authenticate.php",
+      "blob": "6beaee55e909cfa42fdd2a498a1b96476cf5a8d0"
+    },
+    {
+      "path": "app/Http/Middleware/CheckLang.php",
+      "blob": "77d219008333ec124b4a7aabd28ca7f027c907c8"
+    },
+    {
+      "path": "app/Http/Middleware/CustomJwtAuth.php",
+      "blob": "cbf0d3aac992bf1f88f34a4260d7fb4cce8ebe2d"
+    },
+    {
+      "path": "app/Http/Middleware/DashboardSessionCookies.php",
+      "blob": "3ac040aa54b49d3ac2908388989037898abfed76"
+    },
+    {
+      "path": "app/Http/Middleware/EncryptCookies.php",
+      "blob": "033136ad128b7687558bc41b03cc92f39cf69149"
+    },
+    {
+      "path": "app/Http/Middleware/EnsureGoSchema.php",
+      "blob": "b441c2be222fa25a17a7a6554140220b3cf94954"
+    },
+    {
+      "path": "app/Http/Middleware/GoWalletMinimum.php",
+      "blob": "d9afebb78498d3cf9e04e132772692f8add75d22"
+    },
+    {
+      "path": "app/Http/Middleware/GuestAdmin.php",
+      "blob": "ee8a4b7928005980adc6145bd15021ae6e9216c5"
+    },
+    {
+      "path": "app/Http/Middleware/GuestVendor.php",
+      "blob": "a0732cf0251df145fd92c1847074c1ca4ea2364b"
+    },
+    {
+      "path": "app/Http/Middleware/IsAdmin.php",
+      "blob": "5df3fdd4150cd4d960f863faeea14ffcce0949f1"
+    },
+    {
+      "path": "app/Http/Middleware/IsVendor.php",
+      "blob": "d527e5776944d3f54dadac66fd5bf6106912a9fe"
+    },
+    {
+      "path": "app/Http/Middleware/JWTAuthMiddleware.php",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "app/Http/Middleware/MetaOAuthCallbackPrivacy.php",
+      "blob": "011d7d4f9388d55c1b4fa8bda3444cb76cf26b3a"
+    },
+    {
+      "path": "app/Http/Middleware/PermissionMiddleware.php",
+      "blob": "9071412487574c6e085778a937e3ad4fa2fd1d1c"
+    },
+    {
+      "path": "app/Http/Middleware/PreventRequestsDuringMaintenance.php",
+      "blob": "e4956d0bb96b9e52ea64a0ed1e9a96f0ff71a390"
+    },
+    {
+      "path": "app/Http/Middleware/RedirectIfAuthenticated.php",
+      "blob": "1a0391cbb12709e9c45e242a112d279bb3b25091"
+    },
+    {
+      "path": "app/Http/Middleware/TrimStrings.php",
+      "blob": "5a50e7b5c8bd8a5c853ee7edb8170508f2ff4f86"
+    },
+    {
+      "path": "app/Http/Middleware/TrustHosts.php",
+      "blob": "b0550cfc7c61f0220b5cf7ee6a1ef2d8c4a4cab7"
+    },
+    {
+      "path": "app/Http/Middleware/VerifyCsrfToken.php",
+      "blob": "021d950989c70d277d7aa228caf1de6b284ec6a1"
+    },
+    {
+      "path": "app/Http/Middleware/lang.php",
+      "blob": "fec70b0fc05bc3873ba0669447989dadb95eb3ae"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/AddressRequest.php",
+      "blob": "989229c91f4adbea8b5b28c637b17ae7bf9227e2"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/LoginRequest.php",
+      "blob": "c32ed1502e163204d516ab67616203a2b46a09ca"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/RequestServiceRequest.php",
+      "blob": "8d72466bd7d8b5e45ae10b1c1d3b333808783148"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/StoreAuthRequest.php",
+      "blob": "6d3071c5020cbb5f431932ba348d2664cfeb7e6c"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/StoreReservationRequest.php",
+      "blob": "32e904053c56c7c03ae55fb2405ca1ffa4345a63"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/StoreUserRequest.php",
+      "blob": "fdc57336a620a92126d808d2910addae4f274cae"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UpdateAuthRequest.php",
+      "blob": "6a8cd118811d49f3c380673718383960086b4330"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UpdatePhoneRequest.php",
+      "blob": "d5a6f467856835074a9d1422026bd98a2d966a72"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UpdatePhotoRequest.php",
+      "blob": "cdf66423fd367fe9d2af2f007cabca991cf169cf"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UpdatePositionRequest.php",
+      "blob": "fc345f4f28db9c3148f0f9c33a510d9c0e07a300"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UpdateUserPhotoRequest.php",
+      "blob": "1b428aea52331655df9152ee7eb37ab6bd017fca"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UpdateUserRequest.php",
+      "blob": "532080d68d711210e92767611c712a43e1b46606"
+    },
+    {
+      "path": "app/Http/Requests/Api/Auth/UserLoginRequest.php",
+      "blob": "595a7b16b9bbbbc9594aed4c1fb1f7e658ff1118"
+    },
+    {
+      "path": "app/Http/Requests/Api/Home/ContactRequest.php",
+      "blob": "692474dbf49db6f8df15055bfa64ebac20e0dae1"
+    },
+    {
+      "path": "app/Http/Requests/Api/Home/StoreRequestService.php",
+      "blob": "9e73b8f3ec20d6aeba070a9bc402e68cb0f6b18a"
+    },
+    {
+      "path": "app/Http/Requests/Api/Home/SubscripeCouponRequest.php",
+      "blob": "256dd831a711c824106fc63a30c736fdf7a3f82b"
+    },
+    {
+      "path": "app/Http/Requests/Api/Shipping/AcceptDelegateRequest.php",
+      "blob": "eebb5a9765be8421c8224c5fc7f86b88dab73e47"
+    },
+    {
+      "path": "app/Http/Requests/Api/Shipping/ShippingPaymentRequest.php",
+      "blob": "cf3a883423f1966b35b7408fd3c5be65c3f7a39b"
+    },
+    {
+      "path": "app/Http/Requests/Api/Shipping/ShippingRequest.php",
+      "blob": "1578b170132e5951df1b7900a6229ea81c7040aa"
+    },
+    {
+      "path": "app/Http/Requests/Api/Shipping/UpdateActualPriceRequest.php",
+      "blob": "6c1a797698d14f96a653097d325a2a7d6e72e4e7"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/CartRequest.php",
+      "blob": "73131f39b97eb26885ee9e2806b58412a3257547"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/ChargingWalletRequest.php",
+      "blob": "05bed86461858db9192da462cc72d0c8e8d00ec9"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/ComessionOrderDelegateRequest.php",
+      "blob": "66f387ad0f25f9f470ee84708da5259e46a4f1ea"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/OrderRequest.php",
+      "blob": "a998d7a1cca6fa0e526788f912d67843d93c0cba"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/ReorderRequest.php",
+      "blob": "b19d169858f34d65782dcf3a9db60d973eb83d92"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/ReviewRequest.php",
+      "blob": "1f3efb95455429c459034519e219a87030e5f911"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/ShippingRequest.php",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "app/Http/Requests/Api/User/TransferWalletRequest.php",
+      "blob": "fbe70ae4bf4a8985e3f4ddd13d1f18d827c8de47"
+    },
+    {
+      "path": "app/Http/Requests/Api/Vendor/CopyMenuRequest.php",
+      "blob": "33bc029f4f17f19f5e00a01774ff3831a1e417d1"
+    },
+    {
+      "path": "app/Http/Requests/Api/Vendor/UpdateOrderTotalRequest.php",
+      "blob": "d7c7211aae21f7679189eba27ba0455eedde32df"
+    },
+    {
+      "path": "app/Http/Requests/Api/Vendor/UpdateStatusRequest.php",
+      "blob": "d688f282eb42b40e88e6a0d25f7ea39bd0ad0e30"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/About/StoreBannerRequest.php",
+      "blob": "8439c97cc407ee7fc084d77ef6588a642c375c64"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/About/StoreContractRequest.php",
+      "blob": "022abe8f37ab95e48e6937b8ac3f9d192e5d9756"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/About/StoreFeatureRequest.php",
+      "blob": "eecfa6ccf15be5f3569bbb67ed3273f265cc5bdb"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Admins/StoreAdminRequest.php",
+      "blob": "f645d578f146f59c8b6c8a9280d967af06e48c06"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Admins/UpdateAdminRequest.php",
+      "blob": "a15e64c3a9c795961d0b1994ff6e436656db8f69"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/AdvertiseRequest.php",
+      "blob": "91184b6aa88f3e4a88cd913f52c1ecc24eab7368"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/AreaRequest.php",
+      "blob": "fdec3d0dfc50f45b5f29adca88621a8c299ea5c5"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Blog/StoreBlogRequest.php",
+      "blob": "d18f8268827b2d7affdfb43b03389c993dd82450"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/GoStores/CreateStoreRequest.php",
+      "blob": "cd087cf4fd39bb4cb196003338393a3e109131ac"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Product/ProductFeatureRequest.php",
+      "blob": "41ac46407bc119e08ed89274a787e31bd8007aca"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Product/StoreCategoryRequest.php",
+      "blob": "feb4b169e4992586eee36028ad6dffb7582e4ed4"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Product/StoreProductRequest.php",
+      "blob": "e9633402b98a9d0ffb8b4a14b2b6abeb64676bb5"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Product/StoreServiceRequest.php",
+      "blob": "7e457a01b9e1a5e459b25238ab02db2084597bd8"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Product/StoreSlotRequest.php",
+      "blob": "657b5a2619d152ab958e6c3d817af6f101bc8fab"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Resturant/ResturantProductRequest.php",
+      "blob": "cd3ff7d1cd6c49e114f5d299e6a8646614f1d537"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Resturant/StoreResturantRequest.php",
+      "blob": "acde550a0c667c701c48d0e1eb1bcd744b35fae9"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/StoreAdvertisingRequest.php",
+      "blob": "b8e2a29673f3ab10f08853b6d8169c7f54e3e8c2"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/StoreCouponWheelRequest.php",
+      "blob": "e16a5730c06fc8c6cd2ffa390d9498e50669ac6e"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/StoreSlidearRequest.php",
+      "blob": "6734a1f53d5fe6e099d1c3694f079287886f45aa"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/Trademark/StoreTrademarkRequest.php",
+      "blob": "df3ec45df7c22d6382298c61417f8d5314aca878"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/UpdateSettingRequest.php",
+      "blob": "3b055ba9380e31744882f766bec1acdb27e50102"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/User/PendingVendorRequest.php",
+      "blob": "6707179fef39ec3bccfba20b1756b1ad71511ef7"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/User/StoreUserRequest.php",
+      "blob": "4f8113b4bc576abf7e0c1e3391cfe8bb7de5c490"
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/User/TransferVendorRequest.php",
+      "blob": "20ee2d3f8b229634bfed2c198246b2884b8b66ae"
+    },
+    {
+      "path": "app/Http/Resources/Api/Auth/ContractResource.php",
+      "blob": "60ac144303fb5c11e49c05d0ccaf37e31e222831"
+    },
+    {
+      "path": "app/Http/Resources/Api/Auth/UserAddressResource.php",
+      "blob": "2b8d7c3fd8245536c8f7517a82643bd18217b824"
+    },
+    {
+      "path": "app/Http/Resources/Api/Auth/UserDataResource.php",
+      "blob": "483a472ff5eb584ff3720a4111889188ba7766be"
+    },
+    {
+      "path": "app/Http/Resources/Api/Auth/UserResource.php",
+      "blob": "1e8b63531b4e655d0bee11e1f36ad299f8d4e6e7"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/AboutResource.php",
+      "blob": "98e297fe9cb9276cf0e95e4242c078d32da0dd87"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/AdvertisingResource.php",
+      "blob": "0ea88eddd6dd69ebdd7574eaf2bb694d1d6c745d"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/AreaResource.php",
+      "blob": "08526a3e592ce48db22f69f6734206ee10a57631"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/CategoryResource.php",
+      "blob": "77e950555cb962d8eb2f5c9ea4749d27077e34cf"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/ContactResource.php",
+      "blob": "dff59d57008b19c5c0f76943aff8eb88ac8795c9"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/CouponSubscripeResource.php",
+      "blob": "eb8e17b018da3746572dc9062581dc17174cf687"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/CouponWheelResource.php",
+      "blob": "2e111d7a3d4dd5045bf61444038714592b534280"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/CouponWheelResturant.php",
+      "blob": "6c7ad6b357fdaa87782c5e12498843998c313fcc"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/HelpResource.php",
+      "blob": "10510af5c624d2e642c4d7113cdd5e74f50ed1e3"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/ImageResource.php",
+      "blob": "e92c91f7c5211b496fec81bdb109cb70a8c3743d"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/ProductCategoryResource.php",
+      "blob": "03748abc23bbf725c93bc2cc34b701c8821c571a"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/ProductFeatureResource.php",
+      "blob": "bba5a14c57f0cac35255706761546ef60c1e8a33"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/ProductResource.php",
+      "blob": "abe44bc8a61bde44d08e1d9cd5b00e42f0ec0c13"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/SlidearResource.php",
+      "blob": "ff750944e3d30b8323b677a0debc25a10b034506"
+    },
+    {
+      "path": "app/Http/Resources/Api/Home/SplasheResource.php",
+      "blob": "88440201078bb255c455b235e1c400aacda5bb6b"
+    },
+    {
+      "path": "app/Http/Resources/Api/Service/CategoryResource.php",
+      "blob": "c42389c06bca2fdd1af7f0be345feee654b8625d"
+    },
+    {
+      "path": "app/Http/Resources/Api/ShippingResource.php",
+      "blob": "4e2b63b5deea394d3c32fb5d59ade0fdbddd6c5b"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/CartResource.php",
+      "blob": "186e73a53dcc37f236f3031d5ca55dadf5666bf9"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/ConversationMessagesResource.php",
+      "blob": "7eb843c367ca370cb7e3bbda8cce631d9598e6f4"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/ConversationResource.php",
+      "blob": "eaf3ef6e33582de36e4198e2eb4596f94329622e"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/ImageResourse.php",
+      "blob": "5866202d39c9bd6c7214cd61812ec4ee1f285b64"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/OrderEventPusherResource.php",
+      "blob": "f96f5b5040d77fee00cf4f42ddfa15ef37140a80"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/OrderResource.php",
+      "blob": "626c5bcb5848d663a1ca3052bf31861c52dd9555"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/ResturantCartResource.php",
+      "blob": "c03af8f3bc241dcbe6f209580618d1aa2b7054dc"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/ResturantResource.php",
+      "blob": "704fba60360f722ac6502372c15b9ee2a89b72b1"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/UserServiceResource.php",
+      "blob": "de1aba60311dd437a907a1aabc8811c9cf5c442e"
+    },
+    {
+      "path": "app/Http/Resources/Api/User/WalletResource.php",
+      "blob": "b96b7b57fcf790ea754a03bf83457993d453083b"
+    },
+    {
+      "path": "app/Http/Resources/Api/Vendor/FeatureResource.php",
+      "blob": "3bda91e26e01db3f177636cf1c5239a450703db0"
+    },
+    {
+      "path": "app/Http/Resources/Api/Vendor/FeaturedResturantResource.php",
+      "blob": "acd92fbc55f3cc09e54d084c517a67912733b6a9"
+    },
+    {
+      "path": "app/Http/Resources/Api/Vendor/ResturantProductResource.php",
+      "blob": "a47453c5803b0d01351004a59d73a56994fee804"
+    },
+    {
+      "path": "app/Http/Resources/Api/Vendor/ResturantResource.php",
+      "blob": "7c228dc12f017dba1405c5ca44ee84bc82088495"
+    },
+    {
+      "path": "app/Http/Resources/Api/Vendor/ResturantSingleResource.php",
+      "blob": "bac5661cbfcb8c906ac0eadd5bba7edf31e5fc4a"
+    },
+    {
+      "path": "app/Http/Traits/ApiResponses.php",
+      "blob": "cab609c648b0b58eb678e107abfbbf147c05a045"
+    },
+    {
+      "path": "app/Http/Traits/FcmFirebase.php",
+      "blob": "5773f99a3615004fb0c0d68928496fd0831bcfbd"
+    },
+    {
+      "path": "app/Http/Traits/HomeTraits.php",
+      "blob": "0544f1049e2e436b7422da94314d2f159e5b3fdf"
+    },
+    {
+      "path": "app/Http/Traits/SendNotification.php",
+      "blob": "abfdd1d7174b85ef01947c44acf99aba60fa121e"
+    },
+    {
+      "path": "app/Http/Traits/UserTrait.php",
+      "blob": "4a7d74bce4393d7a434bc46a1968e848ff81667a"
+    },
+    {
+      "path": "app/Interfaces/AboutRepositoryInterface.php",
+      "blob": "00aafa7c75de637c61281974bea616c2e702979d"
+    },
+    {
+      "path": "app/Interfaces/Api/AuthRepositoryInterface.php",
+      "blob": "cc8c334b8c77825b2b5417ac3aafc3a330e946e0"
+    },
+    {
+      "path": "app/Interfaces/Api/UserAuthRepositoryInterface.php",
+      "blob": "efcf900573f28c2b93350e94a71fa74c0d4a3115"
+    },
+    {
+      "path": "app/Interfaces/BannerRepositoryInterface.php",
+      "blob": "2a2f40a5a9acb2b5e57101c1ba518b25ef749db6"
+    },
+    {
+      "path": "app/Interfaces/CategoryRepositoryInterface.php",
+      "blob": "c8b3dab27d9ad98a7d6b5cb4bbc6d4bcab0de5e1"
+    },
+    {
+      "path": "app/Interfaces/CategoryTypeRepositoryInterface.php",
+      "blob": "4c18e2c16a933b23dc7127f7f5771b89003ebad9"
+    },
+    {
+      "path": "app/Interfaces/FeatureRepositoryInterface.php",
+      "blob": "3be9e52c53e9306c0ef6da950a1e291739259c76"
+    },
+    {
+      "path": "app/Interfaces/ProductRepositoryInterface.php",
+      "blob": "ec760c08497344c4fca0520855e5e0580b495b37"
+    },
+    {
+      "path": "app/Interfaces/QuestionAnswerRepositoryInterface.php",
+      "blob": "1c6aeeb41cde8f77901d9393a436c19e54587a43"
+    },
+    {
+      "path": "app/Interfaces/ResturantProductRepositoryInterface.php",
+      "blob": "1f219137638f1f77ed8751bc5962635dba01461f"
+    },
+    {
+      "path": "app/Interfaces/ResturantRepositoryInterface.php",
+      "blob": "e1686465f3318fb89e2293aae08271339de87baf"
+    },
+    {
+      "path": "app/Interfaces/ServiceRepositoryInterface.php",
+      "blob": "101e78922d1aaa27fd06e40a1543f9bdc2b13156"
+    },
+    {
+      "path": "app/Interfaces/SlotRepositoryInterface.php",
+      "blob": "e612484010f24b77b6f24445a1598562d4c92004"
+    },
+    {
+      "path": "app/Interfaces/TicketRepositoryInterface.php",
+      "blob": "077e1085987f692fa7d6d3e793f6c0268cf63d85"
+    },
+    {
+      "path": "app/Interfaces/UserRepositoryInterface.php",
+      "blob": "4609f46ace906ae62d24216feb1eda9617833f51"
+    },
+    {
+      "path": "app/Jobs/ProcessCart.php",
+      "blob": "6568a7bfda6a6a7d4cec68172974362af7395f17"
+    },
+    {
+      "path": "app/Jobs/SendOrderCreatedAfterResponse.php",
+      "blob": "daa6513672bb66155d5f69c739a53dd3dca953a7"
+    },
+    {
+      "path": "app/Mail/BranchStockMinimumAlert.php",
+      "blob": "0ce7299f0575dad77bc934d4b0421d9b4c23c5a5"
+    },
+    {
+      "path": "app/Mail/PartnerVerificationCode.php",
+      "blob": "20593853087516508fd7402cb39133ca2eb2dc33"
+    },
+    {
+      "path": "app/Models/Advertising.php",
+      "blob": "e6182d248f332fc60a50a9d27b16df015bb8003d"
+    },
+    {
+      "path": "app/Models/Area.php",
+      "blob": "205999cf4ee2dae74960ce725a1aab2632dc2f64"
+    },
+    {
+      "path": "app/Models/Banner.php",
+      "blob": "88a054963dc97b7321fdff8b616ef7edb38a2b62"
+    },
+    {
+      "path": "app/Models/Cart.php",
+      "blob": "8d3e7903dbf5b93ced336bc32f82b4786cb85aa0"
+    },
+    {
+      "path": "app/Models/Category.php",
+      "blob": "6833a5097079949d837a723e562f3f67c8b08058"
+    },
+    {
+      "path": "app/Models/Commission.php",
+      "blob": "d95c1c71c34d604ab54af7ee7696006d394a809c"
+    },
+    {
+      "path": "app/Models/Contact.php",
+      "blob": "18879251058768877a812ad8d78b6a2abdf2e00c"
+    },
+    {
+      "path": "app/Models/Contract.php",
+      "blob": "372dd266d58b396eeadb68242a7ac20b36f710de"
+    },
+    {
+      "path": "app/Models/Conversation.php",
+      "blob": "a0606a7a5241a903103be5ac1881181359affeff"
+    },
+    {
+      "path": "app/Models/CouponSubscripe.php",
+      "blob": "3e2c7647cff0d869f6c934458b34dc629e54d791"
+    },
+    {
+      "path": "app/Models/CouponWheel.php",
+      "blob": "c3aeeb6553728b65754fb52e2aee87025c5b7ec5"
+    },
+    {
+      "path": "app/Models/CouponWheelResturant.php",
+      "blob": "bf5cadb26ef8281ac39c06b00fe16ddb0a06b8bd"
+    },
+    {
+      "path": "app/Models/DelegateNotification.php",
+      "blob": "9c8b1cac984a65505b09483af7d5df3bdf0bb7bd"
+    },
+    {
+      "path": "app/Models/Feature.php",
+      "blob": "170c40fab363df812b8162678eb07d27adef5d3d"
+    },
+    {
+      "path": "app/Models/GeneralNotify.php",
+      "blob": "8476093334839af99f9a99116b6467f70313a70e"
+    },
+    {
+      "path": "app/Models/GeneralSettings.php",
+      "blob": "fa25fc9a302e2bc177d307da62550fa4efa26260"
+    },
+    {
+      "path": "app/Models/GlobalUser.php",
+      "blob": "74a2ebe73083e9914dfc45bddffb4001b34887d3"
+    },
+    {
+      "path": "app/Models/LastSearch.php",
+      "blob": "e9f801dc7566ef6580cb54fb9a115c3818c50f5f"
+    },
+    {
+      "path": "app/Models/MessageConversation.php",
+      "blob": "cf8ede4555dec2f8c8aa322f4d86444e4aaeab0a"
+    },
+    {
+      "path": "app/Models/Notification.php",
+      "blob": "f2c977ce5712f5649cbcbcce94f81d3647639de6"
+    },
+    {
+      "path": "app/Models/Order.php",
+      "blob": "e3049996a1032045510b61e821854c15dd1f0ff8"
+    },
+    {
+      "path": "app/Models/OrderLiveActivity.php",
+      "blob": "7fca6f76e849439248d213686327967e785bf28f"
+    },
+    {
+      "path": "app/Models/PartnerServiceRequest.php",
+      "blob": "3c908336a8907e86e338dba344caceb12b43d76f"
+    },
+    {
+      "path": "app/Models/Payment.php",
+      "blob": "48d4be232eb3932362c434b1baaf95c575a75dc2"
+    },
+    {
+      "path": "app/Models/PendingVendor.php",
+      "blob": "a5e3a9f9429d468e9b6d7d2fce9de87acacea735"
+    },
+    {
+      "path": "app/Models/Product.php",
+      "blob": "ac6acd1c777cc3ea476e6112023d818f87a7a174"
+    },
+    {
+      "path": "app/Models/ProductFeature.php",
+      "blob": "cb521946e1e5e522c852bdcdfb92bde24684178b"
+    },
+    {
+      "path": "app/Models/QuestionAnswer.php",
+      "blob": "155724e85049a7be1959c4d2eeadcea3c131b68a"
+    },
+    {
+      "path": "app/Models/Resturant.php",
+      "blob": "42f548283bac10bdd0b098e782540e521abfffb2"
+    },
+    {
+      "path": "app/Models/ResturantArea.php",
+      "blob": "6788ec9c688710cb31fbe88a0cda58a3d14bc53d"
+    },
+    {
+      "path": "app/Models/ResturantProduct.php",
+      "blob": "dee7f2b5d1ddcc257c2646596160ef1df7e06bf0"
+    },
+    {
+      "path": "app/Models/Review.php",
+      "blob": "b334dd59eb28de9dbff2f52b71b0601e9a147137"
+    },
+    {
+      "path": "app/Models/Shipping.php",
+      "blob": "2aea7f6382de2cd578e1a7b74792b3967fd0a599"
+    },
+    {
+      "path": "app/Models/Slidear.php",
+      "blob": "db4326b4c8745f80a61e29b491eb7f9ba37832b4"
+    },
+    {
+      "path": "app/Models/SocialAccount.php",
+      "blob": "510e300b332ff8c9d90cf1618abb937430f8b372"
+    },
+    {
+      "path": "app/Models/User.php",
+      "blob": "e066612f62017587f7590410be7ecce18c5b2884"
+    },
+    {
+      "path": "app/Models/UserAddress.php",
+      "blob": "ab545f1be9720ace8bb4e401f0444281b3bdc240"
+    },
+    {
+      "path": "app/Models/UserToken.php",
+      "blob": "ffb14bbb2ccbd9b235a6b1e368da11acea1883b7"
+    },
+    {
+      "path": "app/Models/Wallet.php",
+      "blob": "7851764c0095593d7e23d89d54a87d065f9d6189"
+    },
+    {
+      "path": "app/Models/Wishlist.php",
+      "blob": "9fe44bea6f9694e6b7246063206801e717c22cad"
+    },
+    {
+      "path": "app/Notifications/GoServiceNotice.php",
+      "blob": "70c9cc4a67bd2c51194346d5bea0fbdae64c4b94"
+    },
+    {
+      "path": "app/Notifications/GoStoreOrderNotice.php",
+      "blob": "d128d84a6a7ae6c0a14c7386c843e13a76e520ed"
+    },
+    {
+      "path": "app/Notifications/NotifyAcceptOrderNotification.php",
+      "blob": "b4ed3a3977254ba290aa6054d5624d700bc85222"
+    },
+    {
+      "path": "app/Notifications/NotifyAdminNewDelegateAndVendorNotification.php",
+      "blob": "a857ac6695d7cda1f9fcd46a7a73522e2deb4fba"
+    },
+    {
+      "path": "app/Notifications/NotifyAdminSentPercentageOrdersNotification.php",
+      "blob": "649c1e35a0436338b30613745eceb7abb485ce2a"
+    },
+    {
+      "path": "app/Notifications/NotifyContactUsNotification.php",
+      "blob": "02bdae1ebc877af5420da4b0b7d19414b6a56821"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegateAfterOrderAcceptedByUser.php",
+      "blob": "e8039e85bc430ba40cf785e77e300a0750a1abf9"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegateCommissionSentNotification.php",
+      "blob": "6b9331a736ad4633ecd316f008d62d4da6a22030"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegateMinBalanceNotification.php",
+      "blob": "bc4f2e19b63b0af088a2d190e04c585d811439cf"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegateShippingCancelledNotification.php",
+      "blob": "3142376feac74f8669658f674a535ac6f9c89b68"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegateStatusNotification.php",
+      "blob": "3c38390847f2e112440e7b67a5297e763b425c63"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegatesNewOrderNotification.php",
+      "blob": "a77a4f490de0f8bc946384f218ca73ef0ba61471"
+    },
+    {
+      "path": "app/Notifications/NotifyDelegatesShippingOrderStatusNotification.php",
+      "blob": "0bec0f664be233a5417d20da0065096fc2a810bb"
+    },
+    {
+      "path": "app/Notifications/NotifyMinWalletBalanceNotification.php",
+      "blob": "eec4294c1aaba9c6ac05ae9aa147000384637f36"
+    },
+    {
+      "path": "app/Notifications/NotifyOrderPercentageNotification.php",
+      "blob": "3581694c8e02d3c283e955353a5412a000048148"
+    },
+    {
+      "path": "app/Notifications/NotifyOrderPriceTransferToWalletNotification.php",
+      "blob": "a1b402b4b675b60064760c9de623d010df510a00"
+    },
+    {
+      "path": "app/Notifications/NotifyPartnerServiceRequest.php",
+      "blob": "768fd46956ad50469fffa073de0879cfe2240cdb"
+    },
+    {
+      "path": "app/Notifications/NotifyResturantDelegateAcceptedNotification.php",
+      "blob": "42e75dc7794ea6499646f6c86b4e04d9703ac6ca"
+    },
+    {
+      "path": "app/Notifications/NotifyResturantOpenAgainNotification.php",
+      "blob": "b410656f1627f5c1f027932e4784a4d8335655c4"
+    },
+    {
+      "path": "app/Notifications/NotifyResturantOrderCancelledNotification.php",
+      "blob": "45d6629e151cd98dec883f9493ea5b7058f4c5ed"
+    },
+    {
+      "path": "app/Notifications/NotifyResturantOrderCreatedNotification.php",
+      "blob": "bcae0d2d21bc60285831f1ac772be026e6c877b5"
+    },
+    {
+      "path": "app/Notifications/NotifyResturantReviewSentNotification.php",
+      "blob": "0e845cb80fd0220f59abd6b643d8ca6439bad1b5"
+    },
+    {
+      "path": "app/Notifications/NotifyResturantStatusNotification.php",
+      "blob": "b89d63a989bead27302d00edcc9f67ed8f1da4c6"
+    },
+    {
+      "path": "app/Notifications/NotifySheduleOrderNotification.php",
+      "blob": "b90a33889b242bf7c15cb8bbf9aa01ad0fce7d08"
+    },
+    {
+      "path": "app/Notifications/NotifyUserAfterOrderShippingAccepted.php",
+      "blob": "0a5edf8b4392b1be83bd59cacd80cac3232cd07e"
+    },
+    {
+      "path": "app/Notifications/NotifyUserCancelledOrderPriceNotification.php",
+      "blob": "ef03c2fa31d5b5343e751c6809204e6ff819b011"
+    },
+    {
+      "path": "app/Notifications/NotifyUserCouponWheelWinnerNotification.php",
+      "blob": "e466ddace9f2ed9ffdc9c7945fef12e0c24667b4"
+    },
+    {
+      "path": "app/Notifications/NotifyUserCreatedNotification.php",
+      "blob": "a15c4a856f6b704d6cc9f6f38c2c20d7066dbf56"
+    },
+    {
+      "path": "app/Notifications/NotifyUserOrderStatusUpdatedNotification.php",
+      "blob": "c6faf973759131d90c9999997f3c31dd41040a2f"
+    },
+    {
+      "path": "app/Notifications/NotifyUserOrderTotalUpdatedNotification.php",
+      "blob": "bd82c2dde859777488823ee747eef5360815732a"
+    },
+    {
+      "path": "app/Notifications/NotifyVendorMinBalanceNotification.php",
+      "blob": "df032e96eb2b937e614c0bc0421088c9893f3940"
+    },
+    {
+      "path": "app/Observers/CustomerDirectoryAddressObserver.php",
+      "blob": "f3a92ba0837a1c4781ce6fb12b45973fc0951f5c"
+    },
+    {
+      "path": "app/Observers/CustomerDirectoryOrderObserver.php",
+      "blob": "4d8f849a25044d7c1939bb9307bc47dc1392afa5"
+    },
+    {
+      "path": "app/Observers/CustomerDirectoryUserObserver.php",
+      "blob": "09398df0a7f91a3a1f47cf93c5caf2e1cf3205e0"
+    },
+    {
+      "path": "app/Observers/NotificationObserver.php",
+      "blob": "f64a60e9f87cf5bff0d398627d7f6eb4567dfe65"
+    },
+    {
+      "path": "app/Observers/OrderBoardClockObserver.php",
+      "blob": "1a896b2573669047bdc9227f412dd52c4824dc10"
+    },
+    {
+      "path": "app/Observers/OrderMetaConversionObserver.php",
+      "blob": "fbbe117950686fa2d62a7c982ef738dde40feb3f"
+    },
+    {
+      "path": "app/Observers/UserObserver.php",
+      "blob": "70c6ada96d11f209913fa57b594eea0aacae4ab9"
+    },
+    {
+      "path": "app/Policies/AdminPolicy.php",
+      "blob": "0392e0dd2a028b43c159cf84f49c2e8835689236"
+    },
+    {
+      "path": "app/Providers/AppServiceProvider.php",
+      "blob": "e8149cb2c67616be14a50eaa37f690a27ad87811"
+    },
+    {
+      "path": "app/Providers/AuthServiceProvider.php",
+      "blob": "2aa3ecd24ddcf3bc542c781194bd6eed09619452"
+    },
+    {
+      "path": "app/Providers/BroadcastServiceProvider.php",
+      "blob": "90b2d719706e29a0db109c2cd3731f390e1e8092"
+    },
+    {
+      "path": "app/Providers/EventServiceProvider.php",
+      "blob": "ab8b2cf77bbfa9c44bc228e2b71c2fed039d8e43"
+    },
+    {
+      "path": "app/Providers/FirebaseServiceProvider.php",
+      "blob": "6042d0a525d650a636c86b9e95563a3afb9d97c0"
+    },
+    {
+      "path": "app/Repositories/AboutRepository.php",
+      "blob": "ed078c6d4c9e7ce281a3beb206dff183a81cdb6b"
+    },
+    {
+      "path": "app/Repositories/Api/AuthRepository.php",
+      "blob": "a2e4c4fd4adc5fb1b84aa1005e9ddceaa621f47f"
+    },
+    {
+      "path": "app/Repositories/Api/UserAuthRepository.php",
+      "blob": "dcb0e2c10becc64a7012795798122fb21015efe3"
+    },
+    {
+      "path": "app/Repositories/BannerRepository.php",
+      "blob": "ee43542a6e8d95cc5e53cb4f23dfa29807c38fbd"
+    },
+    {
+      "path": "app/Repositories/CategoryRepository.php",
+      "blob": "70beb1625e7c0b42a11be34c782bad7e8ba3cdda"
+    },
+    {
+      "path": "app/Repositories/CategoryTypeRepository.php",
+      "blob": "a08a68b6c9c354cef6ac0e7da2987df8b582a3c0"
+    },
+    {
+      "path": "app/Repositories/FeatureRepository.php",
+      "blob": "ee0bd4cdd8129e7908b87c25cd27adc829c1e680"
+    },
+    {
+      "path": "app/Repositories/ProductRepository.php",
+      "blob": "857499cc2dcf70b8cb020f3dad00c8040806cbf0"
+    },
+    {
+      "path": "app/Repositories/QuestionAnswerRepository.php",
+      "blob": "9fbd07fc38cbde64687615c89a197d581c8e74e3"
+    },
+    {
+      "path": "app/Scopes/AdminScope.php",
+      "blob": "b3c6e56c476fae6075c821b0cc39acef0072802a"
+    },
+    {
+      "path": "app/Scopes/OrderScope.php",
+      "blob": "aa35634a5dc4c894535047f78b5bc8db081fb36f"
+    },
+    {
+      "path": "app/Scopes/ResturantScope.php",
+      "blob": "40ff42b0af23887dc800e6ee2239aa87e8df05ca"
+    },
+    {
+      "path": "app/Scopes/UserScope.php",
+      "blob": "5b3bc9a20b6bdfaded8f400d1d2ed390cdca958b"
+    },
+    {
+      "path": "app/Services/Dashboard/AppCustomerConsent.php",
+      "blob": "660fdc42ca446e9e23e5c37492398c420ded2181"
+    },
+    {
+      "path": "app/Services/Dashboard/BestEffortOrderMail.php",
+      "blob": "fa46fdc8519b70a168a86f8e820b5a0f8c36b2b3"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchBasicRecipes.php",
+      "blob": "10c1e4baf99a855acb27c3c84e751f625c567381"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchCustomers.php",
+      "blob": "419402f489b35f5d79f2f91b5bb9e124d618fe57"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchDeliveryTariff.php",
+      "blob": "232833a207b116d20d1f64b8c01cecc689f84ef9"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchInventory.php",
+      "blob": "6c24eed954dc12c1ef5e9691353b6aeba291c22f"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchOperations.php",
+      "blob": "1d12d109a1aeb7a5c431b1519f5c055a5f9ab13d"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchOrderSequence.php",
+      "blob": "5ffd468c6150c69e5495d54ce04b55293e6a6923"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchStock.php",
+      "blob": "c256231f0f8b129e2bfce2741eea4edf89d5be08"
+    },
+    {
+      "path": "app/Services/Dashboard/BranchStockMinimums.php",
+      "blob": "9df0044f8455d133d143431e45d8f6471650931f"
+    },
+    {
+      "path": "app/Services/Dashboard/CustomerDirectorySync.php",
+      "blob": "5e7739e54d45602a89736851d666199b33716354"
+    },
+    {
+      "path": "app/Services/Dashboard/CustomerMessageEvents.php",
+      "blob": "97c32a3e433007cfab9421e2c8e67630cb2125d2"
+    },
+    {
+      "path": "app/Services/Dashboard/CustomerMessagingService.php",
+      "blob": "c903d7b098a3988dc1955a23f34ffba902c9878f"
+    },
+    {
+      "path": "app/Services/Dashboard/DashboardPushCampaigns.php",
+      "blob": "8a817c78ad4d90039386157ba195c1b92eb9252d"
+    },
+    {
+      "path": "app/Services/Dashboard/DashboardPushSender.php",
+      "blob": "7aece514e1f1f69080367c1b243ff752bf81b64b"
+    },
+    {
+      "path": "app/Services/Dashboard/DeliveryCompanies.php",
+      "blob": "26cf88d2c623dda102846c6a91d1af8b3c71b782"
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopPos.php",
+      "blob": "011958c10e389fa4a392881ae8ee4fb44cf01c1a"
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopPosInstaller.php",
+      "blob": "3ba4e296c7b16828ec71aa8903ae3d0d40838c4c"
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopPosQuote.php",
+      "blob": "a7cfb4dec7ec21251abddde7ba5c6e3a022c8a87"
+    },
+    {
+      "path": "app/Services/Dashboard/EmployeeAttendanceDeductionCap.php",
+      "blob": "1f84a2d87fdf9d163165179fd3e7d8d696650282"
+    },
+    {
+      "path": "app/Services/Dashboard/EmployeeAttendanceRules.php",
+      "blob": "882140992b8d643c24727904f692efae065ba560"
+    },
+    {
+      "path": "app/Services/Dashboard/EmployeeAutomaticAbsence.php",
+      "blob": "df643fb9f79123ceec1595b868f34c88f8d0d65a"
+    },
+    {
+      "path": "app/Services/Dashboard/EmployeePayHours.php",
+      "blob": "0c4b2b2188ab2158e131d2c772f3f1d0d86ee2ae"
+    },
+    {
+      "path": "app/Services/Dashboard/ExpenseCategories.php",
+      "blob": "5b27eaeb30c536948914b5510dd3ade1686b6237"
+    },
+    {
+      "path": "app/Services/Dashboard/ExpenseStockPurchases.php",
+      "blob": "651f5df0f5896b289239d9bb55b1a367ee5c6ab1"
+    },
+    {
+      "path": "app/Services/Dashboard/FasakhanstaAiKnowledge.php",
+      "blob": "b8824d2da2db25e247df5c0c69f4590a7bbc3eec"
+    },
+    {
+      "path": "app/Services/Dashboard/FasakhanstaClaudeTransport.php",
+      "blob": "c66336de70449be0dfd52510ecda5b4a628c713b"
+    },
+    {
+      "path": "app/Services/Dashboard/FasakhanstaCommentTrainingPolicy.php",
+      "blob": "fb24cbd144f7ecc0d26606d9709fdd2c62166b10"
+    },
+    {
+      "path": "app/Services/Dashboard/FasakhanstaDeliveryOrigin.php",
+      "blob": "836cadb027419892e4871bcfbe59edd53015dd82"
+    },
+    {
+      "path": "app/Services/Dashboard/FasakhanstaMessageTrainingFacts.php",
+      "blob": "dd31ccab5bfa31b96e777413f22d4e55496248d9"
+    },
+    {
+      "path": "app/Services/Dashboard/FasakhanstaStoreFulfillment.php",
+      "blob": "46dd257caf21b9c3fefaba1f31f3c2e0cd527ad8"
+    },
+    {
+      "path": "app/Services/Dashboard/FcmLiveActivityTransport.php",
+      "blob": "09b6cb31c3fc2cc3721d327fa1b1bd00ea7ad96d"
+    },
+    {
+      "path": "app/Services/Dashboard/LegacyMetaCommentAiReplyPolicy.php",
+      "blob": "718a4c887e0cc163888667d7780cb7e56f6daf3b"
+    },
+    {
+      "path": "app/Services/Dashboard/LegacyOrderCancellation.php",
+      "blob": "9563e73e57357c5bb7a3ff57dfad31511a4f2eb3"
+    },
+    {
+      "path": "app/Services/Dashboard/LegacyOrderCompletion.php",
+      "blob": "d02410951ea37edd56047c3c23edce29ed966441"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaAiControl.php",
+      "blob": "de44620835b22666417fc37752ab944d4419df36"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaBusinessAgent.php",
+      "blob": "4b2ad29c21ea092af94ad3fa1bace90ad4dd4672"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentAiControl.php",
+      "blob": "d1cd90a84b427642fd52dc0d9611aaab6ba1ab1a"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentAiDispatchLock.php",
+      "blob": "636aefb39e215d97ea3e812dab56b99aaa3b3443"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentAiProvider.php",
+      "blob": "1896cc2f107336cf6bf94505276600b6fbf46975"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentAiReplyPolicy.php",
+      "blob": "4911464b4adddea5c520c14fab8a282e616a69f8"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentAiWorker.php",
+      "blob": "7987a859cc2eacb05ded0fb8d20957760e8d22c9"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentReplyGate.php",
+      "blob": "30967f79079502bddb6f771958a6a475f3c34c6b"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentsFailure.php",
+      "blob": "b43557d145f7ca19f74ff663d1deeba261ac486b"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentsReadCache.php",
+      "blob": "54bf077ea52597c4a86055a23bf2cc1bb34673df"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaCommentsService.php",
+      "blob": "eaa6670a8c7dc277bf6a06046eae2520461992a8"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaInboxAccess.php",
+      "blob": "7faaba6645308c1997bae8182fb4b26dbc5e3b9a"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaInboxConsumer.php",
+      "blob": "3b7e9cb9abfabc85c0b78199d0bf9d2565424f42"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaInboxReadState.php",
+      "blob": "547002923c39894442b9541a99bef81c5def7711"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaInvalidEvent.php",
+      "blob": "bf5af67cd9126ef1c4bfc939e340853731049bba"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaMediaService.php",
+      "blob": "8f722ced357fde463d492b7181c6d6d58f49e8b0"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaOAuthCredentials.php",
+      "blob": "248e256abe3ad8456bcf23bcc00dcbcea62a8491"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaOAuthFailure.php",
+      "blob": "25135135a9fcb8aed1a4eec998c153dc0f63c1f9"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaOAuthService.php",
+      "blob": "ac1369daf33749f04dcd5bf726fd3590b9c5b803"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaOrderFollowupService.php",
+      "blob": "d14a3c6e84624ee5b2d20997b7f11159b9101720"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaOrderNativeEvidence.php",
+      "blob": "f11710e1439867ba63571a690526496684120ef5"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaOrderWorkflow.php",
+      "blob": "337cd9db9c3493be0af00a32cf7692e8dca9268d"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaProfileService.php",
+      "blob": "dad433a26db1219e08491553d6ef579e73b6f29a"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaReplyService.php",
+      "blob": "c4226df516aa5f8b59999a8979f9f2ab43cf0e28"
+    },
+    {
+      "path": "app/Services/Dashboard/MetaUploadMedia.php",
+      "blob": "dff1ee0d6d2670fc3b96abccd0a0dcdd9775ea2f"
+    },
+    {
+      "path": "app/Services/Dashboard/OperatingDay.php",
+      "blob": "c25c9f2208b25bd108883ca59ee069a62b1741c3"
+    },
+    {
+      "path": "app/Services/Dashboard/OrderBoardClock.php",
+      "blob": "4bc26e43fa34bd391b0baabdd1ddaec9de995bc1"
+    },
+    {
+      "path": "app/Services/Dashboard/OrderBoardItems.php",
+      "blob": "1c0da1b621f253f1c3e7337101692f6ed31958ee"
+    },
+    {
+      "path": "app/Services/Dashboard/OrderBoardPrinting.php",
+      "blob": "68e409bc0d29642aa9d53a333fe0faf844cbf5e1"
+    },
+    {
+      "path": "app/Services/Dashboard/OrderBoardService.php",
+      "blob": "d2c8c69de733b131aa27f36e02d6b4b0b990b6b2"
+    },
+    {
+      "path": "app/Services/Dashboard/OrderLiveActivityService.php",
+      "blob": "0761550e93517c52cc8250618e5cbfe869227a2d"
+    },
+    {
+      "path": "app/Services/Dashboard/PhoneDelivery.php",
+      "blob": "2b0185d064a94a1505ceaab5aede28e2c74178a1"
+    },
+    {
+      "path": "app/Services/Dashboard/PhoneDeliveryBoard.php",
+      "blob": "d58c990ec17d9eb25e10a2dd0eb5d6d933e67236"
+    },
+    {
+      "path": "app/Services/Dashboard/PosServicePhone.php",
+      "blob": "fae4beea36b610644c5cebc640f89b78ae79ac18"
+    },
+    {
+      "path": "app/Services/Dashboard/PosServiceTable.php",
+      "blob": "a967946891a2d8626c7e15ecb9bc0421775b425d"
+    },
+    {
+      "path": "app/Services/Dashboard/PosServiceTicket.php",
+      "blob": "288f2ae1285f3e95b904708b5794185623f5de45"
+    },
+    {
+      "path": "app/Services/Dashboard/SupportFirestore.php",
+      "blob": "0392b4544bbeb0e540024daf3761e9ee2eeda8d5"
+    },
+    {
+      "path": "app/Services/Dashboard/SupportInbox.php",
+      "blob": "10803cf5894db3265cff5a59f9641436220c73ff"
+    },
+    {
+      "path": "app/Services/Dashboard/TakeawayCatalog.php",
+      "blob": "e96fce33037a06330f95d6a91553950cdf32d763"
+    },
+    {
+      "path": "app/Services/Dashboard/TakeawayService.php",
+      "blob": "b58729c6fc0fdd35fa23a4850de15e09019f6998"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php",
+      "blob": "4b571f7f4a5cef9257c414886dba515c06dae2a1"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppCustomerDirectory.php",
+      "blob": "8eef8e7220d7c7b3ac52393edbc10508ffce5cc1"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxAccess.php",
+      "blob": "186789d42113e81818de8d82a2327e3ee9d8d0b5"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxConsumer.php",
+      "blob": "b169e92362531c1da565ef26bbc999a5a0fa73d8"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxMedia.php",
+      "blob": "5b67c6042893e42b2828e7c8a27b21f7ec76364d"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxQuarantinedEvent.php",
+      "blob": "8313e710d55d99de5861a87605a335fc4493a187"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppInboxReadState.php",
+      "blob": "d26eb360f5b5576047edff14808c25950592ba30"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppNativePlaceholderHydration.php",
+      "blob": "9e221ba052589c1ffe474958b636a77ff5817b7d"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppNativeUnavailableReplay.php",
+      "blob": "bc6febf49c85947684a38c16d00bd5b62fb56e60"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppOrderAiProvider.php",
+      "blob": "2e29109adf29fdfe8899cf2e4e6bdcb5dd662a12"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppOrderConversationEvidence.php",
+      "blob": "478d620d36d801b5fc38bab8e8be2afcfdf5dd8c"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppOrderFollowupService.php",
+      "blob": "e817b327ba1fdfd042288d20b5c4ba8bef00cc81"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppOrderSourceSelection.php",
+      "blob": "03db3211b80da905f07415fd16f1e7a62e0395b1"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppOrderWorkflow.php",
+      "blob": "2fce7ff1b13d049fea459dcecd55f6d4f392a160"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppReplyService.php",
+      "blob": "f80378c7b61cc42c747bdceefd71b79c566de553"
+    },
+    {
+      "path": "app/Services/Dashboard/WhatsAppVoiceMedia.php",
+      "blob": "5a6d67a69dbbef185a783680dfe46a1730318380"
+    },
+    {
+      "path": "app/Services/FirebaseNotificationService.php",
+      "blob": "728affaf1bef7170db02262b99b2db2e800f5f17"
+    },
+    {
+      "path": "app/Services/GoServices/Marketplace.php",
+      "blob": "6e7d06f031f8607506de95cee9a92ce82bad4638"
+    },
+    {
+      "path": "app/Services/GoServices/Money.php",
+      "blob": "426bc5f014db7762adeea45d0cf044e23959fa65"
+    },
+    {
+      "path": "app/Services/GoServices/Outbox.php",
+      "blob": "2d6304327c8f1ba4cb78c0ecaa41ccbad92d14ad"
+    },
+    {
+      "path": "app/Services/GoServices/Payments.php",
+      "blob": "f9fa90bf16c368eb1803fa7215948f8f0aa9a304"
+    },
+    {
+      "path": "app/Services/GoServices/PaymobHmac.php",
+      "blob": "025490933fcfaff6da69314aa2a79766f038db06"
+    },
+    {
+      "path": "app/Services/GoServices/WalletPolicy.php",
+      "blob": "fbca0e736f828c024b73518d3eaa0e2a36a6b965"
+    },
+    {
+      "path": "app/Services/GoStores/AccountCreator.php",
+      "blob": "658b84586692543ee6f33c508b59979491312c1a"
+    },
+    {
+      "path": "app/Services/GoStores/ApplicationCatalog.php",
+      "blob": "6a5ff36b664c3d9c3b6b95b5942dc320f6649452"
+    },
+    {
+      "path": "app/Services/GoStores/ApplicationUploads.php",
+      "blob": "ffd68052bde29e51c9457050dbe5a9f66b5d3f20"
+    },
+    {
+      "path": "app/Services/MetaConversionsService.php",
+      "blob": "ea22be4416428aad44d9c1412e96d96860c708a1"
+    },
+    {
+      "path": "app/Services/OrderAction.php",
+      "blob": "fa23c8c2f88baa2bdf4123fc69c1d1d96dbdbe61"
+    },
+    {
+      "path": "app/Services/OrderBroadcastService.php",
+      "blob": "a965eada3dd60337d3e42af52a337b1771234db9"
+    },
+    {
+      "path": "app/Services/OrderTrackingState.php",
+      "blob": "00cc59eae30fcb76739b77fd2e8889e482e25ee6"
+    },
+    {
+      "path": "app/Services/PartnerEmailVerification.php",
+      "blob": "e8c5c3bc47acc037149f86ee9ec841aac385c4ea"
+    },
+    {
+      "path": "app/Services/Payments/LegacyPaymentFailure.php",
+      "blob": "42db7f76b2c632c539d703934a8c6320291928a7"
+    },
+    {
+      "path": "app/Services/Payments/PaymobTransactionInquiry.php",
+      "blob": "96b775bc130e2cfbcaea1dde68ff7d83e32e6cad"
+    },
+    {
+      "path": "app/Services/Payments/WalletTopupEffects.php",
+      "blob": "9e568f198a0009aecff48aa0506c29c261fe359f"
+    },
+    {
+      "path": "app/Services/Payments/WalletTopupSettlement.php",
+      "blob": "42eba113962867566a332b29ae81787a74fd011c"
+    },
+    {
+      "path": "app/Services/Site/StorefrontSeo.php",
+      "blob": "8c6234c652f6da52b1219cae34f87dd7dcea3cf1"
+    },
+    {
+      "path": "app/Services/Site/WebStorefront.php",
+      "blob": "96322e7cb5dccad76f0867f587c64b3eb28b3e43"
+    },
+    {
+      "path": "app/Services/WalletTransfer.php",
+      "blob": "adfa300779949ed035c07a8337852bc8ac7896a1"
+    },
+    {
+      "path": "app/Support/CustomerCrmRouteCheck.php",
+      "blob": "b6a92f443b7209fe19ad894b22f2e10ff9ca723d"
+    },
+    {
+      "path": "app/Support/MetaAiSchedule.php",
+      "blob": "667ffd6530444ef00dc6a05f76a5700d217fff80"
+    },
+    {
+      "path": "app/Support/MetaMessagingProtocol.php",
+      "blob": "d5c6cb4dfeaa1d6c8467025338d7d92d9ce5b0ed"
+    },
+    {
+      "path": "app/Support/WhatsAppCustomerOrderConfirmation.php",
+      "blob": "27afc58ef43d1c6fffa90c9a7bb519e353b7e244"
+    },
+    {
+      "path": "app/Support/WhatsAppInboxProtocol.php",
+      "blob": "f2eec9099f9a27915cda50b7c8e267efb1f0b030"
+    },
+    {
+      "path": "app/Support/WhatsAppOrderDialogue.php",
+      "blob": "4c44cd295e34b6881e547fd3d47c863a83e05ed8"
+    },
+    {
+      "path": "app/Support/WhatsAppOrderExtraction.php",
+      "blob": "a44f791013642aeca4b4f50dd96ec96b59eda012"
+    },
+    {
+      "path": "app/Support/WhatsAppWebhookProtocol.php",
+      "blob": "1251a7623f6c9cc636033773fd1a218eb8207f83"
+    },
+    {
+      "path": "artisan",
+      "blob": "ad7ab90c83eaca27dfc00540db05d27b655d5840"
+    },
+    {
+      "path": "config/app.php",
+      "blob": "9daaf032f222ebf651ddb5811de69ae413c97a50"
+    },
+    {
+      "path": "config/auth.php",
+      "blob": "9a237c4fb2dabe830d1df1497c5de0c003f561d4"
+    },
+    {
+      "path": "config/broadcasting.php",
+      "blob": "5a224d56219fc71499a5d84865b20806c2c3d0d1"
+    },
+    {
+      "path": "config/cache.php",
+      "blob": "4f41fdf966b5b8a753eab42f6b4c5fcdcd944a0f"
+    },
+    {
+      "path": "config/charts.php",
+      "blob": "b1a19c4e53a6139e0fd2bcdfc6d861dae071b949"
+    },
+    {
+      "path": "config/ckeditor.php",
+      "blob": "00568eaadcaebcf0ea580ff8ffb2896418427766"
+    },
+    {
+      "path": "config/cors.php",
+      "blob": "a6f69be3e23f901b931c5fc15da7aa54f1c4fa41"
+    },
+    {
+      "path": "config/crm_whatsapp.php",
+      "blob": "a414809609fbc6b798240945728199282652f83a"
+    },
+    {
+      "path": "config/dashboard_payments.php",
+      "blob": "4c13193d2fe3b95e43565561acc74fe996966593"
+    },
+    {
+      "path": "config/database.php",
+      "blob": "aeabec6fb9545a758adfedc3eddb53a0c1016c59"
+    },
+    {
+      "path": "config/fasakhansta_ai_training.php",
+      "blob": "afe07bab9ccd8a7b5b310d3ae8aedd90744eb92d"
+    },
+    {
+      "path": "config/filesystems.php",
+      "blob": "c60a4d9ed02269287a66f6e206ce5d1ea8989195"
+    },
+    {
+      "path": "config/firebase.php",
+      "blob": "64daf6fdffd4e02189b58f243152dfdefe5d8e71"
+    },
+    {
+      "path": "config/go_services.php",
+      "blob": "3b0c49d980669f67eaa59a95e028a23e757b7081"
+    },
+    {
+      "path": "config/hashing.php",
+      "blob": "842577087c0c8c1beae4882d39504a04a207b28a"
+    },
+    {
+      "path": "config/jwt.php",
+      "blob": "4fc06c02d1e8b9430972f0bcb366ab48d93bef54"
+    },
+    {
+      "path": "config/logging.php",
+      "blob": "088c204e29942a941c9cbfb8dadb44671a5b1814"
+    },
+    {
+      "path": "config/mail.php",
+      "blob": "bf91ef2023cdc0fcdb5f811a1f2664eef99e5228"
+    },
+    {
+      "path": "config/media-library.php",
+      "blob": "a2d2d7d51720f5cda432e579f49de269cd089fa7"
+    },
+    {
+      "path": "config/meta_cart.php",
+      "blob": "928c8c06d2ce3228f18653d432d4dfb82f6180e8"
+    },
+    {
+      "path": "config/meta_comment_ai.php",
+      "blob": "f8a39d4b46e980294c47ead2ae824cb24336599e"
+    },
+    {
+      "path": "config/meta_messaging.php",
+      "blob": "3530fbdb5886e6ea88c29a2f2b2be1633485e3fd"
+    },
+    {
+      "path": "config/meta_orders.php",
+      "blob": "bd4303743dc147c978f43a39af008c25cd90fc24"
+    },
+    {
+      "path": "config/partner_auth.php",
+      "blob": "2bf0158a5072776c5e88a272562360177d53833e"
+    },
+    {
+      "path": "config/permission.php",
+      "blob": "5b6e184c3f37396693a0cfffae39359d9ad6f764"
+    },
+    {
+      "path": "config/queue.php",
+      "blob": "122229666df5cb7d232f988e703446124a8a0615"
+    },
+    {
+      "path": "config/session.php",
+      "blob": "c9fc6e6e775b0f92184c3987777b1e96364ef8ce"
+    },
+    {
+      "path": "config/translatable.php",
+      "blob": "51db235902d198532cba02e3f3b33b71ff8ffdab"
+    },
+    {
+      "path": "config/view.php",
+      "blob": "22b8a18d325814f221fb0481fa7ab320b612d601"
+    },
+    {
+      "path": "config/wallet_topups.php",
+      "blob": "09ae909d3308abb4dbd5b15261678b73348be6a9"
+    },
+    {
+      "path": "config/web_storefront.php",
+      "blob": "007a19cef3c3d730f9b0eae9b5b3e1002f8b1b17"
+    },
+    {
+      "path": "config/whatsapp.php",
+      "blob": "1c8b5563a4d9bd5893178374967995711c52bcf6"
+    },
+    {
+      "path": "config/whatsapp_cart.php",
+      "blob": "a40fd3c834734ebbf5f52410e1b0641657605750"
+    },
+    {
+      "path": "config/whatsapp_orders.php",
+      "blob": "88e3366e17d0d011b5c118220423e444adc9c2ad"
+    },
+    {
+      "path": "config/whatsapp_replies.php",
+      "blob": "c5ede60634743a6170b143a4fd4fd382d6afe9d6"
+    },
+    {
+      "path": "database/data/2026-09-23-menu-prices.json",
+      "blob": "ab29ba5ed99e7b16dbbfc0f71dff0eb3e87571f9"
+    },
+    {
+      "path": "database/data/2026-09-23-store-delivery.json",
+      "blob": "bd8695c6facc351ecf16a5f1b9d2eec099d90b41"
+    },
+    {
+      "path": "database/data/2026-09-23-zayed-store-prices.json",
+      "blob": "47a1dd86bcc2b3c60f1a01ce247b385343261503"
+    },
+    {
+      "path": "database/factories/AdminFactory.php",
+      "blob": "36fe3a0729c64fd2e2d88eac00bc4c4f6f79bacb"
+    },
+    {
+      "path": "database/factories/UserFactory.php",
+      "blob": "bdea1a32dc18c684fe13d23be2fc9c665e4e4a14"
+    },
+    {
+      "path": "database/migrations/2014_10_12_000000_create_users_table.php",
+      "blob": "c282072240d9e7f16a9c0d30eadfe4a85ee29808"
+    },
+    {
+      "path": "database/migrations/2014_10_12_100000_create_password_resets_table.php",
+      "blob": "0ee0a36a4f87c2f914288abfc133573d6a6324b7"
+    },
+    {
+      "path": "database/migrations/2019_08_19_000000_create_failed_jobs_table.php",
+      "blob": "6aa6d743e9c62a2eefee37c1913b95a4acf5aa6d"
+    },
+    {
+      "path": "database/migrations/2022_08_03_121842_create_media_table.php",
+      "blob": "378b04610d7574874f1af91fccbb8a6dd6fe9124"
+    },
+    {
+      "path": "database/migrations/2022_08_09_145144_create_settings_table.php",
+      "blob": "b695f7a334be139143f903d4a8e1583e6f23fc6b"
+    },
+    {
+      "path": "database/migrations/2022_08_17_095029_create_notifications_table.php",
+      "blob": "9797596dc4ce2c812e5b128a40f35af7b2b54a9b"
+    },
+    {
+      "path": "database/migrations/2024_06_26_104907_create_categories_table.php",
+      "blob": "c0d9128e6fee90d8de8a6709ef89b848e00cc415"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105120_create_pending_vendors_table.php",
+      "blob": "880fb2be4ecdf765fcde8abaa1ae931e066008c4"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105143_create_products_table.php",
+      "blob": "736c58e06182fc49b5b21803885ce44c2f2c5ab4"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105407_create_user_address_table.php",
+      "blob": "5e6670088366809503c8db4e1196562e14c250bd"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105430_create_orders_table.php",
+      "blob": "53b5cfc5500cb83edfac27b8c4bbe34ae4f9049d"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105457_create_contracts_table.php",
+      "blob": "7d364a3e9169c622c12a4c9990bdbe7019826d5c"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105515_create_question_answers_table.php",
+      "blob": "ddf7796466cd7da0a8836b5681ed049b21ce7bf0"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105524_create_contacts_table.php",
+      "blob": "1fbd3fa106a29d2de763d4022e5164c9be4a4f5f"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105610_create_resturants_table.php",
+      "blob": "2a25af9f181293aab9e160a7c7a74e3e2e78d4f1"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105633_create_resturant_products_table.php",
+      "blob": "3c28e00e71e0889f896f2fc05fd73acbd3148e52"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105718_create_commissions_table.php",
+      "blob": "15bf1bef36c859e4ce22c55440f0731517a104c7"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105719_create_wishlists_table.php",
+      "blob": "d329f1e31042fb635fe666ae40a9ab854cfa5b14"
+    },
+    {
+      "path": "database/migrations/2024_06_26_105720_create_carts_table.php",
+      "blob": "02dd9ad38fa1ee48b9511c44ecf19b850ff03b0b"
+    },
+    {
+      "path": "database/migrations/2024_06_26_114211_create_payments_table.php",
+      "blob": "a32ad55bb2af4785030c2ecf2b55f38fcae74011"
+    },
+    {
+      "path": "database/migrations/2024_06_26_135429_create_product_features_table.php",
+      "blob": "083e29a83705652ba49ebbb5ba0ea75dfe07aa37"
+    },
+    {
+      "path": "database/migrations/2024_06_26_140535_create_wallets_table.php",
+      "blob": "f0f4310ec2bbb1a1587de68f197bba5afd6fcab5"
+    },
+    {
+      "path": "database/migrations/2024_06_26_142442_create_reviews_table.php",
+      "blob": "bc4dda8fa3eef467b2e5517f598bd58540cc54d1"
+    },
+    {
+      "path": "database/migrations/2024_06_27_143303_create_banners_table.php",
+      "blob": "8e4b67307a8acf67c34e968ab595c156a2d75caa"
+    },
+    {
+      "path": "database/migrations/2024_06_30_145652_create_areas_table.php",
+      "blob": "df8ad4070b6f9502cd82a8500b6e4f28d44c7413"
+    },
+    {
+      "path": "database/migrations/2024_07_01_155920_add_area_to_users__table.php",
+      "blob": "d373586e1e39108327eef9591d0f38c93b37f5f7"
+    },
+    {
+      "path": "database/migrations/2024_07_02_101253_add_fcm_id_to_users__table.php",
+      "blob": "dc0334eb65f0fc6944ecda98f01529e5d60492aa"
+    },
+    {
+      "path": "database/migrations/2024_07_08_123501_create_coupon_subscripes_table.php",
+      "blob": "fd0a99b93162cd81f17e8b9b9f0cc417e650478f"
+    },
+    {
+      "path": "database/migrations/2024_07_15_160021_create_jobs_table.php",
+      "blob": "1be9e8a80eb17425f2ecb9a887625cb3f706790b"
+    },
+    {
+      "path": "database/migrations/2024_07_1_155717_create_conversations_table.php",
+      "blob": "ec1aab085d42716c1128df2082e113a612a1d512"
+    },
+    {
+      "path": "database/migrations/2024_07_1_155732_create_message_conversations_table.php",
+      "blob": "f20c0977dbfe51bd306b893da768cae08daaffb4"
+    },
+    {
+      "path": "database/migrations/2024_7_4_163837_create_slidears_table.php",
+      "blob": "83aae972031d396fe8941b1557c85ce789a4941b"
+    },
+    {
+      "path": "database/migrations/2025_11_27_212224_create_user_tokens_table.php",
+      "blob": "1b2785e4a8fb995b4343cbc273392fdbaaf76604"
+    },
+    {
+      "path": "database/migrations/2025_12_07_000000_create_social_accounts_table.php",
+      "blob": "c568fc02c2106d51c3a16357f606bda79da2ab7e"
+    },
+    {
+      "path": "database/migrations/2025_12_20_224652_add_columns_to_resturant_areas_table.php",
+      "blob": "c82be84b1d017295d5233ebdf110a4627db84904"
+    },
+    {
+      "path": "database/migrations/2025_12_20_225429_make_area_id_nullable_in_resturant_areas_table.php",
+      "blob": "294a6d8f4ee187b0cba4501c7318caf3163f4802"
+    },
+    {
+      "path": "database/migrations/2026_01_07_230547_add_status_column_to_carts_table.php",
+      "blob": "a98b10ebce14e93ada57c49671fcd659b578c6b2"
+    },
+    {
+      "path": "database/migrations/2026_08_29_230000_add_prize_amount_to_coupon_wheels_table.php",
+      "blob": "11f43c573514b1cf80a35ebbbc69456d86c51a0a"
+    },
+    {
+      "path": "database/migrations/2026_09_20_000001_add_go_partner_fields_to_pending_vendors_table.php",
+      "blob": "2b6c9a2dfa358929d76044f83b2f1734f06021c1"
+    },
+    {
+      "path": "database/migrations/2026_09_20_000002_add_app_scope_to_users_table.php",
+      "blob": "fa6ef469d497ed1f9979a5d0a0028f9fd8f36e21"
+    },
+    {
+      "path": "database/migrations/2026_09_20_000003_create_partner_service_requests_table.php",
+      "blob": "770c4d8dfcee9a2d2c1a4da9b282e3760eeb59b1"
+    },
+    {
+      "path": "database/migrations/2026_09_20_000003_unify_partner_applications.php",
+      "blob": "5e9377b6818560cfbac1adfa7c7274fb0e17213b"
+    },
+    {
+      "path": "database/migrations/2026_09_22_000001_add_partner_verified_email.php",
+      "blob": "e5f4feb691b3d2a02e7abae6fa131ce08ba04b03"
+    },
+    {
+      "path": "database/migrations/2026_09_23_190000_align_approved_branch_menu_prices.php",
+      "blob": "e5add9720aa232fde48591d3616910ce30f156e0"
+    },
+    {
+      "path": "database/migrations/2026_09_23_200000_align_store_delivery_rates.php",
+      "blob": "2e44c69e37a67dcb44fba63655a8c3f57a748ecf"
+    },
+    {
+      "path": "database/migrations/2026_09_23_210000_align_store_prices_to_zayed.php",
+      "blob": "d76e2cff4c4d9263595b2fba1d9d29714433c859"
+    },
+    {
+      "path": "database/migrations/2026_09_25_043500_add_offer_price_to_delegate_notifications.php",
+      "blob": "fc1fe589654b9689dfd168c75c08690344c5500e"
+    },
+    {
+      "path": "database/migrations/2026_09_25_044500_add_commission_amount_to_delegate_notifications.php",
+      "blob": "afcf03847ec4fad9ca284eb9940a5f5bfe21c7cd"
+    },
+    {
+      "path": "database/migrations/2026_09_26_090000_create_go_service_marketplace.php",
+      "blob": "9096d25b60a7b9f4093d813951cb02062c7dce41"
+    },
+    {
+      "path": "database/migrations/2026_09_27_180000_create_go_store_catalog.php",
+      "blob": "6cbd513d62a6f575ed037a86a6e8875f9b059aff"
+    },
+    {
+      "path": "database/migrations/2026_09_28_190000_add_transfer_reference_to_wallets.php",
+      "blob": "29d9954f9dd4e12c650dde3d23d191e7e061d185"
+    },
+    {
+      "path": "database/migrations/2026_10_03_041800_fix_primary_admin_role.php",
+      "blob": "ec30d336ed6c113e6193c4cdcbac0aa9ecf5d214"
+    },
+    {
+      "path": "database/migrations/2026_10_03_042500_restore_primary_admin_limited_role.php",
+      "blob": "564554c98480ccf524d83d7e826aeef954a0f4c4"
+    },
+    {
+      "path": "database/migrations/2026_10_03_043500_grant_primary_admin_support_pages.php",
+      "blob": "e056b09f4d017e666025f30f77b6e54169691cca"
+    },
+    {
+      "path": "database/migrations/2026_10_03_045500_add_customer_notifications_lookup_index.php",
+      "blob": "a60ee7d2645fc787952ef8543c66c3a9b17dc524"
+    },
+    {
+      "path": "database/migrations/2026_10_03_060000_create_order_board_clocks.php",
+      "blob": "43709266fb2c10fa637b32b240f808e1a9d2eb1b"
+    },
+    {
+      "path": "database/migrations/2026_10_03_140000_create_takeaway_pos.php",
+      "blob": "d2c3b7a86adfb328c7568a9e1601037ca081ed86"
+    },
+    {
+      "path": "database/migrations/2026_10_03_150000_create_pos_service_tickets.php",
+      "blob": "5ebd21746a4c30cecbfc874c45ab39376c396879"
+    },
+    {
+      "path": "database/migrations/2026_10_04_000001_create_pos_branch_print_jobs.php",
+      "blob": "4fe2f403bbe3e9854ebe2a755cbbc7df73a30f26"
+    },
+    {
+      "path": "database/migrations/2026_10_04_030000_create_branch_expenses.php",
+      "blob": "3bdfb36759d856f60c84982c2c6448395fe69582"
+    },
+    {
+      "path": "database/migrations/2026_10_04_060000_lock_pos_service_bills.php",
+      "blob": "738cdfdb498893597f62cf8c36c78f9f303185c4"
+    },
+    {
+      "path": "database/migrations/2026_10_04_080000_create_branch_operations.php",
+      "blob": "712238485bde0d182c8ab5bdc2262284b119d88f"
+    },
+    {
+      "path": "database/migrations/2026_10_04_100000_create_branch_shift_closings.php",
+      "blob": "fab188188fd682c71d217c1bc9b544f88b9f3dc7"
+    },
+    {
+      "path": "database/migrations/2026_10_04_190000_create_branch_stock.php",
+      "blob": "59ffa64e6ccb31d263fbf26721588ad06929582b"
+    },
+    {
+      "path": "database/migrations/2026_10_04_210000_create_branch_inventory_recipes.php",
+      "blob": "58bef14bd4fc52cb08854966320ec8244482cc1e"
+    },
+    {
+      "path": "database/migrations/2026_10_06_120000_create_branch_expenses_categories.php",
+      "blob": "b2fe90a86cd91e5876f6c00b235439e4ebd8618e"
+    },
+    {
+      "path": "database/migrations/2026_10_06_130000_create_phone_delivery_batches.php",
+      "blob": "75f4f7100081a3ae39de94cc031a509b3c9d5882"
+    },
+    {
+      "path": "database/migrations/2026_10_06_140000_add_employee_wallet_phone.php",
+      "blob": "ad96c71c7010fbc5b65c05061010fa894b7f95bc"
+    },
+    {
+      "path": "database/migrations/2026_10_06_160000_create_dashboard_push_campaigns.php",
+      "blob": "b7e82a3ce703f74675504c2235c9f5b26c1cc8a1"
+    },
+    {
+      "path": "database/migrations/2026_10_06_200000_manage_expense_categories.php",
+      "blob": "9a6cc8fbb314be5443ea9cb6851e1630c8b5bdfd"
+    },
+    {
+      "path": "database/migrations/2026_10_07_160000_add_canned_herring_stock.php",
+      "blob": "9137dea30721e6375a39a1f0196e7a87a2850306"
+    },
+    {
+      "path": "database/migrations/2026_10_07_210000_create_desktop_pos.php",
+      "blob": "32c35744cdbc1f97c27301731ce89ac86ea4e983"
+    },
+    {
+      "path": "database/migrations/2026_10_08_190000_add_employee_attendance_rules.php",
+      "blob": "274fe78b5a1dcc9f57c5af263643feda24dd8f26"
+    },
+    {
+      "path": "database/migrations/2026_10_09_200000_create_whatsapp_webhook_events_table.php",
+      "blob": "c76df0d6a64b331bb92abb39ab7ca9647bd4ed71"
+    },
+    {
+      "path": "database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php",
+      "blob": "28281e102b83d2322a6eb3b2fb7e31539fd43ac9"
+    },
+    {
+      "path": "database/migrations/2026_10_10_000002_create_whatsapp_order_drafts.php",
+      "blob": "5e8a0cb6b4f2f085fb6b35cc930570c7cc94a87b"
+    },
+    {
+      "path": "database/migrations/2026_10_10_000003_create_whatsapp_reply_requests.php",
+      "blob": "a01763f04ff6326e952db611f213ab24397a55d2"
+    },
+    {
+      "path": "database/migrations/2026_10_10_000004_create_whatsapp_inbox_reads.php",
+      "blob": "2b827af2267e5926348441d065ebfd4fbfc6efd9"
+    },
+    {
+      "path": "database/migrations/2026_10_11_160000_create_meta_webhook_events_table.php",
+      "blob": "bedba8c3806a87752c93a165f7731c79d7505526"
+    },
+    {
+      "path": "database/migrations/2026_10_11_160001_create_meta_inbox_tables.php",
+      "blob": "83c1907713dd1ea172254291de4e13f390b95b07"
+    },
+    {
+      "path": "database/migrations/2026_10_11_160002_create_meta_order_drafts.php",
+      "blob": "e4e6cabc040f3c9be141d2602d902d617370e2c3"
+    },
+    {
+      "path": "database/migrations/2026_10_11_160003_create_meta_reply_requests.php",
+      "blob": "aac95fba4705103d68d586334a25f2f12a633726"
+    },
+    {
+      "path": "database/migrations/2026_10_11_160004_create_meta_inbox_reads.php",
+      "blob": "7832b4f80969699a1be1d59e7ef87fa9897caa99"
+    },
+    {
+      "path": "database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php",
+      "blob": "699e9b8f63452f4e8f09f8380f3905406ef9ddbf"
+    },
+    {
+      "path": "database/migrations/2026_10_13_160000_create_meta_message_hides.php",
+      "blob": "477cb142e41fe41255aa484a47df7d586d7c2a8e"
+    },
+    {
+      "path": "database/migrations/2026_10_14_190000_preserve_app_order_item_weights.php",
+      "blob": "79d5d5d5c0d2de4b47476333c6ddf592b0512c52"
+    },
+    {
+      "path": "database/migrations/2026_10_14_210000_create_meta_comment_reply_requests.php",
+      "blob": "b7dfa555c58c86986914a147666f9ba2983a2c38"
+    },
+    {
+      "path": "database/migrations/2026_10_15_000001_create_meta_ai_controls.php",
+      "blob": "3c6c7ef4d5fbf437f49cc7c2bb94ce82595b77ae"
+    },
+    {
+      "path": "database/migrations/2026_10_15_010000_create_meta_comment_ai_tables.php",
+      "blob": "3bf661df37f1d4ed4529fe1d995e829bb4acfda0"
+    },
+    {
+      "path": "database/migrations/2026_10_17_000001_create_crm_customer_directory.php",
+      "blob": "1278ede4c436e2efe98e32aa4b0519f40288f1cc"
+    },
+    {
+      "path": "database/migrations/2026_10_17_000002_create_crm_whatsapp_messaging.php",
+      "blob": "5b33f7323aab503192de79ab56f6d00df21913a1"
+    },
+    {
+      "path": "database/migrations/2026_10_17_000003_create_crm_customer_sync_states.php",
+      "blob": "93708ef8890d067cbed373206262f25446f70f10"
+    },
+    {
+      "path": "database/migrations/2026_10_17_000004_create_crm_whatsapp_status_receipts.php",
+      "blob": "2294d0b1194ee2ab3ff76a9a72be41e61de304b3"
+    },
+    {
+      "path": "database/migrations/2026_10_17_160000_create_web_storefront_orders.php",
+      "blob": "0cb0a8cc83332bf1c7065287797c6af82cfcb694"
+    },
+    {
+      "path": "database/migrations/2026_10_18_090000_link_expense_inventory_purchases.php",
+      "blob": "b58000e94ef692cddd43a72a6f27f13911e159be"
+    },
+    {
+      "path": "database/migrations/2026_10_18_160000_add_employee_part_time_schedule.php",
+      "blob": "2c0604c08ab8b64b515f3cf2b337a5898a7d3129"
+    },
+    {
+      "path": "database/migrations/2026_10_18_180000_add_employee_pay_hours.php",
+      "blob": "15f5df1dee044ad020f42612fefd5d80aa1b5671"
+    },
+    {
+      "path": "database/migrations/2026_10_18_190000_create_branch_basic_recipes.php",
+      "blob": "c52ebddc6bfe6212116a80d7281f430320c3744d"
+    },
+    {
+      "path": "database/migrations/2026_10_18_200000_create_order_live_activities_table.php",
+      "blob": "d013fcc6e372038e79c504f29fb22b13867d265d"
+    },
+    {
+      "path": "database/migrations/2026_10_18_200000_scope_expense_categories_by_branch.php",
+      "blob": "f5ea5fd5d8affb7b23f55b421f321a6caa680757"
+    },
+    {
+      "path": "database/migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php",
+      "blob": "20dc3db252f8f6b8e99b122d216147671e8bf47a"
+    },
+    {
+      "path": "database/migrations/2026_10_18_230000_create_branch_stock_minimum_alerts.php",
+      "blob": "a82f7516eb75d155dae896eb6016bead9e93d620"
+    },
+    {
+      "path": "database/migrations/2026_10_20_045322_create_cache_table.php",
+      "blob": "88cd44590c029964801da3f058d89413f728ceb1"
+    },
+    {
+      "path": "database/seeders/AdminSeeder.php",
+      "blob": "c932605c54b2fcd5ee95dab49270d69aad8fbd0c"
+    },
+    {
+      "path": "database/seeders/DatabaseSeeder.php",
+      "blob": "12d803af224d389bfe657439ae2eca788c7bbca9"
+    },
+    {
+      "path": "database/seeders/PermissionSeeder.php",
+      "blob": "5f800497e324ac735dfd9754ec3e9ca5e4444ec8"
+    },
+    {
+      "path": "database/settings/2022_08_09_145300_create_general_settings.php",
+      "blob": "5386e4c6e5c57800ac69d40104451c2848d6b6dd"
+    },
+    {
       "path": "public/css/dashboard-meta-ai-controls.css",
       "blob": "0928502f344567b20599cf0216352a1e7b76da97"
     },
@@ -1683,8 +4219,152 @@
       "blob": "b8e5b389536cfe30ff42ea9a08ba1d26f2da3b86"
     },
     {
+      "path": "public/dashboard/css/branch-expenses.css",
+      "blob": "2babc6278260e7cd30d5b17104de59699551b9b1"
+    },
+    {
+      "path": "public/dashboard/css/branch-orders.css",
+      "blob": "f05b962a6aad44a283613732fd04ffbbef4c1d0b"
+    },
+    {
+      "path": "public/dashboard/css/branch-shifts.css",
+      "blob": "db2ee064961959fed26fb3481dbbfadb86f8d4f6"
+    },
+    {
+      "path": "public/dashboard/css/branch-stock.css",
+      "blob": "59acd8b6d501446987d629b523f4b430b4ce2750"
+    },
+    {
+      "path": "public/dashboard/css/customer-crm.css",
+      "blob": "9eaa6aec98ae027b098869161de5bfa5f4563d39"
+    },
+    {
+      "path": "public/dashboard/css/dashboard-spa.css",
+      "blob": "af98d4a86c8d42db8bc0d02bad8c1bdc6f7511cf"
+    },
+    {
+      "path": "public/dashboard/css/dashboard-support-chat.css",
+      "blob": "810421ce7f2a256e461f3d2affe753b2c1afa4e9"
+    },
+    {
+      "path": "public/dashboard/css/dining-pos.css",
+      "blob": "ec4f1e2ef65f71981824decba9b48d2ed6ed5d85"
+    },
+    {
+      "path": "public/dashboard/css/home-overview.css",
+      "blob": "83faf300134399fad6b14141860f705113c48331"
+    },
+    {
+      "path": "public/dashboard/css/order-board-items.css",
+      "blob": "6c5b832c3c114ab9438cbc7b5c1ebc0537f29e51"
+    },
+    {
+      "path": "public/dashboard/css/order-board-menu.css",
+      "blob": "a3559ef1bfb57c7dbfa91621dc9d2a1ac7f37c0c"
+    },
+    {
+      "path": "public/dashboard/css/order-board.css",
+      "blob": "97b409f020f6ef547956205057f7795955416379"
+    },
+    {
+      "path": "public/dashboard/css/phone-delivery-refresh.css",
+      "blob": "bd9f95fb6d8a28f382708ca6e6a9b36f12d62392"
+    },
+    {
+      "path": "public/dashboard/css/takeaway-pos.css",
+      "blob": "41e44f3835ac7f707929db01e5830076b9c411e6"
+    },
+    {
+      "path": "public/dashboard/js/branch-expenses.js",
+      "blob": "8106ce07fb5d620b51d2f318ece16052df31722e"
+    },
+    {
+      "path": "public/dashboard/js/branch-home.js",
+      "blob": "55e313cf7f086a6ddc0fd5b8667cee44136b8339"
+    },
+    {
+      "path": "public/dashboard/js/branch-recipes.js",
+      "blob": "0d793abfc9e9a8d15f0c9b56251b6feb09254ac5"
+    },
+    {
+      "path": "public/dashboard/js/branch-stock.js",
+      "blob": "9d7caa33bdb329c2be25556696c30ff359a9743f"
+    },
+    {
+      "path": "public/dashboard/js/customer-crm.js",
+      "blob": "c73781eaf564e2a7d3e3d27fd0e82e04cf23aadf"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-expense-badge.js",
+      "blob": "c4928ebcec2aaf8ba7ef00590c511eb14e975443"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-invoice-details.js",
+      "blob": "fad817e3eb8b997a9640787afc834fe8fe60a4cd"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-location-picker.js",
+      "blob": "e66fc338b8921fa13368673ba4b0c61d96bfdf7a"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-navigation.js",
+      "blob": "611d6b79a243a4fdce16be1fca8a2343ffdd70c1"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-operating-day.js",
+      "blob": "7711984dac0abc35ff2fe6165257edfb962ac059"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-order-alerts.js",
+      "blob": "78cc60ff9eb7ce4f3ebbaf94f83e198619d3447d"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-print.js",
+      "blob": "7bfc11e6b89c45bcdd6f59116a5ee640e5734857"
+    },
+    {
+      "path": "public/dashboard/js/dashboard-push.js",
+      "blob": "ad2921947316d27c238caafe9335e7f5d4781225"
+    },
+    {
+      "path": "public/dashboard/js/desktop-installer-upload.js",
+      "blob": "e1fdf33f3d745f243f00afcb0141cf867af0e4d5"
+    },
+    {
+      "path": "public/dashboard/js/dining-pos.js",
+      "blob": "5f8d75237d788a86822903286fe80b1444c4df42"
+    },
+    {
+      "path": "public/dashboard/js/home-overview.js",
+      "blob": "399769f863168f81f26265687b7e2b0175ab3e92"
+    },
+    {
+      "path": "public/dashboard/js/order-board-detail.js",
+      "blob": "18dfa8216355f4bdc94237d4f634908c8f2dda48"
+    },
+    {
+      "path": "public/dashboard/js/order-board-items.js",
+      "blob": "2cbaad046e029a99499735b4383bdf6f804071ce"
+    },
+    {
+      "path": "public/dashboard/js/print-settings.js",
+      "blob": "5ff76d1b9099872940d75cc6a46a8640886e9691"
+    },
+    {
+      "path": "public/dashboard/js/takeaway-pos.js",
+      "blob": "470115c2e9bb473963ef7791f225c2c7ce9266a2"
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls-replies-20261020-v2.js",
+      "blob": "1d8da56d78d3278d57c614c280301d6496bdfde5"
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls-replies-20261020.js",
+      "blob": "43ee95210fe37363bc5b4cc17a8d233275912f9a"
+    },
+    {
       "path": "public/js/dashboard-meta-ai-controls.js",
-      "blob": "c941a55a442d5994c941fcbaa35ee4a5b549709c"
+      "blob": "65132eece665098b324d2b4a37e2f83d8c2539f6"
     },
     {
       "path": "public/js/dashboard-meta-comment-ai.js",
@@ -1717,6 +4397,1554 @@
     {
       "path": "public/js/dashboard-whatsapp-replies.js",
       "blob": "65d49087c9b98d621e8d3a11151751c18416881a"
+    },
+    {
+      "path": "resources/css/app.css",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "resources/js/app.js",
+      "blob": "40c55f65c25644d4f09d3c734b219a2aa736b134"
+    },
+    {
+      "path": "resources/js/bootstrap.js",
+      "blob": "6922577695e66ffdb3803e559490798898341abc"
+    },
+    {
+      "path": "resources/lang/ar/api.php",
+      "blob": "390f38bf0da41285637affea9c44feb4e29269ef"
+    },
+    {
+      "path": "resources/lang/ar/branch_orders.php",
+      "blob": "6c714853d07b3c5622abf4d2f79e6ad14357ddd9"
+    },
+    {
+      "path": "resources/lang/ar/dashboard_maps.php",
+      "blob": "8ae4638493eaed7b1c2cb0ad865c5e5ff639333f"
+    },
+    {
+      "path": "resources/lang/ar/dashboard_push.php",
+      "blob": "877f6f4bc0c4e5fa43ff8567bca2ec4f65e00595"
+    },
+    {
+      "path": "resources/lang/ar/dining.php",
+      "blob": "8730916e5e569ae4284e79ff5159bcab984a0ba8"
+    },
+    {
+      "path": "resources/lang/ar/expenses.php",
+      "blob": "a938d185e126b4c82a131b7da0d4076456619842"
+    },
+    {
+      "path": "resources/lang/ar/go_fees.php",
+      "blob": "94a89d4079f812c428eb263880b2a6ca7acd9ee5"
+    },
+    {
+      "path": "resources/lang/ar/home_overview.php",
+      "blob": "faf40ce2638a5a4f3cdd9066a0b02ce3b694ff1c"
+    },
+    {
+      "path": "resources/lang/ar/main.php",
+      "blob": "d2a518397b27adf62892fc41cd0998af05de5349"
+    },
+    {
+      "path": "resources/lang/ar/messages.php",
+      "blob": "b8b6d33c100ef021167319c62bfdc0217ff0ad2e"
+    },
+    {
+      "path": "resources/lang/ar/order_board.php",
+      "blob": "93e67aab5ae5beea8261b6007c8453496eb08a18"
+    },
+    {
+      "path": "resources/lang/ar/permission.php",
+      "blob": "256afb085b9898572430250d52e0c11f4c7d87e5"
+    },
+    {
+      "path": "resources/lang/ar/phone_orders.php",
+      "blob": "3abb4bb512ed4a1baab04b261e397a9eafa5a075"
+    },
+    {
+      "path": "resources/lang/ar/pos_service.php",
+      "blob": "59b33ddc088fad282e131acd8868b7c9a4a89acd"
+    },
+    {
+      "path": "resources/lang/ar/printing.php",
+      "blob": "9000c393981b9f9792785a7382dc86d848ace625"
+    },
+    {
+      "path": "resources/lang/ar/site.php",
+      "blob": "459edb0abc06c7d932ab376b5c85599fda521aa4"
+    },
+    {
+      "path": "resources/lang/ar/takeaway.php",
+      "blob": "195add3279f771aafead5de1896cba245556f9db"
+    },
+    {
+      "path": "resources/lang/ar/wallet_transfer.php",
+      "blob": "195a830fe0ad942dbbc7b4a22ceb40eef244843c"
+    },
+    {
+      "path": "resources/lang/en/api.php",
+      "blob": "aac22f404d593cdc8e6c8a947bcb2f08ca529813"
+    },
+    {
+      "path": "resources/lang/en/auth.php",
+      "blob": "e5506df2907a7c8f63f3841a918611b93d67e84e"
+    },
+    {
+      "path": "resources/lang/en/branch_orders.php",
+      "blob": "9a60ea6c0edd3099649ec8556a97adc36a41894d"
+    },
+    {
+      "path": "resources/lang/en/dashboard_maps.php",
+      "blob": "9b0e3732d2206053f3573a3df1032189cb8bc6e0"
+    },
+    {
+      "path": "resources/lang/en/dashboard_push.php",
+      "blob": "0bea58e823645870ba65d51bc4b5f6c71033db8f"
+    },
+    {
+      "path": "resources/lang/en/dining.php",
+      "blob": "6d5ca767b9882b96896347c25d0be71c3b2b74f3"
+    },
+    {
+      "path": "resources/lang/en/expenses.php",
+      "blob": "adcbe5f76a3d6125a72ebaaba466f6cdf3404207"
+    },
+    {
+      "path": "resources/lang/en/go_fees.php",
+      "blob": "789f82101cd14ef357fbb964dd5c5cbd338f3921"
+    },
+    {
+      "path": "resources/lang/en/home_overview.php",
+      "blob": "0a172fbc95df5dd974ef2c7fa630d3ed663976e5"
+    },
+    {
+      "path": "resources/lang/en/main.php",
+      "blob": "0fdd12c62f1223ad3bfa6178d40468e8e9e21d1b"
+    },
+    {
+      "path": "resources/lang/en/order_board.php",
+      "blob": "deac8a800e24146897a902ac6a4efe78b5dbdfb5"
+    },
+    {
+      "path": "resources/lang/en/pagination.php",
+      "blob": "d48141187786931ec2cf8645e384be7878c7dc53"
+    },
+    {
+      "path": "resources/lang/en/passwords.php",
+      "blob": "2345a56b5a6927a286e99ff80efc963ea3422e0c"
+    },
+    {
+      "path": "resources/lang/en/permission.php",
+      "blob": "7c805f8c878f4a204711b00465aa5efd978e43bd"
+    },
+    {
+      "path": "resources/lang/en/phone_orders.php",
+      "blob": "f527c4ebcea2244a9a18e309bf0c3305e89b6b01"
+    },
+    {
+      "path": "resources/lang/en/pos_service.php",
+      "blob": "af1f31719b0e8e89046505657594a9d7f16a0027"
+    },
+    {
+      "path": "resources/lang/en/printing.php",
+      "blob": "e9b1d7a5fcfa598206b95635db749bed1fff140f"
+    },
+    {
+      "path": "resources/lang/en/site.php",
+      "blob": "12026f9dc37590dadbea6fcda3b8b9d48472d8bb"
+    },
+    {
+      "path": "resources/lang/en/takeaway.php",
+      "blob": "d37b4f30ec3f4bdd1233874c150fd1879696d8b7"
+    },
+    {
+      "path": "resources/lang/en/validation.php",
+      "blob": "19bc9ef643728bc7884b71f264f6a7e8e9c10b77"
+    },
+    {
+      "path": "resources/lang/en/wallet_transfer.php",
+      "blob": "196f7afa4449aad47c27da66a36d94954b21353e"
+    },
+    {
+      "path": "resources/views/admin-old/admin_wallet.blade.php",
+      "blob": "b5c34b084dc81d4e9155e2d3dd2a67f6d2d64de2"
+    },
+    {
+      "path": "resources/views/admin-old/admins/create.blade.php",
+      "blob": "6a1693869fd4f189b38355cd1f2f5935d83a99bf"
+    },
+    {
+      "path": "resources/views/admin-old/admins/edit.blade.php",
+      "blob": "339908c4d8b70a581937a37c081ee1e335acfea9"
+    },
+    {
+      "path": "resources/views/admin-old/admins/index.blade.php",
+      "blob": "6f98d81e7ca58b0e1a62075e464bb3b5bba749cf"
+    },
+    {
+      "path": "resources/views/admin-old/admins/show.blade.php",
+      "blob": "4fe340c1437237271ab5b6dd43846413398b1b38"
+    },
+    {
+      "path": "resources/views/admin-old/advertising.blade.php",
+      "blob": "09220407d1c7b6df9a98232bdc57114c337a0625"
+    },
+    {
+      "path": "resources/views/admin-old/advertisings/create.blade.php",
+      "blob": "670678f834f705f917ee320a696cd21fac12c0b7"
+    },
+    {
+      "path": "resources/views/admin-old/advertisings/edit.blade.php",
+      "blob": "d035954c31b14883148d47d591695b2e11e08871"
+    },
+    {
+      "path": "resources/views/admin-old/advertisings/form.blade.php",
+      "blob": "d75fa34d76a6b727a09457f2ed334ef5cc8f5e74"
+    },
+    {
+      "path": "resources/views/admin-old/advertisings/index.blade.php",
+      "blob": "25148af017478961037abac9b920fc3f11cb4220"
+    },
+    {
+      "path": "resources/views/admin-old/advertisings/show.blade.php",
+      "blob": "da2db29a85e60562b6d801552f5d9ce7be833565"
+    },
+    {
+      "path": "resources/views/admin-old/areas/create.blade.php",
+      "blob": "e7cffcb28845b87077f908926268fb5ff1314a25"
+    },
+    {
+      "path": "resources/views/admin-old/areas/edit.blade.php",
+      "blob": "ac30bbaed348e5bf5f80923826697697eebd0815"
+    },
+    {
+      "path": "resources/views/admin-old/areas/form.blade.php",
+      "blob": "b8e2962379ff11bc404c3e6d5f5211690c35d3af"
+    },
+    {
+      "path": "resources/views/admin-old/areas/index.blade.php",
+      "blob": "9aba51aac22b184cd50c83d7e9c9e66cfcc32e99"
+    },
+    {
+      "path": "resources/views/admin-old/banners/create.blade.php",
+      "blob": "11c7152de4ce82af8abf94901a56ce0c97444852"
+    },
+    {
+      "path": "resources/views/admin-old/banners/edit.blade.php",
+      "blob": "9c8a20d4f28973ecd54ae75edebec829e5893637"
+    },
+    {
+      "path": "resources/views/admin-old/banners/form.blade.php",
+      "blob": "e38ec185aa17211ca0f5ba7829deb38675ae8bac"
+    },
+    {
+      "path": "resources/views/admin-old/banners/index.blade.php",
+      "blob": "f3b22011fa217325bba912df625e4afe6bc40690"
+    },
+    {
+      "path": "resources/views/admin-old/banners/show.blade.php",
+      "blob": "aa4bb1375325ee9375a01d039dd1bb9f48661202"
+    },
+    {
+      "path": "resources/views/admin-old/bulk_notifications.blade.php",
+      "blob": "b6b30ab01cb4a78958f102a918676640965954b5"
+    },
+    {
+      "path": "resources/views/admin-old/categorys/create.blade.php",
+      "blob": "550f5118e86dae0c2155b9d1a7628756db1483ee"
+    },
+    {
+      "path": "resources/views/admin-old/categorys/edit.blade.php",
+      "blob": "1ff206a1ba4bdc972e1050999582002a7c8295ac"
+    },
+    {
+      "path": "resources/views/admin-old/categorys/form.blade.php",
+      "blob": "6c2d157db80b792ce0d946ba78c0832214400922"
+    },
+    {
+      "path": "resources/views/admin-old/categorys/index.blade.php",
+      "blob": "c05556006b8ce4f81ab831d3892b9027873f52d2"
+    },
+    {
+      "path": "resources/views/admin-old/categorys/show.blade.php",
+      "blob": "0026c347bffb68bc037a1fda2c8c8e802ceb840b"
+    },
+    {
+      "path": "resources/views/admin-old/chat.blade.php",
+      "blob": "aa2c542d8abbfe1099941988c92a6bab28362682"
+    },
+    {
+      "path": "resources/views/admin-old/choose_type.blade.php",
+      "blob": "fe08f0ff2ac5b8ca8b2c3c4225ca20d5400f24cc"
+    },
+    {
+      "path": "resources/views/admin-old/components/modal_photo.blade.php",
+      "blob": "e5ece24fe72c8d77484fb5c855aa0e4f56a06e0a"
+    },
+    {
+      "path": "resources/views/admin-old/contacts/index.blade.php",
+      "blob": "a1d3d7ef89fb53f41db5146ece83884425b4710b"
+    },
+    {
+      "path": "resources/views/admin-old/contracts/create.blade.php",
+      "blob": "215b51f5940d213a9d249cd9eb75d85935e8350f"
+    },
+    {
+      "path": "resources/views/admin-old/contracts/edit.blade.php",
+      "blob": "1b33e5639d66fa2a1c0dff3aa54fdd98f8d98e3f"
+    },
+    {
+      "path": "resources/views/admin-old/contracts/form.blade.php",
+      "blob": "83bf9212ad4ab0ce8b3e56670a6ca410f7bb4978"
+    },
+    {
+      "path": "resources/views/admin-old/contracts/index.blade.php",
+      "blob": "12acded6f9b0181899fb85e97cb48adbe1623ecd"
+    },
+    {
+      "path": "resources/views/admin-old/contracts/show.blade.php",
+      "blob": "ba37f1f6d782b743f56ea0bacc0f38393f8eca9d"
+    },
+    {
+      "path": "resources/views/admin-old/coupon_wheels.blade.php",
+      "blob": "f63d21bb2a6d7dc513425c9d88a9581f9488deeb"
+    },
+    {
+      "path": "resources/views/admin-old/env-setting.blade.php",
+      "blob": "6d22ddf518888594f500381aed9e83a1eab1b0ba"
+    },
+    {
+      "path": "resources/views/admin-old/fcm_notification.blade.php",
+      "blob": "7c38f6073fe3861b58454eac0922b8735c9b150c"
+    },
+    {
+      "path": "resources/views/admin-old/features/create.blade.php",
+      "blob": "60f4ccd630f356ea3f3c8eae89bab0ce38cb69e6"
+    },
+    {
+      "path": "resources/views/admin-old/features/edit.blade.php",
+      "blob": "bb135afe1bfa4fd3668387dd7aff02dbf1783b71"
+    },
+    {
+      "path": "resources/views/admin-old/features/form.blade.php",
+      "blob": "3adb248e1a592e0ecbe115997b670217234e767e"
+    },
+    {
+      "path": "resources/views/admin-old/features/index.blade.php",
+      "blob": "4c50804e21ddd2744e40d33b0fb6c4fa50e317f1"
+    },
+    {
+      "path": "resources/views/admin-old/features/show.blade.php",
+      "blob": "41b549722ae41e83e4d40f55849d190374b19d23"
+    },
+    {
+      "path": "resources/views/admin-old/home.blade.php",
+      "blob": "d50b6768a16a814dfd568f0e55b285eb031b6596"
+    },
+    {
+      "path": "resources/views/admin-old/index.blade.php",
+      "blob": "33aeb84ebe0be312ab5bab6851673a1c8e71b716"
+    },
+    {
+      "path": "resources/views/admin-old/layouts/alerts.blade.php",
+      "blob": "a11065a73a31ac3b3606c6d51506d48664476cbe"
+    },
+    {
+      "path": "resources/views/admin-old/layouts/footer.blade.php",
+      "blob": "94a7e1915cb13375ed0dbff85747a553c0a866c3"
+    },
+    {
+      "path": "resources/views/admin-old/layouts/header.blade.php",
+      "blob": "a952bcb3896fddef716e9f3d5dbc9e6a9df43086"
+    },
+    {
+      "path": "resources/views/admin-old/layouts/menu.blade.php",
+      "blob": "e7c6d087fce63a9101fd45931bb76e18510a3210"
+    },
+    {
+      "path": "resources/views/admin-old/layouts/navbar.blade.php",
+      "blob": "5503c6e340c29087edbb6933b1554fe77599ce3c"
+    },
+    {
+      "path": "resources/views/admin-old/login.blade.php",
+      "blob": "35b07ed2bd947797de0e5a84514e6d4f497839a1"
+    },
+    {
+      "path": "resources/views/admin-old/notifications.blade.php",
+      "blob": "51c046778dc069b1d7c607887e89a9ef8514598d"
+    },
+    {
+      "path": "resources/views/admin-old/orders/applies.blade.php",
+      "blob": "8199c2fa00efe3b3ecb2d45fe1b030830a2d960a"
+    },
+    {
+      "path": "resources/views/admin-old/orders/index.blade.php",
+      "blob": "e5c45385c6c3d2de725145e8dc0aa3439b377da5"
+    },
+    {
+      "path": "resources/views/admin-old/orders/show.blade.php",
+      "blob": "3653cd24e291419b4869d46ef1108bbed6852963"
+    },
+    {
+      "path": "resources/views/admin-old/orders/single_apply.blade.php",
+      "blob": "98da1c19957d429aa07d25b35d8101cd7a65579f"
+    },
+    {
+      "path": "resources/views/admin-old/partials/button_group.blade.php",
+      "blob": "542b8c303f414aa9d94527fab3bd2eba76d94695"
+    },
+    {
+      "path": "resources/views/admin-old/partials/card_header_in_index.blade.php",
+      "blob": "d5562b18b0fa3aa8e9ad108fb8edefafb079b6d7"
+    },
+    {
+      "path": "resources/views/admin-old/partials/search_home_part.blade.php",
+      "blob": "647e03d75a570f9e15b64be5dff058daacc096b8"
+    },
+    {
+      "path": "resources/views/admin-old/partials/search_part.blade.php",
+      "blob": "2e02c3f58feaa467e41388e84590184541216701"
+    },
+    {
+      "path": "resources/views/admin-old/pending_vendors/add-vendor.blade.php",
+      "blob": "3a868b13e82cbc90409eae6e69867d3c25f23e5e"
+    },
+    {
+      "path": "resources/views/admin-old/pending_vendors/index.blade.php",
+      "blob": "8cc1cd0a4fc215e9afd3c135f3b173d84a86e263"
+    },
+    {
+      "path": "resources/views/admin-old/pending_vendors/show.blade.php",
+      "blob": "7d27500ff89e2dbab08e3361e03cc89d3a682b60"
+    },
+    {
+      "path": "resources/views/admin-old/products/ajax-product-feature.blade.php",
+      "blob": "57d9c0ec19b8258d9ea0296cf81379679708a5c9"
+    },
+    {
+      "path": "resources/views/admin-old/products/ajax-product-select.blade.php",
+      "blob": "0bc3f9069839fb966487dda4b6839d245f938cc9"
+    },
+    {
+      "path": "resources/views/admin-old/products/ajax-subcategory-select.blade.php",
+      "blob": "b4477f84d7e469182dd619162a30c815188922af"
+    },
+    {
+      "path": "resources/views/admin-old/products/create.blade.php",
+      "blob": "8759c6d663add5766b18e9795ed0630b8593e0bc"
+    },
+    {
+      "path": "resources/views/admin-old/products/edit.blade.php",
+      "blob": "28a853d024bb86fb713b9983b557e7d44ec57ec9"
+    },
+    {
+      "path": "resources/views/admin-old/products/form.blade.php",
+      "blob": "1b25b7923c0656580d9c02fc4a4380faf71062f1"
+    },
+    {
+      "path": "resources/views/admin-old/products/index.blade.php",
+      "blob": "830758bf60f896758f0de0885743f7aea8775b2e"
+    },
+    {
+      "path": "resources/views/admin-old/products/preview-menu.blade.php",
+      "blob": "ce974d1cd15a507701526bce0cedd99ebddee750"
+    },
+    {
+      "path": "resources/views/admin-old/products/show.blade.php",
+      "blob": "51462469ef54fb433a1684541985e4c35d21b6ee"
+    },
+    {
+      "path": "resources/views/admin-old/question_answers/create.blade.php",
+      "blob": "b41f34c183df3b3b7a044a79311cc05cc392fcc5"
+    },
+    {
+      "path": "resources/views/admin-old/question_answers/edit.blade.php",
+      "blob": "1b741187d20047c95879d96401a9fc9027ccb71f"
+    },
+    {
+      "path": "resources/views/admin-old/question_answers/form.blade.php",
+      "blob": "1480742df87ac26eafbe5d936ab18ce3cb5d69ac"
+    },
+    {
+      "path": "resources/views/admin-old/question_answers/index.blade.php",
+      "blob": "8542da1d7cfcff077425a1e219c46f761995c2f1"
+    },
+    {
+      "path": "resources/views/admin-old/question_answers/show.blade.php",
+      "blob": "827da9644ec23a95610d04c3ec2743e2dfaecf03"
+    },
+    {
+      "path": "resources/views/admin-old/reports/customers_report.blade.php",
+      "blob": "b5b5ba9e553ff3b29c10866a5718d96592c98343"
+    },
+    {
+      "path": "resources/views/admin-old/reports/delegates_report.blade.php",
+      "blob": "f44470aaecfe03eb3658a53376e8e7540320f8e5"
+    },
+    {
+      "path": "resources/views/admin-old/reports/index.blade.php",
+      "blob": "50cdb9a10e2dcc6ef3d84e647fbb6c7702a2a2ec"
+    },
+    {
+      "path": "resources/views/admin-old/reports/orders_report.blade.php",
+      "blob": "cb6bb069469959f32a2e2a9088cc714715228c3a"
+    },
+    {
+      "path": "resources/views/admin-old/reports/resturants_report.blade.php",
+      "blob": "7416ef70862a703e5b2536e1692acbff437a3a6a"
+    },
+    {
+      "path": "resources/views/admin-old/reports/vendors_report.blade.php",
+      "blob": "120b48f29fded385487b52c7b8d5719cddfc0bcf"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/add-modal.blade.php",
+      "blob": "9aef2fbdc04c205cc110d0f6119454786354abf2"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/create.blade.php",
+      "blob": "b351fb3257aaefd9495d00ee8eabcf5ba53164db"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/edit-item.blade.php",
+      "blob": "b9b45dc72949d4902c6e92a62199ba48480c316a"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/edit.blade.php",
+      "blob": "83be237333548a540b061882b8d4c5299a7e36f4"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/form.blade.php",
+      "blob": "6726daf375555d1b9b57983f59b75409caaf3fe8"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/index.blade.php",
+      "blob": "c7a45d7b3fc4d5348baa4eeb78c5ed0a3e8e05fa"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/report.blade.php",
+      "blob": "74fc4618748d441af51d444093173383e11f818a"
+    },
+    {
+      "path": "resources/views/admin-old/resturants/show.blade.php",
+      "blob": "cdce39afeaad875a0109fc1092a0c8586a787531"
+    },
+    {
+      "path": "resources/views/admin-old/roles/create.blade.php",
+      "blob": "18de7d57cc9911f813784afe2241987bed184a9d"
+    },
+    {
+      "path": "resources/views/admin-old/roles/edit.blade.php",
+      "blob": "fb8b0d9f154f08aa5b30a3004198b9276428d390"
+    },
+    {
+      "path": "resources/views/admin-old/roles/index.blade.php",
+      "blob": "c60c48d18720c5680eb191f7a1aef5c7833c535d"
+    },
+    {
+      "path": "resources/views/admin-old/roles/show.blade.php",
+      "blob": "d840d7cc9507b59b95a5a6c720df94c690ba5fe6"
+    },
+    {
+      "path": "resources/views/admin-old/settings.blade.php",
+      "blob": "304070b398d98a4ca69390efbf2d3d2032f4dd75"
+    },
+    {
+      "path": "resources/views/admin-old/slidears/create.blade.php",
+      "blob": "c89a8f3221e51337f6c32444ba427da18cb4bae8"
+    },
+    {
+      "path": "resources/views/admin-old/slidears/edit.blade.php",
+      "blob": "f20bb727cf31704dd36a72ffc767195d22d29f8e"
+    },
+    {
+      "path": "resources/views/admin-old/slidears/form.blade.php",
+      "blob": "67583bca24efbe7f9709a32312ec9bdc0e35c6c9"
+    },
+    {
+      "path": "resources/views/admin-old/slidears/index.blade.php",
+      "blob": "63328ee4fe2075c233753ab5acea52f54a9074da"
+    },
+    {
+      "path": "resources/views/admin-old/slidears/show.blade.php",
+      "blob": "da2db29a85e60562b6d801552f5d9ce7be833565"
+    },
+    {
+      "path": "resources/views/admin-old/subscribers/index.blade.php",
+      "blob": "f32d3dfde4d3a143051978631f98d8cbd2856c2f"
+    },
+    {
+      "path": "resources/views/admin-old/users/create.blade.php",
+      "blob": "bc2a74aaced6092c800dee80c5483050cef31b49"
+    },
+    {
+      "path": "resources/views/admin-old/users/delegate_map.blade.php",
+      "blob": "71c3cc0a7f17944d509e6771180e9ec5cb4c820c"
+    },
+    {
+      "path": "resources/views/admin-old/users/edit.blade.php",
+      "blob": "e594e5fd83df785a8a86e1da2123ee2421d3e345"
+    },
+    {
+      "path": "resources/views/admin-old/users/form.blade.php",
+      "blob": "373df40b5eb2e6205879effffc95bb1508e3afee"
+    },
+    {
+      "path": "resources/views/admin-old/users/index.blade.php",
+      "blob": "641ea86e723c713a09bc530e7e5314e3afe75abc"
+    },
+    {
+      "path": "resources/views/admin-old/users/resturant_map.blade.php",
+      "blob": "4fdb681888a9566a82950c260b6857504e4643e8"
+    },
+    {
+      "path": "resources/views/admin-old/users/show.blade.php",
+      "blob": "e0860ebbeaceee9c8edf9f162af3d7f4a7a79415"
+    },
+    {
+      "path": "resources/views/admin-old/users/wallet.blade.php",
+      "blob": "1c6c05f833c7b9fa479e6df36cf31d5ac9407319"
+    },
+    {
+      "path": "resources/views/admin-old/wallets/form.blade.php",
+      "blob": "2fe423ca223a2bacd97dc9c988c7e354fab64fd7"
+    },
+    {
+      "path": "resources/views/admin-old/wallets/index.blade.php",
+      "blob": "61241d486dd1567b67560acf18f2c4fd639ee8b0"
+    },
+    {
+      "path": "resources/views/admin/admin_wallet.blade.php",
+      "blob": "a2a6395e23f3ab74a3cc4f2e1b32e7eb0e3bbd0e"
+    },
+    {
+      "path": "resources/views/admin/admins/create.blade.php",
+      "blob": "6a1693869fd4f189b38355cd1f2f5935d83a99bf"
+    },
+    {
+      "path": "resources/views/admin/admins/edit.blade.php",
+      "blob": "339908c4d8b70a581937a37c081ee1e335acfea9"
+    },
+    {
+      "path": "resources/views/admin/admins/show.blade.php",
+      "blob": "4fe340c1437237271ab5b6dd43846413398b1b38"
+    },
+    {
+      "path": "resources/views/admin/advertisings/create.blade.php",
+      "blob": "670678f834f705f917ee320a696cd21fac12c0b7"
+    },
+    {
+      "path": "resources/views/admin/advertisings/edit.blade.php",
+      "blob": "d035954c31b14883148d47d591695b2e11e08871"
+    },
+    {
+      "path": "resources/views/admin/advertisings/form.blade.php",
+      "blob": "0487c901c69fea15e40fbcf10d0b5f7a3f69def8"
+    },
+    {
+      "path": "resources/views/admin/advertisings/show.blade.php",
+      "blob": "da2db29a85e60562b6d801552f5d9ce7be833565"
+    },
+    {
+      "path": "resources/views/admin/areas/create.blade.php",
+      "blob": "e7cffcb28845b87077f908926268fb5ff1314a25"
+    },
+    {
+      "path": "resources/views/admin/areas/edit.blade.php",
+      "blob": "ac30bbaed348e5bf5f80923826697697eebd0815"
+    },
+    {
+      "path": "resources/views/admin/areas/form.blade.php",
+      "blob": "b8e2962379ff11bc404c3e6d5f5211690c35d3af"
+    },
+    {
+      "path": "resources/views/admin/banners/create.blade.php",
+      "blob": "11c7152de4ce82af8abf94901a56ce0c97444852"
+    },
+    {
+      "path": "resources/views/admin/banners/edit.blade.php",
+      "blob": "9c8a20d4f28973ecd54ae75edebec829e5893637"
+    },
+    {
+      "path": "resources/views/admin/banners/form.blade.php",
+      "blob": "e38ec185aa17211ca0f5ba7829deb38675ae8bac"
+    },
+    {
+      "path": "resources/views/admin/banners/show.blade.php",
+      "blob": "aa4bb1375325ee9375a01d039dd1bb9f48661202"
+    },
+    {
+      "path": "resources/views/admin/branch_operations/index.blade.php",
+      "blob": "77bf3905ca16ce839a6011815b05c3738d7a683c"
+    },
+    {
+      "path": "resources/views/admin/branch_orders/index.blade.php",
+      "blob": "65d189005c1b0049e102bf72bba2598bce548638"
+    },
+    {
+      "path": "resources/views/admin/branch_shifts/index.blade.php",
+      "blob": "65f0c137c71fe8530e540714eb461110bb98ea36"
+    },
+    {
+      "path": "resources/views/admin/branch_shifts/receipt.blade.php",
+      "blob": "be7426c799fcf30d06896f08e91ab4cda8d41d20"
+    },
+    {
+      "path": "resources/views/admin/branch_stock/index.blade.php",
+      "blob": "b15ae599e00e65e866253824089a35aaf6444a12"
+    },
+    {
+      "path": "resources/views/admin/bulk_notifications.blade.php",
+      "blob": "b6b30ab01cb4a78958f102a918676640965954b5"
+    },
+    {
+      "path": "resources/views/admin/categorys/create.blade.php",
+      "blob": "550f5118e86dae0c2155b9d1a7628756db1483ee"
+    },
+    {
+      "path": "resources/views/admin/categorys/edit.blade.php",
+      "blob": "1ff206a1ba4bdc972e1050999582002a7c8295ac"
+    },
+    {
+      "path": "resources/views/admin/categorys/form.blade.php",
+      "blob": "6c2d157db80b792ce0d946ba78c0832214400922"
+    },
+    {
+      "path": "resources/views/admin/categorys/show.blade.php",
+      "blob": "0026c347bffb68bc037a1fda2c8c8e802ceb840b"
+    },
+    {
+      "path": "resources/views/admin/choose_type.blade.php",
+      "blob": "fe08f0ff2ac5b8ca8b2c3c4225ca20d5400f24cc"
+    },
+    {
+      "path": "resources/views/admin/components/modal_photo.blade.php",
+      "blob": "e5ece24fe72c8d77484fb5c855aa0e4f56a06e0a"
+    },
+    {
+      "path": "resources/views/admin/contracts/create.blade.php",
+      "blob": "215b51f5940d213a9d249cd9eb75d85935e8350f"
+    },
+    {
+      "path": "resources/views/admin/contracts/edit.blade.php",
+      "blob": "1b33e5639d66fa2a1c0dff3aa54fdd98f8d98e3f"
+    },
+    {
+      "path": "resources/views/admin/contracts/show.blade.php",
+      "blob": "ba37f1f6d782b743f56ea0bacc0f38393f8eca9d"
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels.blade.php",
+      "blob": "f63d21bb2a6d7dc513425c9d88a9581f9488deeb"
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/create.blade.php",
+      "blob": "9423d75a43e6502beba98cf964623da1bd56016e"
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/edit.blade.php",
+      "blob": "24cc77617c5c3a15c0d353419d59c67abd820c35"
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/form.blade.php",
+      "blob": "d9e227f11bc4a928993e67bf3c7f0879357dd397"
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/show.blade.php",
+      "blob": "2e72dfddd853769e416225a62d79c71ac79343dc"
+    },
+    {
+      "path": "resources/views/admin/customer_crm/index.blade.php",
+      "blob": "b423c3296217b1b6413ea7e6e96c84466b1cb9e7"
+    },
+    {
+      "path": "resources/views/admin/desktop_pos/index.blade.php",
+      "blob": "95aef94f352c70dbc3cf71fc3aa032a1c2547b4c"
+    },
+    {
+      "path": "resources/views/admin/dining/index.blade.php",
+      "blob": "620bb4abbe5856b95dea70a4cca1c02118dee2de"
+    },
+    {
+      "path": "resources/views/admin/expenses/index.blade.php",
+      "blob": "d0feb08e51b89669feda6562391ec95bce137126"
+    },
+    {
+      "path": "resources/views/admin/expenses/receipt.blade.php",
+      "blob": "8307a283d2df709506a0fa869ff07a6d6292bed8"
+    },
+    {
+      "path": "resources/views/admin/expenses/report.blade.php",
+      "blob": "2b7f06bc9c6d55460d04363c4756a8a388715323"
+    },
+    {
+      "path": "resources/views/admin/fcm_notification.blade.php",
+      "blob": "e0eb1049cc9f6657877ad5ba4e7feafc8e84a2c7"
+    },
+    {
+      "path": "resources/views/admin/features/create.blade.php",
+      "blob": "60f4ccd630f356ea3f3c8eae89bab0ce38cb69e6"
+    },
+    {
+      "path": "resources/views/admin/features/edit.blade.php",
+      "blob": "bb135afe1bfa4fd3668387dd7aff02dbf1783b71"
+    },
+    {
+      "path": "resources/views/admin/features/form.blade.php",
+      "blob": "3adb248e1a592e0ecbe115997b670217234e767e"
+    },
+    {
+      "path": "resources/views/admin/features/show.blade.php",
+      "blob": "41b549722ae41e83e4d40f55849d190374b19d23"
+    },
+    {
+      "path": "resources/views/admin/go_stores/application_review.blade.php",
+      "blob": "c98adef61a68e3feecd5632dde5dd4809efeb8c2"
+    },
+    {
+      "path": "resources/views/admin/go_stores/create.blade.php",
+      "blob": "32fa8bf5b368564f2727b9fda962e9f745210dfc"
+    },
+    {
+      "path": "resources/views/admin/go_stores/index.blade.php",
+      "blob": "f8bb102d233505d5562a637c697f7b71ec27be44"
+    },
+    {
+      "path": "resources/views/admin/go_stores/product.blade.php",
+      "blob": "41d7a170092b8199f75cd0bb63fea762255c5e39"
+    },
+    {
+      "path": "resources/views/admin/go_stores/show.blade.php",
+      "blob": "3ce94ec3cd931b6f227a8566bdb3c7b0ad3a19ba"
+    },
+    {
+      "path": "resources/views/admin/home.blade.php",
+      "blob": "c601777b8567a5903de7a8489deaea40dc250d05"
+    },
+    {
+      "path": "resources/views/admin/home_branch.blade.php",
+      "blob": "4e19ba46e0d503346392a47a4555fa0808602f57"
+    },
+    {
+      "path": "resources/views/admin/home_owner.blade.php",
+      "blob": "c2cf911570e1ec32e13ecd9e746faba084c075d0"
+    },
+    {
+      "path": "resources/views/admin/index.blade.php",
+      "blob": "fabc2b2fc836348565efd372a5b5e62ce7b533b4"
+    },
+    {
+      "path": "resources/views/admin/layouts/alerts.blade.php",
+      "blob": "a11065a73a31ac3b3606c6d51506d48664476cbe"
+    },
+    {
+      "path": "resources/views/admin/layouts/footer.blace.php",
+      "blob": "149b86d1de05447f0baffb0a9ee3cb2dba7777a2"
+    },
+    {
+      "path": "resources/views/admin/layouts/menu.blade.php",
+      "blob": "28953576da6db9e15e4f8d6c41fd8dabc2d2636b"
+    },
+    {
+      "path": "resources/views/admin/layouts/notification-scripts.blade.php",
+      "blob": "d0c9d5bf47713b7c5eeef0dff52ff9f19c301da8"
+    },
+    {
+      "path": "resources/views/admin/maps/assets.blade.php",
+      "blob": "d1654a972b5dbba699a0db88af1f038777501c3c"
+    },
+    {
+      "path": "resources/views/admin/maps/directory.blade.php",
+      "blob": "98da7fda63952e0b6d9b601b4e715bcd112fcc86"
+    },
+    {
+      "path": "resources/views/admin/meta/ai_controls.blade.php",
+      "blob": "82f842ae0275dbf785d23ed1ed6e992b4d78cb45"
+    },
+    {
+      "path": "resources/views/admin/meta/channels.blade.php",
+      "blob": "c922fd431ca3df5b12f6aeef05c0885bc0da3049"
+    },
+    {
+      "path": "resources/views/admin/meta/comments.blade.php",
+      "blob": "b10df9937986c330282cdf611589d7b1ab71d080"
+    },
+    {
+      "path": "resources/views/admin/meta/connection.blade.php",
+      "blob": "006dd737eee8a87871d279251d21c5044c777c5f"
+    },
+    {
+      "path": "resources/views/admin/meta/index.blade.php",
+      "blob": "3d1a2a7a2d5af960a9ecdf3fee4e8895ab468aa9"
+    },
+    {
+      "path": "resources/views/admin/meta/orders.blade.php",
+      "blob": "91238d0263c9d4442634e5e965f603f992655090"
+    },
+    {
+      "path": "resources/views/admin/meta/replies.blade.php",
+      "blob": "9251a7defe180ad1477d71a67f1827026b860ef8"
+    },
+    {
+      "path": "resources/views/admin/meta/sidebar.blade.php",
+      "blob": "62b1ffa41982517492f670efca027776d39b3324"
+    },
+    {
+      "path": "resources/views/admin/meta/social-pane.blade.php",
+      "blob": "84dd676c46ce58ae690599106665600cfbac19ca"
+    },
+    {
+      "path": "resources/views/admin/orders/ajax-modal.blade.php",
+      "blob": "983658087a16f2dfee94cfa150857b88b5ef2356"
+    },
+    {
+      "path": "resources/views/admin/orders/applies.blade.php",
+      "blob": "251aac0cf5e1f034315bfa83f314684fc567034b"
+    },
+    {
+      "path": "resources/views/admin/orders/applies_old.blade.php",
+      "blob": "8072f8a5638582057dc109d4fd9474d354be034b"
+    },
+    {
+      "path": "resources/views/admin/orders/board.blade.php",
+      "blob": "2713b74841cd986924d0b475349f796df86f0068"
+    },
+    {
+      "path": "resources/views/admin/orders/board_columns.blade.php",
+      "blob": "b56b13bafe68c15799901799148c4e8fcf61ebd4"
+    },
+    {
+      "path": "resources/views/admin/orders/board_detail.blade.php",
+      "blob": "ef6c357fcaff06fbc5d125e14be352138214a822"
+    },
+    {
+      "path": "resources/views/admin/orders/board_items.blade.php",
+      "blob": "f1c4b296e914f245ef225cd479124c01b1e4731d"
+    },
+    {
+      "path": "resources/views/admin/orders/board_menu.blade.php",
+      "blob": "b0bd80d4a84e72ebcca948b34864ed44244fd00f"
+    },
+    {
+      "path": "resources/views/admin/orders/index.blade.php",
+      "blob": "3b5ba9c620afd790774b9f1063b350ec5f0d2765"
+    },
+    {
+      "path": "resources/views/admin/orders/order_card.blade.php",
+      "blob": "f6c5320fde3a1676c84cfd25a892de2fdfb5716a"
+    },
+    {
+      "path": "resources/views/admin/orders/order_section.blade.php",
+      "blob": "e149dd3f2fc30aa258bf1409c65eb88e31a57b66"
+    },
+    {
+      "path": "resources/views/admin/orders/shipping.blade.php",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "resources/views/admin/orders/shipping_show.blade.php",
+      "blob": "5bf773830eb290993e4051e3c27de7995a9bb7a0"
+    },
+    {
+      "path": "resources/views/admin/orders/show.blade.php",
+      "blob": "2914f2df940ebdc69071c74ef0ceea2b68cfb8e8"
+    },
+    {
+      "path": "resources/views/admin/orders/single_apply.blade.php",
+      "blob": "9392c59a2c847c4ae07babc8feb5abe68aa78147"
+    },
+    {
+      "path": "resources/views/admin/partials/button_group.blade.php",
+      "blob": "542b8c303f414aa9d94527fab3bd2eba76d94695"
+    },
+    {
+      "path": "resources/views/admin/partials/card_header_in_index.blade.php",
+      "blob": "d5562b18b0fa3aa8e9ad108fb8edefafb079b6d7"
+    },
+    {
+      "path": "resources/views/admin/partials/go_erp_logo.blade.php",
+      "blob": "ecc318d991576d162693ad1e1e8d5a9292e3658b"
+    },
+    {
+      "path": "resources/views/admin/partials/search_home_part.blade.php",
+      "blob": "647e03d75a570f9e15b64be5dff058daacc096b8"
+    },
+    {
+      "path": "resources/views/admin/partials/search_part.blade.php",
+      "blob": "c112651ee840d9f2c9799a7264351eea5387252a"
+    },
+    {
+      "path": "resources/views/admin/pending_vendors/add-vendor.blade.php",
+      "blob": "624fd7847b4d6882e5fc31cbbc9e6752dad1aebc"
+    },
+    {
+      "path": "resources/views/admin/pending_vendors/edit.blade.php",
+      "blob": "21eda64146aba3e67a21cb27d71bba69a19f6f16"
+    },
+    {
+      "path": "resources/views/admin/pending_vendors/show.blade.php",
+      "blob": "30048408844aedac27f7f5b88eddc3cbc68a4818"
+    },
+    {
+      "path": "resources/views/admin/phone_orders/batch_receipt.blade.php",
+      "blob": "708a574088e7e9e77728efe8fd4ce0d611316bae"
+    },
+    {
+      "path": "resources/views/admin/pos_service/context.blade.php",
+      "blob": "10193ee7292ae5cd697835a220aa03c1d0f32ea3"
+    },
+    {
+      "path": "resources/views/admin/pos_service/kitchen.blade.php",
+      "blob": "feaa388b3a7f4a0b218386184263c17e445eba76"
+    },
+    {
+      "path": "resources/views/admin/pos_service/receiver.blade.php",
+      "blob": "ca52ef9c8cc20cc25be521cd99e34bf873f54af0"
+    },
+    {
+      "path": "resources/views/admin/pos_service/ticket.blade.php",
+      "blob": "5e818706d6d4ba889f6a8cef87e794349c64fee5"
+    },
+    {
+      "path": "resources/views/admin/print_settings/index.blade.php",
+      "blob": "60d167f7cbe6d94994851e0763225dd48b095b17"
+    },
+    {
+      "path": "resources/views/admin/print_settings/test.blade.php",
+      "blob": "aba4476d350e1727c33a9174dee220af505a53f8"
+    },
+    {
+      "path": "resources/views/admin/products/ajax-product-feature.blade.php",
+      "blob": "57d9c0ec19b8258d9ea0296cf81379679708a5c9"
+    },
+    {
+      "path": "resources/views/admin/products/ajax-product-select.blade.php",
+      "blob": "0bc3f9069839fb966487dda4b6839d245f938cc9"
+    },
+    {
+      "path": "resources/views/admin/products/ajax-subcategory-select.blade.php",
+      "blob": "b4477f84d7e469182dd619162a30c815188922af"
+    },
+    {
+      "path": "resources/views/admin/products/create.blade.php",
+      "blob": "8759c6d663add5766b18e9795ed0630b8593e0bc"
+    },
+    {
+      "path": "resources/views/admin/products/edit.blade.php",
+      "blob": "28a853d024bb86fb713b9983b557e7d44ec57ec9"
+    },
+    {
+      "path": "resources/views/admin/products/form.blade.php",
+      "blob": "44dd4da62126941baf70374de99cbeb5cc8b8fa8"
+    },
+    {
+      "path": "resources/views/admin/products/preview-menu.blade.php",
+      "blob": "ce974d1cd15a507701526bce0cedd99ebddee750"
+    },
+    {
+      "path": "resources/views/admin/products/show.blade.php",
+      "blob": "51462469ef54fb433a1684541985e4c35d21b6ee"
+    },
+    {
+      "path": "resources/views/admin/question_answers/create.blade.php",
+      "blob": "b41f34c183df3b3b7a044a79311cc05cc392fcc5"
+    },
+    {
+      "path": "resources/views/admin/question_answers/edit.blade.php",
+      "blob": "1b741187d20047c95879d96401a9fc9027ccb71f"
+    },
+    {
+      "path": "resources/views/admin/question_answers/form.blade.php",
+      "blob": "1480742df87ac26eafbe5d936ab18ce3cb5d69ac"
+    },
+    {
+      "path": "resources/views/admin/question_answers/show.blade.php",
+      "blob": "827da9644ec23a95610d04c3ec2743e2dfaecf03"
+    },
+    {
+      "path": "resources/views/admin/reports/index.blade.php",
+      "blob": "5d5f9471bbe3ed1c991170db2e0a1963db913caa"
+    },
+    {
+      "path": "resources/views/admin/reports/resturants_report.blade.php",
+      "blob": "480a8f1249027d4d7a18790ff8a3a8f01ad00558"
+    },
+    {
+      "path": "resources/views/admin/resturants/add-modal.blade.php",
+      "blob": "2dd1b439a218784976d5ba1163c79af0a6bc1032"
+    },
+    {
+      "path": "resources/views/admin/resturants/create.blade.php",
+      "blob": "b351fb3257aaefd9495d00ee8eabcf5ba53164db"
+    },
+    {
+      "path": "resources/views/admin/resturants/edit.blade.php",
+      "blob": "83be237333548a540b061882b8d4c5299a7e36f4"
+    },
+    {
+      "path": "resources/views/admin/resturants/form.blade.php",
+      "blob": "a3fc617dc901ac1a1b7430466cb706b3873d3ee5"
+    },
+    {
+      "path": "resources/views/admin/resturants/report.blade.php",
+      "blob": "5a5a3f3906e8bbcf9a3030933e8dea9935cee19d"
+    },
+    {
+      "path": "resources/views/admin/roles/create.blade.php",
+      "blob": "ac0e91e43aa7cd54d9b208c8801344b3a40305e6"
+    },
+    {
+      "path": "resources/views/admin/roles/edit.blade.php",
+      "blob": "6f25fb71995966175c8a6cfef48a9599e2390813"
+    },
+    {
+      "path": "resources/views/admin/roles/show.blade.php",
+      "blob": "5e96aa668584b9b5ca3ddc2c270dc5aee8798a3f"
+    },
+    {
+      "path": "resources/views/admin/slidears/create.blade.php",
+      "blob": "c89a8f3221e51337f6c32444ba427da18cb4bae8"
+    },
+    {
+      "path": "resources/views/admin/slidears/edit.blade.php",
+      "blob": "f20bb727cf31704dd36a72ffc767195d22d29f8e"
+    },
+    {
+      "path": "resources/views/admin/slidears/form.blade.php",
+      "blob": "67583bca24efbe7f9709a32312ec9bdc0e35c6c9"
+    },
+    {
+      "path": "resources/views/admin/slidears/show.blade.php",
+      "blob": "da2db29a85e60562b6d801552f5d9ce7be833565"
+    },
+    {
+      "path": "resources/views/admin/takeaway/index.blade.php",
+      "blob": "55896fb908ad8dbfc81c17270334f34f94165b2b"
+    },
+    {
+      "path": "resources/views/admin/takeaway/receipt.blade.php",
+      "blob": "4c695c375100e8d067d0589bd46bf2f88d9fcdc2"
+    },
+    {
+      "path": "resources/views/admin/users/create.blade.php",
+      "blob": "bc2a74aaced6092c800dee80c5483050cef31b49"
+    },
+    {
+      "path": "resources/views/admin/users/delegate_map.blade.php",
+      "blob": "43685094ab6c279bb6b8fe2c8a9cc21dd7b50057"
+    },
+    {
+      "path": "resources/views/admin/users/edit.blade.php",
+      "blob": "fc458460511370b8f6c77a1fe0093f7653c619a4"
+    },
+    {
+      "path": "resources/views/admin/users/form.blade.php",
+      "blob": "2d89991b4b668877694d2d74ba39dedcaaf2069a"
+    },
+    {
+      "path": "resources/views/admin/users/resturant_map.blade.php",
+      "blob": "bebc81088840a83a70d8ee5401cdbb625f3ff960"
+    },
+    {
+      "path": "resources/views/admin/users/wallet.blade.php",
+      "blob": "414abe2b697a9d740e8fc152593d24b4bebd0262"
+    },
+    {
+      "path": "resources/views/admin/wallets/form.blade.php",
+      "blob": "2fe423ca223a2bacd97dc9c988c7e354fab64fd7"
+    },
+    {
+      "path": "resources/views/admin/wallets/index.blade.php",
+      "blob": "61241d486dd1567b67560acf18f2c4fd639ee8b0"
+    },
+    {
+      "path": "resources/views/admin/wallets/transactions.blade.php",
+      "blob": "be5617ab04166fbc04a521758270aeb842ef4c29"
+    },
+    {
+      "path": "resources/views/admin/wallets/withdraw.blade.php",
+      "blob": "321956fb22fdf7c8d10a0ff381d85b4793c336ae"
+    },
+    {
+      "path": "resources/views/admin/wallets/withdraw_form.blade.php",
+      "blob": "411439f7a594a148c1e0ce77fa6d681cd5ad4b25"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/chat-pane.blade.php",
+      "blob": "779f1f80586390f31fd295fecc411e3e6448fa3b"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/index.blade.php",
+      "blob": "57478905af637dd43b251568276b7f6e2e12f4ca"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/orders.blade.php",
+      "blob": "54a9db4693091c4bb0a6b6924e73791e249f2308"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/replies.blade.php",
+      "blob": "6386debd6e20836cc1023cefc7868e214ce7f0f0"
+    },
+    {
+      "path": "resources/views/admin/whatsapp/sidebar.blade.php",
+      "blob": "4610de3333bab7e0e4e0e9855c7df9348b4cb597"
+    },
+    {
+      "path": "resources/views/dailyDelegateReport.blade.php",
+      "blob": "6760736c99f9601efa5289818ddb0509d8be7115"
+    },
+    {
+      "path": "resources/views/dailyVendorReport.blade.php",
+      "blob": "2a7d3e140f74d090a2a249bd50066ea010735522"
+    },
+    {
+      "path": "resources/views/emails/activate_account.blade.php",
+      "blob": "66f5bc3a8f017606e0d4b3413afe8b8bf3bbb35b"
+    },
+    {
+      "path": "resources/views/emails/branch_stock_minimum.blade.php",
+      "blob": "6b1b2dad93ab0e08bbc22960d67bb3e9ea467ea6"
+    },
+    {
+      "path": "resources/views/emails/forget_password.blade.php",
+      "blob": "101f3a7b8401d8d820714b6fc0ccf43a19222c84"
+    },
+    {
+      "path": "resources/views/emails/partner_verification_code.blade.php",
+      "blob": "22f921190ed58f43ea90fe21f600e40341d89b2c"
+    },
+    {
+      "path": "resources/views/emails/reminder_today_orders_email.blade.php",
+      "blob": "0613127d47dcfabc43ac62f2a297af0957222772"
+    },
+    {
+      "path": "resources/views/emails/resturant_schedule_order.blade.php",
+      "blob": "5a1e15bd79dfb393a93b9f45733da3b99e8bdf8a"
+    },
+    {
+      "path": "resources/views/emails/send_daily_vendor_orders.blade.php",
+      "blob": "75c58366a386362bb9238b8451a52cea8932f3da"
+    },
+    {
+      "path": "resources/views/emails/send_monthly_vendor_orders.blade.php",
+      "blob": "8697e5e42ce6d3b1168cd5e9b27db34bf8251a7f"
+    },
+    {
+      "path": "resources/views/emails/send_order_email.blade.php",
+      "blob": "dce09edb843e81f754afff594dc80c7208d83698"
+    },
+    {
+      "path": "resources/views/emails/send_order_email_old.blade.php",
+      "blob": "5da5ca7497d1931ec3c79f9b5731750a138c05c3"
+    },
+    {
+      "path": "resources/views/emails/send_order_rate_email.blade.php",
+      "blob": "1fe0a5dc0763d4ff4127590cd9e9fe1b225a2300"
+    },
+    {
+      "path": "resources/views/emails/send_pending_vendor_acceptance_email.blade.php",
+      "blob": "4545f2bc3f1457e64f1ad48a0d63bb9db3bffb65"
+    },
+    {
+      "path": "resources/views/emails/send_pending_vendor_decline_email.blade.php",
+      "blob": "53ebc7f4c9bf8c1c84fd2c20e895f607db671b7e"
+    },
+    {
+      "path": "resources/views/emails/send_subscriber_email.blade.php",
+      "blob": "5573b87910167efda4b58841c975afa4e602d137"
+    },
+    {
+      "path": "resources/views/emails/send_yearly_vendor_orders.blade.php",
+      "blob": "54992e40eaa5c54f35efaf9aae3bda0afabb3ea6"
+    },
+    {
+      "path": "resources/views/errors/404.blade.php",
+      "blob": "ce93ba9b2e85463247373d95fe4ce4d9d9c1c2f2"
+    },
+    {
+      "path": "resources/views/financialpdfview.blade.php",
+      "blob": "d5570c36adc818d449ee16cc295e919c960a34bc"
+    },
+    {
+      "path": "resources/views/generateQr.blade.php",
+      "blob": "45cd6184f787fc4390287787f949de7521ca9b9a"
+    },
+    {
+      "path": "resources/views/pdfOrder-old.blade.php",
+      "blob": "50ca04469c5c3e085391be9b6137ac9fa02ec190"
+    },
+    {
+      "path": "resources/views/pdfOrder.blade.php",
+      "blob": "eec04dad5fdc6f0154cad5cebb07f2e82ea37002"
+    },
+    {
+      "path": "resources/views/printReceipt.blade.php",
+      "blob": "e4624d8f8381be78ba60fa48171aa91005b3adbc"
+    },
+    {
+      "path": "resources/views/site/about-us.blade.php",
+      "blob": "48f27b86f93530d1c08009caab12b92348d34a51"
+    },
+    {
+      "path": "resources/views/site/contact-us.blade.php",
+      "blob": "26b35ba823d1d41858e636e58dc1484aa9c76b22"
+    },
+    {
+      "path": "resources/views/site/features.blade.php",
+      "blob": "f11260c256285d46eee7442a4d5e3d3f11eea322"
+    },
+    {
+      "path": "resources/views/site/home.blade.php",
+      "blob": "534243c5eccd87c31c3e992959e69cf261ff3abb"
+    },
+    {
+      "path": "resources/views/site/includes/about-section.blade.php",
+      "blob": "98e5b6ca2cd01dac99d42f92cc4676b2f39926de"
+    },
+    {
+      "path": "resources/views/site/includes/breadcrumb-section.blade.php",
+      "blob": "000b1f12c90a64a58983f90b8a6dbd6628f90580"
+    },
+    {
+      "path": "resources/views/site/includes/feature-section.blade.php",
+      "blob": "9288f36816e9b727312457695ee41ef23e73c7ee"
+    },
+    {
+      "path": "resources/views/site/includes/meta-section.blade.php",
+      "blob": "9212ab2f2b07a5003b4deca8ea6611449bc20f32"
+    },
+    {
+      "path": "resources/views/site/includes/screen-section.blade.php",
+      "blob": "98af9165b5419ea8f4cd17c4f952a0a57693e6d1"
+    },
+    {
+      "path": "resources/views/site/index.blade.php",
+      "blob": "5100a6f48e6e960b61ac65f4b466e08474030d94"
+    },
+    {
+      "path": "resources/views/site/layouts/footer.blade.php",
+      "blob": "8bddeb7470ba27f78220a3ddd9bb8e6226da4abf"
+    },
+    {
+      "path": "resources/views/site/layouts/header.blade.php",
+      "blob": "00883bba4c660732a276889d0117c530158ba6bb"
+    },
+    {
+      "path": "resources/views/site/layouts/navbar.blade.php",
+      "blob": "d846affa7cb6e434cd29b2103891a84d1abb8aa1"
+    },
+    {
+      "path": "resources/views/site/payFailed.blade.php",
+      "blob": "0d57df05298ec38d3043df1518118272114ed978"
+    },
+    {
+      "path": "resources/views/site/paySuccess.blade.php",
+      "blob": "5c8eea439c2118f08d4e3bc205848d3e39f3fc19"
+    },
+    {
+      "path": "resources/views/site/screens.blade.php",
+      "blob": "865547e26145558eaa129b06fe5cc9aa47edda78"
+    },
+    {
+      "path": "resources/views/site/seo/cards.blade.php",
+      "blob": "49bfa74e9af07dff7bb8e309195e6889bcc3bb70"
+    },
+    {
+      "path": "resources/views/site/seo/category.blade.php",
+      "blob": "1feb92716150b8fd00b8db955d58dfbd472ac176"
+    },
+    {
+      "path": "resources/views/site/seo/head.blade.php",
+      "blob": "f2cbb2941effe28d9ce1d5a717e889a2946ad380"
+    },
+    {
+      "path": "resources/views/site/seo/home-products.blade.php",
+      "blob": "d8b3be53c7b0f946e78b29aec9b1cb02ed9e940b"
+    },
+    {
+      "path": "resources/views/site/seo/index.blade.php",
+      "blob": "69b339ab441c1774edef7e90d40657aacccc31b1"
+    },
+    {
+      "path": "resources/views/site/seo/layout.blade.php",
+      "blob": "43cc97ad0e6cae1f2249ba87739f7cb58df77e02"
+    },
+    {
+      "path": "resources/views/vendor/ckeditor/example.blade.php",
+      "blob": "663fefa5a70f6b01eff9175e99880615398400ec"
+    },
+    {
+      "path": "resources/views/vendor/ckeditor/parts/basic.blade.php",
+      "blob": "e438909920753ff12eff042f80d89f95ce4de772"
+    },
+    {
+      "path": "resources/views/vendor/ckeditor/parts/customized.blade.php",
+      "blob": "b82aff1a373774673490c4927ef7c2bf5dc958d7"
+    },
+    {
+      "path": "resources/views/vendor/ckeditor/parts/full.blade.php",
+      "blob": "b82aff1a373774673490c4927ef7c2bf5dc958d7"
+    },
+    {
+      "path": "resources/views/vendor/ckeditor/parts/standard.blade.php",
+      "blob": "31f19634c97c163fde3e7a0576744f2c9929e6b3"
+    },
+    {
+      "path": "resources/views/vendor/pagination/bootstrap-4.blade.php",
+      "blob": "63c6f56b59e0b2ed1c88c32e3197f05daab80e76"
+    },
+    {
+      "path": "resources/views/vendor/pagination/custom.blade.php",
+      "blob": "9059bb7849441649c71a6c5cdf8f0cd96a60baa3"
+    },
+    {
+      "path": "resources/views/vendor/pagination/default.blade.php",
+      "blob": "0db70b56275c4f0d215e000020a5ba43c20ca874"
+    },
+    {
+      "path": "resources/views/vendor/pagination/semantic-ui.blade.php",
+      "blob": "ef0dbb184c63d8011a59df68410a439c22c26ade"
+    },
+    {
+      "path": "resources/views/vendor/pagination/simple-bootstrap-4.blade.php",
+      "blob": "4bb491742a3d30c6a9226719a83975de001b1e1b"
+    },
+    {
+      "path": "resources/views/vendor/pagination/simple-default.blade.php",
+      "blob": "36bdbc18c655b0ed852e627419d7c739fed226fc"
+    },
+    {
+      "path": "resources/views/vendor/pagination/simple-tailwind.blade.php",
+      "blob": "6872cca360d5e11ed6df0ea78836130425b2b6f7"
+    },
+    {
+      "path": "resources/views/vendor/pagination/tailwind.blade.php",
+      "blob": "2dd4d0ef33892a0b7f7ac90f9f97fb864f90934c"
+    },
+    {
+      "path": "resources/views/welcome.blade.php",
+      "blob": "58d14674a8c53fccfac390aea86761393d18727f"
+    },
+    {
+      "path": "routes/api_cancel.php",
+      "blob": "f5b8355e4de596bd2556e6da601c203d6dcb7a7e"
+    },
+    {
+      "path": "routes/branch_expenses.php",
+      "blob": "88e9331dc6e809616d617f21abe2e02499863a15"
+    },
+    {
+      "path": "routes/branch_operations.php",
+      "blob": "198a13496f3c8fef6b13a17b79d4bad73cb12e3f"
+    },
+    {
+      "path": "routes/branch_shifts.php",
+      "blob": "4ca7273f647e85d0636b893793e240bac122d77d"
+    },
+    {
+      "path": "routes/branch_stock.php",
+      "blob": "a87a8587af7f3c3711f54444c89c93329390075d"
+    },
+    {
+      "path": "routes/channels.php",
+      "blob": "f413452b44065bc52c7e479e6b30d9963846bef0"
+    },
+    {
+      "path": "routes/console.php",
+      "blob": "e05f4c9a1b27a35c20ac897b44dfb7a9238ff9b7"
+    },
+    {
+      "path": "routes/customer_crm_api.php",
+      "blob": "ae68227ca84f7fc4c4de9376e6d51262b3e1e210"
+    },
+    {
+      "path": "routes/desktop_pos.php",
+      "blob": "d85b0aaf1cc5f39b97618341e9497533f281d8b8"
+    },
+    {
+      "path": "routes/go_services.php",
+      "blob": "ea342092456f5eb9cf7dd037142ad8b515a899ed"
+    },
+    {
+      "path": "routes/meta_ai_controls.php",
+      "blob": "8a89374a33002b88f7ed593d6aab5817aa3cf2a4"
+    },
+    {
+      "path": "routes/meta_comment_ai.php",
+      "blob": "cd7c48d4e091921b127568269e8139414aa38e48"
+    },
+    {
+      "path": "routes/meta_comments.php",
+      "blob": "66e6c162c630a3285de9b37b54c706fc1076f0f0"
+    },
+    {
+      "path": "routes/meta_inbox.php",
+      "blob": "2b5f992b8392be450a032d71d5a625a8aeed822e"
+    },
+    {
+      "path": "routes/meta_messaging.php",
+      "blob": "169390308048ef05f4d08e2619874d2040d574d9"
+    },
+    {
+      "path": "routes/meta_orders.php",
+      "blob": "b6414b7cf2e7cece0af3a4d38565bff0f677bb28"
+    },
+    {
+      "path": "routes/meta_reads.php",
+      "blob": "5f01add56dbe957d0d33abb56da5cb8329014d1a"
+    },
+    {
+      "path": "routes/meta_replies.php",
+      "blob": "bf46f2b1f94f32d9e4e0c96daa41279d9daf8df6"
+    },
+    {
+      "path": "routes/order_board.php",
+      "blob": "d94ee16e92341998e51593f963170763bbf91e52"
+    },
+    {
+      "path": "routes/order_live_activity.php",
+      "blob": "c9564cd2efcc0a5503bf4295df08f3070387ecc0"
+    },
+    {
+      "path": "routes/pos_service.php",
+      "blob": "2f8a1b9bc3ca7859711490c6a4ba9167186ebdf7"
+    },
+    {
+      "path": "routes/takeaway.php",
+      "blob": "64dd4ff5d1c0273ead249cc29df0bab56f2f92c0"
+    },
+    {
+      "path": "routes/web.php",
+      "blob": "672cb9f6a339ac612daf7ef94deba95a9cbd0f21"
+    },
+    {
+      "path": "routes/web_storefront.php",
+      "blob": "e5eda97241c23b4ce67140a903bef252641812cc"
+    },
+    {
+      "path": "routes/web_storefront_seo.php",
+      "blob": "961ca1c4dd89f8a79aa97f61ba817c3e78c4e9c2"
+    },
+    {
+      "path": "routes/whatsapp.php",
+      "blob": "c47508b3cf7fbcddf9a465cfac461b645143fb9c"
+    },
+    {
+      "path": "routes/whatsapp_inbox.php",
+      "blob": "08eaa489f53cb8b4db3012a0b33c1beafc6d0289"
+    },
+    {
+      "path": "routes/whatsapp_orders.php",
+      "blob": "b1932548cd0cd3af5d35bf2cc489df42f9faa8e9"
+    },
+    {
+      "path": "routes/whatsapp_reads.php",
+      "blob": "d2aa9b0819c2f15dc985e24787d30f3c5da92fbb"
+    },
+    {
+      "path": "routes/whatsapp_replies.php",
+      "blob": "61a5ea46e5bba6dcd971e1b2bc8b3cbaae3c22e8"
     }
   ],
   "migrations": [

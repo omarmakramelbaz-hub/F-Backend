@@ -15,7 +15,7 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
     constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;}
-    getVersion(){return '0.3.0-preview.1';}setPath(){}
+    getVersion(){return '0.3.0-preview.1';}setName(value){this.displayName=value;}setPath(name,value){(this.paths||=new Map()).set(name,value);}
     whenReady(){return Promise.resolve();}getPath(){return profile;}requestSingleInstanceLock(){return true;}
     quit(){if(this.exited)return;if(++this.quitCalls>10)throw Error('recursive quit');const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('before-quit',event);if(event.prevented)return;
       for(const window of [...windows])if(!window.destroyed)window.close();this.emit('will-quit',{});this.exited=true;}
@@ -101,6 +101,7 @@ test('the actual packaged dashboard button queues immediately and preparation jo
 
 test('the actual prepared packaged app opens local dashboard pages even when production is online',async t=>{
   const calls=[];const f=await fixture(t,{packaged:true,prepared:true,fetch:async url=>{calls.push(url);throw Error('unexpected startup request');}});
+  assert.equal(f.app.displayName,'GO ERP');assert.equal(f.app.paths.get('userData'),path.join(path.dirname(f.file),'fasakhansta-dashboard-preview'));
   assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');assert.equal(f.dashboardOptions.localToken,'owned-local');
   assert.equal(f.dashboardOptions.serverOrigin,'https://fasakhaninja.com');assert.deepEqual(calls,[]);assert.equal(f.dashboardOpens,1);
   f.app.quit();await settle();assert.ok(f.app.exited);

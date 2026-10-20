@@ -30,7 +30,7 @@ class DashboardOutboxReview {
       +'\n\nالعملية نُفّذت محليًا. العمليات التالية وتحديث بيانات الجهاز ينتظران تأكيدها. لا تنشئ بديلًا لها برقم جديد.':
       'كل عمليات الداشبورد المحفوظة مؤكدة. سجل النسخة السابقة مستقل ويمكن فتحه من قائمة البرنامج.';
     const retry=first?.status==='conflict'&&!value.held;
-    const decision=await this.dialog.showMessageBox(window,{type:retry?'warning':'info',title:'فسخانستا — مراجعة المزامنة',
+    const decision=await this.dialog.showMessageBox(window,{type:retry?'warning':'info',title:'GO ERP — مراجعة المزامنة',
       message:first?(value.held?'بيانات الجهاز تحت التحديث؛ المراجعة متاحة وإعادة المحاولة متوقفة.':first.status==='conflict'?'أول عملية تحتاج مراجعة قبل المزامنة':'أول عملية تنتظر تأكيد السيرفر'):'لا توجد عمليات داشبورد معلقة',
       detail,buttons:retry?['إعادة إرسال العملية نفسها','إغلاق']:['إغلاق'],defaultId:retry?1:0,cancelId:retry?1:0,noLink:true});
     if(!retry||decision.response!==0)return {counts:value.counts,retried:false};

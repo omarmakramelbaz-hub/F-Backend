@@ -16,6 +16,7 @@ const DashboardRemoteAttempts=require('./dashboard-remote-attempts.cjs');
 const DashboardOutboxReview=require('./dashboard-outbox-review.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
+app.setName('GO ERP');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
@@ -105,7 +106,7 @@ async function dashboardOffline(message, failure) {
     if(connectedAccess&&await connectedAccess.selected())throw Error('الداشبورد المتصلة تحتاج الإنترنت. استخدم العودة لنسخة الجهاز بعد اكتمال التحديث؛ سجلاتك محفوظة.');
     if(!dashboardMode)throw Error('جهّز الجهاز من حساب السيرفر قبل العمل بدون إنترنت.');
     await shutdown.run(()=>dashboardMode.local(failure));
-  } catch(error) {if(!quitting)dialog.showErrorBox('فسخانستا',error.message);}
+  } catch(error) {if(!quitting)dialog.showErrorBox('GO ERP',error.message);}
 }
 function connectDashboardSync() {
   if(localSync)return;
@@ -168,7 +169,8 @@ app.whenReady().then(async()=>{
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js']);
   protocol.handle('fasakhansta',r=>{const u=new URL(r.url),name=u.pathname.slice(1);if(u.hostname!=='pos'||!allowed.has(name))return new Response('',{status:404});return net.fetch(pathToFileURL(path.join(__dirname,name)).toString());});
-  win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,show:false,title:'فسخانستا — الطلبات المحلية',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,show:false,title:'GO ERP — الطلبات المحلية',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  win.webContents.on('page-title-updated',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();app.quit();}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',(e,url)=>{if(!url.startsWith('fasakhansta://pos/'))e.preventDefault();});
   win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
@@ -188,7 +190,7 @@ app.whenReady().then(async()=>{
   handle('printers',()=>win.webContents.getPrintersAsync());handle('printer',name=>{store.set('printer',String(name));return true;});
   handle('dashboard',async()=>{await dashboard.open();return true;});
   handle('backup',async()=>{
-    const r=await dialog.showSaveDialog(win,{title:'نسخة من سجل عمليات الجهاز',defaultPath:'Fasakhansta-POS-Backup.sqlite',filters:[{name:'SQLite',extensions:['sqlite']}]});
+    const r=await dialog.showSaveDialog(win,{title:'نسخة من سجل عمليات الجهاز',defaultPath:'GO-ERP-Backup.sqlite',filters:[{name:'SQLite',extensions:['sqlite']}]});
     if(r.canceled)return false;const {backup}=require('node:sqlite');await backup(store.db,r.filePath);return true;
   });
   await win.loadURL('fasakhansta://pos/index.html');
@@ -197,7 +199,7 @@ app.whenReady().then(async()=>{
   let localToken='';
   const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
-    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('فسخانستا','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     remoteState=new DashboardRemoteState(localRuntime.metadata);
     connectedAccess=new DashboardConnected({runtime:localRuntime,view:()=>dashboard,mode:()=>dashboardMode,generations:()=>generations,remoteState,
       remoteAttempts:{recover:()=>remoteAttempts.recover()},probe:dashboardSession,
@@ -248,7 +250,7 @@ app.whenReady().then(async()=>{
       const printers=await window.webContents.getPrintersAsync();
       if(!printers.length)throw Error('لا توجد طابعة متاحة على الجهاز.');
       const names=printers.map(value=>value.name),cancel=names.length;
-      const result=await dialog.showMessageBox(window,{type:'question',title:'فسخانستا — اختيار الطابعة',message:'اختر الطابعة المستخدمة للفواتير',
+      const result=await dialog.showMessageBox(window,{type:'question',title:'GO ERP — اختيار الطابعة',message:'اختر الطابعة المستخدمة للفواتير',
         buttons:[...names,'إلغاء'],defaultId:Math.max(0,names.indexOf(store.get('printer'))),cancelId:cancel,noLink:true});
       if(result.response<cancel)store.set('printer',names[result.response]);
     },
@@ -258,5 +260,5 @@ app.whenReady().then(async()=>{
       if(localToken)await dashboardMode.recover();else await dashboardMode.hold();});
   }
   syncSchedule.start();await dashboard.open();
-}).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج فسخانستا',error.message);app.quit();}});
+}).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
 app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});

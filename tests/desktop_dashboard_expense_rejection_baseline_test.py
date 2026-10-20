@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT/'deployment'))
@@ -15,11 +16,24 @@ import apply_desktop_dashboard_server as installer
 class ExpensePatchCohortTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.base=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline.json').read_text())
+        # Keep exercising the original exact four-file transformation against
+        # its immutable original source/GUI profile, never against today's app.
+        cls.base=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261019-173156.json').read_text())
+        cls.target=json.loads((ROOT/'tests/fixtures/desktop-dashboard-target-source-20261020-4288.json').read_text())
         cls.known=json.loads((ROOT/'deployment/desktop_dashboard_known_expense_rejection.json').read_text())
 
+    def historical_target(self):
+        return patch.object(release,'scan',return_value=copy.deepcopy(self.target['files']))
+
+    def historical_gui(self):
+        return patch.object(release,'file_record',side_effect=lambda path:
+            self.target['gui'][path.relative_to(ROOT).as_posix()])
+
     def test_exact_four_file_transform_converges_on_one_target_without_claiming_measurement(self):
-        manifest,fixture=variant.derive(ROOT,self.base,self.known)
+        self.assertEqual(release.digest(self.target['files']),self.target['source'])
+        self.assertEqual(self.target['source']['sha256'],'4288c371691750f5278d145b4d036be0d78d7c170d18fd7d61217954c2866a56')
+        with self.historical_target(),self.historical_gui():
+            manifest,fixture=variant.derive(ROOT,self.base,self.known)
         self.assertNotEqual(fixture['source'],self.base['source'])
         self.assertEqual(release.digest(fixture['files']),fixture['source'])
         changed={name for name,value in fixture['files'].items()if value!=self.base['files'][name]}
@@ -30,9 +44,10 @@ class ExpensePatchCohortTests(unittest.TestCase):
         diagnosis={'actual_head':self.base['expected_head'],'actual_source':self.base['source'],
             'source_differences':[{'path':name,'actual':value}for name,value in self.base['measured_source_differences'].items()],
             'gui':[{'path':name,'actual':value}for name,value in self.base['gui'].items()]}
-        primary,_=release.generate(ROOT,self.base['files'],diagnosis)
+        with self.historical_target(),self.historical_gui():
+            primary,_=release.generate(ROOT,self.base['files'],diagnosis)
         installer.validate_manifest_pair(primary,manifest)
-        reverse=release.scan(ROOT)
+        reverse=copy.deepcopy(self.target['files'])
         for row in manifest['sources']:
             if row['path']not in reverse:continue
             if row['before_blob']is None:reverse.pop(row['path'])
@@ -51,5 +66,17 @@ class ExpensePatchCohortTests(unittest.TestCase):
             base=copy.deepcopy(self.base);known=copy.deepcopy(self.known);mutate(base,known)
             with self.subTest(base=base['source']['sha256'],paths=len(known['changes'])):
                 with self.assertRaises(ValueError):variant.derive(ROOT,base,known)
+
+    def test_current_measured_cohort_cannot_be_derived_or_selected_as_the_historical_pair(self):
+        current=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline.json').read_text())
+        self.assertEqual(current['source']['sha256'],'105f42de8dd0392af33c7d730541f860919a624b736dd9d277275aabce4487c7')
+        with self.assertRaisesRegex(ValueError,'measured base'):
+            variant.derive(ROOT,current,self.known)
+        for path in ['deployment/desktop_dashboard_server_manifest-20261020-4288.json',
+                     'deployment/desktop_dashboard_server_manifest_expense_rejection-20261020-4288.json']:
+            historical=json.loads((ROOT/path).read_text())
+            self.assertNotEqual(historical['before_source'],current['source'])
+            with patch.object(installer,'read_source',side_effect=AssertionError('Unexpected historical source read')):
+                self.assertFalse(installer.baseline_matches(ROOT,0,historical,current['expected_head'],current['source']))
 
 if __name__=='__main__':unittest.main()

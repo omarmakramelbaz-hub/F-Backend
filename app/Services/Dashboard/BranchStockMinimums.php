@@ -158,73 +158,166 @@ class BranchStockMinimums
         return $stock && $product ? (object)['name'=>$product->product_name, 'unit'=>$stock->unit, 'quantity_units'=>(int)$stock->quantity_units] : null;
     }
 
-    /** Never run SMTP inside a sale/receipt transaction; claims are short and recover after process failure. */
+    /** The physical branch registry excludes retail-store identities and the GO namespace. */
+    private function emailBranchKeys(): array
+    {
+        return array_map(fn($id)=>'f:'.$id, FasakhanstaDeliveryOrigin::PHYSICAL_BRANCH_IDS);
+    }
+
+    private function emailAlerts(array $branches): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('branch_stock_minimum_alerts')->whereIn('minimum_id',
+            DB::table('branch_stock_minimums')->whereIn('branch', $branches)->select('id'));
+    }
+
+    /** One consolidated physical-branch report per run, irrespective of pending item count.
+     * The argument remains compatible with the existing scheduled command; it never slices a report.
+     * SMTP stays outside inventory transactions, and sent/failed count reports rather than items.
+     */
     public function dispatch(int $limit = 100): array
     {
         $result = ['sent'=>0, 'failed'=>0];
         if (!$this->installed() || config('desktop_dashboard.local', false)) return $result;
         abort_unless(DB::transactionLevel() === 0, 503, 'إرسال التنبيه يحتاج معاملة بضاعة مكتملة.');
-        $ids = DB::table('branch_stock_minimum_alerts')->whereNull('sent_at')->whereNull('cancelled_at')
-            ->where(function ($q) { $q->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now('UTC')); })
-            ->where(function ($q) { $q->whereNull('lease_until')->orWhere('lease_until', '<=', now('UTC')); })
-            ->orderBy('id')->limit(max(1, min(500, $limit)))->pluck('id');
-        foreach ($ids as $id) {
-            $claim = $this->claim((int)$id);
-            if (!$claim) continue;
-            try {
-                $email = $this->ownerEmail();
-                if (!$email) throw new \RuntimeException('owner_email_missing');
-                // A log/array transport does not deliver email; leave the alert pending for real SMTP.
-                if (!$this->deliveryReady()) throw new \RuntimeException('mail_transport_not_delivering');
-                Mail::to($email)->send(new BranchStockMinimumAlert($claim['data']));
-                if (Mail::failures()) throw new \RuntimeException('mail_recipients_rejected');
-                DB::table('branch_stock_minimum_alerts')->where('id', $id)->where('lease_token', $claim['token'])->update([
-                    'sent_at'=>now('UTC'), 'lease_token'=>null, 'lease_until'=>null, 'last_error_code'=>null, 'updated_at'=>now('UTC'),
-                ]);
-                ++$result['sent'];
-            } catch (\Throwable $error) {
-                $code = $error instanceof \RuntimeException && in_array($error->getMessage(), ['owner_email_missing', 'mail_transport_not_delivering', 'mail_recipients_rejected'], true)
-                    ? $error->getMessage() : 'mail_delivery_failed';
-                DB::table('branch_stock_minimum_alerts')->where('id', $id)->where('lease_token', $claim['token'])->update([
-                    'lease_token'=>null, 'lease_until'=>null, 'next_attempt_at'=>now('UTC')->addMinutes(min(60, 2 ** min(6, $claim['attempts'] - 1))),
-                    'last_error_code'=>$code, 'updated_at'=>now('UTC'),
-                ]);
-                Log::warning('Stock minimum email pending retry', ['alert_id'=>(int)$id, 'reason'=>$code]);
-                ++$result['failed'];
-            }
+        if (!$this->emailAlerts($this->emailBranchKeys())->whereNull('sent_at')->whereNull('cancelled_at')->exists()) return $result;
+        $claim = $this->claimReport();
+        if (!$claim) return $result;
+        try {
+            $email = $this->ownerEmail();
+            if (!$email) throw new \RuntimeException('owner_email_missing');
+            if (!$this->deliveryReady()) throw new \RuntimeException('mail_transport_not_delivering');
+            Mail::to($email)->send(new BranchStockMinimumAlert($claim['data']));
+            if (Mail::failures()) throw new \RuntimeException('mail_recipients_rejected');
+            DB::table('branch_stock_minimum_alerts')->where('lease_token', $claim['token'])->update([
+                'sent_at'=>now('UTC'), 'lease_token'=>null, 'lease_until'=>null, 'last_error_code'=>null, 'updated_at'=>now('UTC'),
+            ]);
+            $result['sent'] = 1;
+        } catch (\Throwable $error) {
+            $code = $error instanceof \RuntimeException && in_array($error->getMessage(), ['owner_email_missing', 'mail_transport_not_delivering', 'mail_recipients_rejected'], true)
+                ? $error->getMessage() : 'mail_delivery_failed';
+            DB::table('branch_stock_minimum_alerts')->where('lease_token', $claim['token'])->update([
+                'lease_token'=>null, 'lease_until'=>null, 'next_attempt_at'=>now('UTC')->addMinutes(min(60, 2 ** min(6, $claim['attempts'] - 1))),
+                'last_error_code'=>$code, 'updated_at'=>now('UTC'),
+            ]);
+            Log::warning('Stock minimum report pending retry', ['alert_count'=>count($claim['ids']), 'reason'=>$code]);
+            $result['failed'] = 1;
         }
         return $result;
     }
 
-    private function claim(int $id): ?array
+    /** Every worker takes the existing branch writer locks in the same order, then leases
+     * all pending episodes together. An in-flight report blocks another global report even
+     * if a sale creates a new episode, or recovery cancels one of the leased episodes.
+     */
+    private function claimReport(): ?array
     {
-        $preview = DB::table('branch_stock_minimum_alerts')->join('branch_stock_minimums', 'branch_stock_minimums.id', '=', 'branch_stock_minimum_alerts.minimum_id')
-            ->where('branch_stock_minimum_alerts.id', $id)->select('branch_stock_minimums.branch')->first();
-        if (!$preview) return null;
-        return DB::transaction(function () use ($id, $preview) {
-            DB::table('resturants')->where('id', (int)substr($preview->branch, 2))->lockForUpdate()->first();
-            $alert = DB::table('branch_stock_minimum_alerts')->where('id', $id)->first();
-            if (!$alert) return null;
-            $minimum = DB::table('branch_stock_minimums')->where('id', $alert->minimum_id)->lockForUpdate()->first();
-            if (!$minimum) return null;
-            $item = $this->item($minimum->branch, $minimum->stock_type, (int)$minimum->stock_item_id, true);
-            $this->observe($minimum->branch, $minimum->stock_type, (int)$minimum->stock_item_id, (int)($item->quantity_units ?? 0), $item->unit ?? '');
-            $minimum = DB::table('branch_stock_minimums')->where('id', $minimum->id)->first();
-            $alert = DB::table('branch_stock_minimum_alerts')->where('id', $id)->lockForUpdate()->first();
+        return DB::transaction(function () {
+            $restaurants = DB::table('resturants')->whereIn('id', FasakhanstaDeliveryOrigin::PHYSICAL_BRANCH_IDS)->orderBy('id')->lockForUpdate()->get();
+            if ($restaurants->isEmpty()) return null;
             $now = now('UTC');
-            if (!$minimum->active_low || (int)$minimum->episode !== (int)$alert->episode || $alert->sent_at || $alert->cancelled_at
-                || ($alert->lease_until && Carbon::parse($alert->lease_until, 'UTC')->gt($now))
-                || ($alert->next_attempt_at && Carbon::parse($alert->next_attempt_at, 'UTC')->gt($now))) return null;
+            $branches = $restaurants->map(fn($restaurant)=>'f:'.$restaurant->id)->all();
+            // Excluded stores cannot trigger, delay, or block a physical-branch report.
+            // Keep their stock, thresholds, episodes, and historical outbox rows intact.
+            if ($this->emailAlerts($branches)->whereNotNull('lease_token')->where('lease_until', '>', $now)->exists()) return null;
+            $pending = $this->emailAlerts($branches)->whereNull('sent_at')->whereNull('cancelled_at')->orderBy('id')->get();
+            if ($pending->isEmpty()) return null;
+            $branchIds = $restaurants->pluck('id')->map(fn($id)=>(int)$id)->all();
+            $ids = [];
+            $attempts = 1;
+            $waiting = false;
+            foreach ($pending as $alert) {
+                $minimum = DB::table('branch_stock_minimums')->where('id', $alert->minimum_id)->lockForUpdate()->first();
+                $validBranch = $minimum && preg_match('/^f:([1-9][0-9]*)$/D', $minimum->branch, $match)
+                    && in_array((int)$match[1], $branchIds, true);
+                $item = $validBranch ? $this->item($minimum->branch, $minimum->stock_type, (int)$minimum->stock_item_id, true) : null;
+                if ($item) {
+                    $this->observe($minimum->branch, $minimum->stock_type, (int)$minimum->stock_item_id, (int)$item->quantity_units, $item->unit);
+                    $minimum = DB::table('branch_stock_minimums')->where('id', $minimum->id)->first();
+                } elseif ($minimum) {
+                    DB::table('branch_stock_minimums')->where('id', $minimum->id)->update(['active_low'=>false]);
+                }
+                if (!$item || !$minimum->active_low || (int)$minimum->episode !== (int)$alert->episode
+                    || $minimum->minimum_units === null || $minimum->unit !== $item->unit
+                    || (int)$item->quantity_units > (int)$minimum->minimum_units) {
+                    DB::table('branch_stock_minimum_alerts')->where('id', $alert->id)->whereNull('sent_at')->update([
+                        'cancelled_at'=>$now, 'lease_token'=>null, 'lease_until'=>null, 'updated_at'=>$now,
+                    ]);
+                    continue;
+                }
+                $ids[] = (int)$alert->id;
+                $attempts = max($attempts, (int)$alert->attempts + 1);
+                if ($alert->next_attempt_at && Carbon::parse($alert->next_attempt_at, 'UTC')->gt($now)) $waiting = true;
+            }
+            // Preserve retry backoff for the complete batch, including old per-item retries.
+            if (!$ids || $waiting) return null;
+            $data = $this->stockReport($restaurants->all());
+            if (!$data['low_count']) return null;
             $token = bin2hex(random_bytes(24));
-            $attempts = (int)$alert->attempts + 1;
-            DB::table('branch_stock_minimum_alerts')->where('id', $id)->update(['lease_token'=>$token, 'lease_until'=>$now->copy()->addMinutes(15), 'attempts'=>$attempts, 'updated_at'=>$now]);
-            return ['token'=>$token, 'attempts'=>$attempts, 'data'=>[
-                'branch_name'=>$alert->branch_name, 'item_name'=>$alert->item_name, 'quantity'=>$this->quantity((int)$item->quantity_units),
-                'minimum_quantity'=>$this->quantity((int)$minimum->minimum_units), 'unit_label'=>$alert->unit === 'kg' ? 'كجم' : 'قطعة',
-                'detected_at'=>Carbon::parse($alert->created_at, 'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i'),
-                'url'=>route('branch-stock.index', ['branch'=>$minimum->branch]),
-            ]];
+            // No pagination or command limit: all triggering rows belong to this one report.
+            foreach (array_chunk($ids, 500) as $chunk) {
+                DB::table('branch_stock_minimum_alerts')->whereIn('id', $chunk)->update([
+                    'lease_token'=>$token, 'lease_until'=>$now->copy()->addMinutes(15), 'attempts'=>$attempts, 'updated_at'=>$now,
+                ]);
+            }
+            return ['token'=>$token, 'ids'=>$ids, 'attempts'=>$attempts, 'data'=>$data];
         }, 3);
+    }
+
+    /** Read actual stock records, never menu recipe availability or a paginated screen.
+     * Each ingredient exists in every branch; no receipt means a real zero balance.
+     * Recorded direct SKU balances stay in a separate category, without summing units.
+     */
+    private function stockReport(array $restaurants): array
+    {
+        $ingredients = Schema::hasTable('stock_ingredients') && Schema::hasTable('branch_inventory')
+            ? DB::table('stock_ingredients')->orderBy('position')->orderBy('id')->get()->all() : [];
+        $branches = [];
+        $total = 0;
+        $low = 0;
+        foreach ($restaurants as $restaurant) {
+            $branch = 'f:'.$restaurant->id;
+            $minimums = DB::table('branch_stock_minimums')->where('branch', $branch)->get()->keyBy(fn($r)=>$r->stock_type.':'.$r->stock_item_id)->all();
+            $balances = $ingredients ? DB::table('branch_inventory')->where('branch', $branch)->get()->keyBy('ingredient_id')->all() : [];
+            $items = [];
+            foreach ($ingredients as $ingredient) {
+                $items[] = $this->reportItem('ingredient', (int)$ingredient->id, $ingredient->name, $ingredient->unit,
+                    (int)($balances[$ingredient->id]->quantity_units ?? 0), $minimums['ingredient:'.$ingredient->id] ?? null);
+            }
+            if (Schema::hasTable('branch_stock') && Schema::hasTable('resturant_products')) {
+                $direct = DB::table('branch_stock')->leftJoin('resturant_products', function ($join) use ($restaurant) {
+                    $join->on('resturant_products.id', '=', 'branch_stock.product_id')->where('resturant_products.resturant_id', '=', $restaurant->id);
+                })->where('branch_stock.branch', $branch)
+                    ->orderBy('branch_stock.product_id')->get(['branch_stock.product_id', 'branch_stock.unit', 'branch_stock.quantity_units', 'resturant_products.product_name']);
+                foreach ($direct as $product) {
+                    $items[] = $this->reportItem('product', (int)$product->product_id, $product->product_name ?: 'صنف سابق #'.$product->product_id, $product->unit,
+                        (int)$product->quantity_units, $minimums['product:'.$product->product_id] ?? null);
+                }
+            }
+            if (!$items) continue;
+            // Low items lead each branch; stable ids keep repeated reports easy to scan.
+            usort($items, fn($a,$b)=>((int)$b['low_stock'] <=> (int)$a['low_stock'])
+                ?: strcmp($a['stock_type'], $b['stock_type']) ?: ($a['id'] <=> $b['id']));
+            $branchLow = count(array_filter($items, fn($item)=>$item['low_stock']));
+            $branches[] = ['value'=>$branch, 'name'=>(string)$restaurant->name, 'total_items'=>count($items), 'low_count'=>$branchLow,
+                'url'=>route('branch-stock.index', ['branch'=>$branch]), 'items'=>$items];
+            $total += count($items);
+            $low += $branchLow;
+        }
+        usort($branches, fn($a,$b)=>((int)($b['low_count'] > 0) <=> (int)($a['low_count'] > 0)) ?: ((int)substr($a['value'],2) <=> (int)substr($b['value'],2)));
+        return ['generated_at'=>now('UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i'),
+            'branch_count'=>count($branches), 'total_items'=>$total, 'low_count'=>$low,
+            'url'=>route('branch-stock.index', ['branch'=>'all']), 'branches'=>$branches];
+    }
+
+    private function reportItem(string $type, int $id, string $name, string $unit, int $balance, ?object $minimum): array
+    {
+        $enabled = $minimum && $minimum->minimum_units !== null && $minimum->unit === $unit;
+        $low = $enabled && $balance <= (int)$minimum->minimum_units;
+        $status = !$enabled ? 'بدون حد أدنى' : ($low ? ($balance === (int)$minimum->minimum_units ? 'عند الحد الأدنى' : 'أقل من الحد الأدنى') : 'أعلى من الحد الأدنى');
+        if ($balance <= 0) $status = $balance < 0 ? 'رصيد سالب' : 'نفد الرصيد';
+        return ['id'=>$id, 'name'=>$name, 'stock_type'=>$type, 'quantity'=>$this->quantity($balance), 'unit_label'=>$unit === 'kg' ? 'كجم' : 'قطعة',
+            'minimum_quantity'=>$enabled ? $this->quantity((int)$minimum->minimum_units) : null, 'low_stock'=>$low, 'status_label'=>$status,
+            'shortage_quantity'=>$low ? $this->quantity(max(0, (int)$minimum->minimum_units - $balance)) : null];
     }
 
     protected function deliveryReady(): bool

@@ -38,7 +38,7 @@ module.exports=async project=>{
     await fs.writeFile(path.join(fixture,'dist/prerequisites/vc_redist.x64.exe'),bytes);
     await fs.writeFile(path.join(fixture,'dist/win-unpacked/SHOULD-NOT-BE-INSTALLED.txt'),'must never be extracted');
     await fs.writeFile(path.join(fixture,'dist/installer-version.nsh'),
-      '!define FASAKHANSTA_VERSION "0.0.0"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
+      '!define FASAKHANSTA_NUMERIC_VERSION "0.0.0.0"\n!define FASAKHANSTA_VERSION "0.0.0"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
       +'!define FASAKHANSTA_UNINSTALL_KEY "'+key+'"\n');
     await fs.writeFile(path.join(fixture,'dist/uninstall-files.nsh'),'Delete "$INSTDIR\\SHOULD-NOT-BE-INSTALLED.txt"\n');
     // Apply the same separator/compression adaptation used by the Windows

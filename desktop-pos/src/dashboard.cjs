@@ -158,11 +158,12 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     try {
       if (!window || window.isDestroyed()) {
         window = new BrowserWindow({ width: 1440, height: 950, minWidth: 1000, minHeight: 650, show: false,
-          title: 'فسخانستا — الداشبورد', icon: path.join(__dirname, 'assets', 'app.ico'), backgroundColor: '#f4f5f8',
+          title: 'GO ERP — الداشبورد', icon: path.join(__dirname, 'assets', 'app.ico'), backgroundColor: '#f4f5f8',
           webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true,
             nodeIntegration: false, webSecurity: true } });
         window.maximize();
         const contents = window.webContents;
+        contents.on('page-title-updated',event=>event.preventDefault());
         owned.add(contents.id);
         contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
             const headers = { ...details.requestHeaders };
@@ -199,7 +200,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               if((details.webContentsId==null||details.webContentsId<=0)&&connectedSupplied){callback({cancel:true});return;}
               if (!remoteWrite(details)) {
                 if(browse&&owned.has(details.webContentsId)&&getPolicy.admin(new URL(details.url).pathname)&&['GET','HEAD'].includes(String(details.method||'GET').toUpperCase())){
-                  accepted(()=>browse()).then(()=>callback({requestHeaders:headers}),error=>{callback({cancel:true});dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message});});return;
+                  accepted(()=>browse()).then(()=>callback({requestHeaders:headers}),error=>{callback({cancel:true});dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message});});return;
                 }
                 callback({ requestHeaders: headers }); return;
               }
@@ -207,7 +208,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               // Persist uncertainty before a request can leave the machine.
               accepted(() => remoteAttempts ? remoteAttempts.begin(attempt, details) : remoteState?.begin(attempt)).then(proof => callback({ requestHeaders: { ...headers, ...proof } }), error => {
                 if(remoteWrites.get(details.id)===attempt)remoteWrites.delete(details.id); callback({ cancel: true });
-                dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message });
+                dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: error.message });
               });
               return;
             }
@@ -228,7 +229,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.setWindowOpenHandler(({ url }) => {
           if (refreshing) return { action: 'deny' };
           if (policy.sameOrigin(url, origin)) {
-            return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 850,
+            return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 850, title: 'GO ERP — الداشبورد',
               icon: path.join(__dirname, 'assets', 'app.ico'),
               webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true,
                 nodeIntegration: false, webSecurity: true } } };
@@ -241,6 +242,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           owned.add(childId);
           children.add(child);
           child.on('closed', () => { owned.delete(childId); children.delete(child); });
+          child.webContents.on('page-title-updated',event=>event.preventDefault());
           child.webContents.on('will-navigate', navigate);
           child.webContents.on('will-redirect', navigate);
           child.webContents.setWindowOpenHandler(({ url }) => {
@@ -252,7 +254,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         window.on('close', event => { if (!quitting()) { event.preventDefault(); quit(); } });
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
           if (!refreshing && mainFrame && policy.networkFailure(description)) {
-            if (localToken) dialog.showMessageBox(window, { type:'error', title:'فسخانستا', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
+            if (localToken) dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
             else offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure());
           }
         });
@@ -271,7 +273,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           if (!policy.sameOrigin(sender.getURL(), origin) || !policy.sameOrigin(details.requestingUrl || sender.getURL(), origin)) { callback(false); return; }
           if (grants.has(permission)) { callback(true); return; }
           if (!['geolocation', 'media'].includes(permission)) { callback(false); return; }
-          const result = await dialog.showMessageBox(window, { type: 'question', title: 'فسخانستا',
+          const result = await dialog.showMessageBox(window, { type: 'question', title: 'GO ERP',
             message: permission === 'geolocation' ? 'السماح للداشبورد باستخدام موقع الجهاز؟' : 'السماح للداشبورد باستخدام الكاميرا أو الميكروفون؟',
             buttons: ['السماح', 'إلغاء'], defaultId: 1, cancelId: 1 });
           if (result.response === 0) grants.add(permission);
@@ -286,13 +288,13 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     } catch (error) {
       if (quitting()) return;
       if (localToken) {
-        reveal(); await dialog.showMessageBox(window, { type:'error', title:'فسخانستا', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
+        reveal(); await dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
       }
       else if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.', failure());
       else {
         // Server errors stay visible with their real status; they are not cached or called offline saves.
         reveal();
-        await dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: 'تعذر فتح الداشبورد. أعد المحاولة من قائمة البرنامج.' });
+        await dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: 'تعذر فتح الداشبورد. أعد المحاولة من قائمة البرنامج.' });
       }
     } finally { loading = false; }
   }
@@ -306,20 +308,20 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
-      ...(connected?[{label:'الداشبورد المتصلة كاملة',click:()=>accepted(()=>connected()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
-      ...(reauthenticate?[{label:'تجديد تسجيل دخول السيرفر',click:()=>accepted(()=>reauthenticate()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
-      ...(localMode?[{label:'العودة لنسخة الجهاز بعد التحديث',click:()=>accepted(()=>localMode()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
-      ...(reviewCentral?[{label:'مراجعة نتائج العمليات المتصلة',click:()=>accepted(()=>reviewCentral(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(connected?[{label:'الداشبورد المتصلة كاملة',click:()=>accepted(()=>connected()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
+      ...(reauthenticate?[{label:'تجديد تسجيل دخول السيرفر',click:()=>accepted(()=>reauthenticate()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
+      ...(localMode?[{label:'العودة لنسخة الجهاز بعد التحديث',click:()=>accepted(()=>localMode()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
+      ...(reviewCentral?[{label:'مراجعة نتائج العمليات المتصلة',click:()=>accepted(()=>reviewCentral(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
       ...(prepare ? [{ label: 'تجهيز للعمل بدون إنترنت', click: () => {
         if (!window || localToken || quitting()) return;
         window.webContents.executeJavaScript('document.querySelector(\'meta[name="csrf-token"]\')?.content || ""')
           .then(csrf => accepted(() => prepare(origin, csrf)))
-          .catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message }));
+          .catch(error => dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: error.message }));
       } }] : []),
       { label: archive ? 'سجل النسخة السابقة' : 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => archive ? archive() : offline('') },
-      ...(reviewSync?[{label:'مراجعة المزامنة',click:()=>accepted(()=>reviewSync(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(reviewSync?[{label:'مراجعة المزامنة',click:()=>accepted(()=>reviewSync(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
       { label: 'اختيار الطابعة', click: () => {
-        if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message })); return; }
+        if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: error.message })); return; }
         offline('');
         offlineWindow().webContents.executeJavaScript('document.getElementById("settings").click()').catch(() => {});
       } },
@@ -331,7 +333,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       { label: 'تكبير', role: 'zoomIn' }, { label: 'تصغير', role: 'zoomOut' }, { label: 'الحجم الطبيعي', role: 'resetZoom' },
       { label: 'ملء الشاشة', role: 'togglefullscreen' }] },
     { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => {
-      if(localToken){dialog.showMessageBox(window,{type:'info',title:'فسخانستا',message:'استخدم زر طباعة الفاتورة داخل الداشبورد لحفظ نتيجة الطباعة ومنع تكرارها.'});return;}
+      if(localToken){dialog.showMessageBox(window,{type:'info',title:'GO ERP',message:'استخدم زر طباعة الفاتورة داخل الداشبورد لحفظ نتيجة الطباعة ومنع تكرارها.'});return;}
       focused()?.webContents.print({ printBackground: true });
     } }] }
   ]));
@@ -393,8 +395,9 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if(destination!==serverOrigin||!destination.startsWith('https://')||typeof verify!=='function'||!(await canRefresh()))
       throw Error('انتقل للصفحة الرئيسية وأكمل أي تعديل أو طباعة قبل تجديد تسجيل الدخول.');
     if(authentication||quitting())throw Error('نافذة تسجيل الدخول غير متاحة الآن.');
-    const authWindow=new BrowserWindow({parent:window,modal:true,show:false,width:980,height:760,title:'فسخانستا — تسجيل دخول السيرفر',
+    const authWindow=new BrowserWindow({parent:window,modal:true,show:false,width:980,height:760,title:'GO ERP — تسجيل دخول السيرفر',icon:path.join(__dirname,'assets','app.ico'),
       webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+    authWindow.webContents.on('page-title-updated',event=>event.preventDefault());
     const staticPaths=new Set(['/dashboard/plugins/fontawesome-free/css/all.min.css','/dashboard/dist/css/adminlte.min.css',
       '/dashboard/branding/dashboard-brand.css','/dashboard/branding/fasakhansta-logo-transparent.png']);
     const allowed=(value,method)=>{
@@ -417,7 +420,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           try{await clearCookies();}
           catch(cleanupError){
             if(!quitting()){
-              const choice=await dialog.showMessageBox(authWindow,{type:'error',title:'فسخانستا',message:'تعذر مسح جلسة السيرفر. الداشبورد متوقفة لحين إعادة المحاولة أو إغلاق البرنامج.',buttons:['إعادة المحاولة','إغلاق البرنامج'],defaultId:0,cancelId:1});
+              const choice=await dialog.showMessageBox(authWindow,{type:'error',title:'GO ERP',message:'تعذر مسح جلسة السيرفر. الداشبورد متوقفة لحين إعادة المحاولة أو إغلاق البرنامج.',buttons:['إعادة المحاولة','إغلاق البرنامج'],defaultId:0,cancelId:1});
               record.finishing=false;
               if(choice.response===0)return finish(error);
               reject(cleanupError);quit();return;

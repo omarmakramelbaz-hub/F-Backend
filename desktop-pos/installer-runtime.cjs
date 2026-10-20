@@ -85,7 +85,7 @@ async function beforePack(context) {
   const product=context.packager.appInfo?.productName||packageInfo.build?.productName;
   if(!/^[A-Za-z0-9 ._-]{1,80}$/.test(product||'')) throw Error('Invalid installer product name.');
   await fs.writeFile(path.join(project,'dist/installer-version.nsh'),
-    '!define FASAKHANSTA_VERSION "'+packageInfo.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
+    '!define FASAKHANSTA_NUMERIC_VERSION "'+packageInfo.version.split('-')[0]+'.0"\n!define FASAKHANSTA_VERSION "'+packageInfo.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
     +'!define FASAKHANSTA_UNINSTALL_KEY "'+(preview?'FasakhanstaDashboardPreview':'FasakhanstaPOS')+'"\n');
 }
 async function afterPack(context) {

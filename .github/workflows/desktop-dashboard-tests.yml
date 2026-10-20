@@ -5,27 +5,25 @@ on:
     branches: ['codex/desktop-offline-pos-20261007']
   pull_request:
     paths:
-      - 'app/Services/Dashboard/DesktopDashboard*.php'
-      - 'app/Services/Dashboard/CategoryOrdering.php'
-      - 'app/Repositories/ResturantProductRepository.php'
-      - 'app/Http/Controllers/Dashboard/CategoryController.php'
-      - 'app/Http/Controllers/Dashboard/ContractController.php'
-      - 'config/snappy.php'
-      - 'app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php'
-      - 'app/Http/Requests/Api/Vendor/CopyMenuRequest.php'
-      - 'routes/admin.php'
-      - 'app/Http/Middleware/DesktopDashboardJournal.php'
-      - 'app/Exceptions/Handler.php'
+      # Every tracked application root packaged by build-runtime.cjs needs fresh acceptance.
+      - 'app/**'
+      - 'bootstrap/**'
+      - 'config/**'
+      - 'database/**'
       - 'desktop/**'
       - 'desktop-pos/**'
+      - 'public/**'
+      - 'resources/**'
+      - 'routes/**'
+      - 'artisan'
+      - 'composer.json'
+      - 'composer.lock'
       - 'tests/desktop_dashboard_runtime/**'
-      - 'public/dashboard/js/desktop-dashboard.js'
-      - 'public/dashboard/js/dashboard-spa.js'
-      - 'public/dashboard/vendor/desktop-external/**'
-      - 'resources/views/admin/**'
+      - 'tests/request_autoload_compatibility.php'
       - '.gitattributes'
       - '.github/workflows/desktop-dashboard-tests.yml'
-      - '.github/scripts/desktop-wkhtmltox.cjs'
+      - '.github/scripts/desktop-*.cjs'
+      - '.github/scripts/prepare-desktop-vcredist.ps1'
 
 permissions:
   contents: read
@@ -76,9 +74,11 @@ jobs:
   original-runtime:
     needs: connected-native
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2.34'
@@ -136,6 +136,20 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or !(($engineCompatibilityOutput -join "`n") -match '(?m)^ENGINE_COMPATIBILITY_COMPLETE ')) { throw 'The actual Windows engine failed its source-contract, calendar or permission compatibility checks.' }
           & php tests/request_autoload_compatibility.php "$bundle/application" 2>&1 | Tee-Object -Variable requestAutoloadOutput
           if ($LASTEXITCODE -ne 0 -or !(($requestAutoloadOutput -join "`n") -match '(?m)^REQUEST_AUTOLOAD_COMPATIBILITY_COMPLETE 7$')) { throw 'Original request autoload compatibility checks did not complete.' }
+          & php tests/desktop_dashboard_runtime/live-shift-closing.php "$bundle/application" $runtimeEngine 2>&1 | Tee-Object -Variable liveShiftOutput
+          $liveShiftExit = $LASTEXITCODE
+          $liveShiftMatches = [regex]::Matches(($liveShiftOutput -join "`n"), '(?m)^LIVE_SHIFT_MERGE_COMPLETE (\{[^\r\n]+\})$')
+          if ($liveShiftExit -ne 0 -or $liveShiftMatches.Count -ne 1) { throw 'The current pending-invoice and desktop shift regression did not complete exactly once.' }
+          $liveShiftReceipt = $liveShiftMatches[0].Groups[1].Value | ConvertFrom-Json
+          if ($liveShiftReceipt.checks -ne 38 -or $liveShiftReceipt.framework -cne $runtimeEngine -or $liveShiftReceipt.driver -cne 'sqlite' -or $liveShiftReceipt.sourceClassSha256 -cne (Get-FileHash app/Services/Dashboard/BranchShiftClosing.php -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'The live shift receipt differs from the exact current packaged class or engine.' }
+          foreach ($field in @('privateDatabase', 'sourceCopied', 'phpBusinessExecution')) {
+            if ($liveShiftReceipt.$field -isnot [bool] -or $liveShiftReceipt.$field -ne $true) { throw "The live shift regression did not execute its private actual business boundary: $field" }
+          }
+          foreach ($field in @('retainedVendorModified', 'productionEnvironmentLoaded', 'physicalPrinter')) {
+            if ($liveShiftReceipt.$field -isnot [bool] -or $liveShiftReceipt.$field -ne $false) { throw "The live shift regression scope differs: $field" }
+          }
+          $liveShiftReceipt | Add-Member -NotePropertyName sourceRevision -NotePropertyValue $env:GITHUB_SHA
+          $liveShiftReceipt | ConvertTo-Json -Depth 8 | Set-Content "$env:RUNNER_TEMP/live-shift-closing-windows.json" -Encoding utf8NoBOM
           $data = "$env:RUNNER_TEMP/desktop-fixture-database"
           & "$bin/mariadb-install-db.exe" "--datadir=$data"
           if ($LASTEXITCODE -ne 0) { throw 'Disposable database initialization failed.' }
@@ -341,6 +355,14 @@ jobs:
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+      - name: Retain the current live shift regression receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-live-shift-closing-windows
+          path: ${{ runner.temp }}/live-shift-closing-windows.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain the real Windows contract PDF and source-bound receipts
         if: always()
         uses: actions/upload-artifact@v4
@@ -440,7 +462,7 @@ jobs:
   windows-installer:
     needs: [original-runtime, connected-native]
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -473,6 +495,8 @@ jobs:
           if (!(Test-Path desktop-pos/runtime-bundle/manifest.json)) { throw 'Runtime manifest was not extracted.' }
           if (!(Test-Path desktop-pos/dist/runtime-audit.json)) { throw 'Dependency review was not extracted.' }
           if (!(Test-Path desktop-pos/dist/dashboard-synthetic-snapshot.json)) { throw 'Synthetic installation fixture was not extracted.' }
+          $runtimeManifest = Get-Content desktop-pos/runtime-bundle/manifest.json -Raw | ConvertFrom-Json
+          if ($runtimeManifest.sourceRevision -cne $env:GITHUB_SHA -or $runtimeManifest.runtimeFramework -cne '12.70.0') { throw 'The fresh tested runtime belongs to another source or engine.' }
       - name: Restore this source's actual connected Electron receipt
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -495,9 +519,11 @@ jobs:
         shell: pwsh
         run: |
           & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
-          & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
-          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell prerequisite checks failed.' }
+          $prerequisiteSummary = '(?m)^PASS 44 Visual C\+\+ prerequisite checks: missing/older/newer, cancellation, failure and restart; real signed payload=True; Windows executable lock=True\.$'
+          & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe 2>&1 | Tee-Object -Variable prerequisiteCoreOutput
+          if ([regex]::Matches(($prerequisiteCoreOutput -join "`n"), $prerequisiteSummary).Count -ne 1) { throw 'PowerShell prerequisite checks did not complete exactly once with the real signed payload and executable lock.' }
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe 2>&1 | Tee-Object -Variable prerequisiteDesktopOutput
+          if ($LASTEXITCODE -ne 0 -or [regex]::Matches(($prerequisiteDesktopOutput -join "`n"), $prerequisiteSummary).Count -ne 1) { throw 'Windows PowerShell prerequisite checks did not complete exactly once with the real signed payload and executable lock.' }
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
           node desktop-pos/node_modules/electron/install.js
@@ -525,16 +551,34 @@ jobs:
           }
           if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
       - name: Verify actual Windows installation and retained unsynced data
+        shell: pwsh
+        timeout-minutes: 40
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
-        run: node desktop-pos/test/installer-native.cjs
+        run: |
+          $diagnosedAcceptance = @'
+          'use strict';
+          const cp = require('node:child_process');
+          const original = cp.execFileSync;
+          cp.execFileSync = function (...args) {
+            try { return Reflect.apply(original, this, args); }
+            catch (error) {
+              const bounded = value => value == null ? null : String(value).slice(0, 8192);
+              process.stderr.write('DESKTOP_ACTUAL_CHILD_FAILURE ' + JSON.stringify({ executable: require('node:path').basename(String(args[0])), status: error.status ?? null, code: error.code ?? null, signal: error.signal ?? null, killed: error.killed ?? null, stdout: bounded(error.stdout), stderr: bounded(error.stderr) }) + '\n');
+              throw error;
+            }
+          };
+          require('./desktop-pos/test/installer-native.cjs');
+          '@
+          node -e $diagnosedAcceptance
+          if ($LASTEXITCODE -ne 0) { throw 'Actual installed dashboard acceptance failed; original child failure metadata was logged.' }
       - name: Retain the installer preview and exact verification receipts
         uses: actions/upload-artifact@v4
         with:
           name: fasakhansta-dashboard-installer-preview
           path: |
-            desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
+            desktop-pos/dist/GO-ERP-Preview-Setup.exe
             desktop-pos/dist/installer-checks.json
             desktop-pos/dist/runtime-package.json
             desktop-pos/dist/runtime-audit.json

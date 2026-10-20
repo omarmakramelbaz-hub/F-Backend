@@ -62,7 +62,7 @@ PROMPT;
             ['ok' => $ok, 'choice' => $choice, 'reason' => $reason];
         try {
             if (!WhatsAppOrderDialogue::validContext($context)) return $result(false, null, 'INVALID_INPUT');
-            $configuration = $this->configuration ?? (function_exists('config') ? config('whatsapp_orders', []) : []);
+            $configuration = $this->resolvedConfiguration();
             if (!is_array($configuration) || !in_array($configuration['enabled'] ?? false, [true, 1, '1'], true))
                 return $result(false, null, 'DISABLED');
             $model = $configuration['model'] ?? null; $key = $configuration['api_key'] ?? null;
@@ -123,8 +123,10 @@ PROMPT;
                     .'changed to a different independent order, asked to wait, or the proposed question would repeat an already clear answer. '
                     .'For PRODUCT_CHOICE, OPTION_CHOICE or CATALOG_INFORMATION, select one to six relevant candidate_ids from the supplied available '
                     .'branch-menu choices, based on the conversation. These are options to show, never a selection on behalf of the customer. '
-                    .'For every other kind, candidate_ids must be empty. WAIT must also have an empty candidate_ids list. '
+                    .'For every other kind except SOCIAL_REPLY, candidate_ids must be empty. WAIT must also have an empty candidate_ids list. '
                     .'Prefer SHORT for a simple question, POLITE for a clarification or menu choice. Return only the exact schema. '
+                    .'SOCIAL_REPLY selects exactly one supplied candidate_id: its label is a reviewed, complete response, not a product choice. '
+                    . 'Select it for the latest customer message, or WAIT with empty candidate_ids if no reply is appropriate. Never modify its words. '
                     .'GREETING is the first welcome when no order facts have been established; ASK welcomes the customer without claiming an order. '
                     .'CATALOG_INFORMATION answers a menu inquiry by showing actual supplied branch products and asking which product needs details; it does not start an order. '
                     .'Never write a reply, product name, price, availability promise, coordinates, customer fact, ERP ID or tool call. '
@@ -135,6 +137,7 @@ PROMPT;
                 'text' => ['format' => ['type' => 'json_schema', 'name' => $information ? 'whatsapp_order_dialogue_information_v1' : 'whatsapp_order_dialogue_v1', 'strict' => true,
                     'schema' => ['type' => 'object', 'additionalProperties' => false,
                         'properties' => $properties, 'required' => $required]]]];
+            $request['instructions'] = $this->replyInstructions($request['instructions']);
             if ($model === 'gpt-6-luna') $request['reasoning'] = ['effort' => 'low'];
             $body = json_encode($request, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
             if (strlen($body) > self::MAX_REQUEST_BYTES) return $result(false, null, 'INPUT_TOO_LARGE');
@@ -203,7 +206,7 @@ PROMPT;
             }
             // Canonical ordering and enum validation ensure no conversation facts enter this request.
             $fields = array_values(array_filter($allowed, static fn ($field) => isset($selected[$field])));
-            $configuration = $this->configuration ?? (function_exists('config') ? config('whatsapp_orders', []) : []);
+            $configuration = $this->resolvedConfiguration();
             if (!is_array($configuration) || !in_array($configuration['enabled'] ?? false, [true, 1, '1'], true))
                 return $result(false, null, 'DISABLED');
             $model = $configuration['model'] ?? null;
@@ -347,7 +350,7 @@ PROMPT;
             $plan=\App\Support\WhatsAppCustomerOrderConfirmation::aiPlan($transcript);
             if (!$plan['ok']) return $plan;
             if (WhatsAppOrderExtraction::hasProbe($transcript)) return self::failure('INVALID_INPUT',$diagnostic);
-            $configuration=$this->configuration??(function_exists('config')?config('whatsapp_orders',[]):[]);
+            $configuration=$this->resolvedConfiguration();
             if (!is_array($configuration)||!in_array($configuration['enabled']??false,[true,1,'1'],true)) return self::failure('DISABLED',$diagnostic);
             $model=$configuration['model']??null;$key=$configuration['api_key']??null;
             if (!is_string($model)||!preg_match('/\A[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}\z/',$model)
@@ -401,7 +404,7 @@ PROMPT;
     {
         $diagnostic = self::diagnostic();
         try {
-            $configuration = $this->configuration ?? (function_exists('config') ? config('whatsapp_orders', []) : []);
+            $configuration = $this->resolvedConfiguration();
             if (!is_array($configuration) || !in_array($configuration['enabled'] ?? false, [true, 1, '1'], true)) {
                 return self::failure('DISABLED', $diagnostic);
             }
@@ -715,8 +718,50 @@ PROMPT;
         $diagnostic['reasoning_tokens'] = self::integer($details['reasoning_tokens'] ?? null, 1000000000);
     }
 
+    /** Training switches only the model transport; channel activation remains independent. */
+    private function resolvedConfiguration(): array
+    {
+        $configuration = $this->configuration ?? (function_exists('config') ? config('whatsapp_orders', []) : []);
+        if (!is_array($configuration)) return [];
+        if (!$this->messageTrainingEnabled()) return $configuration;
+        $training = config('fasakhansta_ai_training', []);
+        if (!is_array($training)) return [];
+        // Missing/null may reuse the working comment credential; an explicit bad
+        // value must fail closed rather than silently select a different account.
+        $configuration['model'] = $training['messages_model'] ?? config('meta_comment_ai.model');
+        $configuration['api_key'] = $training['messages_api_key'] ?? config('meta_comment_ai.api_key');
+        return $configuration;
+    }
+
+    private function messageTrainingEnabled(): bool
+    {
+        return function_exists('config') && config('fasakhansta_ai_training.messages_enabled', false) === true;
+    }
+
+    private function replyInstructions(string $contract): string
+    {
+        if (!$this->messageTrainingEnabled()) return $contract;
+        $knowledge = new FasakhanstaAiKnowledge();
+        $instructions = $knowledge->instructions('messages');
+        if (!$knowledge->available() || !is_string($instructions) || trim($instructions) === '')
+            throw new \RuntimeException('TRAINING_NOT_CONFIGURED');
+        // The original typed schema/field/candidate contract has priority. The
+        // owner voice applies only within that contract, never to extraction.
+        return $contract."\n\nOwner style and behavior, subordinate to the typed contract above:\n".$instructions;
+    }
+
     private function request(string $body, string $key): array
     {
+        $decoded = json_decode($body, true, 64, JSON_THROW_ON_ERROR);
+        $model = is_array($decoded) ? ($decoded['model'] ?? null) : null;
+        if ($this->messageTrainingEnabled() || (is_string($model) && strpos($model, 'claude-') === 0)) {
+            if (!is_string($model) || !class_exists(FasakhanstaClaudeTransport::class)
+                || !FasakhanstaClaudeTransport::credentialsValid($model, $key)
+                || !FasakhanstaClaudeTransport::supportsForcedTool($model))
+                return ['status' => 0, 'body' => '', 'curl_errno' => 0,
+                    'transport_reason' => 'INVALID_CONFIGURATION'];
+            return (new FasakhanstaClaudeTransport())->request($decoded, $model, $key, self::REQUEST_TIMEOUT_SECONDS);
+        }
         if (!function_exists('curl_init')) {
             return ['status' => 0, 'body' => '', 'transport_unavailable' => true];
         }

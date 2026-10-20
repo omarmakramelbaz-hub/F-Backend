@@ -429,9 +429,13 @@ def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verif
             raise SafeError('DESKTOP_ALTERNATIVE_PAYLOAD_SCOPE_INVALID')
         alternative=read_manifest(alternative_manifest_path,alternative_manifest_pin)
         validate_manifest_pair(value,alternative)
-        STAGE='SELECTION'
-        manifest_path,manifest_pin,value=select_manifest(root,uid,[(manifest_path,manifest_pin,value),
-            (alternative_manifest_path,alternative_manifest_pin,alternative)],runner)
+        candidates=[(manifest_path,manifest_pin,value),(alternative_manifest_path,alternative_manifest_pin,alternative)]
+    else:
+        candidates=[(manifest_path,manifest_pin,value)]
+    # One measured manifest receives the same full, read-only preselection as
+    # a reviewed pair. Unknown source/GUI mixtures stop before backup or locks.
+    STAGE='SELECTION'
+    manifest_path,manifest_pin,value=select_manifest(root,uid,candidates,runner)
     payload=manifest_path.parent.parent;helper=payload/'deployment/desktop_dashboard_release.php'
     parent=root.parent/'desktop-dashboard-release-backups';base.private_parent(parent,uid)
     fd=os.open(parent/'server-install.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)

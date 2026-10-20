@@ -7,7 +7,7 @@ use Throwable;
 /** Generates a bounded public draft only. Scheduling, claims and actual sending belong to the workflow. */
 class MetaCommentAiProvider
 {
-    private const ENDPOINT = 'https://api.openai.com/v1/responses';
+    private const ENDPOINT = 'https://api.anthropic.com/v1/messages';
     private const MAX_REQUEST_BYTES = 65536;
     private const MAX_RESPONSE_BYTES = 131072;
     private const INSTRUCTIONS = <<<'PROMPT'
@@ -89,18 +89,13 @@ PROMPT;
             if (!$credentials['ok']) return MetaCommentAiReplyPolicy::skip($credentials['reason']);
             $key = $credentials['api_key'];
             $request = [
-                'model' => $credentials['model'], 'store' => false, 'stream' => false, 'max_output_tokens' => 1536,
-                'instructions' => self::INSTRUCTIONS,
-                'input' => [['role' => 'user', 'content' => json_encode([
+                'model' => $credentials['model'], 'max_tokens' => 1536,
+                'system' => FasakhanstaCommentTrainingPolicy::instructions(self::INSTRUCTIONS, $context),
+                'messages' => [['role' => 'user', 'content' => json_encode([
                     'post_text' => self::redact($post), 'comment_text' => self::redact($comment),
                     'product_names' => $products, 'recent_replies' => $recentReplies,
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)]],
-                'text' => ['format' => ['type' => 'json_schema', 'name' => 'meta_comment_public_reply_v1', 'strict' => true,
-                    'schema' => ['type' => 'object', 'additionalProperties' => false,
-                        'properties' => ['kind' => ['type' => 'string', 'enum' => ['PRICE', 'REPLY', 'SKIP']],
-                            'message' => ['type' => ['string', 'null']]], 'required' => ['kind', 'message']]]],
             ];
-            if ($credentials['model'] === 'gpt-6-luna') $request['reasoning'] = ['effort' => 'low'];
             $body = json_encode($request, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
             if (strlen($body) > self::MAX_REQUEST_BYTES) return MetaCommentAiReplyPolicy::skip('INVALID_INPUT');
             $response = $this->transport === null ? $this->request($body, $key, $timeout) : ($this->transport)($body, $key);
@@ -111,23 +106,16 @@ PROMPT;
                 || (isset($response['curl_errno']) && $response['curl_errno'] !== 0)) return MetaCommentAiReplyPolicy::skip('TRANSPORT_ERROR');
             if ($response['status'] !== 200) return MetaCommentAiReplyPolicy::skip('HTTP_ERROR');
             $decoded = json_decode($response['body'], true, 16, JSON_THROW_ON_ERROR);
-            if (!is_array($decoded) || isset($decoded['error']) || !is_string($decoded['status'] ?? null)) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
-            if ($decoded['status'] !== 'completed') return MetaCommentAiReplyPolicy::skip('INCOMPLETE');
-            if (!is_array($decoded['output'] ?? null) || !array_is_list($decoded['output'])) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
+            if (!is_array($decoded) || ($decoded['type'] ?? null) === 'error' || !is_array($decoded['content'] ?? null) || !array_is_list($decoded['content'])) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
+            if (($decoded['stop_reason'] ?? null) !== 'end_turn') return MetaCommentAiReplyPolicy::skip('INCOMPLETE');
             $texts = [];
-            foreach ($decoded['output'] as $output) {
-                if (!is_array($output) || !is_string($output['type'] ?? null)) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
-                if ($output['type'] === 'reasoning') continue;
-                if ($output['type'] !== 'message' || ($output['role'] ?? null) !== 'assistant'
-                    || (isset($output['status']) && $output['status'] !== 'completed')
-                    || !is_array($output['content'] ?? null) || !array_is_list($output['content'])) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
-                foreach ($output['content'] as $content) {
-                    if (!is_array($content)) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
-                    if (($content['type'] ?? null) === 'refusal') return MetaCommentAiReplyPolicy::skip('REFUSED');
-                    if (($content['type'] ?? null) !== 'output_text' || !is_string($content['text'] ?? null)) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
-                    $texts[] = $content['text'];
-                }
+            foreach ($decoded['content'] as $content) {
+                if (FasakhanstaCommentTrainingPolicy::isReasoningBlock($content)) continue;
+                if (!is_array($content) || ($content['type'] ?? null) !== 'text' || !is_string($content['text'] ?? null)) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
+                $texts[] = $content['text'];
             }
+            // Claude sometimes wraps the JSON in a ```json fence; remove it before the strict JSON check.
+            if (count($texts) === 1) $texts[0] = trim((string) preg_replace('/\A\s*```(?:json)?\s*|\s*```\s*\z/u', '', trim($texts[0])));
             if (count($texts) !== 1 || strlen($texts[0]) > 8192) return MetaCommentAiReplyPolicy::skip('INVALID_RESPONSE');
             $choice = json_decode($texts[0], true, 4, JSON_THROW_ON_ERROR);
             $string = '"(?:[^"\\\\\x00-\x1f]|\\\\(?:["\\\\\/bfnrt]|u[0-9a-fA-F]{4}))*"';
@@ -151,13 +139,11 @@ PROMPT;
     {
         $configuration = $this->configuration;
         if ($configuration === null) {
-            $configuration = function_exists('config') ? config('meta_comment_ai', []) : [];
-            $configuration = is_array($configuration) ? $configuration : [];
-            $fallback = function_exists('config') ? config('whatsapp_orders', []) : [];
-            $fallback = is_array($fallback) ? $fallback : [];
-            foreach (['model', 'api_key'] as $field) {
-                if (!isset($configuration[$field]) || $configuration[$field] === '') $configuration[$field] = $fallback[$field] ?? null;
-            }
+            // Claude settings come only from ANTHROPIC_API_KEY; the old OpenAI fallback is removed.
+            $configuration = [
+                'model' => 'claude-haiku-5-5',
+                'api_key' => function_exists('env') ? env('ANTHROPIC_API_KEY') : getenv('ANTHROPIC_API_KEY'),
+            ];
         }
         $model = $configuration['model'] ?? null; $key = $configuration['api_key'] ?? null;
         if (!is_string($model) || $model === '' || !is_string($key) || $key === '') return ['ok' => false, 'reason' => 'NOT_CONFIGURED'];
@@ -179,7 +165,7 @@ PROMPT;
         if ($curl === false) return ['status' => 0, 'body' => '', 'transport_unavailable' => true];
         try {
             curl_setopt_array($curl, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
-                CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $key, 'Content-Type: application/json', 'Accept: application/json'],
+                CURLOPT_HTTPHEADER => ['x-api-key: ' . $key, 'anthropic-version: 2023-06-01', 'Content-Type: application/json', 'Accept: application/json'],
                 CURLOPT_FOLLOWLOCATION => false, CURLOPT_MAXREDIRS => 0,
                 CURLOPT_PROTOCOLS => CURLPROTO_HTTPS, CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
                 CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,

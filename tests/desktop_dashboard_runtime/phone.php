@@ -49,7 +49,9 @@ app(DesktopDashboardJournal::class)->execute($phoneDevice,$closeValues['idempote
 config(['database.connections.mysql.database'=>$phoneServer,'desktop_dashboard.local'=>false]);DB::purge();
 // Reserve both ticket IDs in reverse creation order and the local company ID on the server.
 $collision=DB::table('branch_delivery_companies')->insertGetId(['branch'=>'f:100','actor_id'=>1,'name'=>'شركة سيرفر مستقلة','phone'=>'01000000000','active'=>true,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-foreach(array_reverse($savedPhone) as $row){$row['customer_name']='طلب سيرفر مستقل';DB::table('pos_service_tickets')->insert($row);}
+// These unrelated synthetic rows reserve colliding IDs, not an additional open
+// invoice. Start them terminal so real mapped collections can close their shift.
+foreach(array_reverse($savedPhone) as $row){$row['customer_name']='طلب سيرفر مستقل';$row['status']='cancelled';DB::table('pos_service_tickets')->insert($row);}
 foreach($localOrders as $id){
     $row=(array)DB::table('takeaway_orders')->first();$row['id']=$id;$row['branch']='f:101';$row['request_key']=(string)Str::uuid();
     DB::table('takeaway_orders')->insert($row);

@@ -1,5 +1,8 @@
 name: Verify installer from tested dashboard runtime
 
+# Historical run176 recovery: the four-path guard below preserves its original
+# package metadata and Fasakhansta setup filename. GO ERP branding and changed
+# application source require fresh acceptance in desktop-dashboard-tests.yml.
 on:
   push:
     branches: ['codex/runtime-ca-portability-20261009']

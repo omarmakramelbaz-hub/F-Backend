@@ -120,7 +120,7 @@ class MetaCommentAiWorker
                         }
                         if ($generationStopped) { $post['pending'][] = $comment; continue; }
                         $draft = $this->provider->reply(['post_text' => (string) ($post['text'] ?? ''),
-                            'comment_text' => (string) $comment['text'], 'product_names' => [],
+                            'comment_text' => (string) $comment['text'], 'product_names' => FasakhanstaCommentTrainingPolicy::productNames(),
                             'recent_replies' => $state['recent_replies'],
                             'request_timeout_seconds' => max(1, min(30, (int) (($deadline - hrtime(true)) / 1000000000)))]);
                         if (($draft['kind'] ?? null) === 'SKIP' && (($draft['ok'] ?? false) === true

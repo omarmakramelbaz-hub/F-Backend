@@ -2,9 +2,9 @@ name: Dashboard server installer safety
 on:
   push:
     branches: ['codex/dashboard-server-integration-20261012', 'codex/dashboard-owner-repair-20261013', 'codex/dashboard-baseline-diagnosis-20261013']
-    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_expense_rejection_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/desktop_dashboard_current_source_diagnosis_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', 'tests/fixtures/desktop-derived-expense-rejection-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
+    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_measured_source_ownership_test.py', 'tests/desktop_dashboard_expense_rejection_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/desktop_dashboard_current_source_diagnosis_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', 'tests/fixtures/desktop-derived-expense-rejection-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
   pull_request:
-    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_expense_rejection_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/desktop_dashboard_current_source_diagnosis_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', 'tests/fixtures/desktop-derived-expense-rejection-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
+    paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_measured_source_ownership_test.py', 'tests/desktop_dashboard_expense_rejection_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/desktop_dashboard_current_source_diagnosis_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', 'tests/fixtures/desktop-derived-expense-rejection-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
 permissions:
   contents: read
 jobs:
@@ -25,7 +25,9 @@ jobs:
         run: python3 -B tests/desktop_dashboard_server_install_test.py
       - name: Check exact measured baseline and reject mixed source
         run: python3 -B tests/desktop_dashboard_actual_baseline_test.py
-      - name: Verify the exact derived expense update cohort
+      - name: Verify retained measured source with actual file owners
+        run: sudo python3 -B tests/desktop_dashboard_measured_source_ownership_test.py --require-real-owners
+      - name: Verify the historical expense update scope
         run: python3 -B tests/desktop_dashboard_expense_rejection_baseline_test.py
       - name: Exercise scoped ownership repair as real root
         run: sudo python3 -B tests/desktop_dashboard_owner_repair_test.py --require-real-owners
@@ -41,11 +43,11 @@ jobs:
           blob = lambda d: hashlib.sha1(b'blob ' + str(len(d)).encode() + b'\0' + d).hexdigest()
           source = (root / 'deployment/apply_desktop_dashboard_server_root.sh').read_text()
           pins = re.findall(r"'(deployment/[^']+)': '([a-f0-9]{40})'", source)
-          assert len(pins) == 5
+          assert len(pins) == 4
           for name, pin in pins:
               assert blob((root / name).read_bytes()) == pin, name
           profiles = []
-          for name in ['desktop_dashboard_server_manifest.json', 'desktop_dashboard_server_manifest_expense_rejection.json']:
+          for name in ['desktop_dashboard_server_manifest.json']:
               manifest = json.loads((root / 'deployment' / name).read_text())
               profile = {}
               for row in manifest['sources']:
@@ -56,7 +58,8 @@ jobs:
                   profile[row['path']] = row['blob']
               profiles.append(profile)
               print('VERIFIED_INSTALLER_PAYLOAD', name, len(manifest['sources']))
-          assert profiles[0] == profiles[1]
+          assert len(profiles) == 1
+          assert 'deployment/desktop_dashboard_server_manifest_expense_rejection.json' not in dict(pins)
           assert not (root / 'deployment/desktop_dashboard_server_manifest_attachments.json').exists()
           assert 'deployment/desktop_dashboard_server_manifest_attachments.json' not in dict(pins)
           scope_path = root / 'deployment/desktop_dashboard_publication_metadata_scope.json'

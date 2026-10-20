@@ -6,10 +6,15 @@
     var active = null;
     var channels = ['whatsapp', 'messenger', 'instagram'];
     var words = {
-        ar: {enable:'تشغيل تحليل وإرسال الطلبات', disable:'إيقاف تحليل وإرسال الطلبات', disable_legacy:'إيقاف AI', loading:'جارٍ تحميل حالة المعالجة',
+        ar: {enable:'تشغيل تحليل وإرسال الطلبات', enable_replies:'تشغيل الرد والتحليل وإرسال الطلبات', disable:'إيقاف تحليل وإرسال الطلبات', disable_legacy:'إيقاف الرد والتحليل وإرسال الطلبات', loading:'جارٍ تحميل حالة المعالجة',
+            mode_unsaved:'اختيار الوضع لم يُحفظ بعد. الوضع المحفوظ هو الذي يعمل حاليًا.',
+            mode_analysis_help:'الداشبورد يحلل المحادثة ويرسل الطلب المكتمل بعد تأكيد العميل، ولا يرسل ردودًا تلقائية. الرد يكون من الموظف أو أي مساعد خارجي مفعّل لديك.',
+            mode_reply_help:'الداشبورد يرد على الرسائل ويجمع بيانات الطلب، مع مراجعة الأصناف والأسعار وموافقة العميل قبل التنفيذ. أوقف أي مساعد خارجي يرد على القنوات نفسها قبل التفعيل.',
+            pause_required:'أوقف المساعد الخارجي على القنوات المحددة، ثم ضع علامة التأكيد أدناه لتفعيل ردود الداشبورد. لم يتغير الوضع المحفوظ.',
+            reply_loading:'جارٍ تحميل حالة الردود', reply_unavailable:'حالة الردود غير متاحة حاليًا',
+            reply_DISABLED:'الردود التلقائية متوقفة', reply_ACTIVE:'الردود التلقائية مفعّلة حسب الجدول وجاهزية القنوات', reply_SCHEDULED_OFF:'الردود التلقائية خارج مواعيد الرد', reply_ANALYZE_ONLY:'الوضع المحفوظ: تحليل فقط، بدون ردود تلقائية من الداشبورد',
             analysis_loading:'جارٍ تحميل حالة تحليل الرسائل', analysis_unavailable:'حالة تحليل الرسائل غير متاحة حاليًا',
             analysis_DISABLED:'تحليل الرسائل متوقف', analysis_ACTIVE:'تحليل الرسائل مفعّل حسب الجدول', analysis_SCHEDULED_OFF:'تحليل الرسائل خارج مواعيد التحليل',
-            compatibility:'الوضع المحفوظ ما زال يتضمن ردود AI. احفظ الإعدادات لتطبيق التحليل وإرسال الطلبات فقط؛ لم يتغير الوضع بعد.',
             replies_pending:'توجد رسالة AI جارٍ إرسالها أو لم تتأكد نتيجتها بعد. انتظر تأكيد حالتها ثم حدّث الحالة وأعد حفظ الوضع. لا تُعد إرسال الرسالة.',
             save:'حفظ الإعدادات', saving:'جارٍ حفظ الإعدادات…',
             dispatch_loading:'جارٍ تحميل حالة إرسال الطلبات', dispatch_unavailable:'حالة إرسال الطلبات غير متاحة حاليًا',
@@ -22,10 +27,15 @@
             whatsapp:'واتساب', messenger:'ماسنجر', instagram:'إنستجرام', ready:'مسموح بالمعالجة حسب الإعدادات',
             ACTOR_UNAVAILABLE:'حساب المعالجة غير متاح', ACCOUNT_UNAVAILABLE:'ربط القناة غير متاح', CAPTURE_UNAVAILABLE:'استقبال الرسائل غير متاح',
             ACTIVATION_REQUIRED:'القناة تحتاج إلى تفعيل', EXTERNAL_AGENT_PAUSE_REQUIRED:'يلزم إيقاف المساعد الخارجي', STATE_CHANGED:'حالة القناة تغيّرت؛ حدّث الحالة', UNAVAILABLE:'الجاهزية غير متاحة'},
-        en: {enable:'Enable analysis and order dispatch', disable:'Disable analysis and order dispatch', disable_legacy:'Disable AI', loading:'Loading processing status',
+        en: {enable:'Enable analysis and order dispatch', enable_replies:'Enable replies, analysis and order dispatch', disable:'Disable analysis and order dispatch', disable_legacy:'Disable replies, analysis and order dispatch', loading:'Loading processing status',
+            mode_unsaved:'The selected mode has not been saved. The saved mode is still in effect.',
+            mode_analysis_help:'The dashboard analyses conversations and sends complete orders after customer approval; it does not send automatic replies. Replies come from staff or any external assistant you have enabled.',
+            mode_reply_help:'The dashboard replies and collects order details, with product and price checks and customer approval before execution. Pause any external assistant replying on the same channels before activation.',
+            pause_required:'Pause the external assistant on the selected channels, then check the confirmation below to enable dashboard replies. The saved mode has not changed.',
+            reply_loading:'Loading reply status', reply_unavailable:'Reply status is currently unavailable',
+            reply_DISABLED:'Automatic replies are off', reply_ACTIVE:'Automatic replies are enabled subject to hours and channel readiness', reply_SCHEDULED_OFF:'Automatic replies are outside reply hours', reply_ANALYZE_ONLY:'Saved mode: analysis only, without automatic dashboard replies',
             analysis_loading:'Loading message analysis status', analysis_unavailable:'Message analysis status is currently unavailable',
             analysis_DISABLED:'Message analysis is off', analysis_ACTIVE:'Message analysis is enabled for these hours', analysis_SCHEDULED_OFF:'Message analysis is outside analysis hours',
-            compatibility:'The saved mode still includes AI replies. Save these settings to apply analysis and order dispatch only; the mode has not changed yet.',
             replies_pending:'An AI message is being sent or its result is still uncertain. Wait for its status to be confirmed, refresh the status, then save the mode again. Do not resend the message.',
             save:'Save settings', saving:'Saving settings…',
             dispatch_loading:'Loading order dispatch status', dispatch_unavailable:'Order dispatch status is currently unavailable',
@@ -157,6 +167,10 @@
         var status = panel.querySelector('[data-meta-ai-status]'), message = panel.querySelector('[data-meta-ai-message]');
         var dispatchStatus = panel.querySelector('[data-meta-ai-dispatch-status]');
         var analysisStatus = panel.querySelector('[data-meta-ai-analysis-status]');
+        var replyStatus = panel.querySelector('[data-meta-ai-reply-status]');
+        var mode = panel.querySelector('[data-meta-ai-mode]'), modeHelp = panel.querySelector('[data-meta-ai-mode-help]');
+        var handoffSettings = panel.querySelector('[data-meta-ai-handoff-settings]');
+        var pauseAttestation = panel.querySelector('[data-meta-ai-external-paused]');
         var compatibilityNote = panel.querySelector('[data-meta-ai-compatibility-note]');
         var settings = panel.querySelector('[data-meta-ai-settings]'), currentTime = panel.querySelector('[data-meta-ai-current-time]');
         var channelStatus = panel.querySelector('[data-meta-ai-channel-status]');
@@ -167,20 +181,47 @@
         var channelInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-channel]'));
         var dayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-day]'));
         var dispatchDayInputs = Array.prototype.slice.call(panel.querySelectorAll('[data-meta-ai-dispatch-day]'));
-        if (!toggle || !save || !refresh || !form || !status || !dispatchStatus || !analysisStatus || !compatibilityNote || !message || !settings || !currentTime || !channelStatus
+        if (!toggle || !save || !refresh || !form || !status || !dispatchStatus || !analysisStatus || !replyStatus || !mode || !modeHelp || !handoffSettings || !pauseAttestation || !compatibilityNote || !message || !settings || !currentTime || !channelStatus
             || !scheduleEnabled || !allDay || !start || !end || !dispatchEnabled || !dispatchAllDay
             || !dispatchStart || !dispatchEnd || channelInputs.length !== 3 || dayInputs.length !== 7 || dispatchDayInputs.length !== 7) return;
-        var run = {panel:panel, dead:false, busy:false, saving:false, dirty:false, saved:null, listeners:[], timer:null};
+        var run = {panel:panel, dead:false, busy:false, saving:false, dirty:false, saved:null, listeners:[], timer:null, forceAttestation:false};
         active = run;
 
         function alive() { return !run.dead && active === run && document.getElementById('meta-ai-controls') === panel; }
         function showMessage(text) { message.textContent = text || ''; message.hidden = !text; }
+        function sameChannels(left, right) {
+            return left.length === right.length && left.every(function (channel) { return right.indexOf(channel) !== -1; });
+        }
+        function needsHandoff(policy) {
+            if (!run.saved || !policy.enabled || policy.mode !== 'REPLY_AND_ANALYZE') return false;
+            var saved = run.saved;
+            return !saved.policy.enabled || saved.policy.mode !== 'REPLY_AND_ANALYZE'
+                || saved.handoff_required === true || !saved.handoff_method
+                || !sameChannels(policy.channels, saved.policy.channels);
+        }
+        function needsAttestation(policy) {
+            return policy.enabled && policy.mode === 'REPLY_AND_ANALYZE'
+                && (run.forceAttestation || (needsHandoff(policy) && policy.channels.some(function (channel) { return channel !== 'whatsapp'; })));
+        }
+        function resetAttestation() {
+            pauseAttestation.checked = false;
+            run.forceAttestation = false;
+        }
         function controls() {
             var editable = !run.busy && run.saved && run.saved.can_manage;
             toggle.disabled = !editable; save.disabled = !editable;
             if (run.saved) {
-                toggle.textContent = labels[run.saved.policy.enabled ? (run.saved.policy.mode === 'ANALYZE_ONLY' ? 'disable' : 'disable_legacy') : 'enable'];
+                toggle.textContent = labels[run.saved.policy.enabled ? (run.saved.policy.mode === 'ANALYZE_ONLY' ? 'disable' : 'disable_legacy')
+                    : (mode.value === 'REPLY_AND_ANALYZE' ? 'enable_replies' : 'enable')];
             }
+            mode.disabled = !editable;
+            modeHelp.textContent = labels[mode.value === 'REPLY_AND_ANALYZE' ? 'mode_reply_help' : 'mode_analysis_help'];
+            var attestationNeeded = !!run.saved && needsAttestation(collectPolicy(true));
+            handoffSettings.hidden = !attestationNeeded;
+            pauseAttestation.disabled = !editable || !attestationNeeded;
+            if (!attestationNeeded) pauseAttestation.checked = false;
+            compatibilityNote.textContent = run.saved && mode.value !== run.saved.policy.mode ? labels.mode_unsaved : '';
+            compatibilityNote.hidden = !compatibilityNote.textContent;
             save.textContent = labels[run.saving ? 'saving' : 'save'];
             refresh.disabled = run.busy;
             channelInputs.forEach(function (input) { input.disabled = !editable; });
@@ -196,13 +237,14 @@
         function render(value) {
             run.saved = clone(value);
             run.dirty = false;
+            resetAttestation();
+            mode.value = value.policy.mode;
             panel.hidden = false; settings.hidden = false; panel.dataset.status = value.status;
             var analysisOnly = value.policy.mode === 'ANALYZE_ONLY';
             status.textContent = labels[value.status];
             analysisStatus.textContent = value.analysis_state ? labels['analysis_' + value.analysis_state.status] : labels.analysis_unavailable;
+            replyStatus.textContent = value.reply_state ? labels['reply_' + value.reply_state.status] : labels.reply_unavailable;
             dispatchStatus.textContent = value.dispatch_state ? labels['dispatch_' + value.dispatch_state.status] : labels.dispatch_unavailable;
-            compatibilityNote.textContent = analysisOnly ? '' : labels.compatibility;
-            compatibilityNote.hidden = analysisOnly;
             toggle.textContent = labels[value.policy.enabled ? (analysisOnly ? 'disable' : 'disable_legacy') : 'enable'];
             toggle.setAttribute('aria-pressed', value.policy.enabled ? 'true' : 'false');
             channelInputs.forEach(function (input) { input.checked = value.policy.channels.indexOf(input.value) !== -1; });
@@ -229,9 +271,11 @@
         }
         function unavailable(text) {
             run.saved = null; panel.hidden = false; settings.hidden = true;
+            resetAttestation();
             panel.dataset.status = 'DISABLED'; status.textContent = labels.unavailable;
             dispatchStatus.textContent = labels.dispatch_unavailable;
             analysisStatus.textContent = labels.analysis_unavailable;
+            replyStatus.textContent = labels.reply_unavailable;
             toggle.textContent = labels.enable; toggle.setAttribute('aria-pressed', 'false');
             currentTime.textContent = ''; showMessage(text); controls();
             channelStatus.textContent = ''; compatibilityNote.textContent = ''; compatibilityNote.hidden = true;
@@ -251,6 +295,7 @@
                     try {
                         var failure = await response.json();
                         error.repliesPending = failure && (failure.reason === 'REPLIES_PENDING' || failure.code === 'REPLIES_PENDING' || failure.error === 'REPLIES_PENDING');
+                        error.pauseRequired = failure && failure.error === 'EXTERNAL_AGENT_PAUSE_REQUIRED';
                     } catch (ignored) { /* Only a known reason may be shown. */ }
                 }
                 throw error;
@@ -270,7 +315,7 @@
         async function load(note) {
             if (run.busy || !alive()) return;
             run.busy = true; panel.hidden = false; controls();
-            if (!run.saved) { status.textContent = labels.loading; analysisStatus.textContent = labels.analysis_loading; dispatchStatus.textContent = labels.dispatch_loading; }
+            if (!run.saved) { status.textContent = labels.loading; analysisStatus.textContent = labels.analysis_loading; replyStatus.textContent = labels.reply_loading; dispatchStatus.textContent = labels.dispatch_loading; }
             showMessage('');
             try {
                 var value = await request(readUrl);
@@ -282,15 +327,27 @@
         async function update(policy) {
             if (run.busy || !run.saved || !run.saved.can_manage || !alive()) return;
             if (!validPolicy(policy)) { showMessage(labels.invalid); return; }
+            if (needsAttestation(policy) && !pauseAttestation.checked) {
+                settings.open = true; showMessage(labels.pause_required); controls(); pauseAttestation.focus(); return;
+            }
+            // Only a fresh owner gesture can supply this statement. Receipts,
+            // the prior saved mode and server readiness never check this box.
+            var attested = needsAttestation(policy) && pauseAttestation.checked;
+            pauseAttestation.checked = false;
             var revision = run.saved.revision;
             run.busy = true; run.saving = true; showMessage(''); controls();
             try {
-                var value = await request(updateUrl, {policy:policy, expected_revision:revision, external_agent_paused:false});
+                var value = await request(updateUrl, {policy:policy, expected_revision:revision, external_agent_paused:attested});
                 if (value === null) unavailable(labels.unavailable);
                 else { render(value); showMessage(value.can_manage ? labels.saved : labels.denied); }
             } catch (error) {
                 if (!alive()) return;
-                if ((error.status === 409 || error.status === 422) && error.repliesPending) {
+                if (error.status === 422 && error.pauseRequired) {
+                    // WhatsApp-only activation may first use the server's
+                    // verified pause API. A rejection needs a new owner statement.
+                    run.forceAttestation = true; pauseAttestation.checked = false;
+                    run.dirty = true; settings.open = true; showMessage(labels.pause_required);
+                } else if ((error.status === 409 || error.status === 422) && error.repliesPending) {
                     settings.open = true; showMessage(labels.replies_pending);
                 } else if (error.status === 409) {
                     // Reload once to review the newer policy. Never retry the mutation.
@@ -305,7 +362,7 @@
             if (alive() && !document.hidden && !run.dirty && !run.busy) load();
         }
         function collectPolicy(enabled) {
-            return {enabled:enabled, mode:'ANALYZE_ONLY',
+            return {enabled:enabled, mode:mode.value,
                 channels:channelInputs.filter(function (input) { return input.checked; }).map(function (input) { return input.value; }),
                 schedule:{enabled:scheduleEnabled.checked,
                     days:dayInputs.filter(function (input) { return input.checked; }).map(function (input) { return Number(input.value); }),
@@ -330,11 +387,14 @@
             update(collectPolicy(run.saved.policy.enabled));
         });
         bind(refresh, 'click', function () { load(); });
+        bind(mode, 'change', function () { resetAttestation(); dirty(); controls(); });
+        bind(pauseAttestation, 'change', dirty);
         bind(scheduleEnabled, 'change', function () { dirty(); controls(); });
         bind(allDay, 'change', function () { dirty(); controls(); });
         bind(dispatchEnabled, 'change', function () { dirty(); controls(); });
         bind(dispatchAllDay, 'change', function () { dirty(); controls(); });
-        channelInputs.concat(dayInputs).concat(dispatchDayInputs).forEach(function (input) { bind(input, 'change', dirty); });
+        channelInputs.forEach(function (input) { bind(input, 'change', function () { resetAttestation(); dirty(); controls(); }); });
+        dayInputs.concat(dispatchDayInputs).forEach(function (input) { bind(input, 'change', dirty); });
         [start,end,dispatchStart,dispatchEnd].forEach(function (input) { bind(input, 'input', dirty); bind(input, 'change', dirty); });
         bind(window, 'focus', backgroundRefresh);
         bind(document, 'visibilitychange', backgroundRefresh);

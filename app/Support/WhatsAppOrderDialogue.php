@@ -9,7 +9,7 @@ final class WhatsAppOrderDialogue
     public const FIELDS = ['NAME', 'PHONE', 'ADDRESS', 'ITEMS', 'QUANTITY', 'QUANTITY_MODE',
         'FULFILLMENT', 'BRANCH', 'LOCATION'];
     public const KINDS = ['MISSING', 'QUANTITY_ASSOCIATION', 'PRODUCT_CHOICE', 'OPTION_CHOICE',
-        'UNREADABLE', 'CONFLICT', 'GREETING', 'CATALOG_INFORMATION', 'PRODUCT_INFORMATION'];
+        'UNREADABLE', 'CONFLICT', 'GREETING', 'CATALOG_INFORMATION', 'PRODUCT_INFORMATION', 'SOCIAL_REPLY'];
 
     public static function validContext(array $context): bool
     {
@@ -25,7 +25,7 @@ final class WhatsAppOrderDialogue
                 || count($context['candidates']) > 12 || !is_array($context['transcript'])
                 || !WhatsAppOrderExtraction::validateTranscript($context['transcript'])['ok']
                 || WhatsAppOrderExtraction::hasProbe($context['transcript'])) return false;
-            $menu = in_array($context['kind'], ['PRODUCT_CHOICE', 'OPTION_CHOICE', 'CATALOG_INFORMATION'], true);
+            $menu = in_array($context['kind'], ['PRODUCT_CHOICE', 'OPTION_CHOICE', 'CATALOG_INFORMATION', 'SOCIAL_REPLY'], true);
             if ((!$information && $menu !== ($context['candidates'] !== []))
                 || (($menu || $information) && $context['field'] !== 'ITEMS')) return false;
             if ($information) {
@@ -48,6 +48,11 @@ final class WhatsAppOrderDialogue
             if ($context['kind'] === 'GREETING' && ($context['field'] !== 'ITEMS'
                 || $context['item_name'] !== null || $context['candidates'] !== [])) return false;
             if ($context['kind'] === 'CATALOG_INFORMATION' && $context['item_name'] !== null) return false;
+            // Customer data can select a reviewed response category, never supply
+            // the words of a business reply or create a new response candidate.
+            if ($context['kind'] === 'SOCIAL_REPLY' && ($context['item_name'] !== null
+                || $context['candidates'] === []
+                || $context['candidates'] !== self::socialCandidates($context['transcript']))) return false;
             $ids = []; $labels = [];
             foreach ($context['candidates'] as $candidate) {
                 if (!is_array($candidate) || !self::keys($candidate, ['id', 'label'])
@@ -85,6 +90,8 @@ final class WhatsAppOrderDialogue
         if ($choice['action'] === 'WAIT' && $choice['candidate_ids'] !== []) return null;
         if ($choice['action'] === 'ASK'
             && (($context['candidates'] !== []) !== ($choice['candidate_ids'] !== []))) return null;
+        if ($context['kind'] === 'SOCIAL_REPLY' && $choice['action'] === 'ASK'
+            && count($choice['candidate_ids']) !== 1) return null;
         return ['action' => $choice['action'], 'candidate_ids' => $choice['candidate_ids'], 'variant' => $choice['variant']];
     }
 
@@ -105,7 +112,8 @@ final class WhatsAppOrderDialogue
             return ['action' => 'ANSWER', 'candidate_ids' => [], 'fact_ids' => $facts,
                 'text' => $text, 'variant' => 'POLITE'];
         }
-        return ['action' => 'ASK', 'candidate_ids' => array_slice(array_column($context['candidates'], 'id'), 0, 6),
+        return ['action' => 'ASK', 'candidate_ids' => array_slice(array_column($context['candidates'], 'id'), 0,
+                $context['kind'] === 'SOCIAL_REPLY' ? 1 : 6),
             'variant' => 'POLITE'];
     }
 
@@ -116,8 +124,16 @@ final class WhatsAppOrderDialogue
         if ($choice === null) throw new \RuntimeException('INVALID_DIALOGUE_CHOICE');
         if ($choice['action'] === 'WAIT') return '';
         if ($context['kind'] === 'PRODUCT_INFORMATION') return $choice['text'];
+        if ($context['kind'] === 'SOCIAL_REPLY') {
+            $labels = array_column($context['candidates'], 'label', 'id');
+            return $labels[$choice['candidate_ids'][0]];
+        }
+        $language = self::replyLanguage($context);
         if ($context['kind'] === 'GREETING')
-            return 'أهلاً بحضرتك في فسخانستا. تحت أمرك، تحب نساعدك بإيه أو تطلب إيه؟';
+            return $language === 'en' ? 'Welcome to Fasakhansta. How can we help, or what would you like to order?'
+                : ($language === 'fr' ? 'Ahlan beek fe Fasakhansta. Ne2dar nesa3dak fe eh aw te7eb totlob eh?'
+                    : 'أهلاً بحضرتك في فسخانستا. تحت أمرك، تحب نساعدك بإيه أو تطلب إيه؟');
+        if ($language !== 'ar') return self::renderTranslatedQuestion($context, $choice, $language);
         $polite = $choice['variant'] === 'POLITE' ? 'لو سمحت، ' : '';
         $item = $context['item_name'] === null ? '' : 'بالنسبة لـ «'.$context['item_name'].'»، ';
         if ($context['candidates'] !== []) {
@@ -147,6 +163,157 @@ final class WhatsAppOrderDialogue
         return $text;
     }
 
+    /** Fixed wording only; the latest customer text selects language, never facts or authority. */
+    private static function replyLanguage(array $context): string
+    {
+        if (!function_exists('config') || config('fasakhansta_ai_training.messages_enabled', false) !== true
+            || !class_exists(\App\Services\Dashboard\FasakhanstaMessageTrainingFacts::class)) return 'ar';
+        $latest = null;
+        foreach ($context['transcript'] as $row) if ($row['speaker'] === 'customer') $latest = $row['text'];
+        return is_string($latest) ? \App\Services\Dashboard\FasakhanstaMessageTrainingFacts::language($latest) : 'ar';
+    }
+
+    private static function renderTranslatedQuestion(array $context, array $choice, string $language): string
+    {
+        $fr = $language === 'fr';
+        $polite = $choice['variant'] === 'POLITE' ? ($fr ? 'Law sama7t, ' : 'Please, ') : '';
+        $item = $context['item_name'] === null ? '' : ($fr ? 'Bel nesba le «' : 'For «').$context['item_name'].'», ';
+        if ($context['candidates'] !== []) {
+            $labels = array_column($context['candidates'], 'label', 'id'); $lines = [];
+            foreach ($choice['candidate_ids'] as $id) $lines[] = '• «'.$labels[$id].'»';
+            if ($context['kind'] === 'CATALOG_INFORMATION')
+                $text = ($fr ? "Di ba3d el asnaf el mota7a fel far3:\n" : "These are some items currently available at this branch:\n")
+                    .implode("\n", $lines).($fr ? "\nTe7eb tafaseel 3an anhy senf?" : "\nWhich item would you like details about?");
+            else
+                $text = $polite.$item.($fr ? "di el ekhteyarat el mota7a:\n" : "these are the available options:\n")
+                    .implode("\n", $lines).($fr ? "\nEkteb esm " : "\nWrite the ")
+                    .($context['kind'] === 'OPTION_CHOICE' ? ($fr ? 'el no3' : 'option') : ($fr ? 'el senf' : 'item'))
+                    .($fr ? ' elly te7ebbo.' : ' name you would like.');
+        } else {
+            $questions = $fr ? [
+                'NAME' => 'momken esm 7adretak lel talab?',
+                'PHONE' => 'momken ra2m tawasol le tafaseel el talab?',
+                'ADDRESS' => '3enwan el tawseel bel tafseel eh?',
+                'ITEMS' => 'te7eb totlob eh? Ekteb esm el senf el ma2sood.',
+                'QUANTITY' => 'te7eb ad eh?',
+                'QUANTITY_MODE' => 'el kammeya bel kilo wala bel ket3a?',
+                'FULFILLMENT' => 'te7eb delivery wala fel sala aw takeaway?',
+                'BRANCH' => 'te2sod anhy far3 aw madeena lel talab?',
+                'LOCATION' => 'momken teb3at location 3enwan el tawseel hena fel chat?',
+            ] : [
+                'NAME' => 'what name should we use for the request?',
+                'PHONE' => 'what phone number can we use to contact you about the request?',
+                'ADDRESS' => 'what is the full delivery address?',
+                'ITEMS' => 'what would you like to order? Please write the item name.',
+                'QUANTITY' => 'how much would you like?',
+                'QUANTITY_MODE' => 'is the quantity in kg or pieces?',
+                'FULFILLMENT' => 'would you like delivery, dine-in or takeaway?',
+                'BRANCH' => 'which branch or city do you mean for the request?',
+                'LOCATION' => 'could you share the delivery location here in this chat?',
+            ];
+            $lead = $context['kind'] === 'UNREADABLE'
+                ? ($fr ? 'Ma3lesh, ne7tag nowadda7 el goz2 da. ' : 'Sorry, we need to clarify this part. ')
+                : ($context['kind'] === 'CONFLICT'
+                    ? ($fr ? '3ashan net2akked men el bayanat el 7aleya, ' : 'To check the current details, ') : '');
+            $text = $polite.$item.$lead.$questions[$context['field']];
+            if ($context['kind'] === 'QUANTITY_ASSOCIATION' && $context['field'] === 'QUANTITY')
+                $text .= $fr ? ' 3adad el samak fel kilo beye7added el 7agm; ne7tag kammeyet el talab nafsaha.'
+                    : ' Fish count per kg describes size; we need the actual amount you want to order.';
+        }
+        if (!self::literal($text, 4096, true)) throw new \RuntimeException('INVALID_DIALOGUE_RENDER');
+        return $text;
+    }
+
+    /**
+     * Reviewed wording only. The model chooses a response, not arbitrary prose.
+     * This function never copies customer text, a phone, a name or an order claim
+     * into a reply. A customer category is not an order event or a handoff receipt.
+     */
+    public static function socialCandidates(array $transcript): array
+    {
+        if (!WhatsAppOrderExtraction::validateTranscript($transcript)['ok']
+            || WhatsAppOrderExtraction::hasProbe($transcript)) return [];
+        $latest = null;
+        foreach ($transcript as $row) if ($row['speaker'] === 'customer') $latest = $row['text'];
+        if (!is_string($latest) || trim($latest) === '') return [];
+        $text = self::informationWords($latest);
+        $language = preg_match('/\p{Arabic}/u', $text) ? 'ar'
+            : (preg_match('/\b(?:7elw|7elwa|gamd|gamed|begad|shokran|shokran|3ayez|3awz|ta3ban|t3bt|et2akhar|mota2akher|salam|ezay|ento|enta)\b/iu', $text) ? 'fr' : 'en');
+        // Serious cases take precedence over a greeting or compliment in the
+        // same message. These replies never promise unperformed follow-up.
+        $afterEating = preg_match('/(?:بعد.{0,15}(?:الاكل|اكلنا|اكلت|الوجبه)|اكلت|اكلنا)|\b(?:(?:after|since).{0,20}(?:eating|ate|meal)|(?:I|we)\s+ate)\b/iu', $text) === 1;
+        $bodySymptoms = preg_match('/(?:بطن(?:ي|نا|ه|ها)?.{0,20}(?:وجع|الم)|(?:وجع|الم).{0,20}بطن|مغص|اسهال|غثيان)|\b(?:stomach.{0,15}(?:hurts?|aches?|pain)|abdominal.{0,15}pain|nausea|diarrh(?:ea|oea))\b/iu', $text) === 1;
+        // A normal/safe question about changed colour, smell or taste needs
+        // branch review too. Historical FAQ answers cannot establish safety.
+        $sensory = '(?:لون|ريحه|رائحه|طعم|colou?r|smell|odou?r|taste)';
+        $concern = '(?:غريب|مختلف|وحش|بايظ|تغير|تغيير|اتغير|متغير|اخضر|مخضر|خضرا|اسود|مسود|ازرق|مزرق|بقع|عفن|طبيعي|سليم|امن|عادي|\b(?:weird|strange|unusual|normal|safe|changed?|green(?:ish)?|black(?:ish)?|blu(?:e|ish)|off|rotten|spoiled)\b)';
+        $food = '(?:فسيخ|رنجه|هيرنج|سردين|بطارخ|\b(?:feseekh|fesikh|fesekh|fiseekh|fish|herring|sardines?)\b)';
+        $unexpectedColour = '(?:اخضر|مخضر|خضرا|اسود|مسود|ازرق|مزرق|\b(?:green(?:ish)?|black(?:ish)?|blu(?:e|ish))\b)';
+        $productReview = preg_match('/'.$sensory.'.{0,60}'.$concern.'|'.$concern.'.{0,60}'.$sensory.'/iu', $text) === 1
+            || preg_match('/'.$food.'.{0,60}'.$unexpectedColour.'|'.$unexpectedColour.'.{0,60}'.$food.'/iu', $text) === 1
+            || preg_match('/(?:بايظ|فاسد)|\b(?:spoiled|rotten)\b/iu', $text) === 1;
+        if (($afterEating && $bodySymptoms)
+            || preg_match('/(?:تعبت|تعبان|اعياء|اعيان|تسمم|اتسممت|ترجيع|قيء|دوخه|دوار|تنميل|صعوبه.{0,10}(?:بلع|تنفس))|\b(?:sick|ill|vomit|poison|breathing|swallowing|ta3ban|t3bt)\b/iu', $text)) {
+            $category = 'health';
+        } elseif ($productReview) {
+            $category = 'review';
+        } elseif (preg_match('/(?:اتأخر|اتاخر|متأخر|متاخر|تاخير|تأخير|مش\s+وصل|موصلش|ماوصلش|غلط|ناقص|شكوي|شكوى|وحش|سيئ|مش\s+(?:حلو|كويس))|\b(?:late|delay|wrong|missing|complaint|awful|not\s+(?:good|nice)|et2akhar|mota2akher)\b/iu', $text)) {
+            $category = 'complaint';
+        } elseif (preg_match('/(?:انت|انتي|انتم).{0,15}(?:روبوت|بوت|ذكاء\s+اصطناعي|انسان|بشري)|\b(?:are\s+you\s+(?:a\s+)?(?:bot|human|AI))\b/iu', $text)) {
+            $category = 'identity';
+        } else {
+            // Thanks or praise can accompany an approval, cancellation or wait
+            // request. Preserve that turn for the existing order workflow.
+            if (preg_match('/(?<![\p{L}\p{N}])(?:موافق|موافقه|اتفقنا|اكد(?:لي|لنا)?|اؤكد|تاكيد|تمام|بلاش|الغي|الغاء|كنسل|ارفض|استني|انتظر|توقف)(?![\p{L}\p{N}])|(?:مش\s+(?:عايز|عاوز|موافق))|\b(?:confirm(?:ed|ing)?|approv(?:e|ed|al)|cancel(?:led|ing|lation)?|stop|wait|ok(?:ay)?|yes|no\s+thanks|tamam|mowafe2|mowafeq|kensel|estanna|estana)\b/iu', $text)) return [];
+            // Ordinary product questions and purchase requests stay in the
+            // existing FAQ/order path, even if they also contain a compliment.
+            if (preg_match('/[?؟]|(?:بكام|سعر|اسعار|الفرق|مواعيد|فرع|عنوان|اطلب|عايز|عاوز|زود|ضيف|حول|ادفع)|\b(?:what|why|how|when|price|order|want|send|pay|transfer|3ayez|3awz)\b/iu', $text)) return [];
+            if (preg_match('/\A\s*(?:السلام\s+عليكم|سلام\s+عليكم|اهلا|اهلين|هاي|هالو|صباح\s+(?:الخير|الفل|النور)|مساء\s+(?:الخير|الفل|النور)|hello|hi|hey|salam)[\s\p{P}\p{S}]*\z/iu', $text)) {
+                $category = 'greeting';
+            } elseif (preg_match('/(?:حلو|جميل|جامد|روعه|تحفه|عظمه|ممتاز|تسلم|بحبكم|شكرا)|\b(?:love|lovely|great|amazing|delicious|thanks|thank\s+you|7elw|7elwa|gamd|gamed|begad|shokran)\b/iu', $text)
+                || preg_match('/\A[\s\p{P}\p{S}\x{FE0F}\x{200D}]+\z/u', $text)) {
+                $category = 'praise';
+            } else return [];
+        }
+        $phrases = [
+            'ar' => [
+                'health' => ['آسفين إنك تعبت. اطلب رعاية طبية عاجلة دلوقتي وما تستناش رد الشات. ابعت رقم الطلب والتفاصيل هنا، وتواصل مع الفرع لمراجعة الحالة.'],
+                'review' => ['آسفين على اللي حصل. ما تذوقش المنتج للتجربة؛ ابعت صورته ورقم الطلب هنا وتواصل مع الفرع لمراجعته. ما نقدرش نأكد سلامته من الشات.'],
+                'complaint' => ['حقك علينا وآسفين على التجربة دي. ابعت رقم الطلب والتفاصيل هنا في الخاص علشان نحدد الحالة ونوجّهك للفرع.',
+                    'آسفين على اللي حصل. ممكن رقم الطلب وتفاصيل المشكلة هنا في الخاص؟ من غير بيانات زيادة، علشان نراجع الحالة مع الفرع.'],
+                'identity' => ['أنا مساعد آلي لفسخانستا، أقدر أساعدك في المعلومات والطلب، والحالات اللي محتاجة قرار من الفرع نوجّهك له.'],
+                'greeting' => ['أهلاً يا جميل في فسخانستا 🐟 تحب نساعدك في إيه؟',
+                    'يا أهلاً وسهلاً 😍 معاك فسخانستا، قولنا نفسك في إيه؟',
+                    'نورت فسخانستا يا كبير 🐟 سؤال ولا نبدأ طلب؟'],
+                'praise' => ['ده من ذوقك يا جميل 😍 نورت فسخانستا!',
+                    'كلامك يفرّح يا كبير 🐟 تسلم لنا!',
+                    'تسلم يا جميل 😍 حبكم لفسخانستا يفتح النفس!'],
+            ],
+            'en' => [
+                'health' => ['Sorry you feel unwell. Seek urgent medical care now; do not wait for a chat reply. Share your order number and details here privately and contact the branch about the incident.'],
+                'review' => ['Sorry about this. Do not taste the product to test it. Share a photo and order number here privately and contact the branch for review. We cannot confirm its safety over chat.'],
+                'complaint' => ['Sorry about your experience. Please send your order number and the problem here privately so we can identify the case and direct you to the branch.'],
+                'identity' => ['I am Fasakhansta’s automated assistant. I can help with information and orders; decisions needing staff are referred to the branch.'],
+                'greeting' => ['Welcome to Fasakhansta 🐟 What can we help you with?', 'Hi there 😍 Got a question, or ready to start an order?'],
+                'praise' => ['That means a lot 😍 Thanks for the love!', 'Thanks, you made our day 🐟 Always lovely to hear from you!'],
+            ],
+            'fr' => [
+                'health' => ['Asefeen enak ta3ban. Etlob mosa3da tebbeya 3agla delwa2ty, w matestannash rad el chat. Eb3at rakam el order wel tafaseel hena private, w etwasal ma3 el far3.'],
+                'review' => ['Asefeen 3ala elly 7asal. Matdo2sh el montag 3ashan tegarab. Eb3at sora w rakam el order hena private, w etwasal ma3 el far3. Man2darsh ne2akked salamto men el chat.'],
+                'complaint' => ['7a2ak 3aleena w asefeen 3ala elly 7asal. Eb3at rakam el order wel moshkela hena private, 3ashan ne3raf el 7ala w newaggahak lel far3.'],
+                'identity' => ['Ana mosa3ed aly le Fasakhansta. A2dar asa3dak fel ma3loomat wel order, wel 7agat elly me7taga karar men el far3 newaggahak leeh.'],
+                'greeting' => ['Ahlan ya gameel fe Fasakhansta 🐟 Ne2dar nesa3dak fe eh?', 'Nawart Fasakhansta 😍 So2al wala nebda2 order?'],
+                'praise' => ['Da men zo2ak ya gameel 😍 Nawart Fasakhansta!', 'Teslam ya kebeer 🐟 Kalamak yefarra7!'],
+            ],
+        ];
+        $result = [];
+        foreach ($phrases[$language][$category] as $phrase) {
+            if (!self::literal($phrase, 240)) return [];
+            $result[] = ['id' => 'c'.(count($result) + 1), 'label' => $phrase];
+        }
+        return $result;
+    }
+
     private static function informationChoice(array $context, array $choice): ?array
     {
         if (!self::validContext($context) || !self::keys($choice,
@@ -169,7 +336,11 @@ final class WhatsAppOrderDialogue
         // negative availability/preparation fact. Those business clauses are copied
         // exactly with their subjects; generated wording never reassigns them.
         $source = implode("\n", $selected);
-        if (self::sensitiveInformation($source)) {
+        // The existing lexical claim guard was reviewed mainly for Arabic.
+        // Reviewed English/Franco facts therefore render literally too; model
+        // prose must not turn a safety-review fact into a safety assurance.
+        if (self::sensitiveInformation($source) || !preg_match('/\p{Arabic}/u', $source)
+            || preg_match('/\p{Latin}/u', $source)) {
             $choice['text'] = self::factualAnswer($source, $choice['variant']);
             if (!self::literal($choice['text'], 700, true)) return null;
         }
@@ -177,7 +348,7 @@ final class WhatsAppOrderDialogue
     }
 
     private static function factualAnswer(string $facts, string $variant): string
-    { return ($variant === 'SHORT' ? '' : 'أكيد، ').$facts; }
+    { return $facts; }
 
     private static function sensitiveInformation(string $facts): bool
     {
