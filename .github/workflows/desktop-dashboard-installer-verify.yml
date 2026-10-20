@@ -76,7 +76,7 @@ jobs:
             assert.equal(payload.length,policy.bytes);assert.equal(digest(payload),policy.sha256);
             // Dot sourcing never invokes Initialize-DesktopVcRuntime. Refuse the control
             // unless the original helper already observes its registered minimum runtime.
-            const preflightCommand="$ErrorActionPreference='Stop'; . "+psString(script)+" -Action ValidatePayload -PayloadPath "+psString(payloadPath)+" -PolicyPath "+psString(policyPath)+"; "
+            const preflightCommand="$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop; Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop; . "+psString(script)+" -Action ValidatePayload -PayloadPath "+psString(payloadPath)+" -PolicyPath "+psString(policyPath)+"; "
               +"$p=Read-DesktopVcPolicy -Path "+psString(policyPath)+"; "
               +"$v=Get-DesktopVcInstalledVersion; if(-not [Environment]::Is64BitOperatingSystem -or $null -eq $v -or $v -lt [version]$p.version){throw 'Control refused: the required runtime is not already registered.'}; "
               +"$null=Test-DesktopVcPayload -Path "+psString(payloadPath)+" -Policy $p; "
