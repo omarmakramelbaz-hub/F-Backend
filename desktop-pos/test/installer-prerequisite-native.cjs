@@ -5,14 +5,17 @@ const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:
 const {execFileSync,spawnSync}=require('node:child_process');
 module.exports=async project=>{
   assert.equal(process.platform,'win32');
-  const compilers=[],cache=path.join(process.env.LOCALAPPDATA,'electron-builder/Cache/nsis');
-  async function walk(directory){
-    for(const item of await fs.readdir(directory,{withFileTypes:true})){
-      const file=path.join(directory,item.name);
-      if(item.isDirectory())await walk(file);else if(item.name.toLowerCase()==='makensis.exe')compilers.push(file);
-    }
-  }
-  await walk(cache);assert.equal(compilers.length,1,'Use the exact NSIS compiler already verified by the pinned build.');
+  // Use the same pinned resolver as NsisTarget: cache folders include the release
+  // and URL hash, and may be redirected through the supported environment.
+  const lock=JSON.parse(await fs.readFile(path.join(project,'package-lock.json'),'utf8'));
+  const pinned=lock.packages['node_modules/app-builder-lib'].version;
+  const resolver=require.resolve('app-builder-lib/out/toolsets/windows.js',{paths:[project]});
+  const installed=JSON.parse(await fs.readFile(path.resolve(path.dirname(resolver),'../../package.json'),'utf8'));
+  assert.equal(pinned,'26.15.3','Use the reviewed NSIS resolver.');
+  assert.equal(installed.version,pinned,'Use the exact NSIS resolver verified by the pinned build.');
+  const build=JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8')).build||{};
+  const compiler=await require(resolver).getMakeNsisPath(build.toolsets?.nsis,build.nsis?.customNsisBinary);
+  assert.ok((await fs.stat(compiler.path)).isFile(),'The pinned NSIS resolver must return its actual compiler.');
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-prerequisite-'));
   const fixture=path.join(root,'fixture'),target=path.join(root,'installed'),setup=path.join(root,'failure.exe');
   const key='FasakhanstaPrerequisiteFixture-'+path.basename(root),product='Fasakhansta Prerequisite Fixture '+path.basename(root);
@@ -47,7 +50,7 @@ module.exports=async project=>{
     const wrapper=path.join(root,'failure.nsi');
     await fs.writeFile(wrapper,'OutFile "'+safe(setup)+'"\n!define PROJECT_DIR "'+safe(fixture)+'"\n'
       +'!macro addLangs\n!insertmacro MUI_LANGUAGE "English"\n!macroend\n!include "'+safe(path.join(fixture,'installer-reviewed-windows.nsi'))+'"\n');
-    execFileSync(compilers[0],['/V2',wrapper],{windowsHide:true,timeout:300000});
+    execFileSync(compiler.path,['/V2',wrapper],{windowsHide:true,timeout:300000,env:{...process.env,...(compiler.env||{})}});
     const failure=spawnSync(setup,['/S','/D='+target],{windowsHide:true,windowsVerbatimArguments:true,timeout:120000});
     if(failure.error)throw failure.error;
     assert.notEqual(failure.status,0,'A tampered prerequisite was accepted.');assert.notEqual(failure.status,3010);

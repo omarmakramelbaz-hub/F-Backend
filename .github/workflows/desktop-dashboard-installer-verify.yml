@@ -4,12 +4,15 @@ on:
   push:
     branches: ['codex/runtime-ca-portability-20261009']
     paths: ['.github/workflows/desktop-dashboard-installer-verify.yml']
+  pull_request:
+    branches: ['codex/desktop-current-dashboard-20261019']
+    paths: ['.github/workflows/desktop-dashboard-installer-verify.yml', 'desktop-pos/test/installer-prerequisite-native.cjs']
   workflow_dispatch:
     inputs:
       runtime_run_id:
         description: 'Run whose original-runtime job passed and retained the exact runtime'
         required: true
-        default: '37991914018'
+        default: '39363944148'
         type: string
 
 permissions:
@@ -19,12 +22,13 @@ permissions:
 jobs:
   windows-installer:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
-      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '37991914018' }}
+      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '39363944148' }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           path: current-source
       - uses: actions/setup-node@v4
         with:
@@ -34,10 +38,16 @@ jobs:
         env:
           DESKTOP_ARTIFACT_TOKEN: ${{ github.token }}
         run: |
-          if ($env:DESKTOP_TESTED_RUN -notmatch '^[1-9][0-9]+$') { throw 'Invalid source run.' }
+          if ($env:DESKTOP_TESTED_RUN -cne '39363944148') { throw 'This follow-up is pinned to the completed original-runtime checks in run176.' }
           $headers = @{ Authorization = "Bearer $env:DESKTOP_ARTIFACT_TOKEN"; Accept = 'application/vnd.github+json' }
+          $run = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN"
+          if ($run.head_sha -cne '939408badb7d3de771b6c9953a4bfd5dbd08df1c' -or $run.run_attempt -ne 1 -or $run.event -cne 'pull_request') { throw 'The reviewed runtime run identity changed.' }
           $jobs = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN/jobs?per_page=100"
-          if (!($jobs.jobs | Where-Object { $_.name -eq 'original-runtime' -and $_.conclusion -eq 'success' })) { throw 'The source runtime has not passed its original application checks.' }
+          if (!($jobs.jobs | Where-Object { $_.id -eq 118436478259 -and $_.name -ceq 'original-runtime' -and $_.conclusion -ceq 'success' })) { throw 'The exact source runtime has not passed its original application checks.' }
+          $artifacts = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN/artifacts?per_page=100"
+          $runtime = @($artifacts.artifacts | Where-Object { $_.name -ceq 'tested-dashboard-runtime' })
+          if ($runtime.Count -ne 1 -or $runtime[0].id -ne 12240055641 -or $runtime[0].expired -or $runtime[0].digest -cne 'sha256:7083f656f50cf2ef1d5c40bbf95ea5f71c460bb25ef81406a54e682f8d11513a') { throw 'The original tested runtime artifact changed.' }
+          Write-Output 'DESKTOP_TESTED_RUNTIME run=39363944148 attempt=1 job=118436478259 artifact=12240055641 sha256=7083f656f50cf2ef1d5c40bbf95ea5f71c460bb25ef81406a54e682f8d11513a'
       - name: Restore the exact tested runtime
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -63,13 +73,28 @@ jobs:
         run: |
           $manifest = Get-Content "$env:RUNNER_TEMP/tested-runtime/runtime-bundle/manifest.json" -Raw | ConvertFrom-Json
           $sourceRevision = $manifest.sourceRevision
-          if ($sourceRevision -notmatch '^[a-f0-9]{40}$') { throw 'Invalid tested source revision.' }
+          if ($sourceRevision -cne '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9' -or $manifest.sourceFingerprint.files -ne 1317 -or $manifest.sourceFingerprint.sha256 -cne '4288c371691750f5278d145b4d036be0d78d7c170d18fd7d61217954c2866a56' -or $manifest.runtimeFramework -cne '12.70.0') { throw 'The downloaded runtime does not identify the exact passed application.' }
           git fetch --depth=1 origin $sourceRevision
           if ($LASTEXITCODE -ne 0) { throw 'The tested revision cannot be independently checked.' }
-          $changed = @(& git diff --name-only $sourceRevision HEAD -- app bootstrap config database desktop public resources routes artisan composer.json composer.lock .gitattributes desktop-pos)
-          if ($LASTEXITCODE -ne 0) { throw 'The tested source comparison failed.' }
-          if ($changed.Count) { throw 'Current application, package or installed-recovery test code differs from the cached runtime; run the full original dashboard checks first.' }
+          $acceptanceRevision = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $acceptanceRevision -cne $env:GITHUB_SHA) { throw 'The acceptance checkout does not match this workflow revision.' }
+          git diff-index --quiet HEAD --
+          if ($LASTEXITCODE -ne 0) { throw 'The acceptance checkout is not clean.' }
+          $fixture = 'desktop-pos/test/installer-prerequisite-native.cjs'
+          $workflow = '.github/workflows/desktop-dashboard-installer-verify.yml'
+          $expectedFixtureBlob = '067881663230dade358bd8f1049ef1bfbcbf2665'
+          # Every tracked file and mode is compared, including build tools and other fixtures.
+          $changes = @(& git diff --raw --no-abbrev --no-renames $sourceRevision HEAD)
+          if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 2) { throw 'Only the reviewed acceptance fixture and this follow-up workflow may differ.' }
+          foreach ($change in $changes) {
+            if ($change -cnotmatch '^:100644 100644 [a-f0-9]{40} [a-f0-9]{40} M\t(.+)$') { throw 'An unreviewed file mode, type or change entered the acceptance checkout.' }
+            if (@($fixture, $workflow) -cnotcontains $Matches[1]) { throw 'Product code, dependencies, build tools or another fixture differs; run the full original checks first.' }
+          }
+          $actualFixtureBlob = (& git rev-parse ("HEAD:" + $fixture)).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualFixtureBlob -cne $expectedFixtureBlob) { throw 'The reviewed acceptance fixture blob changed.' }
           "revision=$sourceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "acceptance=$acceptanceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "fixture=$expectedFixtureBlob" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.source.outputs.revision }}
@@ -126,6 +151,17 @@ jobs:
             }
           }
           if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
+      - name: Apply only the pinned acceptance fixture after the clean product build
+        shell: pwsh
+        env:
+          DESKTOP_ACCEPTANCE_FIXTURE_BLOB: ${{ steps.source.outputs.fixture }}
+          DESKTOP_ACCEPTANCE_REVISION: ${{ steps.source.outputs.acceptance }}
+          DESKTOP_PRODUCT_SOURCE: ${{ steps.source.outputs.revision }}
+        run: |
+          # The installer has already been built from the untouched tested checkout.
+          # Write exact Git blob bytes rather than relying on Windows text conversion.
+          node -e "const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');const blob=process.env.DESKTOP_ACCEPTANCE_FIXTURE_BLOB;const bytes=cp.execFileSync('git',['cat-file','blob',blob],{cwd:'current-source'});const hash=data=>crypto.createHash('sha1').update(Buffer.from('blob '+data.length+'\0')).update(data).digest('hex');if(hash(bytes)!==blob)throw Error('Acceptance source blob mismatch');const file=path.join('b','desktop-pos','test','installer-prerequisite-native.cjs');fs.writeFileSync(file,bytes);if(hash(fs.readFileSync(file))!==blob)throw Error('Acceptance overlay changed');const proof={format:1,testedRun:39363944148,testedArtifact:12240055641,sourceRevision:process.env.DESKTOP_PRODUCT_SOURCE,acceptanceRevision:process.env.DESKTOP_ACCEPTANCE_REVISION,fixturePath:'desktop-pos/test/installer-prerequisite-native.cjs',fixtureBlob:blob,productChanged:false};fs.writeFileSync(path.join('b','desktop-pos','dist','installer-acceptance-provenance.json'),JSON.stringify(proof,null,2)+'\n');console.log('DESKTOP_INSTALLER_ACCEPTANCE_PROVENANCE '+JSON.stringify(proof));"
+          if ($LASTEXITCODE -ne 0) { throw 'The exact reviewed acceptance overlay could not be applied.' }
       - name: Verify actual installed dashboard recovery and retained unsynced data
         env:
           TEMP: ${{ runner.temp }}
@@ -145,5 +181,12 @@ jobs:
             b/desktop-pos/dist/offline-print-native.json
             b/desktop-pos/dist/outbox-review-native.json
             b/desktop-pos/dist/connected-request-native.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Retain the separate source and acceptance provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer-acceptance-provenance
+          path: b/desktop-pos/dist/installer-acceptance-provenance.json
           if-no-files-found: error
           retention-days: 30
