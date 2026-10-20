@@ -465,6 +465,56 @@ class RootWorkerTests(unittest.TestCase):
                 worker.verify_proof(folder, accepted, desired, publisher)
         self.assertFalse((self.live / 'storage/app/desktop-updates/current.json').exists())
 
+    def test_actual_native_producer_result_objects_are_accepted_without_inventing_outbox_hardware(self):
+        value = self.make_worker()
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        desired = value.state['desired']
+        # Evaluate only the final result object expressions from the real
+        # producers, with synthetic scalar/array inputs. This checks their
+        # emitted schemas without executing Electron or claiming native proof.
+        producers = {'connected-request-native.json': ('connected-request-native.cjs', 'result'),
+                     'outbox-review-native.json': ('outbox-review-native.cjs', 'proof'),
+                     'offline-print-native.json': ('print-effects-native.cjs', 'result')}
+        expressions = {}
+        for name, (filename, variable) in producers.items():
+            text = (DEPLOYMENT.parent / 'desktop-pos/test' / filename).read_text()
+            marker = '  const ' + variable + '={format:1,'
+            self.assertEqual(text.count(marker), 1)
+            start = text.index(marker) + len('  const ' + variable + '=')
+            expressions[name] = text[start:text.index(';\n', start)]
+        loader = '''const fs=require('node:fs'),vm=require('node:vm');
+const input=JSON.parse(fs.readFileSync(0,'utf8')),output={};
+for(const [name,expression] of Object.entries(input.expressions)){
+  const context={sourceRevision:input.revision,process:{platform:'win32',versions:{electron:'44.6.0'}},
+    loadedReceipts:2,invocations:Array(7),receipts:[...Array.from({length:6},()=>({state:'invoked'})),{state:'review'}]};
+  output[name]=vm.runInNewContext('('+expression+')',context,{timeout:1000});
+}
+process.stdout.write(JSON.stringify(output));'''
+        result = subprocess.run(['node', '-e', loader], input=worker.canonical({'revision': desired['commit'], 'expressions': expressions}),
+                                capture_output=True, check=True, timeout=5)
+        native = json.loads(result.stdout)
+        self.assertNotIn('hardware', native['outbox-review-native.json'])
+        self.assertIs(native['outbox-review-native.json']['businessResolution'], False)
+        values = self.proof_files(desired)
+        values.update({name: worker.canonical(proof) for name, proof in native.items()})
+        folder = self.base / 'actual-producer-schemas'
+        folder.mkdir()
+        for name, data in values.items():
+            target = folder / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        accepted = run(revision=desired['commit'])
+        receipt, release = worker.verify_proof(folder, accepted, desired, publisher)
+        self.assertEqual(release['source_revision'], desired['commit'])
+        self.assertEqual(receipt['version'], desired['version'])
+        for name in native:
+            bad = copy.deepcopy(native[name])
+            bad['sourceRevision'] = 'b' * 40
+            (folder / name).write_bytes(worker.canonical(bad))
+            with self.subTest(name=name), self.assertRaisesRegex(worker.WatchError, 'CI_NATIVE_PROOF_SOURCE_MISMATCH'):
+                worker.verify_proof(folder, accepted, desired, publisher)
+            (folder / name).write_bytes(worker.canonical(native[name]))
+
     def test_superseded_download_cleans_staging_and_never_publishes_a_previous_source(self):
         value = self.make_worker()
         self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')

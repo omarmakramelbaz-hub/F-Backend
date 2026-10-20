@@ -38,9 +38,12 @@ jobs:
         run: python3 -B -m unittest discover -s tests -p test_go_erp_ci_publish_root.py
       - name: Verify source capture, accepted build publication, and private timer setup
         run: sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_live*.py'
+      - name: Verify the complete root console activation entry
+        run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_complete_activation.py
       - name: Verify authenticated release feed and immutable installer transport
         run: sudo -n -- php -n tests/desktop_dashboard_updates_test.php
       - name: Check the read-only production diagnostic
         run: |
           bash -n deployment/diagnose_go_erp_current_root.sh
           bash -n deployment/install_go_erp_live_updates_root.sh
+          bash -n deployment/activate_go_erp_complete_root.sh

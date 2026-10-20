@@ -5,6 +5,7 @@ const {execFileSync,spawnSync,spawn}=require('node:child_process'),{DatabaseSync
 const packaging=require('../installer-runtime.cjs');
 const {installer:installerFingerprint}=require('../../.github/scripts/desktop-update-receipt.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const {powerShellJson,registryString}=require('./helpers/windows-registry.cjs');
 async function automaticUpgrade({setup,installed,profile,root,powershell,registrationPath,executable,saved}){
   const crypto=require('node:crypto'),journal=path.join(profile,'unsynced-orders.sqlite');
   const journalHash=crypto.createHash('sha256').update(await fs.readFile(journal)).digest('hex');
@@ -74,8 +75,7 @@ async function automaticUpgrade({setup,installed,profile,root,powershell,registr
     assert.equal(await fs.readFile(path.join(installed,'KEEP-MY-FILE.txt'),'utf8'),'unrelated existing file');
     assert.equal(await fs.readFile(path.join(profile,'existing-profile.txt'),'utf8'),'previous device data');
     for(const [field,expected]of [['DisplayName','GO ERP'],['UninstallString','"'+path.join(installed,'Uninstall.exe')+'"']]){
-      const value=execFileSync('reg.exe',['query',registrationPath,'/v',field],{encoding:'utf8',windowsHide:true});
-      assert.equal(value.split(/\r?\n/).find(line=>line.includes('REG_SZ'))?.split('REG_SZ')[1].trim(),expected);
+      assert.equal(registryString(powershell,registrationPath,field),expected);
     }
     process.stdout.write('PASS real automatic NSIS upgrade waits for the previous PID, restarts the exact installed executable, and preserves the paid unsynced journal and unrelated files\n');
     return {waitedForExit:true,preservedJournal:true,preservedUnrelatedFiles:true,registrationRetained:true,restartedInstalledExecutable:true};
@@ -108,9 +108,7 @@ async function residualPaths(directory){
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-installer-')),installed=path.join(root,'تجربة البرنامج'),profile=path.join(root,'retained-user-data');
   const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
   const registrationPath='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FasakhanstaDashboardPreview';
-  const folders=JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',
-    '[pscustomobject]@{desktop=[Environment]::GetFolderPath("DesktopDirectory");programs=[Environment]::GetFolderPath("Programs")} | ConvertTo-Json -Compress'],
-    {windowsHide:true,encoding:'utf8',timeout:30000}));
+  const folders=powerShellJson(powershell,'$result=[pscustomobject]@{desktop=[Environment]::GetFolderPath("DesktopDirectory");programs=[Environment]::GetFolderPath("Programs")}');
   const legacyDesktop=path.join(folders.desktop,'Fasakhansta Dashboard Preview.lnk'),legacyMenu=path.join(folders.programs,'Fasakhansta Dashboard Preview');
   let ownsFixturePaths=false;
   try {

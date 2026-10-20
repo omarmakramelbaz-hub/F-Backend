@@ -20,10 +20,16 @@ Windows account and application directory. Versions before
 `0.4.4-preview.6` do not contain the updater.
 
 From the authorized root console on `srv1836524`, export and hash-check
-`deployment/install_go_erp_live_updates_root.sh` from the reviewed immutable
+`deployment/activate_go_erp_complete_root.sh` from the reviewed immutable
 `codex/go-erp-automation-20261021` release. Run it with `--release` and that full
-commit SHA. It requires the three reviewed update API source files already
-installed in `/home/fasakha/public_html`.
+commit SHA. It classifies the exact approved before/after source state, repairs
+only eligible permission bits and activates the dashboard when needed, then
+performs fresh application/authentication checks before installing the timer.
+Unknown source states stop without forcing a baseline.
+
+The lower-level `deployment/install_go_erp_live_updates_root.sh` entry only
+installs the timer. It requires the three reviewed update API source files
+already installed in `/home/fasakha/public_html`.
 
 Give the installer a fine-grained GitHub token restricted to
 `omarmakramelbaz-hub/F-Backend`: repository contents read/write for the dedicated
