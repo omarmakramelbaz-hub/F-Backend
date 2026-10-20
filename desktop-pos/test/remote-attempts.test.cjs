@@ -26,7 +26,7 @@ test('native menu outcomes reserve only scoped f/gs product availability POSTs',
     for(const method of ['GET','PUT','PATCH','DELETE'])assert.equal(f.attempts.supported({url,method}),false);
   }
   for(const path of ['/admin/order-board/menu/other/100/products/12/availability','/admin/order-board/menu/f/0/products/12/availability',
-    '/admin/order-board/menu/f/100/products/0/availability','/admin/order-board/menu/f/100/products/12','/admin/order-board/legacy/12/action'])
+    '/admin/order-board/menu/f/100/products/0/availability','/admin/order-board/menu/f/100/products/12'])
     assert.equal(f.attempts.supported({url:origin+path,method:'POST'}),false);
 });
 test('original role writes reserve only their reviewed methods without claiming permission administration',()=>{

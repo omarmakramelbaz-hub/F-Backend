@@ -2,18 +2,59 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
+const getPolicy=require('./dashboard-get-policy.cjs');
 const policy = require('./dashboard-policy.cjs');
+const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, remoteState, remoteAttempts, archive, selectPrinter, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
-  let window, loading = false, refreshing = false, printing = 0;
+  let window, loading = false, refreshing = false, printing = 0, authentication = null;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
+  const nativeConnectedPrints = new Map();
   const activeRequests = new Set();
+  const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
+    available:()=>Boolean(localToken) && !refreshing && !quitting(),prepareDocument:prepareEffectDocument}) : null;
+  async function prepareEffectDocument(prepared) {
+    const html=prepared.html;
+    const protection='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src data: '+origin+'; style-src \'unsafe-inline\' '+origin+'; font-src '+origin+'; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
+    const printWindow=new BrowserWindow({show:false,width:480,height:800,
+      webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+    const contents=printWindow.webContents;owned.add(contents.id);let closed=false;
+    const close=()=>{if(closed)return;closed=true;owned.delete(contents.id);printWindow.destroy();};
+    contents.on('will-navigate',event=>event.preventDefault());contents.setWindowOpenHandler(()=>({action:'deny'}));
+    let timer;
+    try {
+      await Promise.race([(async()=>{
+        await printWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html.replace(/<head\b[^>]*>/i,match=>match+protection)));
+        await contents.executeJavaScript('Promise.all([document.fonts.ready,...Array.from(document.images).map(i=>i.complete?(i.naturalWidth?Promise.resolve():Promise.reject(Error("Receipt image unavailable"))):new Promise((r,j)=>{i.onload=r;i.onerror=()=>j(Error("Receipt image unavailable"));}))]).then(()=>true)');
+      })(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('تعذر تحميل مستند الطباعة كاملًا.')),25000);})]);
+      const deviceName=printer()||'',printers=await window.webContents.getPrintersAsync();
+      if(!printers.length || deviceName && !printers.some(value=>value.name===deviceName))throw Error('الطابعة غير متاحة. اختر الطابعة من قائمة البرنامج.');
+      return {close,invoke:callback=>{
+        if(closed)throw Error('Print document closed.');
+        contents.print({silent:true,printBackground:true,deviceName,margins:{marginType:'none'}},(ok)=>callback(ok));
+      }};
+    }catch(error){close();throw error;}finally{clearTimeout(timer);}
+  }
+  function ownedPrint(event) {
+    return !quitting() && !refreshing && !authentication && owned.has(event.sender.id) && policy.sameOrigin(event.senderFrame.url,origin)
+      && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
+  }
+  for(const [name,work] of Object.entries({
+    'print-effect':value=>{if(!localToken || !effects)throw Error('الطباعة المحلية تحتاج تجهيز الجهاز.');return effects.print(value);},
+    'print-pending':()=>localToken?(effects?effects.pending():Promise.reject(Error('الطباعة المحلية تحتاج تحديث البرنامج.'))):{local:false}
+  }))ipcMain.handle('dashboard:'+name,async(event,value)=>{
+    try{return await accepted(async()=>{
+      if(!ownedPrint(event))throw Error('مصدر الطباعة غير مسموح.');printing++;
+      try{return {ok:true,value:await work(value)};}finally{printing--;}
+    });}catch(error){return {ok:false,error:error.message};}
+  });
+
   const readPosts = new Set(['/admin/takeaway/quote', '/admin/dining/quote', '/admin/phone-orders/quote', '/admin/phone-orders/delivery-quote',
     '/admin/phone-orders/address-suggestions',
     '/admin/fetch-subcategory', '/admin/fetch-product', '/admin/fetch-feature']);
@@ -21,8 +62,8 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (localToken || !owned.has(details.webContentsId) || !policy.sameOrigin(details.url, origin)) return false;
     const pathname = new URL(details.url).pathname;
     if (readPosts.has(pathname)) return false;
-    return pathname.startsWith('/admin/') && (!['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
-      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification|resturantControl)/i.test(pathname));
+    return getPolicy.mutation(pathname)||(getPolicy.admin(pathname) && (!['GET', 'HEAD'].includes(String(details.method || 'GET').toUpperCase())
+      || /(?:delete|destroy|update|save|send|accept|finish|clear-cache|test-notification|resturantControl)/i.test(pathname)));
   }
   function failure(details = {}) {
     if (remoteWrites.size) return { ...details, method: 'UNKNOWN' };
@@ -30,7 +71,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return details;
   }
   function trusted(event) {
-    return !quitting() && !refreshing && window && event.sender.id === window.webContents.id
+    return !quitting() && !refreshing && !authentication && window && event.sender.id === window.webContents.id
       && policy.sameOrigin(event.senderFrame.url, origin) && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
   }
   for (const [name, work] of Object.entries({
@@ -39,7 +80,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if (!prepare || localToken || !origin.startsWith('https://')) throw Error('تجهيز الجهاز يحتاج حساب السيرفر المتصل.');
       return prepare(origin, typeof value?.csrf === 'string' ? value.csrf : '');
     },
-    synchronize: () => synchronize()
+    synchronize: () => synchronize(),
+    'review-sync': () => {
+      if(!reviewSync)throw Error('جهّز الجهاز أولًا لمراجعة سجل المزامنة.');
+      return reviewSync(window);
+    }
   })) ipcMain.handle('dashboard:' + name, async (event, value) => {
     try {
       if (!trusted(event)) throw Error('مصدر الداشبورد غير مسموح.');
@@ -50,15 +95,36 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     printing++;
     try {
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
+      if (authentication) throw Error('أكمل تسجيل دخول السيرفر أو أغلق نافذته قبل الطباعة.');
       if (refreshing) throw Error('يجري تحديث بيانات الداشبورد؛ أعد المحاولة بعد اكتماله.');
+      const printUrl=typeof value==='string'?value:value?.url;
       if (!owned.has(event.sender.id) || !policy.sameOrigin(event.senderFrame.url, origin)
-          || !policy.sameOrigin(value, origin)) throw Error('مصدر الطباعة غير مسموح.');
-      const url = new URL(value);
+          || !policy.sameOrigin(printUrl, origin)) throw Error('مصدر الطباعة غير مسموح.');
+      const url = new URL(printUrl);
       if (!url.pathname.startsWith('/admin/')) throw Error('رابط الفاتورة غير صحيح.');
+      // Fragments never reach HTTP. Bind the native proof to the actual wire URL.
+      url.hash='';
+      if(localToken){
+        if(!effects)throw Error('الطباعة المحلية تحتاج تحديث البرنامج.');
+        return {ok:true,value:await effects.receipt(url.pathname,Object.fromEntries(url.searchParams),typeof value==='object'?value.request_id:undefined)};
+      }
       url.searchParams.set('dashboard_print', '1');
-      const response = await event.sender.session.fetch(url.href, { credentials: 'include', headers: { Accept: 'text/html', ...(localToken ? { 'X-Fasakhansta-Desktop': localToken } : {}) }, redirect: 'error', signal: AbortSignal.timeout(25000) });
+      const attempt=remoteAttempts?crypto.randomUUID():null;let response,html,nativeMarker;
+      const proof=attempt?await remoteAttempts.begin(attempt,{url:url.href,method:'GET'}):{};
+      const printHeaders={Accept:'text/html',...proof};
+      if(proof['X-Fasakhansta-Connected-Device']&&proof['X-Fasakhansta-Connected-Token']){
+        // Only this native fetch can retain its paired actor proof through the
+        // shared interceptor. The one-use marker never leaves this process.
+        nativeMarker=crypto.randomBytes(32).toString('hex');
+        nativeConnectedPrints.set(nativeMarker,{url:url.href,proof});
+        printHeaders['X-Fasakhansta-Connected-Request']=nativeMarker;
+      }
+      try{
+        response=await event.sender.session.fetch(url.href,{credentials:'include',headers:printHeaders,redirect:'error',signal:AbortSignal.timeout(25000)});
+        html=await response.text();if(attempt)await remoteAttempts.complete(attempt);
+      }catch(error){if(attempt)remoteAttempts.failed(attempt);throw error;}
+      finally{if(nativeMarker)nativeConnectedPrints.delete(nativeMarker);}
       if (!response.ok || !/text\/html/i.test(response.headers.get('content-type') || '')) throw Error('تعذر تحميل الفاتورة.');
-      const html = await response.text();
       if (quitting()) throw Error('البرنامج يُغلق الآن.');
       if (html.length > 3 * 1024 * 1024 || !/\bdata-dashboard-receipt\s*=/.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
       const localSource = localToken ? ' ' + origin : '';
@@ -86,7 +152,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (window && !window.isDestroyed()) { window.show(); if (window.isMinimized()) window.restore(); window.focus(); }
   }
   async function open(url = home) {
-    if (loading || refreshing || quitting()) return;
+    if (loading || refreshing || authentication || quitting()) return;
     if (!policy.sameOrigin(url, origin)) throw Error('رابط الداشبورد غير صحيح.');
     loading = true;
     try {
@@ -101,7 +167,18 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
-            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability)$/i.test(name)) delete headers[name];
+            const nativeMarker=Object.entries(headers).find(([name])=>name.toLowerCase()==='x-fasakhansta-connected-request')?.[1];
+            const connectedSupplied=Object.keys(headers).some(name=>/^x-fasakhansta-connected-(?:device|token|request)$/i.test(name));
+            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability|connected-device|connected-token|connected-request)$/i.test(name)) delete headers[name];
+            if(authentication&&authentication.contentsId===details.webContentsId){
+              if(!authentication.finishing&&!authentication.checking&&authentication.allowed(details.url,details.method)
+                &&!(authentication.submitted&&String(details.method).toUpperCase()==='POST')){
+                if(String(details.method).toUpperCase()==='POST')authentication.submitted=true;
+                callback({requestHeaders:headers});
+              }else callback({cancel:true});
+              return;
+            }
+            if(authentication&&owned.has(details.webContentsId)){callback({cancel:true});return;}
             if (!policy.sameOrigin(details.url, origin)) {
               // An absolute legacy URL must not send a prepared local form or
               // dashboard poll directly to production outside the shared cycle.
@@ -113,7 +190,19 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             if (details.id != null && owned.has(details.webContentsId)) activeRequests.add(details.id);
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
-              if (!remoteWrite(details)) { callback({ requestHeaders: headers }); return; }
+              const nativePrint=nativeConnectedPrints.get(nativeMarker);
+              if((details.webContentsId==null||details.webContentsId<=0)&&String(details.method).toUpperCase()==='GET'&&nativePrint?.url===details.url){
+                nativeConnectedPrints.delete(nativeMarker);callback({requestHeaders:{...headers,...nativePrint.proof}});return;
+              }
+              // A failed native binding must never become an unguarded original
+              // server action after its proof was stripped.
+              if((details.webContentsId==null||details.webContentsId<=0)&&connectedSupplied){callback({cancel:true});return;}
+              if (!remoteWrite(details)) {
+                if(browse&&owned.has(details.webContentsId)&&getPolicy.admin(new URL(details.url).pathname)&&['GET','HEAD'].includes(String(details.method||'GET').toUpperCase())){
+                  accepted(()=>browse()).then(()=>callback({requestHeaders:headers}),error=>{callback({cancel:true});dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message});});return;
+                }
+                callback({ requestHeaders: headers }); return;
+              }
               const attempt = crypto.randomUUID(); remoteWrites.set(details.id, attempt);
               // Persist uncertainty before a request can leave the machine.
               accepted(() => remoteAttempts ? remoteAttempts.begin(attempt, details) : remoteState?.begin(attempt)).then(proof => callback({ requestHeaders: { ...headers, ...proof } }), error => {
@@ -171,13 +260,14 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
           activeRequests.delete(details.id);
           if(remoteAttempts&&remoteWrites.has(details.id)){remoteAttempts.failed(remoteWrites.get(details.id));remoteWrites.delete(details.id);}
-          if (!refreshing && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
+          if (!refreshing && !authentication && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
             offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure(details));
         });
         const grants = new Set(['notifications']);
-        contents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) =>
-          policy.sameOrigin(requestingOrigin, origin) && grants.has(permission));
+        contents.session.setPermissionCheckHandler((sender, permission, requestingOrigin) =>
+          (!authentication||authentication.contentsId!==sender?.id) && policy.sameOrigin(requestingOrigin, origin) && grants.has(permission));
         contents.session.setPermissionRequestHandler(async (sender, permission, callback, details) => {
+          if(authentication?.contentsId===sender.id){callback(false);return;}
           if (!policy.sameOrigin(sender.getURL(), origin) || !policy.sameOrigin(details.requestingUrl || sender.getURL(), origin)) { callback(false); return; }
           if (grants.has(permission)) { callback(true); return; }
           if (!['geolocation', 'media'].includes(permission)) { callback(false); return; }
@@ -207,7 +297,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     } finally { loading = false; }
   }
   function navigate(event, url) {
-    if (refreshing) { event.preventDefault(); return; }
+    if (refreshing || authentication) { event.preventDefault(); return; }
     if (policy.sameOrigin(url, origin)) return;
     event.preventDefault();
     if (policy.externalURL(url)) shell.openExternal(url);
@@ -216,6 +306,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
+      ...(connected?[{label:'الداشبورد المتصلة كاملة',click:()=>accepted(()=>connected()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(reauthenticate?[{label:'تجديد تسجيل دخول السيرفر',click:()=>accepted(()=>reauthenticate()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(localMode?[{label:'العودة لنسخة الجهاز بعد التحديث',click:()=>accepted(()=>localMode()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
+      ...(reviewCentral?[{label:'مراجعة نتائج العمليات المتصلة',click:()=>accepted(()=>reviewCentral(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       ...(prepare ? [{ label: 'تجهيز للعمل بدون إنترنت', click: () => {
         if (!window || localToken || quitting()) return;
         window.webContents.executeJavaScript('document.querySelector(\'meta[name="csrf-token"]\')?.content || ""')
@@ -223,6 +317,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           .catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message }));
       } }] : []),
       { label: archive ? 'سجل النسخة السابقة' : 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => archive ? archive() : offline('') },
+      ...(reviewSync?[{label:'مراجعة المزامنة',click:()=>accepted(()=>reviewSync(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'فسخانستا',message:error.message}))}]:[]),
       { label: 'اختيار الطابعة', click: () => {
         if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'فسخانستا', message: error.message })); return; }
         offline('');
@@ -235,10 +330,13 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     { label: 'عرض', submenu: [{ label: 'تحديث الصفحة', accelerator: 'CmdOrCtrl+R', click: () => focused()?.reload() },
       { label: 'تكبير', role: 'zoomIn' }, { label: 'تصغير', role: 'zoomOut' }, { label: 'الحجم الطبيعي', role: 'resetZoom' },
       { label: 'ملء الشاشة', role: 'togglefullscreen' }] },
-    { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => focused()?.webContents.print({ printBackground: true }) }] }
+    { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => {
+      if(localToken){dialog.showMessageBox(window,{type:'info',title:'فسخانستا',message:'استخدم زر طباعة الفاتورة داخل الداشبورد لحفظ نتيجة الطباعة ومنع تكرارها.'});return;}
+      focused()?.webContents.print({ printBackground: true });
+    } }] }
   ]));
   async function canRefresh() {
-    if (loading || refreshing || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
+    if (loading || refreshing || authentication || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
     if (!window || window.isDestroyed()) return true;
     const current = window.webContents.getURL();
     if (!policy.sameOrigin(current, origin) || new URL(current).pathname !== '/admin/dashboard') return false;
@@ -265,7 +363,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return switchTo({ origin, localToken }, work, { preserveCurrent: true });
   }
   async function switchTo(target, work = async () => {}, { preserveCurrent = false } = {}) {
-    if (refreshing || quitting()) throw Error('الداشبورد تنتقل بين نسختي الجهاز والسيرفر.');
+    if (refreshing || authentication || quitting() || printing || effects?.active) throw Error('انتظر انتهاء الطباعة أو تسجيل الدخول أو انتقال الداشبورد بين الجهاز والسيرفر.');
     const destination = new URL(target.origin);
     const local = destination.protocol === 'http:' && destination.hostname === '127.0.0.1' && destination.port && target.localToken;
     const remote = destination.protocol === 'https:' && target.origin === serverOrigin && !target.localToken;
@@ -291,10 +389,86 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if (window && !window.isDestroyed() && !quitting()) await open(policy.sameOrigin(returnURL, origin) ? returnURL : home);
     }
   }
+  async function renewServerLogin(destination,verify){
+    if(destination!==serverOrigin||!destination.startsWith('https://')||typeof verify!=='function'||!(await canRefresh()))
+      throw Error('انتقل للصفحة الرئيسية وأكمل أي تعديل أو طباعة قبل تجديد تسجيل الدخول.');
+    if(authentication||quitting())throw Error('نافذة تسجيل الدخول غير متاحة الآن.');
+    const authWindow=new BrowserWindow({parent:window,modal:true,show:false,width:980,height:760,title:'فسخانستا — تسجيل دخول السيرفر',
+      webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+    const staticPaths=new Set(['/dashboard/plugins/fontawesome-free/css/all.min.css','/dashboard/dist/css/adminlte.min.css',
+      '/dashboard/branding/dashboard-brand.css','/dashboard/branding/fasakhansta-logo-transparent.png']);
+    const allowed=(value,method)=>{
+      if(!policy.sameOrigin(value,destination))return false;
+      const pathname=new URL(value).pathname,verb=String(method||'GET').toUpperCase();
+      return verb==='POST'?pathname==='/admin/signin':['GET','HEAD'].includes(verb)&&(pathname==='/admin/login'||staticPaths.has(pathname)
+        ||/^\/dashboard\/plugins\/fontawesome-free\/webfonts\/fa-(?:brands-400|regular-400|solid-900)\.(?:eot|svg|ttf|woff|woff2)$/.test(pathname));
+    };
+    return new Promise((resolve,reject)=>{
+      const cookieSession=authWindow.webContents.session;
+      const clearCookies=async()=>{
+        const cookies=await cookieSession.cookies.get({url:destination+'/admin/login'});
+        for(const cookie of cookies)await cookieSession.cookies.remove(destination+(cookie.path||'/'),cookie.name);
+      };
+      const record={window:authWindow,contentsId:authWindow.webContents.id,allowed,submitted:false,checking:false,finishing:false};authentication=record;
+      const finish=async error=>{
+        if(authentication!==record||record.finishing)return;
+        record.finishing=true;if(!authWindow.isDestroyed())authWindow.webContents.stop();
+        if(error){
+          try{await clearCookies();}
+          catch(cleanupError){
+            if(!quitting()){
+              const choice=await dialog.showMessageBox(authWindow,{type:'error',title:'فسخانستا',message:'تعذر مسح جلسة السيرفر. الداشبورد متوقفة لحين إعادة المحاولة أو إغلاق البرنامج.',buttons:['إعادة المحاولة','إغلاق البرنامج'],defaultId:0,cancelId:1});
+              record.finishing=false;
+              if(choice.response===0)return finish(error);
+              reject(cleanupError);quit();return;
+            }
+          }
+        }
+        if(authentication!==record)return;
+        authentication=null;if(!authWindow.isDestroyed())authWindow.destroy();
+        error?reject(error):resolve({authenticated:true});
+      };
+      record.cancel=()=>{
+        if(quitting()&&record.finishing){
+          authentication=null;if(!authWindow.isDestroyed())authWindow.destroy();reject(Error('تم إلغاء تسجيل دخول السيرفر.'));return;
+        }
+        return finish(Error('تم إلغاء تسجيل دخول السيرفر.'));
+      };
+      const navigateAuth=(event,url,redirect=false)=>{
+        if(policy.sameOrigin(url,destination)&&new URL(url).pathname==='/admin/login'){
+          if(redirect&&!record.checking)record.submitted=false;
+          return;
+        }
+        if(policy.sameOrigin(url,destination)&&new URL(url).pathname==='/admin/signin')return;
+        event.preventDefault();
+        if(record.submitted&&policy.sameOrigin(url,destination)&&!record.checking){
+          record.checking=true;Promise.resolve().then(verify).then(()=>finish(),finish);
+        }
+      };
+      authWindow.webContents.on('will-navigate',navigateAuth);authWindow.webContents.on('will-redirect',(event,url)=>navigateAuth(event,url,true));
+      authWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+      authWindow.on('close',event=>{event.preventDefault();record.cancel();});
+      authWindow.on('closed',()=>record.cancel());
+      authWindow.webContents.on('did-fail-load',(_event,code,message,_url,main)=>{
+        if(main&&!(code===-3&&record.checking))finish(Error('تعذر تحميل تسجيل دخول السيرفر: '+message));
+      });
+      // Explicit native renewal clears only this app's cookies for the pinned
+      // server login URL. Passwords remain in the original server form.
+      (async()=>{
+        await clearCookies();
+        if(authentication!==record||record.finishing||quitting())return record.cancel();
+        authWindow.show();await authWindow.loadURL(destination+'/admin/login');
+      })().catch(error=>{if(!record.checking)finish(error);});
+    });
+  }
   function publish(value) {
     if (window && !window.isDestroyed() && !quitting() && policy.sameOrigin(window.webContents.getURL(), origin))
       window.webContents.send('dashboard:state', value);
   }
-  return { open, refresh, canRefresh, switchTo, publish, reveal, session: () => window?.webContents.session,
+  async function recoverPrintEffects() {
+    if(!localToken || !effects)return {local:false};
+    printing++;try{await effects.inspect();return {local:true};}finally{printing--;}
+  }
+  return { open, refresh, canRefresh, switchTo, reauthenticate:renewServerLogin, cancelAuthentication:()=>authentication?.cancel(), publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
     current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };

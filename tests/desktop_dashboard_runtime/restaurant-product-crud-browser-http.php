@@ -7,7 +7,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     $fixture=__DIR__;$artifact=$argv[3];$script=$fixture.'/restaurant-product-crud-browser.cjs';$application=realpath($argv[1]);
     if(!preg_match('/^[a-f0-9]{40}$/D',$argv[4]??''))throw new RuntimeException('A frozen restaurant product CRUD fixture SHA is required.');
     if(!is_dir($artifact)&&!mkdir($artifact,0700,true))throw new RuntimeException('Restaurant product CRUD artifact directory unavailable.');
-    $fixtureFiles=['restaurant-product-crud-browser-http.php','restaurant-product-crud-browser.cjs','browser-sound.cjs','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
+    $fixtureFiles=['restaurant-product-crud-browser-http.php','restaurant-product-crud-browser.cjs','browser-sound.cjs','runtime-engine.php','legacy.php','full-schema.php','fixtures/deployed-schema-20261008.json'];
     $repository=dirname($fixture,2);$fixtureBindings=[];
     $verifyFixtures=function()use($fixtureFiles,$repository,$fixture,$argv,&$fixtureBindings){
         foreach($fixtureFiles as $file){
@@ -63,8 +63,9 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
         file_put_contents($artifact.'/receipt.json',json_encode($receipt,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE).PHP_EOL);
         if(!$receipt['completed']){fwrite(STDERR,'Original restaurant product CRUD browser fixture or cleanup did not complete.'.PHP_EOL);exit(1);}
     });
-    $receipt['phpVersion']=PHP_VERSION;$receipt['laravel']=\Illuminate\Foundation\Application::VERSION;$receipt['mariaVersion']=$pdo->query('SELECT VERSION()')->fetchColumn();
-    verify($receipt['laravel']==='8.83.29','actual product CRUD browser uses original Laravel8.83.29');
+    $receipt['phpVersion']=PHP_VERSION;require_once __DIR__.'/runtime-engine.php';
+$receipt['laravel']=\Illuminate\Foundation\Application::VERSION;$receipt['mariaVersion']=$pdo->query('SELECT VERSION()')->fetchColumn();
+    verify($receipt['laravel']===DesktopRuntimeEngineProof::expected($application),'actual product CRUD browser uses its independently locked installed engine');
     $classes=['App\\Models\\ResturantProduct'=>'app/Models/ResturantProduct.php',
         'App\\Services\\Dashboard\\DesktopDashboardRestaurantProductCrud'=>'app/Services/Dashboard/DesktopDashboardRestaurantProductCrud.php',
         'App\\Services\\Dashboard\\DesktopDashboardProductImages'=>'app/Services/Dashboard/DesktopDashboardProductImages.php',

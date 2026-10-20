@@ -17,6 +17,8 @@ $tables = [
     'desktop_dashboard_remote_attempts'=>['id','device_id','actor_id','method','path','status','request_hash','response_cipher','created_at','updated_at','operation_id'],
     'desktop_dashboard_media_manifest'=>['device_id','snapshot_id','sha256','files'],
     'desktop_dashboard_source_manifest'=>['device_id','snapshot_id','sha256','source'],
+    'desktop_dashboard_print_ownership'=>['effect_id','device_id','command_id','enrollment_id','actor_id','branch','kind','revision','descriptor_hash','local_references','server_references','outcome','outcome_hash','created_at','updated_at'],
+    'desktop_dashboard_created_scopes'=>['grant_id','device_id','enrollment_id','command_id','actor_id','route_name','capability','entity','entity_id','origin_entity_id','branch','descriptor_hash','evidence_cipher','created_at'],
 ];
 $migrationTables = [
     '2026_10_08_130000_create_desktop_dashboard_journal'=>['desktop_dashboard_commands','desktop_dashboard_entities','desktop_dashboard_devices'],
@@ -25,6 +27,8 @@ $migrationTables = [
     '2026_10_08_210000_create_desktop_dashboard_remote_attempts'=>['desktop_dashboard_remote_attempts'],
     '2026_10_08_220000_create_desktop_dashboard_media_manifest'=>['desktop_dashboard_media_manifest'],
     '2026_10_08_230000_create_desktop_dashboard_source_manifest'=>['desktop_dashboard_source_manifest'],
+    '2026_10_20_000001_create_desktop_dashboard_print_ownership'=>['desktop_dashboard_print_ownership'],
+    '2026_10_20_000002_create_desktop_dashboard_created_scopes'=>['desktop_dashboard_created_scopes'],
 ];
 try {
     if (PHP_VERSION_ID < 80200 || realpath($project) !== $project || realpath($private) !== $private
@@ -60,6 +64,8 @@ try {
             'desktop_dashboard_archived_commands'=>[['device_id','command_id']],
             'desktop_dashboard_remote_attempts'=>[['id'],['device_id','operation_id']],
             'desktop_dashboard_media_manifest'=>[['device_id']], 'desktop_dashboard_source_manifest'=>[['device_id']],
+            'desktop_dashboard_print_ownership'=>[['effect_id'],['device_id','command_id','kind']],
+            'desktop_dashboard_created_scopes'=>[['grant_id'],['device_id','enrollment_id','command_id','entity']],
         ];
         foreach($unique as $table=>$wanted)if($schema::hasTable($table)) {
             $indexes=[]; foreach($db->select('SHOW INDEX FROM `'.$table.'`')as$i)if((int)$i->Non_unique===0)$indexes[$i->Key_name][(int)$i->Seq_in_index]=$i->Column_name;

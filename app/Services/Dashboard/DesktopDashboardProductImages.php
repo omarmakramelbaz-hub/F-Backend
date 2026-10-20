@@ -30,6 +30,7 @@ class DesktopDashboardProductImages
     private string $slot='product_image:0';
     private ?int $copyDestination=null;
     private ?string $copyName=null;
+    private ?int $copyOrder=null;
 
     /** Root callers wrap their entire DB transaction, including after-facts and outcome writes. */
     public function guard(callable $work)
@@ -45,14 +46,14 @@ class DesktopDashboardProductImages
         // A custom filesystem has unreviewed copy/deletion behavior.
         abort_unless(get_class($original)===Filesystem::class,409,'طريقة حفظ صور المنتجات غير مدعومة في هذه المعاينة.');
         $this->depth=1;$this->protected=[];$this->allowed=[];
-        $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;$this->copies=null;$this->slot='product_image:0';$this->copyDestination=null;$this->copyName=null;
+        $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;$this->copies=null;$this->slot='product_image:0';$this->copyDestination=null;$this->copyName=null;$this->copyOrder=null;
         try{
             $app->instance(self::class,$this);
             $app->instance(Filesystem::class,new DesktopDashboardProductFilesystem($app->make(Factory::class),$this));
             return $work();
         }finally{
             $this->depth=0;$this->protected=[];$this->allowed=[];
-            $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;$this->copies=null;$this->slot='product_image:0';$this->copyDestination=null;$this->copyName=null;
+            $this->command=null;$this->replayMediaTimes=null;$this->upload=null;$this->copied=false;$this->copies=null;$this->slot='product_image:0';$this->copyDestination=null;$this->copyName=null;$this->copyOrder=null;
             foreach(array_reverse($classes) as $class){
                 $app->forgetInstance($class);$previous=$saved[$class];
                 if($previous['binding'])$app->bind($class,$previous['binding']['concrete'],$previous['binding']['shared']);
@@ -152,9 +153,17 @@ class DesktopDashboardProductImages
         $this->replayMediaTimes=$entry['replay'];$this->slot='menu_copy:'.$selection.':product_image:0';$this->copied=false;
         $this->copyDestination=(int)$destination->getKey();$this->copyName=$row['name'];
         try{
+            if($entry['replay']===null){
+                // The deployed package allocates globally; newer desktop packages allocate per model.
+                // Reserve the original global next order before this authorized FileAdder creates its row.
+                $highest=DB::table('media')->orderByDesc('order_column')->orderByDesc('id')->lockForUpdate()->first(['order_column']);
+                $maximum=(int)($highest->order_column??0);
+                abort_unless($maximum>=0&&$maximum<4294967295,409,'ترتيب صور المنيو يحتاج مراجعة قبل النسخ.');
+                $this->copyOrder=$maximum+1;
+            }
             $result=$work();abort_unless($this->copied,409,'الصورة المختارة لم تُنسخ كاملة.');
             unset($this->copies[$selection]);return $result;
-        }finally{$this->upload=null;$this->replayMediaTimes=null;$this->slot='product_image:0';$this->copied=false;$this->copyDestination=null;$this->copyName=null;}
+        }finally{$this->upload=null;$this->replayMediaTimes=null;$this->slot='product_image:0';$this->copied=false;$this->copyDestination=null;$this->copyName=null;$this->copyOrder=null;}
     }
 
     public function assertCopiesComplete(): void
@@ -297,6 +306,8 @@ class DesktopDashboardProductImages
         }
     }
 
+    public function handlesMedia(Media $media): bool {return $media->model_type===self::MODEL;}
+
     public function preserves(Media $media): bool
     {
         $row=$this->protected[(string)$media->getKey()]??null;
@@ -418,6 +429,7 @@ class DesktopDashboardProductImages
         $bytes[6]=chr((ord($bytes[6])&0x0f)|0x50);$bytes[8]=chr((ord($bytes[8])&0x3f)|0x80);
         $hex=bin2hex($bytes);$uuid=substr($hex,0,8).'-'.substr($hex,8,4).'-'.substr($hex,12,4).'-'.substr($hex,16,4).'-'.substr($hex,20,12);
         $values=['uuid'=>$uuid];if($this->replayMediaTimes!==null)$values+=$this->replayMediaTimes;
+        if($this->copyOrder!==null)$values['order_column']=$this->copyOrder;
         $row=DB::table('media')->where('id',$media->getKey())->lockForUpdate()->first();
         abort_unless($row&&$row->model_type===self::MODEL&&(int)$row->model_id===(int)$media->model_id
             &&$row->collection_name==='product_image'&&$row->disk==='products'&&$row->file_name===$media->file_name,409);

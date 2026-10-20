@@ -6,10 +6,13 @@ async function invoke(name, value) {
   return result.value;
 }
 contextBridge.exposeInMainWorld('FasakhanstaDesktop', Object.freeze({
-  printReceipt: url => invoke('print-receipt', String(url)),
+  printReceipt: (url,requestId) => invoke('print-receipt', requestId===undefined?String(url):{url:String(url),request_id:String(requestId)}),
+  printEffect: id => invoke('print-effect', String(id)),
+  printPending: () => invoke('print-pending'),
   status: () => invoke('status'),
   prepare: csrf => invoke('prepare', { csrf: String(csrf) }),
   synchronize: () => invoke('synchronize'),
+  reviewSync: () => invoke('review-sync'),
   onState: callback => {
     if (typeof callback !== 'function') throw Error('Invalid state callback.');
     const listener = (_event, state) => callback(state);

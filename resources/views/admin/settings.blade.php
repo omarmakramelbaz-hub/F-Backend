@@ -193,12 +193,18 @@
                 </div>
                  <div class="form-group col-sm-6">
                   <label for="app_balance">@lang('main.app_balance') 
+                    @if(!config('desktop_dashboard.local'))
                     <a href="{{route('adminWallet')}}" target="_blank"><i class="fa-solid fa-wallet"></i><span>تفاصيل المحفظة</span>
                     </a>
+                    @endif
                   </label> 
                   <div class="input-group mb-3">
+                    @if(config('desktop_dashboard.local'))
+                    <p class="form-control-plaintext mb-0">رصيد التطبيق يُعرض من الداشبورد المتصلة فقط، ولا يتغير عند حفظ هذه الإعدادات.</p>
+                    @else
                     <span class="input-group-text">@lang('main.egp')</span>
                     <input type="number" readonly name="app_balance" value="{{$settings->app_balance}}" class="form-control" id="app_balance" placeholder="@lang('main.app_balance')">
+                    @endif
                   </div>
                 </div>
                 
@@ -229,11 +235,13 @@
                 <div class="form-group col-sm-6">
                   <label for="logo">@lang('main.logo')</label>
                   <input type="file" name="logo"  class="form-control" id="logo" >
+                  @if(config('desktop_dashboard.local'))<small class="text-muted">PNG، JPG، WEBP فقط؛ مجموع الصور حتى 5 ميجابايت، وأبعاد كل صورة حتى 4096 × 4096.</small>@endif
                   <img src="{{url('/storage/'.$settings->logo)}}" width="120px">
                 </div>
                 <div class="form-group col-sm-6">
                   <label for="favicon">@lang('main.favicon')</label>
                   <input type="file" name="favicon"  class="form-control" id="favicon" >
+                  @if(config('desktop_dashboard.local'))<small class="text-muted">PNG، JPG، WEBP فقط؛ مجموع الصور حتى 5 ميجابايت، وأبعاد كل صورة حتى 4096 × 4096.</small>@endif
                   <img src="{{url('/storage/'.$settings->favicon)}}" width="120px">
                 </div>
               </div>

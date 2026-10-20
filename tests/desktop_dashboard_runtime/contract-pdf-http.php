@@ -66,7 +66,7 @@ foreach (['app/Http/Controllers/Dashboard/ContractController.php','app/Models/Co
 $receipt['sourceRevision']=$revision;
 $receipt['sourceFilesVerified']=count($manifest['sourceHashes']);
 $receipt['sourceManifestSha256']=hash_file('sha256', $manifestPath);
-$helperPaths=['tests/desktop_dashboard_runtime/contract-pdf-http.php','tests/desktop_dashboard_runtime/verify-contract-pdf.py','tests/desktop_dashboard_runtime/contract-pdf-parser-test.py','tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt','desktop-pos/src/wkhtmltox-windows.json','tests/desktop_dashboard_runtime/full-schema.php','tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
+$helperPaths=['tests/desktop_dashboard_runtime/runtime-engine.php','tests/desktop_dashboard_runtime/contract-pdf-http.php','tests/desktop_dashboard_runtime/verify-contract-pdf.py','tests/desktop_dashboard_runtime/contract-pdf-parser-test.py','tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt','desktop-pos/src/wkhtmltox-windows.json','tests/desktop_dashboard_runtime/full-schema.php','tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
 foreach ($helperPaths as $path) {
     $hash=hash_file('sha256', $source.'/'.$path);
     $receipt['fixtureHashes'][$path]=$hash;
@@ -91,8 +91,9 @@ $receipt['mariaVersion']=$pdo->query('SELECT VERSION()')->fetchColumn(); $receip
 $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 $app=require $application.'/desktop/bootstrap.php';
 set_exception_handler($failure);
+require_once __DIR__.'/runtime-engine.php';
 $receipt['laravel']=Illuminate\Foundation\Application::VERSION;
-verifyContractPdf($receipt['laravel']==='8.83.29' && config('desktop_dashboard.local')===true, 'actual original Laravel8 desktop runtime is used');
+verifyContractPdf($receipt['laravel']===DesktopRuntimeEngineProof::expected($application) && config('desktop_dashboard.local')===true, 'the actual captured application uses its independently locked desktop engine');
 require __DIR__.'/full-schema.php';
 $report=json_decode(file_get_contents(__DIR__.'/fixtures/deployed-schema-20261008.json'), true, 512, JSON_THROW_ON_ERROR);
 DesktopFullSchemaFixture::create($report['tables']);

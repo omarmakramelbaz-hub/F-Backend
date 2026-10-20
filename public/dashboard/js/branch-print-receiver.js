@@ -65,6 +65,12 @@
     async function poll() {
         if (stopped) return;
         try {
+            // The native supervisor owns local burn/outcome persistence even if
+            // this page leaves. Do not mix its effects with browser queue claims.
+            if (window.FasakhanstaDesktop && typeof window.FasakhanstaDesktop.printPending === 'function') {
+                var native = await window.FasakhanstaDesktop.printPending();
+                if (native && native.local) { report(native.attention ? boot.labels.attention : boot.labels.ready); return; }
+            }
             var url = new URL(address(boot.jobs)); url.searchParams.set('branch',boot.branch);
             var result = await request(url.href);
             if (stopped) return;

@@ -92,6 +92,11 @@ async function main() {
     assert.equal(runtime.children.length, 0); assert.equal(await runtime.isPrepared(), false);
     const preparation = new DashboardPreparation({ ...preparationOptions, allowPreview: true });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    assert.match(runtime.environment.JWT_SECRET,/^[a-f0-9]{64}$/);
+    assert.notEqual(runtime.environment.JWT_SECRET,runtime.environment.APP_KEY);
+    assert.deepEqual(await php(bootstrap + "echo json_encode(['guard'=>get_class(auth('api')),'anonymous'=>auth('api')->user()===null,'privateSecret'=>hash_equals(getenv('JWT_SECRET'),(string)config('jwt.secret'))]);"),
+      {guard:'Tymon\\JWTAuth\\JWTGuard',anonymous:true,privateSecret:true});
+    console.log('PASS the installed original API guard resolves with the private native JWT environment and no fabricated API login');
     // PHP resolves Windows 8.3 aliases; compare the same actual retained files.
     const extensionDirectory = (await fs.realpath(path.join(runtime.bundle,'php/ext'))).replaceAll('\\','/');
     const certificateFile = (await fs.realpath(path.join(runtime.bundle,'php/ssl/cacert.pem'))).replaceAll('\\','/');

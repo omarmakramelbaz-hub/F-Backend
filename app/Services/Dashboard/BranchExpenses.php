@@ -74,7 +74,7 @@ class BranchExpenses
         $total=(clone $query)->count();abort_if($export&&$total>10000,422,'ضيّق الفترة لتصدير حتى ١٠ آلاف مصروف.');$perPage=$export?max(1,$total):30;$last=max(1,(int)ceil($total/$perPage));$page=min((int)($v['page']??1),$last);
         $rows=(clone $query)->orderByDesc('occurred_on')->orderByDesc('id')->offset($export?0:($page-1)*$perPage)->limit($perPage)->get();
         $approved=(clone $base)->where('status','approved');$today=OperatingDay::date();$month=substr(OperatingDay::date(),0,7).'-01';
-        $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']))+1;
+        $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=(int)\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']),true)+1;
         $categoryTotals=[];
         foreach((clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->get() as $group){
             $key=$categoryCatalog[$group->category]['canonical_key']??$group->category;

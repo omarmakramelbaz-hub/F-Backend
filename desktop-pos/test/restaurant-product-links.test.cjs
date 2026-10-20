@@ -48,7 +48,7 @@ test('foreign, unreviewed and unprepared links retain their original href', asyn
     'https://other.example/admin/resturant_products/20/update/status?status=hide',
     '/admin/resturant_products/0/update/status', '/admin/resturant_products/01/update/status',
     '/admin/resturant_products/99999999999999999999/update/status', '/admin/resturant_products/20/update/status/',
-    '/admin/resturant_products/20/update/price', '/admin/resturantControl', '/admin/resturants/20'
+    '/admin/resturant_products/20/update/price', '/admin/resturantControl/20', '/admin/resturants/20'
   ];
   const env = await page({ links }); assert.equal(env.issued(), 0);
   assert.deepEqual(env.all.map(link => link.href), links.map(href => new URL(href, origin).href));
@@ -74,7 +74,7 @@ test('native product reservations include only the two reviewed GET writes and p
     for (const field of ['status', 'highest_rated']) {
       await assert.rejects(instance.begin(crypto.randomUUID(), {
         url: origin + '/admin/resturant_products/20/update/' + field + '?' + field + '=hide', method: 'HEAD'
-      }), /فحص رابط الصنف/);
+      }), /فحص رابط التعديل/);
     }
   }
   assert.equal(pending.size, 0); assert.equal(records.size, 0); assert.equal(calls.length, 0);
@@ -90,4 +90,35 @@ test('native product reservations include only the two reviewed GET writes and p
   }
   for (const pathname of ['/admin/resturant_products/0/update/status', '/admin/resturant_products/20/update/price', '/admin/products/20'])
     assert.equal(attempts.supported({ url: origin + pathname, method: 'GET' }), false);
+});
+
+
+test('original global-control links retain one UUID and native reservations reject HEAD and neighboring paths', async () => {
+  for (const local of [true, false]) {
+    const env = await page({ local, links: ['/admin/resturantControl'] });
+    const href = env.all[0].href, command = new URL(href).searchParams.get('_desktop_command');
+    assert.match(command, /^[a-f0-9-]{36}$/i); env.mutate(); env.mutate();
+    assert.equal(env.all[0].href, href); assert.equal(env.issued(), 1);
+    const fresh = await page({ local, links: ['/admin/resturantControl'] });
+    assert.notEqual(new URL(fresh.all[0].href).searchParams.get('_desktop_command'), command);
+  }
+  const calls = [], records = new Map(), pending = new Set();
+  const credential = { deviceId: crypto.randomUUID(), actorId: 1, serverOrigin: origin };
+  const options = {
+    metadata: { read: async key => records.get(key), write: async (key, value) => records.set(key, value) },
+    state: { begin: async id => pending.add(id), complete: async id => pending.delete(id), read: async () => ({ pending: [...pending] }) },
+    credential: async () => credential,
+    request: async value => { calls.push(value); return { format: 1, id: value.id, device_id: credential.deviceId, actor_id: 1,
+      method: value.method, path: value.path, status: value.action === 'reserve' ? 'ready' : 'committed', capability: 'a'.repeat(64) }; }
+  };
+  const attempts = new Attempts(options), url = origin + '/admin/resturantControl';
+  assert.equal(attempts.supported({ url, method: 'GET' }), true);
+  for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) assert.equal(attempts.supported({ url, method }), false);
+  for (const pathname of ['/admin/resturantControl/', '/admin/resturantControl/100', '/admin/resturantControls'])
+    assert.equal(attempts.supported({ url: origin + pathname, method: 'GET' }), false);
+  await assert.rejects(attempts.begin(crypto.randomUUID(), { url, method: 'HEAD' }), /فحص رابط/);
+  assert.equal(pending.size, 0); assert.equal(calls.length, 0);
+  const id = crypto.randomUUID(); await attempts.begin(id, { url, method: 'GET' }); attempts.failed(id);
+  assert.equal(pending.has(id), true); await new Attempts(options).recover(); assert.equal(pending.size, 0);
+  assert.deepEqual(calls.map(c => [c.action, c.id, c.path]), [['reserve', id, '/admin/resturantControl'], ['settle', id, '/admin/resturantControl']]);
 });

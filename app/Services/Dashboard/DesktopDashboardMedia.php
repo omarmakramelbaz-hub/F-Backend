@@ -27,6 +27,17 @@ class DesktopDashboardMedia
             ||preg_match('/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i',$part))return false;
         return isset(($area==='private'?self::PRIVATE_MIMES:self::MIMES)[strtolower(pathinfo($path,PATHINFO_EXTENSION))]);
     }
+    /** Canonical public paths plus the exact historical settings helper's folder joins. */
+    public static function settingsPath($path): ?string
+    {
+        if(self::safePath($path))return $path;
+        // The unchanged legacy helper joined its trailing folder slash with storeAs' slash.
+        if(is_string($path)&&preg_match('#^/uploadedImages//(settings-[0-9]{1,19}\.(?i:png|jpg|jpeg|gif|webp|ico))$#D',$path,$match))return 'uploadedImages/'.$match[1];
+        if(!is_string($path)||!str_starts_with($path,'/uploadedImages/'))return null;
+        $relative=substr($path,1);
+        if(str_contains(substr($relative,strlen('uploadedImages/')),'/'))return null;
+        return self::safePath($relative)?$relative:null;
+    }
     private static function inside(string $file,string $root): bool
     {
         $file=str_replace('\\','/',$file);$root=rtrim(str_replace('\\','/',$root),'/').'/';
@@ -99,6 +110,7 @@ class DesktopDashboardMedia
                 abort_if(count($files)>=self::MAX_FILES||$total+$bytes>self::MAX_TOTAL,413);
                 $total+=$bytes;$namespace=$area==='private'?['area'=>'private']:[];
                 $ticket=Crypt::encryptString(DesktopDashboardBootstrap::json(['format'=>1,'device_id'=>$device->id,'actor_id'=>(int)$actor->id,
+                    'enrollment_binding'=>$this->devices->enrollmentFingerprint($device),
                     'snapshot_id'=>$snapshot,'path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'proof'=>$proof,'expires_at'=>time()+3600]+$namespace));
                 $files[$key]=['path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'ticket'=>$ticket]+$namespace;
             }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['path'=>$path,'reason'=>'unavailable-or-unsupported']+($area==='private'?['area'=>'private']:[]);}
@@ -139,17 +151,27 @@ class DesktopDashboardMedia
             try{$value=json_decode($row['payload'],true,512,JSON_THROW_ON_ERROR);}catch(\JsonException $error){$value=null;}
             if($value===null||$value===''||$value==='0')continue;
             if(!is_string($value)){$issues[]=['setting'=>$row['name'],'reason'=>'unsupported'];continue;}
-            $add($value,['kind'=>'setting','name'=>$row['name']]);
+            $path=self::settingsPath($value);
+            if($path===null){$issues[]=['setting'=>$row['name'],'reason'=>'unsupported'];continue;}
+            $add($path,['kind'=>'setting','name'=>$row['name'],'source_path'=>$value]);
         }
         ksort($files);
         return ['files'=>array_values($files),'complete'=>$issues===[],'issues'=>$issues,'bytes'=>$total];
     }
     public function download(object $device,string $ticket): array
     {
+        return DB::transaction(function()use($device,$ticket){
+            $device=$this->devices->lockAuthenticated($device);
+            return $this->downloadLocked($device,$ticket);
+        });
+    }
+    private function downloadLocked(object $device,string $ticket): array
+    {
         abort_if(strlen($ticket)>8192,422);
         try{$value=json_decode(Crypt::decryptString($ticket),true,32,JSON_THROW_ON_ERROR);}catch(\Throwable $error){abort(422);}
         $actor=$this->devices->actor($device);$queries=$this->data->queries($device,$actor,$this->branches($device,$actor));
         abort_unless(($value['format']??null)===1&&($value['device_id']??null)===$device->id
+            &&is_string($value['enrollment_binding']??null)&&hash_equals($this->devices->enrollmentFingerprint($device),$value['enrollment_binding'])
             &&($value['actor_id']??null)===(int)$actor->id&&($value['expires_at']??0)>=time(),403);
         $proof=$value['proof']??[];$path=$value['path']??'';$area=$value['area']??'public';
         abort_unless($area===(($proof['kind']??'')==='expense'?'private':'public'),403);
@@ -167,7 +189,8 @@ class DesktopDashboardMedia
             case 'setting':
                 abort_unless(in_array($proof['name']??'',self::SETTINGS,true),403);
                 $row=DB::table('settings')->where('group','general')->where('name',$proof['name'])->first();
-                abort_unless($row&&json_decode($row->payload,true)===$path,403);break;
+                $source=$row?json_decode($row->payload,true):null;
+                abort_unless($row&&is_string($source)&&($proof['source_path']??null)===$source&&self::settingsPath($source)===$path,403);break;
             case 'expense':
                 $row=isset($queries['branch_expenses'])?(clone $queries['branch_expenses'])->where('id',$proof['id'])->first():null;
                 abort_unless($row&&$row->attachment_path===$path&&$row->attachment_hash===$value['sha256']&&$row->attachment_mime===$value['mime'],403);break;

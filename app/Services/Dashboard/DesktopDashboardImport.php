@@ -12,11 +12,21 @@ class DesktopDashboardImport
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
         Validator::make($snapshot,['format'=>'required|in:1','kind'=>'required|in:initial-dashboard-data',
             'snapshot_id'=>'required|uuid','device_id'=>'required|uuid','actor_id'=>'required|integer|min:1',
-            'branches'=>'required|array|min:1','schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D','tables'=>'required|array',
+            'branches'=>'required|array|min:1','branches.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D','tables'=>'required|array',
             'coverage'=>'required|array'])->validate();
         abort_unless($snapshot['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($snapshot['source']??null),409,'نسخة برنامج الجهاز لا تطابق بيانات السيرفر؛ النسخة الحالية وسجلاتها محفوظة.');
         abort_unless(DB::select('SHOW TABLES')===[],409,'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.');
+        abort_unless(!array_key_exists('catalog_scopes',$snapshot['coverage'])||in_array($snapshot['coverage']['catalog_scopes'],[0,1],true),422);
+        $catalog=($snapshot['coverage']['catalog_scopes']??null)===1;
+        $base=$snapshot['enrollment']['base_branches']??$snapshot['branches'];
+        Validator::make(['base'=>$base],['base'=>'required|array|min:1','base.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D']])->validate();
+        if($catalog){
+            abort_unless(($snapshot['coverage']['print_protocol']??null)===1&&isset($snapshot['enrollment']['base_branches'])&&is_array($snapshot['created_scopes']??null)
+                &&hash_equals($snapshot['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['created_scopes'])))
+                &&hash_equals($snapshot['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($base)))
+                &&hash_equals($snapshot['coverage']['catalog_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['branches']))),422);
+        }else abort_unless($base===$snapshot['branches']&&empty($snapshot['created_scopes']),422);
         $media=DesktopDashboardMedia::receipt($snapshot['media']??[]);
         $allowed=DesktopDashboardSchema::TABLES;
         $schema=[];$rowCount=0;
@@ -70,6 +80,17 @@ class DesktopDashboardImport
         (new \CreateDesktopDashboardMediaManifest)->up();
         require_once database_path('migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php');
         (new \CreateDesktopDashboardSourceManifest)->up();
+        if(($snapshot['coverage']['print_protocol']??null)===1){
+            Validator::make($snapshot,['enrollment.enrollment_hash'=>'required|regex:/^[a-f0-9]{64}$/D','enrollment.enrolled_at'=>'required|date'])->validate();
+            DB::table('desktop_dashboard_devices')->insert(['id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],'name'=>'Local dashboard',
+                'enrollment_hash'=>$snapshot['enrollment']['enrollment_hash'],'enrolled_at'=>$snapshot['enrollment']['enrolled_at'],
+                // This is not a server bearer credential and is never used for server authentication.
+                'token_hash'=>hash('sha256',random_bytes(32)),'branches'=>DesktopDashboardBootstrap::json($base),
+                'enabled'=>true,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+            app(DesktopDashboardPrintLedgerSchema::class)->install();
+            app(DesktopDashboardPrintLedger::class)->bind($snapshot['device_id']);
+        }
+        if($catalog){require_once database_path('migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php');(new \CreateDesktopDashboardCreatedScopes)->up();}
         $sourceJson=DesktopDashboardBootstrap::json($snapshot['source']);
         DB::table('desktop_dashboard_source_manifest')->insert(['device_id'=>$snapshot['device_id'],'snapshot_id'=>$snapshot['snapshot_id'],
             'sha256'=>hash('sha256',$sourceJson),'source'=>$sourceJson]);
@@ -82,6 +103,7 @@ class DesktopDashboardImport
             'coverage'=>DesktopDashboardBootstrap::json($snapshot['coverage']),'state'=>'ready',
             'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
         ]);
+        if($catalog)DB::transaction(fn()=>app(DesktopDashboardCreatedScopes::class)->restore($snapshot));
         return ['format'=>1,'snapshot_id'=>$snapshot['snapshot_id'],'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],
             'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage'],
             'source'=>$snapshot['source'],
@@ -100,11 +122,20 @@ class DesktopDashboardImport
         abort_unless($receipt['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($receipt['source']??null),409,'مصدر برنامج التجهيز لا يطابق النسخة المعتمدة.');
         return DB::transaction(function()use($receipt){
+            app(DesktopDashboardPrintLedger::class)->fence($receipt['device_id']);
             $state=DB::table('desktop_dashboard_local_state')->where('device_id',$receipt['device_id'])->lockForUpdate()->first();
             abort_unless($state&&$state->state==='ready'&&$state->snapshot_id===$receipt['snapshot_id']
                 &&(int)$state->actor_id===(int)$receipt['actor_id']&&$state->schema_hash===$receipt['schema_hash']
                 &&json_decode($state->branches,true)===$receipt['branches']
                 &&json_decode($state->coverage,true)===$receipt['coverage'],409,'قاعدة التجهيز لا تطابق النسخة المعتمدة.');
+            if(($receipt['coverage']['print_protocol']??null)===1)app(DesktopDashboardPrintLedger::class)->verifyEnrollment($receipt['device_id']);
+            if(($receipt['coverage']['catalog_scopes']??null)===1){
+                $device=DB::table('desktop_dashboard_devices')->where('id',$receipt['device_id'])->lockForUpdate()->first();$actor=\App\Models\User::withoutGlobalScopes()->whereKey($receipt['actor_id'])->lockForUpdate()->firstOrFail();
+                $grants=app(DesktopDashboardCreatedScopes::class)->export($device,$actor);
+                abort_unless(hash_equals($receipt['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($grants)))
+                    &&hash_equals($receipt['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json(json_decode($device->branches,true))))
+                    &&app(DesktopDashboardCreatedScopes::class)->effective($device,$actor)===$receipt['branches'],409);
+            }
             $source=DB::table('desktop_dashboard_source_manifest')->where('device_id',$receipt['device_id'])->first();
             abort_unless($source&&$source->snapshot_id===$receipt['snapshot_id']
                 &&hash_equals($source->sha256,hash('sha256',DesktopDashboardBootstrap::json($receipt['source'])))

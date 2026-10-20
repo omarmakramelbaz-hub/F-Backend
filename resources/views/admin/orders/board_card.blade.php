@@ -64,7 +64,7 @@
         @endif
     </div>
     @if(!empty($actions) && !empty($card['urls']['action']))
-        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action>
+        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action data-desktop-board-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}">
             @csrf
             <input type="hidden" name="expected_status" value="{{ $card['status'] }}">
             <input type="hidden" name="expected_accepted_notify" value="{{ $card['accepted_notify'] ?? '' }}">

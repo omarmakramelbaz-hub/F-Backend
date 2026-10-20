@@ -9,14 +9,47 @@ use App\Services\Dashboard\MetaInboxAccess;
 
 class DesktopDashboardJournal
 {
+    public const CONNECTED_REQUEST_PROTOCOL=1;
+    /** Authenticate this original request's session without changing its controller or transaction. */
+    private function connectedActor($request): void
+    {
+        $id=$request->header('X-Fasakhansta-Connected-Device');$token=$request->header('X-Fasakhansta-Connected-Token');
+        abort_unless(is_string($id)&&preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD',$id)
+            &&is_string($token)&&preg_match('/^[a-f0-9]{64}$/D',$token),401,'ربط الداشبورد المتصلة غير مكتمل.');
+        $devices=app(\App\Services\Dashboard\DesktopDashboardDevices::class);$devices->ready();
+        // Only this short authorization check takes locks. Original online forms,
+        // credentials and provider actions run through their unchanged pipeline.
+        DB::transaction(function()use($request,$id,$token,$devices){
+            $device=DB::table('desktop_dashboard_devices')->where('id',$id)->where('token_hash',hash('sha256',$token))->lockForUpdate()->first();
+            abort_unless($device&&$device->enabled,401,'ربط الداشبورد المتصلة متوقف أو تغيّر.');
+            $devices->enrollmentFingerprint($device);
+            // Sign-in must restore an expired session; no other route can bypass
+            // comparison with the actual user loaded after StartSession.
+            if($request->isMethod('POST')&&$request->route()?->getName()==='admin.login'
+                &&$request->route()?->getActionName()===\App\Http\Controllers\Dashboard\HomeController::class.'@signin')return;
+            $fresh=DB::table('users')->where('id',$device->actor_id)->lockForUpdate()->first(['id','account_type','status']);
+            $actor=auth('admin')->user();
+            abort_unless($actor&&(int)$actor->id===(int)$device->actor_id&&$fresh
+                &&in_array($fresh->account_type,['admin','vendor','resturant_owner','delegate'],true)
+                &&!in_array($fresh->status??null,['disabled','declined'],true),403,
+                'حساب هذا الطلب لا يطابق حساب الجهاز؛ سجّل الدخول بالحساب المرتبط.');
+        });
+    }
     public function handle($request,Closure $next)
     {
         if (!config('desktop_dashboard.local')) {
+            if($request->hasHeader('X-Fasakhansta-Connected-Device')||$request->hasHeader('X-Fasakhansta-Connected-Token')){
+                abort_if($request->hasHeader('X-Fasakhansta-Remote-Attempt')||$request->hasHeader('X-Fasakhansta-Remote-Capability'),422);
+                $this->connectedActor($request);
+            }
             if($request->hasHeader('X-Fasakhansta-Remote-Attempt')||$request->hasHeader('X-Fasakhansta-Remote-Capability'))
                 return app(\App\Services\Dashboard\DesktopDashboardRemoteAttempts::class)->handle($request,$next);
             return $next($request);
         }
         $route=$request->route()?->getName();
+        if(in_array($route,['takeaway.print','dining.print','dining.kitchen','phone-orders.print','phone-orders.kitchen','branch-shifts.print','branch-shift-print.receipt','phone-orders.batch-print'],true)
+            &&app(\App\Services\Dashboard\DesktopDashboardPrintLedger::class)->active((string)config('desktop_dashboard.device_id')))
+            abort(409,'الطباعة المحلية متاحة من جسر البرنامج لضمان تسجيل نسخة واحدة.');
         if(in_array($route,['customers.messaging-status','customers.messaging-configure','customers.feedback-template-prepare',
             'customers.marketing-template-prepare','customers.campaign-queue'],true)){
             app(\App\Services\Dashboard\WhatsAppInboxAccess::class)->actor(auth('admin')->user());
@@ -51,6 +84,79 @@ class DesktopDashboardJournal
         }
         abort_unless(Schema::hasTable('desktop_dashboard_commands'),503,'قاعدة العمليات المحلية لم تُجهّز بعد.');
         $actor=auth('admin')->user();abort_unless($actor,403);
+        if(\App\Services\Dashboard\DesktopDashboardOrderBoard::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardOrderBoard::class);$command=$adapter->command($request);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
+                $payload=$adapter->payload($request,$command,$actor,$scope);$actor=$adapter->authorize($payload,$actor,$scope);
+                foreach(['_desktop_command','idempotency_key'] as $field)$request->request->remove($field);
+                $response=null;$guard=auth('admin');$previous=$guard->getUser();
+                try{
+                    $guard->setUser($actor);
+                    $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],
+                        fn()=>$adapter->capture($payload,$actor,function()use($request,$next,&$response){return $response=$next($request);}));
+                    return $response??$adapter->response($result);
+                }finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardSettings::handles($route)){
+            $adapter=app(\App\Services\Dashboard\DesktopDashboardSettings::class);
+            return $adapter->transaction(function()use($adapter,$request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
+                $command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor,$scope);$actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $request->request->remove('_desktop_command');$request->query->remove('_desktop_command');$response=null;$guard=auth('admin');$previous=$guard->getUser();
+                try{$guard->setUser($actor);
+                    $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],
+                        fn()=>$adapter->capture($route,$payload,$request,function()use($request,$next,&$response){return $response=$next($request);}));
+                    app(\App\Services\Dashboard\DesktopDashboardSettingsImages::class)->verifyResult($route,$result,$payload['files'],$command);
+                    return $response??$adapter->response($result);
+                }finally{if($previous)$guard->setUser($previous);else(function(){$this->user=null;})->call($guard);}
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardWalletCash::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardWalletCash::class);$command=$adapter->command($request);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
+                $payload=$adapter->payload($route,$request,$command,$actor,$scope);$actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $response=null;$guard=auth('admin');$previous=$guard->getUser();
+                try{
+                    $guard->setUser($actor);
+                    $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],
+                        fn()=>$adapter->capture($route,$request,function()use($request,$next,&$response){return $response=$next($request);}));
+                    return $response??$adapter->response($result);
+                }finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardUserProfiles::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor){
+                $device=(string)config('desktop_dashboard.device_id');app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);$adapter=app(\App\Services\Dashboard\DesktopDashboardUserProfiles::class);$command=$adapter->command($request);
+                $payload=$adapter->payload($request,$command,$actor,$scope);$actor=$adapter->authorize($payload,$actor,$scope);$request->request->remove('_desktop_command');$request->query->remove('_desktop_command');$response=null;$guard=auth('admin');$previous=$guard->getUser();
+                try{$guard->setUser($actor);$result=app(Journal::class)->execute($device,$command,(int)$actor->id,'users.update',$payload,[],fn()=>$adapter->capture($payload,function()use($request,$next,&$response){return $response=$next($request);}));return $response??$adapter->response($result);}
+                finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardUserAccounts::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');
+                app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardUserAccounts::class);$command=$adapter->command($request);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);
+                $payload=$adapter->payload($route,$request,$command,$actor,$scope);$actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $request->request->remove('_desktop_command');$request->query->remove('_desktop_command');$response=null;$guard=auth('admin');$previous=$guard->getUser();
+                try{
+                    $guard->setUser($actor);
+                    $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],
+                        function()use($adapter,$route,$payload,$request,$next,&$response){return $adapter->capture($route,$payload,function()use($request,$next,&$response){return $response=$next($request);});});
+                    return $response??$adapter->response($result);
+                }finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+            });
+        }
         if(\App\Services\Dashboard\DesktopDashboardCustomerDirectory::handles($route)){
             return DB::transaction(function()use($request,$next,$actor,$route){
                 $device=(string)config('desktop_dashboard.device_id');
@@ -93,10 +199,46 @@ class DesktopDashboardJournal
                 return $response??$adapter->response($result);
             })));
         }
-        if(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantProducts::handles($route)){
+        if(\App\Services\Dashboard\DesktopDashboardRestaurantManagement::handles($route)){
+            return app(\App\Services\Dashboard\DesktopDashboardRestaurantImages::class)->transaction(fn()=>app(\App\Services\Dashboard\DesktopDashboardRestaurantEffects::class)->guard(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantManagement::class);$command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);$actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],function()use($adapter,$route,$payload,$actor,$request,$next,&$response){
+                    $guard=auth('admin');$previous=$guard->getUser();try{$guard->setUser($actor);return $adapter->capture($route,$payload,$request,function()use($request,$next,&$response){return $response=$next($request);});}
+                    finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+                });return $response??$adapter->response($result);
+            }));
+        }
+        if(\App\Services\Dashboard\DesktopDashboardGoStoreCreation::handles($route)){
+            return DB::transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardGoStoreCreation::class);$command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);$actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],function()use($adapter,$route,$payload,$actor,$request,$next,&$response){
+                    $guard=auth('admin');$previous=$guard->getUser();try{$guard->setUser($actor);return $adapter->capture($route,$payload,$request,function()use($request,$next,&$response){return $response=$next($request);});}
+                    finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+                });return $response??$adapter->response($result);
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardGoProducts::handles($route)){
+            return app(\App\Services\Dashboard\DesktopDashboardGoProductImages::class)->transaction(function()use($request,$next,$actor,$route){
+                $device=(string)config('desktop_dashboard.device_id');app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable($device,(int)$actor->id);
+                $adapter=app(\App\Services\Dashboard\DesktopDashboardGoProducts::class);$command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
+                $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock($device);abort_unless($scope,403);$actor=$adapter->authorize($route,$payload,$actor,$scope);
+                $request->request->remove('_desktop_command');$response=null;
+                $result=app(Journal::class)->execute($device,$command,(int)$actor->id,$route,$payload,[],function()use($adapter,$route,$payload,$actor,$request,$next,&$response){
+                    $guard=auth('admin');$previous=$guard->getUser();try{$guard->setUser($actor);return $adapter->capture($route,$payload,$request,function()use($request,$next,&$response){return $response=$next($request);});}
+                    finally{if($previous)$guard->setUser($previous);else (function(){$this->user=null;})->call($guard);}
+                });return $response??$adapter->response($result);
+            });
+        }
+        if(\App\Services\Dashboard\DesktopDashboardRestaurantControl::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)||\App\Services\Dashboard\DesktopDashboardRestaurantProducts::handles($route)){
             return DB::transaction(function()use($request,$next,$actor,$route){
                 app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->writable((string)config('desktop_dashboard.device_id'),(int)$actor->id);
-                $adapter=app(\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)?\App\Services\Dashboard\DesktopDashboardRestaurantFlags::class:\App\Services\Dashboard\DesktopDashboardRestaurantProducts::class);
+                $adapter=app(match(true){\App\Services\Dashboard\DesktopDashboardRestaurantControl::handles($route)=>\App\Services\Dashboard\DesktopDashboardRestaurantControl::class,\App\Services\Dashboard\DesktopDashboardRestaurantFlags::handles($route)=>\App\Services\Dashboard\DesktopDashboardRestaurantFlags::class,default=>\App\Services\Dashboard\DesktopDashboardRestaurantProducts::class});
                 $command=$adapter->command($request);$payload=$adapter->payload($route,$request,$command,$actor);
                 $scope=app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->lock((string)config('desktop_dashboard.device_id'));abort_unless($scope,403);
                 $actor=$adapter->authorize($route,$payload,$actor,$scope);

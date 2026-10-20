@@ -116,20 +116,31 @@ class OrderBoardController extends Controller
                     $restaurant = $order->resturant;
                     abort_unless($restaurant && in_array($values['action'], $service->legacyActions($order, true), true), 409);
                     $vendor = app(VendorOrders::class);
+                    // These retained methods perform the mutation; their API/mobile
+                    // resource response is discarded by this board. Use their original
+                    // browser response path so an unrelated mobile serializer cannot
+                    // fail the transaction after a valid dashboard transition.
+                    $vendorRequest=clone $request;
+                    $vendorRequest->headers->set('Accept','text/html');
+                    $vendorRequest->headers->remove('X-Requested-With');
                     // The current restaurant lifecycle accepts first, then chooses the delivery assignment.
-                    if ($values['action'] === 'accept') $vendor->acceptOrder($request, $order);
+                    if ($values['action'] === 'accept') $vendor->acceptOrder($vendorRequest, $order);
                     elseif ($values['action'] === 'reject') {
                         $request->merge(['status'=>'declined']);
-                        $vendor->updateOrderStatus($request, $order);
+                        $vendorRequest->merge(['status'=>'declined']);
+                        $vendor->updateOrderStatus($vendorRequest, $order);
                     } elseif ($values['action'] === 'cancel') {
                         app(LegacyOrderCancellation::class)->cancel($order, $values['reason'] ?? 'إلغاء بناءً على طلب العميل');
                     } elseif ($values['action'] === 'complete') {
                         $request->merge(['status'=>'completed']);
-                        $vendor->updateOrderStatus($request, $order);
+                        $vendorRequest->merge(['status'=>'completed']);
+                        $vendor->updateOrderStatus($vendorRequest, $order);
                     } else {
                         $request->merge(['type'=>$values['action'] === 'prepare' ? 'in_resturant' : 'out_resturant',
                             'order_id'=>$id, 'resturant_id'=>$order->resturant_id]);
-                        $vendor->updateOrder($request, $order);
+                        // Retained courier discovery reads request() globally.
+                        $vendorRequest->merge($request->only('type','order_id','resturant_id'));
+                        $vendor->updateOrder($vendorRequest, $order);
                     }
                 } elseif ($source === 'partner_service') {
                     abort_unless($service->isAdmin($actor), 403);

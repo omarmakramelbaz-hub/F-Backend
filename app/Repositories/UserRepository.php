@@ -143,6 +143,10 @@ class UserRepository implements UserRepositoryInterface
 
     public function updateUser($userId, array $newDetails) 
     {
+        // The reviewed desktop public-profile context cannot enter role, credential,
+        // pending-application, media or financial mutations from this legacy form.
+        $profile=\App\Services\Dashboard\DesktopDashboardUserProfiles::repositoryUpdate((int)$userId,$newDetails);
+        if($profile!==null)return $profile;
 
         unset($newDetails['photo_profile']);
         unset($newDetails["national_id_image"],$newDetails["commercial_registration_no_image"],$newDetails["driving_license_image"],$newDetails["tax_no_image"]);

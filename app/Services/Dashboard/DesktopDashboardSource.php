@@ -5,6 +5,24 @@ namespace App\Services\Dashboard;
 class DesktopDashboardSource
 {
     public const ROOTS=['app','bootstrap','config','database','desktop','resources','routes','public/dashboard/js','public/dashboard/css','public/dashboard/vendor/desktop-external'];
+    private function frameworkContract(string $base): string
+    {
+        $path=$base.'/desktop/source-contract.json';
+        abort_unless(is_file($path)&&!is_link($path),503,'عقد توافق مصدر البرنامج غير متاح.');
+        $contract=json_decode(file_get_contents($path),true,16,JSON_THROW_ON_ERROR);
+        abort_unless(is_array($contract)&&count($contract)===3&&($contract['format']??null)===1
+            &&array_diff(array_keys($contract),['format','framework','supportedRuntimeFrameworks'])===[]
+            &&is_string($contract['framework']??null)&&preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D',$contract['framework'])
+            &&is_array($contract['supportedRuntimeFrameworks']??null)&&array_is_list($contract['supportedRuntimeFrameworks'])
+            &&count($contract['supportedRuntimeFrameworks'])>=1&&count($contract['supportedRuntimeFrameworks'])<=4,503);
+        foreach($contract['supportedRuntimeFrameworks'] as $engine)abort_unless(is_string($engine)&&preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D',$engine),503);
+        abort_unless(count(array_unique($contract['supportedRuntimeFrameworks']))===count($contract['supportedRuntimeFrameworks'])
+            &&in_array($contract['framework'],$contract['supportedRuntimeFrameworks'],true)
+            &&in_array(app()->version(),$contract['supportedRuntimeFrameworks'],true),503,'محرك البرنامج لم يجتز فحص توافق المصدر.');
+        // This is the captured source contract, not a claim about the booted engine.
+        // The bundle independently records its actual runtimeFramework and lock hash.
+        return $contract['framework'];
+    }
     public function fingerprint(): array
     {
         $files=[];$cases=[];$bytes=0;$base=realpath(base_path());
@@ -34,7 +52,7 @@ class DesktopDashboardSource
         abort_unless(count($files)>0,503);ksort($files,SORT_STRING);
         $digest=hash_init('sha256');hash_update($digest,"desktop-dashboard-source:1\n");
         foreach($files as $name=>$hash)hash_update($digest,$name."\0".$hash."\n");
-        return ['format'=>1,'files'=>count($files),'sha256'=>hash_final($digest),'framework'=>app()->version()];
+        return ['format'=>1,'files'=>count($files),'sha256'=>hash_final($digest),'framework'=>$this->frameworkContract($base)];
     }
     public function matches($value): bool
     {

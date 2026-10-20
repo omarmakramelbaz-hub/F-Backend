@@ -33,6 +33,7 @@ test('the actual source bundle excludes renamed production credentials and keeps
   };
   for (const [file, bytes] of Object.entries(files)) await write(source, file, bytes);
   await write(dependencyRoot, 'vendor/autoload.php', '<?php');
+  await write(dependencyRoot, 'vendor/composer/installed.json', JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]}));
   await write(dependencyRoot, 'composer.json', '{}');
   await write(dependencyRoot, 'composer.lock', JSON.stringify({ packages: [{ name: 'laravel/framework', version: 'v8.83.29' }] }));
   const git = args => execFileSync('git', args, { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -47,6 +48,7 @@ test('the actual source bundle excludes renamed production credentials and keeps
   await assert.rejects(fs.access(path.join(target,'php/ssl/unrelated-private.pem')),{code:'ENOENT'});
   const manifest = JSON.parse(await fs.readFile(path.join(target, 'manifest.json'), 'utf8'));
   assert.equal(manifest.channel, 'preview'); assert.equal(manifest.fullDashboard, false);
+  assert.equal(manifest.runtimeFramework,'8.83.29');
   assert.deepEqual(manifest.previewWriteRoutes, ['customers.save', 'roles.store']);
   for (const file of ['artisan','app/Controllers.php','config/firebase.php','public/firebase-messaging-sw.js','public/catalog.json']) {
     assert.ok(manifest.sourceHashes[file]); assert.equal(await fs.readFile(path.join(target, 'application', file), 'utf8'), files[file]);

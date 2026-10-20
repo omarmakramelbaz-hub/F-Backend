@@ -44,6 +44,13 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
   }
   await fs.cp(path.join(dependencyRoot, 'vendor'), path.join(application, 'vendor'), { recursive: true });
   for (const name of ['composer.json','composer.lock']) await fs.copyFile(path.join(dependencyRoot, name), path.join(application, name));
+  const composer=JSON.parse(await fs.readFile(path.join(dependencyRoot,'composer.json'),'utf8'));
+  let runtimeCompatibilitySha256;
+  if((composer.autoload?.files||[]).includes('compatibility.php')){
+    const compatibility=await fs.readFile(path.join(source,'desktop-pos/runtime/compatibility.php'));
+    await fs.writeFile(path.join(application,'compatibility.php'),compatibility);
+    runtimeCompatibilitySha256=crypto.createHash('sha256').update(compatibility).digest('hex');
+  }
   await fs.mkdir(path.join(application, 'bootstrap/cache'), { recursive: true });
   if (phpDirectory) {
     const phpRoot = await fs.realpath(phpDirectory);
@@ -73,6 +80,10 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
     pdfRuntime = await nativePdf.packageInto(wkhtmlDirectory, target, source);
   }
   const sourceFingerprint = await sourceCode.fingerprint(application);
+  const {runtimeFramework}=await sourceCode.frameworks(application);
+  const installed=JSON.parse(await fs.readFile(path.join(application,'vendor/composer/installed.json'),'utf8'));
+  const installedFramework=(Array.isArray(installed)?installed:installed.packages||[]).find(item=>item.name==='laravel/framework')?.version?.replace(/^v/,'');
+  if(installedFramework!==runtimeFramework)throw Error('The installed runtime framework does not match its lock.');
   let channel = {}, packageInfo;
   try {
     packageInfo = JSON.parse(await fs.readFile(path.join(source, 'desktop-pos/package.json'), 'utf8'));
@@ -83,7 +94,8 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
     else if (/^[0-9]+\.[0-9]+\.[0-9]+$/.test(packageInfo.version)) channel = { channel: 'release', fullDashboard: true };
     else throw Error('The runtime package channel is not recognized.');
   }
-  await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ format:1, platform:'win32-x64', sourceRevision:revision, sourceHashes:hashes, sourceFingerprint, ...(pdfRuntime ? {pdfRuntime} : {}), ...channel }, null, 2)+'\n');
+  await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ format:1, platform:'win32-x64', sourceRevision:revision, sourceHashes:hashes, sourceFingerprint, runtimeFramework,
+    ...(runtimeCompatibilitySha256?{runtimeCompatibilitySha256}:{}), ...(pdfRuntime ? {pdfRuntime} : {}), ...channel }, null, 2)+'\n');
   return { application, files: Object.keys(hashes).length };
 }
 module.exports = build;

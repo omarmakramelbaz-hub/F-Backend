@@ -249,6 +249,7 @@
         };
         $goProof = fn (array $reply) => ['X-Fasakhansta-Remote-Attempt: '.$reply['id'], 'X-Fasakhansta-Remote-Capability: '.$reply['capability']];
         $goArrayAttempt = $goAttempt(); [, $goArrayProof] = $goDecide($goArrayAttempt);
+        $goArrayCipher = $goDb()->table('desktop_dashboard_remote_attempts')->where('id', $goArrayAttempt['id'])->value('response_cipher');
         $goArrayCommand = $goUuid(); $goArrayValues = $goForm($goServerCsrf, $goProfile(), $goArrayCommand);
         $goArrayValues['_desktop_command'] = [$goArrayCommand]; $goArrayBefore = $goState();
         $goArrayJournal = $goDb()->table('desktop_dashboard_commands')->count();
@@ -257,14 +258,14 @@
             $goArrayRow = $goDb()->table('desktop_dashboard_remote_attempts')->where('id', $goArrayAttempt['id'])->first();
             verify($goArrayReply[0] === 422 && $goState() === $goArrayBefore && $goArrayRow->status === 'ready'
                 && $goDb()->table('desktop_dashboard_commands')->count() === $goArrayJournal
-                && $goArrayRow->operation_id === null && $goArrayRow->response_cipher === null,
+                && $goArrayRow->operation_id === null && $goArrayRow->response_cipher === $goArrayCipher,
                 'native GO raw array UUID is rejected before conversion with unchanged profile and ready outcome'.($goArrayHeaders ? ' despite a valid UUID header' : ' without an alias header'));
         }
         verify($goDecide($goArrayAttempt, 'settle')[1]['status'] === 'cancelled' && $goState() === $goArrayBefore,
             'an invalid raw GO operation can be cancelled without an unrecorded profile or fee write');
         $goNative = $goAttempt(); [$goReserveStatus, $goReserved] = $goDecide($goNative);
         verify($goReserveStatus === 200 && $goReserved['status'] === 'ready', 'the native server API reserves exactly the original POST GO profile owner path');
-        foreach ([['/admin/go-stores', 'POST'], ['/admin/go-stores/60/products', 'POST'], ['/admin/go-stores/60', 'PUT'], ['/admin/go-stores/60', 'DELETE']] as [$path, $method])
+        foreach ([['/admin/go-stores/create', 'POST'], ['/admin/go-stores/60/products/0', 'POST'], ['/admin/go-stores/60', 'PUT'], ['/admin/go-stores/60', 'DELETE']] as [$path, $method])
             verify($goDecide($goAttempt($path, $method))[0] === 422, 'native GO profile reservation cannot broaden to an unsupported original path or method: '.$method.' '.$path);
         $goNativeValues = $goForm($goServerCsrf, $goProfile(), $goUuid()); $goNativeBefore = $goState();
         $goNativeReply = $goHttp('/admin/go-stores/60', $goNativeValues, $goProof($goReserved));

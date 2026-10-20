@@ -127,6 +127,9 @@ input:checked +.slider:before{
             </ul>
           </div>
           @endif
+          @if(config('desktop_dashboard.local'))
+          <div class="alert alert-info" role="status">مفاتيح الاتصال وتفعيل الدفع بالكارت والمحفظة تُعدّل من الداشبورد المتصلة فقط. الإعدادات المحفوظة على الجهاز لا تُغيّر إعدادات مزوّد الدفع.</div>
+          @else
           <form method="post" action="{{route('updateEnv')}}" enctype="multipart/form-data">
             @csrf
             @method('PUT')
@@ -161,10 +164,12 @@ input:checked +.slider:before{
               </div>
           <button type="submit" class="btn btn-success">@lang('main.save')</button>
          </form>
+         @endif
          <div class="my-3">
             <hr>
          </div>
          <h4 class="mb-3 mt-3">@lang('main.activate integration payments')</h4>
+         @if(!config('desktop_dashboard.local'))
          <form method="post" action="{{route('updatePaymentActivation')}}" enctype="multipart/form-data">
             @csrf
             @method('PUT')
@@ -197,6 +202,7 @@ input:checked +.slider:before{
               </div>
           <button type="submit" class="btn btn-success">@lang('main.save')</button>
          </form>
+         @endif
        </div>
      </div>
    </div>

@@ -1,0 +1,39 @@
+{
+  "base_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
+  "base_source": {
+    "files": 1157,
+    "format": 1,
+    "framework": "8.83.29",
+    "sha256": "2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f"
+  },
+  "changes": {
+    "public/dashboard/css/branch-expenses.css": {
+      "after_blob": "2babc6278260e7cd30d5b17104de59699551b9b1",
+      "after_sha256": "3819f77ee5d9e8b9011cbfa02608236e24669cfd8ee3d68eaa24e6b1a4bdfce5",
+      "before_blob": "63dba3dcf1ec126ca760bd16d5eda9e521a6ed56"
+    },
+    "public/dashboard/js/branch-expenses.js": {
+      "after_blob": "8106ce07fb5d620b51d2f318ece16052df31722e",
+      "after_sha256": "77a5769d8b1052585e77e0014e0592de0e38e3ca3ca7da1abc4aff4e73ccbed9",
+      "before_blob": "edb787383deeec804ca6c7deb5307f0f779a157f"
+    },
+    "resources/lang/ar/expenses.php": {
+      "after_blob": "a938d185e126b4c82a131b7da0d4076456619842",
+      "after_sha256": "dd81d38449dcd5c01d8c6037de5781f17563ce66742b0eb89cd8cb45be89379d",
+      "before_blob": "186c94998f8813268b118ce91f4d1af593c936e3"
+    },
+    "resources/lang/en/expenses.php": {
+      "after_blob": "adcbe5f76a3d6125a72ebaaba466f6cdf3404207",
+      "after_sha256": "127bb7d3d05b3a79cf0cc7a149390c004dbb65661081282598a3edf3fb2bc1ee",
+      "before_blob": "88b7001a61a962b96c2ea647f3a98a987f7426c3"
+    }
+  },
+  "format": 1,
+  "kind": "derived-exact-patch-cohort",
+  "patch": {
+    "commit": "18748810da33f42fed264540200b25328efe7688",
+    "helper": "deployment/apply_expense_reject_button.py",
+    "helper_blob": "95e1e5d287f6b790caa061443eea43a78a5d588a",
+    "repository": "omarmakramelbaz-hub/F-Backend"
+  }
+}

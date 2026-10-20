@@ -11,7 +11,7 @@ class BranchShiftPrinting
     {
         abort_unless(Schema::hasTable('branch_shift_print_jobs'),503,'طباعة قفلة الفرع تحتاج تحديث قاعدة البيانات.');
         $closing=DB::table('branch_shift_closings')->where('id',$closingId)->first();abort_unless($closing,404);
-        DB::table('branch_shift_print_jobs')->insertOrIgnore(['closing_id'=>$closingId,'branch'=>$closing->branch,'actor_id'=>$actorId,'request_key'=>$key,'status'=>'pending','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        DB::table('branch_shift_print_jobs')->insertOrIgnore(['closing_id'=>$closingId,'branch'=>$closing->branch,'actor_id'=>$actorId,'request_key'=>$key,'status'=>DesktopDashboardPrintOwnership::owns('shift_report')?'device_owned':'pending','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
         $job=DB::table('branch_shift_print_jobs')->where('actor_id',$actorId)->where('request_key',$key)->first();
         abort_unless($job&&(int)$job->closing_id===$closingId,409,'رقم أمر الطباعة مستخدم لقفلة أخرى.');
     }

@@ -19,7 +19,7 @@ class PosReceiptPrinting
         abort_unless((int) $order->actor_id === (int) $actor->id
             && $this->access->permissions($actor)['can_checkout'], 403);
         return ['version'=>1, 'nonce'=>bin2hex(random_bytes(16)),
-            'expires_at'=>now('UTC')->getTimestamp() + self::TTL_SECONDS, 'consumed_at'=>null];
+            'expires_at'=>now('UTC')->getTimestamp() + self::TTL_SECONDS, 'consumed_at'=>(DesktopDashboardPrintOwnership::owns('sale_receipt')||DesktopDashboardPrintOwnership::owns('delivery_batch'))?now('UTC')->toIso8601String():null];
     }
 
     /** Only checkout and recovery responses may expose this URL to the original cashier. */
@@ -37,6 +37,7 @@ class PosReceiptPrinting
     /** A row lock makes concurrent uses of the same grant mutually exclusive. */
     public function consume(int $id, $actor, ?string $token = null): object
     {
+        abort_unless(!app(DesktopDashboardPrintLedger::class)->active((string)config('desktop_dashboard.device_id')),409,'اطبع من جسر البرنامج المحلي لتسجيل صلاحية الطباعة.');
         return DB::transaction(function () use ($id, $actor, $token) {
             $order = DB::table('takeaway_orders')->where('id', $id)->lockForUpdate()->first();
             abort_unless($order, 404);

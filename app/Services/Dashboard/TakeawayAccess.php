@@ -14,6 +14,7 @@ class TakeawayAccess
     public function actor($actor): User
     {
         abort_unless($actor && $actor->id, 403);
+        if($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))return $current['actor'];
         $fresh = User::withoutGlobalScopes()->find($actor->id);
         abort_unless($fresh && in_array($fresh->account_type, ['admin', 'vendor', 'resturant_owner', 'delegate'], true), 403);
         if ($fresh->account_type === 'admin' && empty($fresh->owner_resturant_id)) {
@@ -31,6 +32,7 @@ class TakeawayAccess
     public function branches($actor): array
     {
         $actor = $this->actor($actor);
+        if(($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))&&is_array($current['branches']))return $current['branches'];
         $result = [];
         if ($this->has('resturants', 'user_id') && $actor->account_type !== 'delegate') {
             $query = DB::table('resturants');
@@ -57,12 +59,18 @@ class TakeawayAccess
                 if ($this->storeOwner($row)) $result[] = $this->present('gs', $row);
             }
         }
+        if(config('desktop_dashboard.local')===true&&app(DesktopDashboardCreatedScopes::class)->active()){
+            $base=app(DesktopDashboardDevices::class)->baseBranches((object)['id'=>(string)config('desktop_dashboard.device_id')]);
+            $result=array_values(array_filter($result,fn($branch)=>in_array($branch['value'],$base,true)));
+        }
         return $result;
     }
 
     public function branch(string $value, $actor, bool $lock = false): array
     {
         abort_unless(preg_match('/^(f|gs):([1-9][0-9]{0,18})$/D', $value, $match), 404);
+        if(config('desktop_dashboard.local')===true&&app(DesktopDashboardCreatedScopes::class)->active())
+            abort_unless(in_array($value,app(DesktopDashboardDevices::class)->baseBranches((object)['id'=>(string)config('desktop_dashboard.device_id')]),true),403,'الفرع غير مفعّل للعمليات المالية على هذا الجهاز.');
         $actor = $this->actor($actor);
         $kind = $match[1]; $id = (int) $match[2];
         if ($kind === 'f') {
@@ -94,6 +102,7 @@ class TakeawayAccess
     public function permissions($actor): array
     {
         $actor = $this->actor($actor);
+        if($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))return $current['permissions']+['can_reprint'=>$this->reprintRole($actor)];
         $adminManage = $actor->account_type === 'admin' && ($this->superAdmin($actor)
             || $this->permission($actor, 'order-edit') || $this->permission($actor, 'order-create'));
         $adminWrite = $adminManage || ($actor->account_type === 'admin' && $this->permission($actor, 'order-list'));

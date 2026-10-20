@@ -83,8 +83,8 @@ test('renderer accepts only same-origin POST checkbox and featured-ordering rout
     ['/admin/' + route + '/0'], ['/admin/' + route + '/01'], ['/admin/' + route + '/19/'],
     ['/admin/' + route + '/99999999999999999999'], ['https://other.example/admin/' + route + '/19']
   ]);
-  forms.push(['/admin/updateStatus/19'], ['/admin/resturantControl'], ['/admin/resturantControl/19'],
-    ['/admin/resturants/19', 'patch'], ['/admin/resturantchangeStatus/19/extra']);
+  forms.push(['/admin/updateStatus/19/extra'], ['/admin/resturantControl'], ['/admin/resturantControl/19'],
+    ['/admin/resturants/19/extra', 'patch'], ['/admin/resturantchangeStatus/19/extra']);
   const env = browser({ forms }); await env.execute();
   assert.equal(env.issued.length, 3);
   for (const [index, form] of env.all.entries()) assert.equal(Boolean(form.querySelector('[name="_desktop_command"]')), [0,9,18].includes(index));
@@ -187,9 +187,9 @@ test('native checkbox and featured-ordering support uses exact POST paths and ex
     for (const id of ['0', '01', '-1', '99999999999999999999', '27/', '27/extra'])
       assert.equal(attempts.supported({ url: origin + '/admin/' + route + '/' + id, method: 'POST' }), false);
   }
-  for (const url of ['/admin/updateStatus/27', '/admin/resturantControl', '/admin/resturantControl/27', '/admin/resturants/27'])
+  for (const url of ['/admin/updateStatus/27/extra', '/admin/resturantControl', '/admin/resturantControl/27', '/admin/resturants/27/extra'])
     assert.equal(attempts.supported({ url: origin + url, method: 'POST' }), false);
-  assert.equal(attempts.supported({url:origin+'/admin/resturantControl',method:'GET'}),false);
+  assert.equal(attempts.supported({url:origin+'/admin/resturantControl',method:'GET'}),true);
 });
 
 test('native checkbox and ordering writes reserve their actual method/path and settle with the same operation', async () => {

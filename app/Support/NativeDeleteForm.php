@@ -33,7 +33,10 @@ final class NativeDeleteForm
             $attributes .= ' style="'.e($options['style'], false).'"';
         }
 
-        return new HtmlString('<form'.$attributes.'>'.method_field('DELETE').csrf_field());
+        // Keep the reviewed captured markup on both engines. Newer csrf_field()
+        // helpers add attributes; this field still uses the actual session token.
+        $csrf='<input type="hidden" name="_token" value="'.e(csrf_token(),false).'">';
+        return new HtmlString('<form'.$attributes.'>'.method_field('DELETE').$csrf);
     }
 
     public static function close(): HtmlString

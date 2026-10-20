@@ -35,9 +35,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  original-runtime:
+  connected-native:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned Electron test dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron test dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+      - name: Verify actual connected Electron requests and encrypted recovery
+        shell: pwsh
+        run: |
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron connected request acceptance failed.' }
+          $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
+          $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($connectedProof.electronVersion -isnot [string] -or $connectedProof.electronVersion -ne $lockedConnectedElectron) { throw 'The actual connected Electron process differs from its exact lock.' }
+          if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite', 'nativeReauthentication', 'expiredCookieBlocked', 'reauthSameActorProtocol', 'reauthWrongActorBlocked', 'reauthOldProtocolBlocked', 'reauthMutationBlocked', 'reauthCancelled', 'reauthPreservedMode', 'reauthNoPreload', 'reauthRedirectBlocked', 'nativeLocalReauthentication')) {
+            if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
+          }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 6 -or $connectedProof.reauthOriginalSignins -ne 5 -or $connectedProof.reauthSuccesses -ne 3 -or $connectedProof.localReauthentications -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+      - name: Retain the exact connected native acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connected-request-native-windows
+          path: desktop-pos/dist/connected-request-native.json
+          if-no-files-found: error
+          retention-days: 14
+  original-runtime:
+    needs: connected-native
+    runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -51,8 +90,8 @@ jobs:
         with:
           node-version: '24'
       - name: Install pinned test application dependencies
-        # Legacy preview only: preserve audit findings; a normal release requires a clean reviewed audit.
-        run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist --no-security-blocking
+        # A reviewed supported lock is required; dependency security blocking stays enabled.
+        run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist
       - name: Install pinned browser test dependency
         shell: pwsh
         run: |
@@ -91,6 +130,10 @@ jobs:
           "DESKTOP_TEST_SNAPSHOT_FILE=$env:DESKTOP_TEST_SNAPSHOT_FILE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA "$env:DESKTOP_TEST_WKHTMLTOX"
           if ($LASTEXITCODE -ne 0) { throw 'Original source packaging failed.' }
+          $runtimeEngine = (Get-Content "$bundle/manifest.json" -Raw | ConvertFrom-Json).runtimeFramework
+          if ($runtimeEngine -ne '12.70.0') { throw 'The reviewed runtime engine was not packaged.' }
+          & php tests/desktop_dashboard_runtime/engine-compatibility.php "$bundle/application" $runtimeEngine 2>&1 | Tee-Object -Variable engineCompatibilityOutput
+          if ($LASTEXITCODE -ne 0 -or !(($engineCompatibilityOutput -join "`n") -match '(?m)^ENGINE_COMPATIBILITY_COMPLETE ')) { throw 'The actual Windows engine failed its source-contract, calendar or permission compatibility checks.' }
           & php tests/request_autoload_compatibility.php "$bundle/application" 2>&1 | Tee-Object -Variable requestAutoloadOutput
           if ($LASTEXITCODE -ne 0 -or !(($requestAutoloadOutput -join "`n") -match '(?m)^REQUEST_AUTOLOAD_COMPATIBILITY_COMPLETE 7$')) { throw 'Original request autoload compatibility checks did not complete.' }
           $data = "$env:RUNNER_TEMP/desktop-fixture-database"
@@ -142,10 +185,31 @@ jobs:
             foreach ($field in @('create','edit','explicitConsent','scopedWithdrawal','recordedWithdrawalReopenRejected','committedResponseLost','recoveredSameUuid')) {
               if ($customerDirectoryProof.$field -ne $true) { throw "Original customer directory browser proof did not exercise: $field" }
             }
-            foreach ($fixture in @('run.php', 'legacy.php')) {
-              & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
+            & php tests/desktop_dashboard_runtime/settings-engine-compatibility.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsEngineOutput
+            if ($LASTEXITCODE -ne 0 -or !(($settingsEngineOutput -join "`n") -match '(?m)^SETTINGS_ENGINE_COMPATIBILITY_COMPLETE ')) { throw 'The actual Windows settings engine changed original row identities, locks, payloads or transaction behavior.' }
+            & php tests/desktop_dashboard_runtime/settings.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsProofOutput
+            if ($LASTEXITCODE -ne 0 -or !(($settingsProofOutput -join "`n") -match '(?m)^DESKTOP_SETTINGS_COMPLETE (?:11[2-9]|1[2-9][0-9]|[2-9][0-9]{2}|[1-9][0-9]{3,})$')) { throw 'Original nonsecret settings controller, protected balance, rollback, journal, replay, native outcomes and legacy image import did not complete.' }
+            foreach ($fixture in @('run.php', 'legacy.php', 'wallet-cash.php', 'outbox-review.php', 'print-ledger.php', 'user-accounts.php', 'order-board-component-run.php', 'enrollment-run.php', 'connected-request-actor.php', 'core-authority.php', 'created-scopes.php')) {
+              if ($fixture -eq 'print-ledger.php') {
+                & ./tests/desktop_dashboard_runtime/isolated-print-ledger.ps1 -MariaDbBin $bin -Application "$bundle/application" -Php (Get-Command php).Source 2>&1 | Tee-Object -Variable fixtureOutput
+              } else {
+                & php "tests/desktop_dashboard_runtime/$fixture" "$bundle/application" $port 2>&1 | Tee-Object -Variable fixtureOutput
+              }
               $fixtureExit = $LASTEXITCODE
-              $summary = if ($fixture -eq 'run.php') { '\d+ checks passed using the original Laravel application and real MariaDB' } else { '\d+ legacy schema checks passed' }
+              $summary = switch ($fixture) {
+                'run.php' { '\d+ checks passed using the original Laravel application and real MariaDB' }
+                'legacy.php' { '\d+ legacy schema checks passed' }
+                'wallet-cash.php' { '(?m)^WALLET_CASH_CHECKS=\d+$' }
+                'outbox-review.php' { '(?m)^DESKTOP_OUTBOX_REVIEW_COMPLETE \d+$' }
+                'print-ledger.php' { '(?m)^\d+ private print-ledger checks passed using original Laravel and disposable MariaDB$' }
+                'user-accounts.php' { '(?m)^USER_ACCOUNT_CHECKS_COMPLETE (?:9[1-9]|[1-9][0-9]{2,})$' }
+                'order-board-component-run.php' { '(?m)^ORDER_BOARD_RECONCILIATION_CHECKS=(?:29|[3-9][0-9]|[1-9][0-9]{2,})$' }
+                'enrollment-run.php' { '(?m)^ENROLLMENT_BINDING_CHECKS=\d+$' }
+                'connected-request-actor.php' { '(?m)^CONNECTED_REQUEST_ACTOR_COMPLETE \{[^\r\n]+\}$' }
+                'core-authority.php' { '(?m)^CORE_CURRENT_AUTHORITY_CHECKS_COMPLETE \d+$' }
+                'created-scopes.php' { '(?m)^CREATED_CATALOG_SCOPE_CHECKS=\d+$' }
+                default { throw 'An application fixture has no required completion receipt.' }
+              }
               if ($fixtureExit -ne 0 -or !(($fixtureOutput -join "`n") -match $summary)) { throw "Original application fixture did not complete: $fixture" }
               if ($fixture -eq 'run.php') {
                 $waLine = @(($fixtureOutput -join "`n") -split "`n" | Where-Object { $_ -match '^WHATSAPP_NATIVE_UNPREPARED_COMPLETE ' })
@@ -158,11 +222,45 @@ jobs:
                 if ($metaReceipt.checks -ne 45 -or $metaReceipt.routes -ne 15 -or $metaReceipt.httpKernelRoutes -ne 5 -or !$metaReceipt.local404 -or !$metaReceipt.authorizationRetained -or !$metaReceipt.serverOnlyTablesExcluded -or $metaReceipt.queries -ne 0 -or $metaReceipt.providerCalls -ne 0 -or $metaReceipt.callbacks -ne 0 -or !$metaReceipt.outboxUnchanged -or !$metaReceipt.privateStorageUnchanged -or !$metaReceipt.profileWorkerUnavailable -or $metaReceipt.fullDashboard -ne $false) { throw 'The original unprepared Meta boundary receipt differs.' }
               }
               if ($fixture -eq 'legacy.php' -and !(($fixtureOutput -join "`n") -match 'PASS real browser signs in')) { throw 'The real offline browser checks did not execute.' }
+              $requiredCounts = switch ($fixture) {
+                'wallet-cash.php' { @{ pattern = '(?m)^WALLET_CASH_CHECKS=([0-9]+)$'; minimum = 70 } }
+                'print-ledger.php' { @{ pattern = '(?m)^([0-9]+) private print-ledger checks passed using original Laravel and disposable MariaDB$'; minimum = 205 } }
+                'user-accounts.php' { @{ pattern = '(?m)^USER_ACCOUNT_CHECKS_COMPLETE ([0-9]+)$'; minimum = 91 } }
+                'order-board-component-run.php' {
+                  @{ pattern = '(?m)^WALLET_CASH_CHECKS=([0-9]+)$'; minimum = 70 }
+                  @{ pattern = '(?m)^ORDER_BOARD_COMPONENT_CHECKS=([0-9]+)$'; minimum = 41 }
+                  @{ pattern = '(?m)^ORDER_BOARD_RECONCILIATION_CHECKS=([0-9]+)$'; minimum = 29 }
+                }
+                'enrollment-run.php' {
+                  @{ pattern = '(?m)^WALLET_CASH_CHECKS=([0-9]+)$'; minimum = 70 }
+                  @{ pattern = '(?m)^ENROLLMENT_BINDING_CHECKS=([0-9]+)$'; minimum = 45 }
+                }
+                'core-authority.php' { @{ pattern = '(?m)^CORE_CURRENT_AUTHORITY_CHECKS_COMPLETE ([0-9]+)$'; minimum = 166 } }
+                'created-scopes.php' { @{ pattern = '(?m)^CREATED_CATALOG_SCOPE_CHECKS=([0-9]+)$'; minimum = 45 } }
+              }
+              foreach ($required in $requiredCounts) {
+                $countMatches = [regex]::Matches(($fixtureOutput -join "`n"), $required.pattern)
+                if ($countMatches.Count -ne 1 -or [long]$countMatches[0].Groups[1].Value -lt $required.minimum) { throw "Original fixture count is missing, incomplete or duplicated: $fixture" }
+              }
+              if ($fixture -eq 'connected-request-actor.php') {
+                $actorMatches = [regex]::Matches(($fixtureOutput -join "`n"), '(?m)^CONNECTED_REQUEST_ACTOR_COMPLETE (\{[^\r\n]+\})$')
+                if ($actorMatches.Count -ne 1) { throw 'The connected request actor fixture must complete exactly once.' }
+                $actorReceipt = $actorMatches[0].Groups[1].Value | ConvertFrom-Json
+                foreach ($entry in @{ checks = 35; probeActor = 1; originalRequestActor = 10 }.GetEnumerator()) {
+                  if (($actorReceipt.($entry.Key) -isnot [int] -and $actorReceipt.($entry.Key) -isnot [long]) -or $actorReceipt.($entry.Key) -ne $entry.Value) { throw 'The connected request actor receipt count or actual session identities differ.' }
+                }
+                foreach ($field in @('sameRequestGuard','actualOriginalController','separateHttpSessions')) {
+                  if ($actorReceipt.$field -isnot [bool] -or $actorReceipt.$field -ne $true) { throw "The connected request actor boundary did not complete: $field" }
+                }
+                foreach ($field in @('businessTransactionWrapped','productionEnvironmentLoaded')) {
+                  if ($actorReceipt.$field -isnot [bool] -or $actorReceipt.$field -ne $false) { throw "The connected request actor boundary scope differs: $field" }
+                }
+              }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original local and reconciliation acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant flag original native outcome acceptance completed$'))) { throw 'Both original restaurant flag acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original GET acceptance completed$') -or !(($fixtureOutput -join "`n") -match '(?m)^Restaurant product original native GET outcomes completed$'))) { throw 'Both original product GET acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php' -and (!(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_COMPLETE ') -or !(($fixtureOutput -join "`n") -match '(?m)^RESTAURANT_PRODUCT_CRUD_REMOTE_COMPLETE '))) { throw 'Both original product CRUD acceptance modules must complete.' }
               if ($fixture -eq 'legacy.php') {
-                foreach ($module in @(@{ marker = 'RESTAURANT_MENU_COPY_LOCAL_COMPLETE'; checks = 42 }, @{ marker = 'RESTAURANT_MENU_COPY_REMOTE_COMPLETE'; checks = 42 })) {
+                foreach ($module in @(@{ marker = 'RESTAURANT_MENU_COPY_LOCAL_COMPLETE'; checks = 45 }, @{ marker = 'RESTAURANT_MENU_COPY_REMOTE_COMPLETE'; checks = 42 })) {
                   $match = [regex]::Matches(($fixtureOutput -join "`n"), ('(?m)^' + $module.marker + ' (\{[^\r\n]+\})$'))
                   if ($match.Count -ne 1) { throw "Original menu-copy acceptance must complete exactly once: $($module.marker)" }
                   $copyModule = $match[0].Groups[1].Value | ConvertFrom-Json
@@ -202,7 +300,7 @@ jobs:
             $flagsReceipt = Get-Content "$flagsProofDirectory/receipt.json" -Raw | ConvertFrom-Json
             if ($flagsReceipt.format -ne 1 -or $flagsReceipt.kind -ne 'original-restaurant-flags-and-ordering-browser') { throw 'Restaurant checkbox proof envelope differs.' }
             if (!$flagsReceipt.browserProof.actualAssociatedFormControls -or !$flagsReceipt.browserProof.exactSerializedCsrfAndUuid) { throw 'Restaurant checkbox proof must inspect original associated controls and exact transmitted CSRF/UUID fields.' }
-            if ($flagsReceipt.schemaInventory -ne 106 -or $flagsReceipt.originalBusinessTablesBefore.tables -ne 106 -or $flagsReceipt.originalBusinessTablesAfter.tables -ne 106 -or $flagsReceipt.reflectionBindings -ne 5 -or $flagsReceipt.laravel -ne '8.83.29' -or $flagsReceipt.applicationValidated -ne $false -or $flagsReceipt.providersReplaced -ne $false -or @($flagsReceipt.browserProof.operations).Count -ne 6 -or @($flagsReceipt.browserProof.retries).Count -ne 2 -or !$flagsReceipt.browserProof.originalForm -or !$flagsReceipt.browserProof.originalQueryReadPreserved -or !$flagsReceipt.browserProof.originalCheckboxFormsHaveNoPageField -or $flagsReceipt.browserProof.force -ne $false -or $flagsReceipt.browserProof.domInjection -ne $false -or $flagsReceipt.vendorBefore.sha256 -ne $flagsReceipt.vendorAfter.sha256 -or $flagsReceipt.vendorBefore.files -ne $flagsReceipt.vendorAfter.files -or $flagsReceipt.installedGraphBefore.sha256 -ne $flagsReceipt.installedGraphAfter.sha256 -or $flagsReceipt.installedGraphBefore.packages -ne $flagsReceipt.installedGraphAfter.packages -or $flagsReceipt.originalBusinessTablesBefore.sha256 -ne $flagsReceipt.originalBusinessTablesAfter.sha256) { throw 'Restaurant checkbox proof inventory or immutable dependency/business binding differs.' }
+            if ($flagsReceipt.schemaInventory -ne 106 -or $flagsReceipt.originalBusinessTablesBefore.tables -ne 106 -or $flagsReceipt.originalBusinessTablesAfter.tables -ne 106 -or $flagsReceipt.reflectionBindings -ne 5 -or $flagsReceipt.laravel -ne $runtimeEngine -or $flagsReceipt.applicationValidated -ne $false -or $flagsReceipt.providersReplaced -ne $false -or @($flagsReceipt.browserProof.operations).Count -ne 6 -or @($flagsReceipt.browserProof.retries).Count -ne 2 -or !$flagsReceipt.browserProof.originalForm -or !$flagsReceipt.browserProof.originalQueryReadPreserved -or !$flagsReceipt.browserProof.originalCheckboxFormsHaveNoPageField -or $flagsReceipt.browserProof.force -ne $false -or $flagsReceipt.browserProof.domInjection -ne $false -or $flagsReceipt.vendorBefore.sha256 -ne $flagsReceipt.vendorAfter.sha256 -or $flagsReceipt.vendorBefore.files -ne $flagsReceipt.vendorAfter.files -or $flagsReceipt.installedGraphBefore.sha256 -ne $flagsReceipt.installedGraphAfter.sha256 -or $flagsReceipt.installedGraphBefore.packages -ne $flagsReceipt.installedGraphAfter.packages -or $flagsReceipt.originalBusinessTablesBefore.sha256 -ne $flagsReceipt.originalBusinessTablesAfter.sha256) { throw 'Restaurant checkbox proof inventory or immutable dependency/business binding differs.' }
             if (!$flagsReceipt.browserProof.originalFeaturedOrderingSubmit -or !$flagsReceipt.browserProof.originalSortingHasPageField -or $flagsReceipt.browserProof.featuredOrderingCommands -ne 2 -or $flagsReceipt.browserProof.featuredOrderingFinalValue -ne 8 -or $flagsReceipt.browserProof.sortingRetry.field -ne 'sortby_is_featured' -or !$flagsReceipt.browserProof.sortingRetry.committedResponseLost -or $flagsReceipt.browserProof.sortingRetry.changedSameUuidStatus -ne 409 -or !$flagsReceipt.browserProof.sortingRetry.persistedAfterChangedStillSeven -or $flagsReceipt.browserProof.sortingRetry.originalValueSameUuidStatus -ne 302 -or !$flagsReceipt.browserProof.sortingRetry.actualNumberAndSubmitControls -or $flagsReceipt.browserProof.sortingRetry.isNavigationRequest -ne $false -or $flagsReceipt.browserProof.sortingRetry.resourceType -ne 'fetch' -or !$flagsReceipt.browserProof.sortingRetry.originalFormRetainedAfterLoss) { throw 'Original featured ordering proof must use the original number/submit/page controls and retain UUID through lost/changed/original retries.' }
             if (!$flagsReceipt.completed -or !$flagsReceipt.verifiedImport -or !$flagsReceipt.privateDatabasesDropped -or !$flagsReceipt.httpStopped -or !$flagsReceipt.browserStopped -or !$flagsReceipt.sourceVerifiedAfter -or !$flagsReceipt.fixturesVerifiedAfter -or !$flagsReceipt.vendorUnchanged -or !$flagsReceipt.installedGraphUnchanged -or !$flagsReceipt.mediaPreserved -or !$flagsReceipt.originalBusinessTablesUnchanged -or $flagsReceipt.sourceRevision -ne $env:GITHUB_SHA -or $flagsReceipt.fixtureRevision -ne $env:GITHUB_SHA -or $flagsReceipt.importedSnapshotTables -ne 106 -or $flagsReceipt.targetColumnCount -ne 29 -or $flagsReceipt.commands -ne 6 -or $flagsReceipt.checks -ne 29 -or $flagsReceipt.browserExitCode -ne 0 -or $flagsReceipt.browserProof.browser -ne 'Windows Edge' -or $flagsReceipt.browserProof.browserPlatform -ne 'win32' -or $flagsReceipt.browserProof.sourceCommit -ne $env:GITHUB_SHA -or $flagsReceipt.browserProof.fixtureRevision -ne $env:GITHUB_SHA -or $flagsReceipt.browserProof.newPageErrors -ne 0 -or !$flagsReceipt.browserProof.originalCheckboxOnchange -or !$flagsReceipt.browserProof.checkedAndUncheckedBothFlags -or $flagsReceipt.browserProof.committedResponsesLost -ne 2 -or $flagsReceipt.browserProof.oppositeSameUuidRejected -ne 2 -or $flagsReceipt.browserProof.originalValueRetrySameUuid -ne 2 -or !$flagsReceipt.browserProof.freshUuidOnlyAfterAcceptedNavigation -or $flagsReceipt.fullDashboard -ne $false) { throw 'Original restaurant checkbox receipt does not match this complete source-bound fixture.' }
             $crudProofDirectory = "$env:RUNNER_TEMP/restaurant-product-crud-browser"
@@ -324,12 +422,9 @@ jobs:
           Copy-Item $env:DESKTOP_TEST_SNAPSHOT_FILE desktop-pos/dist/dashboard-synthetic-snapshot.json
           $auditJson = composer audit --locked --no-dev --format=json --working-dir=desktop-pos/runtime | Out-String
           $auditExitCode = $LASTEXITCODE
-          if ($auditExitCode -notin @(0, 1, 2, 3)) { throw 'Runtime advisory review could not complete.' }
+          if ($auditExitCode -ne 0) { throw 'The runtime dependency audit must complete without vulnerabilities or abandoned packages.' }
           $audit = @{ format = 1; exitCode = $auditExitCode; lockSha256 = (Get-FileHash desktop-pos/runtime/composer.lock -Algorithm SHA256).Hash.ToLowerInvariant(); result = ($auditJson | ConvertFrom-Json) }
           $audit | ConvertTo-Json -Depth 64 | Set-Content desktop-pos/dist/runtime-audit.json -Encoding utf8
-          # Audit findings are retained above and checked by the release gate. GitHub's
-          # PowerShell wrapper must not treat the handled advisory exit as a script failure.
-          $global:LASTEXITCODE = 0
       - name: Retain the tested runtime for the installer job
         uses: actions/upload-artifact@v4
         with:
@@ -343,7 +438,7 @@ jobs:
           retention-days: 3
           overwrite: true
   windows-installer:
-    needs: original-runtime
+    needs: [original-runtime, connected-native]
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -378,11 +473,43 @@ jobs:
           if (!(Test-Path desktop-pos/runtime-bundle/manifest.json)) { throw 'Runtime manifest was not extracted.' }
           if (!(Test-Path desktop-pos/dist/runtime-audit.json)) { throw 'Dependency review was not extracted.' }
           if (!(Test-Path desktop-pos/dist/dashboard-synthetic-snapshot.json)) { throw 'Synthetic installation fixture was not extracted.' }
+      - name: Restore this source's actual connected Electron receipt
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: connected-request-native-windows
+          path: desktop-pos/dist
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Require the connected receipt before packaging
+        shell: pwsh
+        run: |
+          $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
+          $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($connectedProof.electronVersion -isnot [string] -or $connectedProof.electronVersion -ne $lockedConnectedElectron) { throw 'The actual connected Electron process differs from its exact lock.' }
+          if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite', 'nativeReauthentication', 'expiredCookieBlocked', 'reauthSameActorProtocol', 'reauthWrongActorBlocked', 'reauthOldProtocolBlocked', 'reauthMutationBlocked', 'reauthCancelled', 'reauthPreservedMode', 'reauthNoPreload', 'reauthRedirectBlocked', 'nativeLocalReauthentication')) {
+            if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
+          }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 6 -or $connectedProof.reauthOriginalSignins -ne 5 -or $connectedProof.reauthSuccesses -ne 3 -or $connectedProof.localReauthentications -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |
+          & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
+          & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell prerequisite checks failed.' }
           npm ci --prefix desktop-pos --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron print lifecycle acceptance failed.' }
+          $printProof = Get-Content desktop-pos/dist/offline-print-native.json -Raw | ConvertFrom-Json
+          if ($printProof.sourceRevision -ne $env:GITHUB_SHA -or $printProof.platform -ne 'win32' -or $printProof.hardware -ne $false -or $printProof.invocations -ne 7 -or $printProof.accepted -ne 6 -or $printProof.review -ne 1) { throw 'Native print proof is incomplete or from another source.' }
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/outbox-review-native.cjs desktop-pos/dist/outbox-review-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Electron synchronization review and Windows DPAPI audit checks failed.' }
+          $reviewProof = Get-Content desktop-pos/dist/outbox-review-native.json -Raw | ConvertFrom-Json
+          if ($reviewProof.sourceRevision -ne $env:GITHUB_SHA -or $reviewProof.platform -ne 'win32' -or $reviewProof.completed -ne $true -or $reviewProof.actualDpapiAudit -ne $true -or $reviewProof.durableIntentBeforeRetry -ne $true -or $reviewProof.unchangedCommandId -ne $true) { throw 'Native review proof is incomplete or from another source.' }
           node .github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
           if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
@@ -411,5 +538,9 @@ jobs:
             desktop-pos/dist/installer-checks.json
             desktop-pos/dist/runtime-package.json
             desktop-pos/dist/runtime-audit.json
+            desktop-pos/dist/prerequisites/vcredist-package.json
+            desktop-pos/dist/offline-print-native.json
+            desktop-pos/dist/outbox-review-native.json
+            desktop-pos/dist/connected-request-native.json
           if-no-files-found: error
           retention-days: 30

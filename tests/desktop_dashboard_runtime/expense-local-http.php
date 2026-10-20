@@ -30,7 +30,13 @@ verify($localAttachmentStatus===200&&$localAttachmentBody===$localExpensePdfByte
 $localUploadPath=DB::table('branch_expenses')->where('id',$localUploadId)->value('attachment_path');
 verify($http('/storage/'.$localUploadPath)[0]===404,'the actual offline upload does not create a public copy of its private attachment');
 $wrongBranch=$localExpenseForm;$wrongBranch['branch']='f:101';$wrongBranch['idempotency_key']=(string)\Illuminate\Support\Str::uuid();
-verify($multipart($wrongBranch,['X-Fasakhansta-Desktop: '.$browserToken],$localExpensePdfBytes)[0]===404
-    &&!DB::table('desktop_dashboard_commands')->where('command_id',$wrongBranch['idempotency_key'])->exists(),
+$scopeState=function(){
+    $files=\Illuminate\Support\Facades\Storage::disk('local')->allFiles('branch-expenses');sort($files,SORT_STRING);
+    return [DB::table('branch_expenses')->count(),DB::table('desktop_dashboard_commands')->count(),
+        DB::table('takeaway_till_entries')->count(),DB::table('takeaway_tills')->orderBy('branch')->get()->map(fn($row)=>(array)$row)->all(),$files];
+};
+$scopeBefore=$scopeState();[$wrongBranchStatus]=$multipart($wrongBranch,['X-Fasakhansta-Desktop: '.$browserToken],$localExpensePdfBytes);
+verify($wrongBranchStatus===404
+    &&!DB::table('desktop_dashboard_commands')->where('command_id',$wrongBranch['idempotency_key'])->exists()&&$scopeState()===$scopeBefore,
     'the actual offline multipart expense cannot bypass the enrolled original branch scope');
 unset($uploadCipher,$uploadPayload,$localAttachmentBody,$localExpensePdfBytes);

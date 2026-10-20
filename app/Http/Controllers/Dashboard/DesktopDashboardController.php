@@ -14,9 +14,12 @@ class DesktopDashboardController extends Controller
     public function session(Request $request,DesktopDashboardDevices $devices)
     {
         $device=$devices->device((string)$request->bearerToken());
-        $actor=auth('admin')->user();
-        abort_unless($actor&&(int)$actor->id===(int)$device->actor_id,403,'حساب السيرفر لا يطابق حساب الجهاز.');
-        foreach(json_decode($device->branches,true,512,JSON_THROW_ON_ERROR) as $branch)$devices->branch($device,$branch,$actor);
-        return response()->json(['device_id'=>$device->id,'actor_id'=>(int)$actor->id])->header('Cache-Control','private, no-store');
+        return \Illuminate\Support\Facades\DB::transaction(function()use($devices,$device){
+            $device=$devices->lockAuthenticated($device);$actor=$devices->actor($device);
+            abort_unless((int)auth('admin')->id()===(int)$actor->id,403,'حساب السيرفر لا يطابق حساب الجهاز.');
+            foreach(json_decode($device->branches,true,512,JSON_THROW_ON_ERROR) as $branch)$devices->branch($device,$branch,$actor);
+        return response()->json(['device_id'=>$device->id,'actor_id'=>(int)$actor->id,
+            'connected_request_protocol'=>\App\Http\Middleware\DesktopDashboardJournal::CONNECTED_REQUEST_PROTOCOL])->header('Cache-Control','private, no-store');
+        });
     }
 }

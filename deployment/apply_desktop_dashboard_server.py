@@ -31,7 +31,16 @@ MIGRATIONS = (
     'database/migrations/2026_10_08_210000_create_desktop_dashboard_remote_attempts.php',
     'database/migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php',
     'database/migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php',
+    'database/migrations/2026_10_20_000001_create_desktop_dashboard_print_ownership.php',
+    'database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php',
 )
+# Exact historical source replacement only. It must never be executed by this
+# release: production keeps its already-applied permission schema and vendor.
+SOURCE_ONLY_MIGRATIONS = {
+    'database/migrations/2022_08_05_174522_create_permission_tables.php': (
+        '04c3278b9bc78231d95405a82ddef546f7a2f5ce',
+        '6e8e4aa5d2057966e3a518ac65071f4ae7ef756e'),
+}
 SOURCE_ROOTS = ('app','bootstrap','config','database','desktop','resources','routes',
                 'public/dashboard/js','public/dashboard/css','public/dashboard/vendor/desktop-external')
 SECRET = re.compile(r'(?:^|/)(?:\.env(?:\..*)?|firebase(?:_credentials)?\.json|service[-_]account[^/]*\.json|[^/]+\.(?:key|pem)|error_log)$', re.I)
@@ -110,7 +119,8 @@ def read_manifest(path,pin):
             or row['phase'] not in (0,1,2)):
             raise SafeError('DESKTOP_MANIFEST_SOURCE_INVALID')
         if row['path'].startswith('database/migrations/') and row['path'] not in MIGRATIONS:
-            raise SafeError('DESKTOP_MIGRATION_SCOPE_INVALID')
+            if (SOURCE_ONLY_MIGRATIONS.get(row['path'])!=(row['before_blob'],row['after_blob'])
+                or row['phase']!=2):raise SafeError('DESKTOP_MIGRATION_SCOPE_INVALID')
         if (row['path'] in MIGRATIONS)!=(row['phase']==0):raise SafeError('DESKTOP_PUBLICATION_ORDER_INVALID')
         if row['phase']==1 and row['before_blob'] is not None:
             # Add every new dependency before modifying an existing controller

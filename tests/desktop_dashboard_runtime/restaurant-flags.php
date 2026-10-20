@@ -21,7 +21,9 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
         return ['command_id'=>$uuid,'actor_id'=>1,'route_name'=>$entry->route_name,'payload'=>json_decode(Crypt::decryptString($entry->command_cipher),true,512,JSON_THROW_ON_ERROR),
             'local_result'=>$result['result'],'local_references'=>$result['references'],'dependencies'=>json_decode($entry->dependencies,true),'occurred_at'=>\Carbon\Carbon::parse($entry->created_at,'UTC')->toIso8601String()];
     };
-    $reject=function(callable $work,int $status,string $message){try{$work();throw new RuntimeException('Restaurant flag unexpectedly succeeded.');}catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($error->getStatusCode()===$status,$message);}};
+    $reject=function(callable $work,int $status,string $message){try{$work();throw new RuntimeException('Restaurant flag unexpectedly succeeded.');}
+        catch(\Illuminate\Validation\ValidationException $error){verify($status===422&&$error->status===422&&array_keys($error->errors())===['payload.facts'],$message);}
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){verify($error->getStatusCode()===$status,$message);}};
     $switch($database);$serverBefore=$row();$deviceBefore=(array)DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->first();
     $baseline=$serverBefore;$baseline['is_featured']='no';$baseline['under_contract']='no';$baseline['created_at']='2019-01-01 00:00:00';$baseline['updated_at']='2020-01-01 00:00:00';
     $restore($baseline);$serverRelated=$snapshot();
@@ -129,7 +131,7 @@ use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardReconciliati
             $reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$tampered),409,'restaurant after-state keeps its complete typed timestamp even when comparison excludes timing '.$kind);
             verify($row()===$beforeConflict&&!DB::table('desktop_dashboard_commands')->where('command_id',$conflict['command_id'])->exists(),'invalid restaurant result timestamp rolls back its original flag and receipt '.$kind);}
         DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['actor_id'=>10]);
-        try{$reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$conflict),403,'a stale device object cannot reconcile after its persisted actor is replaced');
+        try{$reject(fn()=>app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$conflict),401,'a stale device object cannot reconcile after its persisted actor is replaced');
             verify($row()===$beforeConflict&&!DB::table('desktop_dashboard_commands')->where('command_id',$conflict['command_id'])->exists(),'actor replacement changes no restaurant flag and records no receipt');}
         finally{DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['actor_id'=>$deviceBefore['actor_id']]);}
         $relatedBefore=$snapshot();$receipt=app(DesktopDashboardReconciliation::class)->ingest($remoteDevice,$conflict);verify($row()['is_featured']==='yes'&&$row()['under_contract']==='yes'&&$snapshot()===$relatedBefore,'restored complete flag facts reconcile without changing any related row');

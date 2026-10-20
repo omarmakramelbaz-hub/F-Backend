@@ -38,7 +38,7 @@ class MeasuredBaselineTests(unittest.TestCase):
 
     def test_release_reverses_to_the_complete_measured_map_and_preserves_gui(self):
         self.assertEqual(refresh.digest(self.target),self.manifest['after_source'])
-        self.assertEqual(self.manifest['after_source']['files'],1288)
+        self.assertEqual(self.manifest['after_source']['files'],1317)
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerFacts.php', self.target)
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerDirectory.php', self.target)
         self.assertIn('resources/views/admin/contracts/pdf.blade.php', self.target)
@@ -58,8 +58,14 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual({row['path']:row['blob']for row in self.manifest['protected']},self.fixture['gui'])
         for name,pin in self.fixture['gui'].items():self.assertEqual(refresh.file_record(ROOT/name)['blob'],pin,name)
         migrations=[row for row in self.manifest['sources']if row['path'].startswith('database/migrations/')]
-        self.assertEqual({row['path']for row in migrations},set(refresh.MIGRATIONS))
-        self.assertTrue(all(row['before_blob']is None and row['phase']==0 for row in migrations))
+        additive=[row for row in migrations if row['path']in refresh.MIGRATIONS]
+        self.assertEqual({row['path']for row in additive},set(refresh.MIGRATIONS))
+        self.assertTrue(all(row['before_blob']is None and row['phase']==0 for row in additive))
+        historical=[row for row in migrations if row['path']not in refresh.MIGRATIONS]
+        self.assertEqual(len(historical),1)
+        for row in historical:
+            self.assertEqual((row['before_blob'],row['after_blob']),refresh.SOURCE_ONLY_MIGRATIONS[row['path']])
+            self.assertEqual(row['phase'],2);self.assertNotIn(row['path'],self.manifest['migrations'])
         generated,_=refresh.generate(ROOT,self.fixture['files'],self.diagnosis)
         self.assertEqual(generated,self.manifest)
 

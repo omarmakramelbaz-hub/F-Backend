@@ -4,11 +4,13 @@ namespace Tests\Feature;
 
 use App\Events\BalanceUpdated;
 use App\Events\NotificationUpdated;
+use App\Events\OrderStatusUpdated;
 use App\Models\Order;
 use App\Models\User;
 use App\Notifications\NotifyAcceptOrderNotification;
 use App\Services\Dashboard\BestEffortOrderMail;
 use App\Services\Dashboard\OrderProviderDelivery;
+use App\Services\Dashboard\OrderLiveActivityService;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -27,7 +29,7 @@ class OrderProviderDeliveryTest extends TestCase
     {
         parent::setUp();
         config(['app.key' => 'base64:'.base64_encode(str_repeat('d', 32)), 'database.default' => 'sqlite',
-            'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array']);
+            'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array', 'desktop_dashboard.local' => false]);
         DB::purge('sqlite'); Schema::clearResolvedInstance('db.schema');
         Schema::create('users', function (Blueprint $t) {
             $t->id(); $t->string('name'); $t->string('account_type'); $t->decimal('balance', 12, 2)->default(0); $t->timestamps();
@@ -40,7 +42,7 @@ class OrderProviderDeliveryTest extends TestCase
             ['id' => 20, 'name' => 'Store', 'account_type' => 'vendor', 'balance' => 50]]);
         DB::table('user_tokens')->insert([['user_id' => 10, 'token' => 'customer-device'], ['user_id' => 20, 'token' => 'store-device']]);
         ProviderProbeNotice::$sent = []; ProviderProbeNotice::$fail = false; ProviderProbeNotice::$refused = false;
-        Event::fake([NotificationUpdated::class, BalanceUpdated::class]);
+        Event::fake([NotificationUpdated::class, BalanceUpdated::class, OrderStatusUpdated::class]);
     }
 
     private function order(): Order
@@ -51,6 +53,41 @@ class OrderProviderDeliveryTest extends TestCase
     }
 
     private function actor(int $id): User { return User::withoutGlobalScopes()->findOrFail($id); }
+
+    public function test_local_notifications_and_balances_commit_without_scheduling_provider_work(): void
+    {
+        config(['desktop_dashboard.local' => true]);
+        $live = \Mockery::mock(OrderLiveActivityService::class);
+        $live->shouldNotReceive('scheduleOrder'); app()->instance(OrderLiveActivityService::class, $live);
+        $ran = false; $delivery = app(OrderProviderDelivery::class); $order = $this->order();
+        DB::transaction(function () use (&$ran, $delivery, $order) {
+            Notification::send($this->actor(10), new ProviderProbeNotice($order));
+            $actor = $this->actor(20); $actor->balance = 65; $actor->save();
+            $delivery->defer(function () use (&$ran) { $ran = true; }, 501);
+            $delivery->event(new OrderStatusUpdated($order), 501);
+            $delivery->push(new ProviderProbeNotice($order), [['token' => 'local-only']],
+                ['data' => ['account_type' => 'user', 'order_status' => 'accepted']], 501);
+        });
+        $this->assertSame(1, DB::table('notifications')->where('notifiable_id', 10)->count());
+        $this->assertSame(65.0, (float) DB::table('users')->where('id', 20)->value('balance'));
+        // Switching back cannot flush work that was created by the local dashboard.
+        config(['desktop_dashboard.local' => false]); app()->terminate();
+        $this->assertFalse($ran); $this->assertSame([], ProviderProbeNotice::$sent);
+        Event::assertNotDispatched(NotificationUpdated::class);
+        Event::assertNotDispatched(BalanceUpdated::class);
+        Event::assertNotDispatched(OrderStatusUpdated::class);
+    }
+
+    public function test_provider_callback_cannot_run_after_process_enters_local_mode(): void
+    {
+        $ran = 0;
+        DB::transaction(function () use (&$ran) {
+            app(OrderProviderDelivery::class)->defer(function () use (&$ran) { $ran++; }, 501);
+        });
+        config(['desktop_dashboard.local' => true]); app()->terminate();
+        config(['desktop_dashboard.local' => false]); app()->terminate();
+        $this->assertSame(0, $ran);
+    }
 
     public function test_http_response_precedes_push_broadcast_and_mail_while_database_evidence_is_committed(): void
     {

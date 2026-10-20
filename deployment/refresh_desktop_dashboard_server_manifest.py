@@ -19,7 +19,16 @@ MIGRATIONS=(
     'database/migrations/2026_10_08_210000_create_desktop_dashboard_remote_attempts.php',
     'database/migrations/2026_10_08_220000_create_desktop_dashboard_media_manifest.php',
     'database/migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php',
+    'database/migrations/2026_10_20_000001_create_desktop_dashboard_print_ownership.php',
+    'database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php',
 )
+# Source compatibility for fresh Laravel 8/12 installations. This historical
+# migration is never in the additive execution roster and is never rerun here.
+SOURCE_ONLY_MIGRATIONS={
+    'database/migrations/2022_08_05_174522_create_permission_tables.php':(
+        '04c3278b9bc78231d95405a82ddef546f7a2f5ce',
+        '6e8e4aa5d2057966e3a518ac65071f4ae7ef756e'),
+}
 
 def blob(data):return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
 def selected(name):
@@ -104,9 +113,11 @@ def generate(root,before,diagnosis):
             continue
         phase=0 if name in MIGRATIONS else 1 if old is None else 2
         if name.startswith(('routes/','resources/views/','app/Providers/'))or name in('app/Http/Kernel.php','app/Exceptions/Handler.php'):phase=2
-        if name.startswith('database/migrations/')and name not in MIGRATIONS:raise ValueError('Unreviewed migration differs from measured server')
+        if name.startswith('database/migrations/')and name not in MIGRATIONS:
+            if SOURCE_ONLY_MIGRATIONS.get(name)!=(old,target):raise ValueError('Unreviewed migration differs from measured server')
+            phase=2
         rows.append({'path':name,'before_blob':old,'after_blob':target,'phase':phase})
-    if not set(MIGRATIONS).issubset({row['path']for row in rows}):raise ValueError('Expected six additive desktop migrations are not new measured-source changes')
+    if not set(MIGRATIONS).issubset({row['path']for row in rows}):raise ValueError('Expected additive desktop migrations are not new measured-source changes')
     manifest={'version':1,'expected_head':diagnosis['actual_head'],'before_source':digest(before),'after_source':digest(after),
               'sources':sorted(rows,key=publication_order),'protected':protected,'migrations':list(MIGRATIONS)}
     fixture={'version':1,'expected_head':diagnosis['actual_head'],'source':digest(before),'files':before,'gui':gui,

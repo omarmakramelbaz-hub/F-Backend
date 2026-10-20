@@ -1,0 +1,11 @@
+# Original global restaurant control
+
+The hidden original navbar GET `/admin/resturantControl` invokes the original `HomeController::resturantControl` inside one journal transaction. Each accepted page link carries one immutable UUID, so a lost redirect returns its saved response and never toggles the fleet a second time. HEAD returns 405 before any business work; native reservations accept only the exact GET path.
+
+This increment covers admin accounts whose current device enrollment contains every restaurant selected by the original query. A partial enrollment fails before any toggle. The runtime never converts the global action into a branch subset. Non-admin variants of the legacy model scope remain unavailable locally because their ungrouped OR predicates and session-dependent parent selection require a separate review. The original online action without native headers remains unchanged.
+
+The command retains all 29 columns for each selected restaurant, excludes ID 82, preserves the original controller, success flash and supported dashboard/index return link. Before replay, current locking reads verify the actor, enabled device, complete selected set, enrollment and complete business row facts. A new or removed restaurant, moved ownership or changed business field conflicts before the first toggle. A changed result rolls back every toggle with the receipt. Typed restaurant, account and area references are resolved by entity kind; unrelated integer IDs are never guessed.
+
+The original action has no resource permission middleware. This adapter preserves that fact while requiring the existing admin/account/enrollment boundary. It grants no role or permission. All physical/media/provider paths are unchanged. `coverage.full_dashboard` is not changed.
+
+Tests execute the actual local Laravel HTTP middleware/controller and independent MariaDB reconciliation, including lost local/server/native outcomes, two sequential global toggles, journal and native-outcome rollback, complete-row conflicts, current account revocation, partial enrollment, invalid UUID aliases, unrelated typed IDs and HEAD/neighbor-path rejection. Node contracts execute the original renderer script and native remote-attempt lifecycle. Physical Windows acceptance remains part of the release workflow.

@@ -17,6 +17,9 @@ if(preg_match('/^[a-z]:[\\\\\/]/i',$storage)){
 // The distribution never loads the production .env or production configuration caches.
 $app->useEnvironmentPath($storage.'/private');
 $app->make(Kernel::class)->bootstrap();
+// Native CLI reconciliation also invokes original controller middleware. Register
+// the captured HTTP aliases and priority before any such replay is dispatched.
+$app->make(\Illuminate\Contracts\Http\Kernel::class);
 // Named image disks have nested roots. Keep their original media rows, and route their
 // generated URLs to the corresponding files inside this generation's private public disk.
 foreach(config('filesystems.disks',[]) as $name=>$disk){
