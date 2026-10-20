@@ -3,10 +3,12 @@
 import argparse
 import datetime
 import fcntl
+import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import stat
@@ -65,7 +67,7 @@ def snapshot(path, cutoff_ns, original_path=None):
             'metadata_sha256': digest.hexdigest(), 'entries': count[0]}
 
 
-def require_cpanel_copy(path, record):
+def require_cpanel_copy(path, record, databases=('fasakha_db', 'fasakha_dev_db')):
     """Names alone do not establish that unfamiliar data is an old account copy."""
     path = Path(path)
     if record['type'] == 'file':
@@ -78,10 +80,38 @@ def require_cpanel_copy(path, record):
     if path.name == 'temp_extract':
         need(set(record.get('top_level_names', [])) == {'cpmove-fasakha'},
              'Extraction directory has unfamiliar extra data; retained: ' + str(path))
+    if str(path) == '/home/cpmove-fasakha' and set(record.get('top_level_names', [])) == {'mysql'}:
+        require_sql_only_copy(root / 'mysql', databases)
+        return
     markers = [name for name in ('homedir', 'mysql', 'cp', 'userdata', 'version', 'meta')
                if os.path.lexists(str(root / name)) and not (root / name).is_symlink()]
     need(len(markers) >= 2 and any(name in markers for name in ('mysql', 'cp')),
          'Extracted directory lacks cPanel backup structure; retained: ' + str(path))
+
+
+def require_sql_only_copy(mysql, databases=('fasakha_db', 'fasakha_dev_db')):
+    """Recognize the observed partial extraction without accepting arbitrary data."""
+    need(mysql.is_dir() and not mysql.is_symlink() and mysql.resolve() == mysql,
+         'SQL-only copy has an indirect mysql directory; retained.')
+    entries = sorted(mysql.iterdir())
+    need(entries, 'SQL-only copy is empty; retain for review.')
+    for entry in entries:
+        info = entry.lstat()
+        need(stat.S_ISREG(info.st_mode) and not entry.is_symlink() and
+             re.fullmatch(r'fasakha_[A-Za-z0-9_$-]+\.sql(?:\.gz)?', entry.name),
+             'Unrecognized file in SQL-only extraction; retained: ' + str(entry))
+        database = entry.name[:-3] if entry.name.endswith('.gz') else entry.name
+        database = database[:-4]
+        need(database in databases,
+             'SQL-only copy includes a database absent from the complete backup; retained: ' + str(entry))
+        opener = gzip.open if entry.name.endswith('.gz') else open
+        try:
+            with opener(str(entry), 'rb') as stream:
+                header = stream.read(8192)
+        except (OSError, EOFError):
+            raise audit.AuditError('Cannot identify SQL dump; retained: ' + str(entry))
+        need(b'-- MySQL dump' in header or b'-- MariaDB dump' in header,
+             'SQL-only extraction contains an unrecognized dump; retained: ' + str(entry))
 
 
 def cutoff_from_manifest(manifest):
@@ -212,22 +242,34 @@ def main(argv=None):
         print('VERIFYING_RETAINED_COMPLETE_BACKUP', flush=True)
         manifest = audit.verify_backup()
         cutoff_ns = cutoff_from_manifest(manifest)
-        paths = audit.candidates()
-        if not paths:
+        available = audit.candidates()
+        if not available:
             print('NO_MATCHING_OLD_COPIES_REMAIN\nCLEANUP_COMPLETE', flush=True)
             return
-        for path in paths:
+        paths, retained = [], []
+        for path in available:
             # Report type, age and archive structure only. No file contents are printed.
-            record = audit.inspect_candidate(path)
-            print('CANDIDATE=' + json.dumps(record, sort_keys=True), flush=True)
-            require_cpanel_copy(path, record)
+            try:
+                record = audit.inspect_candidate(path)
+                print('CANDIDATE=' + json.dumps(record, sort_keys=True), flush=True)
+                require_cpanel_copy(path, record, manifest['database_verification'])
+            except (audit.AuditError, OSError) as error:
+                retained.append(path)
+                print('RETAINED_UNRECOGNIZED_COPY=' + path, flush=True)
+                reason = str(error) if isinstance(error, audit.AuditError) else type(error).__name__
+                print('RETAINED_REASON=' + reason, flush=True)
+                continue
+            paths.append(path)
+        if not paths:
+            print('NO_RECOGNIZED_OLD_COPIES\nCLEANUP_PARTIAL', flush=True)
+            return
         print('CHECKING_OLD_COPY_DEPENDENCIES', flush=True)
         no_dependencies(paths)
         plan = [snapshot(path, cutoff_ns) for path in paths]
         print('PRESERVED_BACKUP=' + str(audit.BACKUP), flush=True)
         if args.apply:
             apply_plan(plan, cutoff_ns)
-            print('CLEANUP_COMPLETE', flush=True)
+            print('CLEANUP_PARTIAL' if retained else 'CLEANUP_COMPLETE', flush=True)
         else:
             print('CHECK_COMPLETE\nAUDIT_ONLY=NO_FILES_REMOVED', flush=True)
 

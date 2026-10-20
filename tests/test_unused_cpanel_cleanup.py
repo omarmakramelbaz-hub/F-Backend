@@ -1,4 +1,5 @@
 import contextlib
+import gzip
 import importlib.util
 import io
 import json
@@ -153,7 +154,61 @@ class CleanupTests(unittest.TestCase):
         (self.directory / 'homedir').mkdir()
         cleanup.require_cpanel_copy(self.directory, {'type': 'directory'})
 
+    def test_sql_only_partial_copy_accepts_registered_plain_and_gzip_dumps(self):
+        mysql = self.base / 'mysql'
+        mysql.mkdir()
+        (mysql / 'fasakha_db.sql').write_bytes(b'-- MySQL dump 10.13\n-- no contents printed\n')
+        with gzip.open(str(mysql / 'fasakha_dev_db.sql.gz'), 'wb') as stream:
+            stream.write(b'/*M!999999 sandbox mode */\n-- MariaDB dump 10.19\n')
+        cleanup.require_sql_only_copy(mysql)
+
+    def test_sql_only_copy_rejects_unknown_database_even_with_valid_dump_header(self):
+        mysql = self.base / 'mysql'
+        mysql.mkdir()
+        (mysql / 'fasakha_old_unique.sql').write_bytes(b'-- MySQL dump 10.13\n')
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+
+    def test_sql_only_copy_rejects_unrelated_data_symlinks_and_non_dump_sql(self):
+        mysql = self.base / 'mysql'
+        mysql.mkdir()
+        payload = mysql / 'fasakha_db.sql'
+        payload.write_bytes(b'SELECT 1; -- ordinary file, not a backup')
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+        payload.unlink()
+        payload.symlink_to(self.live / 'customer-data')
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+        payload.unlink()
+        (mysql / 'other-account.sql').write_bytes(b'-- MySQL dump 10.13\n')
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+
+    def test_unknown_structure_is_retained_while_recognized_old_copy_is_cleaned(self):
+        self.manifest['database_verification'] = {'fasakha_db': {}, 'fasakha_dev_db': {}}
+        def inspection(path):
+            return {'type': 'directory'} if path == str(self.directory) else {
+                'type': 'file', 'archive_root': 'cpmove-fasakha'}
+        output = io.StringIO()
+        with mock.patch.object(cleanup.os, 'geteuid', return_value=0), \
+             mock.patch.object(cleanup.socket, 'gethostname', return_value='srv1836524'), \
+             mock.patch.object(cleanup.os, 'chdir'), \
+             mock.patch('builtins.open', mock.mock_open()), \
+             mock.patch.object(cleanup.fcntl, 'flock'), \
+             mock.patch.object(audit, 'candidates', return_value=self.paths), \
+             mock.patch.object(audit, 'inspect_candidate', side_effect=inspection), \
+             mock.patch.object(cleanup, 'apply_plan') as apply, \
+             contextlib.redirect_stdout(output):
+            cleanup.main(['--apply'])
+        selected = [row['path'] for row in apply.call_args[0][0]]
+        self.assertEqual(set(selected), {str(self.archive1), str(self.archive2)})
+        self.assertTrue(self.directory.is_dir())
+        self.assertIn('RETAINED_UNRECOGNIZED_COPY=', output.getvalue())
+        self.assertIn('CLEANUP_PARTIAL', output.getvalue())
+
     def test_no_apply_flag_does_not_delete(self):
+        self.manifest['database_verification'] = {'fasakha_db': {}, 'fasakha_dev_db': {}}
         records = {'type': 'file', 'archive_root': 'cpmove-fasakha'}
         with mock.patch.object(cleanup.os, 'geteuid', return_value=0), \
              mock.patch.object(cleanup.socket, 'gethostname', return_value='srv1836524'), \
