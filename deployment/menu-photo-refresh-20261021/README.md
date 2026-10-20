@@ -18,6 +18,10 @@ The runner checks all 42 JPEG hashes, byte lengths and dimensions. It validates 
 
 Every one of the 1,473 new URLs must return HTTP 200 and the exact approved JPEG bytes **before** database image references change. Same-origin requests run with redirects disabled. The only database updates are to the scoped media rows: filename, image MIME/size, disk, cleared conversion flags, a release marker, and a timestamp for media synchronization. Media IDs and all menu data are preserved.
 
+The deployed command-line configuration generates `/storage/{media-id}/...`, while the live web catalog serves product images from `/storage/products/{media-id}/...`. The runner validates the existing catalog URLs recorded for every reviewed media ID and aligns only its in-memory `products.url` with that catalog prefix. It forgets the already resolved products disk so Spatie generates the correct public URLs. No persistent filesystem configuration or other disk is edited. HTTP failures include status and transfer diagnostics without response bodies.
+
+If an earlier attempt published files and then stopped at HTTP verification, run the corrected release normally. Its unchanged manifest and release identity retain the first private before-record. Existing matching JPEGs are reused; every public URL is still verified before any references change. There is no reset, deletion or bypass of image checks.
+
 Private before-records and receipts are kept outside the public directories. A repeat run verifies the release and creates no duplicate media or menu entries. Changed menu identities, scope, destination collisions or unexpected edited photos stop publication for review.
 
 Run `deployment/apply_menu_photo_refresh_root.sh --release <reviewed SHA> --check`, then use `--apply` for activation. Progress counters report file publication and HTTP verification. Success is `MENU_PHOTOS_READY` with `http_verified_images: 1473`.

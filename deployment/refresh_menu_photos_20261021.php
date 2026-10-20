@@ -52,6 +52,31 @@ final class FasakhanstaMenuPhotoRefresh20261021
             || $port($parts) !== $port($this->appUrl)) throw new RuntimeException('Photo URLs must use the existing APP_URL origin.');
     }
 
+    /** Use the reviewed web URLs to correct only this CLI process's products URL base. */
+    private function useReviewedProductsUrl(array $rows): void
+    {
+        $canonicalBase = null;
+        foreach ($rows as $row) {
+            $url = $row['before_image_url'] ?? null;
+            if (!is_string($url) || preg_match('/[\x00-\x1F\x7F]/', $url)) throw new RuntimeException('A reviewed before-image URL is missing or contains unsafe control characters.');
+            $this->ownUrl($url); $parts = parse_url($url);
+            if (isset($parts['query']) || isset($parts['fragment']) || isset($parts['user']) || isset($parts['pass'])
+                || !preg_match('~\A/storage/products/([1-9][0-9]*)/([^/]+)\z~u', $parts['path'] ?? '', $match)
+                || $match[1] !== (string) (int) ($row['expected_media_id'] ?? 0)) throw new RuntimeException('A reviewed before-image URL has an unexpected products path or media ID.');
+            $basename = rawurldecode($match[2]);
+            if ($basename === '' || $basename === '.' || $basename === '..' || str_contains($basename, '/') || str_contains($basename, '\\')
+                || preg_match('/[\x00-\x1F\x7F]/', $basename)) throw new RuntimeException('A reviewed before-image URL has an unsafe basename.');
+            $scheme = strtolower($parts['scheme']); $defaultPort = $scheme === 'https' ? 443 : 80;
+            $port = (int) ($parts['port'] ?? $defaultPort);
+            $base = $scheme.'://'.strtolower($parts['host']).($port === $defaultPort ? '' : ':'.$port).'/storage/products';
+            if ($canonicalBase !== null && $canonicalBase !== $base) throw new RuntimeException('Reviewed before-image URLs disagree on the products URL base.');
+            $canonicalBase = $base;
+        }
+        if ($canonicalBase === null) throw new RuntimeException('The reviewed products URL base is missing.');
+        config(['filesystems.disks.products.url'=>$canonicalBase]);
+        Storage::forgetDisk('products');
+    }
+
     private function setup(): array
     {
         foreach (['resturants'=>['id'], 'resturant_products'=>['id','resturant_id','product_id','category_id','product_name','status'],
@@ -68,6 +93,7 @@ final class FasakhanstaMenuPhotoRefresh20261021
             || count($manifest['branch_ids'] ?? []) !== 32 || count(array_unique($manifest['branch_ids'] ?? [])) !== 32
             || count($manifest['rows'] ?? []) !== 1473 || count($manifest['assets'] ?? []) !== 42
             || (int) ($manifest['excluded']['side_category_id'] ?? 0) !== 7) throw new RuntimeException('The photo manifest does not match the reviewed 32-branch/1473-image/42-asset scope.');
+        $this->useReviewedProductsUrl($manifest['rows']);
         $assets = [];
         foreach ($manifest['assets'] as $asset) {
             $key = $asset['key'] ?? '';
@@ -158,8 +184,12 @@ final class FasakhanstaMenuPhotoRefresh20261021
                     curl_multi_add_handle($multi,$handle); $handles[$index] = $handle;
                 }
                 do { $status = curl_multi_exec($multi,$running); if ($running) curl_multi_select($multi,0.2); } while ($running && $status === CURLM_OK);
-                foreach ($handles as $index=>$handle) if ($status !== CURLM_OK || curl_errno($handle) || (int) curl_getinfo($handle,CURLINFO_HTTP_CODE) !== 200
-                    || hash('sha256',$bodies[$index]) !== $chunk[$index]['sha256'] || @getimagesizefromstring($bodies[$index]) === false) throw new RuntimeException('HTTP photo verification failed: media '.$chunk[$index]['media_id'].'. No image references were changed.');
+                foreach ($handles as $index=>$handle) {
+                    $httpStatus = (int) curl_getinfo($handle,CURLINFO_HTTP_CODE); $curlError = curl_errno($handle);
+                    if ($status !== CURLM_OK || $curlError || $httpStatus !== 200 || hash('sha256',$bodies[$index]) !== $chunk[$index]['sha256']
+                        || @getimagesizefromstring($bodies[$index]) === false) throw new RuntimeException('HTTP photo verification failed: media '.$chunk[$index]['media_id']
+                            .' (http_status='.$httpStatus.', curl_errno='.$curlError.', multi_status='.$status.'). No image references were changed.');
+                }
             } finally { foreach ($handles as $handle) { curl_multi_remove_handle($multi,$handle); curl_close($handle); } curl_multi_close($multi); }
             $completed += count($chunk);
             if ($completed - $lastReport >= 100 || $completed === count($targets)) { $this->tell('http_verified',$completed,count($targets)); $lastReport = $completed; }
