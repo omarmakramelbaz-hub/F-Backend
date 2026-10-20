@@ -1,0 +1,148 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const { EventEmitter } = require('node:events');
+const policy = require('../src/dashboard-policy.cjs');
+
+function fixture(options = {}) {
+  const windows = [], listeners = new Map(); let next = 0, closing = false, afterProbe;
+  const document = { readyState: 'complete', activeElement: { matches: () => false },
+    querySelector: () => null, querySelectorAll: () => [] };
+  const session = { webRequest: {
+    onBeforeSendHeaders(_filter, work) { this.headers = work; },
+    onCompleted(_filter, work) { this.completed = work; }, onErrorOccurred(_filter, work) { this.error = work; }
+  }, setPermissionCheckHandler() {}, setPermissionRequestHandler() {} };
+  const page = { location: { get href() { return windows[0].url; } },
+    addEventListener(name, work) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(work); },
+    removeEventListener(name, work) { listeners.get(name)?.delete(work); } };
+  const renderer = vm.createContext({ window: page, document });
+  class Window extends EventEmitter {
+    constructor(configuration) {
+      super(); this.options = configuration; this.destroyed = false; this.loads = []; this.prints = 0; this.reloads = 0;
+      const contents = this.webContents = new EventEmitter();
+      contents.id = ++next; contents.session = session; contents.getURL = () => this.url;
+      contents.setWindowOpenHandler = work => { contents.popup = work; };
+      contents.executeJavaScript = async source => {
+        const result = vm.runInContext(source, renderer);
+        if (!source.includes('__goErpUpdateIdleGuard') && afterProbe) { const work = afterProbe; afterProbe = null; work(); }
+        return result;
+      };
+      contents.print = (_configuration, callback) => { this.prints++; callback?.(true); };
+      contents.stop = () => { this.stopped = true; }; contents.send = () => {};
+      windows.push(this);
+    }
+    maximize() {} show() {} focus() {} isVisible() { return true; } isMinimized() { return false; }
+    isDestroyed() { return this.destroyed; } destroy() { this.destroyed = true; }
+    async loadURL(url) { this.loads.push(url); this.url = url; } reload() { this.reloads++; }
+    static getFocusedWindow() { return windows[0]; }
+  }
+  const electron = { BrowserWindow: Window, ipcMain: { handle() {} }, shell: { openExternal() {} },
+    dialog: { showMessageBox: async () => ({ response: 1 }) },
+    Menu: { buildFromTemplate: value => value, setApplicationMenu: value => { electron.menu = value; } } };
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/dashboard.cjs'), 'utf8'), {
+    module, __dirname: path.join(__dirname, '../src'), URL, AbortSignal, setTimeout, clearTimeout,
+    require: name => name === 'electron' ? electron : require(name.startsWith('./') ? path.join(__dirname, '../src', name) : name)
+  });
+  const dashboard = module.exports({ origin: policy.DEFAULT_ORIGIN, offline() {}, offlineWindow: () => windows[0],
+    quitting: () => closing, quit() {}, printer: () => '', ...options });
+  const event = () => ({ prevented: false, stopped: false,
+    preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; } });
+  return { dashboard, windows, document, page, session, electron, event,
+    race: work => { afterProbe = work; }, close: () => { closing = true; },
+    dispatch: name => { const value = event(); for (const work of listeners.get(name) || []) work(value); return value; },
+    listenerCount: () => [...listeners.values()].reduce((sum, value) => sum + value.size, 0) };
+}
+
+test('update idle gate blocks input, forms, native requests, navigation and menu reload without replacing the page', async () => {
+  const f = fixture(); await f.dashboard.open(); const w = f.windows[0], original = w.url, loads = w.loads.length;
+  let finish, started; const entered = new Promise(resolve => { started = resolve; });
+  const holding = f.dashboard.withUpdateIdle(async () => { started(); await new Promise(resolve => { finish = resolve; }); return 'installed'; });
+  await entered;
+  for (const name of ['pointerdown', 'keydown', 'beforeinput', 'paste', 'drop', 'submit']) {
+    const value = f.dispatch(name); assert.equal(value.prevented, true, name); assert.equal(value.stopped, true, name);
+  }
+  const keyboard = f.event(); w.webContents.emit('before-input-event', keyboard, {}); assert.equal(keyboard.prevented, true);
+  const navigation = f.event(); w.webContents.emit('will-navigate', navigation, policy.DEFAULT_ORIGIN + '/admin/employees');
+  assert.equal(navigation.prevented, true); assert.equal(w.webContents.popup({ url: original }).action, 'deny');
+  let decision; f.session.webRequest.headers({ id: 4, url: original, method: 'POST', webContentsId: w.webContents.id, requestHeaders: {} }, value => { decision = value; });
+  assert.equal(decision.cancel, true); f.session.webRequest.completed({ id: 4 });
+  f.electron.menu.find(value => value.label === 'عرض').submenu[0].click();
+  f.electron.menu.find(value => value.label === 'طباعة').submenu[0].click();
+  assert.equal(w.reloads, 0); assert.equal(w.prints, 0); assert.equal(await f.dashboard.canRefresh(), false);
+  assert.equal(w.url, original); assert.equal(w.loads.length, loads); assert.equal(w.stopped, undefined);
+  finish(); assert.equal(await holding, 'installed'); assert.equal(f.listenerCount(), 0);
+  assert.equal(w.webContents.listenerCount('before-input-event'), 0); assert.equal(await f.dashboard.canRefresh(), true);
+  assert.equal(w.loads.length, loads);
+});
+
+test('an edit arriving after the first idle probe defers update and preserves the form', async () => {
+  const f = fixture(); await f.dashboard.open(); const w = f.windows[0], field = { tagName: 'INPUT', type: 'text', value: '', defaultValue: '' };
+  f.document.querySelectorAll = () => [field]; f.race(() => { field.value = 'new unsaved work'; });
+  let applied = false; const result = await f.dashboard.withUpdateIdle(async () => { applied = true; });
+  assert.equal(result.deferred, true); assert.equal(applied, false); assert.equal(field.value, 'new unsaved work');
+  assert.equal(w.loads.length, 1); assert.equal(f.listenerCount(), 0); assert.equal(w.stopped, undefined);
+  assert.equal(w.webContents.listenerCount('before-input-event'), 0);
+});
+
+test('navigation or a new child between probes is retained instead of closed or reset', async () => {
+  for (const kind of ['navigation', 'child']) {
+    const f = fixture(); await f.dashboard.open(); const w = f.windows[0]; let child, applied = false;
+    f.race(() => {
+      if (kind === 'navigation') w.url = policy.DEFAULT_ORIGIN + '/admin/takeaway';
+      else { child = new w.constructor(w.options); w.webContents.emit('did-create-window', child); }
+    });
+    const result = await f.dashboard.withUpdateIdle(async () => { applied = true; });
+    assert.equal(result.deferred, true); assert.equal(applied, false); assert.equal(w.loads.length, 1);
+    if (child) assert.equal(child.destroyed, false);
+    else assert.match(w.url, /\/admin\/takeaway$/);
+    assert.equal(f.listenerCount(), 0); assert.equal(w.stopped, undefined);
+  }
+});
+
+test('update idle gate unlocks the original page after work fails', async () => {
+  const f = fixture(); await f.dashboard.open(); const w = f.windows[0], url = w.url;
+  await assert.rejects(f.dashboard.withUpdateIdle(async () => { throw Error('installer refused'); }), /installer refused/);
+  assert.equal(f.listenerCount(), 0); assert.equal(w.webContents.listenerCount('before-input-event'), 0);
+  assert.equal(await f.dashboard.canRefresh(), true); assert.equal(w.url, url); assert.equal(w.loads.length, 1);
+});
+
+test('active native printing and page requests defer the automatic installer', async () => {
+  const f = fixture(); await f.dashboard.open(); const w = f.windows[0]; let finishPrint, applied = 0;
+  w.webContents.print = (_configuration, callback) => { finishPrint = callback; };
+  f.electron.menu.find(value => value.label === 'طباعة').submenu[0].click();
+  assert.equal((await f.dashboard.withUpdateIdle(async () => applied++)).deferred, true); finishPrint(true);
+  f.session.webRequest.headers({ id: 5, url: w.url, method: 'GET', webContentsId: w.webContents.id, requestHeaders: {} }, () => {});
+  assert.equal((await f.dashboard.withUpdateIdle(async () => applied++)).deferred, true); assert.equal(applied, 0);
+  f.session.webRequest.completed({ id: 5 }); await f.dashboard.withUpdateIdle(async () => applied++); assert.equal(applied, 1);
+});
+
+test('a completed HTTP write still blocks installation until its durable outcome settles', async () => {
+  let settle;
+  const f = fixture({ remoteAttempts: { begin: async () => ({}), complete: () => new Promise(resolve => { settle = resolve; }) } });
+  await f.dashboard.open(); const w = f.windows[0]; let applied = false;
+  f.session.webRequest.headers({ id: 6, url: policy.DEFAULT_ORIGIN + '/admin/employees/save', method: 'POST',
+    webContentsId: w.webContents.id, requestHeaders: {} }, () => {});
+  await new Promise(resolve => setImmediate(resolve)); f.session.webRequest.completed({ id: 6 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await f.dashboard.withUpdateIdle(async () => { applied = true; })).deferred, true);
+  assert.equal(applied, false); settle(); await new Promise(resolve => setImmediate(resolve));
+  await f.dashboard.withUpdateIdle(async () => { applied = true; }); assert.equal(applied, true);
+});
+
+test('an unfocused rich editor defers automatic installation because it has no reliable default value', async () => {
+  const f = fixture(); await f.dashboard.open(); let applied = false;
+  f.document.querySelector = selector => selector.startsWith('[contenteditable]') ? {} : null;
+  const result = await f.dashboard.withUpdateIdle(async () => { applied = true; });
+  assert.equal(result.deferred, true); assert.equal(applied, false); assert.equal(f.listenerCount(), 0);
+});
+
+test('shutdown keeps the update input fence until the window is destroyed', async () => {
+  const f = fixture(); await f.dashboard.open();
+  await f.dashboard.withUpdateIdle(async () => { f.close(); return { installing: true }; });
+  assert.ok(f.listenerCount() > 0); assert.equal(f.dispatch('submit').prevented, true);
+  assert.equal(f.windows[0].loads.length, 1);
+});

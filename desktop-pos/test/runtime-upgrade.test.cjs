@@ -63,3 +63,83 @@ test('unknown server code and damaged installed source retain the old journal an
 test('an absent database-binary receipt cannot authorize application upgrade compatibility',()=>{
   assert.throws(()=>RuntimeArchive.databaseCompatible(null,{files:{}}),/لم تتأكد/);
 });
+async function guiInstalled(f,revision='c'.repeat(40),database){
+  const installed=await f.make(revision,'old business rule',database);
+  const name='public/js/dashboard-fixture.js',bytes='new dashboard GUI();\n';
+  await fs.mkdir(path.join(installed.bundle,'application/public/js'),{recursive:true});
+  await fs.writeFile(path.join(installed.bundle,'application',name),bytes);
+  installed.manifest.sourceHashes[name]=crypto.createHash('sha256').update(bytes).digest('hex');
+  await fs.writeFile(path.join(installed.bundle,'manifest.json'),JSON.stringify(installed.manifest));
+  assert.ok(source.same(installed.manifest.sourceFingerprint,f.old.manifest.sourceFingerprint));
+  f.runtime.installedBundle=installed.bundle;return installed;
+}
+test('a GUI-only installed revision promotes through coverage and candidate only with fresh server authority',async t=>{
+  const f=await fixture(t),installed=await guiInstalled(f),calls=[];
+  f.runtime.authorizeInstalled=async manifest=>{calls.push(manifest.sourceRevision);return true;};
+  const snapshot={source:f.old.manifest.sourceFingerprint};
+  assert.equal((await f.runtime.coverageManifest(snapshot)).sourceRevision,installed.manifest.sourceRevision);
+  const candidate=await f.runtime.candidate(snapshot);
+  assert.equal(candidate.manifest.sourceRevision,installed.manifest.sourceRevision);
+  assert.deepEqual(calls,[installed.manifest.sourceRevision,installed.manifest.sourceRevision,installed.manifest.sourceRevision]);
+  assert.equal(await fs.readFile(path.join(candidate.application,'public/js/dashboard-fixture.js'),'utf8'),'new dashboard GUI();\n');
+  assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
+  assert.equal(f.records.get('prepared').database,'retained business database');
+});
+test('manual older or unapproved same-core installers retain the active manifest and runtime',async t=>{
+  for(const authority of [undefined,async()=>false,async()=>'approved']){
+    const f=await fixture(t),installed=await guiInstalled(f,'0'.repeat(40));
+    if(authority)f.runtime.authorizeInstalled=authority;
+    const snapshot={source:f.old.manifest.sourceFingerprint};
+    assert.equal(await f.runtime.coverageManifest(snapshot),f.old.manifest);
+    assert.equal((await f.runtime.candidate(snapshot)).bundle,f.runtime.bundle);
+    assert.equal(f.records.has('runtimes/'+installed.manifest.sourceRevision),false);
+    assert.equal(f.records.get('prepared').sourceRevision,f.old.manifest.sourceRevision);
+  }
+});
+test('offline authorization and unreadable installed metadata retain the active source without cached permission',async t=>{
+  const f=await fixture(t),installed=await guiInstalled(f),snapshot={source:f.old.manifest.sourceFingerprint};
+  let allowed=true,calls=0;
+  f.runtime.authorizeInstalled=async()=>{calls++;if(!allowed)throw Error('offline');return true;};
+  assert.equal((await f.runtime.coverageManifest(snapshot)).sourceRevision,installed.manifest.sourceRevision);
+  allowed=false;
+  assert.equal(await f.runtime.coverageManifest(snapshot),f.old.manifest);
+  assert.equal((await f.runtime.candidate(snapshot)).bundle,f.runtime.bundle);
+  assert.equal(calls,3);
+  await fs.unlink(path.join(installed.bundle,'manifest.json'));
+  assert.equal(await f.runtime.coverageManifest(snapshot),f.old.manifest);
+  assert.equal((await f.runtime.candidate(snapshot)).bundle,f.runtime.bundle);
+  assert.equal(calls,3);
+  assert.equal(f.records.get('prepared').database,'retained business database');
+});
+test('revoking GUI publication after retention prevents candidate promotion',async t=>{
+  const f=await fixture(t);await guiInstalled(f);let calls=0;
+  f.runtime.authorizeInstalled=async()=>++calls===1;
+  const context=await f.runtime.candidate({source:f.old.manifest.sourceFingerprint});
+  assert.equal(calls,2);assert.equal(context.bundle,f.runtime.bundle);
+  assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
+  assert.equal(f.records.get('prepared').database,'retained business database');
+});
+test('GUI promotion still verifies installed source and preserves the old journal on corruption',async t=>{
+  const f=await fixture(t),installed=await guiInstalled(f);f.runtime.authorizeInstalled=async()=>true;
+  await fs.writeFile(path.join(installed.bundle,'application/public/js/dashboard-fixture.js'),'damaged');
+  await assert.rejects(f.runtime.candidate({source:f.old.manifest.sourceFingerprint}),/مصدر الداشبورد/);
+  assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
+  assert.equal(f.records.get('prepared').database,'retained business database');
+});
+test('GUI-only promotion cannot change MariaDB binaries under an existing database',async t=>{
+  const f=await fixture(t);await guiInstalled(f,'c'.repeat(40),'incompatible database binary');f.runtime.authorizeInstalled=async()=>true;
+  await assert.rejects(f.runtime.candidate({source:f.old.manifest.sourceFingerprint}),/ترقية ملفات قاعدة البيانات/);
+  assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
+  assert.equal(f.records.get('prepared').database,'retained business database');
+});
+test('unchanged revision and changed-core paths preserve their previous authorization behavior',async t=>{
+  const f=await fixture(t);let calls=0;f.runtime.authorizeInstalled=async()=>{calls++;throw Error('must not authorize these paths');};
+  f.runtime.installedBundle=f.old.bundle;
+  const snapshot={source:f.old.manifest.sourceFingerprint};
+  assert.equal(await f.runtime.coverageManifest(snapshot),f.old.manifest);
+  assert.equal((await f.runtime.candidate(snapshot)).bundle,f.runtime.bundle);
+  f.runtime.installedBundle=f.next.bundle;
+  assert.equal((await f.runtime.coverageManifest({source:f.next.manifest.sourceFingerprint})).sourceRevision,f.next.manifest.sourceRevision);
+  assert.equal((await f.runtime.candidate({source:f.next.manifest.sourceFingerprint})).manifest.sourceRevision,f.next.manifest.sourceRevision);
+  assert.equal(calls,0);
+});

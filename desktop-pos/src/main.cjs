@@ -14,6 +14,9 @@ const DashboardConnectedReview=require('./dashboard-connected-review.cjs');
 const DashboardRemoteState=require('./dashboard-remote-state.cjs');
 const DashboardRemoteAttempts=require('./dashboard-remote-attempts.cjs');
 const DashboardOutboxReview=require('./dashboard-outbox-review.cjs');
+const {DashboardUpdater}=require('./dashboard-updater.cjs');
+const createUpdateInstall=require('./update-install.cjs');
+const RuntimeArchive=require('./runtime-archive.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 app.setName('GO ERP');
@@ -22,10 +25,10 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,quitting=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,updater,quitting=false,installingUpdate=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
-const shutdown=new Shutdown(app,()=>{quitting=true;dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>localRuntime?.stop());
+const shutdown=new Shutdown(app,()=>{quitting=true;updater?.stop();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>{await updater?.running;await localRuntime?.stop();});
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -88,7 +91,54 @@ async function dashboardState() {
   if(!preparation)return {available:false};
   const remote=remoteState?await remoteState.read():{pending:[],dirty:false};
   return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',full_central:connectedAccess?await connectedAccess.selected():false,remote_pending:remote.pending.length,remote_dirty:remote.dirty,...(localSync?.state||{}),
-    pending:(localSync?.state.pending||0)+(store?.counts().pending||0),sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
+    pending:(localSync?.state.pending||0)+(store?.counts().pending||0),update:updater?.state,
+    sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
+}
+async function updateReady(insideTransition=false) {
+  if(quitting||installingUpdate||!dashboardMode||syncSchedule.running||syncSchedule.waiting||generations?.running
+    ||shutdown.pending.size>(insideTransition?1:0)||(!insideTransition&&dashboardMode.accepted.size)
+    ||!(await localRuntime.isPrepared())||!(await dashboard.canRefresh()))return false;
+  const old=store.counts(),remote=await remoteState.read();
+  if(old.pending||old.conflicts||store.openOrders().length||remote.pending.length)return false;
+  const local=await localRuntime.control({action:'pending'});
+  return local.counts.pending===0&&local.counts.conflicts===0;
+}
+function connectUpdater(profile) {
+  if(updater||!app.isPackaged||process.platform!=='win32'||!localRuntime)return;
+  const install=createUpdateInstall({profile});
+  updater=new DashboardUpdater({profile,metadata:localRuntime.metadata,fetch:(...args)=>net.fetch(...args),
+    credential:async()=>await localRuntime.isPrepared()?localRuntime.connection():null,
+    currentVersion:app.getVersion(),
+    currentSource:async()=>(await new RuntimeArchive(profile,localRuntime.metadata).manifest(localRuntime.installedBundle)).sourceFingerprint,
+    currentRevision:async()=>(await new RuntimeArchive(profile,localRuntime.metadata).manifest(localRuntime.installedBundle)).sourceRevision,
+    canApply:()=>updateReady(),
+    apply:async candidate=>shutdown.run(()=>dashboardMode.serialize('installer-update',async()=>{
+      if(!(await updateReady(true)))return {deferred:true};
+      const wasLocal=dashboard.current().local;
+      return dashboard.withUpdateIdle(async()=>{
+        // The view now blocks writes, navigation and printing. Stop background
+        // work before taking the same durable database fence used by snapshots.
+        if(quitting||syncSchedule.running||generations?.running||shutdown.pending.size>1)return {deferred:true};
+        syncSchedule.stop();installingUpdate=true;
+        try {
+          const remote=await remoteState.read(),local=await localRuntime.control({action:'pending'});
+          if(quitting)throw Error('أُوقف تثبيت التحديث أثناء إغلاق البرنامج.');
+          if(remote.pending.length||local.counts.pending||local.counts.conflicts)throw Error('انتظر تسوية العمليات قبل تثبيت التحديث.');
+          await dashboardMode.hold();
+          if(quitting)throw Error('أُوقف تثبيت التحديث أثناء إغلاق البرنامج.');
+          await install(candidate);
+          // Setup waits for this process to exit. Shutdown drains native work and
+          // stops MariaDB before any installed executable can be replaced.
+          app.quit();return {installing:true};
+        }catch(error){
+          installingUpdate=false;
+          if(wasLocal)await dashboardMode.cancelHold();
+          if(!quitting)syncSchedule.start();
+          throw error;
+        }
+      });
+    })),onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
+  updater.start();
 }
 async function dashboardSession(credential) {
   const controller=new AbortController();requests.add(controller);
@@ -199,7 +249,9 @@ app.whenReady().then(async()=>{
   let localToken='';
   const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
-    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,
+      authorizeInstalled:manifest=>updater?updater.authorizeInstalled(manifest):false,
+      onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     remoteState=new DashboardRemoteState(localRuntime.metadata);
     connectedAccess=new DashboardConnected({runtime:localRuntime,view:()=>dashboard,mode:()=>dashboardMode,generations:()=>generations,remoteState,
       remoteAttempts:{recover:()=>remoteAttempts.recover()},probe:dashboardSession,
@@ -242,6 +294,7 @@ app.whenReady().then(async()=>{
     }:undefined,printMetadata:localRuntime?.metadata,
     synchronize:()=>{syncSchedule.request({refresh:true}).catch(()=>{});return dashboardState();},
     archive:localRuntime?()=>localOrders():undefined,
+    updateStatus:()=>updater?.state||{status:'unavailable',interval_seconds:60},
     reviewSync:outboxReview?async window=>{
       if(!(await localRuntime.isPrepared()))throw Error('جهّز الجهاز أولًا لمراجعة سجل المزامنة.');
       return outboxReview.open(window);
@@ -259,6 +312,6 @@ app.whenReady().then(async()=>{
     connectDashboardSync();await shutdown.run(async()=>{await generations.recover();
       if(localToken)await dashboardMode.recover();else await dashboardMode.hold();});
   }
-  syncSchedule.start();await dashboard.open();
+  syncSchedule.start();await dashboard.open();connectUpdater(profile);
 }).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
 app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});

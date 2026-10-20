@@ -2,7 +2,8 @@ name: Original local dashboard on Windows
 
 on:
   push:
-    branches: ['codex/desktop-offline-pos-20261007']
+    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020']
+  workflow_dispatch:
   pull_request:
     paths:
       # Every tracked application root packaged by build-runtime.cjs needs fresh acceptance.
@@ -586,6 +587,11 @@ jobs:
           '@
           node -e $diagnosedAcceptance
           if ($LASTEXITCODE -ne 0) { throw 'Actual installed dashboard acceptance failed; original child failure metadata was logged.' }
+      - name: Bind the minute update publication to this accepted source and installer
+        shell: pwsh
+        run: |
+          node .github/scripts/desktop-update-receipt.cjs desktop-pos
+          if ($LASTEXITCODE -ne 0) { throw 'The accepted installer release receipt could not be created.' }
       - name: Retain the installer preview and exact verification receipts
         uses: actions/upload-artifact@v4
         with:
@@ -599,5 +605,6 @@ jobs:
             desktop-pos/dist/offline-print-native.json
             desktop-pos/dist/outbox-review-native.json
             desktop-pos/dist/connected-request-native.json
+            desktop-pos/dist/go-erp-update-release.json
           if-no-files-found: error
           retention-days: 30

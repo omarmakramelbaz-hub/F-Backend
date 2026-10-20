@@ -113,13 +113,14 @@ class LocalRuntime {
   static phpArguments(context) {
     return ['-c', phpRelativePath(context.application, context.phpIni)];
   }
-  constructor({ bundle, profile, safeStorage, downloadMedia, platform = process.platform, onFailure = () => {} }) {
+  constructor({ bundle, profile, safeStorage, downloadMedia, authorizeInstalled = async () => false, platform = process.platform, onFailure = () => {} }) {
     this.installedBundle = bundle; this.bundle = bundle; this.stagedContexts = new Map(); this.profile = path.join(profile, 'dashboard');
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
     this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
     this.controlToken = crypto.randomBytes(32).toString('hex');
     this.metadata = new GenerationStore(this.profile, safeStorage);
     this.downloadMedia = downloadMedia;
+    this.authorizeInstalled = authorizeInstalled;
   }
   async settings() {
     await fs.mkdir(this.profile, { recursive: true, mode: 0o700 });
@@ -151,11 +152,24 @@ class LocalRuntime {
     return archive.manifest(path.join(this.profile, 'runtimes', value.sourceRevision));
   }
   async coverageManifest(snapshot) {
-    if (this.manifest && sourceCode.same(snapshot.source, this.manifest.sourceFingerprint)) return this.manifest;
+    if (this.manifest && sourceCode.same(snapshot.source, this.manifest.sourceFingerprint))
+      return await this.authorizedSameSourceInstalled(snapshot) || this.manifest;
     const manifest = await new RuntimeArchive(this.profile, this.metadata).manifest(this.installedBundle);
     if (!sourceCode.same(snapshot.source, manifest.sourceFingerprint))
       throw Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
     return manifest;
+  }
+  async authorizedSameSourceInstalled(snapshot) {
+    // GUI-only releases retain the legacy business-data fingerprint. A different
+    // installed revision may be selected only after fresh native server authority;
+    // a manually downgraded or offline installer never displaces the old runtime.
+    if (!this.manifest || !this.installedBundle || !sourceCode.same(snapshot.source, this.manifest.sourceFingerprint)) return null;
+    try {
+      const installed = await new RuntimeArchive(this.profile, this.metadata).manifest(this.installedBundle);
+      if (installed.sourceRevision === this.manifest.sourceRevision || !sourceCode.same(snapshot.source, installed.sourceFingerprint)
+          || typeof this.authorizeInstalled !== 'function' || await this.authorizeInstalled(installed) !== true) return null;
+      return installed;
+    } catch { return null; }
   }
   async connection() {
     if (!(await this.isPrepared())) throw Error('بيانات الداشبورد المحلية لم تُجهّز بالكامل.');
@@ -301,13 +315,21 @@ class LocalRuntime {
       manifest:this.manifest, sourceFingerprint:this.sourceFingerprint };
   }
   async candidate(snapshot) {
-    if(sourceCode.same(snapshot.source,this.sourceFingerprint))return this.context();
+    const activeMatches=sourceCode.same(snapshot.source,this.sourceFingerprint);
+    const authorized=activeMatches?await this.authorizedSameSourceInstalled(snapshot):null;
+    if(activeMatches&&!authorized)return this.context();
     const mismatch=()=>Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
     if(!this.manifest||!this.installedBundle)throw mismatch();
     const archive=new RuntimeArchive(this.profile,this.metadata),bundle=await archive.retain(this.installedBundle);
     const manifest=await archive.manifest(bundle),application=path.join(bundle,'application');
     const sourceFingerprint=await sourceCode.fingerprint(application);
     if(!sourceCode.same(snapshot.source,sourceFingerprint)||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint))throw mismatch();
+    if(activeMatches){
+      // Retaining/verifying may take time. A revoked publication, changed source
+      // or lost connection cannot use an earlier authorization to move a journal.
+      if(manifest.sourceRevision!==authorized.sourceRevision||!sourceCode.same(manifest.sourceFingerprint,authorized.sourceFingerprint))return this.context();
+      try{if(await this.authorizeInstalled(manifest)!==true)return this.context();}catch{return this.context();}
+    }
     RuntimeArchive.databaseCompatible(await this.metadata.read('runtimes/'+this.manifest.sourceRevision),
       await this.metadata.read('runtimes/'+manifest.sourceRevision));
     const php=path.join(bundle,'php','php.exe');await fs.access(php);

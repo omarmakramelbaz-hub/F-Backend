@@ -3,7 +3,88 @@
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
 const {execFileSync,spawnSync,spawn}=require('node:child_process'),{DatabaseSync}=require('node:sqlite');
 const packaging=require('../installer-runtime.cjs');
+const {installer:installerFingerprint}=require('../../.github/scripts/desktop-update-receipt.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function automaticUpgrade({setup,installed,profile,root,powershell,registrationPath,executable,saved}){
+  const crypto=require('node:crypto'),journal=path.join(profile,'unsynced-orders.sqlite');
+  const journalHash=crypto.createHash('sha256').update(await fs.readFile(journal)).digest('hex');
+  const ready=path.join(root,'auto-wait-ready'),release=path.join(root,'auto-wait-release');
+  const restarted=path.join(root,'auto-restart-ready.json'),probe=path.join(root,'auto-restart-probe.cjs');
+  assert.match(probe,/^[\x20-\x21\x23-\x7e]+$/,'The native restart fixture requires an ASCII probe path without quotes.');
+  // Native Electron's existing run-as-Node fixture keeps the actual restarted
+  // executable isolated from the runner's default GUI account and device profile.
+  await fs.writeFile(probe,"'use strict';const fs=require('node:fs');if(process.env.ELECTRON_RUN_AS_NODE!=='1')throw Error('Native Node fixture required');"
+    +"fs.writeFileSync(process.env.GO_ERP_AUTO_RESTART_READY,JSON.stringify({pid:process.pid,execPath:process.execPath}));setInterval(()=>{},1000);\n");
+  const stopOwned=pid=>{
+    const script='$ErrorActionPreference="Stop"; $found=@(); foreach($p in Get-Process){try{$file=$p.Path}catch{continue}; '
+      +'if([StringComparer]::OrdinalIgnoreCase.Equals($file,$env:GO_ERP_FIXTURE_EXECUTABLE) '
+      +'-and (-not $env:GO_ERP_FIXTURE_PID -or $p.Id -eq [int]$env:GO_ERP_FIXTURE_PID)){'
+      +'$found+= $p.Id; $p.Kill(); if(-not $p.WaitForExit(30000)){throw "Owned fixture process did not exit"}}}; '
+      +'ConvertTo-Json -InputObject @($found) -Compress';
+    return JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],
+      {encoding:'utf8',windowsHide:true,timeout:60000,env:{...process.env,GO_ERP_FIXTURE_EXECUTABLE:executable,GO_ERP_FIXTURE_PID:pid?String(pid):''}}).trim());
+  };
+  const holderScript='$ErrorActionPreference="Stop"; [IO.File]::WriteAllText($env:GO_ERP_WAIT_READY,"ready"); '
+    +'$clock=[Diagnostics.Stopwatch]::StartNew(); while(-not [IO.File]::Exists($env:GO_ERP_WAIT_RELEASE)) {'
+    +'if($clock.ElapsedMilliseconds -gt 120000){throw "Wait fixture deadline exceeded"};[Threading.Thread]::Sleep(25)}';
+  const holder=spawn(powershell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(holderScript,'utf16le').toString('base64')],
+    {windowsHide:true,stdio:'ignore',env:{...process.env,GO_ERP_WAIT_READY:ready,GO_ERP_WAIT_RELEASE:release}});
+  let holderError;holder.on('error',error=>{holderError=error;});
+  const holderDone=new Promise(resolve=>holder.once('close',code=>resolve(code)));
+  let installer,installerDone;
+  try{
+    const readinessDeadline=performance.now()+30000;
+    for(;;){try{await fs.access(ready);break;}catch(error){if(error.code!=='ENOENT')throw error;}
+      if(holderError)throw holderError;if(holder.exitCode!==null||performance.now()>readinessDeadline)throw Error('Native automatic-upgrade wait fixture did not become ready.');await pause(25);}
+    assert.ok(Number.isSafeInteger(holder.pid)&&holder.pid>0);
+    // A successful replacement writes the packaged timestamp. This unique prior
+    // timestamp makes premature extraction visible even for the same setup bytes.
+    const sentinelTime=new Date('2001-02-03T04:05:06.000Z');await fs.utimes(executable,sentinelTime,sentinelTime);
+    const untouched=(await fs.stat(executable)).mtimeMs;
+    installer=spawn(setup,['/S','/GOERPAUTOUPDATE','/GOERPWAITPID='+holder.pid,'/D='+installed],{
+      windowsHide:true,windowsVerbatimArguments:true,stdio:'ignore',
+      env:{...process.env,ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require="'+probe.replace(/\\/g,'/')+'"',GO_ERP_AUTO_RESTART_READY:restarted}});
+    let installerError;installer.on('error',error=>{installerError=error;});
+    installerDone=new Promise(resolve=>installer.once('close',(code,signal)=>resolve({code,signal})));
+    const heldUntil=performance.now()+12000;
+    while(performance.now()<heldUntil){
+      if(installerError)throw installerError;
+      assert.equal(holder.exitCode,null,'Native wait PID ended before the fixture released it.');
+      assert.equal(installer.exitCode,null,'Automatic setup finished while its previous-process PID was alive.');
+      assert.equal((await fs.stat(executable)).mtimeMs,untouched,'Automatic setup extracted the target before its previous-process PID exited.');
+      await assert.rejects(fs.access(restarted),{code:'ENOENT'});await pause(100);
+    }
+    await fs.writeFile(release,'release');assert.equal(await holderDone,0);
+    let timer;
+    const result=await Promise.race([installerDone,new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('Automatic setup did not finish within five minutes.')),300000);})]).finally(()=>clearTimeout(timer));
+    assert.equal(result.signal,null);assert.equal(result.code,0,
+      'Automatic-upgrade publication requires an actual restart; a 3010 reboot deferral is not a certified restart.');
+    assert.notEqual((await fs.stat(executable)).mtimeMs,untouched,'Automatic setup did not replace its target after the wait PID exited.');
+    const restartDeadline=performance.now()+120000;let restart;
+    for(;;){try{restart=JSON.parse(await fs.readFile(restarted,'utf8'));break;}catch(error){if(error.code!=='ENOENT')throw error;}
+      if(performance.now()>restartDeadline)throw Error('Automatic setup did not restart its installed executable with the isolated native fixture.');await pause(100);}
+    assert.deepEqual(Object.keys(restart).sort(),['execPath','pid']);
+    assert.ok(Number.isSafeInteger(restart.pid)&&restart.pid>0);assert.equal(path.resolve(restart.execPath).toLowerCase(),path.resolve(executable).toLowerCase());
+    assert.deepEqual(stopOwned(restart.pid),[restart.pid],'The restarted PID did not belong to the exact owned fixture executable.');
+    assert.equal(crypto.createHash('sha256').update(await fs.readFile(journal)).digest('hex'),journalHash);
+    const db=new DatabaseSync(journal,{readOnly:true});try{
+      const row=db.prepare('SELECT id,acked,payload FROM outbox').get();assert.equal(row.id,saved.event);assert.equal(row.acked,0);
+      assert.equal(JSON.parse(row.payload).data.total_cents,saved.total);assert.equal(db.prepare('SELECT status FROM orders WHERE id=?').get(saved.order).status,'paid');
+    }finally{db.close();}
+    assert.equal(await fs.readFile(path.join(installed,'KEEP-MY-FILE.txt'),'utf8'),'unrelated existing file');
+    assert.equal(await fs.readFile(path.join(profile,'existing-profile.txt'),'utf8'),'previous device data');
+    for(const [field,expected]of [['DisplayName','GO ERP'],['UninstallString','"'+path.join(installed,'Uninstall.exe')+'"']]){
+      const value=execFileSync('reg.exe',['query',registrationPath,'/v',field],{encoding:'utf8',windowsHide:true});
+      assert.equal(value.split(/\r?\n/).find(line=>line.includes('REG_SZ'))?.split('REG_SZ')[1].trim(),expected);
+    }
+    process.stdout.write('PASS real automatic NSIS upgrade waits for the previous PID, restarts the exact installed executable, and preserves the paid unsynced journal and unrelated files\n');
+    return {waitedForExit:true,preservedJournal:true,preservedUnrelatedFiles:true,registrationRetained:true,restartedInstalledExecutable:true};
+  }finally{
+    await fs.writeFile(release,'release');await holderDone;
+    if(installer&&installer.exitCode===null){try{installer.kill();}catch{}await installerDone;}
+    stopOwned();
+  }
+}
 async function residualPaths(directory){
   const found=[],pending=[directory];let scanned=0;
   while(pending.length&&found.length<12&&scanned<256){
@@ -22,6 +103,7 @@ async function residualPaths(directory){
 (async()=>{
   assert.equal(process.platform,'win32','Actual installer checks require Windows.');
   const project=path.resolve(__dirname,'..'),setup=path.resolve(process.argv[2]||path.join(project,'dist/GO-ERP-Preview-Setup.exe'));
+  const acceptedInstaller=await installerFingerprint(setup);
   const prerequisiteFailureBeforeExtraction=await require('./installer-prerequisite-native.cjs')(project);
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-installer-')),installed=path.join(root,'تجربة البرنامج'),profile=path.join(root,'retained-user-data');
   const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
@@ -142,6 +224,7 @@ async function residualPaths(directory){
     const saved=JSON.parse(execFileSync(executable,[probe,installed,profile],{encoding:'utf8',windowsHide:true,timeout:30000,
       env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}}).trim());
     process.stdout.write('PASS installed Electron loads its actual ASAR ledger code and preserves one paid unsynced sale across SQLite reopen\n');
+    const automaticUpgradeChecks=await automaticUpgrade({setup,installed,profile,root,powershell,registrationPath,executable,saved});
     // NSIS launches a self-copying worker. The launcher's exit and the early
     // executable deletion do not mean its ~52,000 exact removals have finished.
     const removalStarted=performance.now(),removalDeadline=removalStarted+600000;
@@ -168,8 +251,9 @@ async function residualPaths(directory){
     try{const row=db.prepare('SELECT id,acked,payload FROM outbox').get();assert.equal(row.id,saved.event);assert.equal(row.acked,0);assert.equal(JSON.parse(row.payload).data.total_cents,saved.total);
       assert.equal(db.prepare('SELECT status FROM orders WHERE id=?').get(saved.order).status,'paid');}finally{db.close();}
     process.stdout.write('PASS actual Windows uninstallation removes only packaged files and retains unrelated files plus the paid unsynced order\n');
+    assert.deepEqual(await installerFingerprint(setup),acceptedInstaller,'The setup executable changed during actual Windows acceptance.');
     await fs.writeFile(path.join(project,'dist/installer-checks.json'),JSON.stringify({format:1,sourceRevision:receipt.sourceRevision,version:receipt.version,
-      channel:receipt.channel,fullDashboard:false,installation:true,branding,
+      channel:receipt.channel,fullDashboard:false,installation:true,branding,installer:acceptedInstaller,automaticUpgrade:automaticUpgradeChecks,
       prerequisite:{registered:true,installedVersion:vcVersion,bundledVersion:vcPolicy.version,bundledSha256:vcPayload.sha256,signatureValid:true,
         rebootRequired:setupRebootRequired,failureBeforeExtraction:prerequisiteFailureBeforeExtraction},
       installedNativeExecutables:true,installedDashboardRecovery:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');

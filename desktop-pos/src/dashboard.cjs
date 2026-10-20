@@ -8,7 +8,7 @@ const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0, authentication = null;
@@ -320,6 +320,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       } }] : []),
       { label: archive ? 'سجل النسخة السابقة' : 'الطلبات المحلية والطابعة', accelerator: 'CmdOrCtrl+L', click: () => archive ? archive() : offline('') },
       ...(reviewSync?[{label:'مراجعة المزامنة',click:()=>accepted(()=>reviewSync(window)).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
+      ...(updateStatus?[{label:'حالة تحديث البرنامج',click:()=>{
+        const value=updateStatus(),messages={current:'البرنامج المثبت يطابق الإصدار المنشور على السيرفر.',checking:'جارٍ فحص تحديثات السيرفر.',downloading:'جارٍ تحميل تحديث البرنامج.',staged:'التحديث جاهز وينتظر انتهاء العمل وتسوية العمليات.',installing:'جارٍ تثبيت التحديث.',unavailable:'لم يُنشر تحديث متوافق بعد. سيُعاد الفحص تلقائيًا.',error:'تعذر إكمال فحص التحديث. سيُعاد الفحص تلقائيًا.'};
+        dialog.showMessageBox(window,{type:'info',title:'GO ERP — تحديث البرنامج',message:messages[value.status]||'فحص التحديثات التلقائي يعمل كل دقيقة.',detail:value.version?'الإصدار: '+value.version:'فحص تلقائي كل ٦٠ ثانية.'});
+      }}]:[]),
       { label: 'اختيار الطابعة', click: () => {
         if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: error.message })); return; }
         offline('');
@@ -329,12 +333,18 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     ] },
     { label: 'تحرير', submenu: [{ label: 'تراجع', role: 'undo' }, { label: 'إعادة', role: 'redo' }, { type: 'separator' },
       { label: 'قص', role: 'cut' }, { label: 'نسخ', role: 'copy' }, { label: 'لصق', role: 'paste' }, { label: 'تحديد الكل', role: 'selectAll' }] },
-    { label: 'عرض', submenu: [{ label: 'تحديث الصفحة', accelerator: 'CmdOrCtrl+R', click: () => focused()?.reload() },
+    { label: 'عرض', submenu: [{ label: 'تحديث الصفحة', accelerator: 'CmdOrCtrl+R', click: () => { if (!refreshing && !quitting()) focused()?.reload(); } },
       { label: 'تكبير', role: 'zoomIn' }, { label: 'تصغير', role: 'zoomOut' }, { label: 'الحجم الطبيعي', role: 'resetZoom' },
       { label: 'ملء الشاشة', role: 'togglefullscreen' }] },
     { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => {
+      if (refreshing || quitting()) return;
       if(localToken){dialog.showMessageBox(window,{type:'info',title:'GO ERP',message:'استخدم زر طباعة الفاتورة داخل الداشبورد لحفظ نتيجة الطباعة ومنع تكرارها.'});return;}
-      focused()?.webContents.print({ printBackground: true });
+      const contents = focused()?.webContents;
+      if (!contents) return;
+      printing++;
+      let finished = false;
+      const finish = () => { if (!finished) { finished = true; printing--; } };
+      try { contents.print({ printBackground: true }, finish); } catch (error) { finish(); throw error; }
     } }] }
   ]));
   async function canRefresh() {
@@ -363,6 +373,77 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (!localToken || refreshing || quitting()) throw Error('تعذر تحديث الداشبورد الحالية.');
     if (!(await canRefresh())) return { deferred: true };
     return switchTo({ origin, localToken }, work, { preserveCurrent: true });
+  }
+  async function withUpdateIdle(work) {
+    if (typeof work !== 'function') throw Error('عملية تحديث البرنامج غير صالحة.');
+    if (!(await canRefresh())) return { deferred: true };
+    const heldWindow = window, contents = heldWindow?.webContents;
+    const currentURL = contents?.getURL();
+    const idle = () => !loading && !authentication && !quitting() && !printing && !effects?.active
+      && !children.size && !remoteWrites.size && !activeRequests.size
+      && heldWindow && window === heldWindow && !heldWindow.isDestroyed()
+      && contents.getURL() === currentURL && policy.sameOrigin(currentURL, origin)
+      && new URL(currentURL).pathname === '/admin/dashboard';
+    // Recheck native work after the first asynchronous renderer probe. No child
+    // window is closed and no page is stopped, replaced, or reloaded by this gate.
+    if (refreshing || !idle()) return { deferred: true };
+    refreshing = true;
+    const id = crypto.randomUUID();
+    const blockInput = event => event.preventDefault();
+    contents.on('before-input-event', blockInput);
+    try {
+      const held = await contents.executeJavaScript(`(() => {
+        const id = ${JSON.stringify(id)}, expectedURL = ${JSON.stringify(currentURL)};
+        const key = '__goErpUpdateIdleGuard';
+        if (window[key]) return false;
+        const events = ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','contextmenu',
+          'wheel','touchstart','touchmove','touchend','keydown','keypress','keyup','beforeinput','input',
+          'change','paste','cut','drop','dragstart','submit','reset'];
+        const block = event => { event.preventDefault(); event.stopImmediatePropagation(); };
+        const release = () => {
+          for (const name of events) window.removeEventListener(name, block, true);
+          if (window[key]?.id === id) delete window[key];
+        };
+        // Capturing blockers and the idle test execute in one renderer turn, so
+        // input cannot slip between the test and the start of the native work.
+        for (const name of events) window.addEventListener(name, block, {capture:true,passive:false});
+        window[key] = {id,release};
+        try {
+          const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
+          if (window.location.href !== expectedURL || document.readyState !== 'complete'
+            || document.activeElement?.matches(editable)
+            || document.querySelector('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"]')
+            || document.querySelector('[contenteditable]:not([contenteditable="false"])')
+            || Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
+              if (field.disabled || field.readOnly) return false;
+              if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
+              if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
+              return field.value !== field.defaultValue;
+            })) { release(); return false; }
+          return true;
+        } catch { release(); return false; }
+      })()`);
+      if (held !== true || !idle()) return { deferred: true };
+      return await work();
+    } finally {
+      if (!quitting() && !heldWindow.isDestroyed()) {
+        try {
+          const released = await contents.executeJavaScript(`(() => {
+            const guard = window.__goErpUpdateIdleGuard;
+            if (!guard) return true;
+            if (guard.id !== ${JSON.stringify(id)}) return false;
+            guard.release(); return !window.__goErpUpdateIdleGuard;
+          })()`);
+          // A failed cleanup keeps native writes fenced. A half-unlocked page
+          // must not accept a form after an uncertain renderer transition.
+          if (released !== true) throw Error('تعذر استرجاع الصفحة بعد فحص التحديث؛ أعد فتح البرنامج.');
+        } catch (error) {
+          throw Error('تعذر استرجاع الصفحة بعد فحص التحديث؛ أعد فتح البرنامج.');
+        }
+        contents.removeListener('before-input-event', blockInput);
+        refreshing = false;
+      }
+    }
   }
   async function switchTo(target, work = async () => {}, { preserveCurrent = false } = {}) {
     if (refreshing || authentication || quitting() || printing || effects?.active) throw Error('انتظر انتهاء الطباعة أو تسجيل الدخول أو انتقال الداشبورد بين الجهاز والسيرفر.');
@@ -472,6 +553,6 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if(!localToken || !effects)return {local:false};
     printing++;try{await effects.inspect();return {local:true};}finally{printing--;}
   }
-  return { open, refresh, canRefresh, switchTo, reauthenticate:renewServerLogin, cancelAuthentication:()=>authentication?.cancel(), publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
+  return { open, refresh, canRefresh, withUpdateIdle, switchTo, reauthenticate:renewServerLogin, cancelAuthentication:()=>authentication?.cancel(), publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
     current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };
