@@ -18,6 +18,8 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright (C) GO ERP"
 VIAddVersionKey /LANG=1033 "FileVersion" "${FASAKHANSTA_VERSION}"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${FASAKHANSTA_VERSION}"
 Var LegacyPreviewOwned
+!define MUI_ICON "${PROJECT_DIR}/src/assets/app.ico"
+!define MUI_UNICON "${PROJECT_DIR}/src/assets/app.ico"
 Icon "${PROJECT_DIR}/src/assets/app.ico"
 UninstallIcon "${PROJECT_DIR}/src/assets/app.ico"
 !insertmacro MUI_PAGE_WELCOME

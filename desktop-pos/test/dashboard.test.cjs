@@ -24,6 +24,9 @@ function fixture(t, options = {}){
 test('installed app opens the original complete dashboard and keeps a persistent signed-in session',async t=>{
   const f=fixture(t);const opening=f.dashboard.open();const w=f.windows[0];assert.ok(w.visible,'dashboard frame and offline menu remain available during loading');await opening;
   assert.equal(w.url,'https://fasakhaninja.com/admin/dashboard');assert.ok(w.visible);
+  assert.equal(w.options.title,'GO ERP — الداشبورد');
+  let titlePrevented=false;w.webContents.emit('page-title-updated',{preventDefault(){titlePrevented=true;}},'Original business page');
+  assert.equal(titlePrevented,true,'A dashboard page must not replace the native GO ERP title');
   assert.equal(w.options.webPreferences.partition,'persist:fasakhansta-dashboard');
   assert.equal(w.options.webPreferences.nodeIntegration,false);assert.equal(w.options.webPreferences.contextIsolation,true);
   assert.match(w.options.webPreferences.preload,/dashboard-preload/);

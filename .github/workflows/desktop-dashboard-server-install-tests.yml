@@ -26,7 +26,35 @@ jobs:
       - name: Check exact measured baseline and reject mixed source
         run: python3 -B tests/desktop_dashboard_actual_baseline_test.py
       - name: Verify retained measured source with actual file owners
-        run: sudo python3 -B tests/desktop_dashboard_measured_source_ownership_test.py --require-real-owners
+        run: |
+          # Model the root launcher's exact, root-owned staged publication base.
+          # The checkout itself belongs to the runner; never relax load_base.
+          sudo python3 -B - <<'PY'
+          import hashlib, os, pathlib, stat
+          path = pathlib.Path('deployment/install_whatsapp_inbox.py')
+          fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+          try:
+              before = os.fstat(fd)
+              with os.fdopen(fd, 'rb', closefd=False) as stream:
+                  data = stream.read(1024 * 1024)
+              blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                      or stat.S_IMODE(before.st_mode) != 0o644
+                      or blob != 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98'):
+                  raise RuntimeError('The exact publication base fixture is not safe to stage.')
+              os.fchown(fd, 0, 0)
+              after = os.fstat(fd)
+              named = path.lstat()
+              if ((after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)
+                      or (named.st_dev, named.st_ino) != (before.st_dev, before.st_ino)
+                      or after.st_uid != 0 or after.st_gid != 0 or after.st_nlink != 1
+                      or stat.S_IMODE(after.st_mode) != 0o644 or path.read_bytes() != data):
+                  raise RuntimeError('Root publication base staging changed the reviewed bytes.')
+          finally:
+              os.close(fd)
+          print('EXACT_ROOT_PUBLICATION_BASE_STAGED f09c87de0206b54b8a8ca7d7359b8e15b32ebe98')
+          PY
+          sudo python3 -B tests/desktop_dashboard_measured_source_ownership_test.py --require-real-owners
       - name: Verify the historical expense update scope
         run: python3 -B tests/desktop_dashboard_expense_rejection_baseline_test.py
       - name: Exercise scoped ownership repair as real root
