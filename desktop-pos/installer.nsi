@@ -3,10 +3,23 @@
 !include "x64.nsh"
 !include "${PROJECT_DIR}/dist/installer-version.nsh"
 Name "${FASAKHANSTA_PRODUCT_NAME}"
-InstallDir "$LOCALAPPDATA\Programs\${FASAKHANSTA_PRODUCT_NAME}"
+; Retain the existing preview install location when the visible product name changes.
+InstallDir "$LOCALAPPDATA\Programs\Fasakhansta Dashboard Preview"
 RequestExecutionLevel user
 Unicode true
 SetCompressor /SOLID lzma
+VIProductVersion "${FASAKHANSTA_NUMERIC_VERSION}"
+VIAddVersionKey /LANG=1033 "ProductName" "${FASAKHANSTA_PRODUCT_NAME}"
+VIAddVersionKey /LANG=1033 "FileDescription" "${FASAKHANSTA_PRODUCT_NAME} Setup"
+VIAddVersionKey /LANG=1033 "InternalName" "${FASAKHANSTA_PRODUCT_NAME} Setup"
+VIAddVersionKey /LANG=1033 "OriginalFilename" "GO-ERP-Preview-Setup.exe"
+VIAddVersionKey /LANG=1033 "CompanyName" "GO ERP"
+VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright (C) GO ERP"
+VIAddVersionKey /LANG=1033 "FileVersion" "${FASAKHANSTA_VERSION}"
+VIAddVersionKey /LANG=1033 "ProductVersion" "${FASAKHANSTA_VERSION}"
+Var LegacyPreviewOwned
+!define MUI_ICON "${PROJECT_DIR}/src/assets/app.ico"
+!define MUI_UNICON "${PROJECT_DIR}/src/assets/app.ico"
 Icon "${PROJECT_DIR}/src/assets/app.ico"
 UninstallIcon "${PROJECT_DIR}/src/assets/app.ico"
 !insertmacro MUI_PAGE_WELCOME
@@ -56,8 +69,44 @@ Section "Install"
     SetRebootFlag true
     SetErrorLevel 3010
   prerequisite_ready:
+  ; Only a matching previous preview registration proves these old names belong
+  ; to this installation. An unrelated file in a custom directory is preserved.
+  StrCpy $LegacyPreviewOwned "0"
+  ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "DisplayName"
+  StrCmp $2 "Fasakhansta Dashboard Preview" 0 legacy_preflight_done
+  ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "UninstallString"
+  StrCmp $2 '"$INSTDIR\Uninstall.exe"' 0 legacy_preflight_done
+  StrCpy $LegacyPreviewOwned "1"
+  IfFileExists "$INSTDIR\Fasakhansta Dashboard Preview.exe" 0 legacy_preflight_done
+  ; OPEN_EXISTING with write access checks a running/locked image without
+  ; creating, truncating or changing the previous executable.
+  System::Call 'kernel32::CreateFileW(w "$INSTDIR\Fasakhansta Dashboard Preview.exe", i 0x40000000, i 7, p 0, i 3, i 0, p 0) p.r2'
+  StrCmp $2 "-1" legacy_upgrade_failed
+  System::Call 'kernel32::CloseHandle(p r2)'
+  legacy_preflight_done:
   SetOutPath "$INSTDIR"
   File /r "${PROJECT_DIR}/dist/win-unpacked/*"
+  ; Keep the old executable until the new application has been extracted.
+  StrCmp $LegacyPreviewOwned "1" 0 legacy_cleanup_done
+  IfFileExists "$INSTDIR\${FASAKHANSTA_PRODUCT_NAME}.exe" 0 legacy_upgrade_failed
+  IfFileExists "$DESKTOP\Fasakhansta Dashboard Preview.lnk" 0 legacy_menu_cleanup
+  ClearErrors
+  Delete "$DESKTOP\Fasakhansta Dashboard Preview.lnk"
+  IfErrors legacy_upgrade_failed
+  legacy_menu_cleanup:
+  IfFileExists "$SMPROGRAMS\Fasakhansta Dashboard Preview\Fasakhansta Dashboard Preview.lnk" 0 legacy_directory_cleanup
+  ClearErrors
+  Delete "$SMPROGRAMS\Fasakhansta Dashboard Preview\Fasakhansta Dashboard Preview.lnk"
+  IfErrors legacy_upgrade_failed
+  legacy_directory_cleanup:
+  ; Nonrecursive removal deliberately retains any unrelated start-menu files.
+  RMDir "$SMPROGRAMS\Fasakhansta Dashboard Preview"
+  IfFileExists "$INSTDIR\Fasakhansta Dashboard Preview.exe" 0 legacy_cleanup_done
+  ClearErrors
+  Delete "$INSTDIR\Fasakhansta Dashboard Preview.exe"
+  IfErrors legacy_upgrade_failed
+  legacy_cleanup_done:
+  ClearErrors
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateShortcut "$DESKTOP\${FASAKHANSTA_PRODUCT_NAME}.lnk" "$INSTDIR\${FASAKHANSTA_PRODUCT_NAME}.exe" "" "$INSTDIR\resources\app.ico"
   CreateDirectory "$SMPROGRAMS\${FASAKHANSTA_PRODUCT_NAME}"
@@ -65,9 +114,16 @@ Section "Install"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "DisplayName" "${FASAKHANSTA_PRODUCT_NAME}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "DisplayVersion" "${FASAKHANSTA_VERSION}"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "Publisher" "Fasakhansta"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "Publisher" "GO ERP"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "DisplayIcon" '"$INSTDIR\${FASAKHANSTA_PRODUCT_NAME}.exe",0'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${FASAKHANSTA_UNINSTALL_KEY}" "NoRepair" 1
+  Goto install_complete
+  legacy_upgrade_failed:
+  MessageBox MB_OK|MB_ICONSTOP "Close the previous GO ERP dashboard and run setup again. The existing device data has been preserved." /SD IDOK
+  SetErrorLevel 1603
+  Abort
+  install_complete:
 SectionEnd
 Section "Uninstall"
   Delete "$DESKTOP\${FASAKHANSTA_PRODUCT_NAME}.lnk"

@@ -109,7 +109,9 @@ def generate(root,before,diagnosis):
         old=before[name]['blob']if name in before else gui.get(name)
         target=after[name]['blob']if name in after else targets[name]
         if old==target:
-            if name in gui:protected.append({'path':name,'blob':old})
+            # A single measured cohort pins every retained raw source byte,
+            # including readable root-owned files which are never published.
+            protected.append({'path':name,'blob':old})
             continue
         phase=0 if name in MIGRATIONS else 1 if old is None else 2
         if name.startswith(('routes/','resources/views/','app/Providers/'))or name in('app/Http/Kernel.php','app/Exceptions/Handler.php'):phase=2
@@ -135,6 +137,6 @@ def main():
     destination.write_text(json.dumps(fixture,ensure_ascii=True,sort_keys=True,indent=2)+'\n')
     print('VERIFIED_MEASURED_BASELINE',manifest['before_source']['sha256'])
     print('VERIFIED_REVIEWED_TARGET',manifest['after_source']['sha256'])
-    print('SOURCE_CHANGES',len(manifest['sources']),'PROTECTED_GUI',len(manifest['protected']))
+    print('SOURCE_CHANGES',len(manifest['sources']),'PROTECTED_RAW_PATHS',len(manifest['protected']))
 
 if __name__=='__main__':main()

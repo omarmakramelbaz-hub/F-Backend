@@ -1,7 +1,7 @@
 'use strict';
 // Real NSIS installation in a disposable Windows directory; no production account or database.
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
-const {execFileSync}=require('node:child_process'),{DatabaseSync}=require('node:sqlite');
+const {execFileSync,spawnSync,spawn}=require('node:child_process'),{DatabaseSync}=require('node:sqlite');
 const packaging=require('../installer-runtime.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function residualPaths(directory){
@@ -21,15 +21,62 @@ async function residualPaths(directory){
 }
 (async()=>{
   assert.equal(process.platform,'win32','Actual installer checks require Windows.');
-  const project=path.resolve(__dirname,'..'),setup=path.resolve(process.argv[2]||path.join(project,'dist/Fasakhansta-Dashboard-Preview-Setup.exe'));
+  const project=path.resolve(__dirname,'..'),setup=path.resolve(process.argv[2]||path.join(project,'dist/GO-ERP-Preview-Setup.exe'));
   const prerequisiteFailureBeforeExtraction=await require('./installer-prerequisite-native.cjs')(project);
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-installer-')),installed=path.join(root,'تجربة البرنامج'),profile=path.join(root,'retained-user-data');
+  const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const registrationPath='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FasakhanstaDashboardPreview';
+  const folders=JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',
+    '[pscustomobject]@{desktop=[Environment]::GetFolderPath("DesktopDirectory");programs=[Environment]::GetFolderPath("Programs")} | ConvertTo-Json -Compress'],
+    {windowsHide:true,encoding:'utf8',timeout:30000}));
+  const legacyDesktop=path.join(folders.desktop,'Fasakhansta Dashboard Preview.lnk'),legacyMenu=path.join(folders.programs,'Fasakhansta Dashboard Preview');
+  let ownsFixturePaths=false;
   try {
+    assert.equal(spawnSync('reg.exe',['query',registrationPath],{windowsHide:true}).status,1,'The disposable runner already has a preview registration.');
+    for(const item of [legacyDesktop,legacyMenu,path.join(folders.desktop,'GO ERP.lnk'),path.join(folders.programs,'GO ERP')])
+      await assert.rejects(fs.access(item),{code:'ENOENT'});
+    ownsFixturePaths=true;
     await fs.mkdir(installed);await fs.mkdir(profile);await fs.writeFile(path.join(installed,'KEEP-MY-FILE.txt'),'unrelated existing file');
+    await fs.writeFile(path.join(profile,'existing-profile.txt'),'previous device data');
+    const legacyExecutable=path.join(installed,'Fasakhansta Dashboard Preview.exe');
+    await fs.writeFile(legacyExecutable,'previous named file');await fs.writeFile(legacyDesktop,'previous named desktop link');
+    await fs.mkdir(legacyMenu);await fs.writeFile(path.join(legacyMenu,'Fasakhansta Dashboard Preview.lnk'),'previous named menu link');
+    await fs.writeFile(path.join(legacyMenu,'KEEP.txt'),'unrelated menu file');
     // NSIS documents /D= as the last, unquoted argument; no command shell is involved.
     let setupRebootRequired=false;
-    try{execFileSync(setup,['/S','/D='+installed],{windowsHide:true,windowsVerbatimArguments:true,timeout:300000});}
-    catch(error){if(error.status!==3010)throw error;setupRebootRequired=true;}
+    const install=()=>{try{execFileSync(setup,['/S','/D='+installed],{windowsHide:true,windowsVerbatimArguments:true,timeout:300000});}
+      catch(error){if(error.status!==3010)throw error;setupRebootRequired=true;}};
+    install();
+    assert.equal(await fs.readFile(legacyExecutable,'utf8'),'previous named file');
+    assert.equal(await fs.readFile(legacyDesktop,'utf8'),'previous named desktop link');
+    assert.equal(await fs.readFile(path.join(legacyMenu,'Fasakhansta Dashboard Preview.lnk'),'utf8'),'previous named menu link');
+    // Only this exact previous registration makes the old program names owned.
+    for(const [name,value]of [['DisplayName','Fasakhansta Dashboard Preview'],['UninstallString','"'+path.join(installed,'Uninstall.exe')+'"'],['DisplayVersion','0.4.4-preview.4']])
+      execFileSync('reg.exe',['add',registrationPath,'/v',name,'/t','REG_SZ','/d',value,'/f'],{windowsHide:true});
+    const readiness=path.join(root,'legacy-lock-ready'),release=path.join(root,'legacy-lock-release');
+    const lockScript='$ErrorActionPreference="Stop"; $s=[IO.File]::Open($env:LEGACY_LOCK_TARGET,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read); '
+      +'try {[IO.File]::WriteAllText($env:LEGACY_LOCK_READY,"ready"); $clock=[Diagnostics.Stopwatch]::StartNew(); '
+      +'while(-not [IO.File]::Exists($env:LEGACY_LOCK_RELEASE)){if($clock.ElapsedMilliseconds -gt 120000){throw "Lock deadline exceeded"};[Threading.Thread]::Sleep(25)}} finally {$s.Dispose()}';
+    const holder=spawn(powershell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(lockScript,'utf16le').toString('base64')],
+      {windowsHide:true,stdio:['ignore','ignore','ignore'],env:{...process.env,LEGACY_LOCK_TARGET:legacyExecutable,LEGACY_LOCK_READY:readiness,LEGACY_LOCK_RELEASE:release}});
+    let holderError;holder.on('error',error=>{holderError=error;});
+    const holderDone=new Promise(resolve=>holder.once('close',code=>resolve(code)));
+    try{
+      const deadline=performance.now()+30000;
+      for(;;){try{await fs.access(readiness);break;}catch(error){if(error.code!=='ENOENT')throw error;}
+        if(holderError)throw holderError;if(holder.exitCode!==null||performance.now()>deadline)throw Error('The legacy executable lock fixture did not become ready.');await pause(25);}
+      const protectedExecutable=path.join(installed,'GO ERP.exe');await fs.writeFile(protectedExecutable,'existing application before locked upgrade');
+      const blocked=spawnSync(setup,['/S','/D='+installed],{windowsHide:true,windowsVerbatimArguments:true,timeout:120000});
+      if(blocked.error)throw blocked.error;assert.equal(blocked.status,1603,'An in-use previous preview was not refused.');
+      assert.equal(await fs.readFile(protectedExecutable,'utf8'),'existing application before locked upgrade','A locked upgrade modified the application before refusing.');
+      assert.equal(await fs.readFile(legacyExecutable,'utf8'),'previous named file');
+    }finally{await fs.writeFile(release,'release');assert.equal(await holderDone,0);}
+    install();
+    for(const item of [legacyExecutable,legacyDesktop,path.join(legacyMenu,'Fasakhansta Dashboard Preview.lnk')])
+      await assert.rejects(fs.access(item),{code:'ENOENT'});
+    assert.equal(await fs.readFile(path.join(legacyMenu,'KEEP.txt'),'utf8'),'unrelated menu file');
+    assert.equal(await fs.readFile(path.join(profile,'existing-profile.txt'),'utf8'),'previous device data');
+    process.stdout.write('PASS GO ERP retains unowned old names and upgrades only the matching previous preview while preserving device and unrelated files\n');
     const vcPolicy=JSON.parse(await fs.readFile(path.join(project,'windows-vcredist.json'),'utf8'));
     const vcPayload=JSON.parse((await fs.readFile(path.join(project,'dist/prerequisites/vcredist-package.json'),'utf8')).replace(/^\uFEFF/,''));
     assert.equal(vcPayload.sha256,vcPolicy.sha256);assert.equal(vcPayload.signerSha256,vcPolicy.signerSha256);
@@ -67,7 +114,25 @@ async function residualPaths(directory){
       const sale=store.dispatch(order.id,'sale');store.close();store=new Store(file);
       assert.equal(store.pending().length,1);assert.equal(store.pending()[0].id,sale.id);assert.equal(store.order(order.id).status,'paid');store.close();
       process.stdout.write(JSON.stringify({event:sale.id,order:order.id,total:sale.data.total_cents})+'\\n');`);
-    const executable=path.join(installed,'Fasakhansta Dashboard Preview.exe');
+    const executable=path.join(installed,'GO ERP.exe');
+    const ResEdit=require('resedit'),crypto=require('node:crypto'),hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+    const iconBytes=await fs.readFile(path.join(project,'src/assets/app.ico'));
+    assert.equal(hash(await fs.readFile(path.join(installed,'resources/app.ico'))),hash(iconBytes));
+    const resources=ResEdit.NtExecutableResource.from(ResEdit.NtExecutable.from(await fs.readFile(executable)));
+    const version=ResEdit.Resource.VersionInfo.fromEntries(resources.entries)[0];assert.ok(version);
+    const strings=version.getStringValues(version.getAllLanguagesForStringValues()[0]);
+    for(const name of ['ProductName','FileDescription','CompanyName','InternalName'])assert.equal(strings[name],'GO ERP');
+    const group=ResEdit.Resource.IconGroupEntry.fromEntries(resources.entries).find(value=>value.id===1);assert.ok(group);
+    const frames=iconBytes.readUInt16LE(4);assert.equal(frames,6);assert.equal(group.icons.length,frames);const iconImages=[];
+    for(let i=0;i<frames;i++){
+      const offset=6+i*16,width=iconBytes[offset]||256,height=iconBytes[offset+1]||256,length=iconBytes.readUInt32LE(offset+8),start=iconBytes.readUInt32LE(offset+12);
+      const expected=iconBytes.subarray(start,start+length),item=group.icons.find(value=>(value.width||256)===width&&(value.height||256)===height);assert.ok(item);
+      const resource=resources.entries.find(value=>value.type===3&&value.id===item.iconID&&value.lang===group.lang);assert.ok(resource);
+      assert.deepEqual(Buffer.from(resource.bin),expected);iconImages.push({width,height,sha256:hash(expected)});
+    }
+    const branding={productName:strings.ProductName,fileDescription:strings.FileDescription,companyName:strings.CompanyName,internalName:strings.InternalName,
+      executable:'GO ERP.exe',setup:'GO-ERP-Preview-Setup.exe',iconSha256:hash(iconBytes),iconImages,embeddedIconVerified:true,legacyPreviewUpgrade:true,unownedLegacyNamesRetained:true,lockedLegacyUpgradeBeforeExtraction:true};
+    process.stdout.write('PASS the installed GO ERP executable embeds the official GO icon and Windows product metadata\n');
     const nativeOutput=execFileSync(executable,[path.join(__dirname,'generation-native.cjs'),native,
       path.join(project,'dist/dashboard-synthetic-snapshot.json'),path.join(installed,'resources/app.asar/src')],
       {encoding:'utf8',windowsHide:true,timeout:1200000,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
@@ -104,9 +169,16 @@ async function residualPaths(directory){
       assert.equal(db.prepare('SELECT status FROM orders WHERE id=?').get(saved.order).status,'paid');}finally{db.close();}
     process.stdout.write('PASS actual Windows uninstallation removes only packaged files and retains unrelated files plus the paid unsynced order\n');
     await fs.writeFile(path.join(project,'dist/installer-checks.json'),JSON.stringify({format:1,sourceRevision:receipt.sourceRevision,version:receipt.version,
-      channel:receipt.channel,fullDashboard:false,installation:true,
+      channel:receipt.channel,fullDashboard:false,installation:true,branding,
       prerequisite:{registered:true,installedVersion:vcVersion,bundledVersion:vcPolicy.version,bundledSha256:vcPayload.sha256,signatureValid:true,
         rebootRequired:setupRebootRequired,failureBeforeExtraction:prerequisiteFailureBeforeExtraction},
       installedNativeExecutables:true,installedDashboardRecovery:true,packagedLedger:true,uninstallRetention:true},null,2)+'\n');
-  } finally {await fs.rm(root,{recursive:true,force:true});}
+  } finally {
+    if(ownsFixturePaths){
+      spawnSync('reg.exe',['delete',registrationPath,'/f'],{windowsHide:true});
+      for(const item of [legacyDesktop,legacyMenu,path.join(folders.desktop,'GO ERP.lnk'),path.join(folders.programs,'GO ERP')])
+        await fs.rm(item,{recursive:true,force:true});
+    }
+    await fs.rm(root,{recursive:true,force:true});
+  }
 })().catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});

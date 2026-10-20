@@ -1358,8 +1358,9 @@ class WhatsAppOrderWorkflow
             if ($item['quantity_mode']==='unknown') $fields[]='QUANTITY_MODE';
         }
         $routing=null; $routeData=$data;
-        $information=$primary===null?null:$this->informationTurn($transcript);
-        $inquiry=$noOrder&&$information===null&&$this->primaryCatalogInquiry($transcript);
+        $social=$primary===null?null:$this->socialReplyContext($snapshot['transcript']);
+        $information=$primary===null||$social!==null?null:$this->informationTurn($transcript);
+        $inquiry=$noOrder&&$social===null&&$information===null&&$this->primaryCatalogInquiry($transcript);
         if ($inquiry) {
             $nativeTexts=[]; foreach ($transcript as $message) if ($message['speaker']==='customer'&&is_string($message['text'])) $nativeTexts[]=$message['text'];
             $routeData['customer']['address']=implode(' ',$nativeTexts);
@@ -1375,7 +1376,7 @@ class WhatsAppOrderWorkflow
             // Primary reply hours may collect a future order while the physical branch is closed.
             // Automatic ERP review and dispatch retain the existing live branch-hours guard.
             $reason=null; if ($primary===null&&!$this->branchOpen($questionBranch,$reason)) return null;
-            if ($data['items']!==[]) {
+            if ($data['items']!==[]&&$social===null) {
                 $catalog=$this->dialogueCatalog($resolved['fulfillment_branch']??$resolved['value'],$fresh);
                 if ($catalog===null) return null;
                 $dialogue=$this->catalogClarification($data,$snapshot['transcript'],$catalog);
@@ -1429,6 +1430,9 @@ class WhatsAppOrderWorkflow
             $dialogue=$this->informationContext($information,$catalog,$snapshot['transcript']);
             if ($dialogue===null) return null;
         }
+        // A serious incident/praise/greeting can interrupt collection, without
+        // changing any extracted customer/order facts or dispatch authority.
+        if ($social!==null) $dialogue=$social;
         if ($dialogue!==null) $fields=[$dialogue['field']];
         if ($fields===[]) return null;
         $fields=array_values(array_unique($fields)); sort($fields);
@@ -1477,18 +1481,28 @@ class WhatsAppOrderWorkflow
         }
         if ($latest===null||!is_string($latest['text']??null)||trim($latest['text'])==='') return null;
         $text=$latest['text'];
-        $quantityAnswer=preg_match('/\\A\\s*(?:تمام\\s+)?(?:(?:[0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?|نص|نصف|ربع)\\s*)?(?:كيلو(?:جرام|غرام)?|كجم|كغ|جرام|غرام|جم|قطعة|قطعه|حبة|حبه|علبة|علبه|سمكة|سمكه)(?:\\s+(?:ونص|ونصف|وربع|لو\\s+سمحت|بس|فقط))*\\s*[?؟.!،]*\\s*\\z/u',$text)===1;
+        $routingText=$this->messageTrainingReady()?FasakhanstaMessageTrainingFacts::routingText($text):$text;
+        $quantityAnswer=preg_match('/\\A\\s*(?:تمام\\s+)?(?:(?:[0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?|نص|نصف|ربع)\\s*)?(?:كيلو(?:جرام|غرام)?|كجم|كغ|جرام|غرام|جم|قطعة|قطعه|حبة|حبه|علبة|علبه|سمكة|سمكه)(?:\\s+(?:ونص|ونصف|وربع|لو\\s+سمحت|بس|فقط))*\\s*[?؟.!،]*\\s*\\z/u',$routingText)===1;
         if ($quantityAnswer&&($preceding['speaker']??null)==='business'&&is_string($preceding['text']??null)
-            &&preg_match('/(?:تحب|عايز|عاوز|تحتاج).{0,30}(?:قد\\s+إيه|قد\\s+ايه|قد\\s+أيه|كام|كم)|(?:how\\s+(?:much|many)|what\\s+quantity)/iu',$preceding['text'])) return null;
-        $information=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل|نوعها|نوعه|بكام|سعر|أسعار|اسعار|متاح|موجود|بتبيع|اعرف|أعرف|منيو|مينيو|كتالوج|تطبيق|رقمكم|رقم\\s+(?:فرع|الفرع|فسخانستا)|عنوان\\s+(?:فرع|الفرع))|(?<![\\p{L}\\p{N}])(?:إيه|ايه|كام|هل|كيف|ليه|ازاي|إزاي|امتى|امتي|إمتى)(?![\\p{L}\\p{N}])|\\b(?:what|why|how|when|mean|meaning|explain|difference|description|ingredients|price|prices|available|availability)\\b/iu',$text)===1;
+            &&preg_match('/(?:تحب|عايز|عاوز|تحتاج).{0,30}(?:قد\\s+إيه|قد\\s+ايه|قد\\s+أيه|كام|كم)|(?:how\\s+(?:much|many)|what\\s+quantity)|\\b(?:te7eb|3ayez|3aiz|3awz).{0,20}(?:ad\\s+eh|kam)|\\bkam\\s+kilo\\b/iu',$preceding['text'])) return null;
+        $information=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل|نوعها|نوعه|بكام|سعر|أسعار|اسعار|متاح|موجود|بتبيع|اعرف|أعرف|منيو|مينيو|كتالوج|تطبيق|رقمكم|رقم\\s+(?:فرع|الفرع|فسخانستا)|عنوان\\s+(?:فرع|الفرع))|(?<![\\p{L}\\p{N}])(?:إيه|ايه|كام|هل|كيف|ليه|ازاي|إزاي|امتى|امتي|إمتى)(?![\\p{L}\\p{N}])|\\b(?:what|why|how|when|mean|meaning|explain|difference|description|ingredients|price|prices|available|availability)\\b/iu',$routingText)===1;
         // A courteous question mark does not turn an actual purchase request into
         // a product-definition question. It still supplies no final approval.
         $purchase=preg_match('/\\A\\s*(?:(?:أنا|انا)\\s+)?(?:عايز|عاوز|أريد|اريد|اطلب|أطلب|هات|ابعت|اعملي|اعمللي|ضيف|زود)(?![\\p{L}\\p{N}])|'
             .'\\A\\s*ممكن\\s+(?:[0-9٠-٩]+(?:[.,٫][0-9٠-٩]+)?|نص|نصف|ربع|تلات|ثلاث|اتنين|اثنين)?\\s*(?:كيلو|كجم|جرام|جم|قطعة|قطعه|حبة|حبه|سمكة|سمكه|علبة|علبه|وجبة|وجبه)(?![\\p{L}\\p{N}])|'
-            .'\\A\\s*(?:I\\s+want|please\\s+(?:send|order)|order|send)\\b/iu',$text)===1;
-        if ($purchase&&!$information) return null;
-        $question=preg_match('/[?؟]|(?:مش\\s+فاهم|قصدك|تقصد)|(?<![\\p{L}\\p{N}])(?:يعني|معن[ىي]|معناه|معناها|إيه|ايه|بكام|كام|هل|كيف|ليه|ازاي|إزاي|امتى|امتي|إمتى|اعرف|أعرف)(?![\\p{L}\\p{N}])|\\b(?:what|why|how|when|explain|difference)\\b/iu',$text)===1;
-        if (!$question&&preg_match('/\\A\\s*(?:تمام\\s+)?(?:موافق|اتفقنا|أؤكد|اؤكد|أكد|اكد|yes|confirm|ok(?:ay)?)(?![\\p{L}\\p{N}])/iu',$text)) return null;
+            .'\\A\\s*(?:I\\s+want|please\\s+(?:send|order)|order|send)\\b|'
+            .'\\A\\s*(?:ana\\s+)?(?:3ayez|3aiz|3awz|atlob|otlob|eb3at|hat)\\b/iu',$text)===1;
+        if ($purchase&&!$information) {
+            // These policy limits can be the point of an apparent purchase
+            // request (e.g. a preorder). Do not turn an ordinary cleaned-fish
+            // order into an FAQ merely because it mentions a product feature.
+            if ($this->messageTrainingReady()) foreach ($this->businessInformationFacts($text) as $fact)
+                if (in_array($fact['topic'], ['PREORDER', 'WHOLESALE', 'EXISTING_ORDER', 'AFTER_HOURS', 'RETURNS'], true)) return $latest;
+            return null;
+        }
+        $question=preg_match('/[?؟]|(?:مش\\s+فاهم|قصدك|تقصد)|(?<![\\p{L}\\p{N}])(?:يعني|معن[ىي]|معناه|معناها|إيه|ايه|بكام|كام|هل|كيف|ليه|ازاي|إزاي|امتى|امتي|إمتى|اعرف|أعرف)(?![\\p{L}\\p{N}])|\\b(?:what|why|how|when|explain|difference)\\b/iu',$routingText)===1;
+        if (!$question&&preg_match('/\\A\\s*(?:تمام\\s+)?(?:موافق|اتفقنا|أؤكد|اؤكد|أكد|اكد|yes|confirm|ok(?:ay)?|tamam|mowafe2|mowafeq|kensel|estanna|estana)(?![\\p{L}\\p{N}])/iu',$text)) return null;
+        if ($this->messageTrainingReady()&&$this->businessInformationFacts($text)!==[]) return $latest;
         if (!$question&&!$information&&!preg_match('/(?:مواعيد|ساعات\\s+العمل|(?:أرقام|ارقام|أماكن|اماكن|عناوين)\\s+الفروع|عنوانكم|طرق\\s+(?:الطلب|الدفع)|طريقة\\s+الطلب)/u',$text)) return null;
         return $latest;
     }
@@ -1498,17 +1512,23 @@ class WhatsAppOrderWorkflow
     {
         $episode=WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
         $text=$turn['text']; $facts=[];
-        $add=static function(string $subject,string $value)use(&$facts):void {
+        $language=$this->messageTrainingReady()?FasakhanstaMessageTrainingFacts::language($text):'ar';
+        $routingText=$language==='ar'?$text:FasakhanstaMessageTrainingFacts::routingText($text);
+        $add=static function(string $subject,string $value,bool $reviewedTranslation=false)use(&$facts,$language):void {
+            if ($language!=='ar'&&!$reviewedTranslation) {
+                $value=FasakhanstaMessageTrainingFacts::workflowText($subject,$value,$language);
+                if ($value===null) return;
+            }
             if (count($facts)>=24||mb_strlen($subject)>240||mb_strlen($value)>500
                 ||preg_match('/[\\x00-\\x1f\\x7f]/u',$subject.$value)) return;
             $facts[]=['id'=>'f'.(count($facts)+1),'text'=>$value,'subject'=>$subject];
         };
-        $meaning=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل)|(?<!\\p{L})(?:إيه\\s+ده|ايه\\s+ده|ليه|ازاي|إزاي)(?!\\p{L})|\\b(?:mean|meaning|explain|difference|description|ingredients|why|how)\\b/iu',$text)===1;
-        $price=preg_match('/(?:بكام|سعر|أسعار|اسعار)|\\b(?:price|prices|cost)\\b/iu',$text)===1;
-        $availability=preg_match('/(?:متاح|موجود|بتبيع|منيو|مينيو)|\\b(?:menu|available|availability)\\b/iu',$text)===1;
-        $ordering=preg_match('/(?:ازاي|إزاي|كيف).{0,35}(?:أطلب|اطلب|أوردر|اوردر|طلب)|(?:أطلب|اطلب|طلب|أوردر|اوردر).{0,35}(?:ازاي|إزاي|كيف)|\\bhow.{0,25}order\\b/iu',$text)===1;
-        $hours=preg_match('/(?:شغال|فاتح|بتفتح|بتقفل|مواعيد|موعد|امتى|امتي|إمتى)|\\b(?:hours|open|close|when)\\b/iu',$text)===1;
-        $deliveryFee=preg_match('/(?:سعر|تكلفه|تكلفة|رسوم).{0,15}(?:التوصيل|الدليفري)|(?:التوصيل|الدليفري).{0,15}(?:بكام|كام|سعر)|\\bdelivery.{0,15}(?:price|fee|cost)\\b/iu',$text)===1;
+        $meaning=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل)|(?<!\\p{L})(?:إيه\\s+ده|ايه\\s+ده|ليه|ازاي|إزاي)(?!\\p{L})|\\b(?:mean|meaning|explain|difference|description|ingredients|why|how)\\b/iu',$routingText)===1;
+        $price=preg_match('/(?:بكام|سعر|أسعار|اسعار)|\\b(?:price|prices|cost)\\b/iu',$routingText)===1;
+        $availability=preg_match('/(?:متاح|موجود|بتبيع|منيو|مينيو)|\\b(?:menu|available|availability)\\b/iu',$routingText)===1;
+        $ordering=preg_match('/(?:ازاي|إزاي|كيف).{0,35}(?:أطلب|اطلب|أوردر|اوردر|طلب)|(?:أطلب|اطلب|طلب|أوردر|اوردر).{0,35}(?:ازاي|إزاي|كيف)|\\bhow.{0,25}order\\b/iu',$routingText)===1;
+        $hours=preg_match('/(?:شغال|فاتح|بتفتح|بتقفل|مواعيد|موعد|امتى|امتي|إمتى)|\\b(?:hours|open|close|when)\\b/iu',$routingText)===1;
+        $deliveryFee=preg_match('/(?:سعر|تكلفه|تكلفة|رسوم).{0,15}(?:التوصيل|الدليفري)|(?:التوصيل|الدليفري).{0,15}(?:بكام|كام|سعر)|\\bdelivery.{0,15}(?:price|fee|cost)\\b/iu',$routingText)===1;
         $knowledge=$this->businessInformationFacts($text); $covered=[];
         $previous=null;
         foreach ($episode as $row) { if ($row['id']===$turn['id']) break; $previous=$row; }
@@ -1521,17 +1541,17 @@ class WhatsAppOrderWorkflow
             elseif (preg_match('/(?:عنوان\\s+التوصيل|عنوانك|العنوان)/u',$prior))
                 $knowledge[]=['topic'=>'ADDRESS','subject'=>'سبب عنوان التوصيل','text'=>'عنوان التوصيل يحدد المكان المقصود لإيصال الطلب ويساعد على مراجعة بيانات الدليفري. كتابة العنوان وحدها لا تؤكد الطلب.'];
         }
-        foreach ($knowledge as $fact) { $add($fact['subject'],$fact['text']); $covered[$fact['topic']]=true; }
+        foreach ($knowledge as $fact) { $add($fact['subject'],$fact['text'],!in_array($fact['topic'],['CONTACT','LOCATION','ADDRESS'],true)); $covered[$fact['topic']]=true; }
         if ($ordering&&!isset($covered['ORDER'])) $add('طريقة الطلب','لبداية الطلب بنحدد الصنف والكمية، والفرع وطريقة الاستلام، ثم بيانات التواصل. للدليفري نحتاج عنوان التوصيل. بعد اكتمال البيانات بنراجع ملخص الطلب مع العميل للموافقة قبل التنفيذ.');
         elseif ($hours&&!isset($covered['HOURS'])&&$knowledge===[]) $add('مواعيد الفرع','مواعيد عمل الفرع غير موجودة في بيانات المنيو لهذا الاستفسار. لا يمكن تأكيد وقت فتح أو إغلاق الفرع من هذه البيانات.');
         if ($deliveryFee) $add('رسوم التوصيل','رسوم التوصيل النهائية غير موجودة في بيانات المنيو لهذا الاستفسار، وتحتاج إلى عنوان العميل وحساب التوصيل الفعلي. لا يمكن تخمين مبلغها.');
-        if ($meaning&&preg_match('/(?:هيرنج|هيرينج|herring)/iu',$text))
+        if ($meaning&&preg_match('/(?:هيرنج|هيرينج|herring)/iu',$routingText))
             $add('هيرنج','هيرنج هو الاسم الإنجليزي لسمك الرنجة. الاسم وحده لا يحدد طريقة تجهيز الصنف أو مكوناته.');
         if ($catalog===null) {
             if ($price) $add('سعر الفرع','لا يوجد فرع محدد للاستفسار الحالي، ولذلك لا تتوفر قيمة سعر مؤكدة له. يلزم معرفة الفرع أو المدينة أولاً.');
             elseif ($knowledge===[]&&$facts===[]) $add('تفاصيل المنيو','تفاصيل الصنف وتوفره في فرع معين غير مؤكدة قبل تحديد الفرع أو المدينة.');
         } else {
-            $tokens=$this->menuTokens($text); $matched=[];
+            $tokens=$this->menuTokens($routingText); $matched=[];
             foreach ($catalog as $product)
                 if ($this->relatedMenuTokens($tokens,$this->menuTokens($product['name']))) $matched[]=$product;
             // A short "مش فاهم" follows the actual business topic, without selecting
@@ -1545,9 +1565,9 @@ class WhatsAppOrderWorkflow
                 if ($business!==null) foreach ($catalog as $product)
                     if (strpos($business,$product['name'])!==false) $matched[]=$product;
                 if ($knowledge===[]&&$business!==null) {
-                    foreach ($this->businessInformationFacts($text.' '.$business) as $fact) {
+                    foreach ($this->businessInformationFacts($text.' '.$business,$language) as $fact) {
                         if (!in_array($fact['topic'],['SALT','PREPARATION','ROE','MIX'],true)) continue;
-                        $add($fact['subject'],$fact['text']); $covered[$fact['topic']]=true;
+                        $add($fact['subject'],$fact['text'],true); $covered[$fact['topic']]=true;
                     }
                 }
             }
@@ -1580,8 +1600,14 @@ class WhatsAppOrderWorkflow
     }
 
     /** Curated owner FAQ, reviewed 2026-10-15. Knowledge is never inventory, policy or ERP authority. */
-    private function businessInformationFacts(string $text): array
+    private function businessInformationFacts(string $text,?string $language=null): array
     {
+        if (function_exists('config') && config('fasakhansta_ai_training.messages_enabled', false) === true) {
+            // The new owner reference replaces stale FAQ facts only when intact.
+            // It never changes live catalog prices, stock or order permissions.
+            if (!$this->messageTrainingReady()) return [];
+            return FasakhanstaMessageTrainingFacts::fromReference((new FasakhanstaAiKnowledge())->data(), $text, null, false, $language);
+        }
         $facts=[];
         $add=static function(string $topic,string $subject,string $value)use(&$facts):void {
             $facts[]=['topic'=>$topic,'subject'=>$subject,'text'=>$value];
@@ -1638,6 +1664,20 @@ class WhatsAppOrderWorkflow
         if (is_int($value)&&$value>=0) $value=(string)$value;
         elseif (is_float($value)&&is_finite($value)&&$value>=0&&round($value,2)===$value) $value=number_format($value,2,'.','');
         return is_string($value)&&preg_match('/\\A(?:0|[1-9][0-9]{0,6})(?:\\.[0-9]{1,2})?\\z/',$value)?$value:null;
+    }
+
+    private function messageTrainingReady(): bool
+    {
+        return function_exists('config') && config('fasakhansta_ai_training.messages_enabled', false) === true
+            && class_exists(FasakhanstaAiKnowledge::class) && class_exists(FasakhanstaMessageTrainingFacts::class)
+            && (new FasakhanstaAiKnowledge())->available();
+    }
+
+    private function socialReplyContext(array $transcript): ?array
+    {
+        if (!$this->messageTrainingReady()) return null;
+        $candidates = WhatsAppOrderDialogue::socialCandidates($transcript);
+        return $candidates === [] ? null : $this->dialogueContext('ITEMS', 'SOCIAL_REPLY', null, $candidates, $transcript);
     }
 
     private function dialogueContext(string $field,string $kind,?string $name,array $candidates,array $transcript): ?array

@@ -27,18 +27,19 @@ class MeasuredBaselineTests(unittest.TestCase):
 
     def test_fixture_matches_the_exact_measured_production_evidence(self):
         self.assertEqual(self.fixture['expected_head'],'ee52f1798a542d2c5625c863112315a8aaba02cf')
-        self.assertEqual(self.fixture['source'],{'format':1,'files':1157,
-            'sha256':'2ef5e2b7cae03101046094627e9f19d94165d75c7981cbff097de14eb13fab9f','framework':'8.83.29'})
+        self.assertEqual(self.fixture['source'],{'format':1,'files':1164,
+            'sha256':'105f42de8dd0392af33c7d730541f860919a624b736dd9d277275aabce4487c7','framework':'8.83.29'})
         self.assertEqual(refresh.digest(self.fixture['files']),self.fixture['source'])
-        self.assertEqual(len(self.fixture['measured_source_differences']),282)
-        self.assertEqual(len(self.fixture['gui']),25)
+        self.assertEqual(len(self.fixture['measured_source_differences']),289)
+        self.assertEqual(len(self.fixture['gui']),27)
         for name,pin in self.fixture['measured_source_differences'].items():
             self.assertEqual(self.fixture['files'][name]['blob'],pin,name)
         self.assertEqual(self.fixture['files']['config/whatsapp_cart.php']['blob'],'a40fd3c834734ebbf5f52410e1b0641657605750')
 
     def test_release_reverses_to_the_complete_measured_map_and_preserves_gui(self):
         self.assertEqual(refresh.digest(self.target),self.manifest['after_source'])
-        self.assertEqual(self.manifest['after_source']['files'],1317)
+        self.assertEqual(self.manifest['after_source']['files'],1324)
+        self.assertEqual(self.manifest['after_source']['sha256'],'e1c889bfd170466c7c81e1d8da5d375606eda60d7526b8a48ae348ce36cad1f7')
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerFacts.php', self.target)
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerDirectory.php', self.target)
         self.assertIn('resources/views/admin/contracts/pdf.blade.php', self.target)
@@ -55,7 +56,12 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(reversed_map,self.fixture['files'])
         self.assertEqual(self.manifest['before_source'],self.fixture['source'])
         self.assertEqual(self.manifest['expected_head'],self.fixture['expected_head'])
-        self.assertEqual({row['path']:row['blob']for row in self.manifest['protected']},self.fixture['gui'])
+        retained={name:record['blob']for name,record in self.fixture['files'].items()
+            if record==self.target[name]}
+        self.assertEqual({row['path']:row['blob']for row in self.manifest['protected']},
+            {**retained,**self.fixture['gui']})
+        self.assertEqual(installer.manifest_target_profile(self.manifest),
+            {**{name:record['blob']for name,record in self.target.items()},**self.fixture['gui']})
         for name,pin in self.fixture['gui'].items():self.assertEqual(refresh.file_record(ROOT/name)['blob'],pin,name)
         migrations=[row for row in self.manifest['sources']if row['path'].startswith('database/migrations/')]
         additive=[row for row in migrations if row['path']in refresh.MIGRATIONS]
@@ -68,6 +74,57 @@ class MeasuredBaselineTests(unittest.TestCase):
             self.assertEqual(row['phase'],2);self.assertNotIn(row['path'],self.manifest['migrations'])
         generated,_=refresh.generate(ROOT,self.fixture['files'],self.diagnosis)
         self.assertEqual(generated,self.manifest)
+
+    def test_all_new_live_updates_are_retained_or_have_exact_explicit_merge_boundaries(self):
+        prior=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261019-173156.json').read_text())
+        changed={name for name in self.fixture['files']
+            if self.fixture['files'][name]!=prior['files'].get(name)}
+        self.assertEqual(len(changed),27)
+        self.assertEqual(len(set(self.fixture['files'])-set(prior['files'])),7)
+        merged={'app/Console/Kernel.php','app/Services/Dashboard/BranchShiftClosing.php',
+            'public/dashboard/js/branch-shifts.js'}
+        for name in changed-merged:self.assertEqual(self.target[name],self.fixture['files'][name],name)
+        rows={row['path']:row for row in self.manifest['sources']}
+        for name in merged:
+            self.assertEqual(rows[name]['before_blob'],self.fixture['files'][name]['blob'],name)
+            self.assertEqual(rows[name]['after_blob'],self.target[name]['blob'],name)
+        cache='database/migrations/2026_10_20_045322_create_cache_table.php'
+        self.assertEqual(self.fixture['files'][cache]['blob'],'88cd44590c029964801da3f058d89413f728ceb1')
+        self.assertNotIn(cache,rows);self.assertNotIn(cache,self.manifest['migrations'])
+        self.assertEqual(next(row['blob']for row in self.manifest['protected']if row['path']==cache),self.fixture['files'][cache]['blob'])
+
+    def test_every_retained_raw_source_byte_and_all_current_gui_are_checked_by_the_selector(self):
+        by_path={row['path']:row['blob']for row in self.manifest['protected']}
+        with tempfile.TemporaryDirectory(prefix='desktop-retained-baseline-')as folder:
+            root=Path(folder);uid=os.geteuid()
+            def exists(path):
+                relative=path.relative_to(root).as_posix()
+                source=next((row for row in self.manifest['sources']if row['path']==relative),None)
+                return source is not None and source['before_blob']is not None
+            before={row['path']:row['before_blob']for row in self.manifest['sources']if row['before_blob']is not None}
+            reads={**before,**by_path}
+            def source_bytes(path,*_):return reads[path.relative_to(root).as_posix()].encode()
+            with patch.object(Path,'exists',exists),patch.object(Path,'is_symlink',return_value=False),\
+                    patch.object(installer,'read_source',side_effect=source_bytes),\
+                    patch.object(installer,'blob',side_effect=lambda value:value.decode()):
+                self.assertTrue(installer.baseline_matches(root,uid,self.manifest,self.fixture['expected_head'],self.fixture['source']))
+                for name in ['database/migrations/2026_10_20_045322_create_cache_table.php',
+                             'app/Services/Dashboard/FasakhanstaClaudeTransport.php',
+                             'public/js/dashboard-meta-ai-controls-replies-20261020-v2.js']:
+                    prior=reads[name];reads[name]='f'*40
+                    self.assertFalse(installer.baseline_matches(root,uid,self.manifest,self.fixture['expected_head'],self.fixture['source']),name)
+                    reads[name]=prior
+
+    def test_historical_measured_profiles_are_immutable_and_no_longer_staged_by_root(self):
+        pins={
+            'tests/fixtures/desktop-actual-server-baseline-20261019-173156.json':'b8d8468c92c315923084d6d27cc20acd5b0cc803',
+            'deployment/desktop_dashboard_server_manifest-20261020-4288.json':'58cb5d1e1e05f4ea6b3a9730983a12a543c8059f',
+            'deployment/desktop_dashboard_server_manifest_expense_rejection-20261020-4288.json':'262783253c9b4d903ce0a6f1f7aa5944fec987ed',
+            'tests/fixtures/desktop-dashboard-target-source-20261020-4288.json':'aee5cb9aab835951fdfdaabc0a7567e748e79a58',
+        }
+        for name,pin in pins.items():self.assertEqual(refresh.blob((ROOT/name).read_bytes()),pin,name)
+        source=(ROOT/'deployment/apply_desktop_dashboard_server_root.sh').read_text()
+        self.assertNotIn("'deployment/desktop_dashboard_server_manifest_expense_rejection.json':",source)
 
     def test_semantically_mixed_source_cohort_is_rejected(self):
         mixed=copy.deepcopy(self.fixture['files'])

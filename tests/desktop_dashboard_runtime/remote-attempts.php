@@ -1,4 +1,105 @@
 <?php
+/** Test transport only: preserve the original limiter and every request identity. */
+function desktopFixtureRemoteAttemptWithRateRecovery(callable $http,array $values,array $headers,
+    ?callable $pause=null,?callable $clock=null,?callable $observe=null): array
+{
+    $clock??=static fn(): float=>hrtime(true)/1000000000;
+    $pause??=static fn(float $seconds)=>usleep((int)ceil($seconds*1000000));
+    $observe??=static function(array $value): void {echo 'DESKTOP_NATIVE_API_RATE_WAIT '.json_encode($value).PHP_EOL;};
+    $deadline=$clock()+125.0;$retries=0;
+    while(true){
+        // The enclosing fixture HTTP transport has its unchanged 15-second timeout.
+        // Each retry reserves that allowance inside the monotonic total budget.
+        $reply=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
+        if($reply[0]!==429)return $reply;
+        $retryAfter=[];
+        foreach($reply[2]??[] as $header)
+            if(preg_match('/^Retry-After:(.*)$/iD',$header,$match))$retryAfter[]=trim($match[1]);
+        if($retries>=3||count($retryAfter)!==1
+            ||!preg_match('/^(?:0|[1-9]|[1-5][0-9]|60)$/D',$retryAfter[0]))return $reply;
+        // Laravel can emit zero when its integer timer crosses expiry between
+        // the throttle decision and header generation. It still receives slack.
+        $seconds=(int)$retryAfter[0];$retryAt=$clock()+$seconds+1.0;
+        if($retryAt+15.0>$deadline)return $reply;
+        $observe(['seconds'=>$seconds,'slack_seconds'=>1,'retry'=>++$retries]);
+        // Interrupted sleeps must not cause a request before Retry-After+slack.
+        while(($remaining=$retryAt-$clock())>0)$pause(min(1.0,$remaining));
+        if($clock()+15.0>$deadline)return $reply;
+    }
+}
+
+if(PHP_SAPI==='cli'&&($argv[1]??null)==='--retry-helper-self-test'){
+    $checks=0;$check=static function(bool $ok,string $label)use(&$checks): void {
+        if(!$ok)throw new RuntimeException($label);$checks++;
+    };
+    $values=['action'=>'reserve','id'=>'00000000-0000-4000-8000-000000000001',
+        'method'=>'POST','path'=>'/admin/employees/pay'];
+    $headers=['Authorization: Bearer fixture-only-token','Accept: application/json'];
+    $simulate=static function(array $responses,?callable $advance=null,?callable $sleepAdvance=null)use($values,$headers): array {
+        $now=0.0;$requests=[];$waits=[];$observed=[];$index=0;
+        $clock=static function()use(&$now): float{return $now;};
+        $pause=static function(float $seconds)use(&$now,&$waits,$sleepAdvance): void {
+            $waits[]=$seconds;$now+=$sleepAdvance?$sleepAdvance($seconds):$seconds;
+        };
+        $http=static function($path,$body,$sentHeaders)use(&$requests,&$index,&$now,$responses,$advance): array {
+            $requests[]=[$path,$body,$sentHeaders];
+            if($advance)$now+=$advance($index);
+            if(!isset($responses[$index]))throw new RuntimeException('Unexpected extra HTTP attempt.');
+            return $responses[$index++];
+        };
+        $observe=static function(array $record)use(&$observed): void {$observed[]=$record;};
+        $reply=desktopFixtureRemoteAttemptWithRateRecovery($http,$values,$headers,$pause,$clock,$observe);
+        return compact('reply','requests','waits','observed','now');
+    };
+    $success=[200,'{"status":"ready","capability":"unchanged-reply"}',['Content-Type: application/json']];
+    $first=[429,'first limited response',['Retry-After: 24']];$second=[429,'second limited response',['retry-after: 1']];
+    $test=$simulate([$first,$second,$success]);
+    $check($test['reply']===$success&&count($test['requests'])===3,'Two consecutive observed429 replies recover only from the real successful response.');
+    $check(array_sum($test['waits'])===27.0&&array_column($test['observed'],'retry')===[1,2],
+        'Every repeated429 waits its own Retry-After and one-second boundary slack.');
+    foreach($test['requests']as $request)$check($request===['/api/desktop-dashboard/remote-attempts',$values,$headers],
+        'Every retry preserves exact path, action, request UUID, payload and authorization.');
+    $test=$simulate([[429,'boundary zero',['Retry-After: 0']],$success]);
+    $check($test['reply']===$success&&count($test['requests'])===2&&array_sum($test['waits'])===1.0,
+        'A valid zero-second Laravel header still waits one boundary-slack second.');
+    foreach([0,401,403,409,422,500]as $status){
+        $reply=[$status,'original non429 body',['Retry-After: 1']];$test=$simulate([$reply]);
+        $check($test['reply']===$reply&&count($test['requests'])===1&&$test['waits']===[],
+            'Non429 results and network failures are never retried or converted into success.');
+    }
+    foreach([[],['Retry-After: 1','retry-after: 1'],['Retry-After: -1'],['Retry-After: 61'],
+        ['Retry-After: 999999999999999999999999'],['Retry-After: 1.0'],['Retry-After: 1e0'],
+        ['Retry-After: +1'],['Retry-After: 01'],['Retry-After: Tue, 20 Oct 2026 12:00:00 GMT'],
+        ['Retry-After: 1,2'],['Retry-After: ']]as $invalid){
+        $reply=[429,'unchanged invalid limited response',$invalid];$test=$simulate([$reply]);
+        $check($test['reply']===$reply&&count($test['requests'])===1&&$test['waits']===[],
+            'Malformed, duplicate, missing or out-of-bounds Retry-After fails without waiting.');
+    }
+    $limited=[429,'still limited',['Retry-After: 0']];$test=$simulate(array_fill(0,4,$limited));
+    $check($test['reply']===$limited&&count($test['requests'])===4&&array_sum($test['waits'])===3.0,
+        'Attempt exhaustion returns the original429 after exactly three retries.');
+    $long=[429,'long valid wait',['Retry-After: 60']];$test=$simulate([$long,$long]);
+    $check($test['reply']===$long&&count($test['requests'])===2&&array_sum($test['waits'])===61.0,
+        'The total budget refuses another valid long wait rather than sleeping without a bound.');
+    $test=$simulate([$long],static fn()=>70.0);
+    $check($test['reply']===$long&&count($test['requests'])===1&&$test['waits']===[],
+        'Actual HTTP elapsed time counts toward the total retry budget.');
+    $test=$simulate([$limited],null,static fn()=>126.0);
+    $check($test['reply']===$limited&&count($test['requests'])===1,
+        'An overslept budget cannot authorize another request.');
+    $test=$simulate([$limited,$success],null,static fn(float $seconds)=>$seconds/2);
+    $check($test['reply']===$success&&$test['now']>=1.0&&count($test['waits'])>1,
+        'Interrupted short sleeps cannot send the retry before its boundary deadline.');
+    try{
+        desktopFixtureRemoteAttemptWithRateRecovery(static function(){throw new RuntimeException('fixture transport failure');},
+            $values,$headers,static function(){throw new RuntimeException('Unexpected sleep.');});
+        throw new RuntimeException('Expected the original transport exception.');
+    }catch(RuntimeException $error){$check($error->getMessage()==='fixture transport failure','Transport exceptions propagate unchanged.');}
+    echo 'REMOTE_ATTEMPT_RATE_RETRY_SELF_TEST_COMPLETE '.json_encode(['checks'=>$checks,'max_retries'=>3,
+        'total_budget_seconds'=>125,'http_timeout_reserved_seconds'=>15,'boundary_slack_seconds'=>1,
+        'exact_request_identity'=>true,'production_limiter_changed'=>false]).PHP_EOL;
+    exit(0);
+}
 require_once $application.'/database/migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php';
 (new \CreateShiftReportPrintingAndNumbers)->up();
 
@@ -13,14 +114,7 @@ $web=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$httpPort,__DIR__.'/server-router.p
 $cookies=[];
 $decide=function(array $attempt,string $action='reserve')use($http,$ownerLink){
     $values=['action'=>$action]+$attempt;$headers=['Authorization: Bearer '.$ownerLink['token'],'Accept: application/json'];
-    [$status,$body,$responseHeaders]=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
-    if($status===429){
-        $retryAfter=[];foreach($responseHeaders as $header)if(preg_match('/^Retry-After:(.*)$/iD',$header,$match))$retryAfter[]=trim($match[1]);
-        if(count($retryAfter)===1&&preg_match('/^(?:[1-9]|[1-5][0-9]|60)$/D',$retryAfter[0])){
-            $seconds=(int)$retryAfter[0];echo 'DESKTOP_NATIVE_API_RATE_WAIT '.json_encode(['seconds'=>$seconds,'retry'=>1]).PHP_EOL;
-            sleep($seconds);[$status,$body]=$http('/api/desktop-dashboard/remote-attempts',$values,$headers);
-        }
-    }
+    [$status,$body]=desktopFixtureRemoteAttemptWithRateRecovery($http,$values,$headers);
     return [$status,json_decode($body,true)];
 };
 $proof=fn($reply)=>['X-Fasakhansta-Remote-Attempt: '.$reply['id'],'X-Fasakhansta-Remote-Capability: '.$reply['capability']];

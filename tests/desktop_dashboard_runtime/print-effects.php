@@ -134,6 +134,15 @@ $resolved=$effects->resolve($device,['path'=>'/admin/dining/tickets/'.$dineSaved
 check($resolved['effect_id']===$billIntent['effect_id'],'original unpaid dining URL resolves to the exact immutable bill effect');
 $billPrepare=$effects->prepare($device,['effect_id'=>$billIntent['effect_id'],'claim_token'=>(string)Str::uuid(),'native_session_id'=>(string)Str::uuid()]);
 check(str_contains($billPrepare['html'],'data-dashboard-receipt='),'original unpaid bill view renders without opening its mutable GET route');
+// The original unpaid-bill assertions above remain unchanged. Collect that bill
+// through the real service before asking the live guarded shift service to close.
+$collectDine=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'expected_revision'=>$billResult['ticket']['revision'],
+    'quote_hash'=>$billResult['ticket']['quote_hash'],'payment_method'=>'cash','cash_received'=>'100.00','payment_confirmed'=>true,
+    'customer_phone'=>'01012345678','service_consent'=>true];
+$collectedDine=$journal->execute($device,$collectDine['idempotency_key'],1,'dining.settle',
+    ['parameters'=>['id'=>$dineSaved['ticket']['id']],'values'=>$collectDine],[],
+    fn()=>app(\App\Services\Dashboard\PosServiceTicket::class)->settle('dine',$dineSaved['ticket']['id'],$collectDine,$actor,true));
+if(($collectedDine['ticket']['payment_status']??null)!=='paid')throw new RuntimeException('Print-effects shift fixture did not settle its dining invoice.');
 // Root-approved initial shift owner authority retains the original management permission.
 $review=app(\App\Services\Dashboard\BranchShiftClosing::class)->data(['branch'=>'f:100'],$actor);
 $closing=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'previous_closing_id'=>$review['previous_closing_id'],'review_token'=>$review['review_token'],'counted_cash'=>'25.00'];

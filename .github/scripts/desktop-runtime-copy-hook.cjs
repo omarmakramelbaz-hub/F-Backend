@@ -29,7 +29,7 @@ module.exports=async context=>{
       ||!/^[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$/.test(info.version)
       ||!/^[A-Za-z0-9 ._-]{1,80}$/.test(product))throw Error('Invalid verified installer metadata.');
   await fs.writeFile(path.join(project,'dist/installer-version.nsh'),
-    '!define FASAKHANSTA_VERSION "'+info.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
+    '!define FASAKHANSTA_NUMERIC_VERSION "'+info.version.split('-')[0]+'.0"\n!define FASAKHANSTA_VERSION "'+info.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
     +'!define FASAKHANSTA_UNINSTALL_KEY "FasakhanstaDashboardPreview"\n');
   const nsis=await fs.readFile(path.join(project,'installer.nsi'),'utf8');
   const windowsNsis=nsis.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'));

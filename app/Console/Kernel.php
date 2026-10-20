@@ -66,6 +66,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('notify:resturantreportclosed')->everyMinute();
         $schedule->command('notify:min_wallet_balance')->daily();
         $schedule->command('notify:open_close_resturant')->everyMinute();
+        $schedule->command('meta:process-comment-replies --once --budget=30 --limit=4')->everyMinute()->withoutOverlapping(2);
         $schedule->command('notify:resturantreportmonthly')->monthlyOn(1); // Runs on the 1st of every month at midnight
         $schedule->command('reports:resturantreportyearly')->yearlyOn(1); // Runs on January 1st at midnight
         $schedule->command('notify:moneyback')->everyMinute();

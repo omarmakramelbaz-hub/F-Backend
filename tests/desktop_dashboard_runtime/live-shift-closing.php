@@ -1,0 +1,74 @@
+<?php
+// Real merged shift service on a private in-memory database; no production bootstrap or shared database.
+use Illuminate\Support\Facades\{DB,Schema};
+use App\Services\Dashboard\BranchShiftClosing;
+use App\Models\User;
+use Carbon\Carbon;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+$fixtureCompleted=false;register_shutdown_function(function()use(&$fixtureCompleted){if(!$fixtureCompleted){fwrite(STDERR,'LIVE_SHIFT_MERGE_INCOMPLETE'.PHP_EOL);exit(1);}});
+$application=isset($argv[1])?realpath($argv[1]):false;$expectedFramework=$argv[2]??'';
+if(!$application||!is_file($application.'/desktop/bootstrap.php')||!in_array($expectedFramework,['8.83.29','12.70.0'],true))throw new RuntimeException('Pass a prepared private application and its reviewed framework.');
+$profile=sys_get_temp_dir().'/desktop-live-shift-'.bin2hex(random_bytes(8));
+foreach(['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private']as$directory)mkdir($profile.'/'.$directory,0700,true);
+foreach(['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$profile,'APP_ENV'=>'testing','APP_DEBUG'=>'false','APP_URL'=>'http://127.0.0.1:43144','APP_KEY'=>'base64:'.base64_encode(str_repeat('x',32)),'DB_CONNECTION'=>'sqlite','DB_DATABASE'=>':memory:','CACHE_DRIVER'=>'array','CACHE_STORE'=>'array','SESSION_DRIVER'=>'array','TAKEAWAY_TEST_CONNECTION'=>'sqlite','APP_CONFIG_CACHE'=>$profile.'/bootstrap/cache/config.php','APP_PACKAGES_CACHE'=>$profile.'/bootstrap/cache/packages.php','APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php']as$n=>$v)putenv($n.'='.$v);
+$loader=require $application.'/vendor/autoload.php';
+$loader->setPsr4('App\\',[$application.'/app']);$loader->setPsr4('Database\\Factories\\',[$application.'/database/factories']);$map=[];
+foreach($loader->getClassMap()as$name=>$file)if(str_starts_with($name,'App\\')){$path=$application.'/app/'.str_replace('\\','/',substr($name,4)).'.php';if(is_file($path))$map[$name]=$path;}
+$loader->addClassMap($map);
+$app=require $application.'/desktop/bootstrap.php';
+function fixtureKey(int$n):string{return sprintf('00000000-0000-4000-8000-%012d',$n);}
+require __DIR__.'/live-shift-fixture.php';
+config(['desktop_dashboard.local'=>false]);
+$count=0;function check($value,string$message):void{global$count;if(!$value)throw new RuntimeException($message);$count++;echo 'PASS '.$message.PHP_EOL;}
+function denied(callable$call,string$message):void{try{$call();throw new RuntimeException('Expected rejection: '.$message);}catch(HttpException$e){check($e->getStatusCode()===409,$message);}}
+$service=app(BranchShiftClosing::class);$actor=User::withoutGlobalScopes()->findOrFail(1);
+check($app->version()===$expectedFramework,'actual Laravel engine is '.$app->version());
+check(DB::connection()->getDriverName()==='sqlite'&&config('database.connections.sqlite.database')===':memory:','all business writes use private in-memory SQLite');
+check(realpath((new ReflectionClass(BranchShiftClosing::class))->getFileName())===realpath($application.'/app/Services/Dashboard/BranchShiftClosing.php'),'actual merged shift class loads from the private current-source copy');
+Schema::create('payments',function($t){$t->id();$t->unsignedBigInteger('order_id');$t->string('status');$t->string('transaction_id')->nullable();});
+DB::table('takeaway_tills')->insert(['branch'=>'f:100','balance_cents'=>10000,'tax_bps'=>0,'revision'=>1]);
+$ticket=function(string$channel,string$branch='f:100'){return DB::table('pos_service_tickets')->insertGetId(['branch'=>$branch,'channel'=>$channel,'actor_id'=>1,'status'=>'open','payment_status'=>'unpaid','table_snapshot'=>json_encode(['name'=>'T1']),'cart_snapshot'=>'[]','quote_snapshot'=>'{}','business_date'=>'2026-10-03','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);};
+$dine=$ticket('dine');
+$order=function(string$method,int$branch=100){return DB::table('orders')->insertGetId(['resturant_id'=>$branch,'status'=>'pending','type'=>'current','payment_type'=>$method,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);};
+$failed=$order('card');DB::table('payments')->insert(['order_id'=>$failed,'status'=>'failed','transaction_id'=>'failed-checkout']);
+$unfinished=$order('card');DB::table('payments')->insert(['order_id'=>$unfinished,'status'=>'false','transaction_id'=>null]);
+$retainedSuccess=$order('card');DB::table('payments')->insert([['order_id'=>$retainedSuccess,'status'=>'true','transaction_id'=>'retained-paid'],['order_id'=>$retainedSuccess,'status'=>'failed','transaction_id'=>'late-failure']]);
+$cash=$order('cash');DB::table('payments')->insert(['order_id'=>$cash,'status'=>'failed','transaction_id'=>'irrelevant-cash-failure']);
+$foreign=$order('cash',101);
+$preview=$service->data(['branch'=>'f:100'],$actor);$pending=$preview['report']['pending_invoices'];
+check($pending['total']===4&&$pending['counts']===['dine'=>1,'phone'=>0,'app'=>3],'current preview lists one open dine invoice and three active application invoices');
+$ids=array_column($pending['items'],'id');$appIds=array_column(array_filter($pending['items'],fn($row)=>$row['source']==='app'),'id');
+check(!in_array($failed,$appIds,true),'explicitly failed card checkout is excluded from pending invoices');
+check(in_array($unfinished,$appIds,true),'unfinished false-without-transaction checkout remains pending');
+check(in_array($retainedSuccess,$appIds,true),'retained successful payment overrides a later failed attempt');
+check(in_array($cash,$appIds,true)&&!in_array($foreign,$appIds,true),'cash and foreign-branch records keep their original accounting scope');
+foreach($pending['items']as$row)check(array_keys($row)===['source','id','number','label','status','status_label','table_name','branch_name','url'],'invoice preview exposes workflow identifiers without totals or customer data');
+foreach(['channels','sales_total','delivery_total','expenses_total','net_sales','expected_cash','opening_cash','variance','counted_cash','till_balance']as$key)check(!array_key_exists($key,$preview['report']),'cashier preview excludes '.$key);
+$all=$service->data(['branch'=>'all'],$actor);
+check($all['all_branches']&&$all['report']['pending_invoices']['total']===5,'all-branches preview aggregates current pending invoices without dropping another branch');
+check(!isset($all['review_token'],$all['report']['expected_cash']),'all-branches preview does not expose close tokens or drawer totals');
+$values=function(int$key)use($service,$actor){$p=$service->data(['branch'=>'f:100'],$actor);return ['branch'=>'f:100','idempotency_key'=>fixtureKey($key),'previous_closing_id'=>$p['previous_closing_id'],'review_token'=>$p['review_token'],'counted_cash'=>'100.00','notes'=>'Live pending and desktop merge fixture'];};
+$blocked=$values(99001);$before=[DB::table('branch_shift_closings')->count(),DB::table('branch_shift_print_jobs')->count(),DB::table('branch_shift_sources')->count(),DB::table('takeaway_tills')->value('balance_cents')];
+denied(fn()=>$service->close($blocked,$actor),'actual close rejects an unpaid pending invoice');
+check($before===[DB::table('branch_shift_closings')->count(),DB::table('branch_shift_print_jobs')->count(),DB::table('branch_shift_sources')->count(),DB::table('takeaway_tills')->value('balance_cents')],'pending-invoice rejection changes no closing, print job, source claim or drawer value');
+DB::table('pos_service_tickets')->where('id',$dine)->update(['status'=>'paid','payment_status'=>'paid']);DB::table('orders')->where('resturant_id',100)->update(['status'=>'cancelled']);
+check($service->data(['branch'=>'f:100'],$actor)['report']['pending_invoices']['total']===0,'explicit invoice settlement clears this branch while preserving foreign pending records');
+$firstValues=$values(99002);$first=$service->close($firstValues,$actor);$paper=$service->receipt($first['closing']['id'],$actor);
+check($first['success']&&DB::table('branch_shift_closings')->count()===1,'actual close succeeds after invoices are explicitly settled');
+check($paper['expected_cash']==='100.00'&&$paper['counted_cash']==='100.00'&&$paper['drawer_preserved']===true,'closed receipt preserves expected cash, counted cash and the drawer');
+check($service->close($firstValues,$actor)['replayed']&&DB::table('branch_shift_closings')->count()===1,'lost-response retry preserves the original close idempotency');
+$desktopValues=$values(99003);$facts=$service->desktopReview($desktopValues,$actor);
+check(isset($facts['snapshot']['pending_invoices'])&&$facts['snapshot']['pending_invoices']['total']===0,'desktop review binds the current pending-invoice facts');
+$late=$ticket('phone');
+denied(fn()=>$service->reconcileDesktop($desktopValues,$facts,$actor),'a newly pending invoice rejects stale desktop close facts');
+check(DB::table('branch_shift_closings')->count()===1,'stale desktop pending-invoice conflict creates no second closing');
+$freshPending=$service->desktopReview($desktopValues,$actor);denied(fn()=>$service->reconcileDesktop($desktopValues,$freshPending,$actor),'even current desktop facts cannot bypass the pending-invoice close gate');
+DB::table('pos_service_tickets')->where('id',$late)->update(['status'=>'paid','payment_status'=>'paid']);
+$freshValues=$values(99004);$fresh=$service->desktopReview($freshValues,$actor);DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>11000]);
+denied(fn()=>$service->reconcileDesktop($freshValues,$fresh,$actor),'desktop reconciliation still refuses a changed drawer');
+check(DB::table('branch_shift_closings')->count()===1&&DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents')===11000,'desktop drawer conflict preserves current cash and original closing');
+DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>10000]);$finalValues=$values(99005);$finalFacts=$service->desktopReview($finalValues,$actor);$second=$service->reconcileDesktop($finalValues,$finalFacts,$actor);
+check($second['success']&&DB::table('branch_shift_closings')->count()===2,'matching current desktop facts execute the original guarded close once');
+check($service->receipt($first['closing']['id'],$actor)===$paper,'subsequent desktop reconciliation leaves the original saved closing receipt immutable');
+echo 'LIVE_SHIFT_MERGE_COMPLETE '.json_encode(['checks'=>$count,'framework'=>$app->version(),'sourceClassSha256'=>hash_file('sha256',$application.'/app/Services/Dashboard/BranchShiftClosing.php'),'driver'=>'sqlite','privateDatabase'=>true,'sourceCopied'=>true,'retainedVendorModified'=>false,'productionEnvironmentLoaded'=>false,'phpBusinessExecution'=>true,'physicalPrinter'=>false]).PHP_EOL;
+$fixtureCompleted=true;

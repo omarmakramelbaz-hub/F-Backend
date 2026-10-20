@@ -4,10 +4,10 @@ $metaAiArabic = app()->getLocale() === 'ar';
 $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update_url'=>route('meta-ai-control.update'),
     'csrf'=>csrf_token(), 'lang'=>$metaAiArabic ? 'ar' : 'en'];
 @endphp
-<section id="meta-ai-controls" class="meta-ai-controls" aria-label="{{ $metaAiArabic ? 'إعدادات تحليل الرسائل وإرسال الطلبات' : 'Message analysis and order dispatch settings' }}" hidden>
+<section id="meta-ai-controls" class="meta-ai-controls" aria-label="{{ $metaAiArabic ? 'إعدادات الرد وتحليل الرسائل وإرسال الطلبات' : 'Reply, message analysis and order dispatch settings' }}" hidden>
     <details class="meta-ai-disclosure">
         <summary class="meta-ai-disclosure-summary">
-            <span>{{ $metaAiArabic ? 'تحليل الرسائل وإرسال الطلبات' : 'Message analysis and order dispatch' }}</span>
+            <span>{{ $metaAiArabic ? 'الرد وتحليل الرسائل وإرسال الطلبات' : 'Replies, message analysis and order dispatch' }}</span>
             <svg class="meta-ai-disclosure-arrow" width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false"><path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </summary>
         <div class="meta-ai-disclosure-body">
@@ -18,13 +18,31 @@ $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update
     </div>
     <p class="meta-ai-note" data-meta-ai-dispatch-status role="status" aria-live="polite">{{ $metaAiArabic ? 'جارٍ تحميل حالة إرسال الطلبات' : 'Loading order dispatch status' }}</p>
     <p class="meta-ai-note" data-meta-ai-analysis-status role="status" aria-live="polite"></p>
+    <p class="meta-ai-note" data-meta-ai-reply-status role="status" aria-live="polite"></p>
     <ul class="meta-ai-channel-status" data-meta-ai-channel-status aria-live="polite"></ul>
     <p class="meta-ai-message" data-meta-ai-compatibility-note hidden></p>
     <p class="meta-ai-message" data-meta-ai-message role="status" aria-live="polite" hidden></p>
     <details class="meta-ai-settings" data-meta-ai-settings hidden>
-        <summary>{{ $metaAiArabic ? 'القنوات ومواعيد تحليل الرسائل وإرسال الطلبات' : 'Channels, message analysis hours and order dispatch hours' }}</summary>
+        <summary>{{ $metaAiArabic ? 'وضع الرد والقنوات ومواعيد المعالجة' : 'Reply mode, channels and processing hours' }}</summary>
         <form data-meta-ai-form data-spa-off>
-            <p class="meta-ai-note" data-meta-ai-analysis-note>{{ $metaAiArabic ? 'مساعد ميتا مسؤول عن الرد وجمع البيانات وتأكيد الطلب مع العميل. إعدادات هذه الصفحة مخصصة لتحليل المحادثة والملخص النهائي وإرسال الطلب المكتمل إلى الفرع بعد تأكيد العميل، بدون إرسال أي ردود تلقائية من الداشبورد. احفظ الإعدادات لتطبيق هذا الدور.' : 'Meta assistant is responsible for replies, collecting details and confirming the order with the customer. These settings are for analysing the conversation and final summary, then sending the complete order to the branch after customer confirmation, without sending automatic dashboard replies. Save the settings to apply this role.' }}</p>
+            <fieldset class="meta-ai-fields">
+                <legend>{{ $metaAiArabic ? 'دور الداشبورد في الرسائل' : 'Dashboard role in messages' }}</legend>
+                <label>{{ $metaAiArabic ? 'الوضع' : 'Mode' }}
+                    <select data-meta-ai-mode data-dropdown-parent="#meta-ai-controls" disabled aria-describedby="meta-ai-mode-help">
+                        <option value="" selected disabled>{{ $metaAiArabic ? 'جارٍ تحميل الوضع المحفوظ' : 'Loading saved mode' }}</option>
+                        <option value="ANALYZE_ONLY">{{ $metaAiArabic ? 'تحليل وإرسال الطلبات فقط' : 'Analysis and order dispatch only' }}</option>
+                        <option value="REPLY_AND_ANALYZE">{{ $metaAiArabic ? 'ردود تلقائية وتحليل وإرسال الطلبات' : 'Automatic replies, analysis and order dispatch' }}</option>
+                    </select>
+                </label>
+            </fieldset>
+            <p id="meta-ai-mode-help" class="meta-ai-note" data-meta-ai-analysis-note data-meta-ai-mode-help></p>
+            <fieldset class="meta-ai-schedule-settings" data-meta-ai-handoff-settings hidden>
+                <legend>{{ $metaAiArabic ? 'قبل تفعيل الردود' : 'Before enabling replies' }}</legend>
+                <label><input type="checkbox" data-meta-ai-external-paused autocomplete="off" disabled>
+                    {{ $metaAiArabic ? 'أؤكد أني أوقفت أي مساعد خارجي يرد تلقائيًا على كل القنوات المحددة.' : 'I confirm that I have paused any external assistant that automatically replies on every selected channel.' }}
+                </label>
+                <p class="meta-ai-note">{{ $metaAiArabic ? 'ضع العلامة بعد إيقافه فعليًا من إعداداته. التأكيد لا يوقف المساعد نيابةً عنك، ويُطلب مجددًا عند الحاجة إلى تفعيل جديد.' : 'Check this only after actually pausing it in its settings. This confirmation does not pause the assistant for you and is requested again when a new activation needs it.' }}</p>
+            </fieldset>
             <fieldset class="meta-ai-fields">
                 <legend>{{ $metaAiArabic ? 'القنوات التي يعمل عليها AI' : 'Channels where AI operates' }}</legend>
                 <label><input type="checkbox" value="whatsapp" data-meta-ai-channel disabled> {{ $metaAiArabic ? 'واتساب' : 'WhatsApp' }}</label>
@@ -32,20 +50,20 @@ $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update
                 <label><input type="checkbox" value="instagram" data-meta-ai-channel disabled> {{ $metaAiArabic ? 'إنستجرام' : 'Instagram' }}</label>
             </fieldset>
             <fieldset class="meta-ai-schedule-settings" data-meta-ai-analysis-settings>
-            <legend>{{ $metaAiArabic ? 'مواعيد تحليل الرسائل' : 'Message analysis hours' }}</legend>
+            <legend>{{ $metaAiArabic ? 'مواعيد الرد وتحليل الرسائل حسب الوضع المختار' : 'Reply and message analysis hours for the selected mode' }}</legend>
             <div class="meta-ai-schedule-row">
-                <label><input type="checkbox" data-meta-ai-schedule disabled> {{ $metaAiArabic ? 'جدولة تحليل الرسائل' : 'Schedule message analysis' }}</label>
+                <label><input type="checkbox" data-meta-ai-schedule disabled> {{ $metaAiArabic ? 'جدولة الرد والتحليل' : 'Schedule replies and analysis' }}</label>
                 <label><input type="checkbox" data-meta-ai-all-day disabled> {{ $metaAiArabic ? 'طوال اليوم' : 'All day' }}</label>
                 <label>{{ $metaAiArabic ? 'من' : 'From' }} <input type="time" value="09:00" step="60" data-meta-ai-start disabled></label>
                 <label>{{ $metaAiArabic ? 'إلى' : 'To' }} <input type="time" value="23:00" step="60" data-meta-ai-end disabled></label>
             </div>
             <fieldset class="meta-ai-fields meta-ai-days">
-                <legend>{{ $metaAiArabic ? 'أيام بداية تحليل الرسائل' : 'Days when message analysis starts' }}</legend>
+                <legend>{{ $metaAiArabic ? 'أيام بداية الرد والتحليل' : 'Days when replies and analysis start' }}</legend>
                 @foreach(($metaAiArabic ? ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'] : ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']) as $metaAiDay => $metaAiDayName)
                 <label><input type="checkbox" value="{{ $metaAiDay }}" data-meta-ai-day disabled> {{ $metaAiDayName }}</label>
                 @endforeach
             </fieldset>
-            <p class="meta-ai-note">{{ $metaAiArabic ? 'عند إيقاف جدولة التحليل، يمكن تحليل الرسائل طوال اليوم.' : 'Turning off analysis scheduling allows messages to be analysed all day.' }}</p>
+            <p class="meta-ai-note">{{ $metaAiArabic ? 'عند إيقاف هذه الجدولة، يعمل الرد والتحليل المسموح بهما في الوضع المختار طوال اليوم. وضع التحليل فقط لا يرسل ردودًا تلقائية.' : 'Turning off this schedule allows the replies and analysis permitted by the selected mode all day. Analysis-only mode does not send automatic replies.' }}</p>
             </fieldset>
             <fieldset class="meta-ai-schedule-settings meta-ai-dispatch-settings">
                 <legend>{{ $metaAiArabic ? 'مواعيد إرسال الطلبات للفروع' : 'Order dispatch hours for branches' }}</legend>
@@ -78,7 +96,7 @@ $metaAiControlsBootstrap = ['state_url'=>route('meta-ai-control.state'), 'update
 @endpush
 @push('custom-js')
 <script type="application/json" id="meta-ai-controls-bootstrap">@json($metaAiControlsBootstrap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
-<script src="{{ asset('js/dashboard-meta-ai-controls.js') }}?v={{ filemtime(public_path('js/dashboard-meta-ai-controls.js')) }}"></script>
+<script src="{{ asset('js/dashboard-meta-ai-controls-replies-20261020-v2.js') }}?v={{ filemtime(public_path('js/dashboard-meta-ai-controls-replies-20261020-v2.js')) }}"></script>
 <script data-dashboard-page-init>
 if (window.DashboardMetaAiControls) window.DashboardMetaAiControls.mount();
 </script>

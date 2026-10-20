@@ -210,6 +210,16 @@ $sent=$ledger->atomic($device,$action['idempotency_key'],'phone-orders.action',1
 check($sent['intents'][0]['local_references']['kitchen.primary']!==$kitchenIntent['local_references']['kitchen.primary'],'later send-to-kitchen creates its own command-bound immutable output');
 check($phoneWrite()['intents']===$phoneSaved['intents'],'retry does not rebind an earlier save to ticket.last_kitchen_id');
 
+// Complete this real phone invoice before the fixture reviews a shift. The live
+// pending-invoice guard must also apply when a local native print test closes.
+$collectTicket=app(PosServiceTicket::class)->show('phone',$ticket['id'],$actor)['ticket'];
+$collectValues=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'expected_revision'=>$collectTicket['revision'],
+    'quote_hash'=>$collectTicket['quote_hash'],'payment_method'=>'cash','cash_received'=>'100.00','payment_confirmed'=>true];
+$collected=$ledger->atomic($device,$collectValues['idempotency_key'],'phone-orders.settle',1,'f:100',fn()=>$journal->execute(
+    $device,$collectValues['idempotency_key'],1,'phone-orders.settle',['parameters'=>['id'=>$ticket['id']],'values'=>$collectValues],[],
+    fn()=>app(PosServiceTicket::class)->settle('phone',$ticket['id'],$collectValues,$actor,true)));
+if(($collected['result']['ticket']['payment_status']??null)!=='paid')throw new RuntimeException('Print-ledger shift fixture did not settle its phone invoice.');
+
 $review=app(BranchShiftClosing::class)->data(['branch'=>'f:100'],$actor);$closing=['branch'=>'f:100','idempotency_key'=>(string)Str::uuid(),'previous_closing_id'=>$review['previous_closing_id'],'review_token'=>$review['review_token'],'counted_cash'=>'25.00'];
 $facts=app(BranchShiftClosing::class)->desktopReview($closing,$actor);
 $closed=$ledger->atomic($device,$closing['idempotency_key'],'branch-shifts.close',1,'f:100',fn()=>$journal->execute($device,$closing['idempotency_key'],1,'branch-shifts.close',['values'=>$closing,'facts'=>['shift'=>$facts]],[],fn()=>app(BranchShiftClosing::class)->close($closing,$actor)));

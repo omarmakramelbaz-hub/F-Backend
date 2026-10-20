@@ -365,22 +365,52 @@ class DashboardPosServiceTest extends TestCase
         $sent=$this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['ticket'];
         $this->assertTrue($sent['kitchen_sent']);$this->assertFalse($sent['bill_locked']);
         $snapshot=DB::table('pos_service_kitchen_tickets')->first()->snapshot;
+        $state=function(){
+            $rows=[];foreach(['pos_service_tickets','pos_service_commands','pos_service_kitchen_tickets','pos_service_tables',
+                'pos_branch_print_jobs','takeaway_orders','takeaway_order_items','takeaway_till_entries','branch_customers','wallets','orders'] as $table)
+                $rows[$table]=DB::table($table)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all();
+            return $rows;
+        };
+        $afterSend=$state();
         $cancel=['branch'=>'f:100','idempotency_key'=>$this->key(101),'expected_revision'=>2,'action'=>'cancel','reason'=>'Customer left'];
         $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$cancel,$this->actor()));
+        $this->assertSame($afterSend,$state(),'Rejected cancellation must retain the ticket, kitchen, commands, table and finances.');
         $v['ticket_id']=$ticket['id'];$v['expected_revision']=2;$v['idempotency_key']=$this->key(102);$v['items']=[];
         $this->denied(fn()=>$this->tickets()->save($channel,$v,$this->actor()));
+        $this->assertSame($afterSend,$state(),'Rejected emptying must not persist any part of the edit.');
         $v['items']=$this->cart()['items'];$v['items'][0]['quantity']='2';
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];
         $updated=$this->tickets()->save($channel,$v,$this->actor())['ticket'];
-        $this->assertSame('2.000',$updated['items'][0]['quantity']);
+        $this->assertSame('2.000',$updated['items'][0]['quantity']);$this->assertSame(3,$updated['revision']);
+        $this->assertSame('2.000',json_decode(DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('cart_snapshot'),true)['items'][0]['quantity']);
         $v['idempotency_key']=$this->key(103);$v['expected_revision']=3;$v['items'][0]['quantity']='1';
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];
-        $reduced=$this->tickets()->save($channel,$v,$this->actor())['ticket'];
-        $command['idempotency_key']=$this->key(104);$command['expected_revision']=$reduced['revision'];
-        $resent=$this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['ticket'];
-        $this->assertSame('1.000',$resent['items'][0]['quantity']);$this->assertSame(2,DB::table('pos_service_kitchen_tickets')->count());
+        if($channel==='dine'){
+            // The original print-account request first saves the dirty cart, then issues its bill.
+            $this->actingAs($this->actor(),'admin');
+            $saved=$this->postJson(route('dining.save'),$v)->assertOk()->json();$reduced=$saved['ticket'];
+            $this->assertSame(4,$saved['operation']['revision']);$this->assertFalse($reduced['bill_locked']);
+            $this->assertSame('1.000',json_decode(DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('cart_snapshot'),true)['items'][0]['quantity']);
+            $beforeResend=$state();$command['idempotency_key']=$this->key(104);$command['expected_revision']=$reduced['revision'];
+            $this->postJson(route('dining.action',['id'=>$ticket['id']]),$command)->assertStatus(409);
+            $this->assertSame($beforeResend,$state(),'A sent dine ticket cannot create another kitchen command, snapshot, print job or business change.');
+            $bill=array_replace($command,['action'=>'request_bill','idempotency_key'=>$this->key(105)]);
+            $issued=$this->postJson(route('dining.action',['id'=>$ticket['id']]),$bill)->assertOk()->json();$revised=$issued['ticket'];
+            $this->assertSame('action',$issued['operation']['kind']);$this->assertSame(5,$issued['operation']['revision']);
+            $this->assertSame(5,$revised['revision']);$this->assertSame(5,$revised['bill_issued_revision']);
+            $this->assertTrue($revised['bill_locked']);$this->assertSame('awaiting_bill',$revised['status']);$this->assertSame('unpaid',$revised['payment_status']);
+            $this->assertSame(5,(int)DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('revision'));
+            $this->get($revised['bill_print_url'].'?dashboard_print=1')->assertOk()->assertSee('data-dashboard-receipt=',false);
+            $this->assertSame(1,DB::table('pos_service_kitchen_tickets')->count());
+        }else{
+            $reduced=$this->tickets()->save($channel,$v,$this->actor())['ticket'];
+            $command['idempotency_key']=$this->key(104);$command['expected_revision']=$reduced['revision'];
+            $revised=$this->tickets()->action($channel,$ticket['id'],$command,$this->actor())['ticket'];
+            $this->assertSame(2,DB::table('pos_service_kitchen_tickets')->count());
+        }
+        $this->assertSame('1.000',$revised['items'][0]['quantity']);
         $this->assertSame($snapshot,DB::table('pos_service_kitchen_tickets')->orderBy('id')->first()->snapshot);
-        $this->assertSame(0,DB::table('takeaway_orders')->count());
+        $this->assertSame(0,DB::table('takeaway_orders')->count());$this->assertSame(0,DB::table('takeaway_order_items')->count());$this->assertSame(0,DB::table('takeaway_till_entries')->count());
     }
 
     /** @dataProvider serviceChannels */

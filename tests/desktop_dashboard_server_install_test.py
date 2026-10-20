@@ -140,12 +140,25 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(any('checkout'in call or 'reset'in call or 'config:cache'in call or 'route:clear'in call or 'view:clear'in call for call in self.f.calls))
     def test_unknown_source_stops_before_backup(self):
         self.f.write(self.f.root/'app/Services/Unexpected.php',b'<?php /* concurrent update */')
-        with self.assertRaisesRegex(installer.SafeError,'SOURCE_CHANGED'):self.f.install()
+        with self.assertRaisesRegex(installer.SafeError,'NO_APPROVED_BASELINE_MATCHES'):self.f.install()
         self.assertFalse(any(call[0]=='/usr/bin/tar'for call in self.f.calls));self.assertEqual(self.f.migrations,[])
+        self.assertFalse((self.f.root.parent/'desktop-dashboard-release-backups').exists())
     def test_unknown_external_gui_asset_stops_before_backup(self):
         self.f.write(self.f.root/'public/js/dashboard-whatsapp-inbox.js',b'new live WhatsApp changes')
-        with self.assertRaisesRegex(installer.SafeError,'PROTECTED_ASSET_CHANGED'):self.f.install()
+        with self.assertRaisesRegex(installer.SafeError,'NO_APPROVED_BASELINE_MATCHES'):self.f.install()
         self.assertFalse(any(call[0]=='/usr/bin/tar'for call in self.f.calls))
+        self.assertFalse((self.f.root.parent/'desktop-dashboard-release-backups').exists())
+    def test_single_manifest_wrong_head_stops_before_creating_backup_directory_or_lock(self):
+        self.f.head='b'*40
+        with self.assertRaisesRegex(installer.SafeError,'NO_APPROVED_BASELINE_MATCHES'):self.f.install()
+        self.assertFalse((self.f.root.parent/'desktop-dashboard-release-backups').exists())
+        self.assertEqual(self.f.migrations,[]);self.assertEqual((self.f.root/'.env').read_bytes(),self.f.env)
+    def test_single_manifest_raw_only_mixture_stops_before_creating_backup_directory_or_lock(self):
+        path=self.f.root/'app/Services/Existing.php';path.write_bytes(path.read_bytes().replace(b'\n',b'\r\n'))
+        self.assertEqual(installer.source_fingerprint(self.f.root,self.f.uid),self.f.manifest['before_source'])
+        with self.assertRaisesRegex(installer.SafeError,'NO_APPROVED_BASELINE_MATCHES'):self.f.install()
+        self.assertFalse((self.f.root.parent/'desktop-dashboard-release-backups').exists())
+        self.assertEqual(self.f.migrations,[]);self.assertEqual((self.f.root/'.env').read_bytes(),self.f.env)
     def test_wrong_staged_blob_stops_before_backup(self):
         self.f.write(self.f.payload/'app/Services/NewDesktop.php',b'<?php tampered')
         with self.assertRaisesRegex(installer.SafeError,'AFTER_SOURCE_MISMATCH'):self.f.install()
@@ -397,6 +410,18 @@ class PairedRootStagingTests(unittest.TestCase):
         for failure in ('DESKTOP_BEFORE_SOURCE_MISMATCH','DESKTOP_PRIVATE_CHECK_FAILED',
                         'DESKTOP_NO_APPROVED_BASELINE_MATCHES; STAGE=ACTIVATION','untrusted private output'):
             self.assertEqual(status(failure),'DESKTOP_ROOT_INSTALL_FAILED_REVIEW_PRIVATE_BACKUPS')
+    def test_real_current_payload_pins_only_the_one_measured_manifest(self):
+        pins=self.loader()['HELPER_PINS']
+        self.assertEqual(set(pins),{'deployment/desktop_dashboard_server_manifest.json',
+            'deployment/apply_desktop_dashboard_server.py','deployment/desktop_dashboard_release.php',
+            'deployment/install_whatsapp_inbox.py'})
+        for name,pin in pins.items():self.assertEqual(installer.blob((HERE/name).read_bytes()),pin,name)
+    def test_root_entry_rejects_nonroot_before_payload_or_application_reads(self):
+        ns=self.loader();error=io.StringIO()
+        with patch.object(ns['sys'],'argv',['-', '/tmp/reviewed-launcher.sh','--release','a'*40]),\
+                patch.object(ns['os'],'geteuid',return_value=1001),contextlib.redirect_stderr(error):
+            self.assertEqual(ns['main'](),1)
+        self.assertEqual(error.getvalue(),'DESKTOP_ROOT_USE_PINNED_RELEASE_AS_ROOT\n')
     def test_union_payload_stages_both_manifests_and_shared_target_once(self):
         ns=self.loader();folder=Path(tempfile.mkdtemp(prefix='desktop-root-paired-stage-'))
         try:
@@ -458,6 +483,11 @@ class PayloadPinRefreshTests(unittest.TestCase):
         text=first.decode();self.assertTrue(text.startswith('#!/usr/bin/env bash\n# retained prefix\n'));self.assertTrue(text.endswith('# retained suffix\n'))
         pins=ast.literal_eval(text.split('HELPER_PINS = ',1)[1].split('\n# retained suffix',1)[0])
         self.assertEqual(pins,{name:installer.blob((self.folder/name).read_bytes())for name in self.names})
+    def test_refresh_supports_only_the_four_current_single_cohort_payloads(self):
+        names=[name for name in self.names if not name.endswith('_expense_rejection.json')]
+        self.write_launcher(dict.fromkeys(names,'0'*40));self.refresh()
+        pins=ast.literal_eval(self.launcher.read_text().split('HELPER_PINS = ',1)[1].split('\n# retained suffix',1)[0])
+        self.assertEqual(pins,{name:installer.blob((self.folder/name).read_bytes())for name in names})
     def test_unknown_payload_scope_stops_without_rewriting_the_launcher(self):
         self.write_launcher(dict.fromkeys(self.names+['deployment/unreviewed.py'],'0'*40));before=self.launcher.read_bytes()
         with self.assertRaisesRegex(ValueError,'payload scope differs'):self.refresh()
