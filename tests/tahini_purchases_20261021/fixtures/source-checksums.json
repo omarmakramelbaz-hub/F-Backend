@@ -1,0 +1,57 @@
+{
+  "source": "Associated ERP Git source snapshot 2026-10-21. ExpenseCategories SHA256 independently matches the production diagnostic; companion fixture hashes record local copy integrity, not separate server measurements.",
+  "files": [
+    {
+      "path": "services/ExpenseCategories.php",
+      "sha256": "1bf213f622129c9a2402378b2cdfae7f2fb30cb9ce18da924740ca772f8515d9"
+    },
+    {
+      "path": "services/ExpenseStockPurchases.php",
+      "sha256": "9a9bd3dea189cbd9ed5a2e48c534a389c6f6651616463fd5fb6de88826be8d97"
+    },
+    {
+      "path": "services/BranchExpenses.php",
+      "sha256": "4e029d81cfb4b69f290718fde4097745ea804efdef5642dcb964b47db45a690d"
+    },
+    {
+      "path": "services/BranchInventory.php",
+      "sha256": "17aac16984cad2c03270626196c1889a34e2e39b1539261270b81e8dbad0603b"
+    },
+    {
+      "path": "services/TakeawayAccess.php",
+      "sha256": "ab7715f2c50ddf02958b0425c5dfbb890a2b102fac5271c07b6ec194efc26e85"
+    },
+    {
+      "path": "services/BranchOperations.php",
+      "sha256": "140b64b68ace94fd112feef84f4e16131d08915f27c77876711600d7097beb2e"
+    },
+    {
+      "path": "migrations/2026_10_04_030000_create_branch_expenses.php",
+      "sha256": "1d5f42a804b82d45e175f5d44d2618f97eaa8e23a6cb7f97b94480086823cd81"
+    },
+    {
+      "path": "migrations/2026_10_04_210000_create_branch_inventory_recipes.php",
+      "sha256": "2babb23e7040fd9b5158128d4a54ce6e975384175efe41a2892276eb75ca56e9"
+    },
+    {
+      "path": "migrations/2026_10_06_120000_create_branch_expenses_categories.php",
+      "sha256": "9a048da6b403c324b4e0f4899f437cc836590de2bb29a3a0d30e02928c15bb3b"
+    },
+    {
+      "path": "migrations/2026_10_06_200000_manage_expense_categories.php",
+      "sha256": "f17816c7559804ca04fa384589c879ec28c3f906ac74071c1de502975fa27356"
+    },
+    {
+      "path": "migrations/2026_10_18_090000_link_expense_inventory_purchases.php",
+      "sha256": "aaac4a64c1c1d5ce0ba248269042051d84eddb0cbc7d0d60f5029c55eec43131"
+    },
+    {
+      "path": "migrations/2026_10_18_200000_scope_expense_categories_by_branch.php",
+      "sha256": "d2875a3bf3e594e45870572be277ecc44e1de35c4a01bb869e01b6bf8a1858bc"
+    },
+    {
+      "path": "services/DesktopDashboardCoreAuthority.php",
+      "sha256": "3a4d1d9e0968150e391d8d7f8b78e3e329463767641a801ebfe20ce54844c518"
+    }
+  ]
+}
