@@ -47,6 +47,63 @@ test('the preview installer retains every verified runtime file and records its 
   assert.ok(receipt.files['application/desktop/router.php']);assert.ok(receipt.files['php/php.exe']);assert.ok(receipt.files['mariadb/bin/mariadbd.exe']);
   assert.match(await fs.readFile(path.join(f.project,'dist/installer-version.nsh'),'utf8'),/0\.3\.0-preview\.1/);
 });
+test('the complete custom NSIS script owns only its version commands while builder callbacks and other targets retain their options',async t=>{
+  const f=await fixture(t);await packaging(f.context);
+  await fs.copyFile(path.resolve(__dirname,'../installer.nsi'),path.join(f.project,'installer.nsi'));
+  const vm=require('node:vm'),{createRequire}=require('node:module');
+  const hookFile=path.resolve(__dirname,'../../.github/scripts/desktop-runtime-copy-hook.cjs');
+  const localRequire=createRequire(hookFile),module={exports:{}};
+  const overrides={
+    'node:fs/promises':{...fs,access:async file=>{
+      if(file==='R:\\'){const error=Error('Unused test drive');error.code='ENOENT';throw error;}
+      return fs.access(file);
+    }},
+    'node:child_process':{execFileSync(command,args){assert.equal(command,'subst.exe');assert.deepEqual(Array.from(args),['R:',f.out]);}},
+    './installer-runtime.cjs':packaging,
+    './build-uninstaller.cjs':async()=>fs.writeFile(path.join(f.project,'dist/uninstall-files.nsh'),'Delete "$INSTDIR\\app.exe"\n')
+  };
+  vm.runInNewContext('(function(require,module,exports){\n'+await fs.readFile(hookFile,'utf8')+'\n})',
+    {process:{stdout:{write(){}}}},{filename:hookFile})(name=>Object.hasOwn(overrides,name)?overrides[name]:localRequire(name),module,module.exports);
+  const hook=module.exports,packager=f.context.packager;
+  packager.appInfo.id='com.example.reviewed-preview';
+  const calls=[],skip={skip:true};let priorResult=false;
+  const previous=async function(...args){assert.equal(this,packager.packagerOptions);calls.push(args);return priorResult;};
+  packager.packagerOptions={effectiveOptionComputed:previous};
+  // The normal builder script and a foreign full script are not intercepted.
+  for(const script of [undefined,'another-installer.nsi']){
+    packager.config={nsis:{script}};await hook(f.context);
+    assert.equal(packager.packagerOptions.effectiveOptionComputed,previous);
+  }
+  packager.config.nsis.script=path.join(f.project,'installer-windows.nsi');await hook(f.context);
+  const callback=packager.packagerOptions.effectiveOptionComputed;
+  const packet=()=>[{
+    PROJECT_DIR:f.project,PRODUCT_NAME:packager.appInfo.productName,APP_ID:packager.appInfo.id,
+    APP_INSTALLER_STORE_FILE:'preview\\installer.exe',MUI_ICON:'official.ico',APP_64:'verified.7z',COMPRESS:'auto'
+  },{OutFile:'"Setup.exe"',VIProductVersion:'0.3.0.0',VIAddVersionKey:['/LANG=1033 ProductName "builder default"'],
+    Unicode:true,SetCompressor:'zlib',Icon:'"official.ico"',OtherCommand:'preserve'}];
+  const original=packet(),expected=structuredClone(original);
+  delete expected[1].VIProductVersion;delete expected[1].VIAddVersionKey;
+  assert.equal(await callback.call(packager.packagerOptions,original,'extra'),false);
+  assert.deepEqual(original,expected);assert.equal(calls.at(-1)[0],original);assert.equal(calls.at(-1)[1],'extra');
+  // A prior callback's skip result and errors keep their semantics.
+  priorResult=skip;const skipped=packet(),skippedBefore=structuredClone(skipped);
+  assert.equal(await callback.call(packager.packagerOptions,skipped),skip);assert.deepEqual(skipped,skippedBefore);
+  priorResult=false;
+  for(const mutate of [
+    p=>p[0].PROJECT_DIR=f.root,p=>p[0].APP_ID='another.app',p=>p[0].PRODUCT_NAME='Foreign product',
+    p=>{delete p[0].APP_INSTALLER_STORE_FILE;},p=>p[0].APP_PACKAGE_STORE_FILE='web.7z',
+    p=>p[0].REQUEST_EXECUTION_LEVEL='user',p=>p.push('unrelated packet'),p=>p[1]='unrelated command packet'
+  ]){
+    const foreign=packet();mutate(foreign);const before=structuredClone(foreign);
+    assert.equal(await callback.call(packager.packagerOptions,foreign),false);assert.deepEqual(foreign,before);
+  }
+  const unrelated={options:'not NSIS'};assert.equal(await callback.call(packager.packagerOptions,unrelated),false);
+  assert.deepEqual(unrelated,{options:'not NSIS'});
+  packager.packagerOptions.effectiveOptionComputed=async()=>{throw Error('prior callback failure');};
+  await hook(f.context);const refused=packet(),refusedBefore=structuredClone(refused);
+  await assert.rejects(packager.packagerOptions.effectiveOptionComputed(refused),/prior callback failure/);
+  assert.deepEqual(refused,refusedBefore);
+});
 test('the installed framework must agree with the exact lock and actual engine metadata',async t=>{
   const f=await fixture(t);
   await f.write('desktop-pos/runtime-bundle/application/vendor/composer/installed.json',JSON.stringify({packages:[{name:'laravel/framework',version:'v12.70.0'}]}));

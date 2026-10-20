@@ -1,763 +1,435 @@
-name: Verify installer from tested dashboard runtime
-
-# Historical run176 recovery: the four-path guard below preserves its original
-# package metadata and Fasakhansta setup filename. GO ERP branding and changed
-# application source require fresh acceptance in desktop-dashboard-tests.yml.
-on:
+# Reuses only immutable run189 business/runtime bytes. All installer/native acceptance below is freshly executed at this checkout.
+# No inherited receipt is rewritten and no new complete business-suite execution is claimed.
+name: Verify GO ERP installer from pinned successful run189 runtime
+'on':
   push:
-    branches: ['codex/runtime-ca-portability-20261009']
-    paths: ['.github/workflows/desktop-dashboard-installer-verify.yml']
-  pull_request:
-    branches: ['codex/desktop-current-dashboard-20261019']
-    paths: ['.github/workflows/desktop-dashboard-installer-verify.yml', 'desktop-pos/test/installer-prerequisite-native.cjs']
+    branches:
+    - codex/go-erp-installer-fix-20261020
+    paths:
+    - .github/workflows/desktop-dashboard-installer-verify.yml
   workflow_dispatch:
     inputs:
       runtime_run_id:
-        description: 'Run whose original-runtime job passed and retained the exact runtime'
+        description: Only independently pinned run189 is accepted
         required: true
-        default: '39363944148'
+        default: '39388583864'
         type: string
-
 permissions:
   contents: read
   actions: read
-
+concurrency:
+  group: go-erp-installer189-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  prerequisite-control:
-    # Fast positive control must pass before restoring and compiling the complete app.
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Prepare the original signed payload and pinned compiler dependencies
-        shell: pwsh
-        run: |
-          $revision = (& git rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $revision -cne $env:GITHUB_SHA) { throw 'The diagnostic source changed.' }
-          git diff-index --quiet HEAD --
-          if ($LASTEXITCODE -ne 0) { throw 'The diagnostic product checkout is not clean.' }
-          & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
-          & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
-          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
-          if ($LASTEXITCODE -ne 0) { throw 'The fixed Windows PowerShell prerequisite regressions failed.' }
-          npm ci --prefix desktop-pos --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned diagnostic compiler dependencies failed.' }
-      - name: Diagnose the original prerequisite and capture its otherwise silent child output
-        shell: pwsh
-        run: |
-          $control = @'
-          'use strict';
-          // DIAGNOSTIC ONLY. This is neither a release build nor an acceptance receipt.
-          // It embeds the reviewed prerequisite and installer with a private tiny app.
-          // It must never be run on a production machine. No repository files are written.
-          const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
-          const crypto=require('node:crypto');
-          const {execFileSync,spawnSync}=require('node:child_process');
-          const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
-          const nsisString=value=>value.replaceAll('$',()=> '$$').replaceAll('"','$\\"');
-          const psString=value=>"'"+value.replaceAll("'","''")+"'";
-          const bounded=value=>String(value||'').slice(0,8192);
-          async function main(){
-            assert.equal(process.platform,'win32','This diagnostic requires a disposable Windows runner.');
-            const project=path.resolve(process.argv[2]||'desktop-pos'),choice=process.argv[3]||'original';
-            assert.ok(['original','capture','both'].includes(choice),'Choose original, capture, or both.');
-            const lock=JSON.parse(await fs.readFile(path.join(project,'package-lock.json'),'utf8'));
-            const pinned=lock.packages['node_modules/app-builder-lib'].version;
-            assert.equal(pinned,'26.15.3');
-            const resolver=require.resolve('app-builder-lib/out/toolsets/windows.js',{paths:[project]});
-            const installed=JSON.parse(await fs.readFile(path.resolve(path.dirname(resolver),'../../package.json'),'utf8'));
-            assert.equal(installed.version,pinned);
-            const build=JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8')).build||{};
-            const compiler=await require(resolver).getMakeNsisPath(build.toolsets?.nsis,build.nsis?.customNsisBinary);
-            assert.ok((await fs.stat(compiler.path)).isFile());
-            const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
-            const script=path.join(project,'windows-vcredist.ps1'),policyPath=path.join(project,'windows-vcredist.json');
-            const payloadPath=path.join(project,'dist/prerequisites/vc_redist.x64.exe');
-            const policy=JSON.parse(await fs.readFile(policyPath,'utf8')),payload=await fs.readFile(payloadPath);
-            assert.equal(payload.length,policy.bytes);assert.equal(digest(payload),policy.sha256);
-            // Dot sourcing never invokes Initialize-DesktopVcRuntime. Refuse the control
-            // unless the original helper already observes its registered minimum runtime.
-            const preflightCommand="$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop; Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop; . "+psString(script)+" -Action ValidatePayload -PayloadPath "+psString(payloadPath)+" -PolicyPath "+psString(policyPath)+"; "
-              +"$p=Read-DesktopVcPolicy -Path "+psString(policyPath)+"; "
-              +"$v=Get-DesktopVcInstalledVersion; if(-not [Environment]::Is64BitOperatingSystem -or $null -eq $v -or $v -lt [version]$p.version){throw 'Control refused: the required runtime is not already registered.'}; "
-              +"$null=Test-DesktopVcPayload -Path "+psString(payloadPath)+" -Policy $p; "
-              +"[pscustomobject]@{installedVersion=$v.ToString();minimumVersion=[string]$p.version;desktop=[Environment]::GetFolderPath('DesktopDirectory');programs=[Environment]::GetFolderPath('Programs')} | ConvertTo-Json -Compress";
-            const preflight=()=>JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',preflightCommand],
-              {windowsHide:true,encoding:'utf8',timeout:30000}));
-            const before=preflight();assert.ok(before.desktop&&before.programs);
-            const original=await fs.readFile(path.join(project,'installer.nsi'),'utf8');
-            const reviewed=original.replace(/\$\{PROJECT_DIR\}\/[^"\r\n]+/g,value=>value.replaceAll('/','\\'))
-              .replace('SetCompressor /SOLID lzma','SetCompressor /SOLID zlib');
-            assert.equal(reviewed.match(/nsExec::ExecToLog /g)?.length,1);
-            const reports=[];
-            for(const mode of choice==='both'?['original','capture']:[choice]){
-              // Recheck immediately before each execution. No helper install is performed
-              // by this preflight, and the already-installed path cannot request UAC.
-              const guarded=preflight();assert.equal(guarded.installedVersion,before.installedVersion);
-              const root=await fs.mkdtemp(path.join(os.tmpdir(),'fasakhansta-vc-control-'));
-              const fixture=path.join(root,'fixture'),target=path.join(root,'installed'),setup=path.join(root,'control.exe');
-              const childLog=path.join(root,'diagnostic-child.log');
-              const key='FasakhanstaVcControl-'+path.basename(root),product='Fasakhansta VC Control '+path.basename(root);
-              const registrationPath='HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\'+key;
-              const shortcut=path.join(before.desktop,product+'.lnk'),menu=path.join(before.programs,product);
-              const report={format:1,diagnosticOnly:true,mode,sourceSha256:digest(original),reviewedSha256:digest(reviewed),
-                prerequisiteSha256:digest(payload),registeredBefore:guarded.installedVersion};
-              try{
-                await fs.mkdir(path.join(fixture,'dist/win-unpacked/resources'),{recursive:true});
-                await fs.mkdir(path.join(fixture,'dist/prerequisites'),{recursive:true});
-                await fs.mkdir(path.join(fixture,'src/assets'),{recursive:true});
-                await fs.mkdir(target);await fs.writeFile(path.join(target,'KEEP.txt'),'unrelated original file');
-                await fs.copyFile(path.join(project,'src/assets/app.ico'),path.join(fixture,'src/assets/app.ico'));
-                await fs.copyFile(path.join(project,'src/assets/app.ico'),path.join(fixture,'dist/win-unpacked/resources/app.ico'));
-                for(const name of ['windows-vcredist.json','windows-vcredist.ps1'])await fs.copyFile(path.join(project,name),path.join(fixture,name));
-                await fs.writeFile(path.join(fixture,'dist/prerequisites/vc_redist.x64.exe'),payload);
-                await fs.writeFile(path.join(fixture,'dist/win-unpacked/CONTROL-PAYLOAD.txt'),'untampered prerequisite control');
-                await fs.writeFile(path.join(fixture,'dist/installer-version.nsh'),
-                  '!define FASAKHANSTA_VERSION "0.0.0"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
-                  +'!define FASAKHANSTA_UNINSTALL_KEY "'+key+'"\n');
-                await fs.writeFile(path.join(fixture,'dist/uninstall-files.nsh'),
-                  'Delete "$INSTDIR\\CONTROL-PAYLOAD.txt"\nDelete "$INSTDIR\\resources\\app.ico"\nRMDir "$INSTDIR\\resources"\n');
-                let source=reviewed;
-                if(mode==='capture'){
-                  // The diagnostic variant changes only the plugin's output destination
-                  // and drains its extra output stack entry into a private temporary log.
-                  // $0 still contains the original return code; every branch is unchanged.
-                  source=source.replace('nsExec::ExecToLog ','nsExec::ExecToStack ');
-                  assert.equal(source.match(/  Pop \$0\r?\n/g)?.length,1);
-                  source=source.replace(/  Pop \$0\r?\n/,'  Pop $0\n  Pop $2\n  FileOpen $3 "'+nsisString(childLog)+'" w\n  FileWriteUTF16LE $3 "$0$\\r$\\n$2"\n  FileClose $3\n');
-                }
-                report.compiledSourceSha256=digest(source);
-                const sourcePath=path.join(fixture,'installer-reviewed-windows.nsi');await fs.writeFile(sourcePath,source);
-                const wrapper=path.join(root,'control.nsi');
-                const wrapperText='Unicode true\nOutFile "'+nsisString(setup)+'"\n!define PROJECT_DIR "'+nsisString(fixture)+'"\n'
-                  +'!macro addLangs\n!insertmacro MUI_LANGUAGE "English"\n!macroend\n!include "'+nsisString(sourcePath)+'"\n';
-                report.wrapperSha256=digest(wrapperText);await fs.writeFile(wrapper,wrapperText);
-                execFileSync(compiler.path,['/V2',wrapper],{windowsHide:true,timeout:300000,maxBuffer:1024*1024,env:{...process.env,...(compiler.env||{})}});
-                report.exeSha256=digest(await fs.readFile(setup));
-                const started=Date.now();
-                const run=spawnSync(setup,['/S','/D='+target],{windowsHide:true,windowsVerbatimArguments:true,encoding:'utf8',timeout:120000,maxBuffer:1024*1024});
-                report.durationMs=Date.now()-started;report.status=run.status;report.signal=run.signal||null;
-                report.spawnError=run.error?{name:run.error.name,code:run.error.code||null,errno:run.error.errno||null}:null;
-                report.stdout=bounded(run.stdout);report.stderr=bounded(run.stderr);
-                if(mode==='capture'){
-                  try{const log=await fs.readFile(childLog),decoded=log.toString('utf16le').replace(/^\uFEFF/,''),newline=decoded.indexOf('\n');report.childOutputBytes=log.length;report.pluginStatus=newline<0?bounded(decoded):decoded.slice(0,newline).trim();report.childOutput=bounded(newline<0?'':decoded.slice(newline+1));}
-                  catch(error){if(error.code!=='ENOENT')throw error;report.childOutputBytes=0;report.childOutput=null;}
-                }
-                report.targetTopLevel=(await fs.readdir(target)).sort().slice(0,16);
-                report.keepPreserved=await fs.readFile(path.join(target,'KEEP.txt'),'utf8')==='unrelated original file';
-                try{report.applicationExtracted=await fs.readFile(path.join(target,'CONTROL-PAYLOAD.txt'),'utf8')==='untampered prerequisite control';}
-                catch(error){if(error.code!=='ENOENT')throw error;report.applicationExtracted=false;}
-                report.registrationStatus=spawnSync('reg.exe',['query',registrationPath],{windowsHide:true}).status;
-                const after=preflight();report.registeredAfter=after.installedVersion;
-                assert.equal(after.installedVersion,before.installedVersion,'The control unexpectedly changed runtime registration.');
-                assert.ok(report.keepPreserved,'The control changed an unrelated fixture file.');
-                const uninstaller=path.join(target,'Uninstall.exe');
-                try{
-                  await fs.access(uninstaller);
-                  // NSIS _?= runs in-place so its process remains waitable; root is later
-                  // removed explicitly and includes only this uniquely named test fixture.
-                  const uninstall=spawnSync(uninstaller,['/S','_?='+target],{windowsHide:true,windowsVerbatimArguments:true,encoding:'utf8',timeout:120000,maxBuffer:1024*1024});
-                  report.uninstallStatus=uninstall.status;report.uninstallError=uninstall.error?uninstall.error.code||uninstall.error.name:null;
-                }catch(error){if(error.code!=='ENOENT')throw error;report.uninstallStatus=null;}
-              }finally{
-                spawnSync('reg.exe',['delete',registrationPath,'/f'],{windowsHide:true});
-                await fs.rm(shortcut,{force:true});await fs.rm(menu,{recursive:true,force:true});
-                await fs.rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
-                report.cleanupComplete=true;reports.push(report);
-                process.stdout.write(JSON.stringify(report)+'\n');
-              }
-            }
-            return reports;
-          }
-          main().catch(error=>{process.stderr.write('CONTROL_DIAGNOSTIC_FAILED '+bounded(error.stack)+'\n');process.exitCode=1;});
-          '@
-          $controlPath = Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control.cjs'
-          [IO.File]::WriteAllText($controlPath, $control, (New-Object Text.UTF8Encoding($false)))
-          $output = @(node $controlPath desktop-pos both 2>&1)
-          $code = $LASTEXITCODE
-          $raw = ($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-          $raw | Set-Content (Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control-output.txt') -Encoding utf8NoBOM
-          Write-Output $raw
-          [ordered]@{ format = 1; diagnosticOnly = $true; sourceRevision = (& git rev-parse HEAD).Trim(); harnessExitCode = $code; releaseVerified = $false } | ConvertTo-Json | Set-Content (Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control-state.json') -Encoding utf8NoBOM
-      - name: Retain the diagnostic control reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-prerequisite-control-DIAGNOSTIC-ONLY
-          path: |
-            ${{ runner.temp }}/desktop-prerequisite-control-output.txt
-            ${{ runner.temp }}/desktop-prerequisite-control-state.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Require both actual untampered prerequisite controls to install
-        shell: pwsh
-        run: |
-          $state = Get-Content (Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control-state.json') -Raw | ConvertFrom-Json
-          if ($state.harnessExitCode -ne 0 -or $state.sourceRevision -cne $env:GITHUB_SHA) { throw 'The actual prerequisite control did not complete on this source.' }
-          $reports = @(Get-Content (Join-Path $env:RUNNER_TEMP 'desktop-prerequisite-control-output.txt') | Where-Object { $_.StartsWith('{') } | ForEach-Object { $_ | ConvertFrom-Json })
-          if ($reports.Count -ne 2 -or @($reports.mode | Sort-Object -Unique).Count -ne 2 -or @($reports.mode | Where-Object { $_ -cnotin @('original', 'capture') }).Count -ne 0) { throw 'Both distinct control variants must be present.' }
-          foreach ($report in $reports) {
-            if ($report.diagnosticOnly -isnot [bool] -or $report.diagnosticOnly -ne $true -or $report.status -ne 0 -or $null -ne $report.spawnError -or $report.applicationExtracted -isnot [bool] -or $report.applicationExtracted -ne $true -or $report.keepPreserved -ne $true -or $report.registrationStatus -ne 0 -or $report.cleanupComplete -ne $true -or $report.registeredBefore -cne $report.registeredAfter -or [version]$report.registeredAfter -lt [version]'14.51.36247.0') { throw 'The real untampered NSIS prerequisite control failed.' }
-            if ($report.mode -ceq 'capture' -and $report.pluginStatus -cne '0') { throw 'The actual prerequisite child did not return success.' }
-          }
-          Write-Output 'PASS both actual untampered NSIS prerequisite controls install after the original signed payload check; registered runtime is unchanged.'
   windows-installer:
-    needs: prerequisite-control
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '39363944148' }}
+      DESKTOP_TESTED_RUN: ${{ inputs.runtime_run_id || '39388583864' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          path: current-source
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Require the original runtime checks to have passed
-        shell: pwsh
-        env:
-          DESKTOP_ARTIFACT_TOKEN: ${{ github.token }}
-        run: |
-          if ($env:DESKTOP_TESTED_RUN -cne '39363944148') { throw 'This follow-up is pinned to the completed original-runtime checks in run176.' }
-          $headers = @{ Authorization = "Bearer $env:DESKTOP_ARTIFACT_TOKEN"; Accept = 'application/vnd.github+json' }
-          $run = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN"
-          if ($run.head_sha -cne '939408badb7d3de771b6c9953a4bfd5dbd08df1c' -or $run.run_attempt -ne 1 -or $run.event -cne 'pull_request') { throw 'The reviewed runtime run identity changed.' }
-          $jobs = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN/jobs?per_page=100"
-          if (!($jobs.jobs | Where-Object { $_.id -eq 118436478259 -and $_.name -ceq 'original-runtime' -and $_.conclusion -ceq 'success' })) { throw 'The exact source runtime has not passed its original application checks.' }
-          $artifacts = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/$env:DESKTOP_TESTED_RUN/artifacts?per_page=100"
-          $runtime = @($artifacts.artifacts | Where-Object { $_.name -ceq 'tested-dashboard-runtime' })
-          if ($runtime.Count -ne 1 -or $runtime[0].id -ne 12240055641 -or $runtime[0].expired -or $runtime[0].digest -cne 'sha256:7083f656f50cf2ef1d5c40bbf95ea5f71c460bb25ef81406a54e682f8d11513a') { throw 'The original tested runtime artifact changed.' }
-          Write-Output 'DESKTOP_TESTED_RUNTIME run=39363944148 attempt=1 job=118436478259 artifact=12240055641 sha256=7083f656f50cf2ef1d5c40bbf95ea5f71c460bb25ef81406a54e682f8d11513a'
-      - name: Restore the exact tested runtime
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: tested-dashboard-runtime
-          path: ${{ runner.temp }}/runtime-download
-          run-id: ${{ env.DESKTOP_TESTED_RUN }}
-          github-token: ${{ github.token }}
-          skip-decompress: true
-          digest-mismatch: error
-      - name: Extract the verified archive with Windows
-        shell: pwsh
-        run: |
-          $archives = @(Get-ChildItem "$env:RUNNER_TEMP/runtime-download" -File)
-          if ($archives.Count -ne 1) { throw 'Expected one verified runtime archive.' }
-          $runtimeZip = "$env:RUNNER_TEMP/tested-runtime.zip"
-          Move-Item -LiteralPath $archives[0].FullName -Destination $runtimeZip
-          Expand-Archive -LiteralPath $runtimeZip -DestinationPath "$env:RUNNER_TEMP/tested-runtime" -Force
-          Remove-Item -LiteralPath $runtimeZip
-      - name: Require unchanged application code and the exact reviewed bootstrap fix
-        id: source
-        working-directory: current-source
-        shell: pwsh
-        run: |
-          $manifest = Get-Content "$env:RUNNER_TEMP/tested-runtime/runtime-bundle/manifest.json" -Raw | ConvertFrom-Json
-          $sourceRevision = $manifest.sourceRevision
-          if ($sourceRevision -cne '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9' -or $manifest.sourceFingerprint.files -ne 1317 -or $manifest.sourceFingerprint.sha256 -cne '4288c371691750f5278d145b4d036be0d78d7c170d18fd7d61217954c2866a56' -or $manifest.runtimeFramework -cne '12.70.0') { throw 'The downloaded runtime does not identify the exact passed application.' }
-          git fetch --depth=1 origin $sourceRevision
-          if ($LASTEXITCODE -ne 0) { throw 'The tested revision cannot be independently checked.' }
-          $acceptanceRevision = (& git rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $acceptanceRevision -cne $env:GITHUB_SHA) { throw 'The acceptance checkout does not match this workflow revision.' }
-          git diff-index --quiet HEAD --
-          if ($LASTEXITCODE -ne 0) { throw 'The acceptance checkout is not clean.' }
-          $fixture = 'desktop-pos/test/installer-prerequisite-native.cjs'
-          $workflow = '.github/workflows/desktop-dashboard-installer-verify.yml'
-          $bootstrap = 'desktop-pos/windows-vcredist.ps1'
-          $prerequisiteTest = 'desktop-pos/test/windows-prerequisite.ps1'
-          $expectedBootstrapBlob = 'dba8aa9601875edf07ccd7ddbd4f59433d9601be'
-          $expectedPrerequisiteTestBlob = '79db9a4fee0062f2cc3d31d25660adaf053e3348'
-          $expectedFixtureBlob = 'ad24ab9392a7ea0ba37b507ad9310ad739ba8f80'
-          # Every tracked file and mode is compared, including build tools and other fixtures.
-          $changes = @(& git diff --raw --no-abbrev --no-renames $sourceRevision HEAD)
-          if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 4) { throw 'Only the exact reviewed bootstrap, prerequisite regression, acceptance fixture and follow-up workflow may differ.' }
-          foreach ($change in $changes) {
-            if ($change -cnotmatch '^:100644 100644 [a-f0-9]{40} [a-f0-9]{40} M\t(.+)$') { throw 'An unreviewed file mode, type or change entered the acceptance checkout.' }
-            if (@($fixture, $workflow, $bootstrap, $prerequisiteTest) -cnotcontains $Matches[1]) { throw 'Product code, dependencies, build tools or another fixture differs; run the full original checks first.' }
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        path: b
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+    - name: Authenticate exact inherited original and native evidence
+      env:
+        DESKTOP_ARTIFACT_TOKEN: ${{ github.token }}
+      shell: pwsh
+      run: |
+        if ('${{ github.repository }}' -cne 'omarmakramelbaz-hub/F-Backend') { throw 'The inherited runtime repository differs.' }
+        if ($env:DESKTOP_TESTED_RUN -cne '39388583864') { throw 'Only the exact reviewed run189 is admitted.' }
+        $headers = @{ Authorization = "Bearer $env:DESKTOP_ARTIFACT_TOKEN"; Accept = 'application/vnd.github+json' }
+        $run = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/39388583864"
+        if ($run.id -ne 39388583864 -or $run.head_sha -cne '91364fbb1210a0834b9d7b05835a97b5307bec19' -or $run.run_attempt -ne 1 -or $run.event -cne 'pull_request' -or $run.status -cne 'completed' -or $run.repository.id -ne 1311412084 -or $run.head_repository.id -ne 1311412084) { throw 'The reviewed origin run identity changed.' }
+        $jobs = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/39388583864/jobs?per_page=100"
+        foreach ($pin in @(@{id=118514626590;name='original-runtime'},@{id=118514336204;name='connected-native'})) {
+          $match = @($jobs.jobs | Where-Object { $_.id -eq $pin.id -and $_.name -ceq $pin.name -and $_.conclusion -ceq 'success' })
+          if ($match.Count -ne 1) { throw 'The exact original application and native jobs must both have passed.' }
+        }
+        $artifacts = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/${{ github.repository }}/actions/runs/39388583864/artifacts?per_page=100"
+        $runtime = @($artifacts.artifacts | Where-Object { $_.name -ceq 'tested-dashboard-runtime' })
+        if ($runtime.Count -ne 1 -or $runtime[0].id -ne 12250176654 -or $runtime[0].expired -or $runtime[0].size_in_bytes -ne 305205298 -or $runtime[0].digest -cne 'sha256:73daba107dbd086a9db695f08d4967004649945c0d7237fcdf0eca2c97a03170' -or $runtime[0].workflow_run.id -ne 39388583864 -or $runtime[0].workflow_run.head_sha -cne '91364fbb1210a0834b9d7b05835a97b5307bec19') { throw 'The immutable reviewed run189 runtime artifact changed.' }
+        Write-Output 'DESKTOP_INHERITED_RUNTIME run=39388583864 attempt=1 originalJob=118514626590 nativeJob=118514336204 artifact=12250176654 sha256=73daba107dbd086a9db695f08d4967004649945c0d7237fcdf0eca2c97a03170; original business results are inherited, not rerun.'
+    - name: Download the immutable exact run189 runtime
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      with:
+        name: tested-dashboard-runtime
+        path: ${{ runner.temp }}/runtime189-download
+        run-id: ${{ env.DESKTOP_TESTED_RUN }}
+        github-token: ${{ github.token }}
+        skip-decompress: true
+        digest-mismatch: error
+    - name: Independently verify archive bytes before extracting
+      shell: pwsh
+      run: |
+        $archives = @(Get-ChildItem "$env:RUNNER_TEMP/runtime189-download" -File)
+        if ($archives.Count -ne 1 -or $archives[0].Length -ne 305205298 -or (Get-FileHash -LiteralPath $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne '73daba107dbd086a9db695f08d4967004649945c0d7237fcdf0eca2c97a03170') { throw 'Downloaded origin archive bytes differ from the independently pinned artifact.' }
+        $archivePath=Join-Path $env:RUNNER_TEMP 'tested-runtime189.zip'
+        if (Test-Path -LiteralPath $archivePath) { throw 'A foreign origin archive staging path already exists.' }
+        Move-Item -LiteralPath $archives[0].FullName -Destination $archivePath
+        Expand-Archive -LiteralPath $archivePath -DestinationPath b/desktop-pos -Force
+        Remove-Item -LiteralPath $archivePath
+        foreach ($file in @('runtime-bundle/manifest.json','dist/runtime-audit.json','dist/dashboard-synthetic-snapshot.json')) { if (!(Test-Path -LiteralPath "b/desktop-pos/$file" -PathType Leaf)) { throw 'A required inherited input is missing.' } }
+    - name: Require exact clean current source and reviewed installer delta
+      id: source
+      working-directory: b
+      shell: pwsh
+      run: |
+        $revision = (& git rev-parse HEAD).Trim()
+        if ($LASTEXITCODE -ne 0 -or $revision -cne $env:GITHUB_SHA) { throw 'Current checkout is not this exact workflow revision.' }
+        git diff-index --quiet HEAD --
+        if ($LASTEXITCODE -ne 0) { throw 'Current tracked product checkout is not clean.' }
+        git fetch --depth=1 --no-tags --no-recurse-submodules origin 43580d40b22fe42809563f8818728d1173fa1348
+        if ($LASTEXITCODE -ne 0 -or (& git rev-parse FETCH_HEAD).Trim() -cne '43580d40b22fe42809563f8818728d1173fa1348') { throw 'The exact inherited source object is unavailable.' }
+        $manifest = Get-Content desktop-pos/runtime-bundle/manifest.json -Raw | ConvertFrom-Json
+        if ($manifest.sourceRevision -cne '43580d40b22fe42809563f8818728d1173fa1348' -or $manifest.sourceFingerprint.files -ne 1324 -or $manifest.sourceFingerprint.sha256 -cne 'e1c889bfd170466c7c81e1d8da5d375606eda60d7526b8a48ae348ce36cad1f7' -or $manifest.sourceFingerprint.framework -cne '8.83.29' -or $manifest.runtimeFramework -cne '12.70.0') { throw 'Inherited application source or actual runtime engine differs.' }
+        $workflow = '.github/workflows/desktop-dashboard-installer-verify.yml'
+        $workflowBlob = (& git rev-parse ("HEAD:"+$workflow)).Trim()
+        if ($LASTEXITCODE -ne 0 -or $workflowBlob -cnotmatch '^[a-f0-9]{40}$') { throw 'The current workflow blob is unavailable.' }
+        # The workflow cannot contain its own final blob hash. Its authenticated actual
+        # checkout supplies that single new blob; independent delivery verification pins it.
+        $expected = @(
+          @{path='desktop-pos/installer.nsi';oldMode='100644';newMode='100644';status='M';oldBlob='0ff9da3811112e6e5df8530105b5b27b841c43c8';newBlob='7220581721fb987167eb282d646cd137879c683c'},
+          @{path='.github/scripts/desktop-runtime-copy-hook.cjs';oldMode='100644';newMode='100644';status='M';oldBlob='bff8525db42f2aab9901242b620d973fbf6438e7';newBlob='9c7e9f51e102abbd36e1f156a361e535f02774b5'},
+          @{path='desktop-pos/test/installer-runtime.test.cjs';oldMode='100644';newMode='100644';status='M';oldBlob='3fe4be50b5cd1be4f7a91634d54cae87a0187a2a';newBlob='5550508b739ad0ed113a60ec2187ed5058dcb34b'},
+          @{path=$workflow;oldMode='100644';newMode='100644';status='M';oldBlob='83f77f64871e2e2138cf1cb83c33888dd47d2871';newBlob=$workflowBlob}
+        )
+        foreach ($pin in $expected) { if ($pin.oldBlob -cnotmatch '^[a-f0-9]{40}$' -or $pin.newBlob -cnotmatch '^[a-f0-9]{40}$') { throw 'A reviewed installer-fix pin is not frozen.' } }
+        $changes = @(& git -c core.quotePath=false diff --raw --no-abbrev --no-renames --no-ext-diff 43580d40b22fe42809563f8818728d1173fa1348 HEAD)
+        if ($LASTEXITCODE -ne 0 -or $changes.Count -ne $expected.Count) { throw 'Only the exact reviewed installer, copy hook, focused test and follow-up workflow may differ.' }
+        $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($change in $changes) {
+          if ($change -cnotmatch '^:100644 100644 ([a-f0-9]{40}) ([a-f0-9]{40}) M\t(.+)$') { throw 'Unreviewed raw mode/type/status change.' }
+          $old=$Matches[1];$new=$Matches[2];$path=$Matches[3]
+          $pin=@($expected | Where-Object { $_.path -ceq $path })
+          if ($pin.Count -ne 1 -or -not ($seen.Add($path)) -or $pin[0].oldBlob -cne $old -or $pin[0].newBlob -cne $new) { throw 'Application, client, dependency, another build tool or fixture differs from the exact reviewed delta.' }
+        }
+        $pinJson = ConvertTo-Json -InputObject $expected -Depth 8 -Compress
+        "DESKTOP_REVIEWED_GIT_CHANGES_JSON=$pinJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        "revision=$revision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "workflowBlob=$workflowBlob" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        Write-Output ('DESKTOP_CURRENT_INSTALLER_SCOPE '+$pinJson)
+    - name: Promote only manifest identity with full independently pinned origin inventory
+      working-directory: b
+      shell: pwsh
+      run: |
+        $promoter = @'
+        'use strict';
+        // Usage: node SCRIPT /absolute/path/to/desktop-pos ACTUAL_GITHUB_SHA
+        // The workflow MUST authenticate ORIGIN's run/attempt/jobs/artifact/digest first.
+        // DESKTOP_REVIEWED_GIT_CHANGES_JSON must be constructed from literal owner-reviewed
+        // installer/helper/test pins. Only the workflow's own newBlob is derived from the
+        // exact authenticated GITHUB_SHA; an external verifier pins that final blob.
+        const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+        const {execFileSync}=require('node:child_process');
+        const {isDeepStrictEqual}=require('node:util');
+        const ORIGIN=Object.freeze({run:39388583864,attempt:1,job:118514626590,
+          artifact:12250176654,
+          artifactSha256:'73daba107dbd086a9db695f08d4967004649945c0d7237fcdf0eca2c97a03170',
+          runHead:'91364fbb1210a0834b9d7b05835a97b5307bec19',sourceRevision:'43580d40b22fe42809563f8818728d1173fa1348'});
+        const ORIGIN_ARTIFACT_BYTES=305205298,ORIGIN_NATIVE_JOB=118514336204;
+        const SOURCE=Object.freeze({format:1,files:1324,sha256:'e1c889bfd170466c7c81e1d8da5d375606eda60d7526b8a48ae348ce36cad1f7',framework:'8.83.29'});
+        const LOCK='324b9e1cadb31e1e0eebb7ba354c6a764debae3621d8a69f698fdeda49d2c33b';
+        const COMPAT='ccfcb0b22a3f1b7f7fff2539da17a303d21409b4881feed06df544bd58ce4662';
+        const FROZEN=Object.freeze({runtimeFiles:49464,
+          originalManifestSha256:'7ab55b284ddb9e74666720f04cf3d9bdfe41b987645277fe9c3e61474a84581e',
+          originalInventorySha256:'8043e0043e9cb75dc5dc8b73be105e8f20adfba84aa2178e037bd8609f6b8842',
+          identicalNonManifestInventorySha256:'7c7d397ee3ab3f0ddeab06a6d92bc33b3ae314688efc043a32be0ac09530bef5',
+          auditSha256:'5f72e8ae46fe2c1dc166941b7f10e79f01e208c7b0878a2b87bbe22131baf544',
+          snapshotSha256:'4a4c4113bc56dd21195e567db4b8d632ebfa8a17b7fc0807286d4cceee43d02e'});
+        const WORKFLOW='.github/workflows/desktop-dashboard-installer-verify.yml';
+        const ALLOWED=new Set([WORKFLOW,'desktop-pos/installer.nsi',
+          '.github/scripts/desktop-runtime-copy-hook.cjs','desktop-pos/test/installer-runtime.test.cjs']);
+        const REV=/^[a-f0-9]{40}$/,SHA=/^[a-f0-9]{64}$/;
+        const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+        const ordered=keys=>keys.sort((a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b)));
+        const canonical=files=>JSON.stringify(ordered(Object.keys(files)).map(name=>[name,files[name]]));
+        const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
+        const need=(condition,message)=>{if(!condition)throw Error(message);};
+        async function regular(file){const stat=await fs.lstat(file);need(stat.isFile()&&!stat.isSymbolicLink(),'Expected a regular file: '+file);return stat;}
+        async function directory(file){const stat=await fs.lstat(file);need(stat.isDirectory()&&!stat.isSymbolicLink(),'Expected a real directory: '+file);}
+        async function bytes(file,limit=64*1024**2){const stat=await regular(file);need(stat.size>0&&stat.size<=limit,'Input exceeds its bound: '+file);const b=await fs.readFile(file);need(b.length===stat.size,'Input changed during read: '+file);return b;}
+        async function atomicWrite(file,data,stagingDirectory){
+          const staging=path.join(stagingDirectory,'.runtime-manifest-'+crypto.randomUUID()+'.tmp');
+          try{await fs.writeFile(staging,data,{flag:'wx',mode:0o600});await fs.rename(staging,file);}
+          finally{await fs.rm(staging,{force:true});}
+        }
+        async function saveOriginal(file,data){
+          try{await fs.writeFile(file,data,{flag:'wx',mode:0o600});}
+          catch(error){if(error.code!=='EEXIST')throw error;need((await bytes(file)).equals(data),'An existing original record differs: '+file);}
+        }
+        function reviewedChanges(){
+          const input=process.env.DESKTOP_REVIEWED_GIT_CHANGES_JSON;
+          need(typeof input==='string'&&input.length>0&&Buffer.byteLength(input)<=16384,'Missing bounded hardcoded reviewed Git pin JSON.');
+          const rows=JSON.parse(input);need(Array.isArray(rows)&&rows.length>=2&&rows.length<=4,'Expected two to four reviewed Git changes.');
+          const seen=new Set(),result=[];
+          for(const row of rows){
+            need(object(row)&&isDeepStrictEqual(Object.keys(row).sort(),['path','oldMode','newMode','oldBlob','newBlob','status'].sort()),'Invalid reviewed Git pin fields.');
+            need(ALLOWED.has(row.path)&&!seen.has(row.path)&&row.oldMode==='100644'&&row.newMode==='100644'
+              &&row.status==='M'&&REV.test(row.oldBlob)&&REV.test(row.newBlob)&&row.oldBlob!==row.newBlob,'Invalid/unreviewed Git path, mode, type or blob pin.');
+            seen.add(row.path);result.push(`:${row.oldMode} ${row.newMode} ${row.oldBlob} ${row.newBlob} ${row.status}\t${row.path}`);
           }
-          $actualFixtureBlob = (& git rev-parse ("HEAD:" + $fixture)).Trim()
-          if ($LASTEXITCODE -ne 0 -or $actualFixtureBlob -cne $expectedFixtureBlob) { throw 'The reviewed acceptance fixture blob changed.' }
-          foreach ($pin in @(@{ path = $bootstrap; blob = $expectedBootstrapBlob }, @{ path = $prerequisiteTest; blob = $expectedPrerequisiteTestBlob })) {
-            $actual = (& git rev-parse ("HEAD:" + $pin.path)).Trim()
-            if ($LASTEXITCODE -ne 0 -or $actual -cne $pin.blob) { throw 'The reviewed prerequisite fix or its regression checks changed.' }
-          }
-          "inherited=$sourceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "revision=$acceptanceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "acceptance=$acceptanceRevision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "fixture=$expectedFixtureBlob" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.source.outputs.revision }}
-          path: b
-      - name: Restore verified inputs into their tested checkout
-        shell: pwsh
-        run: |
-          Move-Item "$env:RUNNER_TEMP/tested-runtime/runtime-bundle" b/desktop-pos/runtime-bundle
-          New-Item -ItemType Directory -Path b/desktop-pos/dist -Force | Out-Null
-          Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/runtime-audit.json" b/desktop-pos/dist/runtime-audit.json
-          Copy-Item "$env:RUNNER_TEMP/tested-runtime/dist/dashboard-synthetic-snapshot.json" b/desktop-pos/dist/dashboard-synthetic-snapshot.json
-          # This independent shallow checkout also needs the reviewed origin object.
-          git -C b fetch --depth=1 --no-tags origin 48b1d0fae8de73a97ab07b53ca0a0667830bf3d9
-          if ($LASTEXITCODE -ne 0) { throw 'The assembly checkout could not fetch its exact inherited source.' }
-          $inheritedRevision = (& git -C b rev-parse FETCH_HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $inheritedRevision -cne '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9') { throw 'The inherited source object differs in the actual assembly checkout.' }
-      - name: Assemble the current manifest from byte-identical tested runtime inputs
-        working-directory: b
-        shell: pwsh
-        env:
-          DESKTOP_CURRENT_SOURCE: ${{ steps.source.outputs.revision }}
-        run: |
-          $promoter = @'
-          'use strict';
-          // Usage: node desktop-promote-tested-runtime.cjs /absolute/path/to/desktop-pos ACTUAL_GIT_HEAD
-          // The workflow must first verify/download the immutable origin artifact below.
-          // This script assembles a new source-bound manifest; it never relabels old test receipts.
-          const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
-          const {execFileSync}=require('node:child_process');
-          const ORIGIN=Object.freeze({run:39363944148,attempt:1,job:118436478259,artifact:12240055641,
-            artifactSha256:'7083f656f50cf2ef1d5c40bbf95ea5f71c460bb25ef81406a54e682f8d11513a',
-            runHead:'939408badb7d3de771b6c9953a4bfd5dbd08df1c',sourceRevision:'48b1d0fae8de73a97ab07b53ca0a0667830bf3d9'});
-          const SOURCE=Object.freeze({format:1,files:1317,sha256:'4288c371691750f5278d145b4d036be0d78d7c170d18fd7d61217954c2866a56',framework:'8.83.29'});
-          const ALLOWED=new Set(['.github/workflows/desktop-dashboard-installer-verify.yml','desktop-pos/test/installer-prerequisite-native.cjs',
-            'desktop-pos/windows-vcredist.ps1','desktop-pos/test/windows-prerequisite.ps1']);
-          const FIXTURE='ad24ab9392a7ea0ba37b507ad9310ad739ba8f80';
-          const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
-          const ordered=keys=>keys.sort((a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b)));
-          const canonical=files=>JSON.stringify(ordered(Object.keys(files)).map(name=>[name,files[name]]));
-          const need=(condition,message)=>{if(!condition)throw Error(message);};
-          async function regular(file){const stat=await fs.lstat(file);need(stat.isFile()&&!stat.isSymbolicLink(),'Expected a regular file: '+file);return stat;}
-          async function directory(file){const stat=await fs.lstat(file);need(stat.isDirectory()&&!stat.isSymbolicLink(),'Expected a real directory: '+file);}
-          async function atomicWrite(file,bytes,stagingDirectory){
-            const staging=path.join(stagingDirectory,'.runtime-manifest-'+crypto.randomUUID()+'.tmp');
-            try{await fs.writeFile(staging,bytes,{flag:'wx',mode:0o600});await fs.rename(staging,file);}
-            finally{await fs.rm(staging,{force:true});}
-          }
-          async function saveOriginal(file,bytes){
-            try{await fs.writeFile(file,bytes,{flag:'wx',mode:0o600});}
-            catch(error){if(error.code!=='EEXIST')throw error;await regular(file);need((await fs.readFile(file)).equals(bytes),'An existing original-manifest record differs.');}
-          }
-          async function selectedFingerprint(checkout,framework){
-            // Same source roots, exclusions and CRLF normalization as dashboard-source.cjs.
-            // Framework comes from the verified byte-identical source contract/runtime lock,
-            // because source-only Git checkouts do not carry the generated composer.lock.
-            const roots=['app','bootstrap','config','database','desktop','resources','routes','public/dashboard/js','public/dashboard/css','public/dashboard/vendor/desktop-external'];
-            const excluded=/(?:^|\/)(?:\.env(?:\..*)?|firebase(?:_credentials)?\.json|service[-_]account[^/]*\.json|[^/]+\.(?:key|pem)|error_log)$/i;
-            const files={},cases=new Set();let total=0;
-            const add=async name=>{const file=path.join(checkout,...name.split('/'));await regular(file);
-              need(/^[a-zA-Z0-9_.@/-]+$/.test(name)&&!cases.has(name.toLowerCase()),'Invalid/colliding selected source path.');
-              const bytes=await fs.readFile(file);total+=bytes.length;need(total<=64*1024**2&&Object.keys(files).length<20000,'Selected source exceeds its verification limit.');
-              cases.add(name.toLowerCase());files[name]=hash(Buffer.from(bytes.toString('latin1').replace(/\r\n/g,'\n'),'latin1'));};
-            const walk=async relative=>{if(relative==='bootstrap/cache'||excluded.test(relative))return;
-              for(const entry of await fs.readdir(path.join(checkout,...relative.split('/')),{withFileTypes:true})){
-                const name=relative+'/'+entry.name;if(name.startsWith('bootstrap/cache/')||excluded.test(name))continue;
-                need(!entry.isSymbolicLink(),'A selected source entry is a symlink.');
-                if(entry.isDirectory())await walk(name);else if(/\.(?:php|js|css|json|html|scss|vue)$/i.test(name))await add(name);
-              }};
-            for(const root of roots){const file=path.join(checkout,...root.split('/'));try{await directory(file);}catch(error){if(error.code==='ENOENT')continue;throw error;}await walk(root);}
-            try{await add('artisan');}catch(error){if(error.code!=='ENOENT')throw error;}
-            const digest=crypto.createHash('sha256').update('desktop-dashboard-source:1\n');
-            for(const name of ordered(Object.keys(files)))digest.update(name+'\0'+files[name]+'\n');
-            return {format:1,files:Object.keys(files).length,sha256:digest.digest('hex'),framework};
-          }
-          async function main(){
-            need(process.argv.length===4,'Expected desktop-pos project directory and actual current Git SHA.');
-            const expected=process.argv[3];need(/^[a-f0-9]{40}$/.test(expected)&&expected!==ORIGIN.sourceRevision,'Expected a new actual current Git revision.');
-            const project=await fs.realpath(process.argv[2]);await directory(project);
-            const checkout=await fs.realpath(execFileSync('git',['rev-parse','--show-toplevel'],{cwd:project,encoding:'utf8'}).trim());
-            const git=(...args)=>execFileSync('git',args,{cwd:checkout,encoding:'utf8',maxBuffer:16*1024**2});
-            need(checkout===await fs.realpath(path.dirname(project)),'The Electron project must be directly under its Git checkout.');
-            const clean=()=>{need(git('rev-parse','HEAD').trim()===expected,'Actual Git HEAD differs from the expected assembly revision.');git('diff-index','--quiet','HEAD','--');};clean();
-            const changes=git('diff','--raw','--no-abbrev','--no-renames',ORIGIN.sourceRevision,'HEAD').trim().split('\n');
-            need(changes.length===4,'The inherited runtime permits only the exact four reviewed changed paths.');
-            const seen=new Set();
-            for(const line of changes){const match=/^:100644 100644 ([a-f0-9]{40}) ([a-f0-9]{40}) M\t(.+)$/.exec(line);
-              need(match&&ALLOWED.has(match[3])&&!seen.has(match[3]),'An unreviewed path, mode or file type differs.');seen.add(match[3]);}
-            need(git('rev-parse','HEAD:desktop-pos/test/installer-prerequisite-native.cjs').trim()===FIXTURE,'The pinned prerequisite acceptance fixture changed.');
-            const bundle=path.join(project,'runtime-bundle'),dist=path.join(project,'dist');await directory(bundle);
-            await fs.mkdir(dist,{recursive:true});await directory(dist);
-            const manifestPath=path.join(bundle,'manifest.json');await regular(manifestPath);
-            const originalBytes=await fs.readFile(manifestPath),manifest=JSON.parse(originalBytes.toString('utf8'));
-            const packaging=require(path.join(project,'installer-runtime.cjs')),source=require(path.join(project,'src/dashboard-source.cjs'));
-            const policy=require(path.join(project,'runtime-source-policy.cjs'));
-            need(manifest.sourceRevision===ORIGIN.sourceRevision&&manifest.runtimeFramework==='12.70.0'&&source.same(manifest.sourceFingerprint,SOURCE),'The inherited manifest is not the exact passed original runtime.');
-            const before=await packaging.verifyBundle(bundle);
-            need(before.files['manifest.json']===hash(originalBytes),'The original manifest changed during verification.');
-            const currentHashes={},roots=new Set(['app','bootstrap','config','database','desktop','public','resources','routes']);
-            for(const name of git('ls-files','-z').split('\0').filter(Boolean)){
-              if((!roots.has(name.split('/')[0])&&name!=='artisan')||policy.excludedPath(name))continue;
-              const file=path.join(checkout,name);await regular(file);const bytes=await fs.readFile(file);
-              if(!policy.credentialJson(name,bytes))currentHashes[name]=hash(bytes);
-            }
-            need(canonical(currentHashes)===canonical(manifest.sourceHashes),'Current complete Git application source hashes differ from the inherited runtime.');
-            const fingerprint=await selectedFingerprint(checkout,manifest.sourceFingerprint.framework);
-            need(source.same(fingerprint,SOURCE),'Current selected application source fingerprint differs.');clean();
-            const originalRecord=path.join(dist,'runtime-reuse-original-manifest.json'),proofPath=path.join(dist,'runtime-assembly-provenance.json');
-            try{await fs.lstat(proofPath);throw Error('An assembly provenance record already exists.');}catch(error){if(error.code!=='ENOENT')throw error;}
-            await saveOriginal(originalRecord,originalBytes);
-            const next={...manifest,sourceRevision:expected},nextBytes=Buffer.from(JSON.stringify(next,null,2)+'\n');
-            let changed=false,proofOwned=false;
-            try{
-              // A single file is replaced. No runtime byte, audit result or test receipt is rewritten.
-              changed=true;await atomicWrite(manifestPath,nextBytes,dist);
-              const after=await packaging.verifyBundle(bundle);clean();
-              need(after.manifest.sourceRevision===expected&&after.files['manifest.json']===hash(nextBytes),'The assembled manifest identity differs.');
-              const beforeNames=ordered(Object.keys(before.files)),afterNames=ordered(Object.keys(after.files));
-              need(JSON.stringify(beforeNames)===JSON.stringify(afterNames),'The runtime inventory path roster changed.');
-              const changedPaths=beforeNames.filter(name=>before.files[name]!==after.files[name]);
-              need(JSON.stringify(changedPaths)===JSON.stringify(['manifest.json']),'A runtime file other than manifest.json changed.');
-              const nonManifestBefore={...before.files},nonManifestAfter={...after.files};delete nonManifestBefore['manifest.json'];delete nonManifestAfter['manifest.json'];
-              need(canonical(nonManifestBefore)===canonical(nonManifestAfter),'Inherited runtime bytes are not identical.');
-              need((await fs.readFile(originalRecord)).equals(originalBytes),'The retained original manifest changed.');
-              const proof={format:1,assemblyOnly:true,sourceRevision:expected,inheritedFrom:ORIGIN,
-                originalManifestSha256:hash(originalBytes),assembledManifestSha256:hash(nextBytes),
-                inventoryAlgorithm:'sha256(JSON.stringify(UTF8-byte-sorted [path,sha256] pairs))',
-                originalInventorySha256:hash(Buffer.from(canonical(before.files))),assembledInventorySha256:hash(Buffer.from(canonical(after.files))),
-                identicalNonManifestInventorySha256:hash(Buffer.from(canonical(nonManifestBefore))),runtimeFiles:beforeNames.length,changedRuntimePaths:changedPaths,
-                applicationSourceFingerprint:fingerprint,currentGitSourceHashesSha256:hash(Buffer.from(canonical(currentHashes))),
-                lockSha256:before.lockSha256,runtimeFramework:'12.70.0',reviewedGitChanges:changes,
-                originalManifestRecord:path.basename(originalRecord),newBusinessSuiteExecutionClaimed:false,
-                originalEvidenceRewritten:false,currentInstallerAcceptanceRequired:true,
-                originArtifactVerification:'Pinned run/job/artifact/digest must be verified by the workflow before this script.'};
-              const proofHandle=await fs.open(proofPath,'wx',0o600);proofOwned=true;
-              try{await proofHandle.writeFile(JSON.stringify(proof,null,2)+'\n');await proofHandle.sync();}finally{await proofHandle.close();}
-              process.stdout.write('DESKTOP_RUNTIME_ASSEMBLY_PROVENANCE '+JSON.stringify(proof)+'\n');
-            }catch(error){
-              let proofCleanup;
-              if(proofOwned){try{await fs.rm(proofPath);}catch(failure){proofCleanup=failure;}}
-              if(changed){try{
-                let current;try{current=await fs.readFile(manifestPath);}catch(readError){if(readError.code!=='ENOENT')throw readError;}
-                if(!current?.equals(originalBytes))await atomicWrite(manifestPath,originalBytes,dist);
-                need((await fs.readFile(manifestPath)).equals(originalBytes),'Original manifest rollback did not verify.');
-              }catch(rollback){throw new AggregateError([error,rollback,...(proofCleanup?[proofCleanup]:[])],'Runtime assembly failed and original manifest rollback needs review: '+originalRecord);}}
-              if(proofCleanup)throw new AggregateError([error,proofCleanup],'Original manifest restored; incomplete assembly proof needs review: '+proofPath);
-              throw error;
-            }
-          }
-          main().catch(error=>{process.stderr.write((error.stack||String(error))+'\n');process.exitCode=1;});
-          '@
-          $promoterPath = Join-Path $env:RUNNER_TEMP 'desktop-promote-tested-runtime.cjs'
-          [IO.File]::WriteAllText($promoterPath, $promoter, (New-Object Text.UTF8Encoding($false)))
-          node $promoterPath desktop-pos $env:DESKTOP_CURRENT_SOURCE
-          if ($LASTEXITCODE -ne 0) { throw 'The unchanged runtime could not be independently bound to the reviewed current source.' }
-      - name: Retain original and current runtime assembly provenance before building
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-runtime-assembly-provenance
-          path: |
-            b/desktop-pos/dist/runtime-reuse-original-manifest.json
-            b/desktop-pos/dist/runtime-assembly-provenance.json
-          if-no-files-found: error
-          retention-days: 30
-      - name: Verify the signed prerequisite with both tested PowerShell versions
-        working-directory: b
-        shell: pwsh
-        run: |
-          & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
-          & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
-          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell prerequisite checks failed.' }
-      - name: Diagnose the actual prerequisite without changing the machine
-        shell: pwsh
-        run: |
-          $probe = @'
-          # Diagnostic only: never calls EnsureInstalled, Initialize-DesktopVcRuntime or an installer.
-          [CmdletBinding()]
-          param([Parameter(Mandatory = $true)][string] $Project)
-          $ErrorActionPreference = 'Stop'
-
-          function Get-ProbeFailure {
-              param($Record)
-              $exception = $Record.Exception
-              $current = $exception
-              $traversals = 0
-              $nativeErrorCode = $null
-              $reason = 'unclassified'
-              # Inspect the outer exception plus at most four inner links; never emit messages or paths.
-              for ($index = 0; $index -le 4; $index++) {
-                  if ($current.HResult -eq -2147024864) { $reason = 'sharing-violation' }
-                  elseif ($current.HResult -eq -2147024891) { $reason = 'access-denied' }
-                  if ($current -is [ComponentModel.Win32Exception]) { $nativeErrorCode = [int]$current.NativeErrorCode }
-                  if ($index -eq 4 -or $null -eq $current.InnerException) { break }
-                  $current = $current.InnerException
-                  $traversals++
-              }
-              return [ordered]@{
-                  type = [string]$exception.GetType().FullName
-                  hresult = [int]$exception.HResult
-                  innermostType = [string]$current.GetType().FullName
-                  innermostHresult = [int]$current.HResult
-                  innerTraversals = [int]$traversals
-                  nativeErrorCode = $nativeErrorCode
-                  reason = [string]$reason
-              }
-          }
-
-          function Read-ProbeRegistry {
-              param([Microsoft.Win32.RegistryView] $View)
-              $hive = $null; $key = $null
-              try {
-                  $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $View)
-                  $key = $hive.OpenSubKey('SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64')
-                  $fields = [ordered]@{}
-                  if ($null -ne $key) {
-                      foreach ($name in @('Installed', 'Major', 'Minor', 'Bld', 'Rbld', 'Version')) {
-                          $value = $key.GetValue($name)
-                          if ($null -eq $value) { $fields[$name] = [ordered]@{ present = $false; value = $null }; continue }
-                          $safeValue = $null
-                          if ($value -is [int] -or $value -is [long] -or $value -is [uint32]) { $safeValue = [long]$value }
-                          elseif ($value -is [string] -and $value -match '^[vV]?[0-9.]{1,64}$') { $safeValue = [string]$value }
-                          $fields[$name] = [ordered]@{
-                              present = $true
-                              kind = [string]$key.GetValueKind($name).ToString()
-                              type = [string]$value.GetType().FullName
-                              value = $safeValue
-                              recognized = [bool]($null -ne $safeValue)
-                          }
-                      }
-                  }
-                  return [ordered]@{ success = $true; keyExists = [bool]($null -ne $key); fields = $fields }
-              } catch {
-                  return [ordered]@{ success = $false; keyExists = $null; error = (Get-ProbeFailure $_) }
-              } finally {
-                  if ($null -ne $key) { $key.Dispose() }
-                  if ($null -ne $hive) { $hive.Dispose() }
-              }
-          }
-
-          function Test-ProbePayload {
-              param([string] $Path, $Policy, [bool] $Locked)
-              $handle = $null
-              try {
-                  if ($Locked) { $handle = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
-                  $result = Test-DesktopVcPayload -Path $Path -Policy $Policy
-                  return [ordered]@{
-                      success = $true
-                      readSharingLock = $Locked
-                      payload = [ordered]@{
-                          architecture = [string]$result.architecture
-                          version = [string]$result.version
-                          bytes = [long]$result.bytes
-                          sha256 = [string]$result.sha256
-                          signerSha256 = [string]$result.signerSha256
-                          signatureValid = [bool]$result.signatureValid
-                      }
-                  }
-              } catch {
-                  return [ordered]@{ success = $false; readSharingLock = $Locked; error = (Get-ProbeFailure $_) }
-              } finally {
-                  if ($null -ne $handle) { $handle.Dispose() }
-              }
-          }
-
-          $report = [ordered]@{
-              format = 1
-              readOnly = $true
-              is64BitOperatingSystem = [bool][Environment]::Is64BitOperatingSystem
-              is64BitProcess = [bool][Environment]::Is64BitProcess
-              pointerBytes = [int][IntPtr]::Size
-              powershellVersion = [string]$PSVersionTable.PSVersion.ToString()
-              sourceLoaded = $false
-          }
-          $failed = $false
-          try {
-              $projectRoot = [IO.Path]::GetFullPath($Project)
-              $payloadPath = Join-Path $projectRoot 'dist/prerequisites/vc_redist.x64.exe'
-              $policyPath = Join-Path $projectRoot 'windows-vcredist.json'
-              # Dot-sourcing defines functions only; the source's executable entry point is not entered.
-              . (Join-Path $projectRoot 'windows-vcredist.ps1') -Action ValidatePayload -PayloadPath $payloadPath -PolicyPath $policyPath
-              $report.sourceLoaded = $true
-              $policy = Read-DesktopVcPolicy -Path $policyPath
-              $report.policy = [ordered]@{
-                  architecture = [string]$policy.architecture; minimumVersion = [string]$policy.version
-                  bytes = [long]$policy.bytes; sha256 = [string]$policy.sha256; signerSha256 = [string]$policy.signerSha256
-              }
-              $report.unlocked = Test-ProbePayload -Path $payloadPath -Policy $policy -Locked $false
-              $report.locked = Test-ProbePayload -Path $payloadPath -Policy $policy -Locked $true
-              if (-not $report.unlocked.success -or -not $report.locked.success) { $failed = $true }
-              try {
-                  $installed = Get-DesktopVcInstalledVersion
-                  $report.sourceInstalledVersion = [ordered]@{
-                      success = $true
-                      version = $(if ($null -eq $installed) { $null } else { [string]$installed.ToString() })
-                      minimumSatisfied = [bool]($null -ne $installed -and $installed -ge [version]$policy.version)
-                  }
-              } catch {
-                  $report.sourceInstalledVersion = [ordered]@{ success = $false; error = (Get-ProbeFailure $_) }
-                  $failed = $true
-              }
-          } catch {
-              $report.sourceError = Get-ProbeFailure $_
-              $failed = $true
-          }
-          $report.registry32 = Read-ProbeRegistry -View ([Microsoft.Win32.RegistryView]::Registry32)
-          $report.registry64 = Read-ProbeRegistry -View ([Microsoft.Win32.RegistryView]::Registry64)
-          if (-not $report.registry32.success -or -not $report.registry64.success) { $failed = $true }
-          $report.validationPassed = [bool](-not $failed)
-          [Console]::Out.WriteLine(($report | ConvertTo-Json -Depth 12 -Compress))
-          if ($failed) { exit 1 }
-          exit 0
-          '@
-          $probeFile = Join-Path $env:RUNNER_TEMP 'desktop-vc-readonly-probe.ps1'
-          [IO.File]::WriteAllText($probeFile, $probe, (New-Object Text.UTF8Encoding($false)))
-          $project = (Resolve-Path b/desktop-pos).Path
-          $results = @()
-          foreach ($entry in @(@{ label = '64'; directory = 'System32'; expected64 = $true }, @{ label = '32'; directory = 'SysWOW64'; expected64 = $false })) {
-            $executable = Join-Path $env:SystemRoot ($entry.directory + '\WindowsPowerShell\v1.0\powershell.exe')
-            $output = @(& $executable -NoProfile -NonInteractive -File $probeFile -Project $project 2>&1)
-            $code = $LASTEXITCODE
-            $raw = ($output | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
-            [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP ('desktop-vc-readonly-' + $entry.label + '.json')), $raw, (New-Object Text.UTF8Encoding($false)))
-            $valid = $false
-            try {
-              $proof = $raw | ConvertFrom-Json -ErrorAction Stop
-              $valid = ($code -eq 0 -and $proof.readOnly -is [bool] -and $proof.readOnly -eq $true -and $proof.validationPassed -is [bool] -and $proof.validationPassed -eq $true -and $proof.is64BitProcess -is [bool] -and $proof.is64BitProcess -eq $entry.expected64)
-              Write-Output ('DESKTOP_PREREQUISITE_READONLY_' + $entry.label + ' ' + ($proof | ConvertTo-Json -Depth 12 -Compress))
-            } catch { Write-Output ('DESKTOP_PREREQUISITE_READONLY_' + $entry.label + ' invalid JSON; exit=' + $code) }
-            $results += [ordered]@{ processBits = [int]$entry.label; exitCode = $code; validationPassed = [bool]$valid }
-          }
-          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'desktop-vc-readonly-results.json'), (ConvertTo-Json -InputObject $results -Depth 4), (New-Object Text.UTF8Encoding($false)))
-      - name: Retain both read-only prerequisite diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-prerequisite-readonly-diagnostics
-          path: ${{ runner.temp }}/desktop-vc-readonly-*.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Require both real locked payload validations before building
-        shell: pwsh
-        run: |
-          $results = @(Get-Content (Join-Path $env:RUNNER_TEMP 'desktop-vc-readonly-results.json') -Raw | ConvertFrom-Json)
-          if ($results.Count -ne 2 -or @($results | Where-Object { $_.validationPassed -isnot [bool] -or $_.validationPassed -ne $true -or $_.exitCode -ne 0 }).Count -ne 0) { throw 'Read-only prerequisite validation failed; both architecture diagnostics were retained.' }
-      - name: Build the installer with exact source and dependency verification
-        working-directory: b
-        shell: pwsh
-        run: |
-          npm ci --prefix desktop-pos --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
-          node desktop-pos/node_modules/electron/install.js
-          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
-          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
-          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron print lifecycle acceptance failed.' }
-          $printProof = Get-Content desktop-pos/dist/offline-print-native.json -Raw | ConvertFrom-Json
-          if ($printProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $printProof.platform -ne 'win32' -or $printProof.hardware -ne $false -or $printProof.invocations -ne 7 -or $printProof.accepted -ne 6 -or $printProof.review -ne 1) { throw 'Native print proof is incomplete or from another source.' }
-          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/outbox-review-native.cjs desktop-pos/dist/outbox-review-native.json
-          if ($LASTEXITCODE -ne 0) { throw 'Actual Electron synchronization review and Windows DPAPI audit checks failed.' }
-          $reviewProof = Get-Content desktop-pos/dist/outbox-review-native.json -Raw | ConvertFrom-Json
-          if ($reviewProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $reviewProof.platform -ne 'win32' -or $reviewProof.completed -ne $true -or $reviewProof.actualDpapiAudit -ne $true -or $reviewProof.durableIntentBeforeRetry -ne $true -or $reviewProof.unchangedCommandId -ne $true) { throw 'Native review proof is incomplete or from another source.' }
-          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
-          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron connected request acceptance failed.' }
-          $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
-          $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
-          if ($connectedProof.electronVersion -isnot [string] -or $connectedProof.electronVersion -ne $lockedConnectedElectron) { throw 'The actual connected Electron process differs from its exact lock.' }
-          if ($connectedProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
-          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite', 'nativeReauthentication', 'expiredCookieBlocked', 'reauthSameActorProtocol', 'reauthWrongActorBlocked', 'reauthOldProtocolBlocked', 'reauthMutationBlocked', 'reauthCancelled', 'reauthPreservedMode', 'reauthNoPreload', 'reauthRedirectBlocked', 'nativeLocalReauthentication')) {
-            if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
-          }
-          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 6 -or $connectedProof.reauthOriginalSignins -ne 5 -or $connectedProof.reauthSuccesses -ne 3 -or $connectedProof.localReauthentications -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
-          node ../current-source/.github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
-          if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
-          # The preview preserves long installation paths and every verified runtime byte.
-          Copy-Item ../current-source/.github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
-          try {
-            npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
-            $buildResult = $LASTEXITCODE
-          } finally {
-            if (Test-Path desktop-pos/dist/nsis-build-drive.json) {
-              $mapping = Get-Content desktop-pos/dist/nsis-build-drive.json -Raw | ConvertFrom-Json
-              if ($mapping.drive -ne 'R:') { throw 'Unexpected compiler mapping.' }
-              subst.exe $mapping.drive /d
-            }
-          }
-          if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
-      - name: Record the compiled candidate identity before acceptance
-        working-directory: b
-        shell: pwsh
-        env:
-          DESKTOP_PRODUCT_SOURCE: ${{ steps.source.outputs.revision }}
-          DESKTOP_ACCEPTANCE_REVISION: ${{ steps.source.outputs.acceptance }}
-        run: |
-          $candidate = Get-Item desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
-          $proof = [ordered]@{ format = 1; verifiedRelease = $false; sourceRevision = $env:DESKTOP_PRODUCT_SOURCE; acceptanceRevision = $env:DESKTOP_ACCEPTANCE_REVISION; productChanged = $true; applicationChanged = $false; prerequisiteBootstrapChanged = $true; inheritedRuntimeSource = '48b1d0fae8de73a97ab07b53ca0a0667830bf3d9'; bytes = $candidate.Length; sha256 = (Get-FileHash -LiteralPath $candidate.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
-          $proof | ConvertTo-Json | Set-Content desktop-pos/dist/UNVERIFIED-compiled-candidate.json -Encoding utf8NoBOM
-          Write-Output ('DESKTOP_UNVERIFIED_COMPILED_CANDIDATE ' + ($proof | ConvertTo-Json -Compress))
-      - name: Preserve the UNVERIFIED candidate for diagnosis only
-        uses: actions/upload-artifact@v4
-        with:
-          name: UNVERIFIED-compiled-installer-for-diagnostics
-          path: |
-            b/desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
-            b/desktop-pos/dist/UNVERIFIED-compiled-candidate.json
-            b/desktop-pos/dist/runtime-package.json
-            b/desktop-pos/dist/runtime-audit.json
-            b/desktop-pos/dist/prerequisites/vcredist-package.json
-            b/desktop-pos/dist/offline-print-native.json
-            b/desktop-pos/dist/outbox-review-native.json
-            b/desktop-pos/dist/connected-request-native.json
-            b/desktop-pos/dist/dashboard-synthetic-snapshot.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Apply only the pinned acceptance fixture after the clean product build
-        shell: pwsh
-        env:
-          DESKTOP_ACCEPTANCE_FIXTURE_BLOB: ${{ steps.source.outputs.fixture }}
-          DESKTOP_ACCEPTANCE_REVISION: ${{ steps.source.outputs.acceptance }}
-          DESKTOP_PRODUCT_SOURCE: ${{ steps.source.outputs.revision }}
-        run: |
-          # The installer has already been built from the untouched tested checkout.
-          # Write exact Git blob bytes rather than relying on Windows text conversion.
-          node -e "const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto');const blob=process.env.DESKTOP_ACCEPTANCE_FIXTURE_BLOB;const bytes=cp.execFileSync('git',['cat-file','blob',blob],{cwd:'current-source'});const hash=data=>crypto.createHash('sha1').update(Buffer.from('blob '+data.length+'\0')).update(data).digest('hex');if(hash(bytes)!==blob)throw Error('Acceptance source blob mismatch');const file=path.join('b','desktop-pos','test','installer-prerequisite-native.cjs');fs.writeFileSync(file,bytes);if(hash(fs.readFileSync(file))!==blob)throw Error('Acceptance overlay changed');const proof={format:1,testedRun:39363944148,testedArtifact:12240055641,sourceRevision:process.env.DESKTOP_PRODUCT_SOURCE,acceptanceRevision:process.env.DESKTOP_ACCEPTANCE_REVISION,fixturePath:'desktop-pos/test/installer-prerequisite-native.cjs',fixtureBlob:blob,productChanged:true,applicationChanged:false,prerequisiteBootstrapChanged:true,inheritedRuntimeSource:'48b1d0fae8de73a97ab07b53ca0a0667830bf3d9'};fs.writeFileSync(path.join('b','desktop-pos','dist','installer-acceptance-provenance.json'),JSON.stringify(proof,null,2)+'\n');console.log('DESKTOP_INSTALLER_ACCEPTANCE_PROVENANCE '+JSON.stringify(proof));"
-          if ($LASTEXITCODE -ne 0) { throw 'The exact reviewed acceptance overlay could not be applied.' }
-      - name: Verify actual installed dashboard recovery and retained unsynced data
-        env:
-          TEMP: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-        working-directory: b
-        shell: pwsh
-        run: |
-          $diagnosedAcceptance = @'
-          'use strict';
-          const cp = require('node:child_process');
-          const original = cp.execFileSync;
-          cp.execFileSync = function (...args) {
-            try { return Reflect.apply(original, this, args); }
-            catch (error) {
-              const bounded = value => value == null ? null : String(value).slice(0, 8192);
-              process.stderr.write('DESKTOP_ACTUAL_CHILD_FAILURE ' + JSON.stringify({ executable: require('node:path').basename(String(args[0])), status: error.status ?? null, code: error.code ?? null, signal: error.signal ?? null, killed: error.killed ?? null, stdout: bounded(error.stdout), stderr: bounded(error.stderr) }) + '\n');
-              throw error;
+          need(seen.has(WORKFLOW)&&seen.has('desktop-pos/installer.nsi'),'The reviewed follow-up and installer fix must both be pinned.');
+          return ordered(result);
+        }
+        async function selectedFingerprint(checkout,framework){
+          // Same selected roots, exclusions and CRLF normalization as dashboard-source.cjs;
+          // a bare Git checkout has no generated runtime composer.lock.
+          const roots=['app','bootstrap','config','database','desktop','resources','routes','public/dashboard/js','public/dashboard/css','public/dashboard/vendor/desktop-external'];
+          const excluded=/(?:^|\/)(?:\.env(?:\..*)?|firebase(?:_credentials)?\.json|service[-_]account[^/]*\.json|[^/]+\.(?:key|pem)|error_log)$/i;
+          const files={},cases=new Set();let total=0;
+          const add=async name=>{
+            const file=path.join(checkout,...name.split('/'));await regular(file);
+            need(/^[a-zA-Z0-9_.@/-]+$/.test(name)&&!cases.has(name.toLowerCase()),'Invalid/colliding selected source path.');
+            const b=await fs.readFile(file);total+=b.length;
+            need(total<=64*1024**2&&Object.keys(files).length<20000,'Selected source exceeds its verification limit.');
+            cases.add(name.toLowerCase());files[name]=hash(Buffer.from(b.toString('latin1').replace(/\r\n/g,'\n'),'latin1'));
+          };
+          const walk=async relative=>{
+            if(relative==='bootstrap/cache'||excluded.test(relative))return;
+            for(const entry of await fs.readdir(path.join(checkout,...relative.split('/')),{withFileTypes:true})){
+              const name=relative+'/'+entry.name;if(name.startsWith('bootstrap/cache/')||excluded.test(name))continue;
+              need(!entry.isSymbolicLink(),'A selected source entry is a symlink.');
+              if(entry.isDirectory())await walk(name);else if(/\.(?:php|js|css|json|html|scss|vue)$/i.test(name))await add(name);
             }
           };
-          require('./desktop-pos/test/installer-native.cjs');
-          '@
-          node -e $diagnosedAcceptance
-          if ($LASTEXITCODE -ne 0) { throw 'Actual installed dashboard acceptance failed; original child failure metadata was logged.' }
-      - name: Retain only the verified installer and receipts
-        uses: actions/upload-artifact@v4
-        with:
-          name: fasakhansta-dashboard-installer-preview
-          path: |
-            b/desktop-pos/dist/Fasakhansta-Dashboard-Preview-Setup.exe
-            b/desktop-pos/dist/installer-checks.json
-            b/desktop-pos/dist/runtime-package.json
-            b/desktop-pos/dist/runtime-audit.json
-            b/desktop-pos/dist/prerequisites/vcredist-package.json
-            b/desktop-pos/dist/offline-print-native.json
-            b/desktop-pos/dist/outbox-review-native.json
-            b/desktop-pos/dist/connected-request-native.json
-          if-no-files-found: error
-          retention-days: 30
-      - name: Retain the separate source and acceptance provenance
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-installer-acceptance-provenance
-          path: |
-            b/desktop-pos/dist/installer-acceptance-provenance.json
-            b/desktop-pos/dist/runtime-assembly-provenance.json
-            b/desktop-pos/dist/runtime-reuse-original-manifest.json
-          if-no-files-found: error
-          retention-days: 30
+          for(const root of roots){try{await directory(path.join(checkout,...root.split('/')));}catch(error){if(error.code==='ENOENT')continue;throw error;}await walk(root);}
+          try{await add('artisan');}catch(error){if(error.code!=='ENOENT')throw error;}
+          const digest=crypto.createHash('sha256').update('desktop-dashboard-source:1\n');
+          for(const name of ordered(Object.keys(files)))digest.update(name+'\0'+files[name]+'\n');
+          return {format:1,files:Object.keys(files).length,sha256:digest.digest('hex'),framework};
+        }
+        async function main(){
+          need(process.argv.length===4,'Expected desktop-pos directory and exact current checkout SHA.');
+          const expected=process.argv[3];need(REV.test(expected)&&expected!==ORIGIN.sourceRevision,'Expected a new actual current Git checkout.');
+          const project=await fs.realpath(process.argv[2]);await directory(project);
+          const checkout=await fs.realpath(execFileSync('git',['rev-parse','--show-toplevel'],{cwd:project,encoding:'utf8'}).trim());
+          const git=(...args)=>execFileSync('git',args,{cwd:checkout,encoding:'utf8',maxBuffer:16*1024**2,env:{...process.env,GIT_OPTIONAL_LOCKS:'0',GIT_NO_REPLACE_OBJECTS:'1'}});
+          need(checkout===await fs.realpath(path.dirname(project)),'The Electron project must be directly under its Git checkout.');
+          const expectedChanges=reviewedChanges();
+          const clean=()=>{need(git('rev-parse','HEAD').trim()===expected,'Actual Git HEAD differs from assembly revision.');git('diff-index','--quiet','HEAD','--');};clean();
+          need(git('rev-parse','--verify',ORIGIN.sourceRevision+'^{commit}').trim()===ORIGIN.sourceRevision,'The exact original checkout object is missing.');
+          const raw=git('diff','--raw','--no-abbrev','--no-renames',ORIGIN.sourceRevision,'HEAD').trim();
+          const changes=raw?raw.split('\n'):[];
+          need(isDeepStrictEqual(ordered([...changes]),expectedChanges),'The complete tracked Git delta differs from its exact reviewed mode/blob/path pins.');
+          for(const line of expectedChanges){const match=/^:100644 100644 ([a-f0-9]{40}) ([a-f0-9]{40}) M\t(.+)$/.exec(line);
+            need(match&&git('rev-parse',ORIGIN.sourceRevision+':'+match[3]).trim()===match[1]
+              &&git('rev-parse','HEAD:'+match[3]).trim()===match[2],'An exact reviewed Git blob is unavailable.');}
+          const bundle=path.join(project,'runtime-bundle'),dist=path.join(project,'dist');await directory(bundle);
+          await fs.mkdir(dist,{recursive:true});await directory(dist);
+          const manifestPath=path.join(bundle,'manifest.json'),originalBytes=await bytes(manifestPath,4*1024**2);
+          need(hash(originalBytes)===FROZEN.originalManifestSha256,'Restored original manifest bytes differ from independently verified run189 artifact.');
+          const manifest=JSON.parse(originalBytes.toString('utf8').replace(/^\uFEFF/,''));
+          const packaging=require(path.join(project,'installer-runtime.cjs')),source=require(path.join(project,'src/dashboard-source.cjs'));
+          const policy=require(path.join(project,'runtime-source-policy.cjs'));
+          need(manifest.format===1&&manifest.platform==='win32-x64'&&manifest.sourceRevision===ORIGIN.sourceRevision
+            &&manifest.runtimeFramework==='12.70.0'&&source.same(manifest.sourceFingerprint,SOURCE)
+            &&manifest.channel==='preview'&&manifest.fullDashboard===false&&manifest.runtimeCompatibilitySha256===COMPAT,'Inherited manifest is not the exact passed run189 runtime.');
+          const before=await packaging.verifyBundle(bundle);
+          need(before.files['manifest.json']===hash(originalBytes)&&before.lockSha256===LOCK
+            &&before.files['application/compatibility.php']===COMPAT,'Original manifest, runtime lock or compatibility bytes differ.');
+          need(Object.keys(before.files).length===FROZEN.runtimeFiles
+            &&hash(Buffer.from(canonical(before.files)))===FROZEN.originalInventorySha256,'Restored full runtime inventory differs from independently verified run189 artifact.');
+          const frozenNonManifest={...before.files};delete frozenNonManifest['manifest.json'];
+          need(hash(Buffer.from(canonical(frozenNonManifest)))===FROZEN.identicalNonManifestInventorySha256,'Restored non-manifest inventory differs from independently verified run189 artifact.');
+          const untouched={};
+          for(const name of ['runtime-audit.json','dashboard-synthetic-snapshot.json'])untouched[name]=hash(await bytes(path.join(dist,name)));
+          need(untouched['runtime-audit.json']===FROZEN.auditSha256&&untouched['dashboard-synthetic-snapshot.json']===FROZEN.snapshotSha256,'Restored audit or synthetic snapshot differs from independently verified run189 artifact.');
+          const audit=JSON.parse((await bytes(path.join(dist,'runtime-audit.json'))).toString('utf8').replace(/^\uFEFF/,''));
+          need(audit.format===1&&audit.exitCode===0&&audit.lockSha256===LOCK&&object(audit.result),'Inherited dependency audit differs.');
+          for(const field of ['advisories','ignored-advisories','abandoned']){
+            const value=audit.result[field]??{};need((object(value)||Array.isArray(value))&&Object.keys(value).length===0,'Inherited audit has '+field);}
+          need(Object.hasOwn(audit.result,'advisories'),'Inherited audit omits advisories.');
+          const currentHashes={},roots=new Set(['app','bootstrap','config','database','desktop','public','resources','routes']);
+          for(const name of git('ls-files','-z').split('\0').filter(Boolean)){
+            if((!roots.has(name.split('/')[0])&&name!=='artisan')||policy.excludedPath(name))continue;
+            const file=path.join(checkout,name);await regular(file);const b=await fs.readFile(file);
+            if(!policy.credentialJson(name,b))currentHashes[name]=hash(b);
+          }
+          need(canonical(currentHashes)===canonical(manifest.sourceHashes),'Current complete Git application bytes differ from inherited runtime.');
+          const fingerprint=await selectedFingerprint(checkout,manifest.sourceFingerprint.framework);
+          need(source.same(fingerprint,SOURCE),'Current selected source fingerprint differs.');clean();
+          const originalRecord=path.join(dist,'runtime-reuse-original-manifest.json');
+          const inventoryRecord=path.join(dist,'runtime-reuse-original-inventory.json');
+          const proofPath=path.join(dist,'runtime-assembly-provenance.json');
+          try{await fs.lstat(proofPath);throw Error('Assembly provenance already exists.');}catch(error){if(error.code!=='ENOENT')throw error;}
+          const inventoryBytes=Buffer.from(JSON.stringify(Object.fromEntries(ordered(Object.keys(before.files)).map(name=>[name,before.files[name]])),null,2)+'\n');
+          await saveOriginal(originalRecord,originalBytes);await saveOriginal(inventoryRecord,inventoryBytes);
+          const nextBytes=Buffer.from(JSON.stringify({...manifest,sourceRevision:expected},null,2)+'\n');
+          let changed=false,proofOwned=false;
+          try{
+            // Every runtime byte, dependency, audit and inherited receipt remains unchanged.
+            changed=true;await atomicWrite(manifestPath,nextBytes,dist);
+            const after=await packaging.verifyBundle(bundle);clean();
+            need(after.manifest.sourceRevision===expected&&after.files['manifest.json']===hash(nextBytes),'Assembled manifest identity differs.');
+            const names=ordered(Object.keys(before.files));
+            need(isDeepStrictEqual(names,ordered(Object.keys(after.files))),'Runtime inventory roster changed.');
+            const changedPaths=names.filter(name=>before.files[name]!==after.files[name]);
+            need(isDeepStrictEqual(changedPaths,['manifest.json']),'A runtime byte other than manifest.json changed.');
+            const nonManifestBefore={...before.files},nonManifestAfter={...after.files};delete nonManifestBefore['manifest.json'];delete nonManifestAfter['manifest.json'];
+            need(canonical(nonManifestBefore)===canonical(nonManifestAfter),'Inherited non-manifest runtime bytes differ.');
+            for(const [name,digest]of Object.entries(untouched))need(hash(await bytes(path.join(dist,name)))===digest,'An inherited receipt/input changed: '+name);
+            need((await bytes(originalRecord)).equals(originalBytes)&&(await bytes(inventoryRecord)).equals(inventoryBytes),'A retained original manifest/inventory changed.');
+            const proof={format:1,assemblyOnly:true,sourceRevision:expected,inheritedFrom:ORIGIN,
+              originArtifactBytes:ORIGIN_ARTIFACT_BYTES,originNativeJob:ORIGIN_NATIVE_JOB,
+              originalManifestSha256:hash(originalBytes),assembledManifestSha256:hash(nextBytes),
+              inventoryAlgorithm:'sha256(JSON.stringify(UTF8-byte-sorted [path,sha256] pairs))',
+              originalInventorySha256:hash(Buffer.from(canonical(before.files))),assembledInventorySha256:hash(Buffer.from(canonical(after.files))),
+              identicalNonManifestInventorySha256:hash(Buffer.from(canonical(nonManifestBefore))),runtimeFiles:names.length,changedRuntimePaths:changedPaths,
+              applicationSourceFingerprint:fingerprint,currentGitSourceHashesSha256:hash(Buffer.from(canonical(currentHashes))),
+              lockSha256:before.lockSha256,runtimeCompatibilitySha256:COMPAT,runtimeFramework:'12.70.0',reviewedGitChanges:changes,
+              originalManifestRecord:path.basename(originalRecord),originalInventoryRecord:path.basename(inventoryRecord),
+              originalInventoryRecordSha256:hash(inventoryBytes),preservedInputSha256:untouched,independentlyVerifiedOriginPins:FROZEN,
+              newBusinessSuiteExecutionClaimed:false,originalEvidenceRewritten:false,currentInstallerAcceptanceRequired:true,
+              originArtifactVerification:'Exact run189 API identity and artifact archive byte digest must pass workflow checks before this script; retained full before-inventory derives from those restored runtime bytes.'};
+            const handle=await fs.open(proofPath,'wx',0o600);proofOwned=true;
+            try{await handle.writeFile(JSON.stringify(proof,null,2)+'\n');await handle.sync();}finally{await handle.close();}
+            process.stdout.write('DESKTOP_RUNTIME_ASSEMBLY_PROVENANCE '+JSON.stringify(proof)+'\n');
+          }catch(error){
+            const failures=[error];
+            if(proofOwned)try{await fs.rm(proofPath);}catch(failure){failures.push(failure);}
+            if(changed)try{
+              let current;try{current=await fs.readFile(manifestPath);}catch(failure){if(failure.code!=='ENOENT')throw failure;}
+              need(current===undefined||current.equals(originalBytes)||current.equals(nextBytes),'Manifest changed outside this assembly; refusing to overwrite unknown bytes during rollback.');
+              if(!current?.equals(originalBytes))await atomicWrite(manifestPath,originalBytes,dist);
+              need((await bytes(manifestPath)).equals(originalBytes),'Original manifest rollback did not verify.');
+            }catch(failure){failures.push(failure);}
+            if(failures.length>1)throw new AggregateError(failures,'Assembly failed; original runtime manifest/proof cleanup needs review: '+originalRecord);
+            throw error;
+          }
+        }
+        main().catch(error=>{process.stderr.write((error.stack||String(error))+'\n');process.exitCode=1;});
+        '@
+        $promoterPath=Join-Path $env:RUNNER_TEMP 'desktop-promote189-runtime.cjs'
+        [IO.File]::WriteAllText($promoterPath,$promoter,(New-Object Text.UTF8Encoding($false)))
+        node $promoterPath desktop-pos $env:GITHUB_SHA
+        if ($LASTEXITCODE -ne 0) { throw 'Exact manifest-only runtime promotion failed.' }
+    - name: Retain unchanged origin bytes and explicit assembly provenance
+      uses: actions/upload-artifact@v4
+      with:
+        name: desktop-runtime-assembly-provenance
+        path: |
+          b/desktop-pos/dist/runtime-reuse-original-manifest.json
+          b/desktop-pos/dist/runtime-reuse-original-inventory.json
+          b/desktop-pos/dist/runtime-assembly-provenance.json
+        if-no-files-found: error
+        retention-days: 30
+    - name: Build GO ERP with fresh current native acceptance
+      shell: pwsh
+      run: |
+        git diff-index --quiet HEAD --
+        if ($LASTEXITCODE -ne 0) { throw 'The current tracked checkout changed before fresh native/build acceptance.' }
+        & .github/scripts/prepare-desktop-vcredist.ps1 -Project desktop-pos
+        $prerequisiteSummary = '(?m)^PASS 44 Visual C\+\+ prerequisite checks: missing/older/newer, cancellation, failure and restart; real signed payload=True; Windows executable lock=True\.$'
+        & ./desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe 2>&1 | Tee-Object -Variable prerequisiteCoreOutput
+        if ([regex]::Matches(($prerequisiteCoreOutput -join "`n"), $prerequisiteSummary).Count -ne 1) { throw 'PowerShell prerequisite checks did not complete exactly once with the real signed payload and executable lock.' }
+        & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File desktop-pos/test/windows-prerequisite.ps1 -Project desktop-pos -PayloadPath desktop-pos/dist/prerequisites/vc_redist.x64.exe 2>&1 | Tee-Object -Variable prerequisiteDesktopOutput
+        if ($LASTEXITCODE -ne 0 -or [regex]::Matches(($prerequisiteDesktopOutput -join "`n"), $prerequisiteSummary).Count -ne 1) { throw 'Windows PowerShell prerequisite checks did not complete exactly once with the real signed payload and executable lock.' }
+        npm ci --prefix desktop-pos --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron build dependencies failed.' }
+        node desktop-pos/node_modules/electron/install.js
+        if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+        node desktop-pos/test/run-electron-native.cjs desktop-pos/test/print-effects-native.cjs desktop-pos/dist/offline-print-native.json
+        if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron print lifecycle acceptance failed.' }
+        $printProof = Get-Content desktop-pos/dist/offline-print-native.json -Raw | ConvertFrom-Json
+        if ($printProof.sourceRevision -ne $env:GITHUB_SHA -or $printProof.platform -ne 'win32' -or $printProof.hardware -ne $false -or $printProof.invocations -ne 7 -or $printProof.accepted -ne 6 -or $printProof.review -ne 1) { throw 'Native print proof is incomplete or from another source.' }
+        node desktop-pos/test/run-electron-native.cjs desktop-pos/test/outbox-review-native.cjs desktop-pos/dist/outbox-review-native.json
+        if ($LASTEXITCODE -ne 0) { throw 'Actual Electron synchronization review and Windows DPAPI audit checks failed.' }
+        $reviewProof = Get-Content desktop-pos/dist/outbox-review-native.json -Raw | ConvertFrom-Json
+        if ($reviewProof.sourceRevision -ne $env:GITHUB_SHA -or $reviewProof.platform -ne 'win32' -or $reviewProof.completed -ne $true -or $reviewProof.actualDpapiAudit -ne $true -or $reviewProof.durableIntentBeforeRetry -ne $true -or $reviewProof.unchangedCommandId -ne $true) { throw 'Native review proof is incomplete or from another source.' }
+        node desktop-pos/test/run-electron-native.cjs desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
+        if ($LASTEXITCODE -ne 0) { throw 'Fresh actual connected Electron acceptance failed.' }
+        $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
+        $lockedConnectedElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+        if ($connectedProof.electronVersion -isnot [string] -or $connectedProof.electronVersion -ne $lockedConnectedElectron) { throw 'The actual connected Electron process differs from its exact lock.' }
+        if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
+        foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite', 'nativeReauthentication', 'expiredCookieBlocked', 'reauthSameActorProtocol', 'reauthWrongActorBlocked', 'reauthOldProtocolBlocked', 'reauthMutationBlocked', 'reauthCancelled', 'reauthPreservedMode', 'reauthNoPreload', 'reauthRedirectBlocked', 'nativeLocalReauthentication')) {
+          if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
+        }
+        if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 6 -or $connectedProof.reauthOriginalSignins -ne 5 -or $connectedProof.reauthSuccesses -ne 3 -or $connectedProof.localReauthentications -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+
+        node .github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
+        if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
+        Copy-Item .github/scripts/desktop-runtime-copy-hook.cjs desktop-pos/runtime-copy-hook.cjs
+        try {
+          npm run build:win --prefix desktop-pos -- --config.afterPack=./runtime-copy-hook.cjs --config.nsis.script=installer-windows.nsi
+          $buildResult = $LASTEXITCODE
+        } finally {
+          if (Test-Path desktop-pos/dist/nsis-build-drive.json) {
+            $mapping = Get-Content desktop-pos/dist/nsis-build-drive.json -Raw | ConvertFrom-Json
+            if ($mapping.drive -ne 'R:') { throw 'Unexpected compiler mapping.' }
+            subst.exe $mapping.drive /d
+          }
+        }
+        if ($buildResult -ne 0) { throw 'Windows installer preview failed.' }
+      working-directory: b
+    - name: Verify actual Windows installation and retained unsynced data
+      shell: pwsh
+      timeout-minutes: 40
+      env:
+        TEMP: ${{ runner.temp }}
+        TMP: ${{ runner.temp }}
+      run: |
+        $diagnosedAcceptance = @'
+        'use strict';
+        const cp = require('node:child_process');
+        const original = cp.execFileSync;
+        cp.execFileSync = function (...args) {
+          try { return Reflect.apply(original, this, args); }
+          catch (error) {
+            const bounded = value => value == null ? null : String(value).slice(0, 8192);
+            process.stderr.write('DESKTOP_ACTUAL_CHILD_FAILURE ' + JSON.stringify({ executable: require('node:path').basename(String(args[0])), status: error.status ?? null, code: error.code ?? null, signal: error.signal ?? null, killed: error.killed ?? null, stdout: bounded(error.stdout), stderr: bounded(error.stderr) }) + '\n');
+            throw error;
+          }
+        };
+        require('./desktop-pos/test/installer-native.cjs');
+        '@
+        node -e $diagnosedAcceptance
+        if ($LASTEXITCODE -ne 0) { throw 'Actual installed dashboard acceptance failed; original child failure metadata was logged.' }
+      working-directory: b
+    - name: Execute fresh current38 shift proof without changing retained runtime
+      working-directory: b
+      shell: pwsh
+      run: |
+        $bundle = (Resolve-Path desktop-pos/runtime-bundle).Path
+        $extensions = @('pdo_mysql','pdo_sqlite','sqlite3','mbstring','sodium','gd','curl','intl','fileinfo','exif','openssl')
+        $phpArgs = @('-n','-d',"extension_dir=$bundle/php/ext")
+        foreach ($extension in $extensions) { $phpArgs += @('-d',"extension=$extension") }
+        & "$bundle/php/php.exe" @phpArgs tests/desktop_dashboard_runtime/live-shift-closing.php "$bundle/application" '12.70.0' 2>&1 | Tee-Object -Variable liveShiftOutput
+        $fixtureExit=$LASTEXITCODE
+        $shiftMatches=[regex]::Matches(($liveShiftOutput -join "`n"),'(?m)^LIVE_SHIFT_MERGE_COMPLETE (\{[^\r\n]+\})$')
+        if ($fixtureExit -ne 0 -or $shiftMatches.Count -ne 1) { throw 'The fresh private current shift fixture did not complete exactly once.' }
+        $receipt=$shiftMatches[0].Groups[1].Value | ConvertFrom-Json
+        $classHash=(Get-FileHash app/Services/Dashboard/BranchShiftClosing.php -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($receipt.checks -ne 38 -or $receipt.framework -cne '12.70.0' -or $receipt.driver -cne 'sqlite' -or $receipt.sourceClassSha256 -cne $classHash -or $classHash -cne '31c8bc4d9e7e1aceeaa12bb1a70471c61c56161bc89f6b374a7367c340bac675') { throw 'Current shift receipt differs from the actual original class/engine.' }
+        foreach ($field in @('privateDatabase','sourceCopied','phpBusinessExecution')) { if ($receipt.$field -isnot [bool] -or $receipt.$field -ne $true) { throw "Missing private shift execution flag: $field" } }
+        foreach ($field in @('retainedVendorModified','productionEnvironmentLoaded','physicalPrinter')) { if ($receipt.$field -isnot [bool] -or $receipt.$field -ne $false) { throw "Shift scope differs: $field" } }
+        $receipt | Add-Member -NotePropertyName sourceRevision -NotePropertyValue $env:GITHUB_SHA
+        $receipt | ConvertTo-Json -Depth 8 | Set-Content "$env:RUNNER_TEMP/live-shift-closing-windows.json" -Encoding utf8NoBOM
+        node -e "const fs=require('node:fs'),assert=require('node:assert/strict');require('./desktop-pos/installer-runtime.cjs').verifyBundle('desktop-pos/runtime-bundle').then(v=>{const r=JSON.parse(fs.readFileSync('desktop-pos/dist/runtime-package.json','utf8'));assert.deepStrictEqual(v.files,r.files);console.log('PASS current shift proof preserves all assembled runtime bytes');}).catch(e=>{console.error(e);process.exitCode=1});"
+        if ($LASTEXITCODE -ne 0) { throw 'The private shift proof changed retained runtime bytes.' }
+    - name: Retain fresh current shift receipt
+      uses: actions/upload-artifact@v4
+      with:
+        name: current-live-shift-closing-windows
+        path: ${{ runner.temp }}/live-shift-closing-windows.json
+        if-no-files-found: error
+        retention-days: 30
+    - name: Retain the installer preview and exact verification receipts
+      uses: actions/upload-artifact@v4
+      with:
+        name: fasakhansta-dashboard-installer-preview
+        path: |
+          b/desktop-pos/dist/GO-ERP-Preview-Setup.exe
+          b/desktop-pos/dist/installer-checks.json
+          b/desktop-pos/dist/runtime-package.json
+          b/desktop-pos/dist/runtime-audit.json
+          b/desktop-pos/dist/prerequisites/vcredist-package.json
+          b/desktop-pos/dist/offline-print-native.json
+          b/desktop-pos/dist/outbox-review-native.json
+          b/desktop-pos/dist/connected-request-native.json
+        if-no-files-found: error
+        retention-days: 30

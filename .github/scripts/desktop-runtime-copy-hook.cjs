@@ -28,6 +28,28 @@ module.exports=async context=>{
   if(info.version!==receipt.version||receipt.channel!=='preview'
       ||!/^[0-9]+\.[0-9]+\.[0-9]+-preview\.[1-9][0-9]*$/.test(info.version)
       ||!/^[A-Za-z0-9 ._-]{1,80}$/.test(product))throw Error('Invalid verified installer metadata.');
+  const options=context.packager.packagerOptions,script=context.packager.config?.nsis?.script;
+  if(options&&typeof script==='string'&&path.resolve(project,script)===path.join(project,'installer-windows.nsi')){
+    const previous=options.effectiveOptionComputed;
+    // The complete custom script owns its setup VERSIONINFO. The pinned
+    // builder otherwise emits duplicate version commands before that script.
+    // Keep its output, compression, architecture and icon options unchanged.
+    options.effectiveOptionComputed=async function(...args){
+      const result=previous?await previous.apply(this,args):undefined;
+      if(result)return result;
+      const packet=args[0],defines=Array.isArray(packet)?packet[0]:null,commands=Array.isArray(packet)?packet[1]:null;
+      if(packet?.length===2&&defines&&commands&&typeof defines==='object'&&typeof commands==='object'
+          &&!Array.isArray(defines)&&!Array.isArray(commands)&&typeof defines.PROJECT_DIR==='string'
+          &&path.resolve(defines.PROJECT_DIR)===path.resolve(project)
+          &&defines.APP_ID===context.packager.appInfo.id&&defines.PRODUCT_NAME===product
+          &&Object.hasOwn(defines,'APP_INSTALLER_STORE_FILE')
+          &&!Object.hasOwn(defines,'APP_PACKAGE_STORE_FILE')&&!Object.hasOwn(defines,'REQUEST_EXECUTION_LEVEL')){
+        delete commands.VIProductVersion;
+        delete commands.VIAddVersionKey;
+      }
+      return result;
+    };
+  }
   await fs.writeFile(path.join(project,'dist/installer-version.nsh'),
     '!define FASAKHANSTA_NUMERIC_VERSION "'+info.version.split('-')[0]+'.0"\n!define FASAKHANSTA_VERSION "'+info.version+'"\n!define FASAKHANSTA_PRODUCT_NAME "'+product+'"\n'
     +'!define FASAKHANSTA_UNINSTALL_KEY "FasakhanstaDashboardPreview"\n');
