@@ -10,7 +10,7 @@
   "after_source": {
     "format": 1,
     "files": 1317,
-    "sha256": "6a78e92fd79e448e44d9815c5b6ce8601e11db418bba616d755cded45feca9a4",
+    "sha256": "06b700711852374014146528bcd8ba9e9347ea8f0f7b8d771d891eb4b4edd04e",
     "framework": "8.83.29"
   },
   "sources": [
@@ -119,7 +119,7 @@
     {
       "path": "app/Services/Dashboard/DesktopDashboardCoreAuthority.php",
       "before_blob": null,
-      "after_blob": "cd0ef2f95c28239c9b7ecd02150bb7daa38d8506",
+      "after_blob": "79f7693d6672de409fdea5a5bc6c1c315590b605",
       "phase": 1
     },
     {

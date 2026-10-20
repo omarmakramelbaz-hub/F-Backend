@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
         config(['desktop_dashboard.local'=>true,'desktop_dashboard.device_id'=>'']);\Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-20T02:00:00Z'));
         if(!\Illuminate\Support\Facades\Schema::hasTable('crm_customers')){require_once $application.'/database/migrations/2026_10_17_000001_create_crm_customer_directory.php';(new CreateCrmCustomerDirectory)->up();}
         $actor=\App\Models\User::withoutGlobalScopes()->findOrFail(1);$guard->setUser($actor);$adapter=app(DesktopDashboardOrderBoard::class);$journal=app(\App\Services\Dashboard\DesktopDashboardJournal::class);$device=(string)\Illuminate\Support\Str::uuid();
-        $scope=(object)['actor_id'=>1,'branches'=>'["f:100","gs:60"]','enabled'=>true];
+        $scope=walletFixtureEnrollment(1,['f:100','gs:60'],$device);
         DB::table('users')->insert(['id'=>60,'added_by'=>1,'name'=>'المتجر الأصلي','email'=>'store@test.invalid','mobile'=>'01060000000','password'=>password_hash('Fixture123',PASSWORD_BCRYPT),
             'account_type'=>'vendor','status'=>'accepted','app_scope'=>'go_partner','balance'=>'100.00','min_wallet'=>50,'created_at'=>now(),'updated_at'=>now()]);
         DB::table('go_stores')->insert(['user_id'=>60,'name'=>'متجر الاختبار','kind'=>'grocery','address'=>'المنصورة','revision'=>1,'created_at'=>now(),'updated_at'=>now()]);

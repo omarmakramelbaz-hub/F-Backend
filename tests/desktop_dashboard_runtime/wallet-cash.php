@@ -39,7 +39,15 @@ foreach((new ReflectionClass(\App\Models\GeneralSettings::class))->getProperties
 DB::statement('SET FOREIGN_KEY_CHECKS=1');
 $actor=User::withoutGlobalScopes()->findOrFail(1);$adapter=app(DesktopDashboardWalletCash::class);$service=app(WalletCashOperations::class);$journal=app(DesktopDashboardJournal::class);
 $device=(string)Str::uuid();config(['desktop_dashboard.local'=>true,'desktop_dashboard.enabled'=>true,'desktop_dashboard.device_id'=>'']);
-$scope=(object)['actor_id'=>1,'branches'=>'["f:100"]','enabled'=>true];
+// Exercise persisted immutable BASE evidence, as the real prepared/native paths do.
+function walletFixtureEnrollment(int $actorId,array $branches,?string $id=null): object
+{
+    $id=$id??(string)Str::uuid();DB::table('desktop_dashboard_devices')->insert(['id'=>$id,'actor_id'=>$actorId,'name'=>'Actual wallet fixture enrollment',
+        'enrollment_hash'=>hash('sha256','wallet-fixture-enrollment:'.$id),'token_hash'=>hash('sha256','wallet-fixture-token:'.$id),
+        'branches'=>json_encode($branches),'enabled'=>true,'enrolled_at'=>now('UTC'),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    return DB::table('desktop_dashboard_devices')->where('id',$id)->first();
+}
+$scope=walletFixtureEnrollment(1,['f:100'],$device);
 $request=function(string $name,array $values)use($adapter): Request{
     $route=clone app('router')->getRoutes()->getByName($name);$request=Request::create(url($route->uri()),'POST',$values);
     $route->bind($request);$request->setRouteResolver(fn()=>$route);$request->headers->set('X-Fasakhansta-Command',$values['idempotency_key']);return $request;
@@ -111,7 +119,7 @@ rejectWallet(fn()=>$adapter->verifyAfter($tampered,$withdrawResult),409,'a misma
 $permission=Permission::findOrCreate('wallet-create','admin');$orderPermission=Permission::findOrCreate('order-list','admin');
 $role=Role::create(['name'=>'Super Admin','guard_name'=>'admin']);$role->givePermissionTo([$permission,$orderPermission]);
 $manager=User::withoutGlobalScopes()->findOrFail(30);$manager->assignRole($role);app(PermissionRegistrar::class)->forgetCachedPermissions();
-verify($manager->can('wallet-create'),'the fixture warms the original role grant cache');$scope30=(object)['actor_id'=>30,'branches'=>'["f:100"]','enabled'=>true];
+verify($manager->can('wallet-create'),'the fixture warms the original role grant cache');$scope30=walletFixtureEnrollment(30,['f:100']);
 verify(DB::transaction(fn()=>$adapter->authorize('wallets.transfer',$retryPayload,$manager,$scope30))->id===30,
     'a current full-administration wallet actor passes the exact positive authority control before grant revocation');
 DB::beginTransaction();try{

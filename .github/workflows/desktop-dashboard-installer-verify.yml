@@ -99,6 +99,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Actual Electron synchronization review and Windows DPAPI audit checks failed.' }
           $reviewProof = Get-Content desktop-pos/dist/outbox-review-native.json -Raw | ConvertFrom-Json
           if ($reviewProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $reviewProof.platform -ne 'win32' -or $reviewProof.completed -ne $true -or $reviewProof.actualDpapiAudit -ne $true -or $reviewProof.durableIntentBeforeRetry -ne $true -or $reviewProof.unchangedCommandId -ne $true) { throw 'Native review proof is incomplete or from another source.' }
+          & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron connected request acceptance failed.' }
+          $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
+          if ($connectedProof.sourceRevision -ne '${{ steps.source.outputs.revision }}' -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite')) {
+            if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
+          }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
           node ../current-source/.github/scripts/desktop-nsis-compile-deadline.cjs desktop-pos
           if ($LASTEXITCODE -ne 0) { throw 'Reviewed compiler deadline setup failed.' }
           # The preview preserves long installation paths and every verified runtime byte.
@@ -132,5 +140,6 @@ jobs:
             b/desktop-pos/dist/prerequisites/vcredist-package.json
             b/desktop-pos/dist/offline-print-native.json
             b/desktop-pos/dist/outbox-review-native.json
+            b/desktop-pos/dist/connected-request-native.json
           if-no-files-found: error
           retention-days: 30

@@ -65,8 +65,10 @@ final class DesktopDashboardCoreAuthority
         // remain branchless; the original service still permits only read-only retries.
         if($policy!=='can_read_own_notifications'&&($policy!=='can_manage_expense_categories'||$context['branch']!=='')){
             try{$base=json_decode($device->branches,true,512,JSON_THROW_ON_ERROR);}catch(\Throwable $error){abort(503);}
-            abort_unless(is_array($base)&&in_array($context['branch'],$base,true),403,'الفرع خارج نطاق ربط الجهاز.');
+            // Retain the original 404 for a missing or unauthorized branch,
+            // then deny financial use of a structurally valid non-BASE branch.
             $branch=$this->branch($context['branch'],$actor);
+            abort_unless(is_array($base)&&in_array($context['branch'],$base,true),403,'الفرع خارج نطاق ربط الجهاز.');
             if(in_array($route,['branch-stock.minimum-save','branch-stock.basic-apply','branch-stock.recipe-save','branch-shifts.close'],true))
                 abort_unless(str_starts_with($context['branch'],'f:'),$route==='branch-shifts.close'?404:403);
         }

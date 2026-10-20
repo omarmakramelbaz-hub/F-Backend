@@ -35,6 +35,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  connected-native:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned Electron test dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron test dependencies failed.' }
+      - name: Verify actual connected Electron requests and encrypted recovery
+        shell: pwsh
+        run: |
+          & ./desktop-pos/node_modules/electron/dist/electron.exe desktop-pos/test/connected-request-native.cjs desktop-pos/dist/connected-request-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows Electron connected request acceptance failed.' }
+          $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
+          if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite')) {
+            if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
+          }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+      - name: Retain the exact connected native acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connected-request-native-windows
+          path: desktop-pos/dist/connected-request-native.json
+          if-no-files-found: error
+          retention-days: 14
   original-runtime:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -399,7 +433,7 @@ jobs:
           retention-days: 3
           overwrite: true
   windows-installer:
-    needs: original-runtime
+    needs: [original-runtime, connected-native]
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -434,6 +468,22 @@ jobs:
           if (!(Test-Path desktop-pos/runtime-bundle/manifest.json)) { throw 'Runtime manifest was not extracted.' }
           if (!(Test-Path desktop-pos/dist/runtime-audit.json)) { throw 'Dependency review was not extracted.' }
           if (!(Test-Path desktop-pos/dist/dashboard-synthetic-snapshot.json)) { throw 'Synthetic installation fixture was not extracted.' }
+      - name: Restore this source's actual connected Electron receipt
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: connected-request-native-windows
+          path: desktop-pos/dist
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+      - name: Require the connected receipt before packaging
+        shell: pwsh
+        run: |
+          $connectedProof = Get-Content desktop-pos/dist/connected-request-native.json -Raw | ConvertFrom-Json
+          if ($connectedProof.sourceRevision -ne $env:GITHUB_SHA -or $connectedProof.platform -ne 'win32' -or $connectedProof.hardware -isnot [bool] -or $connectedProof.hardware -ne $false -or $connectedProof.completed -isnot [bool] -or $connectedProof.completed -ne $true) { throw 'Native connected proof is incomplete or from another source.' }
+          foreach ($field in @('actualElectronSessionFetch', 'actualWebRequest', 'actualDpapi', 'pinnedLoopbackHttps', 'pairedProofOnWire', 'internalMarkerStripped', 'foreignProofStripped', 'nativeReplayBlocked', 'fragmentNormalized', 'oldProtocolBlocked', 'lostReplyRetained', 'unboundedOriginalWrite')) {
+            if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
+          }
+          if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |
@@ -482,5 +532,6 @@ jobs:
             desktop-pos/dist/prerequisites/vcredist-package.json
             desktop-pos/dist/offline-print-native.json
             desktop-pos/dist/outbox-review-native.json
+            desktop-pos/dist/connected-request-native.json
           if-no-files-found: error
           retention-days: 30
