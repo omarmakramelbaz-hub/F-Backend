@@ -62,6 +62,18 @@ refuses a receipt for a different source. It writes only root-owned release
 files under `storage/app/desktop-updates`, then atomically publishes `current.json`.
 It does not migrate, reset, check out or replace application files.
 
+For the current reviewed release, `deployment/go_erp_ci_publish_root.sh` combines
+the pinned activation/postflight and publication steps from the authorized root
+console. Download the installer and receipt from the same independently checked
+successful full Windows run into a root-owned directory with mode `0700` named
+`/var/tmp/go-erp-ci-<8-to-32-alphanumeric-characters>`, using the fixed filenames
+`GO-ERP-Preview-Setup.exe` and `go-erp-update-release.json`. Invoke the verified
+entry with `--release <full-commit-sha> --run-id <successful-run-id>
+--artifact-directory <private-directory>`. It rejects superseded branch heads,
+different run/source/version/installer bytes, and its own unpinned contents.
+Its receipt is still operator-reviewed evidence, not proof that GitHub passed.
+No unattended SSH job is enabled by adding this console entry.
+
 The authenticated feed advertises a release only while its fingerprint matches
 the actual server. An unbuilt server edit therefore reports “unavailable” until
 its matching desktop release has passed and been published. A minute is the
@@ -74,6 +86,11 @@ The current legacy deployment workflow targets
 above production root. A production deployment integration must call the
 publisher after its actual GO ERP server-ready receipt and the matching Windows
 acceptance; it must not announce success just because a GitHub push succeeded.
+The existing deployment-only SSH identity cannot provide the operator-console
+capability required here. Do not reuse it to attempt activation or publication.
+The current implementation checks and installs published releases automatically;
+it does not yet watch live server edits, commit a new desktop version, or publish
+the resulting CI artifact unattended.
 
 ## Activation status
 
@@ -81,8 +98,15 @@ Adding this implementation does not activate production or certify a Windows
 package. The current root activation was rejected with
 `DESKTOP_NO_APPROVED_BASELINE_MATCHES`; no application files changed.
 `deployment/diagnose_go_erp_current_root.sh` measures that current source without
-PHP, database access, application writes or printing source contents. Resolve
-that measured difference before preparing a new server publication baseline.
+PHP, database access, application writes or printing source contents. The latest
+measured cohort contains 1164 files with fingerprint
+`9ac0d2555aa6325563a7052f8aa4d304b60e7cecf4f3c515e3d736c57c279442`.
+Its nine changed live files are retained byte for byte in the refreshed baseline.
+One additional extraction compatibility correction lets the newly deployed exact
+final order form pass validation only with its later cited strict customer
+approval. The reviewed target contains 1326 files with fingerprint
+`f29af750f417b6fe3bbdef0c18d540bde8f919e218b047c3f62752524e901950`.
+Preparing these pins does not mean the root activation has run successfully.
 
 Matching source does not increase offline coverage: the preview continues to
 have bounded offline support and uses the connected dashboard for the complete

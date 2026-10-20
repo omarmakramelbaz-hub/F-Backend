@@ -9,6 +9,9 @@ use DateTimeZone;
 final class FasakhanstaAiKnowledge
 {
     public const REFERENCE = 'fasakhansta-owner-20261020';
+    private const PRODUCT_CONCERN_PATTERN = '/(?:ريحه|ريحت(?:ه|ها|هم|هن|ك|كم|نا|ي)|رائحه|رائحت(?:ه|ها|هم|هن|ك|كم|نا|ي)|لون|طعم(?:ه|ها|هم|ك|نا|ي)?\s*(?:غريب|متغير|مختلف|وحش)|فاسد|بايظ|سلامه|مجم|smell|strange|spoiled|safe|frozen)'
+        .'|\b(?:ri7a|re7a|rey7a|ri7et(?:o|oh|ha)|re7et(?:o|oh|ha)|rey7et(?:o|oh|ha)|ri7t(?:o|ha)|re7t(?:o|ha))\b'
+        .'|\bta3m(?:o|oh|ha)?\b.{0,20}\b(?:gharib|ghareeb|ghariba|ghareeba|we7esh|wa7esh|metghayar)\b/iu';
     private array $reference = [];
     private string $instructions = '';
     private ?string $messageInstructions = null;
@@ -71,6 +74,9 @@ final class FasakhanstaAiKnowledge
         if ($bank === []) return [];
         $matched = [];
         foreach ($bank as $id => $fact) {
+            // Public comments have no trusted current branch-menu prices. Keep
+            // reference prices only in the full bank for historical receipts.
+            if (strncmp($id, 'PRICE_', 6) === 0) continue;
             if ($fact['pattern'] !== '' && preg_match($fact['pattern'], $normal)) {
                 $matched[$id] = $fact;
             }
@@ -84,9 +90,8 @@ final class FasakhanstaAiKnowledge
             $selected['MISSING'] = $bank['MISSING']['text'];
             return $selected;
         }
-        // Keep exact relevant price subjects before broad product descriptions.
+        // The official catalog is the current-price source available to comments.
         $selected = [];
-        foreach ($matched as $id => $fact) if (strncmp($id, 'PRICE_', 6) === 0 && $id !== 'PRICE_NOTE') $selected[$id] = $fact['text'];
         foreach (['CATALOG', 'APP', 'MISSING'] as $id) $selected[$id] = $bank[$id]['text'];
         foreach ($matched as $id => $fact) if (!isset($selected[$id])) $selected[$id] = $fact['text'];
         return array_slice($selected, 0, 12, true);
@@ -112,134 +117,135 @@ final class FasakhanstaAiKnowledge
         };
         $catalog = $r['official_links']['catalog']; $app = $r['official_links']['application'];
         $add('CATALOG','MENU','/(?:منيو|مينيو|كتالوج|menu|catalog|menio)/iu',
-            'المنيو بالصور والأسعار المحدثة في كتالوج واتساب الرسمي: '.$catalog,
-            'The official WhatsApp catalog has the menu, photos and current prices: '.$catalog,
-            'El menu bel sowar wel as3ar el mo7addasa fel catalog el rasmi: '.$catalog);
+            'المنيو كله بالصور والأسعار المحدثة هنا: '.$catalog,
+            'Here is the menu with photos and current prices: '.$catalog,
+            'El menu kolo bel sowar wel as3ar el mo7addasa hena: '.$catalog);
         $add('APP','APP','/(?:تطبيق|ابليكيشن|ابلكيشن|تحميل|app|application|download)/iu',
-            'رابط تطبيق فسخانستا الرسمي: '.$app,
-            'The official Fasakhansta app link is: '.$app,
-            'Link app Fasakhansta el rasmi: '.$app);
+            'تطبيق فسخانستا تقدر تنزله من هنا: '.$app,
+            'You can download the Fasakhansta app here: '.$app,
+            'Te2dar tenazzel app Fasakhansta men hena: '.$app);
         $add('MISSING','MISSING','',
-            'ابعت لنا على الخاص علشان الفرع يراجع التفاصيل المطلوبة.',
-            'Please message us privately so the branch can check the requested details.',
-            'Eb3at lena private 3ashan el far3 yerage3 el tafaseel.');
+            'ابعتلنا على الخاص علشان الفرع يأكدلك التفاصيل.',
+            'Message us privately to check the details with the branch.',
+            'Eb3atlena private wenshoof el tafaseel ma3 el far3.');
         $add('EMAIL','CONTACT','/(?:ايميل|بريد|email|e-mail)/iu',
-            'إيميل فسخانستا الرسمي: faskhansta@gmail.com',
-            'The official Fasakhansta email is: faskhansta@gmail.com',
-            'Email Fasakhansta el rasmi: faskhansta@gmail.com');
+            'تقدر تبعتلنا على الإيميل: faskhansta@gmail.com',
+            'You can email us at: faskhansta@gmail.com',
+            'Te2dar teb3atlena 3al email: faskhansta@gmail.com');
         $add('PRICE_NOTE','PRICE','/(?:سعر|بكام|اسعار|جنيه|price|cost|bekam|bkam|how much)/iu',
-            'الأسعار استرشادية وممكن تختلف حسب الفرع والتطبيق؛ السعر المحدث في الكتالوج.',
-            'Reference prices are indicative and may vary by branch and app; check the catalog for current prices.',
-            'El as3ar estershadiya we momken tekhtalef 7asab el far3 wel app; el mo7addas fel catalog.');
+            'دي أسعار استرشادية، وممكن تختلف حسب الفرع والتطبيق؛ المحدث دايمًا في الكتالوج.',
+            'These are guide prices and may vary by branch and app; the catalog has current prices.',
+            'Di as3ar estershadiya, we momken tekhtalef 7asab el far3 wel app; el mo7addas dayman fel catalog.');
         $add('ORDER_PRIVATE','ORDER','/(?:اطلب|طلب|اوردر|order|3ay[ez]|3aiz)/iu',
-            'للطلب، ضيف المنتجات للسلة وابعت الاسم والعنوان بالتفصيل واللوكيشن ورقمين موبايل على الخاص أو واتساب فقط.',
-            'To order, add products to your basket and send your name, detailed address, location and two phone numbers privately or on WhatsApp only.',
-            'Lel order, deef el products lel salla web3at esmak wel 3enwan wel location we ra2meen mobile private aw WhatsApp bas.');
+            'ضيف اللي نفسك فيه للسلة، وابعت اسمك وعنوانك بالتفصيل واللوكيشن ورقم موبايل أساسي، ورقم تاني لو متاح، على الخاص أو واتساب بس.',
+            'To order, add products to your basket and send your name, detailed address, location and one main phone number privately or on WhatsApp only; a second number is optional.',
+            'Lel order, deef el products lel salla web3at esmak wel 3enwan wel location we ra2m mobile asasy private aw WhatsApp bas; ra2m tany law mota7.');
         $add('APP_ROUTING','ORDER','/(?:اقرب|فرع|تطبيق|app|nearest)/iu',
-            'طلب التطبيق بيتنفذ من أقرب فرع حسب التطبيق، وكل فرع له أسعاره الخاصة.',
-            'App orders are routed to the nearest branch according to the app, and each branch has its own prices.',
+            'طلب التطبيق بيتبعت من أقرب فرع ليك حسب التطبيق، وكل فرع ليه أسعاره.',
+            'App orders come from the nearest branch selected by the app, and each branch has its own prices.',
             'Order el app men a2rab far3 7asab el app, we kol far3 leh as3aro.');
         $add('CHAT_ROUTING','ORDER','/(?:واتساب|ماسنجر|شات|whatsapp|messenger|chat)/iu',
-            'طلبات الشات وواتساب بتتبعت غالبًا من شبرا الخيمة عبر إن درايف؛ رسوم التوصيل حسب المنطقة وبتحتاج تأكيد.',
-            'Chat and WhatsApp orders are usually sent from Shubra El Kheima via inDrive; delivery fees depend on the area and need confirmation.',
-            'Orders el chat we WhatsApp ghaleban men Shubra 3an taree2 inDrive; el tawseel 7asab el mante2a we ye7tag ta2keed.');
+            'طلبات الشات وواتساب غالبًا من شبرا الخيمة مع إن درايف؛ التوصيل حسب منطقتك والفرع بيأكد تكلفته.',
+            'Chat and WhatsApp orders usually come from Shubra El Kheima with inDrive; the branch confirms the delivery fee for your area.',
+            'Orders el chat we WhatsApp ghaleban men Shubra ma3 inDrive; el tawseel 7asab mante2tak wel far3 beye2akked taklefto.');
         $add('NO_PREORDER','ORDER','/(?:حجز|بكره|بكرا|مسبق|preorder|tomorrow|reservation)/iu',
-            'مفيش حجز طلبات ليوم أو وقت محدد؛ الطلب بيكون في نفس اليوم.',
-            'Advance orders for a specific day or time are not available; orders are for the same day.',
+            'مفيش حجز أوردر ليوم أو ساعة معينة؛ اطلب في نفس اليوم.',
+            'Orders are for the same day; we do not take advance bookings for a particular day or time.',
             'Mafeesh 7agz order le yom aw wa2t mo3ayan; el order fe nafs el yom.');
         $add('WHOLESALE','WHOLESALE','/(?:جمله|جملة|wholesale|gomla)/iu',
-            'الحد الأدنى للجملة 50 كيلو، والتنسيق مع الفرع مباشرة؛ الجملة مش بتتطلب أونلاين.',
+            'الجملة من 50 كيلو، وبتتنسق مع الفرع مباشرة مش أونلاين.',
             'Wholesale starts at 50 kg and is arranged directly with the branch, not through online ordering.',
             'El gomla men 50 kilo, wel tansee2 ma3 el far3 mobashara mesh online.');
         $add('AFTER_DISPATCH','ORDER','/(?:المندوب|تحرك|تعديل|ازود|زود|dispatch|change.*order|rider)/iu',
-            'الطلب ما بيتعدلش بعد ما يتحرك مع المندوب؛ أي استفسار عن طلب قائم يتراجع مع الفرع.',
-            'An order cannot be changed once it leaves with the rider; contact the branch about an existing order.',
+            'الأوردر ما بيتعدلش بعد ما يتحرك مع المندوب؛ لو عندك استفسار عن أوردر كلم الفرع.',
+            'Once your order leaves with the rider, it cannot be changed. Contact the branch about an existing order.',
             'El order mayet3adelsh ba3d ma yet7arrak ma3 el mandoob; rage3 el far3 fel order el mawgood.');
         $branchEn = ['Nabrouh and factory', 'Mansoura', 'El Mahalla El Kubra', 'Shubra El Kheima'];
-        $addressEn = ['opposite Nabrouh gate', 'Abdel Salam Aref Street', 'El Bandar Square', 'El Sharee El Gedid'];
+        $addressEn = ['opposite Nabrouh gate', 'on Abdel Salam Aref Street', 'at El Bandar Square', 'on El Sharee El Gedid'];
+        $addressFr = ['oddam bawabet Nabrouh', 'share3 Abdel Salam Aref', 'Midan El Bandar', 'El Share3 El Gedid'];
         $patterns = ['/(?:نبروه|nabrouh|nabroh|فروع|branches)/iu', '/(?:منصوره|mansoura|فروع|branches)/iu',
             '/(?:محله|طنطا|mahalla|tanta|فروع|branches)/iu', '/(?:شبرا|shubra|فروع|branches)/iu'];
         foreach ($r['branches'] as $index => $branch) {
             $add('BRANCH_'.$index,'BRANCHES',$patterns[$index],
-                'فرع '.$branch['name'].': '.$branch['address'].'. رقم الفرع: '.$branch['phone'].'.',
-                $branchEn[$index].' branch: '.$addressEn[$index].'. Branch phone: '.$branch['phone'].'.',
-                'Far3 '.$branchEn[$index].': '.$addressEn[$index].'. Telephone el far3: '.$branch['phone'].'.');
+                'فرع '.$branch['name'].': '.$branch['address'].'. تقدر تكلمه على '.$branch['phone'].'.',
+                'Our '.$branchEn[$index].' branch is '.$addressEn[$index].'. Call '.$branch['phone'].'.',
+                'Far3 '.$branchEn[$index].': '.$addressFr[$index].'. Te2dar tekallemo 3ala '.$branch['phone'].'.');
         }
         $add('TANTA_NEAREST','BRANCHES','/(?:طنطا|tanta)/iu',
-            'أقرب فرع لطنطا هو المحلة الكبرى في ميدان البندر.',
+            'أقرب فرع ليك من طنطا هو المحلة الكبرى في ميدان البندر.',
             'The nearest branch to Tanta is El Mahalla El Kubra at El Bandar Square.',
             'A2rab far3 le Tanta howa El Mahalla El Kubra fe El Bandar Square.');
-        $add('ONLINE_ONLY','BRANCHES','/(?:تجمع|اكتوبر|معادي|مهندسين|عبور|tagamo|october|maadi|mohand|obour)/iu',
-            'التجمع و6 أكتوبر والمعادي والمهندسين والعبور ستورات أونلاين بالتطبيق وليست فروعًا فعلية، وممكن التنسيق لتوصيل من شبرا الخيمة عبر إن درايف.',
-            'Tagamoa, 6 October, Maadi, Mohandessin and Obour are online app stores, not physical branches; delivery from Shubra via inDrive can be checked.',
-            'El Tagamo3 we 6 October we Maadi we Mohandessin we Obour stores online fel app mesh foro3 fe3liya; tawseel Shubra 3an taree2 inDrive ye7tag morag3a.');
+        $add('ONLINE_ONLY','BRANCHES','/(?:حلوان|مدينتي|تجمع|اكتوبر|معادي|مهندسين|عبور|helwan|madinat[yi]|madinty|tagamo|october|maadi|mohand|obour)/iu',
+            'حلوان ومدينتي والتجمع و6 أكتوبر والمعادي والمهندسين والعبور ستورات أونلاين على التطبيق، مفيش فروع فعلية هناك؛ وممكن تسأل الفرع عن توصيل من شبرا مع إن درايف.',
+            'Helwan, Madinaty, Tagamoa, 6 October, Maadi, Mohandessin and Obour have online app stores rather than physical branches. Ask about delivery from Shubra with inDrive.',
+            'Helwan we Madinaty we El Tagamo3 we 6 October we Maadi we Mohandessin we Obour stores online fel app mesh foro3 fe3liya; tawseel Shubra 3an taree2 inDrive ye7tag morag3a.');
         $add('HOURS_NORTH','HOURS','/(?:مواعيد|فاتح|بتفتح|بتقفل|ساعه|hours|open|close|wa2t)/iu',
-            'تجهيز الطلبات في نبروه والمنصورة والمحلة من 10 الصبح لحد 12:30 بعد منتصف الليل بتوقيت القاهرة.',
+            'نبروه والمنصورة والمحلة بيجهزوا الطلبات من 10 الصبح لحد 12:30 بعد نص الليل بتوقيت القاهرة.',
             'Order preparation in Nabrouh, Mansoura and Mahalla runs from 10 AM to 12:30 AM after midnight, Cairo time.',
             'Tagheez el orders fe Nabrouh we Mansoura we Mahalla men 10 sob7 le 12:30 ba3d nos el leil, taw2eet Cairo.');
         $add('HOURS_CAIRO','HOURS','/(?:مواعيد|فاتح|بتفتح|بتقفل|شبرا|hours|open|close|shubra)/iu',
-            'تجهيز طلبات فرع شبرا الخيمة من 12 الظهر لحد 12:30 بعد منتصف الليل بتوقيت القاهرة؛ الطلب خارج المواعيد يبدأ تجهيزه عند فتح الفرع.',
-            'Shubra order preparation runs from noon to 12:30 AM after midnight, Cairo time; out-of-hours orders start preparation when the branch opens.',
+            'شبرا الخيمة بيجهز الطلبات من 12 الضهر لحد 12:30 بعد نص الليل بتوقيت القاهرة؛ لو طلبت بره المواعيد، التجهيز بيبدأ لما الفرع يفتح.',
+            'Shubra prepares orders from noon to 12:30 AM after midnight, Cairo time. Orders placed outside these hours are prepared when the branch opens.',
             'Tagheez Shubra men 12 dohr le 12:30 ba3d nos el leil, taw2eet Cairo; orders barra el mawa3eed tetgahhez lamma el far3 yefta7.');
         $add('SEATING','BRANCHES','/(?:صاله|جلوس|قعده|حجز|seating|dine|reservation)/iu',
-            'الفروع الفعلية فيها صالة جلوس، والزيارة خلال مواعيد التشغيل لا تحتاج حجزًا.',
-            'Physical branches have seating; visiting during opening hours does not require a reservation.',
+            'الفروع الفعلية فيها قعدة، ومش محتاج حجز؛ تنورنا في مواعيد الشغل.',
+            'Our physical branches have seating. Come by during opening hours; no reservation needed.',
             'El foro3 el fe3liya feha sala, wel zeyara fe mawa3eed el 3amal mesh me7taga 7agz.');
         $add('DELIVERY_LOCAL','DELIVERY','/(?:توصيل|دليفري|بيوصل|هيوصل|قليوب|delivery|arrive|tawseel)/iu',
-            'الدليفري المحلي للقاهرة الكبرى ومنها قليوب والمنصورة والمحلة ونبروه والمدن القريبة بياخد تقريبًا من 60 إلى 90 دقيقة؛ المدة تقديرية وليست وعدًا مضمونًا.',
-            'Local delivery in Greater Cairo including Qalyub, Mansoura, Mahalla, Nabrouh and nearby cities is estimated at 60–90 minutes, not guaranteed.',
-            'El delivery el ma7alli lel Cairo el kobra menha Qalyub we Mansoura we Mahalla we Nabrouh we el modon el 2orayeba ta2reeban 60–90 de2ee2a, mesh wa3d madmoon.');
+            'الدليفري جوه القاهرة الكبرى ومنها قليوب، والمنصورة والمحلة ونبروه والمدن القريبة، حوالي 60–90 دقيقة؛ المدة تقريبية وبتتأكد مع الفرع.',
+            'Local delivery in Greater Cairo including Qalyub, Mansoura, Mahalla, Nabrouh and nearby cities is around 60–90 minutes. Check the estimate with the branch.',
+            'El delivery gowwa Cairo el kobra menha Qalyub, we Mansoura we Mahalla we Nabrouh wel modon el 2orayeba, 7awaly 60–90 de2ee2a; el modda ta2reebiya we tet2akked ma3 el far3.');
         $add('DELIVERY_GOV','DELIVERY','/(?:شحن|محافظه|طنطا|اسكندريه|شرقيه|shipping|tanta|alexandria|sharkia)/iu',
-            'الشحن لباقي المحافظات بيكون على الموقف العمومي، وتقديره من 2 إلى 3 ساعات؛ السائق بيتواصل بمكان الاستلام وبيانات السيارة.',
-            'Shipping to other governorates is to the public transport station, estimated at 2–3 hours; the driver provides collection and vehicle details.',
+            'لباقي المحافظات الشحن على الموقف العمومي، حوالي 2–3 ساعات؛ والسواق بيكلمك بمكان الاستلام وبيانات العربية.',
+            'Other governorates receive shipments at the public transport station, usually in about 2–3 hours. The driver calls with the pickup and vehicle details.',
             'El sha7n lel mo7afazat 3al maw2af el 3omoomi, ta2reeban 2–3 sa3at; el sawa2 bey2ool makan el estelam we bayanat el 3arabeya.');
         $add('NO_INTERNATIONAL','DELIVERY','/(?:اردن|خارج مصر|برا مصر|jordan|outside egypt|international)/iu',
             'مفيش شحن خارج مصر.', 'Shipping outside Egypt is not available.', 'Mafeesh sha7n barra Masr.');
         $add('PAYMENT','PAYMENT','/(?:دفع|كاش|فودافون|انستاباي|payment|cash|instapay|vodafone)/iu',
-            'طرق السداد: كاش عند الاستلام، أو فودافون كاش وإنستاباي قبل تحرك الطلب؛ بيانات التحويل المعتمدة تتأكد من الفرع.',
-            'Payment is cash on delivery, or Vodafone Cash/InstaPay before dispatch; confirm the approved transfer details with the branch.',
+            'تقدر تدفع كاش عند الاستلام، أو فودافون كاش وإنستاباي قبل ما الأوردر يتحرك؛ بيانات التحويل خدها من الفرع.',
+            'Pay cash on delivery, or use Vodafone Cash/InstaPay before dispatch. Get the transfer details directly from the branch.',
             'El dafa3 cash 3and el estelam, aw Vodafone Cash/InstaPay abl el ta7arrok; bayanat el ta7weel el mo3tamada men el far3.');
         $add('RETURNS','RETURNS','/(?:استرجاع|ارجع|يرجع|مرتجع|refund|return)/iu',
-            'مراجعة الاسترجاع في الفرع خلال 12 ساعة بشرط حفظ المنتج في الفريزر إلى حين رجوعه؛ الاسترجاع ليس عن طريق الدليفري، وقبول الحالة يراجعه الفرع.',
-            'Returns are reviewed at the branch within 12 hours, with the product kept in the freezer until return; returns are not collected by delivery, and acceptance is reviewed by the branch.',
-            'El estergag yetrage3 fel far3 khelal 12 sa3a be shart 7efz el montag fel freezer le7ad el rogoo3; mesh bel delivery, wel 2obool ba3d morag3et el far3.');
+            'الاسترجاع بيتراجع في الفرع خلال 12 ساعة، بشرط المنتج يفضل في الفريزر لحد ما يرجع؛ مش بالدليفري، والفرع بيشوف الحالة ويحدد قبولها.',
+            'Bring returns to the branch within 12 hours, keeping the product in the freezer until then. Delivery cannot collect returns; the branch reviews each case.',
+            'El estergag fel far3 khelal 12 sa3a, be shart el montag yefdal fel freezer le7ad ma yerga3; mesh bel delivery, wel far3 beyerage3 el 7ala we ye7addad 2oboolha.');
         $add('SALT','PRODUCT','/(?:نبروه|دسوق|ملح|فرق|nabrouh|desou|salt|difference)/iu',
-            'فسيخ نبروه ملحه خفيف ودلع وسمين، وفسيخ دسوق ملحه مظبوط وطعمه متوسط مش حادق؛ الاتنين من نفس المصنع ونفس الجودة وفق مرجع فسخانستا.',
-            'Nabrouh feseekh is lightly salted and rich; Desouk feseekh has medium salt. Both come from the same factory and quality standard in the Fasakhansta reference.',
-            'Feseekh Nabrouh mel7o khafeef we sameen, we Desouk mel7o mazboot mesh 7ade2; el etneen men nafs el masna3 we nafs el gawda 7asab marge3 Fasakhansta.');
+            'فسيخ نبروه وفسيخ دسوق من نفس المصنع ونفس الجودة؛ نبروه ملحه خفيف ودلع وسمين، ودسوق ملحه مظبوط وطعمه متوسط مش حادق.',
+            'Both come from the same factory with the same quality. Nabrouh is lightly salted and rich; Desouk has a medium salt level.',
+            'El etneen men nafs el masna3 we nafs el gawda; Nabrouh mel7o khafeef we sameen, we Desouk mel7o mazboot mesh 7ade2.');
         $add('GROSS_NET','PRODUCT','/(?:وزن|مخلي|صافي|لحم|weight|fillet|net|makhly|safi)/iu',
-            'كيلو السمك المخلي بعدد سمكات بيتوزن كاملًا قبل التنظيف، وقد يوصل لحمًا بنحو نصف الكمية تقريبًا؛ «مخلي صافي» يعني وزن اللحم بعد التنظيف. القاعدة للفسيخ والرنجة والسردين.',
-            'A kilo sold by fish count and then filleted is weighed whole before cleaning and may yield roughly half as flesh; net fillet means flesh weight after cleaning. This applies to feseekh, herring and sardines.',
-            'Kilo el samak bel 3adad makhly beyetzan kamel abl el tanḍeef, we momken yedee ta2reeban noso la7m; makhly safi howa wazn el la7m ba3d el tanḍeef, lel feseekh wel renga wel sardeen.');
+            'الكيلو بعدد سمكات مخلي بيتوزن كامل قبل التنضيف، وممكن يطلع لحم حوالي نص الكمية؛ أما «مخلي صافي» فده وزن اللحم بعد التنضيف. نفس الكلام للفسيخ والرنجة والسردين.',
+            'A kilo sold by fish count is weighed whole before filleting and gives roughly half its weight as flesh. Net fillet is weighed after cleaning. This applies to feseekh, herring and sardines.',
+            'El kilo bel 3adad makhly beyetzan kamel abl el tandeef we beyetla3 ta2reeban noso la7m; makhly safi howa wazn el la7m ba3d el tandeef. Nafs el kalam lel feseekh wel renga wel sardeen.');
         $add('PREPARATION','PRODUCT','/(?:تجهيز|متنضف|مخلي|سنجاري|cleaned|fillet|prepare|tan[dḍ]eef)/iu',
-            'التجهيز كامل، أو متنضف مفتوح سنجاري ببطن نظيفة ورأس مقطوعة والجلد موجود، أو مخلي لحم فقط بالزيت المخصوص؛ الاختيارات والتغليف المفرغ حسب المتاح بالفرع.',
+            'اختار كامل، أو متنضف سنجاري ببطن نضيفة ومن غير راس والجلد موجود، أو مخلي لحم بس بالزيت المخصوص؛ التجهيز والتغليف المفرغ حسب المتاح في الفرع.',
             'Preparation can be whole, cleaned and opened with the head removed and skin on, or boneless flesh with the special oil; choices and vacuum packing depend on branch availability.',
             'El tagheez kamel aw metnaddaf maftoo7 sangary el batn nadeefa wel ras ma2too3a wel geld mawgood, aw makhly la7m bas bel zeit; el ekhteyarat wel vacuum 7asab el mota7 fel far3.');
         $add('FISH_SIZES','PRODUCT','/(?:حجم|وسط|حبات|حبتين|سمكه واحده|size|fish count|single fish)/iu',
-            'أحجام الفسيخ حسب المتاح: كيلو 4 حبات حوالي 250 جم للحبة، أو 3 حبات «وسط» حوالي 350 جم، أو حبتين حوالي 500–600 جم للحبة، وسمكة كبيرة حوالي 600–900 جم؛ الأوزان تقريبية.',
+            'أحجام الفسيخ حسب المتاح: كيلو 4 حبات حوالي 250 جم للحبة، أو 3 حبات وسط حوالي 350 جم، أو حبتين حوالي 500–600 جم للحبة، وسمكة كبيرة حوالي 600–900 جم؛ الأوزان دي تقريبية.',
             'Feseekh sizes depend on availability: 4 fish per kilo about 250 g each, 3 medium fish about 350 g each, 2 fish about 500–600 g each, or a large single fish about 600–900 g; weights are approximate.',
             'A7gam el feseekh 7asab el mota7: kilo 4 7abbat 7awaly 250 gm lel wa7da, 3 7abbat wasat 350 gm, 7abeten 500–600 gm, aw samaka kbeera 600–900 gm; awzan ta2reebiya.');
         $beforeSeason = $this->now->format('Y-m-d') < '2026-11-15';
         $add('FISH_ROE_SEASON','PRODUCT','/(?=.*(?:فسيخ|feseekh|fesekh))(?=.*(?:مبطرخ|موسم|roe|season|mobattar))/iu',
-            $beforeSeason ? 'وفق مرجع أكتوبر، موسم الفسيخ المبطرخ المتوقع من 15 نوفمبر؛ الفيديوهات الحالية بشاير بنحو 5% وليست ضمانًا أن السمكة مبطرخة، والتوفر يتأكد من الفرع.' : 'موعد موسم الفسيخ المبطرخ المذكور في مرجع أكتوبر كان 15 نوفمبر 2026؛ التوفر الحالي يحتاج مراجعة الفرع ولا يضمنه الموعد وحده.',
-            $beforeSeason ? 'The October reference expects roe feseekh season from 15 November; early videos show about 5% and do not guarantee roe in a fish. Confirm stock with the branch.' : 'The October reference listed 15 November 2026 for roe feseekh season; the date alone does not establish current branch stock.',
-            $beforeSeason ? 'Marge3 October ye2ool mawsim el feseekh el mobattarkh motaweqqa3 men 15 November; el video bashayer 7awaly 5% mesh daman, wel mota7 men el far3.' : 'Marge3 October kan kateb 15 November 2026 lel mawsim; el tareekh wa7do mesh daman lel mota7 delwa2ti.');
+            $beforeSeason ? 'موسم الفسيخ المبطرخ متوقع من 15 نوفمبر 2026؛ اللي في الفيديوهات بشاير حوالي 5%، فمش مضمون السمكة تطلع مبطرخة؛ اسأل الفرع عن المتاح.' : 'موسم الفسيخ المبطرخ كان متوقع من 15 نوفمبر 2026، بس ده لوحده مش ضمان إنه متاح دلوقتي؛ اسأل الفرع عن الموجود.',
+            $beforeSeason ? 'Roe feseekh season is expected from 15 November 2026. The early videos show about 5%, so roe is not guaranteed in a fish; check availability with the branch.' : 'Roe feseekh season was expected from 15 November 2026, but that date does not guarantee stock today. Check with the branch.',
+            $beforeSeason ? 'Mawsim el feseekh el mobattarkh motaweqqa3 men 15 November 2026; eli fel video bashayer 7awaly 5%, mesh daman el samaka tetla3 mobattarkha. Es2al el far3 3an el mota7.' : 'Mawsim el feseekh el mobattarkh kan motaweqqa3 men 15 November 2026, bas da mesh daman enno mota7 delwa2ti; es2al el far3.');
         $add('HERRING','PRODUCT','/(?:رنجه|رنج|herring|renga)/iu',
-            'أنواع الرنجة بالمرجع: هيرنج، هيرنج مبطرخة، ومدخنة على خشب شجر الليمون. المبطرخة خرز أو ناعمة؛ الناعمة سمينة ومش 100% خرز، وعلب المخلي 200 أو 400 جم حسب المتاح.',
-            'The reference lists herring, roe herring and lemon-wood-smoked herring; roe types are granular or soft, and soft is rich rather than 100% granular roe. Fillet cans are 200 or 400 g, subject to availability.',
-            'Anwa3 el renga fel marge3: herring, mobattarkha, we lemon wood smoked; el mobattarkha kharaz aw na3ma, wel na3ma mesh 100% kharaz. 3elab el makhly 200 aw 400 gm 7asab el mota7.');
+            'الرنجة هيرنج، وهيرنج مبطرخة، ومدخنة على خشب شجر الليمون. المبطرخة خرز أو ناعمة؛ الناعمة سمينة ومش 100% خرز، وعلب المخلي 200 أو 400 جم حسب المتاح.',
+            'Herring comes as regular, roe or lemon-wood-smoked. Roe types are granular or soft; the soft type is rich but not 100% granular roe. Fillet cans are 200 or 400 g, depending on availability.',
+            'El renga herring, mobattarkha, we lemon wood smoked; el mobattarkha kharaz aw na3ma, wel na3ma sameena mesh 100% kharaz. 3elab el makhly 200 aw 400 gm 7asab el mota7.');
         $add('SARDINE','PRODUCT','/(?:سردين|بساريا|sardine|sardeen|besaria)/iu',
-            'السردين المذكور بالمرجع بلدي والبساريا غير متاحة وقت المرجع؛ ربع الكيلو حوالي 3–4 حبات، كامل أو متنضف أو مخلي، وعلب مملحة 200 و400 جم؛ التوفر الحالي يتأكد من الفرع.',
-            'The reference lists local sardines, with besaria unavailable at the reference date; a quarter kilo is about 3–4 fish. Whole, cleaned, filleted and 200/400 g salted cans depend on current stock.',
-            'El sardeen fel marge3 balady wel besaria mesh mota7a wa2t el marge3; rob3 kilo 7awaly 3–4 7abbat, kamel aw metnaddaf aw makhly, we 3elab 200/400 gm 7asab el mota7.');
+            'السردين بلدي، وربع الكيلو حوالي 3–4 حبات؛ كامل أو متنضف أو مخلي، وفيه علب مملحة 200 و400 جم حسب المتاح. البساريا ما كانتش متاحة في أكتوبر 2026؛ اسأل الفرع عن الموجود دلوقتي.',
+            'Our sardines are local, with about 3–4 fish per quarter kilo. Whole, cleaned, filleted and 200/400 g salted cans depend on availability. Besaria was unavailable in October 2026; ask the branch about current stock.',
+            'El sardeen balady, we rob3 kilo 7awaly 3–4 7abbat; kamel aw metnaddaf aw makhly, we 3elab 200/400 gm 7asab el mota7. El besaria makanetch mota7a fe October 2026; es2al el far3 3an el mawgood delwa2ti.');
         $add('ROE_CAN','PRODUCT','/(?:بطارخ|botar|roe)/iu',
-            'علبة البطارخ بالمرجع 400 جم فقط، مش بالوزن ولا أقل من علبة. وصف المرجع طازة مش مجمدة بتاريخ قريب وليس بالضرورة تاريخ اليوم؛ حالة العبوة والتوفر الحالي يتأكدوا من الفرع.',
-            'The reference sells roe in a 400 g can only, not loose or in smaller portions. Its reference description is fresh, not frozen, with a recent date rather than necessarily today; check the current pack and stock with the branch.',
-            '3elbet el botarekh fel marge3 400 gm bas, mesh bel wazn wala a2al men 3elba. Wasf el marge3 taza mesh mogammada be tareekh 2orayeb mesh shart elnaharda; rage3 el far3 fel 3elba wel mota7.');
+            'البطارخ علبة 400 جم بس، مش بالوزن ولا أقل من علبة. طازة مش مجمدة، وتاريخها قريب مش شرط تاريخ النهارده؛ اسأل الفرع عن حالة وتاريخ العلبة المتاحة.',
+            'Roe comes in a 400 g can only, not loose or in smaller portions. It is sold fresh rather than frozen, with a recent date that is not necessarily today; confirm the available can and date with the branch.',
+            'El botarekh 3elba 400 gm bas, mesh bel wazn wala a2al men 3elba. Taza mesh mogammada we tareekha 2orayeb mesh shart elnaharda; es2al el far3 3an 7alet we tareekh el 3elba el mota7a.');
         $add('SANDWICH','PRODUCT','/(?:سندوتش|سندويتش|كومبو|sandwich|combo)/iu',
-            'سندوتش الفسيخ الدسوقي بالمرجع 180 جم بعيش بلدي أو أبيض ومعه رغيف إضافي؛ الكومبو سندوتش وشيبسي وبيبسي، والوجبات معها رز وسلطة وطحينة وعيش حسب المنيو الفعلي.',
-            'The reference Desouk feseekh sandwich is 180 g in baladi or white bread with an extra empty loaf; the combo includes chips and Pepsi. Meal sides are rice, salad, tahini and bread, subject to the actual menu.',
-            'Sandwich el feseekh el desou2y fel marge3 180 gm 3eish balady aw abyad we regeef zeyada; el combo sandwich we chips we Pepsi. El wagbat ma3aha rozz we salata we ta7eena we 3eish 7asab el menu.');
+            'سندوتش الفسيخ الدسوقي 180 جم، بعيش بلدي أو أبيض ومعاه رغيف زيادة فاضي. الكومبو معاه شيبسي وبيبسي، والوجبات معاها رز وسلطة وطحينة وعيش حسب المنيو الحالي.',
+            'The Desouk feseekh sandwich is 180 g in baladi or white bread, with an extra empty loaf. The combo adds chips and Pepsi; meals come with rice, salad, tahini and bread, subject to the current menu.',
+            'Sandwich el feseekh el desou2y 180 gm, 3eish balady aw abyad we ma3ah regeef zeyada fady. El combo ma3ah chips we Pepsi; el wagbat ma3aha rozz we salata we ta7eena we 3eish 7asab el menu el 7ali.');
         foreach ($r['indicative_prices_egp'] as $index => $price) {
             $product = $price['product'];
             $enNames = ['Feseekh meal','Sardine meal','Herring meal','A kilo of feseekh in 2, 3 or 4 fish size','250 g net feseekh fillet',
@@ -251,37 +257,37 @@ final class FasakhanstaAiKnowledge
             $subjectPattern = $this->pricePattern($index);
             if (isset($price['variants'])) {
                 $values = $price['variants'];
-                $ar = 'السعر الاسترشادي لـ '.$product.': عادي '.$values['عادي'].'، بلس '.$values['بلس'].'، توب '.$values['توب'].' جنيه.';
-                $en = 'Indicative '.$enNames[$index].' prices: regular '.$values['عادي'].', Plus '.$values['بلس'].', Top '.$values['توب'].' EGP.';
-                $fr = 'Se3r estershady le '.$frNames[$index].': 3ady '.$values['عادي'].', Plus '.$values['بلس'].', Top '.$values['توب'].' geneeh.';
+                $ar = $product.' سعرها استرشادي: عادي '.$values['عادي'].'، بلس '.$values['بلس'].'، توب '.$values['توب'].' جنيه.';
+                $en = $enNames[$index].' guide prices: regular '.$values['عادي'].', Plus '.$values['بلس'].', Top '.$values['توب'].' EGP.';
+                $fr = $frNames[$index].' se3rha estershady: 3ady '.$values['عادي'].', Plus '.$values['بلس'].', Top '.$values['توب'].' geneeh.';
             } else {
-                $ar = 'السعر الاسترشادي لـ '.$product.': '.$price['price'].' جنيه.';
-                $en = 'The indicative price of '.$enNames[$index].' is '.$price['price'].' EGP.';
-                $fr = 'El se3r el estershady le '.$frNames[$index].': '.$price['price'].' geneeh.';
+                $ar = $product.' بسعر استرشادي '.$price['price'].' جنيه.';
+                $en = $enNames[$index].' is around '.$price['price'].' EGP as a guide price.';
+                $fr = $frNames[$index].' be se3r estershady '.$price['price'].' geneeh.';
             }
             $add('PRICE_'.$index,'PRICE',$subjectPattern,
-                $ar.' السعر يختلف حسب الفرع والتطبيق؛ المحدث في الكتالوج.',
-                $en.' Prices vary by branch and app; check the catalog for current prices.',
-                $fr.' El se3r yekhtalef 7asab el far3 wel app; el mo7addas fel catalog.');
+                $ar.' السعر ممكن يختلف حسب الفرع والتطبيق؛ المحدث في الكتالوج.',
+                $en.' Prices may vary by branch and app; check the catalog for the latest.',
+                $fr.' El se3r momken yekhtalef 7asab el far3 wel app; el mo7addas fel catalog.');
         }
         $add('PROMOTIONS','PROMOTIONS','/(?:عروض|خصم|خصومات|offer|discount|promotion)/iu',
             $r['promotions_reply'], 'Follow the page for offers as they are announced.', 'Tab3o el page 3ashan el 3orood lamma tenzel.');
         $add('COMPLAINT','COMPLAINT','/(?:شكوي|شكوا|متاخر|اتاخر|تاخر|اتضايق|زعلان|مستني|غلط|late|waiting|complaint|disappointed|bad service|wrong order)/iu',
-            'حقك علينا وآسفين على التجربة؛ ابعت لنا رقم الطلب والتفاصيل في الخاص علشان الفرع يراجع الحالة.',
-            'We are sorry about your experience. Please send the order number and details privately so the branch can review the case.',
-            '7a2ak 3alena we asfeen 3al tagroba; eb3at ra2m el order wel tafaseel private 3ashan el far3 yerage3 el 7ala.');
-        $add('PRODUCT_CONCERN','SAFETY','/(?:ريحه|لون|طعم غريب|فاسد|بايظ|سلامه|مجم|smell|strange|spoiled|safe|frozen)/iu',
-            'ما نقدرش نأكد سلامة المنتج من الوصف؛ ما تذوقوش للتجربة، وابعت صورته والتفاصيل للفرع في الخاص لمراجعته.',
-            'We cannot confirm product safety from a description. Do not taste it to test it; send a photo and details privately to the branch for review.',
-            'Ma ne2darsh ne2akked salamet el montag men el wasf; matdoo2oosh lel tagroba, web3at sora we tafaseel private lel far3.');
+            'حقك علينا وآسفين على اللي حصل. ابعتلنا رقم الأوردر والتفاصيل في الخاص علشان الفرع يراجعها.',
+            'We are sorry about what happened. Send your order number and the details privately so the branch can review them.',
+            '7a2ak 3alena we asfeen 3ala eli 7asal. Eb3atlena ra2m el order wel tafaseel private 3ashan el far3 yerage3ha.');
+        $add('PRODUCT_CONCERN','SAFETY',self::PRODUCT_CONCERN_PATTERN,
+            'ما نقدرش نطمنك على سلامته من الوصف. ما تذوقوش للتجربة، وابعت صورته والتفاصيل للفرع في الخاص علشان يراجعه.',
+            'We cannot confirm it is safe from a description. Do not taste it to test it; send a photo and details to the branch privately for review.',
+            'Ma ne2darsh netammenak 3ala salamto men el wasf. Matdoo2oosh lel tagroba, web3at sora we tafaseel lel far3 private 3ashan yerage3o.');
         $add('SYMPTOMS','SAFETY','/(?:تعبت|اعراض|مش قادر ابلع|تنفس|تسمم|sick|symptoms|swallow|breathe|poison)/iu',
-            'لو فيه تعب أو أعراض بعد الأكل، اطلب مساعدة طبية عاجلة، وابعث تفاصيل الحالة للفرع في الخاص. ما نقدرش نشخّص الحالة من الرسائل.',
-            'If you feel unwell or have symptoms after eating, seek urgent medical help and send the case details privately to the branch. We cannot diagnose through messages.',
-            'Law fe ta3ab aw a3rad ba3d el akl, otlob mosa3da tebbeya 3agela web3at tafaseel el 7ala private lel far3; ma ne2darsh neshakhkhas bel messages.');
+            'سلامتك أهم حاجة. لو تعبان أو عندك أعراض بعد الأكل، اطلب مساعدة طبية عاجلة، وابعت التفاصيل للفرع في الخاص. ما نقدرش نشخّص حالتك من الرسائل.',
+            'If you feel unwell or have symptoms after eating, seek urgent medical help and send the details to the branch privately. We cannot diagnose over messages.',
+            'Law ta3ban aw 3andak a3rad ba3d el akl, otlob mosa3da tebbeya 3agela web3at el tafaseel lel far3 private. Ma ne2darsh neshakhkhas 7altak bel messages.');
         $add('HOME_SALTING','SAFETY','/(?:تمليح.*(?:بيت|منزل)|املح|بملح|salt.*at home|home.*salt)/iu',
-            'فريق خدمة العملاء ما بيقدمش إرشادات لتمليح الفسيخ في البيت أو تقييم سلامته؛ راجع جهة مختصة بسلامة الغذاء.',
-            'Customer support does not provide home fish-salting instructions or assess its safety; consult a food-safety professional.',
-            'Khedmet el 3omala mesh bet2addem ta3leemat tamlee7 feseekh fel beit aw ta2yeem salamto; rage3 mota5asses salamet gheza.');
+            'ما نقدرش نديك نصايح لتمليح الفسيخ في البيت أو نحكم على سلامته؛ اسأل مختص في سلامة الغذاء.',
+            'We cannot give home fish-salting instructions or judge its safety; please ask a food-safety professional.',
+            'Ma ne2darsh nedeek nasa2e7 tamlee7 feseekh fel beit aw ne7kom 3ala salamto; es2al mota5asses salamet gheza.');
         return $facts;
     }
 
@@ -318,7 +324,7 @@ final class FasakhanstaAiKnowledge
     {
         $text = self::normalize($comment); $ids = [];
         if (preg_match('/(?:تعبت|اعراض|تسمم|اتسمم|تنفس|مش قادر ابلع|بطني|وجع.*بطن|اسهال|قيء|ترجيع|زغلله|sick|symptoms|swallow|breathe|poison|vomit|diarrh|stomach.*(?:pain|hurt))/iu', $text)) $ids[] = 'SYMPTOMS';
-        if (preg_match('/(?:ريحه|لون|طعم غريب|فاسد|بايظ|سلامه|مجم|smell|strange|spoiled|safe|frozen)/iu', $text)) $ids[] = 'PRODUCT_CONCERN';
+        if (preg_match(self::PRODUCT_CONCERN_PATTERN, $text)) $ids[] = 'PRODUCT_CONCERN';
         if (preg_match('/(?:شكوي|شكوا|اشتكي|متاخر|اتاخر|تاخر|اتضايق|متضايق|زعلان|مستاء|محبط|مستني|غلط|late|waiting|complaint|disappointed|upset|bad service|wrong order)'
             .'|(?:محدش|ماحدش|مفيش\s*حد)\s*(?:فيكم\s*)?(?:بيرد|رد|ب\s*يرد)'
             .'|(?:الاكل|الوجبه|الطلب|الاوردر|الطعم|الخدمه|التعامل|السمك|الفسيخ|الرنجه)\s*(?:كان|كانت|طلع|طلعت)?\s*(?:وحش|وحشه|بارد|بارده|بايظ|بايظه|سيء|سيئ|مقرف)'

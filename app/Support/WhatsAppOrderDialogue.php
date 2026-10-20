@@ -131,8 +131,8 @@ final class WhatsAppOrderDialogue
         $language = self::replyLanguage($context);
         if ($context['kind'] === 'GREETING')
             return $language === 'en' ? 'Welcome to Fasakhansta. How can we help, or what would you like to order?'
-                : ($language === 'fr' ? 'Ahlan beek fe Fasakhansta. Ne2dar nesa3dak fe eh aw te7eb totlob eh?'
-                    : 'أهلاً بحضرتك في فسخانستا. تحت أمرك، تحب نساعدك بإيه أو تطلب إيه؟');
+                : ($language === 'fr' ? 'Ahlan be7adretak fe Fasakhansta 😊 Ne2dar nesa3dak fe eh?'
+                    : 'أهلاً بحضرتك، نورت فسخانستا 😊 تحب نساعدك بإيه؟');
         if ($language !== 'ar') return self::renderTranslatedQuestion($context, $choice, $language);
         $polite = $choice['variant'] === 'POLITE' ? 'لو سمحت، ' : '';
         $item = $context['item_name'] === null ? '' : 'بالنسبة لـ «'.$context['item_name'].'»، ';
@@ -236,7 +236,7 @@ final class WhatsAppOrderDialogue
         $latest = null;
         foreach ($transcript as $row) if ($row['speaker'] === 'customer') $latest = $row['text'];
         if (!is_string($latest) || trim($latest) === '') return [];
-        $text = self::informationWords($latest);
+        $text = (string) preg_replace('/[\x{0640}\x{064b}-\x{065f}]/u', '', self::informationWords($latest));
         $language = preg_match('/\p{Arabic}/u', $text) ? 'ar'
             : (preg_match('/\b(?:7elw|7elwa|gamd|gamed|begad|shokran|shokran|3ayez|3awz|ta3ban|t3bt|et2akhar|mota2akher|salam|ezay|ento|enta)\b/iu', $text) ? 'fr' : 'en');
         // Serious cases take precedence over a greeting or compliment in the
@@ -282,28 +282,28 @@ final class WhatsAppOrderDialogue
                 'complaint' => ['حقك علينا وآسفين على التجربة دي. ابعت رقم الطلب والتفاصيل هنا في الخاص علشان نحدد الحالة ونوجّهك للفرع.',
                     'آسفين على اللي حصل. ممكن رقم الطلب وتفاصيل المشكلة هنا في الخاص؟ من غير بيانات زيادة، علشان نراجع الحالة مع الفرع.'],
                 'identity' => ['أنا مساعد آلي لفسخانستا، أقدر أساعدك في المعلومات والطلب، والحالات اللي محتاجة قرار من الفرع نوجّهك له.'],
-                'greeting' => ['أهلاً يا جميل في فسخانستا 🐟 تحب نساعدك في إيه؟',
-                    'يا أهلاً وسهلاً 😍 معاك فسخانستا، قولنا نفسك في إيه؟',
-                    'نورت فسخانستا يا كبير 🐟 سؤال ولا نبدأ طلب؟'],
-                'praise' => ['ده من ذوقك يا جميل 😍 نورت فسخانستا!',
-                    'كلامك يفرّح يا كبير 🐟 تسلم لنا!',
-                    'تسلم يا جميل 😍 حبكم لفسخانستا يفتح النفس!'],
+                'greeting' => ['أهلاً بحضرتك، نورت فسخانستا 😊 تحب نساعدك بإيه؟',
+                    'أهلاً وسهلاً يا فندم 😊 اتفضل، تحت أمرك.',
+                    'أهلاً يا فندم، تحب تعرف إيه أو تطلب إيه؟'],
+                'praise' => ['ده من ذوق حضرتك 😊 نورت فسخانستا!',
+                    'تسلم يا فندم، كلام حضرتك يفرّحنا 😊',
+                    'شكرًا لذوق حضرتك، دايمًا تنورنا 😊'],
             ],
             'en' => [
                 'health' => ['Sorry you feel unwell. Seek urgent medical care now; do not wait for a chat reply. Share your order number and details here privately and contact the branch about the incident.'],
                 'review' => ['Sorry about this. Do not taste the product to test it. Share a photo and order number here privately and contact the branch for review. We cannot confirm its safety over chat.'],
                 'complaint' => ['Sorry about your experience. Please send your order number and the problem here privately so we can identify the case and direct you to the branch.'],
                 'identity' => ['I am Fasakhansta’s automated assistant. I can help with information and orders; decisions needing staff are referred to the branch.'],
-                'greeting' => ['Welcome to Fasakhansta 🐟 What can we help you with?', 'Hi there 😍 Got a question, or ready to start an order?'],
-                'praise' => ['That means a lot 😍 Thanks for the love!', 'Thanks, you made our day 🐟 Always lovely to hear from you!'],
+                'greeting' => ['Welcome to Fasakhansta 😊 How can we help?', 'Hello, welcome to Fasakhansta. What would you like to know?'],
+                'praise' => ['Thank you, that is very kind 😊', 'Your kind words made our day 😊'],
             ],
             'fr' => [
                 'health' => ['Asefeen enak ta3ban. Etlob mosa3da tebbeya 3agla delwa2ty, w matestannash rad el chat. Eb3at rakam el order wel tafaseel hena private, w etwasal ma3 el far3.'],
                 'review' => ['Asefeen 3ala elly 7asal. Matdo2sh el montag 3ashan tegarab. Eb3at sora w rakam el order hena private, w etwasal ma3 el far3. Man2darsh ne2akked salamto men el chat.'],
                 'complaint' => ['7a2ak 3aleena w asefeen 3ala elly 7asal. Eb3at rakam el order wel moshkela hena private, 3ashan ne3raf el 7ala w newaggahak lel far3.'],
                 'identity' => ['Ana mosa3ed aly le Fasakhansta. A2dar asa3dak fel ma3loomat wel order, wel 7agat elly me7taga karar men el far3 newaggahak leeh.'],
-                'greeting' => ['Ahlan ya gameel fe Fasakhansta 🐟 Ne2dar nesa3dak fe eh?', 'Nawart Fasakhansta 😍 So2al wala nebda2 order?'],
-                'praise' => ['Da men zo2ak ya gameel 😍 Nawart Fasakhansta!', 'Teslam ya kebeer 🐟 Kalamak yefarra7!'],
+                'greeting' => ['Ahlan be7adretak fe Fasakhansta 😊 Ne2dar nesa3dak fe eh?', 'Ahlan ya fandem 😊 Etfaddal, ta7t amrak.'],
+                'praise' => ['Da men zo2 7adretak 😊 Nawart Fasakhansta!', 'Teslam ya fandem, kalam 7adretak yefarra7na 😊'],
             ],
         ];
         $result = [];
@@ -328,30 +328,57 @@ final class WhatsAppOrderDialogue
             $seen[$id] = true; $selected[] = $allowed[$id];
         }
         if ($choice['action'] === 'WAIT') return $choice['fact_ids'] === [] && $choice['text'] === '' ? $choice : null;
-        if ($selected === [] || !self::literal($choice['text'], 700, true)
-            || !self::safeInformationText($choice['text'])
-            || array_diff(self::informationUrls($choice['text']), self::informationUrls(implode(' ', $selected))) !== []
-            || !self::groundedInformation($choice['text'], implode(' ', $selected))) return null;
+        if ($selected === [] || !self::literal($choice['text'], 700, true)) return null;
         // Numeric checks alone cannot bind a price to its product, or preserve a
         // negative availability/preparation fact. Those business clauses are copied
         // exactly with their subjects; generated wording never reassigns them.
         $source = implode("\n", $selected);
         // The existing lexical claim guard was reviewed mainly for Arabic.
-        // Reviewed English/Franco facts therefore render literally too; model
-        // prose must not turn a safety-review fact into a safety assurance.
+        // Reviewed English/Franco facts therefore render literally too. Build
+        // this protected output before inspecting discarded generated prose:
+        // a restated question subject must not reject an otherwise valid fact
+        // selection, and an invented date or price must never reach the reply.
         if (self::sensitiveInformation($source) || !preg_match('/\p{Arabic}/u', $source)
             || preg_match('/\p{Latin}/u', $source)) {
             $choice['text'] = self::factualAnswer($source, $choice['variant']);
-            if (!self::literal($choice['text'], 700, true)) return null;
         }
+        // The returned text, whether canonical or generated, passes the same
+        // URL, business-claim and size guards against the selected source facts.
+        if (!self::literal($choice['text'], 700, true) || !self::respectfulAddress($choice['text'])
+            || !self::safeInformationText($choice['text'])
+            || array_diff(self::informationUrls($choice['text']), self::informationUrls($source)) !== []
+            || !self::groundedInformation($choice['text'], $source)) return null;
         return $choice;
     }
 
+    /** The owner wants respectful warmth, not slang forms of address. */
+    private static function respectfulAddress(string $text): bool
+    {
+        return preg_match('/(?:يا\s*(?:كبير|كبار|جميل|باشا|هانم|معلم|برنس|وحش|ريس|اسطي|نجم))(?!\p{L})'
+            .'|\bya\s+(?:kbeer|kebeer|kbeir|gameel|gamil|basha|pasha|hanem|brens|m3allem)\b/iu',
+            (string) preg_replace('/[\x{0640}\x{064b}-\x{065f}]/u', '', self::informationWords($text))) !== 1;
+    }
+
     private static function factualAnswer(string $facts, string $variant): string
-    { return $facts; }
+    {
+        // Friendly phrasing is a fixed presentation wrapper. The selected price,
+        // unit, availability and safety sentences remain byte-for-byte intact.
+        if (!function_exists('config') || config('fasakhansta_ai_training.messages_enabled', false)!==true
+            || $variant!=='FRIENDLY' || substr_count($facts,"\n")>=3) return $facts;
+        $words=$facts;
+        foreach (self::OFFICIAL_URLS as $url) $words=str_replace($url,'',$words);
+        if (!preg_match('/\p{Arabic}/u',$words) || preg_match('/\p{Latin}/u',$words)
+            || preg_match('/(?:اعراض|رعايه|(?<!\p{L})طبي(?:ه|ب)?(?!\p{L})|تعب|حساسيه|تنفس|بلع|تسمم|سلامه|ريحه|رائحه|لون|طعم|سليم|مشكله|اسفين|لسه\s+محتاج|غير\s+(?:متاح|متوفر|مؤكد)|مش\s+(?:متاح|موجود|متوفر)|مفيش|لا\s+(?:يوجد|يمكن|تتوفر))/u',self::informationWords($words))) return $facts;
+        $prefix='من عنينا يا فندم';
+        $reply=$prefix."\n".$facts;
+        return preg_match_all('/./us',$reply)<=700?$reply:$facts;
+    }
 
     private static function sensitiveInformation(string $facts): bool
     {
+        if (preg_match('/(?:ميعاد|موعد)\s+التوفر|(?:التفصيله|المعلومه)\s+دي\s+محتاجه\s+تاكيد'
+            .'|اعراض|رعايه|(?<!\p{L})طبي(?:ه|ب)?(?!\p{L})|تعب|تنفس|بلع|تسمم|سلامه|ريحه|رائحه|مشكله|اسفين/u',
+            self::informationWords($facts))) return true;
         return self::informationUrls($facts) !== [] || preg_match('/[0-9٠-٩۰-۹]|\p{Sc}|(?:سعر|اسعار|جنيه|دولار|يورو|ريال|درهم|دينار|كيلو|جرام|غرام|قطعه|قطع|حبه|حبات|سمكه|سمكات|ربع|نصف|ثلث|متاح|موجود|متوفر|مطبوخ|مطهي|مشوي|مقلي|مسلوق|مدخن|منظف|مخلي|محشي|متبل|جاهز|نيء|ناي|مستورد|بلدي|طازج|صحي|صحه|مفيد|امن|سليم|سعرات|بروتين|دهون|حساسيه|صلاحيه|حامل|حوامل|رضاعه|ضغط|سكر|قلب|كوليسترول|افراد|اشخاص|فرد|شخص|زيت|ليمون|طهينه|بصل|ملح|صوديوم|مطهر|معقم|نظيف|طبخ|تشويح|تحمير|نرويجي|نرويج|هولندي|هولندا|اسكتلندي|اسكتلندا|مصري|روسي|روسيا|سويدي|السويد|دنماركي|الدنمارك|صيني|الصين|ناعمه|سمينه|شوك|جلد|بطارخ|مبطرخ)|\b(?:price|EGP|USD|EUR|SAR|AED|GBP|kg|gram|piece|available|unavailable)\b/iu',
             self::informationWords($facts)) === 1;
     }

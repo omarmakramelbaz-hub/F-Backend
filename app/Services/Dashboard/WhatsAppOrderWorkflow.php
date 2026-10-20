@@ -826,7 +826,25 @@ class WhatsAppOrderWorkflow
             'latitude'=>$location['lat'],'longitude'=>$location['long'],'location_confirmed'=>true,'items'=>$items];
         if ($origin!==null) $v['delivery_origin_branch']=$origin;
         $v=$this->review($v);
+        if (!$this->finalFormReviewGate($data,$snapshot,$v,$catalog,$actor,$reason,$lock)) return null;
         return $v;
+    }
+
+    /** Both native extraction and customer-copy orders need the latest factual form and its later customer approval. */
+    private function finalFormReviewGate(array $data,array $snapshot,array $review,array $catalog,$actor,?string &$reason,bool $lock): bool
+    {
+        try {
+            $branch=$this->branch($review['branch'],$actor,$lock);
+            $complete=true;
+            foreach ($review['items']??[] as $index=>$item) {
+                $products=array_values(array_filter($catalog,static fn($product)=>(string)($product['id']??'')===(string)($item['product_id']??'')));
+                if (count($products)!==1||!isset($data['items'][$index])
+                    ||$this->optionNeedsExplicitPreparation($data['items'][$index],$products[0],$item['option_id']??null)) $complete=false;
+            }
+            if ($complete&&($snapshot['complete']??false)===true&&WhatsAppOrderFollowupService::finalFormApproved(
+                $data,$snapshot['transcript']??[],(string)($branch['name']??''))) return true;
+        } catch (\Throwable $ignore) {}
+        $reason='CUSTOMER_APPROVAL_REQUIRED'; return false;
     }
 
     /** The customer-copy protocol is deliberately limited to silent WhatsApp analysis. */
@@ -952,6 +970,7 @@ class WhatsAppOrderWorkflow
                 $reason='CUSTOMER_RECAP_REPLAY'; return null;
             }
         }
+        if (!$this->finalFormReviewGate($data,$snapshot,$values,$catalog,$actor,$reason,$lock)) return null;
         return $values;
     }
 
@@ -1365,7 +1384,10 @@ class WhatsAppOrderWorkflow
             $nativeTexts=[]; foreach ($transcript as $message) if ($message['speaker']==='customer'&&is_string($message['text'])) $nativeTexts[]=$message['text'];
             $routeData['customer']['address']=implode(' ',$nativeTexts);
         }
-        $resolved=$this->automaticBranch($routeData,$fresh,$routing,$information['text']??null);
+        $inquiryText=$information['faq_text']??($information['text']??null);
+        if (is_string($inquiryText)&&$this->messageTrainingReady())
+            $inquiryText=FasakhanstaMessageTrainingFacts::priceRoutingText($inquiryText);
+        $resolved=$this->automaticBranch($routeData,$fresh,$routing,$inquiryText);
         if ($resolved===null&&($primary!==null||$fields===[])&&in_array($routing,['MISSING','UNKNOWN_HINT'],true)) $fields[]='BRANCH';
         if ($resolved===null&&in_array($routing,['AMBIGUOUS','CONFLICTING'],true)) {
             $fields=['BRANCH'];
@@ -1385,7 +1407,8 @@ class WhatsAppOrderWorkflow
         if ($data['decision']==='CONFIRMED'&&($row->reason==='LOCATION_UNCONFIRMED'||($primary!==null&&$row->reason==='BRANCH_CLOSED'))&&!$pickup&&$resolved!==null
             &&!$this->followupHasPoint($data,$transcript,$resolved['fulfillment_branch']??$resolved['value'],$fresh)) $fields[]='LOCATION';
         $needsApproval=$data['decision']==='CONFIRMED'&&$this->followupService()!==null
-            &&!$this->followupService()->approvalSatisfied((int)$row->conversation_id,$data,$snapshot);
+            &&(!$this->followupService()->approvalSatisfied((int)$row->conversation_id,$data,$snapshot)
+                ||!WhatsAppOrderFollowupService::finalFormApproved($data,$snapshot['transcript'],(string)($questionBranch['name']??'')));
         if ($fields===[]&&$dialogue===null&&($data['decision']==='DRAFT'||$needsApproval)&&!$pickup&&$resolved!==null) {
             if (!$this->followupItemQuantities($data,$transcript,$resolved['fulfillment_branch']??$resolved['value'])) {
                 foreach ($data['items'] as $item) if (($item['cart_reference']??null)!==null) return null;
@@ -1457,6 +1480,10 @@ class WhatsAppOrderWorkflow
                 ?($continuation['episode_customer_key']??$recoveryIntent??($primary!==null?$customerRow->message_key:null)):$snapshot['keys'][$episode],
             'fields'=>$fields,'data'=>$data,'transcript'=>$snapshot['transcript']];
         if ($primary!==null) $plan['primary_ai']=$primary;
+        if ($fields===['CONFIRMATION']) {
+            if (!isset($questionBranch['name'])||!is_string($questionBranch['name'])||trim($questionBranch['name'])==='') return null;
+            $plan['confirmation_branch']=$questionBranch['name'];
+        }
         if ($dialogue!==null) {
             $plan['dialogue']=$dialogue;
             $plan['catalog_fingerprint']=hash('sha256',json_encode($catalog,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
@@ -1481,6 +1508,13 @@ class WhatsAppOrderWorkflow
         }
         if ($latest===null||!is_string($latest['text']??null)||trim($latest['text'])==='') return null;
         $text=$latest['text'];
+        if ($this->messageTrainingReady()) {
+            $faqText=FasakhanstaMessageTrainingFacts::priceInquiryText($text,$transcript,$latest['id']);
+            if ($faqText!==$text&&FasakhanstaMessageTrainingFacts::priceQuestion($faqText)) {
+                $latest['faq_text']=$faqText;
+                return $latest;
+            }
+        }
         $routingText=$this->messageTrainingReady()?FasakhanstaMessageTrainingFacts::routingText($text):$text;
         $quantityAnswer=preg_match('/\\A\\s*(?:تمام\\s+)?(?:(?:[0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?|نص|نصف|ربع)\\s*)?(?:كيلو(?:جرام|غرام)?|كجم|كغ|جرام|غرام|جم|قطعة|قطعه|حبة|حبه|علبة|علبه|سمكة|سمكه)(?:\\s+(?:ونص|ونصف|وربع|لو\\s+سمحت|بس|فقط))*\\s*[?؟.!،]*\\s*\\z/u',$routingText)===1;
         if ($quantityAnswer&&($preceding['speaker']??null)==='business'&&is_string($preceding['text']??null)
@@ -1511,11 +1545,13 @@ class WhatsAppOrderWorkflow
     private function informationContext(array $turn,?array $catalog,array $transcript): ?array
     {
         $episode=WhatsAppOrderConversationEvidence::episodeTranscript($transcript);
-        $text=$turn['text']; $facts=[];
-        $language=$this->messageTrainingReady()?FasakhanstaMessageTrainingFacts::language($text):'ar';
+        $nativeText=$turn['text']; $facts=[];
+        $text=$this->messageTrainingReady()?($turn['faq_text']??FasakhanstaMessageTrainingFacts::priceInquiryText($nativeText,$episode,$turn['id'])):$nativeText;
+        $language=$this->messageTrainingReady()?FasakhanstaMessageTrainingFacts::language($nativeText):'ar';
         $routingText=$language==='ar'?$text:FasakhanstaMessageTrainingFacts::routingText($text);
-        $add=static function(string $subject,string $value,bool $reviewedTranslation=false)use(&$facts,$language):void {
-            if ($language!=='ar'&&!$reviewedTranslation) {
+        $customerVoice=$language==='ar'&&$this->messageTrainingReady();
+        $add=static function(string $subject,string $value,bool $reviewedTranslation=false)use(&$facts,$language,$customerVoice):void {
+            if (($language!=='ar'||$customerVoice)&&!$reviewedTranslation) {
                 $value=FasakhanstaMessageTrainingFacts::workflowText($subject,$value,$language);
                 if ($value===null) return;
             }
@@ -1524,12 +1560,18 @@ class WhatsAppOrderWorkflow
             $facts[]=['id'=>'f'.(count($facts)+1),'text'=>$value,'subject'=>$subject];
         };
         $meaning=preg_match('/(?:يعني|معن[ىي]|معناه|معناها|تشرح|اشرح|وضح|مش\\s+فاهم|قصدك|تقصد|الفرق|يفرق|مكونات|وصف|تفاصيل)|(?<!\\p{L})(?:إيه\\s+ده|ايه\\s+ده|ليه|ازاي|إزاي)(?!\\p{L})|\\b(?:mean|meaning|explain|difference|description|ingredients|why|how)\\b/iu',$routingText)===1;
-        $price=preg_match('/(?:بكام|سعر|أسعار|اسعار)|\\b(?:price|prices|cost)\\b/iu',$routingText)===1;
+        $price=$this->messageTrainingReady()?FasakhanstaMessageTrainingFacts::priceQuestion($text)
+            :preg_match('/(?:بكام|سعر|أسعار|اسعار)|\\b(?:price|prices|cost)\\b/iu',$routingText)===1;
         $availability=preg_match('/(?:متاح|موجود|بتبيع|منيو|مينيو)|\\b(?:menu|available|availability)\\b/iu',$routingText)===1;
         $ordering=preg_match('/(?:ازاي|إزاي|كيف).{0,35}(?:أطلب|اطلب|أوردر|اوردر|طلب)|(?:أطلب|اطلب|طلب|أوردر|اوردر).{0,35}(?:ازاي|إزاي|كيف)|\\bhow.{0,25}order\\b/iu',$routingText)===1;
-        $hours=preg_match('/(?:شغال|فاتح|بتفتح|بتقفل|مواعيد|موعد|امتى|امتي|إمتى)|\\b(?:hours|open|close|when)\\b/iu',$routingText)===1;
+        $stockTiming=$customerVoice&&preg_match('/(?:هيتوفر|يتوفر|متوفر|التوفر|هينزل|ينزل\\s+تاني).{0,30}(?:امتي|امتى|إمتى|امتا|متي)|(?:امتي|امتى|إمتى|امتا|متي).{0,30}(?:هيتوفر|يتوفر|متوفر|التوفر|هينزل|ينزل\\s+تاني)/u',$routingText)===1;
+        $hours=!$stockTiming&&preg_match('/(?:شغال|فاتح|بتفتح|بتقفل|مواعيد|موعد|امتى|امتي|إمتى)|\\b(?:hours|open|close|when)\\b/iu',$routingText)===1;
         $deliveryFee=preg_match('/(?:سعر|تكلفه|تكلفة|رسوم).{0,15}(?:التوصيل|الدليفري)|(?:التوصيل|الدليفري).{0,15}(?:بكام|كام|سعر)|\\bdelivery.{0,15}(?:price|fee|cost)\\b/iu',$routingText)===1;
-        $knowledge=$this->businessInformationFacts($text); $covered=[];
+        // Private price answers require the actual selected branch catalog.
+        // Owner guide prices remain an optional pure FAQ helper, never a quote here.
+        $knowledge=$this->businessInformationFacts($text,$language,false); $covered=[];
+        if ($price&&!$deliveryFee&&$catalog!==null)
+            $knowledge=array_values(array_filter($knowledge,static fn(array $fact):bool=>$fact['topic']!=='PRICE_POLICY'));
         $previous=null;
         foreach ($episode as $row) { if ($row['id']===$turn['id']) break; $previous=$row; }
         if ($meaning&&($previous['speaker']??null)==='business'&&is_string($previous['text']??null)) {
@@ -1541,14 +1583,34 @@ class WhatsAppOrderWorkflow
             elseif (preg_match('/(?:عنوان\\s+التوصيل|عنوانك|العنوان)/u',$prior))
                 $knowledge[]=['topic'=>'ADDRESS','subject'=>'سبب عنوان التوصيل','text'=>'عنوان التوصيل يحدد المكان المقصود لإيصال الطلب ويساعد على مراجعة بيانات الدليفري. كتابة العنوان وحدها لا تؤكد الطلب.'];
         }
-        foreach ($knowledge as $fact) { $add($fact['subject'],$fact['text'],!in_array($fact['topic'],['CONTACT','LOCATION','ADDRESS'],true)); $covered[$fact['topic']]=true; }
+        foreach ($knowledge as $fact) {
+            if ($stockTiming&&$catalog!==null&&$fact['topic']==='STOCK_TIMING')
+                $fact['text']='ميعاد التوفر لسه محتاج تأكيد من الفرع.';
+            $add($fact['subject'],$fact['text'],!in_array($fact['topic'],['CONTACT','LOCATION','ADDRESS'],true)); $covered[$fact['topic']]=true;
+        }
+        if (isset($covered['PRICE_SUBJECT'])||array_intersect(array_keys($covered),['HEALTH_ESCALATION','PRODUCT_REVIEW','SAFETY_SCOPE'])) {
+            $context=['field'=>'ITEMS','kind'=>'PRODUCT_INFORMATION','item_name'=>null,'candidates'=>[],
+                'transcript'=>$transcript,'facts'=>$facts];
+            return WhatsAppOrderDialogue::validContext($context)?$context:null;
+        }
+        if ($price&&!$deliveryFee&&$catalog===null) {
+            $facts=[];
+            $add('منيو الفرع الحالي',FasakhanstaMessageTrainingFacts::priceBranchPrompt($language,
+                FasakhanstaMessageTrainingFacts::priceAreaNamed($text)),true);
+            $context=['field'=>'ITEMS','kind'=>'PRODUCT_INFORMATION','item_name'=>null,'candidates'=>[],
+                'transcript'=>$transcript,'facts'=>$facts];
+            return WhatsAppOrderDialogue::validContext($context)?$context:null;
+        }
         if ($ordering&&!isset($covered['ORDER'])) $add('طريقة الطلب','لبداية الطلب بنحدد الصنف والكمية، والفرع وطريقة الاستلام، ثم بيانات التواصل. للدليفري نحتاج عنوان التوصيل. بعد اكتمال البيانات بنراجع ملخص الطلب مع العميل للموافقة قبل التنفيذ.');
         elseif ($hours&&!isset($covered['HOURS'])&&$knowledge===[]) $add('مواعيد الفرع','مواعيد عمل الفرع غير موجودة في بيانات المنيو لهذا الاستفسار. لا يمكن تأكيد وقت فتح أو إغلاق الفرع من هذه البيانات.');
         if ($deliveryFee) $add('رسوم التوصيل','رسوم التوصيل النهائية غير موجودة في بيانات المنيو لهذا الاستفسار، وتحتاج إلى عنوان العميل وحساب التوصيل الفعلي. لا يمكن تخمين مبلغها.');
         if ($meaning&&preg_match('/(?:هيرنج|هيرينج|herring)/iu',$routingText))
             $add('هيرنج','هيرنج هو الاسم الإنجليزي لسمك الرنجة. الاسم وحده لا يحدد طريقة تجهيز الصنف أو مكوناته.');
         if ($catalog===null) {
-            if ($price) $add('سعر الفرع','لا يوجد فرع محدد للاستفسار الحالي، ولذلك لا تتوفر قيمة سعر مؤكدة له. يلزم معرفة الفرع أو المدينة أولاً.');
+            if ($price&&!isset($covered['REFERENCE_PRICE'])) $add('سعر الفرع',
+                $language==='ar'&&$this->messageTrainingReady()
+                    ? 'السعر الحالي ممكن يختلف من فرع للتاني. قولنا أنهي فرع أو مدينة علشان نعرف السعر المناسب ليك؟'
+                    : 'لا يوجد فرع محدد للاستفسار الحالي، ولذلك لا تتوفر قيمة سعر مؤكدة له. يلزم معرفة الفرع أو المدينة أولاً.');
             elseif ($knowledge===[]&&$facts===[]) $add('تفاصيل المنيو','تفاصيل الصنف وتوفره في فرع معين غير مؤكدة قبل تحديد الفرع أو المدينة.');
         } else {
             $tokens=$this->menuTokens($routingText); $matched=[];
@@ -1573,40 +1635,55 @@ class WhatsAppOrderWorkflow
             }
             if ($matched===[]&&$availability) $matched=array_values(array_filter($catalog,static fn($p)=>$p['available']));
             if ($matched===[]&&!$ordering&&!$hours&&!$deliveryFee&&$knowledge===[]&&$covered===[]) $add('التفصيل المطلوب','لا توجد بيانات مؤكدة تجيب التفصيل المحدد في السؤال الحالي. يمكن سؤال العميل عن الجزئية المقصودة لتوضيحها دون تخمين.');
-            if ($ordering||$hours||$deliveryFee) $matched=[];
+            if ($ordering||$hours||$deliveryFee||isset($covered['MENU'])) $matched=[];
+            if ($price&&$this->messageTrainingReady()&&$matched!==[]) {
+                // The catalog already computed each full sale-option price. FAQ
+                // presentation never adds a surcharge or scales a portion again.
+                $facts=[];
+                foreach (FasakhanstaMessageTrainingFacts::liveMenuPriceFacts($matched,$text,$language) as $fact)
+                    $add($fact['subject'],$fact['text'],true);
+                $covered['LIVE_PRICE']=true; $matched=[];
+            }
             foreach (array_slice($matched,0,6) as $product) {
                 $name=$product['name'];
                 if ($meaning&&$product['description']===null&&!array_intersect(array_keys($covered),['SALT','PREPARATION','ROE','MIX']))
                     $add($name,'لا يوجد وصف تفصيلي مسجل لـ «'.$name.'». لا يمكن استنتاج طريقة التجهيز أو المكونات أو الفرق عن صنف آخر من الاسم فقط.');
-                $add($name,'اسم الصنف في منيو الفرع هو «'.$name.'»، وحالته '.($product['available']?'متاح':'غير متاح').' في هذا الفرع وقت الاستفسار.');
-                if ($product['description']!==null) $add($name,'الوصف المسجل لـ «'.$name.'»: '.$product['description']);
+                if (!$price||!$product['available'])
+                    $add($name,'اسم الصنف في منيو الفرع هو «'.$name.'»، وحالته '.($product['available']?'متاح':'غير متاح').' في هذا الفرع وقت الاستفسار.');
+                if ($stockTiming) continue;
+                if (!$price&&$product['description']!==null) $add($name,'الوصف المسجل لـ «'.$name.'»: '.$product['description']);
                 $unit=['weight'=>'كيلو','piece'=>'قطعة'][$product['quantity_mode']]??null;
                 if ($price) {
-                    if ($product['price']!==null&&$unit!==null)
+                    if ($product['price']!==null&&$unit!==null) {
                         $add($name,'سعر «'.$name.'» المسجل في منيو هذا الفرع هو '.$product['price'].' جنيه مصري لكل '.$unit.'. هذا سعر الصنف وليس إجمالي الطلب أو التوصيل.');
+                        $covered['LIVE_PRICE']=true;
+                    }
                     else $add($name,'لا يوجد سعر مؤكد مع وحدة بيع واضحة لـ «'.$name.'» في البيانات المتاحة؛ لا يمكن تخمينه.');
                     foreach ($product['options'] as $option) if ($option['price']!==null)
                         $add($name,'قيمة السعر المسجلة بجوار اختيار «'.$option['label'].'» للصنف «'.$name.'» هي '.$option['price'].' جنيه مصري. '
                             .($unit===null?'وحدة البيع غير موضحة. ':'وحدة بيع الصنف '.$unit.'. ')
                             .'البيانات لا توضح هل هذه القيمة سعر نهائي أم إضافة، ولذلك لا تمثل سعراً نهائياً مؤكداً للطلب.');
                 } elseif ($unit!==null) $add($name,'وحدة بيع «'.$name.'» المسجلة هي '.$unit.'.');
-                if ($product['options']!==[]) $add($name,'الاختيارات المسجلة لـ «'.$name.'»: '.implode('، ',array_column($product['options'],'label')).'. الأسماء وحدها لا توضح تفاصيل تجهيزها.');
+                if (!$price&&$product['options']!==[]) $add($name,'الاختيارات المسجلة لـ «'.$name.'»: '.implode('، ',array_column($product['options'],'label')).'. الأسماء وحدها لا توضح تفاصيل تجهيزها.');
             }
         }
         if ($facts===[]) return null;
+        if ($this->messageTrainingReady()&&!array_intersect(array_keys($covered),
+            ['HEALTH_ESCALATION','PRODUCT_REVIEW','SAFETY_SCOPE','MENU','REFERENCE_PRICE','PRICE_POLICY','PRICE_SUBJECT','LIVE_PRICE','STOCK_TIMING']))
+            $add('تفصيلة غير مؤكدة','التفصيلة دي محتاجة تأكيد من الفرع يا فندم.');
         $context=['field'=>'ITEMS','kind'=>'PRODUCT_INFORMATION','item_name'=>null,'candidates'=>[],
             'transcript'=>$transcript,'facts'=>$facts];
         return WhatsAppOrderDialogue::validContext($context)?$context:null;
     }
 
     /** Curated owner FAQ, reviewed 2026-10-15. Knowledge is never inventory, policy or ERP authority. */
-    private function businessInformationFacts(string $text,?string $language=null): array
+    private function businessInformationFacts(string $text,?string $language=null,bool $includeIndicativePrices=false): array
     {
         if (function_exists('config') && config('fasakhansta_ai_training.messages_enabled', false) === true) {
             // The new owner reference replaces stale FAQ facts only when intact.
             // It never changes live catalog prices, stock or order permissions.
             if (!$this->messageTrainingReady()) return [];
-            return FasakhanstaMessageTrainingFacts::fromReference((new FasakhanstaAiKnowledge())->data(), $text, null, false, $language);
+            return FasakhanstaMessageTrainingFacts::fromReference((new FasakhanstaAiKnowledge())->data(), $text, null, $includeIndicativePrices, $language);
         }
         $facts=[];
         $add=static function(string $topic,string $subject,string $value)use(&$facts):void {
@@ -1790,7 +1867,8 @@ class WhatsAppOrderWorkflow
             if (($item['cart_reference']??null)!==null) continue;
             $exact=array_values(array_filter($catalog,fn($product)=>$product['available']&&$this->name($product['name'])===$this->name($item['name'])));
             if (count($exact)===1) {
-                if ($this->catalogOption($item,$data['items'],$texts,$exact[0],$data,WhatsAppOrderConversationEvidence::episodeTranscript($transcript))!==null) continue;
+                $selected=$this->catalogOption($item,$data['items'],$texts,$exact[0],$data,WhatsAppOrderConversationEvidence::episodeTranscript($transcript));
+                if ($selected!==null&&!$this->optionNeedsExplicitPreparation($item,$exact[0],$selected)) continue;
                 $candidates=[];
                 foreach ($exact[0]['options'] as $option) if ($option['label']!==''&&!in_array($option['label'],array_column($candidates,'label'),true)) {
                     $candidates[]=['id'=>'c'.(count($candidates)+1),'label'=>$option['label']]; if (count($candidates)===12) break;
@@ -1807,6 +1885,20 @@ class WhatsAppOrderWorkflow
             return $this->dialogueContext('ITEMS','CONFLICT',$item['name'],[],$transcript);
         }
         return null;
+    }
+
+    /** A live preparation chosen from an older recap must be explicitly selected before the new form. */
+    private function optionNeedsExplicitPreparation(array $item,array $product,?string $option): bool
+    {
+        if ($option===null||$option==='') return false;
+        $matches=array_values(array_filter($product['options']??[],static fn($candidate)=>($candidate['id']??null)===$option));
+        if (count($matches)!==1||!is_string($matches[0]['label']??null)) return true;
+        $label=$this->name($matches[0]['label']);
+        $visible=$this->name((string)($item['name']??'').' '.(string)($item['option_hint']??''));
+        if ($label===''||preg_match('/(?<![\p{L}\p{N}])'.preg_quote($label,'/').'(?![\p{L}\p{N}])/u',$visible)) return false;
+        if (($item['quantity_mode']??null)==='weight'&&(($label==='ربع'&&$this->quantityMillis($item['quantity']??null)===250)
+            ||($label==='نصف'&&$this->quantityMillis($item['quantity']??null)===500))) return false;
+        return preg_match('/\A(?:(?:من|في|لكل)\s+(?:ال)?كيلو\s+)?(?:[1-9]\s+(?:حبات|حبه|حبة|سمكات|سمكة|سمكه)|سمكتين|سمكتان)\z/u',$label)!==1;
     }
 
     private function menuTokens(string $text): array
@@ -2870,6 +2962,8 @@ class WhatsAppOrderWorkflow
             ||WhatsAppOrderExtraction::hasProbe($snapshot['transcript']??[])) return false;
         $checked=WhatsAppOrderExtraction::validate($data,$snapshot['transcript']);
         if (($checked['ok']??false)!==true) return false;
+        if (is_string($data['branch_hint']??null)&&WhatsAppOrderFollowupService::finalFormApproved(
+            $data,$snapshot['transcript'],$data['branch_hint'])) return true;
         $episode=WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']);
         $recap=null; $position=null;
         $ack='جاري مراجعة البيانات لإرسال الطلب للفرع.';
@@ -2940,8 +3034,7 @@ class WhatsAppOrderWorkflow
                 if (!$approved||$acknowledged||!is_string($row['text'])||trim($row['text'])!==$ack) return false;
                 $acknowledged=true; continue;
             }
-            if (!is_string($row['text'])||!preg_match('/\A\s*(?:(?:(?:تمام|نعم)\s+)?(?:موافق|أوافق|اوافق)'
-                .'(?:\s+على\s+(?:الطلب|البيانات(?:\s+والطلب)?))?|تمام|حاضر|نعم|اوكي|أوكي|ماشي|ok|okay|yes)[.!]?\s*\z/iu',$row['text'])
+            if (!WhatsAppOrderFollowupService::strictApprovalPhrase($row['text'])
                 ||!in_array($row['id'],$data['evidence']['customer_acceptance_ids']??[],true)) return false;
             $approved=true;
         }

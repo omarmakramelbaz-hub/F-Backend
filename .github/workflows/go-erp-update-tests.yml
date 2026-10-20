@@ -31,6 +31,8 @@ jobs:
         run: node --test desktop-pos/test/*.test.cjs
       - name: Verify server publication and source drift refusal
         run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_update_publication.py
+      - name: Verify the pinned root console publication entry
+        run: python3 -B -m unittest discover -s tests -p test_go_erp_ci_publish_root.py
       - name: Verify authenticated release feed and immutable installer transport
         run: sudo -n -- php -n tests/desktop_dashboard_updates_test.php
       - name: Check the read-only production diagnostic

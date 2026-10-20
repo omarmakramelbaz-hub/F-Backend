@@ -860,13 +860,30 @@ final class WhatsAppOrderConversationEvidence
         if (($data['customer']['area']??null)!==null) $expected[]='المنطقة: '.$data['customer']['area'];
         if (($data['branch_hint']??null)!==null) $expected[]='الفرع: '.$data['branch_hint'];
         if (($data['customer']['notes']??null)!==null) $expected[]='ملاحظات: '.$data['customer']['notes'];
-        if (array_slice($lines,2,count($expected))!==$expected||count($lines)!==count($expected)+4) return null;
-        $mode=$lines[count($lines)-2];
-        if (!in_array($mode,['طريقة الاستلام: دليفري.','طريقة الاستلام: من الفرع.'],true)
-            ||(($data['fulfillment']??'UNKNOWN')==='DELIVERY'&&$mode!=='طريقة الاستلام: دليفري.')
-            ||(($data['fulfillment']??'UNKNOWN')==='PICKUP'&&$mode!=='طريقة الاستلام: من الفرع.')) return null;
-        if (!in_array($lines[count($lines)-1],['اكتب موافق للموافقة على البيانات والطلب المذكور.',
-            'من فضلك اكتب موافق للموافقة على البيانات والطلب المذكور.'],true)) return null;
+        $compact=false;
+        $displayedBranch=null;
+        foreach ($lines as $line) if (preg_match('/\Aالفرع: ([^|]+) \| الاستلام: (?:دليفري|من الفرع)\z/u',$line,$branchLine)) $displayedBranch=$branchLine[1];
+        // The coordinator binds this displayed name to the live resolved branch; it is never copied into extracted customer facts.
+        if (self::shortText($displayedBranch,200)) foreach (['DELIVERY'=>'دليفري','PICKUP'=>'من الفرع'] as $fulfillment=>$label) {
+            if (in_array($data['fulfillment']??'UNKNOWN',['DELIVERY','PICKUP'],true)&&$data['fulfillment']!==$fulfillment) continue;
+            $body=['الاسم: '.$data['customer']['name'].' | رقم التواصل: '.$data['customer']['phone'],
+                'العنوان: '.$data['customer']['address'].(($data['customer']['area']??null)!==null?' | المنطقة: '.$data['customer']['area']:''),
+                'الفرع: '.$displayedBranch.' | الاستلام: '.$label];
+            if (($data['customer']['notes']??null)!==null) $body[]='ملاحظات: '.$data['customer']['notes'];
+            $body[]='كده كله تمام؟';
+            if (array_slice($lines,2)===$body) $compact=true;
+        }
+        if (!$compact) {
+            if (array_slice($lines,2,count($expected))!==$expected||count($lines)!==count($expected)+4) return null;
+            $mode=$lines[count($lines)-2];
+            if (!in_array($mode,['طريقة الاستلام: دليفري.','طريقة الاستلام: من الفرع.'],true)
+                ||(($data['fulfillment']??'UNKNOWN')==='DELIVERY'&&$mode!=='طريقة الاستلام: دليفري.')
+                ||(($data['fulfillment']??'UNKNOWN')==='PICKUP'&&$mode!=='طريقة الاستلام: من الفرع.')) return null;
+            if (!in_array($lines[count($lines)-1],['اكتب موافق للموافقة على البيانات والطلب المذكور.',
+                'من فضلك اكتب موافق للموافقة على البيانات والطلب المذكور.',
+                'اكتب كل شئ تمام للموافقة على البيانات والطلب المذكور.',
+                'من فضلك اكتب كل شئ تمام للموافقة على البيانات والطلب المذكور.'],true)) return null;
+        }
         $acceptance=null;
         foreach ($rows as $label=>$after) {
             if ($positions[$label]<=$summary) continue;
@@ -1233,7 +1250,8 @@ final class WhatsAppOrderConversationEvidence
     private static function acceptance(string $text): bool
     {
         return !self::unsafe($text) && !self::alternatives($text) && !self::amendment($text)
-            && preg_match('/\A\s*(?:تمام|موافق|اتفقنا|أؤكد|اؤكد|أكد|اكد|yes|confirm|ok(?:ay)?)(?:\s+(?:تمام|موافق|يفندم|شكرا|شكراً|على\s+(?:الطلب|الأوردر|الاوردر)|الطلب|الأوردر|الاوردر))*\s*[.!،♥❤❤️👍]*\s*\z/iu', $text) === 1;
+            && (preg_match('/\A\s*كل[ \t]+(?:شئ|شيء)[ \t]+تمام[.!]?\s*\z/u',$text)===1
+                ||preg_match('/\A\s*(?:تمام|موافق|اتفقنا|أؤكد|اؤكد|أكد|اكد|yes|confirm|ok(?:ay)?)(?:\s+(?:تمام|موافق|يفندم|شكرا|شكراً|على\s+(?:الطلب|الأوردر|الاوردر)|الطلب|الأوردر|الاوردر))*\s*[.!،♥❤❤️👍]*\s*\z/iu', $text) === 1);
     }
 
     private static function dataRequest(string $text): bool

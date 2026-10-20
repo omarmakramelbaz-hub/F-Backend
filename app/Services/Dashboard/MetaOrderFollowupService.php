@@ -35,7 +35,7 @@ class MetaOrderFollowupService extends WhatsAppOrderFollowupService
     protected function renderQuestion(array $plan,array $fields,string $variant,?array $choice=null): string
     {
         $text=parent::renderQuestion($plan,$fields,$variant,$choice);
-        $text=str_replace(['من واتساب','في واتساب'],['داخل المحادثة','داخل المحادثة'],$text);
+        if ($fields!==['CONFIRMATION']) $text=str_replace(['من واتساب','في واتساب'],['داخل المحادثة','داخل المحادثة'],$text);
         if (mb_strlen($text,'UTF-8')>1000) throw new \RuntimeException('META_TEXT_LIMIT');
         return $text;
     }
@@ -143,9 +143,14 @@ class MetaOrderFollowupService extends WhatsAppOrderFollowupService
             $keys=array_intersect_key($snapshot['keys'],array_flip(array_column($episode,'id')));
             $ids=DB::table('meta_inbox_messages')->where('conversation_id',$conversation)->whereIn('message_key',array_values($keys))->pluck('id')->all();
             if (!$ids||count($ids)!==count($keys)) return false;
-            $recap=null;
-            foreach ($this->ownedMessages($conversation,min($ids)-1,max($ids),$lock) as $record)
-                if ($record['marker']['kind']==='confirmation') { $recap=$record; break; }
+            $recap=null; $recapPosition=-1; $positions=array_flip(array_column($episode,'id'));
+            foreach ($this->ownedMessages($conversation,min($ids)-1,max($ids),$lock) as $record) {
+                if ($record['marker']['kind']!=='confirmation') continue;
+                $candidate=array_search($record['message']->message_key,$keys,true);
+                if ($candidate!==false&&($positions[$candidate]??-1)>$recapPosition) {
+                    $recap=$record; $recapPosition=$positions[$candidate];
+                }
+            }
             if ($recap===null) return false;
             $label=array_search($recap['message']->message_key,$keys,true);
             if ($label===false||!in_array($label,$data['evidence']['confirmation_ids']??[],true)

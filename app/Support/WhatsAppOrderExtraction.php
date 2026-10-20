@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Services\Dashboard\WhatsAppOrderConversationEvidence;
+use App\Services\Dashboard\WhatsAppOrderFollowupService;
 use DateTimeImmutable;
 use DateTimeZone;
 use Throwable;
@@ -351,6 +352,35 @@ final class WhatsAppOrderExtraction
         $category = $why; $field = $where; return false;
     }
 
+    /** Only the latest exact factual form and its cited, later whole-message approval.
+     * This pure form proof does not validate extraction or authorize an ERP write.
+     */
+    private static function approvedFactualForm(array $data,array $rows): ?string
+    {
+        if (($data['decision']??null)!=='CONFIRMED') return null;
+        $latest=null;$position=null;$positions=array_flip(array_keys($rows));
+        foreach ($rows as $id=>$row) if ($row['speaker']==='business'&&is_string($row['text']??null)
+            &&preg_match('/\A\s*(?:تأكيد الطلب:|ملخص الطلب النهائي:)/u',$row['text'])) {
+            $latest=$id;$position=$positions[$id];
+        }
+        if ($latest===null||!in_array($latest,$data['evidence']['confirmation_ids'],true)
+            ||!class_exists(WhatsAppOrderFollowupService::class)) return null;
+        // A billing-origin hint may differ from the fulfillment branch printed
+        // on the form. Preserve the extracted hint. This literal proves only
+        // the form's shape; the workflow must match its live resolved branch
+        // again at finalFormReviewGate before any automatic ERP dispatch.
+        $branches=[];
+        foreach (preg_split('/\R/u',$rows[$latest]['text']) as $line) if (preg_match(
+            '/\A\h*الفرع:\h*([^|\r\n]{1,200}?)(?:\h*\|\h*الاستلام:[^\r\n]+)?\h*\z/u',$line,$match)) $branches[]=trim($match[1]);
+        if (count($branches)!==1||$branches[0]==='') return null;
+        $citedApproval=false;
+        foreach ($data['evidence']['customer_acceptance_ids'] as $id) if ($positions[$id]>$position
+            &&strcmp($rows[$id]['sent_at'],$rows[$latest]['sent_at'])>0
+            &&WhatsAppOrderFollowupService::strictApprovalPhrase($rows[$id]['text'])) $citedApproval=true;
+        if (!$citedApproval) return null;
+        return WhatsAppOrderFollowupService::finalFormApproved($data,array_values($rows),$branches[0])?$latest:null;
+    }
+
     private static function confirmation(array $data, array $rows, ?string &$category = null, ?string &$field = null): bool
     {
         if (count($data['items']) === 0) return self::notConfirmed($category, $field, 'CONFIRMATION_MISSING_ITEMS', 'ITEM');
@@ -381,12 +411,13 @@ final class WhatsAppOrderExtraction
         $summary = null;
         $summaryTexts = [];
         $summaryMarker = false;
+        $approvedFactualForm=self::approvedFactualForm($data,$rows);
         foreach ($data['evidence']['confirmation_ids'] as $id) {
             $text = $rows[$id]['text'];
             if (self::instruction($text)) return self::notConfirmed($category, $field, 'SUMMARY_INSTRUCTION', 'CONFIRMATION_IDS');
-            if (self::tentative($text)) return self::notConfirmed($category, $field, 'SUMMARY_TENTATIVE', 'CONFIRMATION_IDS');
+            if (self::tentative($text)&&$id!==$approvedFactualForm) return self::notConfirmed($category, $field, 'SUMMARY_TENTATIVE', 'CONFIRMATION_IDS');
             if (self::negativeSummary($text)) return self::notConfirmed($category, $field, 'SUMMARY_NEGATIVE', 'CONFIRMATION_IDS');
-            $summaryMarker = $summaryMarker || self::finalSummary($text);
+            $summaryMarker = $summaryMarker || self::finalSummary($text) || $id===$approvedFactualForm;
             if ($summary === null || strcmp($rows[$id]['sent_at'], $summary) > 0) {
                 $summary = $rows[$id]['sent_at'];
             }

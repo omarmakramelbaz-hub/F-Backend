@@ -211,6 +211,9 @@ namespace {
     require dirname(__DIR__).'/app/Support/WhatsAppInboxProtocol.php';
     require dirname(__DIR__) . '/app/Services/Dashboard/WhatsAppOrderConversationEvidence.php';
     require dirname(__DIR__).'/app/Support/WhatsAppOrderExtraction.php';
+    // Exercise the deployed final-form consent gate, rather than treating its
+    // production dependency as absent in this isolated database fixture.
+    require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppOrderFollowupService.php';
     require dirname(__DIR__).'/app/Services/Dashboard/WhatsAppOrderWorkflow.php';
     require dirname(__DIR__).'/database/migrations/2026_10_10_000001_create_whatsapp_inbox_tables.php';
     require dirname(__DIR__).'/database/migrations/2026_10_10_000002_create_whatsapp_order_drafts.php';
@@ -227,7 +230,11 @@ namespace {
     DB::table('test_users')->insert(['id'=>7,'account_type'=>'admin','owner_resturant_id'=>null,'active'=>1,'can_checkout'=>1,'branches'=>'["f:1","f:2"]']);
     DB::table('test_users')->insert(['id'=>8,'account_type'=>'admin','owner_resturant_id'=>null,'active'=>1,'can_checkout'=>1,'branches'=>'["f:1"]']);
     DB::table('test_branches')->insert([['id'=>1,'name'=>'المنصورة','status'=>'opened'],['id'=>2,'name'=>'المحلة','status'=>'opened']]);
-    $workflow=new WhatsAppOrderWorkflow; $actor=(object)['id'=>7]; $checks=0;
+    // This suite isolates native extraction from the optional owned followup sender.
+    // Its real static form gate still runs; receipt-backed cases below restore the
+    // production coordinator once the authenticated reply schema is installed.
+    class NativeExtractionWorkflow extends WhatsAppOrderWorkflow { protected function followupService() { return null; } }
+    $workflow=new NativeExtractionWorkflow; $actor=(object)['id'=>7]; $checks=0;
     function expectFlow($condition,$label) { global $checks; $checks++; if(!$condition)throw new \RuntimeException('FAILED:'.$label); }
     function blocked(callable $call,int $status,string $label) { try{$call();}catch(WorkflowBlocked $e){expectFlow($e->getCode()===$status,$label);return;} throw new \RuntimeException('NOT_BLOCKED:'.$label); }
     function resetFlow() {
@@ -250,7 +257,16 @@ namespace {
     function extractionData(): array {
         return ['decision'=>'CONFIRMED','customer'=>['name'=>'عمر','phone'=>'201000000001','address'=>'شارع البحر','area'=>'المنصورة','notes'=>null],
             'branch_hint'=>'المنصورة','fulfillment'=>'DELIVERY','items'=>[['name'=>'فسيخ','quantity'=>'1','quantity_mode'=>'weight','option_hint'=>null]],
-            'approximate_total'=>'100.00','evidence'=>['request_ids'=>['m1'],'confirmation_ids'=>['m3'],'customer_acceptance_ids'=>[], 'location_id'=>'m2'],'issues'=>[]];
+            'approximate_total'=>null,'evidence'=>['request_ids'=>['m1'],'confirmation_ids'=>['m3'],'customer_acceptance_ids'=>['m4'], 'location_id'=>'m2'],'issues'=>[]];
+    }
+    function finalOrderForm(array $data): string {
+        $customer=$data['customer'];$items=[];
+        foreach($data['items'] as $item)$items[]=$item['quantity'].' '.($item['quantity_mode']==='weight'?'كيلو':'قطعة').' '.$item['name']
+            .(!empty($item['option_hint'])?' '.$item['option_hint']:'');
+        return "تأكيد الطلب:\n".implode('؛ ',$items)."\nالاسم: ".$customer['name'].' | رقم التواصل: '.$customer['phone']
+            ."\nالعنوان: ".$customer['address'].(!empty($customer['area'])?' | المنطقة: '.$customer['area']:'')
+            ."\nالفرع: ".$data['branch_hint'].' | الاستلام: دليفري'
+            .(!empty($customer['notes'])?"\nملاحظات: ".$customer['notes']:'')."\nكده كله تمام؟";
     }
     function addConversation(string $peer='US.fixture'): int {
         $hash=hash_hmac('sha256','whatsapp-peer-v1:468336579702269:515388018324075:user:'.$peer,Crypt::getKey());
@@ -269,11 +285,19 @@ namespace {
             'direction'=>$dto['direction'],'type'=>$dto['type'],'source'=>$dto['source'],'sent_at'=>$dto['sent_at'],'content'=>Crypt::encryptString(json_encode($dto)),
             'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
-    function fixtureThread(string $suffix=''): int {
+    function replaceNativeText(int $conversation,string $direction,string $text): void {
+        $row=DB::table('whatsapp_inbox_messages')->where('conversation_id',$conversation)->where('direction',$direction)->orderByDesc('id')->first();
+        $dto=json_decode(Crypt::decryptString($row->content),true);$dto['text']=$text;$dto['content']['message']['text']['body']=$text;
+        DB::table('whatsapp_inbox_messages')->where('id',$row->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]);
+    }
+    function fixtureThread(string $suffix='',?string $option=null): int {
+        $data=extractionData();$data['items'][0]['option_hint']=$option;
+        if ($option!==null) Ai::$data=$data;
         $c=addConversation('US.fixture'.$suffix);
-        insertMessage($c,'req'.$suffix,'inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1,null,'US.fixture'.$suffix);
+        insertMessage($c,'req'.$suffix,'inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ'.($option===null?'':' '.$option).' من المنصورة.',1,null,'US.fixture'.$suffix);
         insertMessage($c,'pin'.$suffix,'inbound','',2,['lat'=>31.04,'long'=>31.37],'US.fixture'.$suffix);
-        insertMessage($c,'confirm'.$suffix,'outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',3,null,'US.fixture'.$suffix);
+        insertMessage($c,'confirm'.$suffix,'outbound',finalOrderForm($data),3,null,'US.fixture'.$suffix);
+        insertMessage($c,'approval'.$suffix,'inbound','تمام',4,null,'US.fixture'.$suffix);
         return $c;
     }
     function insertCartMessage(int $c,string $id,int $second,array $lines): int {
@@ -287,14 +311,16 @@ namespace {
             'direction'=>$dto['direction'],'type'=>$dto['type'],'source'=>$dto['source'],'sent_at'=>$dto['sent_at'],'content'=>Crypt::encryptString(json_encode($dto)),
             'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
-    function cartThread(): int {
+    function cartThread(?string $option=null): int {
+        $data=extractionData();$data['items'][0]['option_hint']=$option;
         $c=addConversation();
-        insertMessage($c,'cart-customer','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة.',1);
+        insertMessage($c,'cart-customer','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة.'.($option===null?'':' اختياري فسيخ '.$option.'.'),1);
         insertCartMessage($c,'cart-order',2,[['product_retailer_id'=>'half-fish','quantity'=>2,'item_price'=>'45.00','currency'=>'EGP']]);
         insertMessage($c,'cart-pin','inbound','',3,['lat'=>31.04,'long'=>31.37]);
-        insertMessage($c,'cart-confirm','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',4);
-        Ai::$data=extractionData(); Ai::$data['items'][0]['cart_reference']=['message_id'=>'m2','product_retailer_id'=>'half-fish'];
-        Ai::$data['evidence']=['request_ids'=>['m1','m2'],'confirmation_ids'=>['m4'],'customer_acceptance_ids'=>[],'location_id'=>'m3'];
+        insertMessage($c,'cart-confirm','outbound',finalOrderForm($data),4);
+        insertMessage($c,'cart-approval','inbound','تمام',5);
+        Ai::$data=$data; Ai::$data['items'][0]['cart_reference']=['message_id'=>'m2','product_retailer_id'=>'half-fish'];
+        Ai::$data['evidence']=['request_ids'=>['m1','m2'],'confirmation_ids'=>['m4'],'customer_acceptance_ids'=>['m5'],'location_id'=>'m3'];
         return $c;
     }
     function mappedCart(): void {
@@ -304,9 +330,11 @@ namespace {
     function textAddressThread(string $address='شارع البحر',string $total='99.00'): int {
         $c=addConversation();
         insertMessage($c,'address-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني '.$address.' في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
-        insertMessage($c,'address-confirm','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى '.$address.'، الإجمالي التقريبي '.$total.' جنيه.',3);
         Ai::$data=extractionData(); Ai::$data['customer']['address']=$address; Ai::$data['approximate_total']=$total;
-        Ai::$data['evidence']['confirmation_ids']=['m2']; Ai::$data['evidence']['location_id']=null;
+        insertMessage($c,'address-estimate','outbound','تقدير مبدئي للطلب: 1 كيلو فسيخ من المنصورة إلى '.$address.'، الإجمالي التقريبي '.$total.' جنيه.',2);
+        insertMessage($c,'address-confirm','outbound',finalOrderForm(Ai::$data),3);
+        insertMessage($c,'address-approval','inbound','تمام',4);
+        Ai::$data['evidence']['confirmation_ids']=['m2','m3']; Ai::$data['evidence']['location_id']=null;
         Ai::$data['issues']=['LOCATION_REQUIRED','PRICE_ESTIMATE_ONLY'];
         return $c;
     }
@@ -323,7 +351,11 @@ namespace {
         $v=$q['draft']['review'];$v['expected_revision']=$q['draft']['revision'];return [$q['draft']['id'],$v];
     }
 
-    resetFlow(); $c=fixtureThread(); [$id,$v]=prepared($workflow,$actor,$c);
+    // The current complete form ends with a question, but its later, separate
+    // customer approval must make it usable by the real extraction coordinator.
+    resetFlow(); $c=fixtureThread();$actual=$workflow->analyze($c,$actor);
+    expectFlow($actual['draft']['data']!==null,'actual compact final form and fresh customer approval survive extraction');
+    [$id,$v]=prepared($workflow,$actor,$c);
     expectFlow(Ai::$lastTranscript[1]['location']===['lat'=>31.04,'long'=>31.37],'normalizer location bound to transcript');
     $r=$workflow->dispatch($id,$v+['actor_id'=>999,'customer_id'=>999,'ticket_id'=>999],$actor);
     expectFlow($r['ticket_id']>0&&DB::table('test_tickets')->count()===1&&DB::table('test_print')->count()===1,'one ticket and branch print');
@@ -427,7 +459,7 @@ namespace {
     expectFlow($p['dispatched']===1&&BranchCustomers::$calls===0,'auto reuses saved customer without update');
     expectFlow((array)DB::table('branch_customers')->first()===$before,'all saved customer metadata retained');
 
-    resetFlow();$c=fixtureThread();app('config')->set('whatsapp_orders.mode','auto');
+    resetFlow();$c=textAddressThread('شارع البحر','100.00');savedCustomer($actor);app('config')->set('whatsapp_orders.mode','auto');
     $event=DB::table('whatsapp_webhook_events')->insertGetId(['processed_at'=>null]);
     DB::table('whatsapp_inbox_ingestion_failures')->insert(['event_id'=>$event,'reason'=>'CONFLICTING_MESSAGE','attempts'=>1,'last_attempted_at'=>now('UTC')]);
     app('config')->set('whatsapp_orders.activation_event_id',$event);Ai::$data['approximate_total']='100';
@@ -463,11 +495,12 @@ namespace {
     DB::table('whatsapp_order_scans')->where('conversation_id',$c)->update(['auto_floor'=>0]);
     insertMessage($c,'fresh-cutover-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',4);
     insertMessage($c,'fresh-cutover-pin','inbound','',5,['lat'=>31.04,'long'=>31.37]);
-    insertMessage($c,'fresh-cutover-confirmation','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',6);
+    insertMessage($c,'fresh-cutover-confirmation','outbound',finalOrderForm(extractionData()),6);
+    insertMessage($c,'fresh-cutover-approval','inbound','تمام',7);
     app('config')->set('whatsapp_orders.activation_message_id',$cutover);app('config')->set('whatsapp_orders.mode','auto');
     $p=$workflow->process();$fresh=DB::table('whatsapp_order_drafts')->where('status','DISPATCHED')->first();
     expectFlow($p['dispatched']===1&&DB::table('test_tickets')->count()===1&&(int)$fresh->evidence_floor===$cutover,'complete new confirmation dispatches after cutover in existing thread');
-    expectFlow(count(Ai::$lastTranscript)===3&&$fresh->id!==$old['draft']['id']&&(array)DB::table('whatsapp_order_drafts')->where('id',$old['draft']['id'])->first()===$historical,'fresh confirmation excludes and retains earlier cached order');
+    expectFlow(count(Ai::$lastTranscript)===4&&$fresh->id!==$old['draft']['id']&&(array)DB::table('whatsapp_order_drafts')->where('id',$old['draft']['id'])->first()===$historical,'fresh confirmation excludes and retains earlier cached order');
 
     resetFlow();$c=fixtureThread();$cutover=(int)DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->max('id');
     insertMessage($c,'post-cutover-greeting','inbound','أهلا',4);
@@ -603,7 +636,7 @@ namespace {
     // A grounded delivery area can select only the explicitly configured unique branch alias.
     resetFlow(); $c=fixtureThread(); Ai::$data['branch_hint']=null; Ai::$data['issues']=['MISSING_BRANCH'];
     app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.branch_aliases',['1'=>['المنصورة']]); $p=$workflow->process();
-    expectFlow($p['dispatched']===1&&DB::table('test_tickets')->first()->branch==='f:1','explicit area alias resolves omitted branch hint');
+    expectFlow($p['dispatched']===1&&DB::table('test_tickets')->first()->branch==='f:1','explicit area alias resolves omitted branch with an exactly approved fulfillment form');
     resetFlow(); $c=fixtureThread(); Ai::$data['branch_hint']=null; Ai::$data['issues']=['MISSING_BRANCH'];
     app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_orders.allowed_branch_ids',['1','2']);
     app('config')->set('whatsapp_cart.branch_aliases',['1'=>['المنصورة'],'2'=>['المنصورة']]); $p=$workflow->process();
@@ -627,7 +660,7 @@ namespace {
     insertMessage($c,'new-info-only','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة.',6);
     insertMessage($c,'later-pin','inbound','',7,['lat'=>31.04,'long'=>31.37]);
     insertMessage($c,'new-final-old-request','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',8);
-    Ai::$data=extractionData(); Ai::$data['evidence']['request_ids']=['m1','m2']; Ai::$data['evidence']['confirmation_ids']=['m4']; Ai::$data['evidence']['location_id']='m3'; $p=$workflow->process();
+    Ai::$data=extractionData(); Ai::$data['evidence']['request_ids']=['m1','m2']; Ai::$data['evidence']['confirmation_ids']=['m4']; Ai::$data['evidence']['customer_acceptance_ids']=[]; Ai::$data['evidence']['location_id']='m3'; $p=$workflow->process();
     expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'new name-only followup cannot launder historical committing request');
 
     resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
@@ -635,8 +668,8 @@ namespace {
     resetFlow(); $c=addConversation(); app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:05');
     insertMessage($c,'old-request-fresh-accept','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
     insertMessage($c,'fresh-accept-pin','inbound','',7,['lat'=>31.04,'long'=>31.37]);
-    insertMessage($c,'fresh-accept-final','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',8);
-    insertMessage($c,'fresh-explicit-accept','inbound','تمام موافق',9);
+    insertMessage($c,'fresh-accept-final','outbound',finalOrderForm(extractionData()),8);
+    insertMessage($c,'fresh-explicit-accept','inbound','تمام',9);
     Ai::$data=extractionData(); Ai::$data['evidence']['customer_acceptance_ids']=['m4']; $p=$workflow->process();
     expectFlow($p['dispatched']===1,'fresh explicit acceptance of fresh final summary counts as automatic commitment');
     foreach ([null,'2026-02-30 00:00:00','2026-10-09T22:00:00Z','0000-01-01 00:00:00',now('UTC')->addMinutes(2)->format('Y-m-d H:i:s')] as $invalid) {
@@ -651,17 +684,22 @@ namespace {
     app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
     expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'changed explicit delivery area cannot reuse same text address pin');
     resetFlow(); $c=textAddressThread(); savedCustomer($actor); DB::table('branch_customers')->update(['delivery_notes'=>'تعليمات محفوظة']);
-    Ai::$data['customer']['area']=null; Ai::$data['issues'][]='MISSING_AREA'; app('config')->set('whatsapp_orders.mode','auto'); BranchCustomers::$calls=0; $p=$workflow->process();
+    Ai::$data['customer']['area']=null;replaceNativeText($c,'outbound',finalOrderForm(Ai::$data)); Ai::$data['issues'][]='MISSING_AREA'; app('config')->set('whatsapp_orders.mode','auto'); BranchCustomers::$calls=0; $p=$workflow->process();
     expectFlow($p['dispatched']===1&&BranchCustomers::$calls===0&&DB::table('branch_customers')->first()->delivery_notes==='تعليمات محفوظة','omitted area and notes preserve authoritative unchanged saved source');
 
-    // A literal current catalog choice cannot vanish because the model omitted option_hint.
+    // The current consent gate requires explicit preparation in both extraction and approved form.
     resetFlow(); $c=fixtureThread(); app('config')->set('whatsapp_orders.mode','auto');
     \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];
     $summary=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('direction','outbound')->first();
     $dto=json_decode(Crypt::decryptString($summary->content),true); $dto['text']=str_replace('1 كيلو فسيخ','1 كيلو فسيخ تنظيف إضافي',$dto['text']);
     $dto['content']['message']['text']['body']=$dto['text']; DB::table('whatsapp_inbox_messages')->where('id',$summary->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'omitted preparation hint cannot authorize an incomplete final form');
+
+    resetFlow();$c=fixtureThread('', 'تنظيف إضافي');app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];$p=$workflow->process();
+    expectFlow($p['dispatched']===1,'explicit grounded preparation reaches automatic dispatch');
     $sealed=json_decode(Crypt::decryptString(DB::table('whatsapp_order_drafts')->first()->sealed_payload),true);
-    expectFlow($p['dispatched']===1&&$sealed['review']['items'][0]['option_id']==='clean-extra','omitted AI hint resolves explicit unique live option instead of base order');
+    expectFlow($p['dispatched']===1&&$sealed['review']['items'][0]['option_id']==='clean-extra','explicit customer preparation and matching final form dispatch the current catalog option');
 
     resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto');
     \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];
@@ -675,7 +713,12 @@ namespace {
     $summary=DB::table('whatsapp_inbox_messages')->where('conversation_id',$c)->where('direction','outbound')->first();
     $dto=json_decode(Crypt::decryptString($summary->content),true); $dto['text']=str_replace('1 كيلو فسيخ','1 كيلو فسيخ تنظيف إضافي',$dto['text']);
     $dto['content']['message']['text']['body']=$dto['text']; DB::table('whatsapp_inbox_messages')->where('id',$summary->id)->update(['content'=>Crypt::encryptString(json_encode($dto))]); $p=$workflow->process();
-    expectFlow($p['dispatched']===1,'exact cart mapping preserves proven canonical option when model hint omitted');
+    expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'cart mapping cannot substitute for explicit preparation in the approved form');
+
+    resetFlow();$c=cartThread('تنظيف إضافي');mappedCart();app('config')->set('whatsapp_orders.mode','auto');
+    \App\Services\Dashboard\TakeawayCatalog::$options=[['id'=>'clean-extra','label'=>'تنظيف إضافي']];
+    app('config')->set('whatsapp_cart.product_mappings.999.half-fish.f:1.option_id','clean-extra');$p=$workflow->process();
+    expectFlow($p['dispatched']===1,'explicit customer preparation and matching catalog cart mapping dispatch together');
 
     // Cart identities and portions are resolved from explicit mappings, never numeric retailer ids.
     resetFlow(); $c=cartThread(); mappedCart(); app('config')->set('whatsapp_orders.mode','auto'); $p=$workflow->process();
@@ -723,8 +766,10 @@ namespace {
         $c=addConversation();
         insertMessage($c,'origin-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في '.$area.'. عايز 1 كيلو فسيخ من '.$hint.'.',1);
         insertMessage($c,'origin-pin','inbound','',2,['lat'=>30.03,'long'=>31.32]);
-        insertMessage($c,'origin-summary','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من '.$hint.' إلى شارع البحر في '.$area.'، الإجمالي 100.00 جنيه.',3);
-        Ai::$data=extractionData();Ai::$data['branch_hint']=$hint;Ai::$data['customer']['area']=$area;return $c;
+        Ai::$data=extractionData();Ai::$data['branch_hint']=$hint;Ai::$data['customer']['area']=$area;
+        $display=Ai::$data;$display['branch_hint']=$hint==='فرع المحلة'?'فرع المحلة':'فرع شبرا';
+        insertMessage($c,'origin-summary','outbound',finalOrderForm($display),3);
+        insertMessage($c,'origin-approval','inbound','تمام',4);return $c;
     }
     originSetup();$c=originThread();$p=$workflow->process();
     expectFlow($p['dispatched']===1&&$p['errors']===0,'hidden closed registered Cairo billing origin dispatches through open Shubra');
@@ -748,10 +793,10 @@ namespace {
     $workflow->process();expectFlow(Ai::$calls===1&&DB::table('test_tickets')->count()===1,'pipeline replay preserves one confirmed order and one AI call');
 
     originSetup();$c=originThread();Ai::$data['branch_hint']=null;Ai::$data['issues']=['MISSING_BRANCH'];$p=$workflow->process();
-    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','literal approved area alias resolves one store origin');
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','literal approved area alias resolves origin with an exactly approved fulfillment form');
     originSetup();$c=originThread();Ai::$data['branch_hint']=null;Ai::$data['issues']=['MISSING_BRANCH'];
     app('config')->set('whatsapp_cart.branch_aliases',[]);$p=$workflow->process();
-    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','whole public store label without approved suffix needs no geographic guess or configured alias');
+    expectFlow($p['dispatched']===1&&Pos::$lastPayload['delivery_origin_branch']==='f:309','whole public store label resolves without geographic guessing and dispatches exact approved form');
     originSetup();$c=originThread();Ai::$data['branch_hint']=null;Ai::$data['issues']=['MISSING_BRANCH'];
     app('config')->set('whatsapp_cart.branch_aliases',['311'=>['المقطم']]);$p=$workflow->process();
     expectFlow($p['review_required']===1&&DB::table('test_tickets')->count()===0,'duplicate stripped public labels never choose a store');
@@ -838,17 +883,18 @@ namespace {
     insertMessage($c,'old-probe','inbound','WA-0101',-86400); $cutover=(int)DB::table('whatsapp_inbox_messages')->max('id');
     insertMessage($c,'new-manual-request','inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1);
     insertMessage($c,'new-manual-pin','inbound','',2,['lat'=>31.04,'long'=>31.37]);
-    insertMessage($c,'new-manual-confirm','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',3);
+    insertMessage($c,'new-manual-confirm','outbound',finalOrderForm(extractionData()),3);
+    insertMessage($c,'new-manual-approval','inbound','تمام',4);
     Ai::$data=\App\Support\WhatsAppOrderExtraction::none('TEST_MESSAGE'); $a=$workflow->analyze($c,$actor);
     $old=DB::table('whatsapp_order_drafts')->where('id',$a['draft']['id'])->first();
-    expectFlow($old->status==='NONE'&&(int)$old->evidence_floor===0&&count(Ai::$lastTranscript)===4,'historical review preserves explicit probe rejection');
+    expectFlow($old->status==='NONE'&&(int)$old->evidence_floor===0&&count(Ai::$lastTranscript)===5,'historical review preserves explicit probe rejection');
     $rawBefore=DB::table('whatsapp_inbox_messages')->orderBy('id')->get()->toJson();
     app('config')->set('whatsapp_orders.mode','auto'); app('config')->set('whatsapp_orders.activation_message_id',$cutover);
     DB::table('whatsapp_order_scans')->update(['auto_floor'=>$cutover,'attempts'=>3,'next_attempt_at'=>now('UTC')->addHour()]);
     Ai::$data=extractionData(); $b=$workflow->analyze($c,$actor);
     $fresh=DB::table('whatsapp_order_drafts')->where('id',$old->id)->first();
     expectFlow($b['draft']['status']==='REVIEW'&&$b['draft']['data']['decision']==='CONFIRMED'&&Ai::$calls===2,'manual active session recomputes cached old NONE without forced click');
-    expectFlow((int)$fresh->evidence_floor===$cutover&&(int)$fresh->revision===2&&count(Ai::$lastTranscript)===3
+    expectFlow((int)$fresh->evidence_floor===$cutover&&(int)$fresh->revision===2&&count(Ai::$lastTranscript)===4
         &&!\App\Support\WhatsAppOrderExtraction::hasProbe(Ai::$lastTranscript),'fresh manual slice excludes historical test marker');
     expectFlow($fresh->ticket_command_key===$old->ticket_command_key&&$fresh->customer_command_key===$old->customer_command_key
         &&DB::table('whatsapp_inbox_messages')->orderBy('id')->get()->toJson()===$rawBefore,'manual reanalysis preserves durable command keys and source messages');
@@ -893,15 +939,18 @@ namespace {
     require dirname(__DIR__).'/database/migrations/2026_10_12_000005_create_whatsapp_inbox_hidden_messages.php';
     (new \CreateWhatsAppReplyRequests)->up(); (new \CreateWhatsAppInboxHiddenMessages)->up();
     Schema::table('whatsapp_webhook_events',function(Blueprint $t){$t->string('payload_hash',64)->nullable();$t->longText('payload')->nullable();$t->timestamp('received_at')->nullable();});
+    // Receipt-backed cases use the production coordinator and its authenticated
+    // native customer-tail checks, with the real projection-key schema above.
+    $workflow=new WhatsAppOrderWorkflow;
     function apiRequestThread(string $suffix=''): array {
         $peer='US.fixture'.$suffix;$c=addConversation($peer);
         $request=insertMessage($c,'wamid.api-request'.$suffix,'inbound','اسمي عمر ورقمي 201000000001 وعنواني شارع البحر في المنصورة. عايز 1 كيلو فسيخ من المنصورة.',1,null,$peer);
         insertMessage($c,'wamid.api-pin'.$suffix,'inbound','',2,['lat'=>31.04,'long'=>31.37],$peer);
         return [$c,$request];
     }
-    function acceptedApiReply(int $c,int $request,string $id='wamid.api-confirm',int $second=3): int {
+    function acceptedApiReply(int $c,int $request,string $id='wamid.api-confirm',int $second=3,?string $text=null): int {
         $uuid='00000000-0000-4000-8000-'.str_pad((string)(DB::table('whatsapp_reply_requests')->max('id')+1),12,'0',STR_PAD_LEFT);
-        $text='تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.';
+        $text=$text??finalOrderForm(extractionData());
         $values=['text',$request,$text,null];
         $audit=['client_request_id'=>$uuid,'text'=>$text,'recipient'=>'201000000001','payload_values'=>$values];
         $response=Crypt::encryptString(json_encode(['message_id'=>$id]));
@@ -915,14 +964,26 @@ namespace {
         expectFlow((new \App\Services\Dashboard\WhatsAppInboxMessage)->indexReply(DB::table('whatsapp_reply_requests')->where('id',$r)->first()),'actual API native-key index');
         return $r;
     }
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);
+    app('config')->set('whatsapp_orders.mode','auto');Ai::$data['evidence']['customer_acceptance_ids']=[];$unapproved=$workflow->process();
+    expectFlow($unapproved['dispatched']===0&&$unapproved['review_required']===1&&Ai::$calls===1
+        &&DB::table('whatsapp_order_drafts')->first()->reason==='INVALID_EXTRACTION'
+        &&DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->count()===1,
+        'authentic complete API form without customer approval cannot authorize extracted CONFIRMED order');
+    expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0&&DB::table('test_print')->count()===0,
+        'unapproved authenticated API form creates no ERP customer ticket or print');
+
     resetFlow();[$c,$request]=apiRequestThread();app('config')->set('whatsapp_orders.mode','auto');
     Ai::$data=\App\Support\WhatsAppOrderExtraction::none();$before=$workflow->process();$ceiling=(int)DB::table('whatsapp_inbox_messages')->max('id');
     expectFlow($before['dispatched']===0&&DB::table('whatsapp_order_drafts')->first()->status==='NONE','preconfirmation ceiling contains no finalized order');
-    $receipt=acceptedApiReply($c,$request);Ai::$data=extractionData();$p=$workflow->process();
+    $receipt=acceptedApiReply($c,$request);
+    insertMessage($c,'wamid.api-approval','inbound','تمام',4);
+    Ai::$data=extractionData();$p=$workflow->process();
     $projected=DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->first();
     $draft=DB::table('whatsapp_order_drafts')->where('status','DISPATCHED')->first();
-    expectFlow($p['dispatched']===1&&Ai::$calls===2&&(int)$projected->id>$ceiling&&count(Ai::$lastTranscript)===3,'accepted API confirmation advances existing cursor and wakes automatic analysis');
-    expectFlow(Ai::$lastTranscript[2]['speaker']==='business'&&Ai::$lastTranscript[2]['text']==='تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.','receipt contributes validated business text to extraction');
+    expectFlow($p['dispatched']===1&&Ai::$calls===2&&(int)$projected->id>$ceiling&&count(Ai::$lastTranscript)===4,'accepted API confirmation advances existing cursor and wakes automatic analysis');
+    expectFlow(Ai::$lastTranscript[2]['speaker']==='business'&&Ai::$lastTranscript[2]['text']===finalOrderForm(extractionData())
+        &&Ai::$lastTranscript[3]['speaker']==='customer'&&Ai::$lastTranscript[3]['text']==='تمام','receipt contributes validated business form followed by separate customer approval');
     $envelope=json_decode(Crypt::decryptString($projected->content),true);
     expectFlow($envelope['schema']==='whatsapp-accepted-reply-evidence-v1'&&!isset($envelope['content']['message']),'receipt evidence retains honest provenance without invented native payload');
     expectFlow(DB::table('test_tickets')->count()===1&&DB::table('test_print')->count()===1&&$draft->confirmation_key!==null,'accepted API order creates one ticket and one print');
@@ -942,8 +1003,9 @@ namespace {
         &&$snap['hash']===$originalHash&&$confirmationMethod->invoke($workflow,$draft)===$originalKey,'echo preserves receipt timestamp source hash and shared confirmation key');
     expectFlow(DB::table('test_tickets')->count()===1&&Ai::$calls===2&&$after['dispatched']===0,'late echo produces no duplicate ERP order or AI extraction');
 
-    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);$a=$workflow->analyze($c,$actor);
-    expectFlow($a['draft']['data']['decision']==='CONFIRMED'&&count(Ai::$lastTranscript)===3,'manual analysis also includes accepted API confirmation');
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);
+    insertMessage($c,'wamid.api-manual-approval','inbound','تمام',4);$a=$workflow->analyze($c,$actor);
+    expectFlow($a['draft']['data']['decision']==='CONFIRMED'&&count(Ai::$lastTranscript)===4,'manual analysis also includes accepted API confirmation and customer approval');
     $projection=DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->first();
     $oldAudit=DB::table('whatsapp_reply_requests')->first()->audit;$audit=json_decode(Crypt::decryptString($oldAudit),true);$audit['recipient']='201000000002';
     DB::table('whatsapp_reply_requests')->update(['audit'=>Crypt::encryptString(json_encode($audit))]);
@@ -953,7 +1015,10 @@ namespace {
     // A bad known conversation does not prevent an unrelated fresh order from being processed.
     resetFlow();[$bad,$request]=apiRequestThread('bad');$rid=acceptedApiReply($bad,$request,'wamid.api-bad');
     DB::table('whatsapp_reply_requests')->where('id',$rid)->update(['payload_hash'=>str_repeat('0',64)]);
-    $good=fixtureThread('good');app('config')->set('whatsapp_orders.mode','auto');$p=$workflow->process();
+    [$good,$goodRequest]=apiRequestThread('good');
+    insertMessage($good,'wamid.api-good-form','outbound',finalOrderForm(extractionData()),3,null,'US.fixturegood');
+    insertMessage($good,'wamid.api-good-approval','inbound','تمام',4,null,'US.fixturegood');
+    app('config')->set('whatsapp_orders.mode','auto');$p=$workflow->process();
     expectFlow($p['dispatched']===1&&$p['capture_pending']===1&&Ai::$calls===1
         &&DB::table('whatsapp_order_drafts')->where('conversation_id',$bad)->count()===0,'invalid API evidence blocks its conversation while unrelated native order proceeds');
     expectFlow(DB::table('test_tickets')->count()===1&&DB::table('whatsapp_reply_requests')->where('id',$rid)->value('payload_hash')===str_repeat('0',64),'bad receipt remains intact and no implicit recovery or source rewrite occurs');
@@ -965,9 +1030,13 @@ namespace {
         &&count(Ai::$lastTranscript)===2&&$p['dispatched']===0,'global and scoped backfill exclude accepted confirmations predating current activation');
 
     // A newly inserted receipt can retain an old send time; ids alone cannot make it fresh.
-    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request,'wamid.api-late',3);
+    // Retain this historical receipt's older nonquestion format to exercise the
+    // timestamp guard independently of the current compact-form consent gate.
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request,'wamid.api-late',3,
+        'تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.');
     (new \App\Services\Dashboard\WhatsAppAcceptedReplyEvidence)->projectPending(100,$c,null);
     app('config')->set('whatsapp_orders.mode','auto');app('config')->set('whatsapp_cart.activated_at','2026-10-09 22:00:04');
+    Ai::$data['evidence']['customer_acceptance_ids']=[];
     $p=$workflow->process();
     expectFlow($p['dispatched']===0&&DB::table('whatsapp_order_drafts')->first()->reason==='STALE_TRANSCRIPT'
         &&DB::table('test_tickets')->count()===0,'late receipt projection cannot bypass automatic evidence timestamp guard');
@@ -978,8 +1047,9 @@ namespace {
     expectFlow(Ai::$calls===1&&DB::table('whatsapp_order_drafts')->count()===0&&DB::table('whatsapp_order_scans')->first()->claim_nonce===null
         &&DB::table('whatsapp_inbox_messages')->where('source','dashboard_api')->count()===1,'in-flight API confirmation cannot persist false NONE and releases only its lease');
 
-    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);[$id,$v]=prepared($workflow,$actor,$c);
-    acceptedApiReply($c,$request,'wamid.api-after-quote',4);
+    resetFlow();[$c,$request]=apiRequestThread();acceptedApiReply($c,$request);
+    insertMessage($c,'wamid.api-prepared-approval','inbound','تمام',4);[$id,$v]=prepared($workflow,$actor,$c);
+    acceptedApiReply($c,$request,'wamid.api-after-quote',5);
     blocked(fn()=>$workflow->dispatch($id,$v,$actor),409,'unprojected accepted API reply invalidates existing READY quote before ERP write');
     expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0
         &&DB::table('whatsapp_order_drafts')->where('id',$id)->value('status')==='READY','receipt arrival after quote leaves no partial order or customer');
@@ -1030,7 +1100,8 @@ namespace {
         &&$newSource->message_key===$oldSource->message_key&&(int)DB::table('whatsapp_inbox_messages')->max('id')===$oldCeiling,'proven hydration keeps original native key ID and ceiling');
     expectFlow((int)$scan->analyzed_ceiling===0&&(int)$scan->claimed_ceiling===0&&(int)$scan->attempts===0&&$scan->next_attempt_at===null
         &&$scan->auto_floor===$oldScan->auto_floor&&$scan->claim_nonce===$oldScan->claim_nonce&&$scan->lease_until===$oldScan->lease_until,'idle semantic revision wakes only affected scan while preserving cutoffs and lease fields');
-    Ai::$data=extractionData();$p=$workflow->process();$recovered=DB::table('whatsapp_order_drafts')->first();
+    Ai::$data=extractionData();Ai::$data['evidence']['customer_acceptance_ids']=[];
+    $p=$workflow->process();$recovered=DB::table('whatsapp_order_drafts')->first();
     expectFlow(Ai::$calls===2&&$p['review_required']===1&&$recovered->status==='REVIEW'&&$recovered->reason==='RECOVERED_HISTORY_REVIEW'
         &&(int)$recovered->revision===(int)$oldDraft->revision+1,'same-ID corrected NONE is re-extracted but historical recovered order remains review');
     expectFlow($recovered->ticket_command_key===$oldDraft->ticket_command_key&&$recovered->customer_command_key===$oldDraft->customer_command_key
@@ -1038,7 +1109,7 @@ namespace {
     expectFlow(DB::table('test_tickets')->count()===0&&DB::table('branch_customers')->count()===0
         &&app('config')->get('whatsapp_orders.activation_message_id')===0,'recovery never dispatches old confirmation or advances activation');
     \Carbon\Carbon::setTestNow('2026-10-10 00:00:10');
-    insertMessage($c,'wamid.hydration-fresh-summary','outbound','تأكيد طلب عمر: 1 كيلو فسيخ من المنصورة إلى شارع البحر، الإجمالي 100.00 جنيه.',7201);
+    insertMessage($c,'wamid.hydration-fresh-summary','outbound',finalOrderForm(extractionData()),7201);
     insertMessage($c,'wamid.hydration-fresh-acceptance','inbound','تمام',7202);
     Ai::$data=extractionData();Ai::$data['evidence']['confirmation_ids']=['m4'];Ai::$data['evidence']['customer_acceptance_ids']=['m5'];
     DB::table('whatsapp_order_scans')->update(['next_attempt_at'=>null]);$p=$workflow->process();
@@ -1070,6 +1141,7 @@ namespace {
         &&app('config')->get('whatsapp_orders.activation_message_id')===$mid,'hydrating a message at or below the activation floor never resets its scan');
 
     resetFlow();\Carbon\Carbon::setTestNow('2026-10-10 00:00:00');[$c,$mid,$raw]=hydrationThread();
+    Ai::$data['evidence']['customer_acceptance_ids']=[];
     [$id,$v]=prepared($workflow,$actor,$c);$workflow->dispatch($id,$v,$actor);
     $receipt=(array)DB::table('whatsapp_order_drafts')->where('id',$id)->first();$source=(array)DB::table('whatsapp_inbox_messages')->where('id',$mid)->first();
     $event=hydrationEvent($raw);$r=(new \App\Services\Dashboard\WhatsAppInboxConsumer)->consume(1,true);

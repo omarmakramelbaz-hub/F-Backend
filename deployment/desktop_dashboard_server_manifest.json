@@ -4,13 +4,13 @@
   "before_source": {
     "format": 1,
     "files": 1164,
-    "sha256": "105f42de8dd0392af33c7d730541f860919a624b736dd9d277275aabce4487c7",
+    "sha256": "9ac0d2555aa6325563a7052f8aa4d304b60e7cecf4f3c515e3d736c57c279442",
     "framework": "8.83.29"
   },
   "after_source": {
     "format": 1,
-    "files": 1324,
-    "sha256": "e1c889bfd170466c7c81e1d8da5d375606eda60d7526b8a48ae348ce36cad1f7",
+    "files": 1326,
+    "sha256": "f29af750f417b6fe3bbdef0c18d540bde8f919e218b047c3f62752524e901950",
     "framework": "8.83.29"
   },
   "sources": [
@@ -72,6 +72,12 @@
       "path": "app/Http/Controllers/Dashboard/DesktopDashboardController.php",
       "before_blob": null,
       "after_blob": "0143d7f7e9b7565759fc2d61cc5a0540796a47e2",
+      "phase": 1
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/DesktopDashboardUpdateController.php",
+      "before_blob": null,
+      "after_blob": "f5d3c88d7ae34121164d23f21ffdda7a4cf8f5fc",
       "phase": 1
     },
     {
@@ -414,6 +420,12 @@
       "path": "app/Services/Dashboard/DesktopDashboardSource.php",
       "before_blob": null,
       "after_blob": "ef9398538147c1a60d6286069c93f115f48c0264",
+      "phase": 1
+    },
+    {
+      "path": "app/Services/Dashboard/DesktopDashboardUpdates.php",
+      "before_blob": null,
+      "after_blob": "58e9a9db31d5ffa59bf2793578bde70088b6b798",
       "phase": 1
     },
     {
@@ -1323,6 +1335,12 @@
       "phase": 2
     },
     {
+      "path": "app/Support/WhatsAppOrderExtraction.php",
+      "before_blob": "a44f791013642aeca4b4f50dd96ec96b59eda012",
+      "after_blob": "b7a5e364a0df5606ad6b97fa789bbe35fcc02151",
+      "phase": 2
+    },
+    {
       "path": "database/migrations/2022_08_05_174522_create_permission_tables.php",
       "before_blob": "04c3278b9bc78231d95405a82ddef546f7a2f5ce",
       "after_blob": "6e8e4aa5d2057966e3a518ac65071f4ae7ef756e",
@@ -1355,7 +1373,7 @@
     {
       "path": "routes/api.php",
       "before_blob": "dcbf4cb5f12a283433cbf77b9eb7955bf766d41c",
-      "after_blob": "8b11444a804e1d5fecd5ef9f07354b261b40f4ae",
+      "after_blob": "9ada39b13b25e68034b09f8bf9e759e5543d8498",
       "phase": 2
     },
     {
@@ -3180,7 +3198,7 @@
     },
     {
       "path": "app/Services/Dashboard/FasakhanstaAiKnowledge.php",
-      "blob": "b8824d2da2db25e247df5c0c69f4590a7bbc3eec"
+      "blob": "0e28605ba8692e40b9a510cf025ec2d9aada49a9"
     },
     {
       "path": "app/Services/Dashboard/FasakhanstaClaudeTransport.php",
@@ -3188,7 +3206,7 @@
     },
     {
       "path": "app/Services/Dashboard/FasakhanstaCommentTrainingPolicy.php",
-      "blob": "fb24cbd144f7ecc0d26606d9709fdd2c62166b10"
+      "blob": "3e5314bf77f1c88f9d71bc6abb084ee34e1887d7"
     },
     {
       "path": "app/Services/Dashboard/FasakhanstaDeliveryOrigin.php",
@@ -3196,7 +3214,7 @@
     },
     {
       "path": "app/Services/Dashboard/FasakhanstaMessageTrainingFacts.php",
-      "blob": "dd31ccab5bfa31b96e777413f22d4e55496248d9"
+      "blob": "bf6c07d238c1ceab1029b46b6f602bb79c3fb097"
     },
     {
       "path": "app/Services/Dashboard/FasakhanstaStoreFulfillment.php",
@@ -3296,7 +3314,7 @@
     },
     {
       "path": "app/Services/Dashboard/MetaOrderFollowupService.php",
-      "blob": "d14a3c6e84624ee5b2d20997b7f11159b9101720"
+      "blob": "461db6110b01e4bcace34d850c3ef51bf51a139f"
     },
     {
       "path": "app/Services/Dashboard/MetaOrderNativeEvidence.php",
@@ -3420,11 +3438,11 @@
     },
     {
       "path": "app/Services/Dashboard/WhatsAppOrderConversationEvidence.php",
-      "blob": "478d620d36d801b5fc38bab8e8be2afcfdf5dd8c"
+      "blob": "dfd629247c0e203eab4af24b8cc236c051161ead"
     },
     {
       "path": "app/Services/Dashboard/WhatsAppOrderFollowupService.php",
-      "blob": "e817b327ba1fdfd042288d20b5c4ba8bef00cc81"
+      "blob": "f139ff067e2c63eb209c555b254d5523a699edea"
     },
     {
       "path": "app/Services/Dashboard/WhatsAppOrderSourceSelection.php",
@@ -3432,7 +3450,7 @@
     },
     {
       "path": "app/Services/Dashboard/WhatsAppOrderWorkflow.php",
-      "blob": "2fce7ff1b13d049fea459dcecd55f6d4f392a160"
+      "blob": "f815f1428ce154e838fe5e38556ae911b61738a1"
     },
     {
       "path": "app/Services/Dashboard/WhatsAppReplyService.php",
@@ -3544,7 +3562,7 @@
     },
     {
       "path": "app/Support/WhatsAppCustomerOrderConfirmation.php",
-      "blob": "27afc58ef43d1c6fffa90c9a7bb519e353b7e244"
+      "blob": "92790b91e021bfb88ed35bfceb63389f1760f603"
     },
     {
       "path": "app/Support/WhatsAppInboxProtocol.php",
@@ -3552,11 +3570,7 @@
     },
     {
       "path": "app/Support/WhatsAppOrderDialogue.php",
-      "blob": "4c44cd295e34b6881e547fd3d47c863a83e05ed8"
-    },
-    {
-      "path": "app/Support/WhatsAppOrderExtraction.php",
-      "blob": "a44f791013642aeca4b4f50dd96ec96b59eda012"
+      "blob": "ec41274eb350009ad68f5346040ff5f52b1f9394"
     },
     {
       "path": "app/Support/WhatsAppWebhookProtocol.php",

@@ -53,6 +53,10 @@ class WhatsAppOrderFollowupService
 
     protected static function validPlan(array $plan): bool
     {
+        if (array_key_exists('confirmation_branch',$plan)) {
+            if (($plan['fields']??null)!==['CONFIRMATION']||!self::recapLiteral($plan['confirmation_branch'])) return false;
+            unset($plan['confirmation_branch']);
+        }
         $primary=$plan['primary_ai']??null;
         if ($primary!==null&&!self::validPrimaryToken($primary)) return false;
         $dialogue=$plan['dialogue']??null;
@@ -78,6 +82,7 @@ class WhatsAppOrderFollowupService
         if ($fields===['CONFIRMATION']) {
             $customer=$data['customer']??[]; $items=$data['items']??[];
             foreach (['name','phone','address'] as $field) if (!self::recapLiteral($customer[$field]??null)) throw new \RuntimeException();
+            if (!self::recapLiteral($data['branch_hint']??null)) throw new \RuntimeException('CONFIRMATION_BRANCH_REQUIRED');
             foreach ([$customer['area']??null,$customer['notes']??null,$data['branch_hint']??null] as $value)
                 if ($value!==null&&!self::recapLiteral($value)) throw new \RuntimeException();
             $fulfillment=self::fulfillment($data,$transcript);
@@ -94,12 +99,15 @@ class WhatsAppOrderFollowupService
                 $lines[]=$item['quantity'].' '.($item['quantity_mode']==='weight'?'كيلو':'قطعة').' '.$item['name']
                     .(is_string($item['option_hint']??null)&&$item['option_hint']!==''?' '.$item['option_hint']:'').$sizeText;
             }
-            $text="تأكيد الطلب:\n".implode('؛ ',$lines)."\nالاسم: ".$customer['name']."\nرقم التواصل: ".$customer['phone']
-                ."\nالعنوان: ".$customer['address'].(is_string($customer['area']??null)&&$customer['area']!==''?"\nالمنطقة: ".$customer['area']:'')
-                .(is_string($data['branch_hint']??null)&&$data['branch_hint']!==''?"\nالفرع: ".$data['branch_hint']:'')
+            $alternates=$data['alternate_phones']??[];
+            if (!is_array($alternates)||!array_is_list($alternates)||count($alternates)>3) throw new \RuntimeException();
+            foreach ($alternates as $phone) if (!self::recapLiteral($phone)) throw new \RuntimeException();
+            $text="تأكيد الطلب:\n".implode('؛ ',$lines)."\nالاسم: ".$customer['name'].' | رقم التواصل: '.$customer['phone']
+                .($alternates!==[]?' | أرقام إضافية: '.implode('، ',$alternates):'')
+                ."\nالعنوان: ".$customer['address'].(is_string($customer['area']??null)&&$customer['area']!==''?' | المنطقة: '.$customer['area']:'')
+                ."\nالفرع: ".$data['branch_hint'].' | الاستلام: '.($fulfillment==='DELIVERY'?'دليفري':'من الفرع')
                 .(is_string($customer['notes']??null)&&$customer['notes']!==''?"\nملاحظات: ".$customer['notes']:'')
-                ."\n".($fulfillment==='DELIVERY'?'طريقة الاستلام: دليفري.':'طريقة الاستلام: من الفرع.')
-                ."\n".($variant==='POLITE'?'من فضلك ':'').'اكتب موافق للموافقة على البيانات والطلب المذكور.';
+                ."\nكده كله تمام؟";
         } else {
             $labels=['NAME'=>'اسم حضرتك','PHONE'=>'رقم هاتف للتواصل','ADDRESS'=>'عنوان التوصيل بالتفصيل','ITEMS'=>'الأصناف المطلوبة',
                 'QUANTITY'=>'كمية كل صنف','QUANTITY_MODE'=>'الكمية بالكيلو ولا بالقطعة','FULFILLMENT'=>'الطلب دليفري ولا في الصالة أو تيك أواي',
@@ -277,7 +285,11 @@ class WhatsAppOrderFollowupService
     protected function renderQuestion(array $plan,array $fields,string $variant,?array $choice=null): string
     {
         $dialogue=$plan['dialogue']??null;
-        if ($dialogue===null) return static::question($fields,$variant,$plan['data'],$plan['transcript']);
+        if ($dialogue===null) {
+            $data=$plan['data'];
+            if ($fields===['CONFIRMATION']&&isset($plan['confirmation_branch'])) $data['branch_hint']=$plan['confirmation_branch'];
+            return static::question($fields,$variant,$data,$plan['transcript']);
+        }
         return WhatsAppOrderDialogue::render($dialogue,$choice??WhatsAppOrderDialogue::fallback($dialogue));
     }
 
@@ -490,8 +502,140 @@ class WhatsAppOrderFollowupService
 
     protected static function positiveApproval($text): bool
     {
-        return is_string($text)&&preg_match('/\A\s*(?:(?:(?:تمام|نعم)\s+)?(?:موافق|أوافق|اوافق)'
-            .'(?:\s+على\s+(?:الطلب|البيانات(?:\s+والطلب)?))?|تمام|حاضر|نعم|اوكي|أوكي|ماشي|ok|okay|yes)[.!]?\s*\z/iu',$text)===1;
+        return self::strictApprovalPhrase($text);
+    }
+
+    /** A whole-message approval is consent only after the latest matching business form. */
+    public static function strictApprovalPhrase($text): bool
+    {
+        return is_string($text)&&strlen($text)<=200&&preg_match('/\A\s*(?:تمام|كل[ \t]+(?:شئ|شيء)[ \t]+تمام)[.!]?\s*\z/u',$text)===1;
+    }
+
+    /** Pure final gate over an already authenticated native snapshot. No facts or IDs are repaired. */
+    public static function finalFormApproved(array $data,array $transcript,string $expectedBranch): bool
+    {
+        try {
+            if (!self::recapLiteral($expectedBranch)||empty($data['items'])||!is_array($data['items'])
+                ||count($data['items'])>30||!$transcript||!array_is_list($transcript)||count($transcript)>60) return false;
+            $identities=[];
+            foreach ($data['items'] as $item) {
+                if (!is_array($item)||!is_string($item['name']??null)||!in_array($item['quantity_mode']??null,['weight','piece'],true)) return false;
+                $identity=self::formLine($item['name']).'|'.$item['quantity_mode'].'|'.(string)($item['option_hint']??'');
+                if (isset($identities[$identity])) return false; $identities[$identity]=true;
+            }
+            $seen=[]; $latest=null; $position=null; $previous=null;
+            foreach ($transcript as $index=>$row) {
+                if (!is_array($row)||!is_string($row['id']??null)||isset($seen[$row['id']])
+                    ||!in_array($row['speaker']??null,['business','customer'],true)
+                    ||!is_string($row['sent_at']??null)||($previous!==null&&strcmp($row['sent_at'],$previous)<0)) return false;
+                $seen[$row['id']]=true; $previous=$row['sent_at'];
+                if ($row['speaker']==='business'&&is_string($row['text']??null)
+                    &&preg_match('/\A\s*(?:تأكيد الطلب:|ملخص الطلب النهائي:)/u',$row['text'])) {
+                    $latest=$row; $position=$index;
+                }
+            }
+            if ($latest===null||($latest['cart']??null)!==null||($latest['location']??null)!==null
+                ||!self::finalFormMatches($data,$transcript,$latest['text'],$expectedBranch)) return false;
+            $approved=false; $acknowledged=false;
+            foreach (array_slice($transcript,$position+1) as $row) {
+                if (($row['cart']??null)!==null||($row['location']??null)!==null) return false;
+                if ($row['speaker']==='business') {
+                    if (!$approved||$acknowledged||!is_string($row['text']??null)
+                        ||trim($row['text'])!=='جاري مراجعة البيانات لإرسال الطلب للفرع.') return false;
+                    $acknowledged=true; continue;
+                }
+                if (!self::strictApprovalPhrase($row['text']??null)) return false;
+                $approved=true;
+            }
+            return $approved;
+        } catch (\Throwable $ignore) { return false; }
+    }
+
+    private static function finalFormMatches(array $data,array $transcript,string $text,string $branch): bool
+    {
+        if (!mb_check_encoding($text,'UTF-8')||mb_strlen($text,'UTF-8')>4096
+            ||preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\p{Cf}]/u',$text)) return false;
+        $display=$data; $display['branch_hint']=$branch;
+        foreach (['SHORT','POLITE'] as $variant) {
+            $expected=static::question(['CONFIRMATION'],$variant,$display,isset($data['evidence'])?$transcript:[]);
+            if (self::formText($text)===self::formText($expected)) return true;
+        }
+        // External assistants use this fixed factual form. Arbitrary prose and quoted forms cannot authorize dispatch.
+        $lines=explode("\n",self::formText($text));
+        if (array_shift($lines)!=='ملخص الطلب النهائي:') return false;
+        $fields=[]; $actual=[]; $instruction=false;
+        foreach ($lines as $line) {
+            if ($line===''||in_array($line,['الأصناف:','تأكيد الطلب:'],true)) continue;
+            if (in_array($line,['كده كله تمام؟','كده كله تمام؟؟','للموافقة على هذه البيانات اكتب: كل شئ تمام','للموافقة على هذه البيانات اكتب: كل شيء تمام',
+                'اكتب كل شئ تمام للموافقة على البيانات والطلب المذكور.','من فضلك اكتب كل شئ تمام للموافقة على البيانات والطلب المذكور.'],true)) {
+                if ($instruction) return false; $instruction=true; continue;
+            }
+            if (str_starts_with($line,'- ')) {
+                if (!preg_match('/\A- (.+?) \| الكمية: ([^|]+?) (كيلو|قطعة)(?: \| الاختيار: (.+))?\z/u',$line,$item)
+                    ||($quantity=self::formDecimal($item[2]))===null) return false;
+                $actual[]=[$item[1],$quantity,$item[3],$item[4]??null]; continue;
+            }
+            if (!preg_match('/\A(الاسم|رقم الهاتف|رقم التواصل|نوع الطلب|طريقة الاستلام|الفرع|العنوان|المنطقة|ملاحظات|أرقام إضافية): (.+)\z/u',$line,$field)
+                ||isset($fields[$field[1]])) return false;
+            $fields[$field[1]]=$field[2];
+        }
+        if (!$instruction||count($actual)!==count($data['items'])) return false;
+        foreach (['الاسم'=>'name','العنوان'=>'address'] as $label=>$key) {
+            if (!self::recapLiteral($data['customer'][$key]??null)
+                ||($fields[$label]??null)!==self::formLine($data['customer'][$key])) return false;
+        }
+        $phone=$fields['رقم الهاتف']??$fields['رقم التواصل']??null;
+        if (isset($fields['رقم الهاتف'],$fields['رقم التواصل'])||!is_string($phone)
+            ||self::formPhone($phone)===''||self::formPhone($phone)!==self::formPhone($data['customer']['phone']??'')) return false;
+        if (($fields['الفرع']??null)!==self::formLine($branch)) return false;
+        foreach (['المنطقة'=>'area','ملاحظات'=>'notes'] as $label=>$key) {
+            $value=$data['customer'][$key]??null;
+            if ($value!==null&&$value!==''&&(!self::recapLiteral($value)||($fields[$label]??null)!==self::formLine($value))) return false;
+            if (($value===null||$value==='')&&isset($fields[$label])&&!in_array($fields[$label],['لا يوجد','بدون ملاحظات'],true)) return false;
+        }
+        $alternates=$data['alternate_phones']??[];
+        if ($alternates!==[]) {
+            if (!is_array($alternates)||!array_is_list($alternates)||!isset($fields['أرقام إضافية'])
+                ||$fields['أرقام إضافية']!==implode('، ',$alternates)) return false;
+        } elseif (isset($fields['أرقام إضافية'])) return false;
+        $mode=$fields['نوع الطلب']??$fields['طريقة الاستلام']??null;
+        if (isset($fields['نوع الطلب'],$fields['طريقة الاستلام'])) return false;
+        if (($data['fulfillment']??null)==='DELIVERY'&&!in_array($mode,['دليفري','دليفري.'],true)) return false;
+        if (($data['fulfillment']??null)==='PICKUP'&&!in_array($mode,['من الفرع','من الفرع.'],true)) return false;
+        if (!in_array($data['fulfillment']??null,['DELIVERY','PICKUP'],true)) return false;
+        foreach ($data['items'] as $item) {
+            if (!is_array($item)||!self::recapLiteral($item['name']??null)) return false;
+            $unit=['weight'=>'كيلو','piece'=>'قطعة'][$item['quantity_mode']??'']??null;
+            $quantity=self::formDecimal($item['quantity']??null);
+            $option=$item['option_hint']??null;
+            if ($option!==null&&!self::recapLiteral($option)) return false;
+            $sizes=self::itemFishSizes($item,$data,$transcript);
+            if ($sizes!==[]&&WhatsAppOrderConversationEvidence::fishSizes((string)$option)!==$sizes) return false;
+            $expected=[self::formLine($item['name']),$quantity,$unit,$option===null?null:self::formLine($option)];
+            $index=array_search($expected,$actual,true);
+            if ($quantity===null||$unit===null||$index===false) return false;
+            unset($actual[$index]);
+        }
+        return $actual===[];
+    }
+
+    private static function formLine(string $text): string
+    { return trim(preg_replace('/[\p{Z}\t]+/u',' ',$text)); }
+    private static function formText(string $text): string
+    { return implode("\n",array_map([self::class,'formLine'],preg_split('/\R/u',trim($text)))); }
+    private static function formDecimal($value): ?string
+    {
+        if (!is_string($value)) return null;
+        $value=strtr(trim($value),['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9']);
+        if (!preg_match('/\A(?:0|[1-9][0-9]{0,3})(?:\.[0-9]{1,3})?\z/',$value)||(float)$value<=0) return null;
+        [$whole,$fraction]=array_pad(explode('.',$value,2),2,''); $fraction=rtrim($fraction,'0');
+        return $whole.($fraction===''?'':'.'.$fraction);
+    }
+    private static function formPhone($value): string
+    {
+        if (!is_string($value)) return '';
+        $value=strtr($value,['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9']);
+        return preg_match('/\A[+0-9 ()-]+\z/',$value)?preg_replace('/[^0-9]/','',$value):'';
     }
 
     private function unaskedFields(array $plan): array

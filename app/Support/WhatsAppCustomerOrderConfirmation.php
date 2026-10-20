@@ -142,7 +142,7 @@ final class WhatsAppCustomerOrderConfirmation
     /**
      * Inspect an authentic ordered snapshot. A copied instruction containing an
      * approval phrase is not approval: every format requires the customer's
-     * separate whole-message "كل شئ تمام" after the complete customer recap.
+     * separate whole-message approval after the complete customer recap. The coordinator additionally requires the latest matching business form.
      * Ordinary typed conversation is not order evidence or a replacement recap.
      * All returned IDs still name original customer rows.
      */
@@ -310,7 +310,7 @@ final class WhatsAppCustomerOrderConfirmation
     {
         if (!is_string($text) || !self::bounded($text, 100)) return false;
         $text = self::matchingText(self::displayLine($text));
-        return preg_match('/\Aكل (?:شيء|شئ) تمام[.!]?\z/u', $text) === 1;
+        return preg_match('/\A(?:تمام|كل (?:شيء|شئ) تمام)[.!]?\z/u', $text) === 1;
     }
 
     private static function explicitOrderChange(string $text): bool

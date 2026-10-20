@@ -1,7 +1,7 @@
 name: Dashboard server installer safety
 on:
   push:
-    branches: ['codex/dashboard-server-integration-20261012', 'codex/dashboard-owner-repair-20261013', 'codex/dashboard-baseline-diagnosis-20261013']
+    branches: ['codex/dashboard-server-integration-20261012', 'codex/dashboard-owner-repair-20261013', 'codex/dashboard-baseline-diagnosis-20261013', 'codex/go-erp-minute-updates-20261020']
     paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_measured_source_ownership_test.py', 'tests/desktop_dashboard_expense_rejection_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/desktop_dashboard_current_source_diagnosis_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', 'tests/fixtures/desktop-derived-expense-rejection-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
   pull_request:
     paths: ['deployment/*desktop*', 'deployment/install_whatsapp_inbox.py', 'tests/desktop_dashboard_server_install_test.py', 'tests/desktop_dashboard_actual_baseline_test.py', 'tests/desktop_dashboard_measured_source_ownership_test.py', 'tests/desktop_dashboard_expense_rejection_baseline_test.py', 'tests/desktop_dashboard_owner_repair_test.py', 'tests/desktop_dashboard_publication_metadata_test.py', 'tests/desktop_dashboard_current_source_diagnosis_test.py', 'tests/fixtures/desktop-actual-server-baseline.json', 'tests/fixtures/desktop-derived-expense-rejection-baseline.json', '.github/workflows/desktop-dashboard-server-install-tests.yml']
