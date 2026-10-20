@@ -1,0 +1,421 @@
+{
+  "reviewed_at": "2026-10-20T22:25:29.620009+00:00",
+  "status": "PASS",
+  "reviewed_assets": [
+    "drink-cola",
+    "drink-water",
+    "feseekh-whole-1",
+    "feseekh-whole-2",
+    "feseekh-whole-3",
+    "feseekh-whole-4",
+    "meal-feseekh-base",
+    "meal-feseekh-plus",
+    "meal-feseekh-top",
+    "meal-herring-base",
+    "meal-herring-plus",
+    "meal-herring-top",
+    "meal-mix-base",
+    "meal-mix-plus",
+    "meal-mix-top",
+    "meal-sardine-base",
+    "meal-sardine-plus",
+    "meal-sardine-top",
+    "salad-feseekh",
+    "salad-herring",
+    "salad-herring-roe",
+    "salad-sardine",
+    "sandwich-baladi-feseekh",
+    "sandwich-baladi-herring",
+    "sandwich-baladi-herring-roe",
+    "sandwich-baladi-sardine",
+    "sandwich-burger-feseekh",
+    "sandwich-burger-herring",
+    "sandwich-burger-sardine",
+    "tin-anchovy-200",
+    "tin-feseekh-200",
+    "tin-feseekh-400",
+    "tin-herring-200",
+    "tin-herring-400",
+    "tin-herring-roe-400",
+    "tin-moloha-200",
+    "tin-sardine-200",
+    "tin-sardine-400",
+    "whole-herring",
+    "whole-herring-lemonwood",
+    "whole-herring-roe",
+    "whole-sardine"
+  ],
+  "pending_assets": [],
+  "findings": [
+    "Whole feseekh counts 1/2/3/4 match labels.",
+    "White backgrounds and plain plate presentation provide stronger small-card product legibility.",
+    "Pink feseekh fillet appearance matches existing source photos; not assumed salmon.",
+    "Salad and sandwich roe identity retained rather than relying on mistaken sardine description.",
+    "Exact gram weights cannot be verified from generated photography; images are representative, names/quantities remain authoritative.",
+    "Drinks preserve BIG COLA200ml and Safi source identities. Ordinary Plus meals visibly increase fish portions over Base.",
+    "All nine tin assets match source packaging identity, including source-shared generic Salted Fish containers; main brand/logo remains recognizable. Secondary microprint is soft and is not relied on for product claims.",
+    "Tin herring roe uses a loose-roe plate, matching its existing source portrayal rather than inventing a container.",
+    "Ordinary Top meals visibly increase fish portions over Plus and use three-stack bread presentation.",
+    "Mixed Plus and Top retain each of the three fish families separately and visibly increase each family, rather than showing a combined portion for the tier. Plus shows two bread stacks; Top shows three. Exact gram weights and individual occluded bread edges remain illustrative, not visually measurable.",
+    "Final mixed Base correction passes: three clearly distinct bread stacks intended as 15, with all three fish families and source side components retained.",
+    "All 42 JPEG assets now pass independent visual QA for clear professional white-background presentation, visible product identity, family/tier consistency and source packaging fidelity.",
+    "Latest feseekh Top reviewed after black-cola-can consistency correction; fish and bread tier composition retained."
+  ],
+  "scope": "Visual review only; no live menu or source asset edits.",
+  "medium_issues": [
+    {
+      "location": "POS product-image CSS",
+      "issue": "Square assets in object-fit:cover 1.45 cards crop tall drink caps/bases and some plate edges.",
+      "recommendation": "Consider object-fit:contain with white background for whole-product legibility; no product identity regeneration needed.",
+      "status": "PARENT_REPORTS_FIXED_BY_SCOPED_CONTAIN_CSS"
+    }
+  ],
+  "resolved_issues": [
+    {
+      "slug": "meal-mix-base",
+      "issue": "Two bread stacks instead of three despite current mixed Base source description stating 15 bread.",
+      "required_correction": "Three clearly distinct stacks intended as five breads each. Parent has meal generator correcting this asset.",
+      "status": "RESOLVED",
+      "resolution": "Revised meal-mix-base visually reviewed: three separate bread stacks; original three fish families retained."
+    }
+  ],
+  "high_issues": [],
+  "asset_verification": {
+    "drink-cola": {
+      "sha256": "2a690b3c56c4c1f1e23ce9d7aa73c05b97c55d09795b4d7606bd00aa887aa31a",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "drink-water": {
+      "sha256": "32c7d20f21241b70e1348eae83d1983f81edae140ce58d994a74114d434a09e6",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "feseekh-whole-1": {
+      "sha256": "1936e79a43fd66c2dd7da59f5e58cb48d5d25b659596a3b4e1f8bbeb8c6130af",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "feseekh-whole-2": {
+      "sha256": "5f7866c624ca5dd55690c676fef45568a598bfea190c79cd8f2406e3049730af",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "feseekh-whole-3": {
+      "sha256": "2d65d52da82bd203748dc96e009274eea78ea7fdd460f7f10f1490e9b9ad4222",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "feseekh-whole-4": {
+      "sha256": "071b7d6494e6d3576880a8516f004a330113ded14f431bdf581e7feb736fc522",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-feseekh-base": {
+      "sha256": "2aeab988cd4eeacc5cc31b46781ddde56f7d45996c80ab600f1acc71f107eb8c",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-feseekh-plus": {
+      "sha256": "d978522a7b2a15e34b3e9305609e36db1818a5fee56ded953ef89d08eac414ac",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-feseekh-top": {
+      "sha256": "a9e6e86858278eb9741204cabddcad5f045512de7d21ed2ccb1746f0596843b9",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-herring-base": {
+      "sha256": "47b6f7e43ce6c7f56f3490880a5480de489f6730b287b982bcb1867b45328595",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-herring-plus": {
+      "sha256": "d2c3742849ecb79a21635653af796f91555071dbf193ca52e5038094803958fc",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-herring-top": {
+      "sha256": "2253fe9560a1474ac9cb4fc55d6f66672a30de31e9b7a5d623a4dc997f10e1bc",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-mix-base": {
+      "sha256": "d901f1517840f3faeceb274a30cb28b691994bd5d0efd7b2e18634614bf851d4",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-mix-plus": {
+      "sha256": "01fc64fce4611f901dfdb2d7d2475890da1a7f1de2925e7eb5d9a30f2f07ba13",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-mix-top": {
+      "sha256": "1721d4d2326eacc52db8d21e5a56172dcd7a57cde8f663f301f2c0c27637ab1e",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-sardine-base": {
+      "sha256": "ecdeccadb15ebd348f969dcdca2d1b6bb5808dc4081054579c59d69007a074b6",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-sardine-plus": {
+      "sha256": "ec645b9c3ab73decb5b02cd6b48124b2cec7689ff86fc4cbceee5efd8ebcd4a4",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "meal-sardine-top": {
+      "sha256": "7afb267d7e85b88fb4ba57f0d3b829e227a3b7a10838db64c916d4f2a97e27b0",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "salad-feseekh": {
+      "sha256": "9102914c0a92ebb13c1f962cda54b5908ef7adbc5e5deb9b141f21f0783f7f4c",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "salad-herring": {
+      "sha256": "9f54f5e52cf2d81c87f7eeb7a6e65cf72ec76221aa032216b20bdb0435fbd00b",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "salad-herring-roe": {
+      "sha256": "306d168968c17b6c4e5cf80639083f4dedd7991453bcc317c764ce1f979ecaf5",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "salad-sardine": {
+      "sha256": "9db4ea312a4f885cee5a3bd5389de7c66876743411052ae945a158675b1ca1c6",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-baladi-feseekh": {
+      "sha256": "40d1abfc3d8dd81feb0ec4a905e9ef4b83d8152e415101c7858b6ddc0a1f9135",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-baladi-herring": {
+      "sha256": "90efc4fc0d3db4ad4f53cc4dc0dfbce67497647ad1569c65bdb93edf3d7431f5",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-baladi-herring-roe": {
+      "sha256": "4979e7462f7fc6b2ca3ef3ce7bebc7c4f2f187c968fa93f56f0e0429a38179cc",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-baladi-sardine": {
+      "sha256": "7a4e0779a7761541abbb63580400fa25cbf1127a5a8dccca9b3d5a2b1cac653b",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-burger-feseekh": {
+      "sha256": "30923e722be01b1cc0ce9538b5f406dacd4c7b0efc4543f1218f7da96554a7ea",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-burger-herring": {
+      "sha256": "f276246d06a245cc050c23c22373591eee726a18a1cb3186f42bf1da939b0f16",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "sandwich-burger-sardine": {
+      "sha256": "0812dfda29f6fc2021a1f67af06568af38d124291e089bebedcc48d65e8fd5c5",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-anchovy-200": {
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-feseekh-200": {
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-feseekh-400": {
+      "sha256": "5319331b3b287148f4ea75f869c334955e2bdfaead89fa31f799e1936e0b8373",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-herring-200": {
+      "sha256": "781b1ba546eb466d4c30e9401b88c259387ddd61c422446d686a4d681da63b7f",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-herring-400": {
+      "sha256": "5319331b3b287148f4ea75f869c334955e2bdfaead89fa31f799e1936e0b8373",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-herring-roe-400": {
+      "sha256": "a566d6caa9e3874c08434cfa8d144c912569bec7054a5ebf1fe12907cb1c069c",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-moloha-200": {
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-sardine-200": {
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "tin-sardine-400": {
+      "sha256": "5319331b3b287148f4ea75f869c334955e2bdfaead89fa31f799e1936e0b8373",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "whole-herring": {
+      "sha256": "71a99c5e42e5571f96edb1cc849595b00c823bcabe6e8081a3bce75a2ec66221",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "whole-herring-lemonwood": {
+      "sha256": "f5e00e0e64f567e9ef5ee8f8963753055d18c836a02b2ff97f58b891ac59fba4",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "whole-herring-roe": {
+      "sha256": "4cffe9d39273bf360d3bf0d1044193a0b51176ae1f601cc689a3fbfb20eafa93",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    },
+    "whole-sardine": {
+      "sha256": "8a1c1342459866184a80cc7e58dbb0914d9759ad3bc561d103ee63a9a7d7d55e",
+      "size": [
+        1254,
+        1254
+      ],
+      "mode": "RGB"
+    }
+  }
+}

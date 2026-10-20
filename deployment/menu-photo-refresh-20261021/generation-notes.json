@@ -1,0 +1,2089 @@
+{
+  "schema_version": 1,
+  "release": "menu-photo-refresh-20261021",
+  "generator": "built-in image_gen",
+  "asset_count": 42,
+  "generation_family_count": 5,
+  "mapped_menu_image_count": 1473,
+  "branch_count": 32,
+  "scope": "Image-only refresh of every currently visible non-side item across all 32 Fasakhansta branches. Wholesale keeps existing representative-unit portrayal and unchanged bulk product names.",
+  "preserved_existing_side_images": 219,
+  "preserved_hidden_rows": 152,
+  "data_preserved": [
+    "product names",
+    "prices",
+    "descriptions",
+    "categories",
+    "visibility",
+    "bulk quantities",
+    "recipes",
+    "stock"
+  ],
+  "review_notes": [
+    "The photographs are illustrative catalog images; exact gram weights and partly occluded bread counts cannot be measured from them. Menu labels, recorded quantities and weights remain authoritative.",
+    "Existing side-dish images, including tomato and tahini, are preserved.",
+    "Wholesale items retain their existing representative-unit portrayal and unchanged bulk package names/quantities.",
+    "No ingredient recipe, product name, price, category, visibility or inventory change is authorized by these images.",
+    "Full final prompts and correction history are retained per logical asset. Ephemeral generation paths are deliberately omitted from public provenance."
+  ],
+  "assets": [
+    {
+      "key": "drink-cola",
+      "asset_path": "assets/drink-cola.jpg",
+      "generation_family": "salads-and-drinks",
+      "generator": "built-in image_gen",
+      "sha256": "2a690b3c56c4c1f1e23ce9d7aa73c05b97c55d09795b4d7606bd00aa887aa31a",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 602,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1005/mediap89IiH",
+        "product_ids": [
+          25
+        ],
+        "display_names": [
+          "مشروب كولا"
+        ],
+        "source_descriptions": [
+          "مشروب كولا غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 602,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: lighting-weather / precise-object-edit. Asset type: square restaurant menu catalog product photograph. Image 1 is the edit target: the actual BIG COLA 200 ml plastic cola bottle with yellow screw cap and original red/black BIG COLA label. Image 2 is ONLY a white-background catalog lighting/framing style reference, not any food to add. Make a professional studio product photograph of THIS SAME real bottle on a pure white seamless background. Preserve the exact bottle silhouette, yellow cap, dark cola fill, label layout, all existing brand lettering and packaging colors, including BIG, COLA, SHARE BIG and 200 ml as visible in original. Improve sharpness and natural soft daylight, realistic plastic reflections, gentle grounding shadow; straighten bottle and center it upright, full cap and base visible, bottle occupies about 82 percent of square image height with clean white margins. Do not substitute another brand, beverage, glass, can, label or bottle shape; do not invent marketing copy or change packaging design. No plate, food, ice, extra props or text outside the existing bottle label."
+        }
+      ],
+      "full_final_prompt": "Use case: lighting-weather / precise-object-edit. Asset type: square restaurant menu catalog product photograph. Image 1 is the edit target: the actual BIG COLA 200 ml plastic cola bottle with yellow screw cap and original red/black BIG COLA label. Image 2 is ONLY a white-background catalog lighting/framing style reference, not any food to add. Make a professional studio product photograph of THIS SAME real bottle on a pure white seamless background. Preserve the exact bottle silhouette, yellow cap, dark cola fill, label layout, all existing brand lettering and packaging colors, including BIG, COLA, SHARE BIG and 200 ml as visible in original. Improve sharpness and natural soft daylight, realistic plastic reflections, gentle grounding shadow; straighten bottle and center it upright, full cap and base visible, bottle occupies about 82 percent of square image height with clean white margins. Do not substitute another brand, beverage, glass, can, label or bottle shape; do not invent marketing copy or change packaging design. No plate, food, ice, extra props or text outside the existing bottle label.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "drink-water",
+      "asset_path": "assets/drink-water.jpg",
+      "generation_family": "salads-and-drinks",
+      "generator": "built-in image_gen",
+      "sha256": "32c7d20f21241b70e1348eae83d1983f81edae140ce58d994a74114d434a09e6",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 603,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1006/mediaK09QBb",
+        "product_ids": [
+          5
+        ],
+        "display_names": [
+          "مياه معدنيه"
+        ],
+        "source_descriptions": [
+          "مياه معدنيه صغيره"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 603,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: lighting-weather / precise-object-edit. Asset type: square restaurant menu catalog product photograph. Image 1 is the edit target: the actual small clear ribbed Safi mineral water bottle with its printed tamper sleeve at the cap and blue/light multicolor Safi label. Image 2 is ONLY a white-background food catalog lighting/framing style reference, not food to add. Turn THIS SAME actual bottle into a professional clean studio product photograph on a pure white seamless background. Preserve the real ribbed bottle silhouette, clear water fill, cap/tamper sleeve design and original Safi label shape/colors/logo/visible printed letters exactly, without rebranding or inventing new label text. Upright straight bottle, full cap and base entirely visible centered, soft natural daylight and realistic transparent plastic reflections with a gentle grounding shadow, bottle occupies about 82 percent of square image height with clean white margins. Improve clarity while preserving actual packaging. No plate, glass, food, ice, decorative props, extra bottle, new label or extra writing."
+        }
+      ],
+      "full_final_prompt": "Use case: lighting-weather / precise-object-edit. Asset type: square restaurant menu catalog product photograph. Image 1 is the edit target: the actual small clear ribbed Safi mineral water bottle with its printed tamper sleeve at the cap and blue/light multicolor Safi label. Image 2 is ONLY a white-background food catalog lighting/framing style reference, not food to add. Turn THIS SAME actual bottle into a professional clean studio product photograph on a pure white seamless background. Preserve the real ribbed bottle silhouette, clear water fill, cap/tamper sleeve design and original Safi label shape/colors/logo/visible printed letters exactly, without rebranding or inventing new label text. Upright straight bottle, full cap and base entirely visible centered, soft natural daylight and realistic transparent plastic reflections with a gentle grounding shadow, bottle occupies about 82 percent of square image height with clean white margins. Improve clarity while preserving actual packaging. No plate, glass, food, ice, decorative props, extra bottle, new label or extra writing.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "feseekh-whole-1",
+      "asset_path": "assets/feseekh-whole-1.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "1936e79a43fd66c2dd7da59f5e58cb48d5d25b659596a3b4e1f8bbeb8c6130af",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 938,
+        "catalog_resturant_id": 309,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1521/mediavnkbUd",
+        "product_ids": [
+          47,
+          51
+        ],
+        "display_names": [
+          "برميل فسيخ دسوق السمكه كيلو",
+          "برميل فسيخ نبروه  السمكه كيلو",
+          "فسيخ دسوق 1 سمكة",
+          "فسيخ دسوق 1 قطعه",
+          "فسيخ دسوق سمكه",
+          "فسيخ نبروه 1 سمكه",
+          "فسيخ نبروه 1 قطعه",
+          "فسيخ نبروه سمكه"
+        ],
+        "source_descriptions": [
+          "1 كيلو فسيخ 1 قطعه",
+          "كيلو فسيخ سمكة",
+          "كيلو فسيخ سمكه",
+          "كيلو فسيخ نبروه 1 قطعه",
+          "كيلو فسيخ نبروه السمكه كيلو",
+          "كيلو فسيخ نبروه سمكه"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 938,
+          "catalog_resturant_id": 309
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square restaurant menu product photograph. Input Image 1 is a food identity reference: Egyptian salt-cured fermented whole mullet (feseekh), NOT cooked, grilled or smoked. Input Image 2 is a lighting and clean white catalog style reference only. Create a new realistic professional catalog photo of EXACTLY ONE large whole Egyptian feseekh mullet, head and complete tail visible, representing the one-fish size of a one-kilogram product. Preserve natural silver-grey scales and the subtle natural cured appearance, do not turn it golden grilled or brown roasted. Place this single whole fish alone diagonally on a plain white oval ceramic platter. Entire platter and entire fish fit in frame with generous white margins. Pure white seamless background. Slightly overhead 3/4 view with soft natural daylight, true photographic texture, moderate gentle shadow. Product occupies about 75 percent of image. No decorative food, garnish, onions, lemon, tomatoes, salt piles, herbs, leaves, bowls, utensils, packaging, text, watermark or branding. Exactly one fish, no extra hidden or cropped fish. Square composition."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square restaurant menu product photograph. Input Image 1 is a food identity reference: Egyptian salt-cured fermented whole mullet (feseekh), NOT cooked, grilled or smoked. Input Image 2 is a lighting and clean white catalog style reference only. Create a new realistic professional catalog photo of EXACTLY ONE large whole Egyptian feseekh mullet, head and complete tail visible, representing the one-fish size of a one-kilogram product. Preserve natural silver-grey scales and the subtle natural cured appearance, do not turn it golden grilled or brown roasted. Place this single whole fish alone diagonally on a plain white oval ceramic platter. Entire platter and entire fish fit in frame with generous white margins. Pure white seamless background. Slightly overhead 3/4 view with soft natural daylight, true photographic texture, moderate gentle shadow. Product occupies about 75 percent of image. No decorative food, garnish, onions, lemon, tomatoes, salt piles, herbs, leaves, bowls, utensils, packaging, text, watermark or branding. Exactly one fish, no extra hidden or cropped fish. Square composition.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 1
+    },
+    {
+      "key": "feseekh-whole-2",
+      "asset_path": "assets/feseekh-whole-2.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "5f7866c624ca5dd55690c676fef45568a598bfea190c79cd8f2406e3049730af",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 937,
+        "catalog_resturant_id": 309,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1520/mediajopS8f",
+        "product_ids": [
+          48,
+          52
+        ],
+        "display_names": [
+          "برميل فسيخ دسوق السمكتين كيلو",
+          "برميل فسيخ نبروه السمكتين كيلو",
+          "فسيخ دسوق 2 سمكة",
+          "فسيخ دسوق 2 قطعه",
+          "فسيخ دسوق سمكتين",
+          "فسيخ نبروه 2 قطعه",
+          "فسيخ نبروه سمكتين"
+        ],
+        "source_descriptions": [
+          "1 كيلو فسيخ 2 قطعه",
+          "كيلو فسيخ  سمكتين",
+          "كيلو فسيخ سمكتين",
+          "كيلو فسيخ نبروه 2 قطعه",
+          "كيلو فسيخ نبروه سمكتين",
+          "كيلو فسيخ نبروه سمكتين كيلو"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 937,
+          "catalog_resturant_id": 309
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square restaurant menu product photo. Input Image 1 is the food identity reference: Egyptian salt-cured fermented mullet (feseekh), not cooked/grilled/smoked. Input Image 2 is the pure white catalog style reference only. Make a natural photorealistic food catalog photograph of EXACTLY TWO whole medium Egyptian feseekh mullets, two heads and two full tails visibly distinct. These two together represent a one-kilogram size class, each smaller than a one-kilogram single fish. Keep natural silvery grey scales and subtle pink/golden cured skin, not roasted brown. Arrange the two fish side by side neatly without concealment on one plain white oval ceramic platter, oriented on a gentle diagonal. Entire fish and entire platter fit with ample white margins; no cropping. Pure seamless white background, slightly overhead 3/4 camera angle, soft natural diffuse daylight and a very gentle realistic shadow. Fish and plate occupy about75percent of square canvas. No other food, decoration, garnish, vegetables, lemons, herbs, salt piles, bowls, utensils, text, branding or watermark. Exactly TWO fish only; realistic separate anatomies and varied scale textures."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square restaurant menu product photo. Input Image 1 is the food identity reference: Egyptian salt-cured fermented mullet (feseekh), not cooked/grilled/smoked. Input Image 2 is the pure white catalog style reference only. Make a natural photorealistic food catalog photograph of EXACTLY TWO whole medium Egyptian feseekh mullets, two heads and two full tails visibly distinct. These two together represent a one-kilogram size class, each smaller than a one-kilogram single fish. Keep natural silvery grey scales and subtle pink/golden cured skin, not roasted brown. Arrange the two fish side by side neatly without concealment on one plain white oval ceramic platter, oriented on a gentle diagonal. Entire fish and entire platter fit with ample white margins; no cropping. Pure seamless white background, slightly overhead 3/4 camera angle, soft natural diffuse daylight and a very gentle realistic shadow. Fish and plate occupy about75percent of square canvas. No other food, decoration, garnish, vegetables, lemons, herbs, salt piles, bowls, utensils, text, branding or watermark. Exactly TWO fish only; realistic separate anatomies and varied scale textures.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 2
+    },
+    {
+      "key": "feseekh-whole-3",
+      "asset_path": "assets/feseekh-whole-3.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "2d65d52da82bd203748dc96e009274eea78ea7fdd460f7f10f1490e9b9ad4222",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 844,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1417/mediaYSqbjE",
+        "product_ids": [
+          49,
+          53
+        ],
+        "display_names": [
+          "برميل فسيخ  نبروه  3 سمكات كيلو",
+          "برميل فسيخ دسوق ال3 سمكات كيلو",
+          "فسيخ دسوق 3 سمكات",
+          "فسيخ دسوق 3 قطعه",
+          "فسيخ نبروه 3 سمكات",
+          "فسيخ نبروه 3 قطعه"
+        ],
+        "source_descriptions": [
+          "1 كيلو فسيخ 3 قطعه",
+          "كيلو فسيخ 3 سمكات",
+          "كيلو فسيخ نبروه 3 سمكات",
+          "كيلو فسيخ نبروه 3 سمكات كيلو",
+          "كيلو فسيخ نبروه 3 قطعه"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 844,
+          "catalog_resturant_id": 307
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square realistic restaurant menu catalog photo. Image 1 is the identity reference of whole Egyptian fermented salt-cured mullet (feseekh), not cooked or grilled fish. Image 2 references clean white catalog photography style only. Photograph EXACTLY THREE separate whole Egyptian feseekh mullets on a single plain white oval ceramic platter: three heads and three complete tails, all fully visible. These are the three-fish-to-one-kilogram product class, each naturally smaller than the single-large-fish variant. Fish lie neatly side by side, natural individual anatomies and silvery grey scales with subtly pink cured highlights. No burn marks, breading, or roasted skin. Pure white seamless background, soft natural daylight, slight overhead 3/4 viewing angle, gentle realistic shadow and accurate natural colors. Whole platter and all three fish completely in frame, ample white margin on every side. Professional product-only photo readable as small menu thumbnail. No lemon, onion, herbs, tomatoes, salt piles, garnish, sauce, packaging, typography, logo or watermark. Only three fish and white plate."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Square realistic restaurant menu catalog photo. Image 1 is the identity reference of whole Egyptian fermented salt-cured mullet (feseekh), not cooked or grilled fish. Image 2 references clean white catalog photography style only. Photograph EXACTLY THREE separate whole Egyptian feseekh mullets on a single plain white oval ceramic platter: three heads and three complete tails, all fully visible. These are the three-fish-to-one-kilogram product class, each naturally smaller than the single-large-fish variant. Fish lie neatly side by side, natural individual anatomies and silvery grey scales with subtly pink cured highlights. No burn marks, breading, or roasted skin. Pure white seamless background, soft natural daylight, slight overhead 3/4 viewing angle, gentle realistic shadow and accurate natural colors. Whole platter and all three fish completely in frame, ample white margin on every side. Professional product-only photo readable as small menu thumbnail. No lemon, onion, herbs, tomatoes, salt piles, garnish, sauce, packaging, typography, logo or watermark. Only three fish and white plate.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 3
+    },
+    {
+      "key": "feseekh-whole-4",
+      "asset_path": "assets/feseekh-whole-4.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "071b7d6494e6d3576880a8516f004a330113ded14f431bdf581e7feb736fc522",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 565,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/969/mediahQYzm2",
+        "product_ids": [
+          50,
+          54
+        ],
+        "display_names": [
+          "برميل فسيخ دسوق ال4 سمكات كيلو",
+          "برميل فسيخ نبروه ال 4 سمكات كيلو",
+          "عرض كيلو فسيخ شم النسيم",
+          "فسيخ دسوق 4 سمكات",
+          "فسيخ دسوق 4 قطعه",
+          "فسيخ نبروه 4 سمكات"
+        ],
+        "source_descriptions": [
+          "1 كيلو فسيخ 4 سمكات",
+          "1 كيلو فسيخ 4 قطعه",
+          "كيلو فسيخ 4 سمكات",
+          "كيلو فسيخ نبروه 4 قطع",
+          "كيلو فسيخ نبروه 4 قطعه"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 565,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square professional restaurant menu product photo. Image1 is whole Egyptian fermented salt-cured mullet (feseekh) identity reference. Image2 is white catalog lighting/style reference only. Create a new photorealistic image of EXACTLY FOUR whole small Egyptian feseekh mullets, all four heads and all four tails separately readable, neatly laid side by side on one plain white oval ceramic platter. This is the four-fish-per-kilogram size class, so the four individual fish are smaller than a single-large-fish variant. Preserve naturally silver-grey scales, gentle pink cured highlights and real fish texture; this is NOT cooked or grilled fish. Pure seamless white background, entire white platter and all four fish fully framed with generous white margins, slightly overhead 3/4 angle, soft clean daylight, mild shadow. Product is the hero, about75percent of square image. No decoration or surrounding food. No lemons, tomatoes, onion, herb, salt, flowers, sauces, extra dishes, utensils, typography, watermark or logos. Count exactly4 natural separate fish, never5or3."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square professional restaurant menu product photo. Image1 is whole Egyptian fermented salt-cured mullet (feseekh) identity reference. Image2 is white catalog lighting/style reference only. Create a new photorealistic image of EXACTLY FOUR whole small Egyptian feseekh mullets, all four heads and all four tails separately readable, neatly laid side by side on one plain white oval ceramic platter. This is the four-fish-per-kilogram size class, so the four individual fish are smaller than a single-large-fish variant. Preserve naturally silver-grey scales, gentle pink cured highlights and real fish texture; this is NOT cooked or grilled fish. Pure seamless white background, entire white platter and all four fish fully framed with generous white margins, slightly overhead 3/4 angle, soft clean daylight, mild shadow. Product is the hero, about75percent of square image. No decoration or surrounding food. No lemons, tomatoes, onion, herb, salt, flowers, sauces, extra dishes, utensils, typography, watermark or logos. Count exactly4 natural separate fish, never5or3.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 4
+    },
+    {
+      "key": "meal-feseekh-base",
+      "asset_path": "assets/meal-feseekh-base.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "2aeab988cd4eeacc5cc31b46781ddde56f7d45996c80ab600f1acc71f107eb8c",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 573,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1012/وجبة-فسيخ--(2).jpeg",
+        "product_ids": [
+          14
+        ],
+        "display_names": [
+          "وجبة فسيخ"
+        ],
+        "source_descriptions": [
+          "ربع فسيخ قبل التنضيف - 5 عيش بلدي- بطاطس - مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 573,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square online restaurant menu product photograph. Recreate the meal as one clean realistic studio food photograph. Reference 1 is food identity only, not the busy styling. Reference 2 is the clean white catalog style. Pure white seamless background, plain white ceramic dishes, soft natural daylight, slightly overhead three-quarter view. Entire arrangement centered and fully visible with at least 10 percent white margin. Fish is the main hero, accompanying bread and chips compactly placed behind it. No text, no brand labels, no watermark, no flowers, no herbs, no lemon, no tomatoes, no pickles, no sauces, no cutlery, no dark surfaces. Fish must look Egyptian salt-cured or cold-smoked as specified, never fried or grilled and never salmon. One small unbranded plain dark cola can with metallic top, closed, and a small plain white bowl of thin golden potato chips. Square image.\nSMALL BASE FESEEKH MEAL: a small quarter-kilo-before-cleaning representative serving of Egyptian cured mullet/feseekh, opened pinkish beige natural fillet with some silvery skin like the reference, on a small white oval plate. Exactly five small Egyptian baladi flatbreads in a modest stack. No onions (not part of this base description)."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square online restaurant menu product photograph. Recreate the meal as one clean realistic studio food photograph. Reference 1 is food identity only, not the busy styling. Reference 2 is the clean white catalog style. Pure white seamless background, plain white ceramic dishes, soft natural daylight, slightly overhead three-quarter view. Entire arrangement centered and fully visible with at least 10 percent white margin. Fish is the main hero, accompanying bread and chips compactly placed behind it. No text, no brand labels, no watermark, no flowers, no herbs, no lemon, no tomatoes, no pickles, no sauces, no cutlery, no dark surfaces. Fish must look Egyptian salt-cured or cold-smoked as specified, never fried or grilled and never salmon. One small unbranded plain dark cola can with metallic top, closed, and a small plain white bowl of thin golden potato chips. Square image.\nSMALL BASE FESEEKH MEAL: a small quarter-kilo-before-cleaning representative serving of Egyptian cured mullet/feseekh, opened pinkish beige natural fillet with some silvery skin like the reference, on a small white oval plate. Exactly five small Egyptian baladi flatbreads in a modest stack. No onions (not part of this base description).",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-feseekh-plus",
+      "asset_path": "assets/meal-feseekh-plus.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "d978522a7b2a15e34b3e9305609e36db1818a5fee56ded953ef89d08eac414ac",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 580,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/983/mediaO7c2Xt",
+        "product_ids": [
+          14
+        ],
+        "display_names": [
+          "وجبة فسيخ بلس"
+        ],
+        "source_descriptions": [
+          "نص كيلو فسيخ قبل التنضيف-بصل-عدد 10 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 580,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Create a square professional restaurant meal catalog photograph in the same clean white visual language as the reference, with the same fish identity, same small plain dark unbranded cola can and small white bowl of thin golden chips. Pure white seamless background, white ceramic plates, soft neutral daylight, slightly overhead three-quarter angle. This is the PLUS medium portion: fish amount visibly twice the reference BASE meal; it represents half a kilo of fish before cleaning. Keep fish dominant and bread compact behind, all dishes fully in frame. Zoom out slightly so every outer edge and all food has a generous clean white margin. No words, logos, watermark, flowers, herbs, lemon, tomatoes, pickles, sauce, or cutlery. Do not fry, grill, bread or batter the fish.\nEgyptian salt-cured mullet feseekh meal. Medium portion of opened natural pink-beige fillets like reference, visibly double the small portion. Exactly TEN small Egyptian baladi flatbreads arranged compactly as TWO stacks of five on a white side plate. Include a small neat portion of plain fresh red onion rings on the fish plate because onions are in this PLUS meal description."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Create a square professional restaurant meal catalog photograph in the same clean white visual language as the reference, with the same fish identity, same small plain dark unbranded cola can and small white bowl of thin golden chips. Pure white seamless background, white ceramic plates, soft neutral daylight, slightly overhead three-quarter angle. This is the PLUS medium portion: fish amount visibly twice the reference BASE meal; it represents half a kilo of fish before cleaning. Keep fish dominant and bread compact behind, all dishes fully in frame. Zoom out slightly so every outer edge and all food has a generous clean white margin. No words, logos, watermark, flowers, herbs, lemon, tomatoes, pickles, sauce, or cutlery. Do not fry, grill, bread or batter the fish.\nEgyptian salt-cured mullet feseekh meal. Medium portion of opened natural pink-beige fillets like reference, visibly double the small portion. Exactly TEN small Egyptian baladi flatbreads arranged compactly as TWO stacks of five on a white side plate. Include a small neat portion of plain fresh red onion rings on the fish plate because onions are in this PLUS meal description.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-feseekh-top",
+      "asset_path": "assets/meal-feseekh-top.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "a9e6e86858278eb9741204cabddcad5f045512de7d21ed2ccb1746f0596843b9",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 581,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/984/mediagsdd40",
+        "product_ids": [
+          14
+        ],
+        "display_names": [
+          "وجبة فسيخ توب"
+        ],
+        "source_descriptions": [
+          "كيلو فسيخ قبل التنضيف - 15 خبز بلدي - بصل مشروبات غازيه  - بطاطس"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 581,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional restaurant meal catalog photograph. Same clean white language as reference: pure white seamless background, plain white ceramic dishes, soft neutral daylight, slightly overhead three-quarter angle. Entire meal centered fully in frame, camera pulled back enough for a generous white margin and no crop. Fish is the largest and most prominent foreground element; bread, chips and can compact behind it. One small plain dark unbranded closed cola can and one small white bowl of thin golden potato chips. NO text, logos, watermark, herbs, flowers, lemon, tomatoes, pickles, sauce or cutlery. Never fried, grilled, breaded fish or salmon. Cold-cured fish only as described.\nTOP LARGE FESEEKH MEAL, represents one kilo of Egyptian salt-cured mullet feseekh before cleaning. Show a substantial generous portion of multiple naturally pink-beige opened cured-mullet fillets with silvery skin edges, twice the amount of the PLUS reference. Clearly more fillet pieces and fish volume, not merely a zoomed copy. Three compact stacks of FIVE small Egyptian baladi flatbreads each, total15. Small plain red onion rings on fish plate are included. Fish plate is extra large, visually relative to the same small cola can."
+        },
+        {
+          "stage": "final_correction",
+          "prompt": "Precise object edit. Change ONLY the cola can's red body to plain dark BLACK, retaining its metallic silver top and condensation. Keep the fish portions, onion, fifteen baladi bread stack arrangement, chips bowl, plates, camera framing, shadows and white background unchanged. No added labels, logos or text."
+        }
+      ],
+      "full_final_prompt": "Precise object edit. Change ONLY the cola can's red body to plain dark BLACK, retaining its metallic silver top and condensation. Keep the fish portions, onion, fifteen baladi bread stack arrangement, chips bowl, plates, camera framing, shadows and white background unchanged. No added labels, logos or text.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "revision_note": "Black cola can consistency"
+    },
+    {
+      "key": "meal-herring-base",
+      "asset_path": "assets/meal-herring-base.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "47b6f7e43ce6c7f56f3490880a5480de489f6730b287b982bcb1867b45328595",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 574,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/977/mediaxeVDoi",
+        "product_ids": [
+          17
+        ],
+        "display_names": [
+          "ورجبه رنجه"
+        ],
+        "source_descriptions": [
+          "ربع كيلو رنجه قبل التنضيف-عدد 5 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 574,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square online restaurant menu product photograph. Recreate the meal as one clean realistic studio food photograph. Reference 1 is food identity only, not the busy styling. Reference 2 is the clean white catalog style. Pure white seamless background, plain white ceramic dishes, soft natural daylight, slightly overhead three-quarter view. Entire arrangement centered and fully visible with at least 10 percent white margin. Fish is the main hero, accompanying bread and chips compactly placed behind it. No text, no brand labels, no watermark, no flowers, no herbs, no lemon, no tomatoes, no pickles, no sauces, no cutlery, no dark surfaces. Fish must look Egyptian salt-cured or cold-smoked as specified, never fried or grilled and never salmon. One small unbranded plain dark cola can with metallic top, closed, and a small plain white bowl of thin golden potato chips. Square image.\nSMALL BASE HERRING MEAL: one small golden cold-smoked whole herring, natural silver-gold skin and realistic smoked texture, representing a small quarter-kilo-before-cleaning portion, on a small white oval plate. Exactly five small Egyptian baladi flatbreads in a modest stack. No onions (not part of this base description)."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square online restaurant menu product photograph. Recreate the meal as one clean realistic studio food photograph. Reference 1 is food identity only, not the busy styling. Reference 2 is the clean white catalog style. Pure white seamless background, plain white ceramic dishes, soft natural daylight, slightly overhead three-quarter view. Entire arrangement centered and fully visible with at least 10 percent white margin. Fish is the main hero, accompanying bread and chips compactly placed behind it. No text, no brand labels, no watermark, no flowers, no herbs, no lemon, no tomatoes, no pickles, no sauces, no cutlery, no dark surfaces. Fish must look Egyptian salt-cured or cold-smoked as specified, never fried or grilled and never salmon. One small unbranded plain dark cola can with metallic top, closed, and a small plain white bowl of thin golden potato chips. Square image.\nSMALL BASE HERRING MEAL: one small golden cold-smoked whole herring, natural silver-gold skin and realistic smoked texture, representing a small quarter-kilo-before-cleaning portion, on a small white oval plate. Exactly five small Egyptian baladi flatbreads in a modest stack. No onions (not part of this base description).",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-herring-plus",
+      "asset_path": "assets/meal-herring-plus.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "d2c3742849ecb79a21635653af796f91555071dbf193ca52e5038094803958fc",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 582,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/985/mediaNiTady",
+        "product_ids": [
+          17
+        ],
+        "display_names": [
+          "وجبه رنجه بلس"
+        ],
+        "source_descriptions": [
+          "نص كيلو رنجه  قبل التنضيف-عدد 10 خبز-بصل- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 582,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Create a square professional restaurant meal catalog photograph in the same clean white visual language as the reference, with the same fish identity, same small plain dark unbranded cola can and small white bowl of thin golden chips. Pure white seamless background, white ceramic plates, soft neutral daylight, slightly overhead three-quarter angle. This is the PLUS medium portion: fish amount visibly twice the reference BASE meal; it represents half a kilo of fish before cleaning. Keep fish dominant and bread compact behind, all dishes fully in frame. Zoom out slightly so every outer edge and all food has a generous clean white margin. No words, logos, watermark, flowers, herbs, lemon, tomatoes, pickles, sauce, or cutlery. Do not fry, grill, bread or batter the fish.\nEgyptian golden cold-smoked herring meal. TWO medium smoked whole herring neatly side by side on a white oval platter, natural golden skin like reference. Exactly TEN small Egyptian baladi flatbreads arranged compactly as TWO stacks of five on a white side plate. Include a small neat portion of plain fresh red onion rings on the fish plate because onions are in this PLUS meal description."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Create a square professional restaurant meal catalog photograph in the same clean white visual language as the reference, with the same fish identity, same small plain dark unbranded cola can and small white bowl of thin golden chips. Pure white seamless background, white ceramic plates, soft neutral daylight, slightly overhead three-quarter angle. This is the PLUS medium portion: fish amount visibly twice the reference BASE meal; it represents half a kilo of fish before cleaning. Keep fish dominant and bread compact behind, all dishes fully in frame. Zoom out slightly so every outer edge and all food has a generous clean white margin. No words, logos, watermark, flowers, herbs, lemon, tomatoes, pickles, sauce, or cutlery. Do not fry, grill, bread or batter the fish.\nEgyptian golden cold-smoked herring meal. TWO medium smoked whole herring neatly side by side on a white oval platter, natural golden skin like reference. Exactly TEN small Egyptian baladi flatbreads arranged compactly as TWO stacks of five on a white side plate. Include a small neat portion of plain fresh red onion rings on the fish plate because onions are in this PLUS meal description.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-herring-top",
+      "asset_path": "assets/meal-herring-top.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "2253fe9560a1474ac9cb4fc55d6f66672a30de31e9b7a5d623a4dc997f10e1bc",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 583,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/986/mediaeYy0o5",
+        "product_ids": [
+          17
+        ],
+        "display_names": [
+          "وجبة رنجة توب"
+        ],
+        "source_descriptions": [
+          "كيلو رنجه قبل التنضيف - 15 خبز بلدي - بصل- مشروبات غازيه  - بطاطس"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 583,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional restaurant meal catalog photograph. Same clean white language as reference: pure white seamless background, plain white ceramic dishes, soft neutral daylight, slightly overhead three-quarter angle. Entire meal centered fully in frame, camera pulled back enough for a generous white margin and no crop. Fish is the largest and most prominent foreground element; bread, chips and can compact behind it. One small plain dark unbranded closed cola can and one small white bowl of thin golden potato chips. NO text, logos, watermark, herbs, flowers, lemon, tomatoes, pickles, sauce or cutlery. Never fried, grilled, breaded fish or salmon. Cold-cured fish only as described.\nTOP LARGE HERRING MEAL, represents one kilo before cleaning. Show FOUR medium golden cold-smoked whole herring laid naturally side by side on a large white oval platter, twice PLUS quantity, natural golden skin like reference. Three compact stacks of FIVE small Egyptian baladi flatbreads each, total15. Small plain red onion rings on fish plate included."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Square professional restaurant meal catalog photograph. Same clean white language as reference: pure white seamless background, plain white ceramic dishes, soft neutral daylight, slightly overhead three-quarter angle. Entire meal centered fully in frame, camera pulled back enough for a generous white margin and no crop. Fish is the largest and most prominent foreground element; bread, chips and can compact behind it. One small plain dark unbranded closed cola can and one small white bowl of thin golden potato chips. NO text, logos, watermark, herbs, flowers, lemon, tomatoes, pickles, sauce or cutlery. Never fried, grilled, breaded fish or salmon. Cold-cured fish only as described.\nTOP LARGE HERRING MEAL, represents one kilo before cleaning. Show FOUR medium golden cold-smoked whole herring laid naturally side by side on a large white oval platter, twice PLUS quantity, natural golden skin like reference. Three compact stacks of FIVE small Egyptian baladi flatbreads each, total15. Small plain red onion rings on fish plate included.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-mix-base",
+      "asset_path": "assets/meal-mix-base.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "d901f1517840f3faeceb274a30cb28b691994bd5d0efd7b2e18634614bf851d4",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 584,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/987/media75FPDC",
+        "product_ids": [
+          46
+        ],
+        "display_names": [
+          "وجبة فسخانستا ميكس"
+        ],
+        "source_descriptions": [
+          "ربع كيلو رنجه قبل التنضيف-ربع كيلو فسيخ قبل التنضيف-ربع كيلو سردين قبل التنضيف-يصل-عدد 15 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 584,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional restaurant meal catalog photograph. Same clean white language as reference: pure white seamless background, plain white ceramic dishes, soft neutral daylight, slightly overhead three-quarter angle. Entire meal centered fully in frame, camera pulled back enough for a generous white margin and no crop. Fish is the largest and most prominent foreground element; bread, chips and can compact behind it. One small plain dark unbranded closed cola can and one small white bowl of thin golden potato chips. NO text, logos, watermark, herbs, flowers, lemon, tomatoes, pickles, sauce or cutlery. Never fried, grilled, breaded fish or salmon. Cold-cured fish only as described.\nBASE MIXED FESEEKH HERRING SARDINE MEAL. Reference1 supplies the three actual fish identities only; reference2 supplies clean white studio style. Three distinct clearly separated SMALL portions: natural pale pink opened salt-cured mullet/feseekh fillet, one small golden whole cold-smoked herring, and several small silvery salt-cured sardines. Each fish type represents a quarter kilo before cleaning, so the mixed meal is three small portions, not a quarter kilo split among them. Use three small white oval plates close together, fish foreground dominant. Three compact stacks of FIVE small Egyptian baladi flatbreads each, total15 as this specific mixed BASE description includes15. Include a small plain red onion portion beside fish."
+        },
+        {
+          "stage": "final_correction",
+          "prompt": "Precise meal composition correction. Preserve the exact SMALL fish portions of the three fish varieties: one small pink-beige feseekh fillet serving, one small golden smoked herring, and the existing small sardine portion, with onion, chips and plain dark cola can. Correct ONLY the bread arrangement to THREE compact stacks of FIVE small Egyptian baladi flatbreads each, fifteen total, because this mixed meal includes15. Keep the fish portions SMALL, do not increase fish quantities. Move dishes slightly closer and zoom out only enough for the extra bread stack to fit fully inside the square white frame. Keep white ceramic plates, pure white background, soft natural catalog lighting, no text/logo/extra foods."
+        }
+      ],
+      "full_final_prompt": "Precise meal composition correction. Preserve the exact SMALL fish portions of the three fish varieties: one small pink-beige feseekh fillet serving, one small golden smoked herring, and the existing small sardine portion, with onion, chips and plain dark cola can. Correct ONLY the bread arrangement to THREE compact stacks of FIVE small Egyptian baladi flatbreads each, fifteen total, because this mixed meal includes15. Keep the fish portions SMALL, do not increase fish quantities. Move dishes slightly closer and zoom out only enough for the extra bread stack to fit fully inside the square white frame. Keep white ceramic plates, pure white background, soft natural catalog lighting, no text/logo/extra foods.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "revision_note": "Corrected mixed-base bread to three separate stacks, fifteen breads, retaining small three-fish portions"
+    },
+    {
+      "key": "meal-mix-plus",
+      "asset_path": "assets/meal-mix-plus.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "01fc64fce4611f901dfdb2d7d2475890da1a7f1de2925e7eb5d9a30f2f07ba13",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 577,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/980/mediaC4sVWS",
+        "product_ids": [
+          46
+        ],
+        "display_names": [
+          "فسخانستا ميكس بلس"
+        ],
+        "source_descriptions": [
+          "نص كيلو رنجه + نص كيلو فسيخ+ نص كيلو سرين قبل التنضيف-عدد 10 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 577,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional Egyptian restaurant mixed-fish meal photograph, matching the reference clean white catalog look. Pure white seamless background, white ceramic dishes, soft neutral natural daylight, slightly overhead three-quarter view, entire arrangement centered and fully visible with at least 8 percent white margin. Food is the hero, camera pulled back to fit whole family meal, all edges inside image. Fish types must remain clearly distinct: pink-beige salt-cured mullet feseekh fillets, golden whole cold-smoked herring, and small silvery salt-cured sardines. NEVER cooked/fried/grilled fish or salmon. Compact stack(s) of Egyptian baladi flatbread behind fish, one small white bowl of thin golden potato chips and one SMALL DARK BLACK unbranded closed cola can with metallic top. No onions for these two meal descriptions. No text, logo, watermark, herbs, flowers, lemon, tomato, pickles, sauces, cutlery or extra food. Do not simply magnify the base image; increase the fish amount relative to same small cola can.\nPLUS MEDIUM MIXED MEAL: THREE MEDIUM PORTIONS, each fish type corresponds to half a kilo BEFORE cleaning. Show approximately double BASE fish quantities: two pinkish feseekh fillet portions, two golden smoked herring, and twice the base amount of small silvery sardines. Use a broad white oval platter with three distinct sections or three matching white plates close together. Include TEN small baladi flatbreads in TWO neat compact stacks of FIVE. Keep all three fish kinds visible and appetizing."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Square professional Egyptian restaurant mixed-fish meal photograph, matching the reference clean white catalog look. Pure white seamless background, white ceramic dishes, soft neutral natural daylight, slightly overhead three-quarter view, entire arrangement centered and fully visible with at least 8 percent white margin. Food is the hero, camera pulled back to fit whole family meal, all edges inside image. Fish types must remain clearly distinct: pink-beige salt-cured mullet feseekh fillets, golden whole cold-smoked herring, and small silvery salt-cured sardines. NEVER cooked/fried/grilled fish or salmon. Compact stack(s) of Egyptian baladi flatbread behind fish, one small white bowl of thin golden potato chips and one SMALL DARK BLACK unbranded closed cola can with metallic top. No onions for these two meal descriptions. No text, logo, watermark, herbs, flowers, lemon, tomato, pickles, sauces, cutlery or extra food. Do not simply magnify the base image; increase the fish amount relative to same small cola can.\nPLUS MEDIUM MIXED MEAL: THREE MEDIUM PORTIONS, each fish type corresponds to half a kilo BEFORE cleaning. Show approximately double BASE fish quantities: two pinkish feseekh fillet portions, two golden smoked herring, and twice the base amount of small silvery sardines. Use a broad white oval platter with three distinct sections or three matching white plates close together. Include TEN small baladi flatbreads in TWO neat compact stacks of FIVE. Keep all three fish kinds visible and appetizing.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-mix-top",
+      "asset_path": "assets/meal-mix-top.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "1721d4d2326eacc52db8d21e5a56172dcd7a57cde8f663f301f2c0c27637ab1e",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 576,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/979/mediag3ur2l",
+        "product_ids": [
+          8
+        ],
+        "display_names": [
+          "وجبه  فسخانستا ميكس توب"
+        ],
+        "source_descriptions": [
+          "كيلو رنجه + كيلو فسيخ+ كيلو سرين قبل التنضيف-عدد 15 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 576,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional Egyptian restaurant mixed-fish meal photograph, matching the reference clean white catalog look. Pure white seamless background, white ceramic dishes, soft neutral natural daylight, slightly overhead three-quarter view, entire arrangement centered and fully visible with at least 8 percent white margin. Food is the hero, camera pulled back to fit whole family meal, all edges inside image. Fish types must remain clearly distinct: pink-beige salt-cured mullet feseekh fillets, golden whole cold-smoked herring, and small silvery salt-cured sardines. NEVER cooked/fried/grilled fish or salmon. Compact stack(s) of Egyptian baladi flatbread behind fish, one small white bowl of thin golden potato chips and one SMALL DARK BLACK unbranded closed cola can with metallic top. No onions for these two meal descriptions. No text, logo, watermark, herbs, flowers, lemon, tomato, pickles, sauces, cutlery or extra food. Do not simply magnify the base image; increase the fish amount relative to same small cola can.\nTOP LARGE SHARING MIXED MEAL: THREE LARGE PORTIONS, each fish type corresponds to ONE KILO BEFORE cleaning, three kilos fish total before cleaning. Show approximately FOUR times BASE fish quantities: generous four opened feseekh fillet portions, four golden smoked whole herring, and abundant small silvery sardines in a distinct third section. A very large white platter or three white platters with whole fish contents visible. Include FIFTEEN small baladi flatbreads in THREE neat compact stacks of FIVE. This must visibly be a bigger sharing meal than PLUS, relative to same small cola can."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Square professional Egyptian restaurant mixed-fish meal photograph, matching the reference clean white catalog look. Pure white seamless background, white ceramic dishes, soft neutral natural daylight, slightly overhead three-quarter view, entire arrangement centered and fully visible with at least 8 percent white margin. Food is the hero, camera pulled back to fit whole family meal, all edges inside image. Fish types must remain clearly distinct: pink-beige salt-cured mullet feseekh fillets, golden whole cold-smoked herring, and small silvery salt-cured sardines. NEVER cooked/fried/grilled fish or salmon. Compact stack(s) of Egyptian baladi flatbread behind fish, one small white bowl of thin golden potato chips and one SMALL DARK BLACK unbranded closed cola can with metallic top. No onions for these two meal descriptions. No text, logo, watermark, herbs, flowers, lemon, tomato, pickles, sauces, cutlery or extra food. Do not simply magnify the base image; increase the fish amount relative to same small cola can.\nTOP LARGE SHARING MIXED MEAL: THREE LARGE PORTIONS, each fish type corresponds to ONE KILO BEFORE cleaning, three kilos fish total before cleaning. Show approximately FOUR times BASE fish quantities: generous four opened feseekh fillet portions, four golden smoked whole herring, and abundant small silvery sardines in a distinct third section. A very large white platter or three white platters with whole fish contents visible. Include FIFTEEN small baladi flatbreads in THREE neat compact stacks of FIVE. This must visibly be a bigger sharing meal than PLUS, relative to same small cola can.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-sardine-base",
+      "asset_path": "assets/meal-sardine-base.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "ecdeccadb15ebd348f969dcdca2d1b6bb5808dc4081054579c59d69007a074b6",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 575,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/978/mediaCXJ2bP",
+        "product_ids": [
+          18
+        ],
+        "display_names": [
+          "وجبه سردين"
+        ],
+        "source_descriptions": [
+          "ربع كيلو سردين قبل التنضيف-عدد 5 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 575,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square online restaurant menu product photograph. Recreate the meal as one clean realistic studio food photograph. Reference 1 is food identity only, not the busy styling. Reference 2 is the clean white catalog style. Pure white seamless background, plain white ceramic dishes, soft natural daylight, slightly overhead three-quarter view. Entire arrangement centered and fully visible with at least 10 percent white margin. Fish is the main hero, accompanying bread and chips compactly placed behind it. No text, no brand labels, no watermark, no flowers, no herbs, no lemon, no tomatoes, no pickles, no sauces, no cutlery, no dark surfaces. Fish must look Egyptian salt-cured or cold-smoked as specified, never fried or grilled and never salmon. One small unbranded plain dark cola can with metallic top, closed, and a small plain white bowl of thin golden potato chips. Square image.\nSMALL BASE SARDINE MEAL: a small quarter-kilo-before-cleaning representative serving of several small salt-cured sardines with silvery grey-brown skin, aligned neatly on a small white oval plate, not cooked or grilled. Exactly five small Egyptian baladi flatbreads in a modest stack. No onions (not part of this base description)."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square online restaurant menu product photograph. Recreate the meal as one clean realistic studio food photograph. Reference 1 is food identity only, not the busy styling. Reference 2 is the clean white catalog style. Pure white seamless background, plain white ceramic dishes, soft natural daylight, slightly overhead three-quarter view. Entire arrangement centered and fully visible with at least 10 percent white margin. Fish is the main hero, accompanying bread and chips compactly placed behind it. No text, no brand labels, no watermark, no flowers, no herbs, no lemon, no tomatoes, no pickles, no sauces, no cutlery, no dark surfaces. Fish must look Egyptian salt-cured or cold-smoked as specified, never fried or grilled and never salmon. One small unbranded plain dark cola can with metallic top, closed, and a small plain white bowl of thin golden potato chips. Square image.\nSMALL BASE SARDINE MEAL: a small quarter-kilo-before-cleaning representative serving of several small salt-cured sardines with silvery grey-brown skin, aligned neatly on a small white oval plate, not cooked or grilled. Exactly five small Egyptian baladi flatbreads in a modest stack. No onions (not part of this base description).",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-sardine-plus",
+      "asset_path": "assets/meal-sardine-plus.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "ec645b9c3ab73decb5b02cd6b48124b2cec7689ff86fc4cbceee5efd8ebcd4a4",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 578,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/981/mediazrYoUp",
+        "product_ids": [
+          18
+        ],
+        "display_names": [
+          "وجبه سردين بلس"
+        ],
+        "source_descriptions": [
+          "نص كيلو سردين قبل التنضيف-عدد 10 خبز- بطاطس -مشروب غازي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 578,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Create a square professional restaurant meal catalog photograph in the same clean white visual language as the reference, with the same fish identity, same small plain dark unbranded cola can and small white bowl of thin golden chips. Pure white seamless background, white ceramic plates, soft neutral daylight, slightly overhead three-quarter angle. This is the PLUS medium portion: fish amount visibly twice the reference BASE meal; it represents half a kilo of fish before cleaning. Keep fish dominant and bread compact behind, all dishes fully in frame. Zoom out slightly so every outer edge and all food has a generous clean white margin. No words, logos, watermark, flowers, herbs, lemon, tomatoes, pickles, sauce, or cutlery. Do not fry, grill, bread or batter the fish.\nEgyptian salt-cured sardine meal. Medium neat serving of silvery grey-brown small sardines, visibly double the small portion in reference, on a white oval platter. Exactly TEN small Egyptian baladi flatbreads arranged compactly as TWO stacks of five on a white side plate. NO ONIONS, because onions are not in this PLUS meal description."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Create a square professional restaurant meal catalog photograph in the same clean white visual language as the reference, with the same fish identity, same small plain dark unbranded cola can and small white bowl of thin golden chips. Pure white seamless background, white ceramic plates, soft neutral daylight, slightly overhead three-quarter angle. This is the PLUS medium portion: fish amount visibly twice the reference BASE meal; it represents half a kilo of fish before cleaning. Keep fish dominant and bread compact behind, all dishes fully in frame. Zoom out slightly so every outer edge and all food has a generous clean white margin. No words, logos, watermark, flowers, herbs, lemon, tomatoes, pickles, sauce, or cutlery. Do not fry, grill, bread or batter the fish.\nEgyptian salt-cured sardine meal. Medium neat serving of silvery grey-brown small sardines, visibly double the small portion in reference, on a white oval platter. Exactly TEN small Egyptian baladi flatbreads arranged compactly as TWO stacks of five on a white side plate. NO ONIONS, because onions are not in this PLUS meal description.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "meal-sardine-top",
+      "asset_path": "assets/meal-sardine-top.jpg",
+      "generation_family": "meals",
+      "generator": "built-in image_gen",
+      "sha256": "7afb267d7e85b88fb4ba57f0d3b829e227a3b7a10838db64c916d4f2a97e27b0",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 579,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/982/media0zdLUW",
+        "product_ids": [
+          18
+        ],
+        "display_names": [
+          "وجبة سردين توب"
+        ],
+        "source_descriptions": [
+          "كيلو سردين بلدي كبير قبل التنضيف - 15 خبز بلدي - بصل مشروبات غازيه  - بطاطس"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 579,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional restaurant meal catalog photograph. Same clean white language as reference: pure white seamless background, plain white ceramic dishes, soft neutral daylight, slightly overhead three-quarter angle. Entire meal centered fully in frame, camera pulled back enough for a generous white margin and no crop. Fish is the largest and most prominent foreground element; bread, chips and can compact behind it. One small plain dark unbranded closed cola can and one small white bowl of thin golden potato chips. NO text, logos, watermark, herbs, flowers, lemon, tomatoes, pickles, sauce or cutlery. Never fried, grilled, breaded fish or salmon. Cold-cured fish only as described.\nTOP LARGE SARDINE MEAL, represents one kilo before cleaning. Show an abundant neatly arranged generous serving of small Egyptian salt-cured sardines with natural silvery grey-brown skin, twice the fish amount of PLUS reference, on a large white oval platter. Three compact stacks of FIVE small Egyptian baladi flatbreads each, total15. Include a small portion of plain red onion rings because TOP sardine meal includes onion."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Square professional restaurant meal catalog photograph. Same clean white language as reference: pure white seamless background, plain white ceramic dishes, soft neutral daylight, slightly overhead three-quarter angle. Entire meal centered fully in frame, camera pulled back enough for a generous white margin and no crop. Fish is the largest and most prominent foreground element; bread, chips and can compact behind it. One small plain dark unbranded closed cola can and one small white bowl of thin golden potato chips. NO text, logos, watermark, herbs, flowers, lemon, tomatoes, pickles, sauce or cutlery. Never fried, grilled, breaded fish or salmon. Cold-cured fish only as described.\nTOP LARGE SARDINE MEAL, represents one kilo before cleaning. Show an abundant neatly arranged generous serving of small Egyptian salt-cured sardines with natural silvery grey-brown skin, twice the fish amount of PLUS reference, on a large white oval platter. Three compact stacks of FIVE small Egyptian baladi flatbreads each, total15. Include a small portion of plain red onion rings because TOP sardine meal includes onion.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "salad-feseekh",
+      "asset_path": "assets/salad-feseekh.jpg",
+      "generation_family": "salads-and-drinks",
+      "generator": "built-in image_gen",
+      "sha256": "9102914c0a92ebb13c1f962cda54b5908ef7adbc5e5deb9b141f21f0783f7f4c",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 599,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1002/mediaFjxuGG",
+        "product_ids": [
+          29
+        ],
+        "display_names": [
+          "ربع سلطه فسيخ"
+        ],
+        "source_descriptions": [
+          "250جرام سلطه فسيخ صافي",
+          "250جرام سلطه فسيخ غنية بالمكونات الطازجه"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 599,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target and food identity reference: Egyptian salted fermented mullet (feseekh) fillet salad with pale pink cured mullet flesh, diced cucumber and tomato, red onion and lettuce, with the same light dressing seen on that salad. Image 2 is ONLY the catalog photography style reference, not food to add. Transform this into polished realistic food product photography: move ONLY the main salad onto a plain white ceramic oval plate, on a pure white seamless background, full plate entirely visible and centered, slightly overhead three-quarter view, soft natural daylight, natural colors and crisp fish/vegetable texture, generous clean margins, main plate occupies about 78 percent of square frame. Preserve recognizable cured mullet flesh, vegetable types and food proportions of the target main dish; do not turn it into salmon, cooked fish, fried fish, mayonnaise salad or a different recipe. Remove all separate side bowls, lemons, flowers, rosemary sprigs, dark table, logo/watermark and writing. Do not add objects, utensils, additional foods, labels or text. This is a quarter-kilo salad product, not a giant platter."
+        }
+      ],
+      "full_final_prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target and food identity reference: Egyptian salted fermented mullet (feseekh) fillet salad with pale pink cured mullet flesh, diced cucumber and tomato, red onion and lettuce, with the same light dressing seen on that salad. Image 2 is ONLY the catalog photography style reference, not food to add. Transform this into polished realistic food product photography: move ONLY the main salad onto a plain white ceramic oval plate, on a pure white seamless background, full plate entirely visible and centered, slightly overhead three-quarter view, soft natural daylight, natural colors and crisp fish/vegetable texture, generous clean margins, main plate occupies about 78 percent of square frame. Preserve recognizable cured mullet flesh, vegetable types and food proportions of the target main dish; do not turn it into salmon, cooked fish, fried fish, mayonnaise salad or a different recipe. Remove all separate side bowls, lemons, flowers, rosemary sprigs, dark table, logo/watermark and writing. Do not add objects, utensils, additional foods, labels or text. This is a quarter-kilo salad product, not a giant platter.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "salad-herring",
+      "asset_path": "assets/salad-herring.jpg",
+      "generation_family": "salads-and-drinks",
+      "generator": "built-in image_gen",
+      "sha256": "9f54f5e52cf2d81c87f7eeb7a6e65cf72ec76221aa032216b20bdb0435fbd00b",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 600,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1003/mediauqqQaa",
+        "product_ids": [
+          27
+        ],
+        "display_names": [
+          "ربع سلطه رنجه"
+        ],
+        "source_descriptions": [
+          "250جرام سلطه رنجه شهية مع الخضروات الطازجه",
+          "250جرام سلطه رنجه صافي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 600,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target and food identity reference: Egyptian smoked herring salad with a prominent golden cold-smoked herring fillet and diced cucumber, tomato, red onion and lettuce with the same light dressing seen in the target salad. Image 2 is ONLY the catalog photography style reference, not food to add. Create polished realistic catalog food photography by presenting ONLY the main salad on a plain white ceramic oval plate on a pure white seamless background. Full plate entirely visible and centered, slightly overhead three-quarter view, soft natural daylight, realistic natural golden smoked fish and vegetables, crisp texture without heavy filtering, plate occupies about 78 percent of square frame with clean margins. Preserve the herring fillet identity and the vegetable composition of the main dish. Do not add sauces not visible, cooked/grilled/fried fish, salmon, other seafood or extra serving food. Remove all separate bowls, lemons, flowers, rosemary sprigs, black table and watermark/logo/text. No utensils or props, no writing."
+        }
+      ],
+      "full_final_prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target and food identity reference: Egyptian smoked herring salad with a prominent golden cold-smoked herring fillet and diced cucumber, tomato, red onion and lettuce with the same light dressing seen in the target salad. Image 2 is ONLY the catalog photography style reference, not food to add. Create polished realistic catalog food photography by presenting ONLY the main salad on a plain white ceramic oval plate on a pure white seamless background. Full plate entirely visible and centered, slightly overhead three-quarter view, soft natural daylight, realistic natural golden smoked fish and vegetables, crisp texture without heavy filtering, plate occupies about 78 percent of square frame with clean margins. Preserve the herring fillet identity and the vegetable composition of the main dish. Do not add sauces not visible, cooked/grilled/fried fish, salmon, other seafood or extra serving food. Remove all separate bowls, lemons, flowers, rosemary sprigs, black table and watermark/logo/text. No utensils or props, no writing.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "salad-herring-roe",
+      "asset_path": "assets/salad-herring-roe.jpg",
+      "generation_family": "salads-and-drinks",
+      "generator": "built-in image_gen",
+      "sha256": "306d168968c17b6c4e5cf80639083f4dedd7991453bcc317c764ce1f979ecaf5",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 601,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1004/medial3MuID",
+        "product_ids": [
+          24
+        ],
+        "display_names": [
+          "ربع سلطه كفيار رنجه هولندي"
+        ],
+        "source_descriptions": [
+          "250جرام سلطه بطارخ رنجه هولندي غنية بالمكونات الشهية",
+          "250جرام سلطه كفيار رنجه هولندي صافي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 601,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target/food identity: Egyptian Dutch herring roe salad, with TWO prominent natural amber/golden smoked herring roe sacs resting over a salad of diced cucumber, tomato, red onion and lettuce with the same light dressing seen in source. Image 2 is ONLY a clean pure white food catalog style reference, not food to add. Present only this main herring roe salad on a plain white ceramic oval plate, pure white seamless background, entire plate visible and centered with clean margins, slightly overhead three-quarter view, soft natural daylight and realistic crisp textures. Plate occupies about 78 percent of square frame. Preserve golden grainy roe's distinctive lobe/sac form and the source salad composition. This is smoked herring roe, NOT black sturgeon caviar, orange salmon eggs, fish fillets, sausage, fried or grilled food. No new ingredients or sauces. Remove all separate side bowls, lemon halves, rosemary/flower props, dark table, watermark/logo/writing. No text or utensils."
+        }
+      ],
+      "full_final_prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target/food identity: Egyptian Dutch herring roe salad, with TWO prominent natural amber/golden smoked herring roe sacs resting over a salad of diced cucumber, tomato, red onion and lettuce with the same light dressing seen in source. Image 2 is ONLY a clean pure white food catalog style reference, not food to add. Present only this main herring roe salad on a plain white ceramic oval plate, pure white seamless background, entire plate visible and centered with clean margins, slightly overhead three-quarter view, soft natural daylight and realistic crisp textures. Plate occupies about 78 percent of square frame. Preserve golden grainy roe's distinctive lobe/sac form and the source salad composition. This is smoked herring roe, NOT black sturgeon caviar, orange salmon eggs, fish fillets, sausage, fried or grilled food. No new ingredients or sauces. Remove all separate side bowls, lemon halves, rosemary/flower props, dark table, watermark/logo/writing. No text or utensils.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "salad-sardine",
+      "asset_path": "assets/salad-sardine.jpg",
+      "generation_family": "salads-and-drinks",
+      "generator": "built-in image_gen",
+      "sha256": "9db4ea312a4f885cee5a3bd5389de7c66876743411052ae945a158675b1ca1c6",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 598,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1001/media5kR9ed",
+        "product_ids": [
+          3
+        ],
+        "display_names": [
+          "ربع سلطه سردين"
+        ],
+        "source_descriptions": [
+          "250جرام سلطه سردين صافي",
+          "250جرام سلطه سردين غنية بالمكونات الطازجه"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 598,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target/food identity: Egyptian salted sardine salad. The main dish has silver-skinned boneless salted sardine fillets on a mixture of diced cucumber, tomato, red onion and lettuce, with the same light dressing seen in the source. Image 2 is ONLY the pure-white food catalog style reference, not food to add. Present ONLY this main salad on a plain white ceramic oval plate, on seamless pure white background. Entire plate visible, centered, clean margins, slightly overhead three-quarter camera view, soft natural daylight, crisp real fish and vegetable textures, natural colors, whole plate occupies about 78 percent of square canvas. Preserve the main fish's silvery skin and cured sardine identity, not salmon, grilled fish, fried fish or whole uncooked sardines with heads. Keep vegetables and dressing faithful to source, do not add different sauces or ingredients. Remove separate side bowls, lemon halves, decorative herb sprigs, dark table, logo and watermark. No text, flowers, utensils or props. This is one quarter-kilo salad portion, not a party platter."
+        }
+      ],
+      "full_final_prompt": "Use case: style-transfer. Asset type: square restaurant menu product photo. Image 1 is the edit target/food identity: Egyptian salted sardine salad. The main dish has silver-skinned boneless salted sardine fillets on a mixture of diced cucumber, tomato, red onion and lettuce, with the same light dressing seen in the source. Image 2 is ONLY the pure-white food catalog style reference, not food to add. Present ONLY this main salad on a plain white ceramic oval plate, on seamless pure white background. Entire plate visible, centered, clean margins, slightly overhead three-quarter camera view, soft natural daylight, crisp real fish and vegetable textures, natural colors, whole plate occupies about 78 percent of square canvas. Preserve the main fish's silvery skin and cured sardine identity, not salmon, grilled fish, fried fish or whole uncooked sardines with heads. Keep vegetables and dressing faithful to source, do not add different sauces or ingredients. Remove separate side bowls, lemon halves, decorative herb sprigs, dark table, logo and watermark. No text, flowers, utensils or props. This is one quarter-kilo salad portion, not a party platter.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-baladi-feseekh",
+      "asset_path": "assets/sandwich-baladi-feseekh.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "40d1abfc3d8dd81feb0ec4a905e9ef4b83d8152e415101c7858b6ddc0a1f9135",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 596,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/999/mediaVLXjEs",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش فسيخ دسوق مظبوط",
+          "ساندوتش فسيخ دسوق نبروه مظبوط"
+        ],
+        "source_descriptions": [
+          "العيش البلدي  اللذيذ المحشو بالفسيخ المخلي والخضروات",
+          "العيش البلدي اللذيذ المحشو بالفسيخ المخلي والخضروات",
+          "عيش بلدي مع إضافة الفسيخ المخلي والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 595
+        },
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 596
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. One Egyptian baladi flatbread sandwich, same authentic small round wheat/bran pita bread pocket style as the reference, naturally opened so fish filling is clearly visible. Preserve credible modest portion and true food identity. Sandwich alone centered on a plain round white ceramic plate; entire plate and sandwich visible with clear white margin. Pure white seamless background, natural soft daylight, delicate contact shadow, slightly overhead three-quarter view, appetizing realistic textures and accurate neutral colors. Remove the old black plate/slate scene, all surrounding dishes, lemons, scattered vegetables/herbs, flowers and watermark. No French roll/baguette/tortilla/burger bun, no beef or fried patties, no cheese or mayonnaise, no text/logo/watermark/cutlery/props. No garnish outside sandwich. Subject: baladi pita stuffed with the exact Egyptian feseekh filling shown in image 1: moist boneless salt-cured mullet fillet pieces, pale ivory with naturally gentle pink flesh and subtle silver-gray skin. Show the recognizable feseekh fillets clearly, using the food identity of the reference, without the surrounding lemons and onions. No roe, red raw salmon, smoked salmon, chicken or fried fish. No added sauce; no new garnish or ingredients."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. One Egyptian baladi flatbread sandwich, same authentic small round wheat/bran pita bread pocket style as the reference, naturally opened so fish filling is clearly visible. Preserve credible modest portion and true food identity. Sandwich alone centered on a plain round white ceramic plate; entire plate and sandwich visible with clear white margin. Pure white seamless background, natural soft daylight, delicate contact shadow, slightly overhead three-quarter view, appetizing realistic textures and accurate neutral colors. Remove the old black plate/slate scene, all surrounding dishes, lemons, scattered vegetables/herbs, flowers and watermark. No French roll/baguette/tortilla/burger bun, no beef or fried patties, no cheese or mayonnaise, no text/logo/watermark/cutlery/props. No garnish outside sandwich. Subject: baladi pita stuffed with the exact Egyptian feseekh filling shown in image 1: moist boneless salt-cured mullet fillet pieces, pale ivory with naturally gentle pink flesh and subtle silver-gray skin. Show the recognizable feseekh fillets clearly, using the food identity of the reference, without the surrounding lemons and onions. No roe, red raw salmon, smoked salmon, chicken or fried fish. No added sauce; no new garnish or ingredients.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-baladi-herring",
+      "asset_path": "assets/sandwich-baladi-herring.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "90efc4fc0d3db4ad4f53cc4dc0dfbce67497647ad1569c65bdb93edf3d7431f5",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 594,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/997/mediaF2sCQL",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش سلطه رنجه"
+        ],
+        "source_descriptions": [
+          "العيش البلدي  المحشو بسلطة الرنجه الغنية والخضروات",
+          "العيش البلدي اللذيذ المحشو بالرنجة المخليه والخضروات",
+          "عيش بلدي مع إضافة سلطة الرنجة  والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 594
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. One Egyptian baladi flatbread sandwich, same authentic small round wheat/bran pita bread pocket style as the reference, naturally opened so fish filling is clearly visible. Preserve credible modest portion and true food identity. Sandwich alone centered on a plain round white ceramic plate; entire plate and sandwich visible with clear white margin. Pure white seamless background, natural soft daylight, delicate contact shadow, slightly overhead three-quarter view, appetizing realistic textures and accurate neutral colors. Remove the old black plate/slate scene, all surrounding dishes, lemons, scattered vegetables/herbs, flowers and watermark. No French roll/baguette/tortilla/burger bun, no beef or fried patties, no cheese or mayonnaise, no text/logo/watermark/cutlery/props. No garnish outside sandwich. Subject: baladi pita stuffed with Egyptian smoked herring salad: boneless golden-tan herring fillet pieces with subtle silver skin and a small amount of chopped green pepper and red onion inside the sandwich. The herring is the hero, not a vegetable salad or a sardine can. Preserve natural cured smoked fish texture, without grill marks, heads, bones or tails."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. One Egyptian baladi flatbread sandwich, same authentic small round wheat/bran pita bread pocket style as the reference, naturally opened so fish filling is clearly visible. Preserve credible modest portion and true food identity. Sandwich alone centered on a plain round white ceramic plate; entire plate and sandwich visible with clear white margin. Pure white seamless background, natural soft daylight, delicate contact shadow, slightly overhead three-quarter view, appetizing realistic textures and accurate neutral colors. Remove the old black plate/slate scene, all surrounding dishes, lemons, scattered vegetables/herbs, flowers and watermark. No French roll/baguette/tortilla/burger bun, no beef or fried patties, no cheese or mayonnaise, no text/logo/watermark/cutlery/props. No garnish outside sandwich. Subject: baladi pita stuffed with Egyptian smoked herring salad: boneless golden-tan herring fillet pieces with subtle silver skin and a small amount of chopped green pepper and red onion inside the sandwich. The herring is the hero, not a vegetable salad or a sardine can. Preserve natural cured smoked fish texture, without grill marks, heads, bones or tails.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-baladi-herring-roe",
+      "asset_path": "assets/sandwich-baladi-herring-roe.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "4979e7462f7fc6b2ca3ef3ce7bebc7c4f2f187c968fa93f56f0e0429a38179cc",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 593,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/996/mediamkJQwV",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش سلطه بطارخ رنجه",
+          "ساندوتش سلطه كفيار رنجه"
+        ],
+        "source_descriptions": [
+          "العيش البلدي اللذيذ المحشو بالبطارخ والخضروات",
+          "عيش بلدي مع إضافة البطارخ الهولندي  والخضروات",
+          "عيش بلدي مع إضافة سلطة السردين الشهية  والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 593
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. Show one Egyptian baladi flatbread sandwich, the same small round wheat/bran pita bread pocket style as the reference, naturally held open so the filling is clearly visible. Keep the credible modest sandwich portion and ingredients true to the reference and subject. Center the sandwich alone on a plain white round ceramic plate, whole plate fully visible with white margin, pure white seamless background, soft natural daylight and delicate contact shadow. Slightly overhead three-quarter camera view, appetizing real texture, neutral colors. Remove the black slate, all surrounding dishes, lemon wedges, table herbs, flowers, scattered vegetables and old watermark. No French baguette, long roll, tortilla, burger bun, cheese, mayonnaise, fried patty, meat, text, logo or decorative props. No garnish outside sandwich. Subject: an Egyptian baladi pita containing smoked herring roe sacs (botarakh renga), natural small elongated brown/golden granular textured roe pieces, faithfully like the reference filling, with a modest amount of the reference green pepper/vegetable filling. This is roe, not whole fish fillets, salmon-orange pearls, black caviar, sausage or meat. Make the recognizable natural golden brown roe pieces the visible hero."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. Show one Egyptian baladi flatbread sandwich, the same small round wheat/bran pita bread pocket style as the reference, naturally held open so the filling is clearly visible. Keep the credible modest sandwich portion and ingredients true to the reference and subject. Center the sandwich alone on a plain white round ceramic plate, whole plate fully visible with white margin, pure white seamless background, soft natural daylight and delicate contact shadow. Slightly overhead three-quarter camera view, appetizing real texture, neutral colors. Remove the black slate, all surrounding dishes, lemon wedges, table herbs, flowers, scattered vegetables and old watermark. No French baguette, long roll, tortilla, burger bun, cheese, mayonnaise, fried patty, meat, text, logo or decorative props. No garnish outside sandwich. Subject: an Egyptian baladi pita containing smoked herring roe sacs (botarakh renga), natural small elongated brown/golden granular textured roe pieces, faithfully like the reference filling, with a modest amount of the reference green pepper/vegetable filling. This is roe, not whole fish fillets, salmon-orange pearls, black caviar, sausage or meat. Make the recognizable natural golden brown roe pieces the visible hero.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-baladi-sardine",
+      "asset_path": "assets/sandwich-baladi-sardine.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "7a4e0779a7761541abbb63580400fa25cbf1127a5a8dccca9b3d5a2b1cac653b",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 592,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/995/mediaHZT6f5",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش سلطه سردين"
+        ],
+        "source_descriptions": [
+          "العيش البلدي اللذيذ المحشو بالسردين المخلي والخضروات",
+          "عيش بلدي مع إضافة اسلط السردين الغنية  والخضروات",
+          "عيش بلدي مع إضافة سلطة السردين  والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 592
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. Show one Egyptian baladi flatbread sandwich, the same small round wheat/bran pita bread pocket style as the reference, naturally held open so the filling is clearly visible. Keep the credible modest sandwich portion and ingredients true to the reference and subject. Center the sandwich alone on a plain white round ceramic plate, whole plate fully visible with white margin, pure white seamless background, soft natural daylight and delicate contact shadow. Slightly overhead three-quarter camera view, appetizing real texture, neutral colors. Remove the black slate, all surrounding dishes, lemon wedges, table herbs, flowers, scattered vegetables and old watermark. No French baguette, long roll, tortilla, burger bun, cheese, mayonnaise, fried patty, meat, text, logo or decorative props. No garnish outside sandwich. Subject: a baladi pita filled with boneless salt-cured sardine fillet pieces. Recognizable small slender sardine fish fillets, silver-gray skin with tender tan flesh, a little green pepper and red onion mixed within the fish salad filling. The sandwich is sold as sardine salad; no whole heads, tails or bones. Plain authentic Egyptian sandwich, not a fried fish sandwich."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: realistic professional Egyptian fish restaurant menu catalog photograph. Image 1 is the existing sandwich food reference, image 2 only the white catalog photography style. Show one Egyptian baladi flatbread sandwich, the same small round wheat/bran pita bread pocket style as the reference, naturally held open so the filling is clearly visible. Keep the credible modest sandwich portion and ingredients true to the reference and subject. Center the sandwich alone on a plain white round ceramic plate, whole plate fully visible with white margin, pure white seamless background, soft natural daylight and delicate contact shadow. Slightly overhead three-quarter camera view, appetizing real texture, neutral colors. Remove the black slate, all surrounding dishes, lemon wedges, table herbs, flowers, scattered vegetables and old watermark. No French baguette, long roll, tortilla, burger bun, cheese, mayonnaise, fried patty, meat, text, logo or decorative props. No garnish outside sandwich. Subject: a baladi pita filled with boneless salt-cured sardine fillet pieces. Recognizable small slender sardine fish fillets, silver-gray skin with tender tan flesh, a little green pepper and red onion mixed within the fish salad filling. The sandwich is sold as sardine salad; no whole heads, tails or bones. Plain authentic Egyptian sandwich, not a fried fish sandwich.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-burger-feseekh",
+      "asset_path": "assets/sandwich-burger-feseekh.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "30923e722be01b1cc0ce9538b5f406dacd4c7b0efc4543f1218f7da96554a7ea",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 591,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/994/mediaQF372e",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش برجر فسيح"
+        ],
+        "source_descriptions": [
+          "عيش البرجر اللذيذ المحشو بالفسيخ المخلي والخضروات",
+          "عيش برجر شهي مع إضافة الفسيخ المخلي والخضروات",
+          "عيش برجر مع إضافة الفسيخ المخلي والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 591
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: realistic professional Egyptian restaurant menu catalog image. Image 1 is the existing food identity reference; image 2 is only the white catalog photography style. One sandwich only, centered on a plain round white ceramic plate, entire plate visible with about10percent white margin, pure white seamless background and soft contact shadow. Slightly overhead three-quarter camera angle, soft natural daylight, crisp edible texture and accurate neutral colors. Keep the referenced bun shape and credible modest portion, make the fish filling clearly visible. Remove black slate, side dishes, lemons, surrounding herbs, flowers and original watermark. No text/logo/watermark, no cheese/mayonnaise/fried fish/beef patties, no decorative garnish/cutlery. Subject: one golden sesame burger bun containing boneless Egyptian feseekh (salt-cured fermented mullet) fillet pieces, moist pale ivory and gently pink fish flesh with subtle silvery skin, plus the modest green vegetable filling already present in the reference. This is a cured mullet fish sandwich, never cooked chicken, smoked salmon or meat. Natural fresh serving, not slimy or raw-red."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: realistic professional Egyptian restaurant menu catalog image. Image 1 is the existing food identity reference; image 2 is only the white catalog photography style. One sandwich only, centered on a plain round white ceramic plate, entire plate visible with about10percent white margin, pure white seamless background and soft contact shadow. Slightly overhead three-quarter camera angle, soft natural daylight, crisp edible texture and accurate neutral colors. Keep the referenced bun shape and credible modest portion, make the fish filling clearly visible. Remove black slate, side dishes, lemons, surrounding herbs, flowers and original watermark. No text/logo/watermark, no cheese/mayonnaise/fried fish/beef patties, no decorative garnish/cutlery. Subject: one golden sesame burger bun containing boneless Egyptian feseekh (salt-cured fermented mullet) fillet pieces, moist pale ivory and gently pink fish flesh with subtle silvery skin, plus the modest green vegetable filling already present in the reference. This is a cured mullet fish sandwich, never cooked chicken, smoked salmon or meat. Natural fresh serving, not slimy or raw-red.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-burger-herring",
+      "asset_path": "assets/sandwich-burger-herring.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "f276246d06a245cc050c23c22373591eee726a18a1cb3186f42bf1da939b0f16",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 597,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1000/media9WMs8i",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش برجر رنجه"
+        ],
+        "source_descriptions": [
+          "عيش البرجر اللذيذ المحشو بالرنجه المخليه والخضروات",
+          "عيش البرجر اللذيذ مع إضافة الرنجه الفيليه والخضروات",
+          "عيش برجر مع إضافة سلطة الرنجه  والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 597
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: realistic professional Egyptian restaurant menu catalog image. Image 1 is the existing food identity reference; image 2 is only the white catalog photography style. One sandwich only, centered on a plain round white ceramic plate, entire plate visible with about10percent white margin, pure white seamless background and soft contact shadow. Slightly overhead three-quarter camera angle, soft natural daylight, crisp edible texture and accurate neutral colors. Keep the referenced bun shape and credible modest portion, make the fish filling clearly visible. Remove black slate, side dishes, lemons, surrounding herbs, flowers and original watermark. No text/logo/watermark, no cheese/mayonnaise/fried fish/beef patties, no decorative garnish/cutlery. Subject: one golden sesame burger bun containing boneless cold-smoked Egyptian herring fillet flakes, tan-golden flesh and subtle silver skin, and the visible green pepper pieces from the existing reference. The fish must be recognizable and clearly visible, not a fried patty or generic meat. Preserve the existing reference's herring and bun identity."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: realistic professional Egyptian restaurant menu catalog image. Image 1 is the existing food identity reference; image 2 is only the white catalog photography style. One sandwich only, centered on a plain round white ceramic plate, entire plate visible with about10percent white margin, pure white seamless background and soft contact shadow. Slightly overhead three-quarter camera angle, soft natural daylight, crisp edible texture and accurate neutral colors. Keep the referenced bun shape and credible modest portion, make the fish filling clearly visible. Remove black slate, side dishes, lemons, surrounding herbs, flowers and original watermark. No text/logo/watermark, no cheese/mayonnaise/fried fish/beef patties, no decorative garnish/cutlery. Subject: one golden sesame burger bun containing boneless cold-smoked Egyptian herring fillet flakes, tan-golden flesh and subtle silver skin, and the visible green pepper pieces from the existing reference. The fish must be recognizable and clearly visible, not a fried patty or generic meat. Preserve the existing reference's herring and bun identity.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "sandwich-burger-sardine",
+      "asset_path": "assets/sandwich-burger-sardine.jpg",
+      "generation_family": "sandwiches",
+      "generator": "built-in image_gen",
+      "sha256": "0812dfda29f6fc2021a1f67af06568af38d124291e089bebedcc48d65e8fd5c5",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 590,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/993/mediacHE1To",
+        "product_ids": [
+          12
+        ],
+        "display_names": [
+          "ساندوتش برجر سردين"
+        ],
+        "source_descriptions": [
+          "عيش البرجر اللذيذ المحشو بالسردين المخلي والخضروات",
+          "عيش البرجر اللذيذ مع إضافة السردين المخلي الشهي والخضروات",
+          "عيش برجر مع إضافة السردين المخلي والخضروات"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "recorded food reference menu identity",
+          "catalog_menu_id": 590
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset: professional Egyptian restaurant menu catalog photograph. Image 1 is the existing sardine burger food reference; image 2 is only the clean white photography style reference. Rephotograph a single small round golden sesame burger bun filled with boneless salt-cured sardine fillets and the modest green vegetable filling visible in image 1. This is a fish sandwich, never a beef or fried fish patty. Show the fish filling clearly at the front; naturally lift the top bun slightly, with credible edible proportions. Place only this one sandwich on a plain round white ceramic plate, entire plate visible, centered in a square image, pure white seamless background with a soft contact shadow. Slightly overhead three-quarter camera angle, natural soft daylight, crisp appetizing real textures, neutral accurate colors. Keep the food identity and type of bun faithful to image 1. Remove the black slate scene, surrounding dishes, lemons, herbs, flowers and old watermark. No added cheese, no mayonnaise, no garnish, no cutlery, no text, no logo, no watermark. Leave approximately 10 percent white margin around the full plate; no cropped edges."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset: professional Egyptian restaurant menu catalog photograph. Image 1 is the existing sardine burger food reference; image 2 is only the clean white photography style reference. Rephotograph a single small round golden sesame burger bun filled with boneless salt-cured sardine fillets and the modest green vegetable filling visible in image 1. This is a fish sandwich, never a beef or fried fish patty. Show the fish filling clearly at the front; naturally lift the top bun slightly, with credible edible proportions. Place only this one sandwich on a plain round white ceramic plate, entire plate visible, centered in a square image, pure white seamless background with a soft contact shadow. Slightly overhead three-quarter camera angle, natural soft daylight, crisp appetizing real textures, neutral accurate colors. Keep the food identity and type of bun faithful to image 1. Remove the black slate scene, surrounding dishes, lemons, herbs, flowers and old watermark. No added cheese, no mayonnaise, no garnish, no cutlery, no text, no logo, no watermark. Leave approximately 10 percent white margin around the full plate; no cropped edges.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography."
+    },
+    {
+      "key": "tin-anchovy-200",
+      "asset_path": "assets/tin-anchovy-200.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 588,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/991/mediaQxmAiT",
+        "product_ids": [
+          38
+        ],
+        "display_names": [
+          "عدد 20علبة أنشوجه وزن 200 جرام",
+          "علبة أنشوجه وزن 200 جرام",
+          "علبة انشوجه وزن  200 جرام"
+        ],
+        "source_descriptions": [
+          "علبه انشوجه 200جرام",
+          "علبه انشوجه وزن 200جرام",
+          "علبه انشوجه وزن 200جرام صافي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-200-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub."
+        }
+      ],
+      "full_final_prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-200",
+        "tin-anchovy-200",
+        "tin-moloha-200",
+        "tin-sardine-200"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-feseekh-200",
+      "asset_path": "assets/tin-feseekh-200.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 864,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1437/medianCDnpv",
+        "product_ids": [
+          7
+        ],
+        "display_names": [
+          "عدد 20 علبة فسيخ وزن 200 جرام",
+          "علبة فسيخ 200 جرام",
+          "علبة فسيخ وزن 200 جرام",
+          "علبه فسيخ وزن 200 جرام"
+        ],
+        "source_descriptions": [
+          "علبه فسيخ 200جرام",
+          "علبه فسيخ صغبره وزن 200جرام صافي",
+          "علبه فسيخ وزن 200 جرام",
+          "علبه فسيخ وزن 200جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-200-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub."
+        }
+      ],
+      "full_final_prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-200",
+        "tin-anchovy-200",
+        "tin-moloha-200",
+        "tin-sardine-200"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-feseekh-400",
+      "asset_path": "assets/tin-feseekh-400.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "5319331b3b287148f4ea75f869c334955e2bdfaead89fa31f799e1936e0b8373",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 865,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1438/mediaB4o4ss",
+        "product_ids": [
+          7
+        ],
+        "display_names": [
+          "عدد 20 علبة فسيخ وزن 400 جرام",
+          "علبة فسيخ وزن 400 جرام",
+          "علبه فسيخ وزن 400جرام",
+          "علية فسيخ وزن 400 جرام"
+        ],
+        "source_descriptions": [
+          "علبه فسيخ 400 جرام",
+          "علبه فسيخ وزن 400جرام",
+          "علبه فسيخ وزن 400جرام صافي"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-400-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target Image1: background replacement ONLY for the actual taller clear cylindrical Fasakhansta salted-fish tub with clear lid. Keep this SAME actual tub, its original container proportions, fish contents, label, logo, all readable printed brand words (FASKHANSTA, Salted Fish, Made In Egypt, Exp Date 6 months) unchanged. Do not sharpen or reconstruct small blurry microprint, phone or address; preserve original softness so no invented numbers become readable. Remove sunset, wooden serving board, herbs, salt and separate bottom watermark. Place the unchanged photographed sealed tub alone on a seamless pure white studio surface/background, soft contact shadow, bright neutral daylight. Center the whole tall tub with generous white margin, product about70% of square height. No new text, no other food or decorations, no plate. Preserve label geometry and actual product appearance; only the scene changes."
+        }
+      ],
+      "full_final_prompt": "Edit target Image1: background replacement ONLY for the actual taller clear cylindrical Fasakhansta salted-fish tub with clear lid. Keep this SAME actual tub, its original container proportions, fish contents, label, logo, all readable printed brand words (FASKHANSTA, Salted Fish, Made In Egypt, Exp Date 6 months) unchanged. Do not sharpen or reconstruct small blurry microprint, phone or address; preserve original softness so no invented numbers become readable. Remove sunset, wooden serving board, herbs, salt and separate bottom watermark. Place the unchanged photographed sealed tub alone on a seamless pure white studio surface/background, soft contact shadow, bright neutral daylight. Center the whole tall tub with generous white margin, product about70% of square height. No new text, no other food or decorations, no plate. Preserve label geometry and actual product appearance; only the scene changes.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-400",
+        "tin-herring-400",
+        "tin-sardine-400"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-herring-200",
+      "asset_path": "assets/tin-herring-200.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "781b1ba546eb466d4c30e9401b88c259387ddd61c422446d686a4d681da63b7f",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 859,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1432/mediauiUzIK",
+        "product_ids": [
+          41
+        ],
+        "display_names": [
+          "عدد 20 علبة رنجه كان مخلية وزن 200جرام",
+          "علبة رنجه 200جرام",
+          "علبة رنجه كان مخلية وزن 200جرام"
+        ],
+        "source_descriptions": [
+          "علبة رنجه 200 جرام",
+          "علبة رنجه مخليه",
+          "علبة رنجه مخليه وزن 200 جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-herring-200-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target: Image1. Replace background ONLY, retaining the original actual wide squat Fasakhansta clear sealed tub photograph. The black/orange printed label, fish contents, lid and container shape must remain unchanged. Preserve original soft illegible microprint; DO NOT generate readable new phone numbers or addresses, DO NOT sharpen/reconstruct text. Keep the original main FASKHANSTA brand, Salted Fish and logo. Remove wood, salt, herbs, background and any separate scene watermark. Place the original product against a seamless white background/surface, subtle contact shadow, neutral natural daylight, centered with whole tub visible and generous white margin. Product at about70% of square width. No new plate, food or props. Keep actual on-package design; only background removal and neutral scene are requested."
+        }
+      ],
+      "full_final_prompt": "Edit target: Image1. Replace background ONLY, retaining the original actual wide squat Fasakhansta clear sealed tub photograph. The black/orange printed label, fish contents, lid and container shape must remain unchanged. Preserve original soft illegible microprint; DO NOT generate readable new phone numbers or addresses, DO NOT sharpen/reconstruct text. Keep the original main FASKHANSTA brand, Salted Fish and logo. Remove wood, salt, herbs, background and any separate scene watermark. Place the original product against a seamless white background/surface, subtle contact shadow, neutral natural daylight, centered with whole tub visible and generous white margin. Product at about70% of square width. No new plate, food or props. Keep actual on-package design; only background removal and neutral scene are requested.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-herring-200"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-herring-400",
+      "asset_path": "assets/tin-herring-400.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "5319331b3b287148f4ea75f869c334955e2bdfaead89fa31f799e1936e0b8373",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 860,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1433/mediarwXwzH",
+        "product_ids": [
+          41
+        ],
+        "display_names": [
+          "عدد 20 علبة رنجه وزن 400 جرام",
+          "علبة رنجه 400 جرام",
+          "علبة رنجه وزن 400 جرام"
+        ],
+        "source_descriptions": [
+          "علبة رنجه 400 جرام",
+          "علبة رنجه كانز مخليه وزن 400 جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-400-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target Image1: background replacement ONLY for the actual taller clear cylindrical Fasakhansta salted-fish tub with clear lid. Keep this SAME actual tub, its original container proportions, fish contents, label, logo, all readable printed brand words (FASKHANSTA, Salted Fish, Made In Egypt, Exp Date 6 months) unchanged. Do not sharpen or reconstruct small blurry microprint, phone or address; preserve original softness so no invented numbers become readable. Remove sunset, wooden serving board, herbs, salt and separate bottom watermark. Place the unchanged photographed sealed tub alone on a seamless pure white studio surface/background, soft contact shadow, bright neutral daylight. Center the whole tall tub with generous white margin, product about70% of square height. No new text, no other food or decorations, no plate. Preserve label geometry and actual product appearance; only the scene changes."
+        }
+      ],
+      "full_final_prompt": "Edit target Image1: background replacement ONLY for the actual taller clear cylindrical Fasakhansta salted-fish tub with clear lid. Keep this SAME actual tub, its original container proportions, fish contents, label, logo, all readable printed brand words (FASKHANSTA, Salted Fish, Made In Egypt, Exp Date 6 months) unchanged. Do not sharpen or reconstruct small blurry microprint, phone or address; preserve original softness so no invented numbers become readable. Remove sunset, wooden serving board, herbs, salt and separate bottom watermark. Place the unchanged photographed sealed tub alone on a seamless pure white studio surface/background, soft contact shadow, bright neutral daylight. Center the whole tall tub with generous white margin, product about70% of square height. No new text, no other food or decorations, no plate. Preserve label geometry and actual product appearance; only the scene changes.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-400",
+        "tin-herring-400",
+        "tin-sardine-400"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-herring-roe-400",
+      "asset_path": "assets/tin-herring-roe-400.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "a566d6caa9e3874c08434cfa8d144c912569bec7054a5ebf1fe12907cb1c069c",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 586,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/989/mediaj9wBJO",
+        "product_ids": [
+          2
+        ],
+        "display_names": [
+          "عدد 20 علبة بطارخ ورن 400 جرام",
+          "علبة بطاخ رنجه وزن400جرام",
+          "علبة بطارخ رنجه 400 جرام",
+          "علبة بطارخ ورن 400 جرام"
+        ],
+        "source_descriptions": [
+          "بطارخ رنجه خشن 400 جرام",
+          "بطارخ رنجه خشن وزن400جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-herring-roe-400-source.image"
+        },
+        {
+          "role": "style only",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: precise-object-edit / food catalog photography. Image1 is the product-identity reference: cured smoked herring roe lobes (Egyptian بطارخ رنجة), natural amber-brown elongated soft tapered lobes, not salmon eggs and not cooked fish fillets. Keep the actual type, color and natural texture of this herring roe. Present only the roe from that reference neatly on a plain white ceramic plate, centered on seamless pure white background/surface. Remove all onion, cucumber, lemon, garnish, herbs, flowers, side bowls, black plate, dark slate scene and watermark. Whole white plate fully visible with about10% margin, slightly overhead three-quarter camera, product occupying75% of square, bright soft neutral natural daylight, subtle contact shadow. No new packaging or label should be invented since source depicts loose roe. No text, logos or watermarks anywhere. Image2 is STYLE REFERENCE ONLY for the clean white catalog lighting and uncluttered white plate; do not include tomatoes."
+        }
+      ],
+      "full_final_prompt": "Use case: precise-object-edit / food catalog photography. Image1 is the product-identity reference: cured smoked herring roe lobes (Egyptian بطارخ رنجة), natural amber-brown elongated soft tapered lobes, not salmon eggs and not cooked fish fillets. Keep the actual type, color and natural texture of this herring roe. Present only the roe from that reference neatly on a plain white ceramic plate, centered on seamless pure white background/surface. Remove all onion, cucumber, lemon, garnish, herbs, flowers, side bowls, black plate, dark slate scene and watermark. Whole white plate fully visible with about10% margin, slightly overhead three-quarter camera, product occupying75% of square, bright soft neutral natural daylight, subtle contact shadow. No new packaging or label should be invented since source depicts loose roe. No text, logos or watermarks anywhere. Image2 is STYLE REFERENCE ONLY for the clean white catalog lighting and uncluttered white plate; do not include tomatoes.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-herring-roe-400"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-moloha-200",
+      "asset_path": "assets/tin-moloha-200.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 867,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1440/mediaP2iuHm",
+        "product_ids": [
+          39
+        ],
+        "display_names": [
+          "عدد 20 علبة ملوحه مخليه وزن 200 جرام",
+          "علبة ملوحه مخليه 200 جرام",
+          "علبة ملوحه مخليه وزن 200 جرام",
+          "علبه ملوحه وزن 200جرام"
+        ],
+        "source_descriptions": [
+          "علبه ملوحه 200جرام",
+          "علبه ملوحه وزن 200جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-200-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub."
+        }
+      ],
+      "full_final_prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-200",
+        "tin-anchovy-200",
+        "tin-moloha-200",
+        "tin-sardine-200"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-sardine-200",
+      "asset_path": "assets/tin-sardine-200.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "d5009f76294dbf8d2fc4c79faa19388bc96244c1b449f5b4f21ba88f30587735",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 861,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1434/mediaQDwWsE",
+        "product_ids": [
+          40
+        ],
+        "display_names": [
+          "عدد 20 علبة سردين مخلي وزن 200 جرام",
+          "علبة سردين 200 جرام",
+          "علبة سردين مخلي وزن 200 جرام"
+        ],
+        "source_descriptions": [
+          "علبة سردين كانز مخليه وزن 200 جرام",
+          "علبة سردين مخليه 200 جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-200-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub."
+        }
+      ],
+      "full_final_prompt": "Edit target: image1. Background replacement ONLY. Keep the actual tub and its printed label exactly as photographed. Do NOT regenerate, redraw, upscale, sharpen or enhance the product, logo, label, lettering, address or phone. Do NOT make blurry text more readable. Preserve all original product pixels/softness as closely as possible. Remove the wooden board, salt, herbs, sunset/background and separate bottom watermark, leaving just the original tub centered against a plain clean white background with a soft natural contact shadow. Retain the original camera view, proportions and appearance. Leave generous clean white margin and no new text or objects. The only intended change is removal of scene/background and centering the unchanged photographed tub.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-200",
+        "tin-anchovy-200",
+        "tin-moloha-200",
+        "tin-sardine-200"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "tin-sardine-400",
+      "asset_path": "assets/tin-sardine-400.jpg",
+      "generation_family": "packaged-fish",
+      "generator": "built-in image_gen",
+      "sha256": "5319331b3b287148f4ea75f869c334955e2bdfaead89fa31f799e1936e0b8373",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 863,
+        "catalog_resturant_id": 307,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/1436/mediarPpXny",
+        "product_ids": [
+          40
+        ],
+        "display_names": [
+          "عدد 20 علبة سردين مخلي وزن 400 جرام",
+          "علبة سردين 400 جرام",
+          "علبة سردين مخلي وزن 400 جرام"
+        ],
+        "source_descriptions": [
+          "علبة سردين 400 جرام",
+          "علبة سردين مخلي وزن 400 جرام"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "actual recorded edit target",
+          "identifier": "tin-feseekh-400-source.image"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Edit target Image1: background replacement ONLY for the actual taller clear cylindrical Fasakhansta salted-fish tub with clear lid. Keep this SAME actual tub, its original container proportions, fish contents, label, logo, all readable printed brand words (FASKHANSTA, Salted Fish, Made In Egypt, Exp Date 6 months) unchanged. Do not sharpen or reconstruct small blurry microprint, phone or address; preserve original softness so no invented numbers become readable. Remove sunset, wooden serving board, herbs, salt and separate bottom watermark. Place the unchanged photographed sealed tub alone on a seamless pure white studio surface/background, soft contact shadow, bright neutral daylight. Center the whole tall tub with generous white margin, product about70% of square height. No new text, no other food or decorations, no plate. Preserve label geometry and actual product appearance; only the scene changes."
+        }
+      ],
+      "full_final_prompt": "Edit target Image1: background replacement ONLY for the actual taller clear cylindrical Fasakhansta salted-fish tub with clear lid. Keep this SAME actual tub, its original container proportions, fish contents, label, logo, all readable printed brand words (FASKHANSTA, Salted Fish, Made In Egypt, Exp Date 6 months) unchanged. Do not sharpen or reconstruct small blurry microprint, phone or address; preserve original softness so no invented numbers become readable. Remove sunset, wooden serving board, herbs, salt and separate bottom watermark. Place the unchanged photographed sealed tub alone on a seamless pure white studio surface/background, soft contact shadow, bright neutral daylight. Center the whole tall tub with generous white margin, product about70% of square height. No new text, no other food or decorations, no plate. Preserve label geometry and actual product appearance; only the scene changes.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "shared_visual_keys": [
+        "tin-feseekh-400",
+        "tin-herring-400",
+        "tin-sardine-400"
+      ],
+      "qa_notes": [
+        "The source catalog already shares generic branded containers across fish species; the final edit is deliberately shared among those same visual identities.",
+        "Recognizable main brand/container identity was retained. Tiny secondary label microprint is naturally soft; exact wording and pixel identity are not claimed.",
+        "Roe retains the source loose-product portrayal rather than inventing an unseen container."
+      ]
+    },
+    {
+      "key": "whole-herring",
+      "asset_path": "assets/whole-herring.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "71a99c5e42e5571f96edb1cc849595b00c823bcabe6e8081a3bce75a2ec66221",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 561,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/965/mediaaSj4tJ",
+        "product_ids": [
+          20
+        ],
+        "display_names": [
+          "رنجه هيرنج",
+          "عدد 10 كراتين رنجه هيرنج سمينه"
+        ],
+        "source_descriptions": [
+          "كيلو رنجه سمين"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 561,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square professional restaurant menu photo. Image1 is food identity reference for whole golden cold-smoked herring sold as Egyptian renga. Image2 is clean white catalog style reference only. Create a new realistic natural food catalog photograph of three whole golden cold-smoked herring with intact heads and complete tails, neatly side by side on one plain white oval ceramic platter. Preserve recognizably herring anatomy and golden silver smoky skins; do not use mullet, salmon or mackerel and do not grill or fry the fish. The three fish are the sole food in frame. Pure seamless white background, plain white platter entirely visible with generous white margin, slightly overhead3/4angle, soft natural diffuse daylight, subtle shadow and controlled highlights showing skin texture. Product and plate occupy about75percent of square. Remove the old black slate styling and all scene clutter. No onion, tomatoes, lemon, herbs, salt piles, utensils, secondary dishes, visible roe, text, brand or watermark. Professional appetizing but honest cold-smoked fish product depiction."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square professional restaurant menu photo. Image1 is food identity reference for whole golden cold-smoked herring sold as Egyptian renga. Image2 is clean white catalog style reference only. Create a new realistic natural food catalog photograph of three whole golden cold-smoked herring with intact heads and complete tails, neatly side by side on one plain white oval ceramic platter. Preserve recognizably herring anatomy and golden silver smoky skins; do not use mullet, salmon or mackerel and do not grill or fry the fish. The three fish are the sole food in frame. Pure seamless white background, plain white platter entirely visible with generous white margin, slightly overhead3/4angle, soft natural diffuse daylight, subtle shadow and controlled highlights showing skin texture. Product and plate occupy about75percent of square. Remove the old black slate styling and all scene clutter. No onion, tomatoes, lemon, herbs, salt piles, utensils, secondary dishes, visible roe, text, brand or watermark. Professional appetizing but honest cold-smoked fish product depiction.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 3
+    },
+    {
+      "key": "whole-herring-lemonwood",
+      "asset_path": "assets/whole-herring-lemonwood.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "f5e00e0e64f567e9ef5ee8f8963753055d18c836a02b2ff97f58b891ac59fba4",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 563,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/967/media5Ex6hg",
+        "product_ids": [
+          20
+        ],
+        "display_names": [
+          "رنجه تدخين اشجار ليمون"
+        ],
+        "source_descriptions": [
+          "كيلو رنجه تدخين اشجار الليمون"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 563,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square restaurant menu product photograph. InputImage1 is the food identity reference for Egyptian golden herring cold-smoked using lemon-tree wood. InputImage2 only references clean white product photography style. Create a new realistic professional catalog photo of TWO elongated whole lemonwood-smoked herring, intact heads and complete tails clearly visible, neatly laid side by side on a plain white oval ceramic platter. Preserve herring anatomy, natural smoky amber-gold and silver skin tones, subtle natural differences between fish. Cold-smoked fish, not grilled, fried, roasted or breaded. There are NO pieces of wood, NO lemon and no other ingredients: the smoking method does not mean these objects are served. Pure white seamless background, slightly overhead3/4camera, clean soft natural daylight and gentle shadow, entire platter and fish inside the square frame with generous white margins. Product-only clear catalog composition. No vegetables, garnish, herbs, onion, salt piles, bowls, utensils, text, branding or watermark."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square restaurant menu product photograph. InputImage1 is the food identity reference for Egyptian golden herring cold-smoked using lemon-tree wood. InputImage2 only references clean white product photography style. Create a new realistic professional catalog photo of TWO elongated whole lemonwood-smoked herring, intact heads and complete tails clearly visible, neatly laid side by side on a plain white oval ceramic platter. Preserve herring anatomy, natural smoky amber-gold and silver skin tones, subtle natural differences between fish. Cold-smoked fish, not grilled, fried, roasted or breaded. There are NO pieces of wood, NO lemon and no other ingredients: the smoking method does not mean these objects are served. Pure white seamless background, slightly overhead3/4camera, clean soft natural daylight and gentle shadow, entire platter and fish inside the square frame with generous white margins. Product-only clear catalog composition. No vegetables, garnish, herbs, onion, salt piles, bowls, utensils, text, branding or watermark.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 2
+    },
+    {
+      "key": "whole-herring-roe",
+      "asset_path": "assets/whole-herring-roe.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "4cffe9d39273bf360d3bf0d1044193a0b51176ae1f601cc689a3fbfb20eafa93",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 562,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/966/mediaCm4zRu",
+        "product_ids": [
+          20
+        ],
+        "display_names": [
+          "رنجه هيرنج مبطرخ",
+          "عدد 10 كراتين رنجه هيرنج مبطرخ"
+        ],
+        "source_descriptions": [
+          "كيلو رنجه مبطرخ"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 562,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Square professional restaurant menu product photo of Egyptian roe-bearing golden cold-smoked herring (renga mobatrakh). Image1 is the original food identity reference; Image2 only provides the pure white catalog photography style. Three herring on a plain white oval ceramic platter: two whole fish in the back, and one in front carefully opened along its side to reveal the natural paired firm golden-orange herring roe sacs inside. Roe must be realistic elongated intact granular roe sacs, NOT round salmon eggs, not red caviar beads, not sausage, and not a separate added product. Preserve herring anatomy and naturally golden cold-smoked skin with subtle silver reflection. Slightly overhead3/4angle, soft clean natural daylight, detailed real food photography. Pure seamless white background, entire plate and heads/tails fully in frame with white margins, about75percent image coverage. No vegetables, lemon, herbs, garnish, salt piles, sauce, bowls, utensils, text, label, brand, watermark. No grilled or fried presentation. The natural roe should make this roe-bearing variant visibly distinguishable from plain herring."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Square professional restaurant menu product photo of Egyptian roe-bearing golden cold-smoked herring (renga mobatrakh). Image1 is the original food identity reference; Image2 only provides the pure white catalog photography style. Three herring on a plain white oval ceramic platter: two whole fish in the back, and one in front carefully opened along its side to reveal the natural paired firm golden-orange herring roe sacs inside. Roe must be realistic elongated intact granular roe sacs, NOT round salmon eggs, not red caviar beads, not sausage, and not a separate added product. Preserve herring anatomy and naturally golden cold-smoked skin with subtle silver reflection. Slightly overhead3/4angle, soft clean natural daylight, detailed real food photography. Pure seamless white background, entire plate and heads/tails fully in frame with white margins, about75percent image coverage. No vegetables, lemon, herbs, garnish, salt piles, sauce, bowls, utensils, text, label, brand, watermark. No grilled or fried presentation. The natural roe should make this roe-bearing variant visibly distinguishable from plain herring.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 3
+    },
+    {
+      "key": "whole-sardine",
+      "asset_path": "assets/whole-sardine.jpg",
+      "generation_family": "whole-fish",
+      "generator": "built-in image_gen",
+      "sha256": "8a1c1342459866184a80cc7e58dbb0914d9759ad3bc561d103ee63a9a7d7d55e",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "source_reference": {
+        "catalog_menu_id": 564,
+        "catalog_resturant_id": 94,
+        "catalog_image_url": "https://fasakhaninja.com/storage/products/968/mediaId0OL1",
+        "product_ids": [
+          37
+        ],
+        "display_names": [
+          "برميل سردين بلدي حجم الدبابه",
+          "سردين"
+        ],
+        "source_descriptions": [
+          "كيلو سردين بلدي كبير"
+        ]
+      },
+      "reference_identities": [
+        {
+          "role": "verified current catalog product identity",
+          "catalog_menu_id": 564,
+          "catalog_resturant_id": 94
+        },
+        {
+          "role": "white catalog style identity",
+          "identifier": "tomato-plate.png"
+        }
+      ],
+      "reference_recording_note": "Current catalog product identity is verified. Exact historical image input filenames are not asserted unless explicitly recorded above. Style reference supplied appearance only, not additional food.",
+      "prompt_history": [
+        {
+          "stage": "initial_generation_or_edit",
+          "prompt": "Use case: product-mockup. Asset type: square professional restaurant menu catalog photo. Image1 gives the product identity: Egyptian whole salt-cured sardines sold as sardine baladi, with silvery naturally cured skins. Image2 gives pure white catalog styling only. Create a photorealistic catalog image of a neat fan of SIX whole small salt-cured sardines on a plain white oval ceramic plate. All heads and tails visible, real slender sardine anatomy and blue-grey/silver skin with subtle natural pink cured areas, no grillmarks or char. They are salt-cured fish NOT fried/grilled/mackerel/herring. Pure seamless white background, soft diffuse daylight, gentle true shadow, slightly overhead3/4camera, wholewhiteplate and entirefish comfortably inside frame with ample white margins. Product occupiesabout75percent of square image. No lemon, herbs, vegetables, salt piles, sauce, containers, utensils, text, watermark, brand or logo. Professional natural readable appetizing product-only image."
+        }
+      ],
+      "full_final_prompt": "Use case: product-mockup. Asset type: square professional restaurant menu catalog photo. Image1 gives the product identity: Egyptian whole salt-cured sardines sold as sardine baladi, with silvery naturally cured skins. Image2 gives pure white catalog styling only. Create a photorealistic catalog image of a neat fan of SIX whole small salt-cured sardines on a plain white oval ceramic plate. All heads and tails visible, real slender sardine anatomy and blue-grey/silver skin with subtle natural pink cured areas, no grillmarks or char. They are salt-cured fish NOT fried/grilled/mackerel/herring. Pure seamless white background, soft diffuse daylight, gentle true shadow, slightly overhead3/4camera, wholewhiteplate and entirefish comfortably inside frame with ample white margins. Product occupiesabout75percent of square image. No lemon, herbs, vegetables, salt piles, sauce, containers, utensils, text, watermark, brand or logo. Professional natural readable appetizing product-only image.",
+      "source_faithfulness_note": "Prompts express intended source-faithful styling. Generative edits are not a claim of pixel-perfect preservation or documentary product photography.",
+      "reviewed_visible_fish_count": 5
+    }
+  ]
+}
