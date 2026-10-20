@@ -82,7 +82,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The acceptance checkout is not clean.' }
           $fixture = 'desktop-pos/test/installer-prerequisite-native.cjs'
           $workflow = '.github/workflows/desktop-dashboard-installer-verify.yml'
-          $expectedFixtureBlob = '067881663230dade358bd8f1049ef1bfbcbf2665'
+          $expectedFixtureBlob = 'ad24ab9392a7ea0ba37b507ad9310ad739ba8f80'
           # Every tracked file and mode is compared, including build tools and other fixtures.
           $changes = @(& git diff --raw --no-abbrev --no-renames $sourceRevision HEAD)
           if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 2) { throw 'Only the reviewed acceptance fixture and this follow-up workflow may differ.' }

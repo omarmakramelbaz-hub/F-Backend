@@ -48,7 +48,8 @@ module.exports=async project=>{
       .replace('SetCompressor /SOLID lzma','SetCompressor /SOLID zlib');
     await fs.writeFile(path.join(fixture,'installer-reviewed-windows.nsi'),reviewed);
     const wrapper=path.join(root,'failure.nsi');
-    await fs.writeFile(wrapper,'OutFile "'+safe(setup)+'"\n!define PROJECT_DIR "'+safe(fixture)+'"\n'
+    // Select the reviewed Unicode target before OutFile creates the NSIS header.
+    await fs.writeFile(wrapper,'Unicode true\nOutFile "'+safe(setup)+'"\n!define PROJECT_DIR "'+safe(fixture)+'"\n'
       +'!macro addLangs\n!insertmacro MUI_LANGUAGE "English"\n!macroend\n!include "'+safe(path.join(fixture,'installer-reviewed-windows.nsi'))+'"\n');
     execFileSync(compiler.path,['/V2',wrapper],{windowsHide:true,timeout:300000,env:{...process.env,...(compiler.env||{})}});
     const failure=spawnSync(setup,['/S','/D='+target],{windowsHide:true,windowsVerbatimArguments:true,timeout:120000});
