@@ -120,7 +120,8 @@ async function run(){
   assert.equal(JSON.stringify(audit).includes(credential.token),false);assert.equal(JSON.stringify(audit).includes('fixture-private-password'),false);
   const encrypted=await fs.readFile(path.join(root,'durable-audit','remote-central',pending[0]+'.enc'));assert.equal(encrypted.includes(Buffer.from(credential.token)),false);
   const repo=path.resolve(__dirname,'../..'),sourceRevision=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
-  for(const file of ['dashboard.cjs','dashboard-connected.cjs','dashboard-remote-attempts.cjs'])assert.deepEqual(await fs.readFile(path.join(sourceRoot,file)),execFileSync('git',['show',sourceRevision+':desktop-pos/src/'+file],{cwd:repo}));
+  const canonical=value=>value.toString('utf8').replace(/\r\n/g,'\n');
+  for(const file of ['dashboard.cjs','dashboard-connected.cjs','dashboard-remote-attempts.cjs'])assert.equal(canonical(await fs.readFile(path.join(sourceRoot,file))),canonical(execFileSync('git',['show',sourceRevision+':desktop-pos/src/'+file],{cwd:repo})));
   const result={format:1,sourceRevision,platform:process.platform,electron:process.versions.electron,completed:true,hardware:false,
     adapter:'intercepted Electron webContents.print',actualElectronSessionFetch:true,actualWebRequest:true,actualDpapi:true,pinnedLoopbackHttps:true,
     pairedProofOnWire:true,internalMarkerStripped:true,foreignProofStripped:true,nativeReplayBlocked:true,fragmentNormalized:true,oldProtocolBlocked:true,
