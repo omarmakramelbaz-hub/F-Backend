@@ -118,6 +118,58 @@ class CurrentBackupTests(unittest.TestCase):
             backup.verify_sql_package(self.sql_archive(secondary=False),
                                       ['fasakha_db', 'fasakha_dev_db'])
 
+    def registry(self, owner='fasakha', databases=None, primary='fasakha_db'):
+        path = self.root / 'fasakha-database-map.json'
+        document = {'version': 1, 'MYSQL': {'owner': owner,
+                    'dbs': databases if databases is not None else
+                        {'fasakha_db': 'localhost', 'fasakha_dev_db': 'localhost'},
+                    'dbusers': {'private_user': {'private_metadata': 'NOT_FOR_REPORT'}}},
+                    'PGSQL': {}}
+        path.write_text(json.dumps(document))
+        (self.home / 'public_html' / '.env').write_text('DB_DATABASE=' + primary + '\n')
+        return path
+
+    def test_local_registry_inventory_does_not_launch_uapi_or_expose_dbuser_metadata(self):
+        path = self.registry()
+        with patch.object(backup, 'DATABASE_MAP', path), \
+                patch.object(backup, 'run', side_effect=AssertionError('No API CLI should run')):
+            report = backup.database_inventory_from_map()
+        self.assertEqual(report['databases'], ['fasakha_db', 'fasakha_dev_db'])
+        self.assertEqual(report['source'], 'cpanel_account_ownership_map')
+        self.assertNotIn('NOT_FOR_REPORT', json.dumps(report))
+        self.assertNotIn('private_user', json.dumps(report))
+
+    def test_registry_cannot_belong_to_another_account(self):
+        path = self.registry(owner='another_account')
+        with patch.object(backup, 'DATABASE_MAP', path):
+            with self.assertRaises(backup.core.BackupError):
+                backup.database_inventory_from_map()
+
+    def test_registry_must_include_primary_live_database(self):
+        path = self.registry(databases={'fasakha_dev_db': 'localhost'})
+        with patch.object(backup, 'DATABASE_MAP', path):
+            with self.assertRaises(backup.core.BackupError):
+                backup.database_inventory_from_map()
+
+    def test_registry_supports_quoted_dotenv_database_names(self):
+        for value in ('"fasakha_db" # live', "'fasakha_db'", 'fasakha_db # live'):
+            path = self.registry(primary=value)
+            with patch.object(backup, 'DATABASE_MAP', path):
+                self.assertEqual(backup.database_inventory_from_map()['primary_application_database'],
+                                 'fasakha_db')
+
+    def test_unverified_postgresql_or_malformed_registry_stops_before_pruning(self):
+        path = self.registry()
+        document = json.loads(path.read_text())
+        document['PGSQL'] = {'dbs': {'fasakha_pg': 'localhost'}}
+        path.write_text(json.dumps(document))
+        with patch.object(backup, 'DATABASE_MAP', path):
+            with self.assertRaises(backup.core.BackupError):
+                backup.database_inventory_from_map()
+            path.write_text('MALFORMED JSON')
+            with self.assertRaises(backup.core.BackupError):
+                backup.database_inventory_from_map()
+
     def test_no_new_verified_backup_means_no_old_deletion(self):
         planned = [backup.fingerprint(p) for p in backup.candidate_paths()]
         with self.assertRaises(backup.core.BackupError):
