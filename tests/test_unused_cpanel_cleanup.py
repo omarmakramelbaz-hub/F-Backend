@@ -162,6 +162,31 @@ class CleanupTests(unittest.TestCase):
             stream.write(b'/*M!999999 sandbox mode */\n-- MariaDB dump 10.19\n')
         cleanup.require_sql_only_copy(mysql)
 
+    def test_observed_cpanel_sql_metadata_is_accepted_only_with_matching_dump(self):
+        mysql = self.base / 'mysql'
+        mysql.mkdir()
+        (mysql / 'fasakha_db.sql').write_bytes(b'-- MySQL dump 10.13\n')
+        (mysql / 'fasakha_db.create').write_bytes(
+            b'CREATE DATABASE /*!32312 IF NOT EXISTS*/ `fasakha_db` DEFAULT CHARACTER SET utf8mb4;\n')
+        (mysql / 'openfileslimit').write_bytes(b'16384')
+        cleanup.require_sql_only_copy(mysql)
+        (mysql / 'fasakha_db.sql').unlink()
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+
+    def test_unrecognized_create_and_open_file_metadata_are_retained(self):
+        mysql = self.base / 'mysql'
+        mysql.mkdir()
+        (mysql / 'fasakha_db.sql').write_bytes(b'-- MySQL dump 10.13\n')
+        metadata = mysql / 'fasakha_db.create'
+        metadata.write_bytes(b'CREATE DATABASE `different_db`;')
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+        metadata.unlink()
+        (mysql / 'openfileslimit').write_bytes(b'unexpected executable data')
+        with self.assertRaises(audit.AuditError):
+            cleanup.require_sql_only_copy(mysql)
+
     def test_sql_only_copy_rejects_unknown_database_even_with_valid_dump_header(self):
         mysql = self.base / 'mysql'
         mysql.mkdir()

@@ -95,10 +95,26 @@ def require_sql_only_copy(mysql, databases=('fasakha_db', 'fasakha_dev_db')):
          'SQL-only copy has an indirect mysql directory; retained.')
     entries = sorted(mysql.iterdir())
     need(entries, 'SQL-only copy is empty; retain for review.')
+    dumps, create_files = set(), set()
     for entry in entries:
         info = entry.lstat()
-        need(stat.S_ISREG(info.st_mode) and not entry.is_symlink() and
-             re.fullmatch(r'fasakha_[A-Za-z0-9_$-]+\.sql(?:\.gz)?', entry.name),
+        need(stat.S_ISREG(info.st_mode) and not entry.is_symlink(),
+             'Unrecognized file in SQL-only extraction; retained: ' + str(entry))
+        if entry.name == 'openfileslimit':
+            need(info.st_size <= 64 and re.fullmatch(br'[0-9]+\s*', entry.read_bytes()),
+                 'Unexpected old open-file limit metadata; retained: ' + str(entry))
+            continue
+        if entry.name.endswith('.create'):
+            database = entry.name[:-7]
+            need(database in databases and info.st_size <= 65536,
+                 'Unexpected old database creation metadata; retained: ' + str(entry))
+            content = entry.read_bytes()
+            need(b'\0' not in content and os.fsencode(database) in content and
+                 re.search(br'\bCREATE\s+DATABASE\b', content, re.I),
+                 'Unrecognized old database creation metadata; retained: ' + str(entry))
+            create_files.add(database)
+            continue
+        need(re.fullmatch(r'fasakha_[A-Za-z0-9_$-]+\.sql(?:\.gz)?', entry.name),
              'Unrecognized file in SQL-only extraction; retained: ' + str(entry))
         database = entry.name[:-3] if entry.name.endswith('.gz') else entry.name
         database = database[:-4]
@@ -112,6 +128,9 @@ def require_sql_only_copy(mysql, databases=('fasakha_db', 'fasakha_dev_db')):
             raise audit.AuditError('Cannot identify SQL dump; retained: ' + str(entry))
         need(b'-- MySQL dump' in header or b'-- MariaDB dump' in header,
              'SQL-only extraction contains an unrecognized dump; retained: ' + str(entry))
+        dumps.add(database)
+    need(dumps and create_files.issubset(dumps),
+         'Old database creation metadata has no matching recognized SQL dump; retained.')
 
 
 def cutoff_from_manifest(manifest):
@@ -133,7 +152,7 @@ def no_dependencies(paths):
     dependencies = audit.dependency_check(paths)
     for dependency in dependencies:
         print('DEPENDENCY_FOUND=' + str(dependency), flush=True)
-    need(not dependencies, 'A candidate is referenced; all old copies retained.')
+    need(not dependencies, 'A candidate is referenced; remaining old copies retained.')
 
 
 def write_report(path, report):
@@ -143,7 +162,7 @@ def write_report(path, report):
     path.with_name(path.name + '.sha256').write_text(checksum)
 
 
-def apply_plan(plan, cutoff_ns):
+def apply_plan(plan, cutoff_ns, extra_report=None):
     """Recheck all identities before renaming any approved path to private staging."""
     need(plan and len({row['path'] for row in plan}) == len(plan), 'Invalid cleanup plan.')
     paths = [row['path'] for row in plan]
@@ -170,6 +189,8 @@ def apply_plan(plan, cutoff_ns):
               'preserved_complete_backup': str(backup), 'planned': plan,
               'removed_paths': [], 'staged_paths': [], 'free_before_bytes': before,
               'status': 'started'}
+    if extra_report is not None:
+        report['additional_verification'] = extra_report
     write_report(report_path, report)
     try:
         for number, row in enumerate(plan):
