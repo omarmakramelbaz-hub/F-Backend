@@ -6,6 +6,8 @@ const fs=require('node:fs/promises'),fsSync=require('node:fs'),path=require('nod
 const https=require('node:https'),http=require('node:http'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
 assert.equal(process.platform,'win32','Run this acceptance in actual Windows Electron.');
+const lockedElectron=JSON.parse(fsSync.readFileSync(path.resolve(__dirname,'../package-lock.json'),'utf8')).packages['node_modules/electron'].version;
+assert.equal(process.versions.electron,lockedElectron,'The actual Electron process must match its locked package.');
 const root=fsSync.mkdtempSync(path.join(os.tmpdir(),'fasakhansta-connected-native-'));
 app.setPath('userData',path.join(root,'isolated-profile'));
 const sourceRoot=process.env.DESKTOP_TEST_SOURCE_MODULES||path.resolve(__dirname,'../src');
@@ -122,7 +124,7 @@ async function run(){
   const repo=path.resolve(__dirname,'../..'),sourceRevision=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim();
   const canonical=value=>value.toString('utf8').replace(/\r\n/g,'\n');
   for(const file of ['dashboard.cjs','dashboard-connected.cjs','dashboard-remote-attempts.cjs'])assert.equal(canonical(await fs.readFile(path.join(sourceRoot,file))),canonical(execFileSync('git',['show',sourceRevision+':desktop-pos/src/'+file],{cwd:repo})));
-  const result={format:1,sourceRevision,platform:process.platform,electron:process.versions.electron,completed:true,hardware:false,
+  const result={format:1,sourceRevision,platform:process.platform,electron:process.versions.electron,electronVersion:process.versions.electron,completed:true,hardware:false,
     adapter:'intercepted Electron webContents.print',actualElectronSessionFetch:true,actualWebRequest:true,actualDpapi:true,pinnedLoopbackHttps:true,
     pairedProofOnWire:true,internalMarkerStripped:true,foreignProofStripped:true,nativeReplayBlocked:true,fragmentNormalized:true,oldProtocolBlocked:true,
     lostReplyRetained:true,unboundedOriginalWrite:true,printedSources:4,originalWrites:1,invocations:4,lostPrintRequests:1};

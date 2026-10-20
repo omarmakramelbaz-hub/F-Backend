@@ -58,7 +58,11 @@ use Illuminate\Support\Str;
             $normal[$field]=$sorting?'-3':'off';verify($http($path,$normal)[0]===302&&$row()[$field]===($sorting?-3:'no'),
                 'ordinary online restaurant '.$field.' preserves its exact original input and database semantics');
         }
-        verify($decide($attempt('/admin/updateStatus/100'))[0]===422,'restaurant checkbox and featured ordering coverage does not claim unreviewed operating-status broadcasts');
+        // The reviewed single-restaurant status POST is exercised positively in
+        // restaurant-management.php. A zero identity still cannot reserve it.
+        $invalidStatus=$attempt('/admin/updateStatus/0');$statusBefore=$row();
+        verify($decide($invalidStatus)[0]===422&&!DB::table('desktop_dashboard_remote_attempts')->where('id',$invalidStatus['id'])->exists()&&$row()===$statusBefore,
+            'an invalid operating-status identity cannot reserve a native broadcast outcome or change the original restaurant');
         verify($related()===$relatedBefore,'native restaurant checkbox flags preserve all related rows and every other restaurant');
         echo 'Restaurant flag original native outcome acceptance completed'.PHP_EOL;
     }finally{$restore($original);DB::table('desktop_dashboard_devices')->where('id',$remoteDevice->id)->update(['actor_id'=>$deviceOriginal['actor_id'],'enabled'=>$deviceOriginal['enabled'],'branches'=>$deviceOriginal['branches']]);}
