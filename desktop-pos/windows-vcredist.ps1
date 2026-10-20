@@ -2,15 +2,31 @@
 [CmdletBinding()]
 param(
     [ValidateSet('ValidatePayload', 'EnsureInstalled')][string] $Action = 'EnsureInstalled',
-    [string] $PayloadPath = (Join-Path $PSScriptRoot 'vc_redist.x64.exe'),
-    [string] $PolicyPath = (Join-Path $PSScriptRoot 'windows-vcredist.json'),
+    [string] $PayloadPath,
+    [string] $PolicyPath,
     [string] $ReceiptPath,
     [switch] $Silent
 )
 
+# Windows PowerShell 5.1 resolves script automatic variables after param defaults.
+# Preserve every explicitly supplied value, including an empty path that must fail.
+if (-not $PSBoundParameters.ContainsKey('PayloadPath')) {
+    $PayloadPath = [IO.Path]::Combine($PSScriptRoot, 'vc_redist.x64.exe')
+}
+if (-not $PSBoundParameters.ContainsKey('PolicyPath')) {
+    $PolicyPath = [IO.Path]::Combine($PSScriptRoot, 'windows-vcredist.json')
+}
+
+# Electron/Node can inherit PowerShell 7's PSModulePath while launching 5.1.
+# Load only this engine's built-in modules, without changing the caller's path.
+foreach ($moduleName in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Security')) {
+    $manifest = [IO.Path]::Combine($PSHOME, 'Modules', $moduleName, ($moduleName + '.psd1'))
+    Microsoft.PowerShell.Core\Import-Module -Name $manifest -ErrorAction Stop
+}
+
 function Read-DesktopVcPolicy {
     param([string] $Path)
-    $policy = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json
+    $policy = Microsoft.PowerShell.Management\Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | Microsoft.PowerShell.Utility\ConvertFrom-Json
     if ($policy.format -ne 1 -or $policy.architecture -cne 'x64' -or
         $policy.version -notmatch '^14\.[0-9]+\.[0-9]+\.[0-9]+$' -or
         $policy.bytes -lt 1000000 -or $policy.bytes -gt 100000000 -or
@@ -43,12 +59,12 @@ function Get-DesktopVcInstalledVersion {
 
 function Test-DesktopVcPayload {
     param([string] $Path, $Policy)
-    $file = Get-Item -LiteralPath $Path -ErrorAction Stop
+    $file = Microsoft.PowerShell.Management\Get-Item -LiteralPath $Path -ErrorAction Stop
     if ($file.Length -ne $Policy.bytes -or
-        (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne $Policy.sha256) {
+        (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne $Policy.sha256) {
         throw 'The bundled Microsoft Visual C++ prerequisite does not match its pinned bytes.'
     }
-    $signature = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+    $signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
     if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
         $null -eq $signature.SignerCertificate -or
         $signature.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -cne 'Microsoft Corporation') {
@@ -70,7 +86,7 @@ function Invoke-DesktopVcInstaller {
     $display = if ($Quiet) { '/quiet' } else { '/passive' }
     try {
         # Never elevate a custom bootstrap script or the per-user dashboard itself.
-        $process = Start-Process -FilePath $Path -ArgumentList @('/install', $display, '/norestart') `
+        $process = Microsoft.PowerShell.Management\Start-Process -FilePath $Path -ArgumentList @('/install', $display, '/norestart') `
             -Verb RunAs -Wait -PassThru -ErrorAction Stop
         return $process.ExitCode
     } catch {
@@ -117,9 +133,9 @@ if ($MyInvocation.InvocationName -ne '.') {
         $policy = Read-DesktopVcPolicy -Path $PolicyPath
         if ($Action -eq 'ValidatePayload') { $result = Test-DesktopVcPayload -Path $PayloadPath -Policy $policy }
         else { $result = Initialize-DesktopVcRuntime -Path $PayloadPath -Policy $policy -Quiet:$Silent }
-        $json = $result | ConvertTo-Json -Depth 5
+        $json = $result | Microsoft.PowerShell.Utility\ConvertTo-Json -Depth 5
         if ($ReceiptPath) { [IO.File]::WriteAllText($ReceiptPath, $json + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false))) }
-        Write-Output $json
+        Microsoft.PowerShell.Utility\Write-Output $json
         if ($Action -eq 'EnsureInstalled' -and $result.rebootRequired) { exit 3010 }
         exit 0
     } catch {
