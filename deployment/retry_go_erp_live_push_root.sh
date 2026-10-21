@@ -10,7 +10,7 @@ fi
 go_rev="$2"
 [[ "$go_rev" =~ ^[a-f0-9]{40}$ ]]
 go_root=/home/fasakha/public_html
-go_retry_blob=8868e269de22224701caaf6a1743b09b1a6df74c
+go_retry_blob=8da3f1f89a2ab6ecbf5979942c97c7705510f2c1
 go_tmp="$(mktemp -d /tmp/go-erp-push-retry.XXXXXXXX)"
 go_restore_timer=0
 

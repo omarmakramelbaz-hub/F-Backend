@@ -21,10 +21,12 @@ MODULE_PINS = {'go_erp_live_source.py':'4ddb4c9a6dd4011b8308075ca330fe165304ae31
 REPOSITORY = 'omarmakramelbaz-hub/F-Backend'
 CATEGORIES = frozenset(('PUSH_SUCCEEDED','PUSH_NOT_ATTEMPTED','WRITE_PERMISSION_DENIED',
     'WORKFLOW_PERMISSION_REQUIRED','AUTHENTICATION_FAILED','BRANCH_PROTECTED',
+    'PUSH_PROTECTION','REPOSITORY_NOT_FOUND',
     'NETWORK_DNS','NETWORK_TLS','NETWORK_TIMEOUT','REMOTE_CHANGED','UNKNOWN_PRIVATE'))
 OUTCOMES = frozenset(('GO_ERP_LIVE_UPDATE_CURRENT','GO_ERP_LIVE_UPDATE_RETRY_DEFERRED',
     'GO_ERP_LIVE_UPDATE_CI_REVIEW_REQUIRED','GO_ERP_LIVE_UPDATE_WAITING_CI',
-    'GO_ERP_LIVE_UPDATE_SUPERSEDED','GO_ERP_LIVE_UPDATE_PUBLISHED'))
+    'GO_ERP_LIVE_UPDATE_SUPERSEDED','GO_ERP_LIVE_UPDATE_PUBLISHED',
+    'GO_ERP_LIVE_UPDATE_PUBLISHED_STORAGE_REVIEW_REQUIRED'))
 
 class Stop(Exception):
     pass
@@ -76,9 +78,12 @@ def classify(returncode,stdout,stderr):
     checks = (
         ('WORKFLOW_PERMISSION_REQUIRED',('workflow scope','workflows permission','workflow permission',
             'without `workflow` scope','without workflow scope','refusing to allow a personal access token to create or update workflow')),
+        ('PUSH_PROTECTION',('push cannot contain secrets','push protection')),
         ('BRANCH_PROTECTED',('protected branch','gh006','gh013','repository rule violations')),
         ('AUTHENTICATION_FAILED',('authentication failed','bad credentials','invalid username or password',
-            'could not read username','password authentication was removed')),
+            'invalid username or token','could not read username','password authentication was removed',
+            'password authentication is not supported')),
+        ('REPOSITORY_NOT_FOUND',('repository not found',)),
         ('WRITE_PERMISSION_DENIED',('write access to repository not granted','permission to ',
             'permission denied','the requested url returned error: 403')),
         ('NETWORK_DNS',('could not resolve host','name or service not known','temporary failure in name resolution')),

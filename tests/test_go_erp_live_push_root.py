@@ -33,9 +33,23 @@ class LivePushClassifierTests(unittest.TestCase):
         self.check(b"fatal: Authentication failed for 'https://private-token@private-host/private-repo/'",
             'AUTHENTICATION_FAILED')
 
+    def test_modern_token_authentication_failures(self):
+        for message in [b'remote: Invalid username or token. PRIVATE_TOKEN_SENTINEL',
+                b'remote: Password authentication is not supported for Git operations.']:
+            with self.subTest(message=message):self.check(message,'AUTHENTICATION_FAILED')
+
     def test_protected_branch(self):
         self.check(b'remote: error: GH006: Protected branch update failed for refs/heads/private-name.',
             'BRANCH_PROTECTED')
+
+    def test_push_protection_precedes_generic_gh013_branch_rule(self):
+        for message in [b'remote: error: GH013: Repository rule violations. Push cannot contain secrets. '
+                b'PRIVATE_TOKEN_SENTINEL',b'remote: Push protection blocked private-file:42']:
+            with self.subTest(message=message):self.check(message,'PUSH_PROTECTION')
+
+    def test_repository_not_found_requires_known_message(self):
+        self.check(b'remote: Repository not found. PRIVATE_TOKEN_SENTINEL','REPOSITORY_NOT_FOUND')
+        self.check(b'private endpoint returned HTTP 404 PRIVATE_TOKEN_SENTINEL','UNKNOWN_PRIVATE')
 
     def test_dns_failure(self):
         self.check(b'fatal: unable to access private URL: Could not resolve host: github.com','NETWORK_DNS')
@@ -151,7 +165,8 @@ class LivePushBindingTests(unittest.TestCase):
         self.assertFalse(self.git.push_attempted)
 
 class LivePushRetryTests(unittest.TestCase):
-    def fixture(self,pushed=False,tick_failure=False,constructor_failure=False):
+    def fixture(self,pushed=False,tick_failure=False,constructor_failure=False,
+            outcome='GO_ERP_LIVE_UPDATE_WAITING_CI'):
         events=[];holder={};base='3'*40
         original_state={'counter':7,'desired':{'prepared':True,'pushed':pushed,'retry_at':999,
             'status':'prepared'},'observed':{'PRIVATE_SOURCE':True},'published':None}
@@ -175,7 +190,7 @@ class LivePushRetryTests(unittest.TestCase):
                 self.git.push_attempted=True;self.git.last_push_exit_code=1 if tick_failure else 0
                 self.git.last_push_category='WORKFLOW_PERMISSION_REQUIRED' if tick_failure else 'PUSH_SUCCEEDED'
                 if tick_failure:raise WatchError('GO_ERP_LIVE_GIT_OPERATION_FAILED')
-                self.state['desired'].update(pushed=True,status='waiting-ci');return 'GO_ERP_LIVE_UPDATE_WAITING_CI'
+                self.state['desired'].update(pushed=True,status='waiting-ci');return outcome
         worker.Worker=OriginalWorker
         @contextlib.contextmanager
         def existing_lock(path):
@@ -221,5 +236,13 @@ class LivePushRetryTests(unittest.TestCase):
         self.assertFalse(report['ok']);self.assertIs(worker.Git,original)
         self.assertNotIn('tick',events);self.assertEqual(events[-1],'lock-exit')
         self.assertNotIn('PRIVATE_CONSTRUCTOR_TOKEN',json.dumps(report))
+
+    def test_original_published_storage_review_outcome_is_accepted(self):
+        outcome='GO_ERP_LIVE_UPDATE_PUBLISHED_STORAGE_REVIEW_REQUIRED'
+        worker,doc,events,holder,state,original=self.fixture(outcome=outcome)
+        report=subject.retry_once(doc,object(),worker,object())
+        self.assertTrue(report['ok']);self.assertEqual(report['outcome'],outcome)
+        self.assertIs(worker.Git,original);self.assertEqual(events.count('tick'),1)
+        self.assertNotIn('PRIVATE_',json.dumps(report))
 
 if __name__=='__main__':unittest.main()
