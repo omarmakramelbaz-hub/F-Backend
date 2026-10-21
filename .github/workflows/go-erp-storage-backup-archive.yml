@@ -1,0 +1,25 @@
+name: GO ERP reviewed storage backup archive
+on:
+  push:
+    branches: [codex/go-erp-storage-backup-archive-20261021]
+  pull_request:
+    paths:
+      - 'deployment/archive_go_erp_meta_backups_root.py'
+      - 'tests/test_go_erp_meta_backup_archive_root.py'
+      - 'tests/test_go_erp_backup_redacted_inventory.py'
+      - '.github/workflows/go-erp-storage-backup-archive.yml'
+permissions:
+  contents: read
+jobs:
+  storage-backup-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 18
+      - name: Verify exact storage backup, legacy scope and private custody
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_meta_backup_archive_root.py
+      - name: Verify redacted inventory remains metadata only
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_backup_redacted_inventory.py

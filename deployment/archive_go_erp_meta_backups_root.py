@@ -23,7 +23,8 @@ UID, GID = 1001, 1003
 PARENT = '713a58ef48928f0b4143c80d12619f202c88561c'
 SUFFIX = '.bak-meta-20261020-044957'
 LEGACY_SUFFIXES = (SUFFIX, '.bak')
-SUFFIXES = LEGACY_SUFFIXES + ('.bak.1785856307', '.bak-20261020-042159')
+PRIOR_SUFFIXES = LEGACY_SUFFIXES + ('.bak.1785856307', '.bak-20261020-042159')
+SUFFIXES = PRIOR_SUFFIXES + ('.backup-before-storage-fix',)
 SELF = 'deployment/archive_go_erp_meta_backups_root.py'
 PINS = {'deployment/finalize_go_erp_publication_links_root.py': '795cf1ea467143e8a8ba0d4b6213a0c5ab36e741',
         'deployment/diagnose_go_erp_live_watcher_root.py': '1842302a87b7e93253ad5be616c3ab3e56bdd4a1',
@@ -367,12 +368,15 @@ def prior_captures(root, backups, manifest, audit_root, ops):
                           and 'suffixes' not in record)
                 previous = (record['format'] == 2 and record.get('suffixes') == list(LEGACY_SUFFIXES)
                             and 'suffix' not in record)
-                current = (record['format'] == 3 and record.get('suffixes') == list(SUFFIXES)
+                prior = (record['format'] == 3 and record.get('suffixes') == list(PRIOR_SUFFIXES)
+                         and 'suffix' not in record)
+                current = (record['format'] == 4 and record.get('suffixes') == list(SUFFIXES)
                            and 'suffix' not in record)
-                need(legacy or previous or current, 'PRIOR_CAPTURE_FAMILY_BINDING_INVALID')
+                need(legacy or previous or prior or current, 'PRIOR_CAPTURE_FAMILY_BINDING_INVALID')
                 # Each private plan authorizes only its original family roster.
                 # Earlier plans cannot gain suffixes introduced by a later scope.
-                record_suffixes = (SUFFIX,) if legacy else LEGACY_SUFFIXES if previous else SUFFIXES
+                record_suffixes = ((SUFFIX,) if legacy else LEGACY_SUFFIXES if previous
+                                   else PRIOR_SUFFIXES if prior else SUFFIXES)
                 allowed = {stem+suffix for stem in stems for suffix in record_suffixes}
                 audit_path = Path(record.get('audit',''))
                 need(audit_path.parent == audit_root and re.fullmatch(r'archive-[a-f0-9]{32}',audit_path.name),'PRIOR_AUDIT_SCOPE_INVALID')
@@ -499,7 +503,7 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
                 'mode': format(stat.S_IMODE(row['before'].st_mode),'04o'), 'bytes': row['before'].st_size,
                 'mtime_ns': row['before'].st_mtime_ns, 'copy': 'copies/'+copy_name,
                 'capture': 'original-{:04d}.bin'.format(index)})
-        record = {'format': 3, 'kind': report['kind'], 'suffixes': list(SUFFIXES), 'parent_release': PARENT,
+        record = {'format': 4, 'kind': report['kind'], 'suffixes': list(SUFFIXES), 'parent_release': PARENT,
             'manifest_blob': 'da47b5e5dc50676d6046a6511b3905a0cd053ed1', 'capture': str(capture_path),
             'audit': str(audit_path), 'rows': mapping}
         ops['json_at'](audit, 'planned.json', record)

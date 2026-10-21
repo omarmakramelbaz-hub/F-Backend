@@ -375,7 +375,7 @@ class MetaBackupArchiveTests(unittest.TestCase):
             captured=[p for p in self.captured() if p.read_bytes()==self.payloads[name]]
             self.assertEqual(len(captured),1); self.assertEqual(captured[0].stat().st_ino,before.st_ino)
         record=json.loads((Path(report['capture_directory'])/'plan.json').read_text())
-        self.assertEqual(record['format'],3)
+        self.assertEqual(record['format'],4)
         self.assertEqual(record['suffixes'],list(subject.SUFFIXES))
         self.source.scan_snapshot(self.root,self.seed,1001)
         before_retry=self.tree(); retry=self.run_archive(True)
@@ -507,7 +507,7 @@ class MetaBackupArchiveTests(unittest.TestCase):
             captured=[p for p in self.captured() if p.read_bytes()==self.payloads[name]]
             self.assertEqual(len(captured),1); self.assertEqual(captured[0].stat().st_ino,value.st_ino)
         record=json.loads((Path(report['capture_directory'])/'plan.json').read_text())
-        self.assertEqual(record['format'],3)
+        self.assertEqual(record['format'],4)
         self.assertEqual(record['suffixes'],list(subject.SUFFIXES))
         self.assert_canonical_unchanged(); self.source.scan_snapshot(self.root,self.seed,1001)
 
@@ -553,6 +553,67 @@ class MetaBackupArchiveTests(unittest.TestCase):
         encoded=json.dumps(report)
         self.assertNotIn(stem,encoded); self.assertNotIn('PRIVATE_FIREBASE_BACKUP_CONTENT',encoded)
         self.assert_canonical_unchanged(); self.source.scan_snapshot(self.root,self.seed,1001)
+
+    def add_all_five_observed_families(self):
+        expected=(self.suffix,'.bak','.bak.1785856307','.bak-20261020-042159',
+            '.backup-before-storage-fix')
+        self.assertEqual(tuple(subject.SUFFIXES),expected)
+        for index,stem in enumerate(self.live_contents):
+            for family,suffix in enumerate(expected):
+                name=stem+suffix
+                if name in self.payloads: continue
+                path=self.root/name; data=b'PRIVATE_FIFTH_BATCH_'+str(index).encode()+b'_'+str(family).encode()
+                path.write_bytes(data); path.chmod(0o644); os.chown(path,1001,1003)
+                self.payloads[name]=data; self.original[name]=path.stat()
+
+    def downgrade_plan_to_format_three(self,capture):
+        plan=capture/'plan.json'; record=json.loads(plan.read_text())
+        record['format']=3
+        record['suffixes']=[self.suffix,'.bak','.bak.1785856307','.bak-20261020-042159']
+        record.pop('suffix',None); encoded=json.dumps(record); plan.write_text(encoded)
+        (Path(record['audit'])/'planned.json').write_text(encoded)
+        return record
+
+    def test_all_five_observed_families_archive_in_one_bound_batch(self):
+        self.add_all_five_observed_families()
+        with self.assertRaises(self.source.SourceError): self.source.scan_snapshot(self.root,self.seed,1001)
+        before=self.tree(); readonly=self.run_archive()
+        self.assertEqual(readonly['pending'],10); self.assertEqual(before,self.tree())
+        report=self.run_archive(True)
+        self.assertTrue(report['ok']); self.assertEqual(report['captured'],10)
+        self.assertEqual(report['pending'],0)
+        self.assertEqual(sorted(p.read_bytes() for p in self.captured()),sorted(self.payloads.values()))
+        self.assertEqual(sorted(p.read_bytes() for p in self.copies()),sorted(self.payloads.values()))
+        for name,before in self.original.items():
+            self.assertFalse((self.root/name).exists())
+            captured=[p for p in self.captured() if p.read_bytes()==self.payloads[name]]
+            self.assertEqual(len(captured),1); self.assertEqual(captured[0].stat().st_ino,before.st_ino)
+        record=json.loads((Path(report['capture_directory'])/'plan.json').read_text())
+        self.assertEqual(record['format'],4); self.assertEqual(record['suffixes'],list(subject.SUFFIXES))
+        self.assert_canonical_unchanged(); self.source.scan_snapshot(self.root,self.seed,1001)
+
+    def test_prior_format_three_four_family_capture_remains_readable(self):
+        self.add_classic_backups(); self.add_new_observed_backups()
+        report=self.run_archive(True); self.assertEqual(report['captured'],8)
+        self.downgrade_plan_to_format_three(Path(report['capture_directory']))
+        before=self.tree(); retry=self.run_archive(True)
+        self.assertTrue(retry['ok']); self.assertEqual(retry['captured'],0)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_format_three_record_cannot_authorize_the_new_storage_fix_family(self):
+        self.add_all_five_observed_families(); report=self.run_archive(True)
+        self.downgrade_plan_to_format_three(Path(report['capture_directory']))
+        before=self.tree()
+        with self.assertRaises(subject.Stop): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_new_storage_fix_suffix_on_unknown_canonical_stem_remains_unapproved(self):
+        path=self.root/'app/Unknown.php.backup-before-storage-fix'
+        path.write_bytes(b'PRIVATE_UNKNOWN_STORAGE_FIX_BACKUP'); path.chmod(0o644); os.chown(path,1001,1003)
+        before=self.tree()
+        with self.assertRaises(self.source.SourceError): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        self.assert_canonical_unchanged()
 
 
 if __name__=='__main__': unittest.main()
