@@ -1,0 +1,23 @@
+name: GO ERP current source diagnosis
+on:
+  push:
+    branches: [codex/go-erp-source-diagnosis-20261021-r2]
+  pull_request:
+    paths:
+      - 'deployment/diagnose_go_erp_current_source_root.py'
+      - 'tests/test_go_erp_current_source_root.py'
+      - '.github/workflows/go-erp-current-source-diagnosis.yml'
+permissions:
+  contents: read
+jobs:
+  read-only-source-diagnosis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify root source inspection and private failure handling
+        run: sudo -n -- python3 -B tests/test_go_erp_current_source_root.py
+      - name: Verify the shared read-only source scanner
+        run: python3 -B tests/desktop_dashboard_current_source_diagnosis_test.py
