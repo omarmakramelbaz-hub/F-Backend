@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Archive only the measured Meta backup batch after a complete projected scan."""
+"""Archive the two observed backup families after a complete projected scan."""
 import contextlib
 import fcntl
 import hashlib
@@ -22,6 +22,7 @@ AUDITS = Path('/var/lib/go-erp-meta-backup-archives')
 UID, GID = 1001, 1003
 PARENT = '713a58ef48928f0b4143c80d12619f202c88561c'
 SUFFIX = '.bak-meta-20261020-044957'
+SUFFIXES = (SUFFIX, '.bak')
 SELF = 'deployment/archive_go_erp_meta_backups_root.py'
 PINS = {'deployment/finalize_go_erp_publication_links_root.py': '795cf1ea467143e8a8ba0d4b6213a0c5ab36e741',
         'deployment/diagnose_go_erp_live_watcher_root.py': '1842302a87b7e93253ad5be616c3ab3e56bdd4a1',
@@ -131,6 +132,74 @@ def diagnostic_failure(error, diagnostic, source, worker, ops, context=None):
     return result
 
 
+
+def unclassified_inventory(source, root, seed, planned_names=()):
+    """Bounded metadata-only supplement; it never authorizes an archive path."""
+    report = {'unclassified_additions': [], 'unclassified_count': 0,
+              'redacted_paths': 0, 'inventory_complete': False}
+    root_fd = None
+    try:
+        roster = source._git(seed, ['ls-tree', '-r', '-z', '--name-only', 'HEAD']).split(b'\0')
+        need(len(roster) <= 100001, 'INVENTORY_LIMIT')
+        seed_names = {name.decode('utf-8') for name in roster if name}
+        planned = set(planned_names)
+        root_fd, ancestry = source._open_root(root)
+        entries = 0
+        truncated = False
+        def visit(fd, prefix=''):
+            nonlocal entries, truncated
+            before = source._identity(os.fstat(fd))
+            for component in sorted(os.listdir(fd)):
+                entries += 1
+                need(entries <= 100000, 'INVENTORY_LIMIT')
+                name = prefix+component
+                if not prefix and component not in source.ROOTS and component != 'artisan':
+                    continue
+                # Exclude private/data/cache names before any metadata lookup.
+                if source._excluded(name):
+                    continue
+                value = os.stat(component, dir_fd=fd, follow_symlinks=False)
+                if stat.S_ISDIR(value.st_mode):
+                    child = os.open(component, source._DIR_FLAGS, dir_fd=fd)
+                    try:
+                        need(source._identity(os.fstat(child)) == source._identity(value), 'INVENTORY_UNSTABLE')
+                        visit(child, name+'/')
+                        need(source._identity(os.fstat(child)) == source._identity(value), 'INVENTORY_UNSTABLE')
+                    finally:
+                        os.close(child)
+                    continue
+                if not stat.S_ISREG(value.st_mode):
+                    truncated = True
+                    continue
+                if name in planned or name in seed_names or name == 'artisan':
+                    continue
+                if (Path(name).suffix.lower() in source.NEW_CODE_SUFFIXES
+                        and re.fullmatch(r'[A-Za-z0-9_./@-]+', name)):
+                    continue
+                if name.startswith('public/') and Path(name).suffix.lower() in source.PUBLIC_MEDIA_SUFFIXES:
+                    continue
+                report['unclassified_count'] += 1
+                if not safe_source_path(name):
+                    report['redacted_paths'] += 1
+                elif len(report['unclassified_additions']) < 100:
+                    report['unclassified_additions'].append(name)
+                else:
+                    truncated = True
+            need(source._identity(os.fstat(fd)) == before, 'INVENTORY_UNSTABLE')
+        visit(root_fd)
+        check_fd, after = source._open_root(root)
+        os.close(check_fd)
+        need(after == ancestry, 'INVENTORY_UNSTABLE')
+        report['inventory_complete'] = not truncated
+    except Exception:
+        # The original failure remains authoritative; never expose new exceptions.
+        report['inventory_complete'] = False
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    return report
+
+
 def blob(data):
     return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
 
@@ -182,10 +251,10 @@ def plan(root, manifest, ops):
     need(0 < len(stems) <= 20000, 'STEM_ROSTER_INVALID')
     rows, parents, retained = [], {}, set()
     try:
-        for stem in sorted(stems):
+        for stem, suffix in ((stem, suffix) for stem in sorted(stems) for suffix in SUFFIXES):
             need(re.fullmatch(r'(?:app|bootstrap|config|database|desktop|resources|routes|public)/[A-Za-z0-9_./@-]+\.php', stem)
                  and '..' not in Path(stem).parts, 'STEM_SCOPE_INVALID')
-            name = stem+SUFFIX
+            name = stem+suffix
             if not exact_backup_present(root, name):
                 continue
             parent_path = (root/name).parent
@@ -201,6 +270,7 @@ def plan(root, manifest, ops):
             need(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
                  and (before.st_uid, before.st_gid) in ((0,0),(UID,GID))
                  and not before.st_mode & (0o002|0o7000) and 0 <= before.st_size <= MAXIMUM, 'BACKUP_METADATA_INVALID')
+            need(len(rows) < 2000, 'BACKUP_ROSTER_LIMIT')
             fd = os.open(Path(name).name, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK, dir_fd=parent.fd)
             row = {'path': name, 'name': Path(name).name, 'parent': parent, 'fd': fd, 'before': before}
             rows.append(row)
@@ -244,7 +314,7 @@ def projected(source, root, seed, previous, names):
 def prior_captures(root, backups, manifest, audit_root, ops):
     """Resume only captures whose originals and independent copies remain proven."""
     parent = ops['Dirs'](backups,(UID,GID),0o700)
-    allowed = {row['path']+SUFFIX for row in manifest['sources']+manifest['protected'] if row['path'].endswith('.php')}
+    stems = {row['path'] for row in manifest['sources']+manifest['protected'] if row['path'].endswith('.php')}
     proven, deferred = set(), []
     def custody(row):
         return tuple(row[key] for key in ('path','blob','device','inode','uid','gid','mode','bytes','mtime_ns'))
@@ -259,10 +329,20 @@ def prior_captures(root, backups, manifest, audit_root, ops):
             audit = copies = None
             try:
                 record = json.loads(ops['read_at'](capture,'plan.json',owner=(0,0),mode=0o600))
-                need(isinstance(record,dict) and record.get('format') == 1 and record.get('kind') == 'go-erp-meta-backup-archive'
-                     and record.get('suffix') == SUFFIX and record.get('parent_release') == PARENT
+                need(isinstance(record,dict) and type(record.get('format')) is int
+                     and record.get('kind') == 'go-erp-meta-backup-archive'
+                     and record.get('parent_release') == PARENT
                      and record.get('manifest_blob') == 'da47b5e5dc50676d6046a6511b3905a0cd053ed1'
                      and record.get('capture') == str(capture_path),'PRIOR_CAPTURE_BINDING_INVALID')
+                legacy = (record['format'] == 1 and record.get('suffix') == SUFFIX
+                          and 'suffixes' not in record)
+                current = (record['format'] == 2 and record.get('suffixes') == list(SUFFIXES)
+                           and 'suffix' not in record)
+                need(legacy or current, 'PRIOR_CAPTURE_FAMILY_BINDING_INVALID')
+                # Each private plan authorizes only its original family roster.
+                # A format-1 plan can never gain the newly observed .bak scope.
+                record_suffixes = (SUFFIX,) if legacy else SUFFIXES
+                allowed = {stem+suffix for stem in stems for suffix in record_suffixes}
                 audit_path = Path(record.get('audit',''))
                 need(audit_path.parent == audit_root and re.fullmatch(r'archive-[a-f0-9]{32}',audit_path.name),'PRIOR_AUDIT_SCOPE_INVALID')
                 audit = ops['Dirs'](audit_path,(0,0),0o700)
@@ -352,6 +432,7 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
             expected = projected(source, root, seed, previous, names)
         except Exception as error:
             error.go_erp_planned_backups = len(rows)
+            error.go_erp_planned_names = tuple(sorted(names))
             raise
         report['projected_source_files'] = len(expected['inventory'])
         phase = 'PRE_ARCHIVE'
@@ -387,7 +468,7 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
                 'mode': format(stat.S_IMODE(row['before'].st_mode),'04o'), 'bytes': row['before'].st_size,
                 'mtime_ns': row['before'].st_mtime_ns, 'copy': 'copies/'+copy_name,
                 'capture': 'original-{:04d}.bin'.format(index)})
-        record = {'format': 1, 'kind': report['kind'], 'suffix': SUFFIX, 'parent_release': PARENT,
+        record = {'format': 2, 'kind': report['kind'], 'suffixes': list(SUFFIXES), 'parent_release': PARENT,
             'manifest_blob': 'da47b5e5dc50676d6046a6511b3905a0cd053ed1', 'capture': str(capture_path),
             'audit': str(audit_path), 'rows': mapping}
         ops['json_at'](audit, 'planned.json', record)
@@ -534,6 +615,11 @@ def execute(args):
                 if isinstance(error,Stop):
                     raise
                 result = diagnostic_failure(error,diagnostic,source,worker,ops,context)
+                if (isinstance(error, source.SourceError)
+                        and str(error) == 'GO_ERP_LIVE_SOURCE_UNCLASSIFIED_ADDITION'
+                        and result['phase'] == 'PROJECTED_SOURCE'):
+                    result.update(unclassified_inventory(source, ROOT, WORK/'checkout',
+                        getattr(error, 'go_erp_planned_names', ())))
                 return {'format':1,'kind':'go-erp-meta-backup-archive','application_contents_changed':False,
                     'database_changed':False,'credentials_read':False,**result}
 

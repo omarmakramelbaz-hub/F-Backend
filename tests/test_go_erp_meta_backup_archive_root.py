@@ -344,5 +344,140 @@ class MetaBackupArchiveTests(unittest.TestCase):
         self.assertEqual(private['reason'],'PRIVATE_FAILURE')
         self.assertNotIn('SECRET_SERVER_PASSWORD',json.dumps(private))
 
+    def add_classic_backups(self):
+        for index,stem in enumerate(self.live_contents):
+            name=stem+'.bak'; path=self.root/name
+            data=b'PRIVATE_CLASSIC_BACKUP_'+str(index).encode()+b'\n'
+            path.write_bytes(data); path.chmod(0o644); os.chown(path,1001,1003)
+            self.payloads[name]=data; self.original[name]=path.stat()
+
+    def legacy_plan(self, capture):
+        plan=capture/'plan.json'; record=json.loads(plan.read_text())
+        record['format']=1; record['suffix']=self.suffix; record.pop('suffixes',None)
+        encoded=json.dumps(record)
+        plan.write_text(encoded)
+        (Path(record['audit'])/'planned.json').write_text(encoded)
+        return record
+
+    def test_both_observed_backup_families_archive_together_with_original_source_checks(self):
+        self.add_classic_backups()
+        with self.assertRaises(self.source.SourceError):
+            self.source.scan_snapshot(self.root,self.seed,1001)
+        before=self.tree(); readonly=self.run_archive()
+        self.assertEqual(readonly['pending'],4); self.assertEqual(before,self.tree())
+        report=self.run_archive(True)
+        self.assertTrue(report['ok']); self.assertEqual(report['captured'],4)
+        self.assertEqual(report['pending'],0); self.assert_canonical_unchanged()
+        self.assertEqual(sorted(p.read_bytes() for p in self.captured()),sorted(self.payloads.values()))
+        self.assertEqual(sorted(p.read_bytes() for p in self.copies()),sorted(self.payloads.values()))
+        for name,before in self.original.items():
+            self.assertFalse((self.root/name).exists())
+            captured=[p for p in self.captured() if p.read_bytes()==self.payloads[name]]
+            self.assertEqual(len(captured),1); self.assertEqual(captured[0].stat().st_ino,before.st_ino)
+        record=json.loads((Path(report['capture_directory'])/'plan.json').read_text())
+        self.assertEqual(record['format'],2)
+        self.assertEqual(record['suffixes'],[self.suffix,'.bak'])
+        self.source.scan_snapshot(self.root,self.seed,1001)
+        before_retry=self.tree(); retry=self.run_archive(True)
+        self.assertEqual(retry['captured'],0); self.assertEqual(before_retry,self.tree())
+
+    def test_unapproved_stem_with_classic_backup_is_not_archived(self):
+        path=self.root/'app/Unknown.php.bak'
+        path.write_bytes(b'PRIVATE_UNAPPROVED_CLASSIC'); path.chmod(0o644); os.chown(path,1001,1003)
+        before=self.tree()
+        with self.assertRaises(self.source.SourceError): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        self.assert_canonical_unchanged()
+
+    def test_classic_backup_followed_by_an_unapproved_suffix_stops_whole_batch(self):
+        self.add_classic_backups()
+        path=self.root/'app/Console/Kernel.php.bak.new'
+        path.write_bytes(b'PRIVATE_UNAPPROVED_SUFFIX'); path.chmod(0o644); os.chown(path,1001,1003)
+        before=self.tree()
+        with self.assertRaises(self.source.SourceError): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        self.assert_canonical_unchanged()
+
+    def test_original_format_one_meta_capture_remains_readable(self):
+        report=self.run_archive(True)
+        record=self.legacy_plan(Path(report['capture_directory']))
+        self.assertTrue(all(row['path'].endswith(self.suffix) for row in record['rows']))
+        before=self.tree(); retry=self.run_archive(True)
+        self.assertTrue(retry['ok']); self.assertEqual(retry['captured'],0)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_format_one_record_cannot_retroactively_authorize_classic_backup_rows(self):
+        self.add_classic_backups(); report=self.run_archive(True)
+        self.legacy_plan(Path(report['capture_directory']))
+        before=self.tree()
+        with self.assertRaises(subject.Stop): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_legacy_partial_capture_resumes_into_new_family_record_and_stays_idempotent(self):
+        calls=[]
+        def fail_second(row):
+            calls.append(row['path'])
+            if len(calls)==2: raise RuntimeError('INJECTED_LEGACY_PARTIAL')
+        with self.assertRaises(Exception): self.run_archive(True,before_capture=fail_second)
+        captures=list(self.backups.glob('.go-erp-meta-backup-archive-*'))
+        self.assertEqual(len(captures),1); self.legacy_plan(captures[0])
+        self.add_classic_backups()
+        report=self.run_archive(True)
+        self.assertEqual(report['captured'],3); self.assertEqual(len(self.captured()),4)
+        self.assert_canonical_unchanged(); self.source.scan_snapshot(self.root,self.seed,1001)
+        before=self.tree(); third=self.run_archive(True)
+        self.assertEqual(third['captured'],0); self.assertEqual(before,self.tree())
+
+    def test_readonly_inventory_lists_all_future_unclassified_paths_without_archiving(self):
+        names=['app/Console/Kernel.php.orig','app/Http/Kernel.php.bak-20261019']
+        for name in names:
+            path=self.root/name; path.write_bytes(b'PRIVATE_UNCLASSIFIED_BACKUP')
+            path.chmod(0o644); os.chown(path,1001,1003)
+        before=self.tree()
+        report=subject.unclassified_inventory(self.source,self.root,self.seed,set(self.payloads))
+        self.assertTrue(report['inventory_complete'])
+        self.assertEqual(report['unclassified_count'],2)
+        self.assertEqual(set(report['unclassified_additions']),set(names))
+        self.assertEqual(report['redacted_paths'],0)
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        with self.assertRaises(self.source.SourceError): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_readonly_inventory_never_opens_backup_bytes_or_excluded_private_paths(self):
+        paths=['app/Console/Kernel.php.orig','config/.env',
+            'bootstrap/cache/PRIVATE_CONFIG.php','public/uploads/PRIVATE_CUSTOMER.json']
+        for name in paths:
+            path=self.root/name; path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(b'SECRET_FILE_CONTENT_MUST_NOT_BE_OPENED'); path.chmod(0o644)
+            os.chown(path,1001,1003)
+        real_open,real_stat=os.open,os.stat
+        forbidden_open={'Kernel.php.orig','.env','cache','uploads'}
+        def safe_open(name,*args,**kwargs):
+            if Path(str(name)).name in forbidden_open: raise AssertionError('Private or backup file opened')
+            return real_open(name,*args,**kwargs)
+        def safe_stat(name,*args,**kwargs):
+            if Path(str(name)).name in {'.env','cache','uploads'}: raise AssertionError('Excluded path inspected')
+            return real_stat(name,*args,**kwargs)
+        before=self.tree()
+        with mock.patch.object(os,'open',side_effect=safe_open),mock.patch.object(os,'stat',side_effect=safe_stat):
+            report=subject.unclassified_inventory(self.source,self.root,self.seed,set(self.payloads))
+        self.assertTrue(report['inventory_complete'])
+        self.assertEqual(report['unclassified_additions'],['app/Console/Kernel.php.orig'])
+        encoded=json.dumps(report)
+        for secret in ['PRIVATE_CONFIG','PRIVATE_CUSTOMER','SECRET_FILE_CONTENT','.env']:
+            self.assertNotIn(secret,encoded)
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+
+    def test_incomplete_readonly_inventory_hides_exception_and_does_not_authorize_archive(self):
+        path=self.root/'app/Console/Kernel.php.orig'; path.write_bytes(b'PRIVATE_UNKNOWN')
+        path.chmod(0o644); os.chown(path,1001,1003); before=self.tree()
+        with self.assertRaises(self.source.SourceError): self.run_archive(True)
+        with mock.patch.object(self.source,'_git',side_effect=RuntimeError('SECRET_GIT_CREDENTIAL')):
+            report=subject.unclassified_inventory(self.source,self.root,self.seed,set(self.payloads))
+        self.assertFalse(report['inventory_complete'])
+        self.assertNotIn('SECRET_GIT_CREDENTIAL',json.dumps(report))
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        self.assert_canonical_unchanged()
+
 
 if __name__=='__main__': unittest.main()
