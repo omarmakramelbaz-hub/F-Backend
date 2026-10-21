@@ -22,18 +22,21 @@ class MeasuredBaselineTests(unittest.TestCase):
         cls.manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest.json').read_text())
         cls.previous=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261020-91364.json').read_text())
         cls.previous_manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest-20261020-91364.json').read_text())
-        cls.evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261020-213904.json').read_text())
+        cls.intermediate=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261020-0dc8.json').read_text())
+        cls.intermediate_manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest-20261020-0dc8.json').read_text())
+        cls.previous_evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261020-213904.json').read_text())
+        cls.evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261021-160126.json').read_text())
         cls.target=refresh.scan(ROOT)
         cls.diagnosis={'actual_head':cls.fixture['expected_head'],'actual_source':cls.fixture['source'],
-            'source_differences':[{'path':name,'actual':pin}for name,pin in cls.fixture['measured_source_differences'].items()],
+            'source_differences':copy.deepcopy(cls.evidence['source_differences']),
             'gui':[{'path':name,'actual':pin}for name,pin in cls.fixture['gui'].items()]}
 
     def test_fixture_matches_the_exact_measured_production_evidence(self):
         self.assertEqual(self.fixture['expected_head'],'ee52f1798a542d2c5625c863112315a8aaba02cf')
         self.assertEqual(self.fixture['source'],{'format':1,'files':1164,
-            'sha256':'9ac0d2555aa6325563a7052f8aa4d304b60e7cecf4f3c515e3d736c57c279442','framework':'8.83.29'})
+            'sha256':'130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb','framework':'8.83.29'})
         self.assertEqual(refresh.digest(self.fixture['files']),self.fixture['source'])
-        self.assertEqual(len(self.fixture['measured_source_differences']),9)
+        self.assertEqual(len(self.fixture['measured_source_differences']),13)
         self.assertEqual(len(self.fixture['gui']),27)
         for name,pin in self.fixture['measured_source_differences'].items():
             self.assertEqual(self.fixture['files'][name]['blob'],pin,name)
@@ -42,7 +45,7 @@ class MeasuredBaselineTests(unittest.TestCase):
     def test_release_reverses_to_the_complete_measured_map_and_preserves_gui(self):
         self.assertEqual(refresh.digest(self.target),self.manifest['after_source'])
         self.assertEqual(self.manifest['after_source']['files'],1326)
-        self.assertEqual(self.manifest['after_source']['sha256'],'f29af750f417b6fe3bbdef0c18d540bde8f919e218b047c3f62752524e901950')
+        self.assertEqual(self.manifest['after_source']['sha256'],'92a8872d9de924dd97ce3c45291c47ebd38e9659a5b6a300fb88a3bf79038dae')
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerFacts.php', self.target)
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerDirectory.php', self.target)
         self.assertIn('resources/views/admin/contracts/pdf.blade.php', self.target)
@@ -111,20 +114,20 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(next(row['blob']for row in self.manifest['protected']if row['path']==cache),self.fixture['files'][cache]['blob'])
         self.assertEqual(next(row['blob']for row in self.previous_manifest['protected']if row['path']==cache),historical['files'][cache]['blob'])
 
-    def test_latest_nine_live_updates_reconstruct_the_exact_measured_cohort_and_are_all_protected(self):
+    def test_latest_thirteen_live_updates_reconstruct_the_exact_measured_cohort_and_are_all_protected(self):
         evidence=self.evidence
         self.assertEqual(evidence['kind'],'desktop-current-baseline-read-only-diagnosis')
         self.assertEqual(evidence['actual_head'],self.fixture['expected_head'])
         self.assertEqual(evidence['expected_source'],self.previous['source'])
         self.assertEqual(evidence['actual_source'],self.fixture['source'])
-        self.assertEqual(evidence['source_difference_count'],9)
+        self.assertEqual(evidence['source_difference_count'],13)
         self.assertIs(evidence['source_differences_truncated'],False)
         for key in ['deployment_performed','metadata_changed','php_bootstrapped','database_read','source_content_printed']:
             self.assertIs(evidence[key],False,key)
         actual=copy.deepcopy(self.previous['files'])
         changed={name for name in self.fixture['files']if self.fixture['files'][name]!=self.previous['files'].get(name)}
         self.assertEqual(changed,set(self.fixture['measured_source_differences']))
-        self.assertEqual(len(changed),9)
+        self.assertEqual(len(changed),13)
         self.assertEqual(set(self.fixture['files']),set(self.previous['files']))
         protected={row['path']:row['blob']for row in self.manifest['protected']}
         old_protected={row['path']:row['blob']for row in self.previous_manifest['protected']}
@@ -153,6 +156,82 @@ class MeasuredBaselineTests(unittest.TestCase):
         provenance=self.fixture['provenance']
         self.assertEqual(provenance['diagnosis_blob'],refresh.blob((ROOT/provenance['diagnosis_fixture']).read_bytes()))
         self.assertEqual(provenance['previous_baseline_blob'],refresh.blob((ROOT/provenance['previous_baseline_fixture']).read_bytes()))
+
+    def test_prior_nine_live_updates_remain_proven_by_the_archived_cohort(self):
+        fixture=self.intermediate;evidence=self.previous_evidence
+        self.assertEqual(fixture['source']['sha256'],'9ac0d2555aa6325563a7052f8aa4d304b60e7cecf4f3c515e3d736c57c279442')
+        self.assertEqual(evidence['actual_source'],fixture['source'])
+        self.assertEqual(evidence['expected_source'],self.previous['source'])
+        self.assertEqual(evidence['actual_head'],fixture['expected_head'])
+        self.assertEqual(evidence['source_difference_count'],9)
+        self.assertIs(evidence['source_differences_truncated'],False)
+        for key in ['deployment_performed','metadata_changed','php_bootstrapped','database_read','source_content_printed']:
+            self.assertIs(evidence[key],False,key)
+        reconstructed=copy.deepcopy(self.previous['files'])
+        protected={row['path']:row['blob']for row in self.intermediate_manifest['protected']}
+        published={row['path']for row in self.intermediate_manifest['sources']}
+        historical_target=installer.manifest_target_profile(self.intermediate_manifest)
+        observed=set()
+        for row in evidence['source_differences']:
+            name=row['path'];observed.add(name)
+            self.assertEqual(row['change'],'normalized_changed')
+            self.assertEqual(row['expected'],reconstructed[name],name)
+            reconstructed[name]=row['actual']
+            self.assertEqual(row['actual'],fixture['files'][name],name)
+            self.assertEqual(protected[name],row['actual']['blob'],name)
+            self.assertEqual(historical_target[name],row['actual']['blob'],name)
+            self.assertNotIn(name,published)
+            self.assertEqual(self.fixture['files'][name],row['actual'],name)
+        self.assertEqual(len(observed),9)
+        self.assertEqual(observed,set(fixture['measured_source_differences']))
+        self.assertEqual(reconstructed,fixture['files'])
+        self.assertEqual(refresh.digest(reconstructed),fixture['source'])
+        self.assertEqual(self.intermediate_manifest['before_source'],fixture['source'])
+        self.assertEqual(self.intermediate_manifest['after_source']['sha256'],'f29af750f417b6fe3bbdef0c18d540bde8f919e218b047c3f62752524e901950')
+        self.assertEqual(fixture['gui'],self.previous['gui'])
+        provenance=fixture['provenance']
+        self.assertEqual(provenance['diagnosis_blob'],refresh.blob((ROOT/provenance['diagnosis_fixture']).read_bytes()))
+        self.assertEqual(provenance['previous_baseline_blob'],refresh.blob((ROOT/provenance['previous_baseline_fixture']).read_bytes()))
+
+    def test_four_new_live_updates_are_retained_without_replacing_their_measured_bytes(self):
+        latest={
+            'app/Services/Dashboard/ExpenseStockPurchases.php':'74d4fb3e881c5ba59787c4dc909a080ef146e46d',
+            'public/dashboard/css/dining-pos.css':'76b66d8a658d1aa275a32573bd71bf233e0d10bc',
+            'public/dashboard/css/takeaway-pos.css':'9a7f1d9ac0ac32742376c74b376b426c83e0e3f1',
+            'public/dashboard/js/takeaway-pos.js':'f8acd53642dfd78a4b22c8392603b7e1c535e1ea',
+        }
+        changed={name for name in self.fixture['files']if self.fixture['files'][name]!=self.intermediate['files'].get(name)}
+        self.assertEqual(changed,set(latest))
+        self.assertEqual(set(self.fixture['files']),set(self.intermediate['files']))
+        self.assertEqual(set(self.fixture['measured_source_differences'])-set(self.intermediate['measured_source_differences']),set(latest))
+        protected={row['path']:row['blob']for row in self.manifest['protected']}
+        published={row['path']for row in self.manifest['sources']}
+        for name,pin in latest.items():
+            self.assertEqual(self.fixture['files'][name]['blob'],pin,name)
+            self.assertEqual(self.target[name],self.fixture['files'][name],name)
+            self.assertEqual(protected[name],pin,name)
+            self.assertNotIn(name,published)
+        self.assertEqual(self.fixture['gui'],self.intermediate['gui'])
+
+    def test_generator_accepts_current_hash_records_and_keeps_historical_blob_pin_format(self):
+        generated,fixture=refresh.generate(ROOT,self.fixture['files'],self.diagnosis)
+        self.assertEqual(generated,self.manifest)
+        self.assertEqual(fixture['measured_source_differences'],self.fixture['measured_source_differences'])
+        self.assertTrue(all(isinstance(pin,str)and len(pin)==40 for pin in fixture['measured_source_differences'].values()))
+        historical=copy.deepcopy(self.diagnosis)
+        for row in historical['source_differences']:row['actual']=row['actual']['blob']
+        legacy_manifest,legacy_fixture=refresh.generate(ROOT,self.fixture['files'],historical)
+        self.assertEqual(legacy_manifest,generated)
+        self.assertEqual(legacy_fixture,fixture)
+
+    def test_generator_rejects_wrong_normalized_hash_even_when_observed_raw_blob_matches(self):
+        diagnosis=copy.deepcopy(self.diagnosis)
+        row=diagnosis['source_differences'][0]
+        self.assertEqual(row['actual']['blob'],self.fixture['files'][row['path']]['blob'])
+        row['actual']['sha256']='f'*64
+        with patch.object(refresh,'scan',side_effect=AssertionError('Unexpected target source read')):
+            with self.assertRaisesRegex(ValueError,'normalized source hash disagrees'):
+                refresh.generate(ROOT,self.fixture['files'],diagnosis)
 
     def test_live_confirmation_parser_has_one_explicit_compatibility_publication(self):
         name='app/Support/WhatsAppOrderExtraction.php'
@@ -201,6 +280,9 @@ class MeasuredBaselineTests(unittest.TestCase):
             'tests/fixtures/desktop-actual-server-baseline-20261020-91364.json':'af07f6572c8a81f0f9bf1cd7b4cdfc0a207ab416',
             'deployment/desktop_dashboard_server_manifest-20261020-91364.json':'b6bb57619504f2093430d5b0fb9baa28bb2bb2a9',
             'tests/fixtures/desktop-live-source-diagnosis-20261020-213904.json':'c559c79314588db60669a407aa5f20d627181546',
+            'tests/fixtures/desktop-actual-server-baseline-20261020-0dc8.json':'72e0320189551de17b83f9cb7aa57b3fd0e41bff',
+            'deployment/desktop_dashboard_server_manifest-20261020-0dc8.json':'f4a949256986a44e48708529c41f8d2ab8d8c396',
+            'tests/fixtures/desktop-live-source-diagnosis-20261021-160126.json':'b4b4286168086f8b1899455f37e88c93ab0c023c',
         }
         for name,pin in pins.items():self.assertEqual(refresh.blob((ROOT/name).read_bytes()),pin,name)
         source=(ROOT/'deployment/apply_desktop_dashboard_server_root.sh').read_text()

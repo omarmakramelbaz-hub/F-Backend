@@ -82,6 +82,27 @@ def publication_order(row):
             'app/Http/Controllers/','app/Providers/','routes/','resources/views/')
     rank=next((index for index,prefix in enumerate(groups)if name.startswith(prefix)),10)
     return(2,rank,name)
+def observed_differences(before,rows):
+    """Accept historical blob pins and the current raw/normalized hash report."""
+    differences={}
+    for row in rows:
+        name=row['path'];actual=row['actual']
+        if name in differences:raise ValueError('Duplicate observed source difference')
+        if isinstance(actual,dict):
+            if(set(actual)!={'blob','sha256'}or not isinstance(actual['blob'],str)
+                or not isinstance(actual['sha256'],str)
+                or not re.fullmatch('[a-f0-9]{40}',actual['blob'])
+                or not re.fullmatch('[a-f0-9]{64}',actual['sha256'])):
+                raise ValueError('Invalid observed source hash record')
+            pin=actual['blob']
+            if name not in before or before[name]['sha256']!=actual['sha256']:
+                raise ValueError('Measured normalized source hash disagrees with observed diagnosis')
+        elif isinstance(actual,str)and re.fullmatch('[a-f0-9]{40}',actual):pin=actual
+        else:raise ValueError('Invalid observed source hash record')
+        if name not in before or before[name]['blob']!=pin:
+            raise ValueError('Measured raw source blob disagrees with observed diagnosis')
+        differences[name]=pin
+    return differences
 def generate(root,before,diagnosis):
     cases=set()
     for name,value in before.items():
@@ -91,10 +112,7 @@ def generate(root,before,diagnosis):
         cases.add(name.lower())
     if digest(before)!=diagnosis['actual_source']:raise ValueError('Complete measured source map does not match observed fingerprint')
     if not re.fullmatch('[a-f0-9]{40}',diagnosis['actual_head']):raise ValueError('Invalid measured source HEAD')
-    differences={row['path']:row['actual']for row in diagnosis['source_differences']}
-    if len(differences)!=len(diagnosis['source_differences']):raise ValueError('Duplicate observed source difference')
-    for name,pin in differences.items():
-        if name not in before or before[name]['blob']!=pin:raise ValueError('Measured raw source blob disagrees with observed diagnosis')
+    differences=observed_differences(before,diagnosis['source_differences'])
     after=scan(root)
     if scan(root)!=after:raise ValueError('Reviewed source changed during manifest generation')
     if set(before)-set(after):raise ValueError('Measured source deletions need a separate reviewed release')
@@ -123,7 +141,7 @@ def generate(root,before,diagnosis):
     manifest={'version':1,'expected_head':diagnosis['actual_head'],'before_source':digest(before),'after_source':digest(after),
               'sources':sorted(rows,key=publication_order),'protected':protected,'migrations':list(MIGRATIONS)}
     fixture={'version':1,'expected_head':diagnosis['actual_head'],'source':digest(before),'files':before,'gui':gui,
-             'measured_source_differences':{row['path']:row['actual']for row in diagnosis['source_differences']}}
+             'measured_source_differences':differences}
     if 'provenance'in diagnosis:fixture['provenance']=diagnosis['provenance']
     return manifest,fixture
 def main():

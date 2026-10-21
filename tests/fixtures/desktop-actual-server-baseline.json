@@ -1714,8 +1714,8 @@
       "sha256": "1bf213f622129c9a2402378b2cdfae7f2fb30cb9ce18da924740ca772f8515d9"
     },
     "app/Services/Dashboard/ExpenseStockPurchases.php": {
-      "blob": "651f5df0f5896b289239d9bb55b1a367ee5c6ab1",
-      "sha256": "9a9bd3dea189cbd9ed5a2e48c534a389c6f6651616463fd5fb6de88826be8d97"
+      "blob": "74d4fb3e881c5ba59787c4dc909a080ef146e46d",
+      "sha256": "467fdfad12a9a7fb21757832274f769c2a30086a4a786774f7fa775d61263fd9"
     },
     "app/Services/Dashboard/FasakhanstaAiKnowledge.php": {
       "blob": "0e28605ba8692e40b9a510cf025ec2d9aada49a9",
@@ -2790,8 +2790,8 @@
       "sha256": "f92bebe11a2df4d917c8c834500ff97a0de2332a7418b8f6e4d7e125c87a0d9c"
     },
     "public/dashboard/css/dining-pos.css": {
-      "blob": "ec4f1e2ef65f71981824decba9b48d2ed6ed5d85",
-      "sha256": "0115df0156da94ea20138627c01d8eae6e1aa0c68ddd865aa544ef22515f3c7b"
+      "blob": "76b66d8a658d1aa275a32573bd71bf233e0d10bc",
+      "sha256": "317306b7326ed5a5a04f8dfb036874d7faed8f3769016589b9ebad4eb3d8e59d"
     },
     "public/dashboard/css/home-overview.css": {
       "blob": "83faf300134399fad6b14141860f705113c48331",
@@ -2818,8 +2818,8 @@
       "sha256": "d8c53816849450076024cde55fca7792cab59f788cf634556058a11012c52638"
     },
     "public/dashboard/css/takeaway-pos.css": {
-      "blob": "41e44f3835ac7f707929db01e5830076b9c411e6",
-      "sha256": "f8dadd5c9b37ece538a4dedc995054774586888343119a908c42909a73ef1811"
+      "blob": "9a7f1d9ac0ac32742376c74b376b426c83e0e3f1",
+      "sha256": "958b0e19f3d3ded3f045774652bd3dabf91a76d5696671233b5908e27e54142b"
     },
     "public/dashboard/js/branch-expenses.js": {
       "blob": "8106ce07fb5d620b51d2f318ece16052df31722e",
@@ -2938,8 +2938,8 @@
       "sha256": "ac51ab9eff9c2e2675d75a472059b49732d4074fb6c98533fcb84345157b8c31"
     },
     "public/dashboard/js/takeaway-pos.js": {
-      "blob": "470115c2e9bb473963ef7791f225c2c7ce9266a2",
-      "sha256": "d53405616df4490112731ef8be10e5869439dedb4fc0daf864d133c08c0f414b"
+      "blob": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea",
+      "sha256": "9bf24c511f4b3cc4d4d713a43d5aec3089de6e1de6062f6df1965333800e5514"
     },
     "resources/css/app.css": {
       "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
@@ -4688,6 +4688,7 @@
     "public/js/dashboard-whatsapp-replies.js": "65d49087c9b98d621e8d3a11151751c18416881a"
   },
   "measured_source_differences": {
+    "app/Services/Dashboard/ExpenseStockPurchases.php": "74d4fb3e881c5ba59787c4dc909a080ef146e46d",
     "app/Services/Dashboard/FasakhanstaAiKnowledge.php": "0e28605ba8692e40b9a510cf025ec2d9aada49a9",
     "app/Services/Dashboard/FasakhanstaCommentTrainingPolicy.php": "3e5314bf77f1c88f9d71bc6abb084ee34e1887d7",
     "app/Services/Dashboard/FasakhanstaMessageTrainingFacts.php": "bf6c07d238c1ceab1029b46b6f602bb79c3fb097",
@@ -4696,27 +4697,22 @@
     "app/Services/Dashboard/WhatsAppOrderFollowupService.php": "f139ff067e2c63eb209c555b254d5523a699edea",
     "app/Services/Dashboard/WhatsAppOrderWorkflow.php": "f815f1428ce154e838fe5e38556ae911b61738a1",
     "app/Support/WhatsAppCustomerOrderConfirmation.php": "92790b91e021bfb88ed35bfceb63389f1760f603",
-    "app/Support/WhatsAppOrderDialogue.php": "ec41274eb350009ad68f5346040ff5f52b1f9394"
+    "app/Support/WhatsAppOrderDialogue.php": "ec41274eb350009ad68f5346040ff5f52b1f9394",
+    "public/dashboard/css/dining-pos.css": "76b66d8a658d1aa275a32573bd71bf233e0d10bc",
+    "public/dashboard/css/takeaway-pos.css": "9a7f1d9ac0ac32742376c74b376b426c83e0e3f1",
+    "public/dashboard/js/takeaway-pos.js": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea"
   },
   "provenance": {
-    "diagnosis_blob": "c559c79314588db60669a407aa5f20d627181546",
-    "diagnosis_fixture": "tests/fixtures/desktop-live-source-diagnosis-20261020-213904.json",
-    "diagnosis_sha256": "6c7b66174a123f0fff1c347f3ded1a79e55a01a572927759a01c4b0acca835c3",
-    "kind": "measured-current-source-read-only",
+    "diagnosis_blob": "b4b4286168086f8b1899455f37e88c93ab0c023c",
+    "diagnosis_fixture": "tests/fixtures/desktop-live-source-diagnosis-20261021-160126.json",
     "previous_baseline_blob": "af07f6572c8a81f0f9bf1cd7b4cdfc0a207ab416",
-    "previous_baseline_fixture": "tests/fixtures/desktop-actual-server-baseline-20261020-91364.json",
-    "previous_measured_source": {
-      "files": 1164,
-      "format": 1,
-      "framework": "8.83.29",
-      "sha256": "105f42de8dd0392af33c7d730541f860919a624b736dd9d277275aabce4487c7"
-    }
+    "previous_baseline_fixture": "tests/fixtures/desktop-actual-server-baseline-20261020-91364.json"
   },
   "source": {
     "files": 1164,
     "format": 1,
     "framework": "8.83.29",
-    "sha256": "9ac0d2555aa6325563a7052f8aa4d304b60e7cecf4f3c515e3d736c57c279442"
+    "sha256": "130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb"
   },
   "version": 1
 }

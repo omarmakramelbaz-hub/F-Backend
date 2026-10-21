@@ -141,6 +141,10 @@
         if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort();
         clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true;
         activeInvoice = index; var invoice = invoices[index];
+        // Empty tabs follow the selected branch; existing sales and drafts keep their own branch.
+        if (!restoring && invoice.branch !== branch && !invoice.sold && !invoice.uncertain && !invoice.frozenPayload && !invoice.quarantined && !invoiceIsDirty(invoice)) {
+            invoice = invoices[index] = newInvoice(branch);
+        }
         branch = invoice.branch; quarantined = !!invoice.quarantined;
         branchSelect.querySelectorAll('[data-pos-quarantined-branch]').forEach(function (option) { option.remove(); });
         if (quarantined) { var blockedOption = node('option', '', invoice.branchName || branch); blockedOption.value = branch; blockedOption.dataset.posQuarantinedBranch = '1'; branchSelect.appendChild(blockedOption); }

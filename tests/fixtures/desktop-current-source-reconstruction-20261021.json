@@ -1,0 +1,54 @@
+[
+  {
+    "path": "app/Services/Dashboard/ExpenseStockPurchases.php",
+    "base_revision": "8ad022856b9feacdc96a3449ff6d075c29bb2ae4",
+    "base_blob": "651f5df0f5896b289239d9bb55b1a367ee5c6ab1",
+    "transform_release": "520e87a86cc076b0117d54480341546f8f0bf322",
+    "transform_path": "deployment/patch_tahini_purchase_service_20261021.php",
+    "transform": "three exact candidate() anchors",
+    "actual": {
+      "blob": "74d4fb3e881c5ba59787c4dc909a080ef146e46d",
+      "sha256": "467fdfad12a9a7fb21757832274f769c2a30086a4a786774f7fa775d61263fd9"
+    }
+  },
+  {
+    "path": "public/dashboard/js/takeaway-pos.js",
+    "base_revision": "8ad022856b9feacdc96a3449ff6d075c29bb2ae4",
+    "base_blob": "470115c2e9bb473963ef7791f225c2c7ce9266a2",
+    "transform_release": "2ed0dfbf3947e7ccadf52b2766dbc826e3382e6f",
+    "transform_path": "deployment/apply_pos_keep_branch.py",
+    "transform": "transform() with exact reviewed AFTER block",
+    "actual": {
+      "blob": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea",
+      "sha256": "9bf24c511f4b3cc4d4d713a43d5aec3089de6e1de6062f6df1965333800e5514"
+    }
+  },
+  {
+    "path": "public/dashboard/css/dining-pos.css",
+    "base_revision": "8ad022856b9feacdc96a3449ff6d075c29bb2ae4",
+    "base_blob": "ec4f1e2ef65f71981824decba9b48d2ed6ed5d85",
+    "retrieval": "direct public HTTPS GET with default TLS certificate validation, no authentication, identity encoding, 4MiB bound",
+    "url": "https://fasakhaninja.com/dashboard/css/dining-pos.css?go_erp_verify=317306b7326ed5a5a04f8dfb036874d7faed8f3769016589b9ebad4eb3d8e59d",
+    "final_url": "https://fasakhaninja.com/dashboard/css/dining-pos.css?go_erp_verify=317306b7326ed5a5a04f8dfb036874d7faed8f3769016589b9ebad4eb3d8e59d",
+    "status": 200,
+    "bytes": 51630,
+    "actual": {
+      "blob": "76b66d8a658d1aa275a32573bd71bf233e0d10bc",
+      "sha256": "317306b7326ed5a5a04f8dfb036874d7faed8f3769016589b9ebad4eb3d8e59d"
+    }
+  },
+  {
+    "path": "public/dashboard/css/takeaway-pos.css",
+    "base_revision": "8ad022856b9feacdc96a3449ff6d075c29bb2ae4",
+    "base_blob": "41e44f3835ac7f707929db01e5830076b9c411e6",
+    "retrieval": "direct public HTTPS GET with default TLS certificate validation, no authentication, identity encoding, 4MiB bound",
+    "url": "https://fasakhaninja.com/dashboard/css/takeaway-pos.css?go_erp_verify=958b0e19f3d3ded3f045774652bd3dabf91a76d5696671233b5908e27e54142b",
+    "final_url": "https://fasakhaninja.com/dashboard/css/takeaway-pos.css?go_erp_verify=958b0e19f3d3ded3f045774652bd3dabf91a76d5696671233b5908e27e54142b",
+    "status": 200,
+    "bytes": 34866,
+    "actual": {
+      "blob": "9a7f1d9ac0ac32742376c74b376b426c83e0e3f1",
+      "sha256": "958b0e19f3d3ded3f045774652bd3dabf91a76d5696671233b5908e27e54142b"
+    }
+  }
+]

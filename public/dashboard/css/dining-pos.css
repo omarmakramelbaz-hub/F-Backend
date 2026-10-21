@@ -326,3 +326,6 @@
 
 #dining-pos .dp-actions [data-dining-request-bill]{font-size:13px;min-height:44px}#dining-pos [data-dining-cancel]{font-size:10px;border:0;background:transparent;color:#b42335}
 
+
+/* menu-photo-framing-20261021 */
+img.dp-product-image { object-fit: contain; background-color: #fff; }

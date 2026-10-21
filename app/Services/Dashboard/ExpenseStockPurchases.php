@@ -15,6 +15,7 @@ class ExpenseStockPurchases
         'purchase_onion' => 'بصل',
         'purchase_oil' => 'زيت',
         'purchase_vinegar' => 'خل',
+        'purchase_tahini' => 'طحينة',
     ];
 
     private ?bool $available = null;
@@ -51,6 +52,7 @@ class ExpenseStockPurchases
             'purchase_onion'=>['بصل', 'البصل', 'onion'],
             'purchase_oil'=>['زيت', 'الزيت', 'زيت طعام', 'oil'],
             'purchase_vinegar'=>['خل', 'الخل', 'vinegar'],
+            'purchase_tahini'=>['طحينه', 'الطحينه', 'tahini'],
         ] as $key => $names) {
             if (in_array($label, $names, true)) return $key;
         }
@@ -66,7 +68,7 @@ class ExpenseStockPurchases
         $value = $values['quantity_kg'] ?? null;
         if ($categoryKey === null) {
             if ($value !== null && $value !== '') {
-                throw ValidationException::withMessages(['quantity_kg'=>'عدد الكيلوات متاح لبنود مشتريات الفلفل والطماطم والليمون والبصل والزيت والخل فقط.']);
+                throw ValidationException::withMessages(['quantity_kg'=>'عدد الكيلوات متاح لبنود مشتريات الفلفل والطماطم والليمون والبصل والزيت والخل والطحينة فقط.']);
             }
             $values['quantity_kg'] = null;
         } else {
