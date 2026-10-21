@@ -265,7 +265,7 @@ class EntryTests(unittest.TestCase):
         self.s['source_file'] = lambda rev, name, expected=None: b'own' if name == self.s['SELF'] else name.encode()
         value = self.s['payload'](revision, Path('/tmp/entry.sh'))
         self.assertEqual(set(value), set(self.s['APP_FILES']) | set(self.s['AUTOMATION_FILES']))
-        self.assertEqual(calls[0][-1], 'refs/heads/codex/go-erp-current-activation-20261021-r2')
+        self.assertEqual(calls[0][-1], 'refs/heads/codex/go-erp-activation-view-fix-20261021-r3')
         self.assertIn(('merge-base', '--is-ancestor', self.s['APP_RELEASE'], revision), calls)
         self.s['private_entry'] = lambda path: b'not reviewed'
         with self.assertRaisesRegex(self.s['Stop'], 'ENTRYPOINT_NOT_REVIEWED'):

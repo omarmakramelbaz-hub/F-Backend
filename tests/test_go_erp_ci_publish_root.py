@@ -128,7 +128,8 @@ class ConsolePublication(unittest.TestCase):
         for code, stdout, stderr in [(0, output + b'extra\n', b''), (0, output.replace(b'b' * 64, b'f' * 64), b''),
                                       (1, b'', b'SECRET=never-print\nDESKTOP_NO_APPROVED_BASELINE_MATCHES\n')]:
             errors = io.StringIO()
-            with patch.dict(NS, run=lambda args, timeout: types.SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr)):
+            with patch.dict(NS, run=lambda args, timeout: types.SimpleNamespace(returncode=code, stdout=stdout, stderr=stderr),
+                            read_regular=lambda *_: b'{"sources":[]}'):
                 with contextlib.redirect_stderr(errors), self.assertRaises(NS['Stop']):
                     NS['activate'](Path('/tmp/approved'), 'a' * 40, wanted)
             self.assertNotIn('SECRET', errors.getvalue())

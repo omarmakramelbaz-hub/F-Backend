@@ -116,12 +116,22 @@ bootstrap or database read. Full source and protected GUI classification still
 has to match exactly on the server.
 
 The refreshed activation entry uses
-`codex/go-erp-current-activation-20261021-r2` and exact release/helper pins. It
+`codex/go-erp-activation-view-fix-20261021-r3` and exact release/helper pins. It
 classifies the full measured source and protected GUI bytes before any repair
 or publication. A newer server edit causes a safe stop and requires a new
 reviewed baseline. The previously accepted release branches remain unchanged.
 Preparing a refreshed release does not prove successful production activation;
 that requires the root console's final readiness and timer receipts.
+
+A later read-only inspection of the failed activation confirmed source BEFORE,
+zero pending ownership repairs, and restored environment/config/routes files.
+The deployment PHP helper had malformed Blade path regular expressions; the
+same missing delimiter blocked the read-only probe at MANIFEST. The r3 release
+fixes those deployment guards and adds actual PHP runtime checks, preserving the
+exact application manifest and `ef2f7d28823d3c447b71e052df49e9eba1b4a0f3edb7ab44e9c4d42417e150b3`
+target. Failure diagnostics remain private, with only bounded reviewed stage
+receipts forwarded to the console. This correction alone does not establish
+successful activation or timer setup.
 
 The accepted `0.4.4-preview.6` installer remains an updater-capable bootstrap.
 A refreshed server baseline cannot relabel that installer's source evidence.

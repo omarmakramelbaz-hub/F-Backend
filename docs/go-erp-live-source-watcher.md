@@ -21,7 +21,7 @@ Windows account and application directory. Versions before
 
 From the authorized root console on `srv1836524`, export and hash-check
 `deployment/activate_go_erp_complete_root.sh` from the reviewed immutable
-`codex/go-erp-current-activation-20261021-r2` release. Run it with `--release` and that full
+`codex/go-erp-activation-view-fix-20261021-r3` release. Run it with `--release` and that full
 commit SHA. It classifies the exact approved before/after source state, repairs
 only eligible permission bits and activates the dashboard when needed, then
 performs fresh application/authentication checks before installing the timer.
@@ -129,7 +129,7 @@ separate successful native Windows workflow for each released candidate.
 ## Refreshed activation after live edits
 
 The refreshed operator entry and setup use the fixed branch
-`codex/go-erp-current-activation-20261021-r2`. Their payload checks still require the
+`codex/go-erp-activation-view-fix-20261021-r3`. Their payload checks still require the
 exact requested revision and exact helper bytes. The unattended candidate
 branch remains `codex/go-erp-live-source-20261021`, preserving its existing
 source inventory, workflow and acceptance boundaries.
@@ -148,6 +148,20 @@ database read. The complete classifier still requires the exact full source
 inventory and every protected GUI blob to match before permission repair or
 activation. Any additional live edit causes another safe stop. The diagnosis
 and installation receipts do not prove that activation or the update timer ran.
+
+The subsequent failed-activation inspection confirmed the exact BEFORE source,
+zero pending ownership repairs, and restoration of the environment, config and
+routes files. Activation stopped when the deployment helper rejected the first
+Blade view because its PHP path regular expression lacked a closing delimiter.
+The same defect also blocked the read-only runtime probe at its MANIFEST phase.
+
+The r3 payload corrects those deployment-only guards and tests the actual PHP
+regular expressions against every manifest view. The application manifest stays
+`da47b5e5dc50676d6046a6511b3905a0cd053ed1`; the target remains
+`ef2f7d28823d3c447b71e052df49e9eba1b4a0f3edb7ab44e9c4d42417e150b3`.
+Future activation failures retain bounded private stage metadata and forward
+only reviewed fixed failure receipts to the console. A successful r3 activation
+and timer receipt is still required before claiming the service is active.
 
 The existing accepted `0.4.4-preview.6` Windows installer can supply the first
 updater. It cannot stand in for acceptance of a new source revision. A new

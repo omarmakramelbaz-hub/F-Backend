@@ -19,7 +19,7 @@ import uuid
 ROOT = Path('/home/fasakha/public_html')
 BACKUPS = Path('/home/fasakha/desktop-dashboard-release-backups')
 AUDITS = Path('/root/go-erp-publication-permission-audits')
-RELEASE = '3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4'
+RELEASE = '61b6ff5337365f60908f01312ae00533612d7401'
 PINS = {
     'deployment/desktop_dashboard_server_manifest.json': 'da47b5e5dc50676d6046a6511b3905a0cd053ed1',
     'deployment/desktop_dashboard_server_preflight.py': '4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4',

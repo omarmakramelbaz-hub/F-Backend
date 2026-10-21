@@ -93,12 +93,31 @@ def current_matches(module,release):
     before=module['source_snapshot'](ROOT);after=module['source_snapshot'](ROOT)
     need(before==after,'SERVER_SOURCE_CHANGED_DURING_MEASUREMENT')
     return after['fingerprint']==release['source'] and module['snapshot_gui'](after)==release['gui']
+
+def public_failure_lines(error, approved_paths):
+    """Forward only fixed receipts and approved, nonprivate path metadata."""
+    result = []
+    for line in error.decode('ascii', 'replace').splitlines():
+        owner = re.fullmatch(r'DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: ([A-Za-z0-9_.@/-]+); UID=([0-9]{1,10}); MODE=([0-7]{4})', line)
+        safe_owner = owner is not None and (owner[1] in approved_paths or
+            re.fullmatch(r'storage/framework/views/[a-f0-9]{40}\.php', owner[1]) is not None)
+        safe = (safe_owner or re.fullmatch(r'DESKTOP_[A-Z_]+(?:; STAGE=[A-Z_]+)?', line) is not None
+            or re.fullmatch(r'DESKTOP_ACTIVATION_FAILED; (?:FILES_RESTORED|CONCURRENT_FILES_RETAINED_REVIEW_REQUIRED); ADDITIVE_TABLES_AND_BUSINESS_OPERATIONS_RETAINED; BACKUP=/home/fasakha/desktop-dashboard-release-backups/server-[A-Za-z0-9_-]{6,32}', line) is not None
+            or re.fullmatch(r'DESKTOP_ACTIVATION_STOPPED; STAGE=[A-Z_]{1,40}; REASON=[A-Z_]{1,96}; CLASS=[A-Za-z_]{1,40}', line) is not None)
+        if safe and line not in result:
+            result.append(line)
+        if len(result) == 16:
+            break
+    return result
+
 def activate(folder,revision,release):
     value=run(['/usr/bin/bash',str(folder/pathlib.PurePosixPath(LAUNCHER).name),'--release',revision],timeout=3900)
     if value.returncode:
         # Retain only the installer's fixed, nonprivate failure identifiers.
-        for line in value.stderr.decode('ascii','ignore').splitlines():
-            if re.fullmatch(r'DESKTOP_[A-Z_]+(?:; STAGE=[A-Z_]+)?',line):print(line,file=sys.stderr)
+        manifest=json.loads(read_regular(folder/pathlib.PurePosixPath(MANIFEST).name,2*1024**2))
+        approved={row['path'] for row in manifest['sources']} | {'.env','bootstrap/cache/config.php',
+            'bootstrap/cache/routes.php','bootstrap/cache/routes-v7.php','storage/framework/views'}
+        for line in public_failure_lines(value.stderr,approved):print(line,file=sys.stderr)
         raise Stop('GO_ERP_CI_REVIEWED_ACTIVATION_FAILED')
     rows=value.stdout.decode('ascii').splitlines()
     need(len(rows)==3 and rows[0]=='DESKTOP_DASHBOARD_SERVER_READY' and
