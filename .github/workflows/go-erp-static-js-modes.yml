@@ -1,0 +1,22 @@
+name: GO ERP bounded static JavaScript modes
+on:
+  push:
+    branches: [codex/go-erp-static-js-modes-20261022]
+  pull_request:
+    paths:
+      - 'deployment/repair_go_erp_static_source_modes_root.py'
+      - 'tests/test_go_erp_static_source_modes_root.py'
+      - '.github/workflows/go-erp-static-js-modes.yml'
+permissions:
+  contents: read
+jobs:
+  static-js-modes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 20
+      - name: Verify bounded chmod, private audit, race handling and retry
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_static_source_modes_root.py
