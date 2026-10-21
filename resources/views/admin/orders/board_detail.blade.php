@@ -96,7 +96,7 @@
             @else<button type="button" data-app-print @if($inlineItems) disabled @endif>طباعة الطلب</button>@endif
         @endif
         @if(!$printing)<a href="{{ route('orders.applies') }}">متابعة الطلبات</a>@endif
-        @if(!$printing)
+        @if(!$printing && ($card['source'] ?? '') !== 'website')
             @foreach($card['actions'] as $action)
                 <form method="post" action="{{ $card['urls']['action'] }}" @if(in_array($action, ['reject','cancel'], true)) onsubmit="return confirm({{ json_encode(__('order_board.confirm_'.$action), JSON_HEX_APOS | JSON_HEX_QUOT) }})" @endif>
                     @csrf

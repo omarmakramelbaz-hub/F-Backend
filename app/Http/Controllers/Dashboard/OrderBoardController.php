@@ -12,6 +12,7 @@ use App\Services\Dashboard\LegacyOrderCancellation;
 use App\Services\Dashboard\OrderBoardService;
 use App\Services\Dashboard\OrderBoardItems;
 use App\Services\Dashboard\OrderBoardPrinting;
+use App\Services\Dashboard\WebsiteOrderBoardActions;
 use App\Services\GoServices\Marketplace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -81,18 +82,25 @@ class OrderBoardController extends Controller
             'action'=>'required|in:accept,reject,cancel,prepare,ready,dispatch,complete',
             'expected_status'=>'required|string|max:32', 'expected_accepted_notify'=>'nullable|string|max:10',
             'expected_revision'=>'nullable|integer|min:0', 'reason'=>'nullable|string|max:500',
+            'idempotency_key'=>'nullable|uuid', 'company_id'=>'nullable|integer|min:1',
+            'quote_hash'=>'nullable|string|size:64', 'cash_received'=>'nullable|string|max:14',
+            'payment_confirmed'=>'nullable|boolean',
         ]);
         $actor = auth('admin')->user();
         // Recheck scope at every endpoint, independently of any displayed card or caller-supplied owner.
         $card = $service->actionState($source, $id, $actor, $stores);
-        abort_unless(in_array($values['action'], $card['actions'], true), 409, 'تغيرت حالة الطلب أو الإجراء غير متاح. حدّث الصفحة.');
-        if ($source === 'store') {
+        // Website commands recover their committed receipt before testing the old expected state.
+        if ($source === 'website') {
+            app(WebsiteOrderBoardActions::class)->transition($id, $values, $actor, $service);
+        } elseif ($source === 'store') {
+            abort_unless(in_array($values['action'], $card['actions'], true), 409, 'تغيرت حالة الطلب أو الإجراء غير متاح. حدّث الصفحة.');
             abort_unless(array_key_exists('expected_revision', $values), 422, 'راجع حالة الطلب قبل تنفيذ الإجراء.');
             $owner = $service->isAdmin($actor) ? DB::table('go_store_orders')->where('id', $id)->value('store_id') : $actor->id;
             $changed = $stores->transition($id, (int) $owner, $values['action'], (int) $values['expected_revision'],
                 $values['reason'] ?? ($values['action'] === 'cancel' ? 'إلغاء بناءً على طلب العميل' : 'رفض الإدارة'));
             if ($changed) $stores->notifyCustomer($id);
         } else {
+            abort_unless(in_array($values['action'], $card['actions'], true), 409, 'تغيرت حالة الطلب أو الإجراء غير متاح. حدّث الصفحة.');
             $shippingRejected = null;
             DB::transaction(function () use ($request, $source, $id, $service, $values, $actor, &$shippingRejected) {
                 if ($source === 'legacy') {

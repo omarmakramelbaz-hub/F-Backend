@@ -69,6 +69,25 @@
             <input type="hidden" name="expected_status" value="{{ $card['status'] }}">
             <input type="hidden" name="expected_accepted_notify" value="{{ $card['accepted_notify'] ?? '' }}">
             <input type="hidden" name="expected_revision" value="{{ $card['revision'] ?? '' }}">
+            @if(($card['source'] ?? '') === 'website')
+                <input type="hidden" name="quote_hash" value="{{ $card['website']['quote_hash'] ?? '' }}">
+                @if(in_array('dispatch', $actions, true))
+                    <label style="flex-basis:100%;margin:0">{{ app()->getLocale() === 'ar' ? 'شركة التوصيل' : 'Delivery company' }}
+                        <select name="company_id" data-website-company class="form-control form-control-sm">
+                            <option value="">{{ app()->getLocale() === 'ar' ? 'اختر شركة التوصيل' : 'Choose a delivery company' }}</option>
+                            @foreach($card['website']['companies'] ?? [] as $company)
+                                <option value="{{ $company['id'] }}">{{ $company['name'] }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                @endif
+                @if(in_array('complete', $actions, true))
+                    <label style="flex-basis:100%;margin:0">{{ app()->getLocale() === 'ar' ? 'الكاش المستلم' : 'Cash received' }}
+                        <input type="text" inputmode="decimal" name="cash_received" data-website-cash class="form-control form-control-sm" autocomplete="off">
+                    </label>
+                    <label style="flex-basis:100%;margin:0"><input type="checkbox" name="payment_confirmed" value="1" data-website-payment> {{ app()->getLocale() === 'ar' ? 'تم تحصيل قيمة الطلب فعليًا' : 'Payment has actually been collected' }}</label>
+                @endif
+            @endif
             @foreach($actions as $action)
                 @if(in_array($action, ['accept', 'reject', 'dispatch', 'complete', 'cancel', 'prepare', 'ready'], true))
                     <button type="submit" name="action" value="{{ $action }}" class="ob-action ob-action-{{ $action }}"><i class="fas {{ in_array($action, ['reject', 'cancel'], true) ? 'fa-times' : (in_array($action, ['dispatch', 'prepare'], true) ? 'fa-motorcycle' : 'fa-check') }}" aria-hidden="true"></i><span>{{ $card['action_labels'][$action] ?? __('order_board.'.$action) }}</span></button>

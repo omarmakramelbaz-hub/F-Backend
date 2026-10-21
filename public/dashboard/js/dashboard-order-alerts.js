@@ -107,7 +107,7 @@
     }
     function reconcileApp(keys, beforeRequest) {
         var before = typeof beforeRequest === 'number' ? beforeRequest : sequence;
-        var valid = function (key) { return typeof key === 'string' && /^(legacy|store|service|partner_service):[1-9][0-9]*$/.test(key); };
+        var valid = function (key) { return typeof key === 'string' && /^(legacy|store|service|partner_service|website):[1-9][0-9]*$/.test(key); };
         var complete = new Set(keys.filter(valid));
         Array.from(pending.keys()).forEach(function (key) {
             if (valid(key) && !complete.has(key) && (arrivals.get(key) || 0) <= before) acknowledge(key);

@@ -29,12 +29,14 @@
 
     function journalCommand(actionForm, data) {
         var local = document.body.dataset.dashboardLocal === '1';
-        if (!local && !(window.FasakhanstaDesktop && document.body.dataset.dashboardRemoteAttempts === '1')) return;
+        var website = /^website:/.test(actionForm.closest('[data-order-key]').dataset.orderKey || '');
+        var desktop = local || !!(window.FasakhanstaDesktop && document.body.dataset.dashboardRemoteAttempts === '1');
+        if (!website && !desktop) return;
         var epoch = actionForm.dataset.desktopBoardGeneration;
         var uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
         if (local ? !uuid.test(epoch || '') : epoch !== 'server') throw new Error(translated('error'));
         var endpoint = new URL(actionForm.getAttribute('action'), window.location.href);
-        if (endpoint.origin !== window.location.origin || !/^\/admin\/order-board\/(?:legacy|store|service|partner_service)\/[1-9][0-9]{0,18}\/action$/.test(endpoint.pathname)) throw new Error(translated('error'));
+        if (endpoint.origin !== window.location.origin || !/^\/admin\/order-board\/(?:legacy|store|service|partner_service|website)\/[1-9][0-9]{0,18}\/action$/.test(endpoint.pathname)) throw new Error(translated('error'));
         var fields = Array.from(data.entries()).filter(function (field) { return !['_token', '_desktop_command', 'idempotency_key'].includes(field[0]); });
         if (fields.some(function (field) { return typeof field[1] !== 'string'; })) throw new Error(translated('error'));
         fields.sort(function (a, b) { return a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]); });
@@ -44,7 +46,8 @@
         var command = sessionStorage.getItem(key);
         if (!command) { command = crypto.randomUUID(); sessionStorage.setItem(key, command); }
         if (!uuid.test(command)) throw new Error(translated('error'));
-        data.set('_desktop_command', command); data.set('idempotency_key', command);
+        if (desktop) data.set('_desktop_command', command);
+        data.set('idempotency_key', command);
     }
 
     function setLive(state) {
@@ -124,6 +127,20 @@
                 var key = incoming.dataset.orderKey;
                 var existing = key ? known.get(key) : existingList.querySelector('.ob-empty');
                 var node = existing && existing.outerHTML === incoming.outerHTML ? existing : incoming;
+                // Polling must not erase a cashier's unfinished company/cash choice.
+                if (existing && node !== existing && /^website:/.test(key || '')) {
+                    var beforeRevision = existing.querySelector('[name="expected_revision"]');
+                    var afterRevision = incoming.querySelector('[name="expected_revision"]');
+                    if (beforeRevision && afterRevision && beforeRevision.value === afterRevision.value) {
+                        ['company_id', 'cash_received', 'payment_confirmed'].forEach(function (field) {
+                            var before = existing.querySelector('[name="' + field + '"]');
+                            var after = incoming.querySelector('[name="' + field + '"]');
+                            if (!before || !after) return;
+                            if (after.type === 'checkbox') after.checked = before.checked;
+                            else after.value = before.value;
+                        });
+                    }
+                }
                 if (node !== cursor) existingList.insertBefore(node, cursor);
                 keep.add(node);
                 cursor = node.nextElementSibling;
@@ -336,7 +353,7 @@
         var printLink = event.target.closest('a[href]');
         if (printLink && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) {
             var printUrl = new URL(printLink.href, window.location.href);
-            if (printUrl.origin === window.location.origin && /^\/admin\/order-board\/(legacy|store|service|partner_service)\/\d+\/print\/?$/.test(printUrl.pathname)) {
+            if (printUrl.origin === window.location.origin && /^\/admin\/order-board\/(legacy|store|service|partner_service|website)\/\d+\/print\/?$/.test(printUrl.pathname)) {
                 event.preventDefault();
                 if (!window.DashboardPrint) { notify(translated('error'), false, false); return; }
                 printLink.setAttribute('aria-busy', 'true');
@@ -372,6 +389,17 @@
         var submitter = event.submitter || lastSubmitter;
         if (!submitter || submitter.form !== actionForm) return;
         var action = submitter.value;
+        var company = actionForm.querySelector('[data-website-company]');
+        var cash = actionForm.querySelector('[data-website-cash]');
+        var payment = actionForm.querySelector('[data-website-payment]');
+        if (action === 'dispatch' && company && !company.value) {
+            company.setCustomValidity(document.documentElement.dir === 'rtl' ? 'اختر شركة التوصيل أولًا.' : 'Choose a delivery company.');
+            company.reportValidity(); company.setCustomValidity(''); return;
+        }
+        if (action === 'complete' && cash && (!cash.value.trim() || !payment.checked)) {
+            notify(document.documentElement.dir === 'rtl' ? 'أدخل الكاش المستلم وأكد تحصيل قيمة الطلب فعليًا.' : 'Enter the cash received and confirm actual collection.', false, false);
+            return;
+        }
         if ((action === 'reject' || action === 'cancel') && !window.confirm(translated('confirm_' + action))) return;
         var data = new FormData(actionForm);
         data.set('action', action);

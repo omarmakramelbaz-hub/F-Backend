@@ -5,7 +5,7 @@ use App\Http\Controllers\Dashboard\OrderBoardMenuController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['lang', 'IsAdmin'])->prefix('admin/order-board')
-    ->where(['source'=>'legacy|store|service|partner_service', 'id'=>'[0-9]+'])->group(function () {
+    ->where(['source'=>'legacy|store|service|partner_service|website', 'id'=>'[0-9]+'])->group(function () {
     Route::get('menu', [OrderBoardMenuController::class, 'index'])->name('order-board.menu');
     Route::post('menu/{kind}/{branchId}/products/{product}/availability', [OrderBoardMenuController::class, 'availability'])
         ->where(['kind'=>'f|gs', 'branchId'=>'[0-9]+', 'product'=>'[0-9]+'])->name('order-board.menu.availability');
