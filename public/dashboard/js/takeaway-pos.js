@@ -416,7 +416,7 @@
     async function requestQuote() {
         if (!cart.length || !branch || disposed || isLocked()) return;
         var generation = ++quoteGeneration; if (quoteController) quoteController.abort(); quoteController = new AbortController();
-        var payload = draft(); notify(label('calculating'));
+        var payload = draft();
         try {
             var response = await post(urls.quote, payload, quoteController.signal); var result = await read(response, 'quote_error');
             if (disposed || generation !== quoteGeneration) return;
