@@ -99,17 +99,24 @@ enable the production timer or configure GitHub authorization.
 ## Activation status
 
 The server console confirmed recovery of 305 Git metadata ownership entries.
-That repair preserved application contents. A subsequent source-only diagnosis
-measured 1164 files at fingerprint
-`130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb`,
-with the unchanged production HEAD
-`ee52f1798a542d2c5625c863112315a8aaba02cf`. The report contains thirteen live
-source differences, including the installed POS branch-selection guard,
-stock-purchase changes and POS styles. It did not bootstrap PHP, read the
-database, publish source, or enable the update timer.
+That repair preserved application contents. A 16:01 UTC source-only diagnosis
+was followed by approved menu/shift and POS silent-quote updates. The 16:15
+`POS_SILENT_QUOTE_INSTALLED files=1` receipt did not make the old source cohort
+current: the prior activation entry stopped with
+`GO_ERP_COMPLETE_UNREVIEWED_SERVER_STATE_NO_APPLICATION_CHANGES`.
+
+A fresh 17:31 UTC read-only diagnosis measured 1164 files at fingerprint
+`a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6`,
+with unchanged production HEAD
+`ee52f1798a542d2c5625c863112315a8aaba02cf`. Its nine source differences from the
+preceding activation baseline include the approved menu/shift changes and
+silent-quote behavior. The revised cohort uses this actual full inventory and
+matched raw hashes. The report confirms no deployment, metadata change, PHP
+bootstrap or database read. Full source and protected GUI classification still
+has to match exactly on the server.
 
 The refreshed activation entry uses
-`codex/go-erp-current-activation-20261021` and exact release/helper pins. It
+`codex/go-erp-current-activation-20261021-r2` and exact release/helper pins. It
 classifies the full measured source and protected GUI bytes before any repair
 or publication. A newer server edit causes a safe stop and requires a new
 reviewed baseline. The previously accepted release branches remain unchanged.

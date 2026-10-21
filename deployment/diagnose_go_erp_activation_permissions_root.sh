@@ -19,9 +19,9 @@ import uuid
 ROOT = Path('/home/fasakha/public_html')
 BACKUPS = Path('/home/fasakha/desktop-dashboard-release-backups')
 AUDITS = Path('/root/go-erp-publication-permission-audits')
-RELEASE = '6472433078a882b5fa9d1d548b6baa325a89e06c'
+RELEASE = '3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4'
 PINS = {
-    'deployment/desktop_dashboard_server_manifest.json': 'af5c48005b53263e5d9c9d1b717986b54bf496c3',
+    'deployment/desktop_dashboard_server_manifest.json': 'da47b5e5dc50676d6046a6511b3905a0cd053ed1',
     'deployment/desktop_dashboard_server_preflight.py': '4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4',
     'deployment/diagnose_desktop_dashboard_current_source.py': 'e7a7a8271481013a1c16167d6f7a6ff429687ef5',
 }
@@ -65,7 +65,7 @@ def validate_manifest(manifest):
     need(isinstance(manifest, dict) and len(manifest['sources']) == 266
          and len(manifest['protected']) == 1087
          and manifest['before_source'] == {'format': 1, 'files': 1164,
-             'sha256': '130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb',
+             'sha256': 'a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6',
              'framework': '8.83.29'})
     seen = set()
     for row in manifest['sources']:

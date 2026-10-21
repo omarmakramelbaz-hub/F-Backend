@@ -1,7 +1,7 @@
 name: GO ERP precise activation permissions
 on:
   push:
-    branches: [codex/go-erp-activation-permissions-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021]
+    branches: [codex/go-erp-activation-permissions-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2]
     paths:
       - 'deployment/diagnose_go_erp_activation_permissions_root.sh'
       - 'tests/go_erp_activation_permissions_test.py'

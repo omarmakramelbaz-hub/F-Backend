@@ -1,7 +1,7 @@
 name: GO ERP minute update contracts
 on:
   push:
-    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021]
+    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2]
   pull_request:
     paths:
       - 'desktop-pos/**'
@@ -30,6 +30,8 @@ jobs:
         with:
           php-version: '8.2'
           coverage: none
+          extensions: pdo_sqlite
+          tools: composer:v2
       - name: Verify native update decisions and installation handoff
         run: node --test desktop-pos/test/*.test.cjs
       - name: Verify server publication and source drift refusal
@@ -49,7 +51,26 @@ jobs:
       - name: Check preserved current application syntax
         run: |
           php -l app/Services/Dashboard/ExpenseStockPurchases.php
+          php -l app/Services/Dashboard/TakeawayService.php
+          php -l app/Services/Dashboard/PosServiceTicket.php
+          php -l app/Services/Dashboard/BranchShiftClosing.php
+          php -l app/Http/Controllers/Dashboard/TakeawayController.php
+          php -l app/Http/Controllers/Dashboard/PosServiceController.php
           node --check public/dashboard/js/takeaway-pos.js
+          node --check public/dashboard/js/dining-pos.js
+          node --check public/dashboard/js/branch-shifts.js
+      - name: Verify merged shift controls in the browser code
+        run: |
+          node tests/shift_pending_expenses_test.cjs
+          node tests/desktop_shift_native_merge_test.cjs
+      - name: Prepare isolated accounting test dependencies
+        run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-progress --no-scripts --no-plugins --no-security-blocking
+      - name: Verify merged accounting and offline import behavior
+        env:
+          SHIFT_PENDING_TEST_AUTOLOAD: ${{ github.workspace }}/tests/desktop_pos_runtime/vendor/autoload.php
+        run: |
+          php tests/desktop_pos_runtime/run.php
+          php tests/shift_pending_expenses_test.php
       - name: Verify authenticated release feed and immutable installer transport
         run: sudo -n -- php -n tests/desktop_dashboard_updates_test.php
       - name: Check the read-only production diagnostic

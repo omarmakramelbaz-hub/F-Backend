@@ -274,6 +274,12 @@ class ActivationPermissionsTests(unittest.TestCase):
         self.assertIsNotNone(subject['SHA'].fullmatch(subject['RELEASE']))
         manifest = json.loads((ROOT / 'deployment/desktop_dashboard_server_manifest.json').read_text())
         self.assertEqual(len(subject['validate_manifest'](manifest)['sources']), 266)
+        self.assertEqual(manifest['before_source']['sha256'],
+                         'a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6')
+        changed_cohort = copy.deepcopy(manifest)
+        changed_cohort['before_source']['sha256'] = '0' * 64
+        with self.assertRaises(subject['AuditError']):
+            subject['validate_manifest'](changed_cohort)
         for name, pin in subject['PINS'].items():
             self.assertEqual(subject['blob']((ROOT / name).read_bytes()), pin, name)
         for bad in ('.env', 'app/.env', 'app/secret.key', 'app/../.env', 'bootstrap/cache/config.php'):

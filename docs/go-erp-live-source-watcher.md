@@ -21,7 +21,7 @@ Windows account and application directory. Versions before
 
 From the authorized root console on `srv1836524`, export and hash-check
 `deployment/activate_go_erp_complete_root.sh` from the reviewed immutable
-`codex/go-erp-current-activation-20261021` release. Run it with `--release` and that full
+`codex/go-erp-current-activation-20261021-r2` release. Run it with `--release` and that full
 commit SHA. It classifies the exact approved before/after source state, repairs
 only eligible permission bits and activates the dashboard when needed, then
 performs fresh application/authentication checks before installing the timer.
@@ -129,17 +129,25 @@ separate successful native Windows workflow for each released candidate.
 ## Refreshed activation after live edits
 
 The refreshed operator entry and setup use the fixed branch
-`codex/go-erp-current-activation-20261021`. Their payload checks still require the
+`codex/go-erp-current-activation-20261021-r2`. Their payload checks still require the
 exact requested revision and exact helper bytes. The unattended candidate
 branch remains `codex/go-erp-live-source-20261021`, preserving its existing
 source inventory, workflow and acceptance boundaries.
 
-The latest root console diagnosis measured source fingerprint
-`130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb` across
-1164 files after Git ownership recovery. Those source and GUI identities must
-match the refreshed manifest before activation. The Git recovery receipt and
-read-only source report do not certify that server activation or the timer has
-run.
+The 17:31 UTC root console diagnosis measured the current source fingerprint
+`a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6` across
+1164 files. It reported nine source differences from the preceding activation
+baseline, covering the menu/shift update and POS silent-quote behavior. The
+revised cohort is grounded in that fresh full inventory and matched raw hashes.
+
+The earlier 16:01 inventory predated the approved POS updates. After the 16:15
+`POS_SILENT_QUOTE_INSTALLED files=1` receipt, the prior activation entry correctly
+stopped with `GO_ERP_COMPLETE_UNREVIEWED_SERVER_STATE_NO_APPLICATION_CHANGES`.
+The fresh diagnosis performed no deployment, metadata change, PHP bootstrap or
+database read. The complete classifier still requires the exact full source
+inventory and every protected GUI blob to match before permission repair or
+activation. Any additional live edit causes another safe stop. The diagnosis
+and installation receipts do not prove that activation or the update timer ran.
 
 The existing accepted `0.4.4-preview.6` Windows installer can supply the first
 updater. It cannot stand in for acceptance of a new source revision. A new
