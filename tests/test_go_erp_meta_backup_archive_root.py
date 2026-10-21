@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""Bounded archival of known live-source backup leftovers, never production."""
+import hashlib
+import fcntl
+import importlib.util
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+
+REPOSITORY = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location('meta_backup_archive_subject',
+    REPOSITORY/'deployment/archive_go_erp_meta_backups_root.py')
+subject = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(subject)
+
+
+class VirtualOwnership:
+    """Explicit UID0-only local adapter; CI requires real ownership operations."""
+    def __init__(self):
+        self.values = {}; self.stat, self.lstat, self.fstat = os.stat, os.lstat, os.fstat
+    def view(self, value):
+        pair = self.values.get((value.st_dev, value.st_ino))
+        if pair is None: return value
+        class View:
+            st_uid, st_gid = pair
+            def __getattr__(self, name): return getattr(value, name)
+            def __getitem__(self, index): return pair[index-4] if index in (4,5) else value[index]
+        return View()
+    def chown(self, path, uid, gid, **keywords):
+        value = self.stat(path, **keywords); self.values[(value.st_dev,value.st_ino)] = (uid,gid)
+    def patches(self):
+        return [mock.patch.object(os,'stat',lambda *a,**k:self.view(self.stat(*a,**k))),
+            mock.patch.object(os,'lstat',lambda *a,**k:self.view(self.lstat(*a,**k))),
+            mock.patch.object(os,'fstat',lambda *a,**k:self.view(self.fstat(*a,**k))),
+            mock.patch.object(os,'chown',self.chown)]
+
+
+def blob(data):
+    return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+
+
+@unittest.skipUnless(os.geteuid()==0, 'Private archive fixture requires root.')
+class MetaBackupArchiveTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='go-erp-meta-backup-archive-')
+        self.addCleanup(self.temporary.cleanup); self.base = Path(self.temporary.name)
+        mapped = Path('/proc/self/uid_map').read_text().split()
+        if len(mapped)==3 and mapped[-1]=='1':
+            if os.environ.get('GO_ERP_TEST_REQUIRE_REAL_CHOWN')=='1':
+                self.fail('CI requires real ownership; local namespace maps UID0 only')
+            adapter=VirtualOwnership()
+            for patch in adapter.patches(): patch.start(); self.addCleanup(patch.stop)
+        self.root=self.base/'app'; self.root.mkdir(mode=0o750)
+        self.backups=self.base/'backups'; self.backups.mkdir(mode=0o700)
+        self.audit=self.base/'audit'
+        self.live_contents={'app/Console/Kernel.php':b'<?php /* CURRENT_CONSOLE */\n',
+            'app/Http/Kernel.php':b'<?php /* CURRENT_HTTP */\n'}
+        self.payloads={}; self.original={}
+        self.suffix='.bak-meta-20261020-044957'
+        self.manifest={'sources':[],'protected':[]}
+        for index,(name,data) in enumerate(self.live_contents.items()):
+            live=self.root/name; live.parent.mkdir(parents=True,exist_ok=True)
+            live.write_bytes(data); live.chmod(0o644)
+            backup=self.root/(name+self.suffix)
+            private=b'PRIVATE_HISTORICAL_BACKUP_'+str(index).encode()+b'\n'
+            backup.write_bytes(private); backup.chmod(0o644)
+            self.payloads[name+self.suffix]=private
+            self.manifest['sources'].append({'path':name,'before_blob':'a'*40,
+                'after_blob':blob(data),'phase':2})
+        for folder,dirs,files in os.walk(self.root):
+            os.chown(folder,1001,1003)
+            for name in files: os.chown(Path(folder)/name,1001,1003)
+        os.chown(self.backups,1001,1003)
+        self.original={name:(self.root/name).stat() for name in self.payloads}
+        self.canonical={name:(self.root/name).stat() for name in self.live_contents}
+        self.seed=self.base/'seed'; self.seed.mkdir(mode=0o700)
+        for name,data in self.live_contents.items():
+            path=self.seed/name; path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(data); path.chmod(0o644)
+        def git(*args):
+            return subprocess.check_output(['git','-c','user.name=Test','-c','user.email=test@localhost',
+                '-c','commit.gpgSign=false','-C',str(self.seed),*args],stderr=subprocess.DEVNULL)
+        git('init','--quiet'); git('remote','add','origin','https://github.com/omarmakramelbaz-hub/F-Backend.git')
+        git('add','.'); git('commit','--quiet','-m','Root-owned test seed')
+        spec=importlib.util.spec_from_file_location('actual_meta_archive_source',REPOSITORY/'deployment/go_erp_live_source.py')
+        self.source=importlib.util.module_from_spec(spec); spec.loader.exec_module(self.source)
+        spec=importlib.util.spec_from_file_location('actual_meta_archive_ops',REPOSITORY/'deployment/finalize_go_erp_publication_links_root.py')
+        module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        self.ops=module.__dict__
+
+    def run_archive(self,requested=False,**options):
+        return subject.run_archive(self.root,self.backups,self.manifest,self.source,self.seed,
+            requested=requested,audit_root=self.audit,ops=self.ops,**options)
+
+    def assert_canonical_unchanged(self):
+        for name,data in self.live_contents.items():
+            path=self.root/name; after=path.stat(); before=self.canonical[name]
+            self.assertEqual(path.read_bytes(),data)
+            for field in ['st_dev','st_ino','st_mode','st_uid','st_gid','st_size','st_mtime_ns','st_nlink']:
+                self.assertEqual(getattr(after,field),getattr(before,field),field)
+
+    def tree(self):
+        result={}
+        for path in self.base.rglob('*'):
+            value=path.lstat()
+            result[str(path.relative_to(self.base))]=(value.st_ino,value.st_mode,value.st_uid,
+                value.st_gid,value.st_nlink,value.st_size,value.st_mtime_ns,
+                None if path.is_dir() else path.read_bytes())
+        return result
+
+    def captured(self):
+        return [path for path in self.backups.rglob('*') if path.is_file()
+            and path.read_bytes() in self.payloads.values()]
+
+    def copies(self):
+        return [path for path in self.audit.rglob('*') if path.is_file()
+            and path.read_bytes() in self.payloads.values()] if self.audit.exists() else []
+
+    def test_readonly_plan_verifies_actual_postarchive_scanner_without_moving_files(self):
+        before=self.tree(); excluded=self.source._excluded
+        with self.assertRaises(self.source.SourceError):
+            self.source.scan_snapshot(self.root,self.seed,1001)
+        report=self.run_archive()
+        self.assertEqual(report['pending'],2); self.assertEqual(report['captured'],0)
+        self.assertEqual(before,self.tree()); self.assertIs(self.source._excluded,excluded)
+        self.assertFalse(self.audit.exists()); self.assert_canonical_unchanged()
+
+    def test_archives_original_inodes_and_independent_complete_private_copies(self):
+        report=self.run_archive(True)
+        self.assertEqual(report['captured'],2); self.assertEqual(report['pending'],0)
+        self.assert_canonical_unchanged()
+        originals=self.captured(); copies=self.copies()
+        self.assertEqual(sorted(p.read_bytes() for p in originals),sorted(self.payloads.values()))
+        self.assertEqual(sorted(p.read_bytes() for p in copies),sorted(self.payloads.values()))
+        for name,before in self.original.items():
+            self.assertFalse((self.root/name).exists())
+            matches=[p for p in originals if p.read_bytes()==self.payloads[name]]
+            self.assertEqual(len(matches),1)
+            self.assertEqual(matches[0].stat().st_ino,before.st_ino)
+        for path in copies:
+            self.assertEqual(path.stat().st_uid,0); self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
+            self.assertEqual(path.stat().st_nlink,1)
+        self.source.scan_snapshot(self.root,self.seed,1001)
+
+    def test_all_plan_metadata_checked_before_any_move(self):
+        name=list(self.payloads)[1]; os.link(self.root/name,self.base/'extra-hardlink')
+        before=self.tree()
+        with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_symlink_backup_is_never_followed_or_moved(self):
+        name=list(self.payloads)[0]; path=self.root/name; path.unlink()
+        path.symlink_to(self.root/list(self.live_contents)[0]); before=self.tree()
+        with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assertTrue(path.is_symlink()); self.assert_canonical_unchanged()
+
+    def test_world_writable_candidate_refuses_whole_plan(self):
+        (self.root/list(self.payloads)[1]).chmod(0o666); before=self.tree()
+        with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_unknown_backup_family_is_not_hidden_or_archived(self):
+        path=self.root/'app/Console/Kernel.php.bak-other-date'
+        path.write_bytes(b'UNRELATED_PRIVATE_BACKUP'); path.chmod(0o644)
+        os.chown(path,1001,1003); before=self.tree()
+        with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_exact_suffix_on_unknown_canonical_stem_remains_unclassified(self):
+        path=self.root/('app/Unreviewed.php'+self.suffix)
+        path.write_bytes(b'UNKNOWN_STEM_PRIVATE'); path.chmod(0o644)
+        os.chown(path,1001,1003); before=self.tree()
+        with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_other_source_failure_stops_before_creating_copies_or_moving_any_file(self):
+        before=self.tree(); excluded=self.source._excluded
+        with mock.patch.object(self.source,'scan_snapshot',side_effect=self.source.SourceError('GO_ERP_LIVE_SOURCE_WORLD_WRITABLE')):
+            with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assertIs(self.source._excluded,excluded)
+        self.assert_canonical_unchanged()
+
+    def test_complete_after_source_guard_refusal_precedes_all_mutations(self):
+        before=self.tree()
+        def refuse(): raise RuntimeError('EXACT_AFTER_PROOF_REFUSED')
+        with self.assertRaises(Exception): self.run_archive(True,guard=refuse)
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        self.assert_canonical_unchanged()
+
+    def test_every_independent_copy_is_durable_before_first_capture(self):
+        calls=[]
+        def check(row):
+            copies=self.copies()
+            self.assertEqual(sorted(p.read_bytes() for p in copies),sorted(self.payloads.values()))
+            calls.append(row['path'])
+        self.run_archive(True,before_capture=check)
+        self.assertEqual(len(calls),2); self.assert_canonical_unchanged()
+
+    def test_atomic_rename_race_retains_foreign_object_without_unlinking_anything(self):
+        rename=os.rename; replaced=[]
+        def race(source,destination,*args,**kwargs):
+            if not replaced and str(source).endswith(self.suffix):
+                name=list(self.payloads)[0]; old=self.root/name
+                rename(old,self.base/'retained-original')
+                old.write_bytes(b'FOREIGN_PRIVATE_SENTINEL'); old.chmod(0o644)
+                os.chown(old,1001,1003); replaced.append(True)
+            return rename(source,destination,*args,**kwargs)
+        with mock.patch.object(os,'rename',side_effect=race), \
+             mock.patch.object(os,'unlink',side_effect=AssertionError('Nothing may be unlinked')):
+            with self.assertRaises(Exception): self.run_archive(True)
+        self.assertEqual(replaced,[True])
+        self.assertTrue(any(p.is_file() and p.read_bytes()==b'FOREIGN_PRIVATE_SENTINEL' for p in self.backups.rglob('*')))
+        self.assertEqual(sorted(p.read_bytes() for p in self.copies()),sorted(self.payloads.values()))
+        self.assert_canonical_unchanged()
+        before_retry=self.tree()
+        with self.assertRaises(subject.Stop): self.run_archive(True)
+        self.assertEqual(before_retry,self.tree())
+        self.assertTrue(any(p.is_file() and p.read_bytes()==b'FOREIGN_PRIVATE_SENTINEL' for p in self.backups.rglob('*')))
+
+    def test_partial_capture_retry_preserves_originals_and_finishes_remaining_backup(self):
+        count=[]
+        def fail_second(row):
+            count.append(row['path'])
+            if len(count)==2: raise RuntimeError('INJECTED_BEFORE_SECOND_CAPTURE')
+        with self.assertRaises(Exception): self.run_archive(True,before_capture=fail_second)
+        self.assertEqual(sum((self.root/name).exists() for name in self.payloads),1)
+        self.assertEqual(len(self.captured()),1)
+        report=self.run_archive(True)
+        self.assertEqual(report['captured'],1); self.assertEqual(report['pending'],0)
+        self.assertEqual(len(self.captured()),2); self.assert_canonical_unchanged()
+        before_third=self.tree()
+        third=self.run_archive(True)
+        self.assertEqual(third['captured'],0); self.assertEqual(third['pending'],0)
+        self.assertEqual(before_third,self.tree()); self.assert_canonical_unchanged()
+
+    def test_idempotent_after_all_backups_are_archived(self):
+        self.run_archive(True); before=self.tree()
+        report=self.run_archive(True)
+        self.assertEqual(report['captured'],0); self.assertEqual(report['pending'],0)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_existing_watcher_and_install_locks_are_exclusive_and_never_created(self):
+        work=self.base/'work'; work.mkdir(mode=0o700)
+        cases=[(work,'watcher.lock',(0,0)),(self.backups,'server-install.lock',(1001,1003))]
+        for parent,name,owner in cases:
+            path=parent/name
+            with self.assertRaises(Exception):
+                with subject.locked(parent,name,owner,self.ops): pass
+            self.assertFalse(path.exists())
+            path.write_bytes(b''); path.chmod(0o600); os.chown(path,*owner)
+            descriptor=os.open(path,os.O_RDONLY)
+            try:
+                fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                with self.assertRaises(subject.Stop):
+                    with subject.locked(parent,name,owner,self.ops): pass
+            finally: os.close(descriptor)
+            with subject.locked(parent,name,owner,self.ops) as guard: guard()
+
+
+if __name__=='__main__': unittest.main()
