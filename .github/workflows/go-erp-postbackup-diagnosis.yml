@@ -1,0 +1,32 @@
+name: GO ERP post-backup diagnosis
+on:
+  push:
+    branches: [codex/go-erp-postbackup-diagnosis-20261021]
+  pull_request:
+    paths:
+      - 'deployment/diagnose_go_erp_postbackup_root.py'
+      - 'deployment/go_erp_postbackup_probe.php'
+      - 'tests/test_go_erp_postbackup_root.py'
+      - 'tests/test_go_erp_postbackup_probe.py'
+      - '.github/workflows/go-erp-postbackup-diagnosis.yml'
+permissions:
+  contents: read
+jobs:
+  readonly-diagnosis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 8
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Check the private metadata and failure output
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_postbackup_root.py
+      - name: Check the read-only PHP probe
+        run: python3 -B tests/test_go_erp_postbackup_probe.py
+      - name: Parse the exact PHP probe
+        run: php -l deployment/go_erp_postbackup_probe.php
