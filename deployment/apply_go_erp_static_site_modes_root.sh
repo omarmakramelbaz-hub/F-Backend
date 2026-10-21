@@ -65,8 +65,9 @@ esac
 /usr/bin/python3 -I -B "$go_tmp/modes.py" "$go_tmp/check.py" "$go_tmp/archive.py" "$go_tmp/ops.py"
 /usr/bin/python3 -I -B "$go_tmp/archive.py" --release "$go_rev" --archive
 
-systemctl start go-erp-live-updates.service || true
-/usr/bin/python3 -I -B "$go_tmp/check.py" --release "$go_rev" || true
+go_post_status=0
+systemctl start go-erp-live-updates.service || go_post_status=1
+/usr/bin/python3 -I -B "$go_tmp/check.py" --release "$go_rev" || go_post_status=1
 
 if [ "$go_restore_timer" -eq 1 ]; then
   systemctl start go-erp-live-updates.timer
@@ -74,3 +75,4 @@ if [ "$go_restore_timer" -eq 1 ]; then
 fi
 systemctl is-active go-erp-live-updates.timer || true
 journalctl -u go-erp-live-updates.service -n 20 --no-pager -o cat
+exit "$go_post_status"
