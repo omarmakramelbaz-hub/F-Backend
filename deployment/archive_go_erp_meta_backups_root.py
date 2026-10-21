@@ -29,6 +29,27 @@ PINS = {'deployment/finalize_go_erp_publication_links_root.py': '795cf1ea467143e
 REV = re.compile(r'[a-f0-9]{40}\Z')
 MAXIMUM = 8*1024*1024
 MAX_TOTAL = 256*1024*1024
+PHASES = frozenset(('AFTER_SOURCE', 'DEPENDENCIES', 'PRIOR_CAPTURES', 'PLAN',
+    'PLAN_VERIFY', 'PROJECTED_SOURCE', 'PRE_ARCHIVE', 'ARCHIVE_COPY',
+    'PRE_CAPTURE', 'CAPTURE', 'POST_ARCHIVE', 'STATE', 'ENTRY'))
+# Literal reasons from the immutable 795cf publication primitives. A foreign
+# exception merely called Stop must never gain permission to print its text.
+OPS_REASONS = frozenset('''AUDIT_FILE_UNSAFE AUDIT_WRITE_FAILED BACKUP_COUNT_LIMIT
+BACKUP_DIRECTORY_UNSAFE CAPTURED_ALIAS_CHANGED CAPTURED_ALIAS_UNEXPECTED
+CAPTURE_BINDING_INVALID CAPTURE_FILESYSTEM_INVALID DIRECTORY_CHANGED
+DIRECTORY_MODE_INVALID DIRECTORY_OWNER_INVALID DIRECTORY_UNSAFE
+ENTRYPOINT_NOT_REVIEWED EXACT_AFTER_SOURCE_REQUIRED EXACT_NEW_SOURCE_ROSTER_REQUIRED
+FILE_SCOPE_INVALID INSTALL_LOCK_CHANGED INSTALL_LOCK_UNSAFE LIVE_SOURCE_CHANGED
+LIVE_SOURCE_METADATA_INVALID LIVE_SOURCE_PIN_INVALID NEW_SOURCE_PATH_INVALID
+NEW_SOURCE_ROSTER_INVALID OWNER_HELPER_NOT_IN_RELEASE OWNER_HELPER_PIN_INVALID
+PENDING_CAPTURE_REQUIRES_PRIVATE_REVIEW PINNED_INVOCATION_REQUIRED
+PRIVATE_ALIAS_CHANGED PRIVATE_ALIAS_NOT_UNIQUE PRIVATE_FILE_CHANGED
+PRIVATE_FILE_MODE_INVALID PRIVATE_FILE_OWNER_INVALID PRIVATE_FILE_UNSAFE
+PROJECT_ACCOUNT_UNSAFE PUBLICATION_COUNT_LIMIT PUBLICATION_ENTRY_UNSAFE
+REVIEWED_GIT_UNAVAILABLE ROOT_AND_HOST_REQUIRED SUCCESSFUL_BACKUP_NOT_UNIQUE
+SUCCESS_BACKUP_ACTIVATION_INVALID SUCCESS_BACKUP_RECEIPT_INVALID
+SUCCESS_BACKUP_ROSTER_INVALID SUCCESS_BACKUP_SOURCE_INVALID
+UNREVIEWED_SOURCE_METADATA'''.split())
 
 
 class Stop(Exception):
@@ -38,6 +59,76 @@ class Stop(Exception):
 def need(condition, reason):
     if not condition:
         raise Stop('GO_ERP_META_BACKUP_' + reason)
+
+
+def checkpoint(phase, action, *args, **kwargs):
+    """Annotate an existing exception without changing the operation or guard."""
+    try:
+        return action(*args, **kwargs)
+    except Exception as error:
+        if not hasattr(error, 'go_erp_archive_phase'):
+            error.go_erp_archive_phase = phase
+        raise
+
+
+def safe_source_path(value):
+    if not isinstance(value, str) or not re.fullmatch(
+            r'(?:app|bootstrap|config|database|desktop|resources|routes|public)(?:/[A-Za-z0-9_.@-]+)*', value):
+        return False
+    parts = value.split('/')
+    if any(part.startswith('.') or re.search(r'credentials|service[-_]account|firebase|error_log|\.(?:key|pem)(?:[._-]|$)', part, re.I)
+           for part in parts):
+        return False
+    return not value.startswith(('bootstrap/cache', 'public/uploads', 'public/storage', 'public/node_modules'))
+
+
+def annotate_plan_error(error, stem, ops):
+    error.go_erp_archive_phase = 'PLAN'
+    relative = str(Path(stem).parent)
+    if safe_source_path(relative):
+        error.go_erp_archive_path = relative
+    if not isinstance(error, ops['Stop']) or str(error) not in {
+            'DIRECTORY_UNSAFE', 'DIRECTORY_OWNER_INVALID', 'DIRECTORY_MODE_INVALID', 'DIRECTORY_CHANGED'}:
+        return
+    trace = error.__traceback__
+    while trace is not None:
+        frame = trace.tb_frame
+        if frame.f_code is ops['Dirs'].__init__.__code__:
+            value = frame.f_locals.get('s')
+            if value is not None and stat.S_ISDIR(value.st_mode):
+                error.go_erp_archive_metadata = {'uid': value.st_uid, 'gid': value.st_gid,
+                    'mode': format(stat.S_IMODE(value.st_mode), '04o')}
+                component = frame.f_locals.get('part')
+                if isinstance(component, str) and re.fullmatch(r'[A-Za-z0-9_@-]{1,100}', component):
+                    error.go_erp_archive_component = component
+        trace = trace.tb_next
+
+
+def diagnostic_failure(error, diagnostic, source, worker, ops, context=None):
+    phase = getattr(error, 'go_erp_archive_phase', 'ENTRY')
+    if phase not in PHASES:
+        phase = 'ENTRY'
+    result = diagnostic['failure'](error, phase, source, worker)
+    if isinstance(error, ops['Stop']) and str(error) in OPS_REASONS:
+        result['reason'] = 'GO_ERP_META_BACKUP_GUARD_' + str(error)
+    elif (context is not None and isinstance(error, context['complete']['Stop'])
+          and str(error) == 'GO_ERP_COMPLETE_SERVER_STATE_CHANGED_DURING_INSPECTION'):
+        result['reason'] = 'GO_ERP_META_BACKUP_GUARD_SERVER_STATE_CHANGED_DURING_INSPECTION'
+    path = getattr(error, 'go_erp_archive_path', None)
+    if safe_source_path(path):
+        result['safe_path'] = path
+        metadata = getattr(error, 'go_erp_archive_metadata', None)
+        if (isinstance(metadata, dict) and set(metadata) == {'uid', 'gid', 'mode'}
+                and all(type(metadata[key]) is int and 0 <= metadata[key] <= 4294967295 for key in ('uid', 'gid'))
+                and isinstance(metadata['mode'], str) and re.fullmatch(r'[0-7]{4}', metadata['mode'])):
+            result['directory_metadata'] = metadata
+        component = getattr(error, 'go_erp_archive_component', None)
+        if isinstance(component, str) and re.fullmatch(r'[A-Za-z0-9_@-]{1,100}', component):
+            result['directory_component'] = component
+    count = getattr(error, 'go_erp_planned_backups', None)
+    if type(count) is int and 0 <= count <= 20000:
+        result['planned_backups'] = count
+    return result
 
 
 def blob(data):
@@ -68,6 +159,24 @@ def content(fd, before):
     return b''.join(chunks)
 
 
+def exact_backup_present(root, relative):
+    """Inspect the exact backup name without imposing mutation guards on siblings."""
+    need(root.is_absolute() and '..' not in root.parts
+         and not Path(relative).is_absolute() and '..' not in Path(relative).parts, 'BACKUP_LOOKUP_SCOPE_INVALID')
+    flags = os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW
+    fd = os.open('/', flags)
+    try:
+        for part in root.parts[1:]+Path(relative).parts[:-1]:
+            following = os.open(part, flags, dir_fd=fd)
+            os.close(fd); fd = following
+        os.stat(Path(relative).name, dir_fd=fd, follow_symlinks=False)
+        return True
+    except FileNotFoundError:
+        return False
+    finally:
+        os.close(fd)
+
+
 def plan(root, manifest, ops):
     stems = {row['path'] for row in manifest['sources']+manifest['protected'] if row['path'].endswith('.php')}
     need(0 < len(stems) <= 20000, 'STEM_ROSTER_INVALID')
@@ -77,6 +186,8 @@ def plan(root, manifest, ops):
             need(re.fullmatch(r'(?:app|bootstrap|config|database|desktop|resources|routes|public)/[A-Za-z0-9_./@-]+\.php', stem)
                  and '..' not in Path(stem).parts, 'STEM_SCOPE_INVALID')
             name = stem+SUFFIX
+            if not exact_backup_present(root, name):
+                continue
             parent_path = (root/name).parent
             if parent_path not in parents:
                 parents[parent_path] = ops['Dirs'](parent_path)
@@ -102,7 +213,9 @@ def plan(root, manifest, ops):
         for parent in parents.values():
             parent.verify()
         return rows, parents
-    except BaseException:
+    except BaseException as error:
+        if isinstance(error, Exception) and 'stem' in locals():
+            annotate_plan_error(error, stem, ops)
         for row in rows:
             os.close(row['fd'])
         for parent in parents.values():
@@ -219,10 +332,12 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
     need(ops is not None, 'REVIEWED_PRIMITIVES_REQUIRED')
     report = {'format': 1, 'kind': 'go-erp-meta-backup-archive', 'application_contents_changed': False,
               'database_changed': False, 'credentials_read': False, 'captured': 0, 'copied': 0}
-    guard(); lock_guard(); initial_dependencies = dependencies()
-    prior_captures(root,backups,manifest,audit_root,ops)
-    rows, parents = plan(root, manifest, ops)
+    checkpoint('AFTER_SOURCE', guard); checkpoint('AFTER_SOURCE', lock_guard)
+    initial_dependencies = checkpoint('DEPENDENCIES', dependencies)
+    checkpoint('PRIOR_CAPTURES', prior_captures, root, backups, manifest, audit_root, ops)
+    rows, parents = checkpoint('PLAN', plan, root, manifest, ops)
     audit = copies = capture = audit_parent = backup_parent = None
+    phase = 'PLAN_VERIFY'
     try:
         names = {row['path'] for row in rows}
         report['pending'] = len(rows)
@@ -232,17 +347,20 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
         need(previous is None or not names.intersection(previous.get('authoritativeLiveFiles',{})), 'BACKUP_PREVIOUSLY_AUTHORITATIVE')
         for row in rows:
             verify(row)
+        phase = 'PROJECTED_SOURCE'
         try:
             expected = projected(source, root, seed, previous, names)
         except Exception as error:
             error.go_erp_planned_backups = len(rows)
             raise
         report['projected_source_files'] = len(expected['inventory'])
+        phase = 'PRE_ARCHIVE'
         guard(); lock_guard()
         need(dependencies() == initial_dependencies, 'DEPENDENCIES_CHANGED')
         if not requested or not rows:
             report.update(ok=True, archived=False)
             return report
+        phase = 'ARCHIVE_COPY'
         need(shutil.disk_usage(audit_root.parent).free >= total+64*1024*1024,'AUDIT_STORAGE_BLOCKED')
         backup_parent = ops['Dirs'](backups, (UID,GID), 0o700)
         need(all(row['before'].st_dev == os.fstat(backup_parent.fd).st_dev for row in rows), 'CAPTURE_FILESYSTEM_INVALID')
@@ -276,12 +394,14 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
         ops['json_at'](capture, 'plan.json', record)
         os.fsync(audit_parent.fd); os.fsync(backup_parent.fd)
         report.update(audit=str(audit_path), capture_directory=str(capture_path), copied=len(rows))
+        phase = 'PRE_CAPTURE'
         for row in rows:
             verify(row)
         guard(); lock_guard()
         need(dependencies() == initial_dependencies, 'DEPENDENCIES_CHANGED')
         # All projected guards and complete independent copies precede the first move.
         try:
+            phase = 'CAPTURE'
             for index,(row,item) in enumerate(zip(rows,mapping)):
                 before_capture(row)
                 with ops['critical']():
@@ -299,6 +419,7 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
                     # Retain the original inode in root-only custody. Nothing is unlinked.
                     ops['json_at'](audit, 'captured-{:04d}.json'.format(index), {'format':1, **item})
                     report['captured'] += 1
+            phase = 'POST_ARCHIVE'
             guard(); lock_guard()
             need(dependencies() == initial_dependencies, 'DEPENDENCIES_CHANGED')
             actual = source.scan_snapshot(root, seed, UID, previous)['metadata']
@@ -312,7 +433,13 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
                 ops['json_at'](audit, 'stopped.json', {'format':1, 'captured':report['captured'], 'all_copies_retained':True})
             except BaseException:
                 pass
-            raise Stop('GO_ERP_META_BACKUP_ARCHIVE_STOPPED_PRIVATE_AUDIT='+str(audit_path)) from None
+            error = Stop('GO_ERP_META_BACKUP_ARCHIVE_STOPPED_PRIVATE_AUDIT='+str(audit_path))
+            error.go_erp_archive_phase = phase
+            raise error from None
+    except Exception as error:
+        if not hasattr(error, 'go_erp_archive_phase'):
+            error.go_erp_archive_phase = phase
+        raise
     finally:
         for row in rows:
             os.close(row['fd'])
@@ -406,10 +533,7 @@ def execute(args):
             except Exception as error:
                 if isinstance(error,Stop):
                     raise
-                result = diagnostic['failure'](error,'PROJECTED_SOURCE',source,worker)
-                count = getattr(error,'go_erp_planned_backups',None)
-                if type(count) is int and 0 <= count <= 20000:
-                    result['planned_backups'] = count
+                result = diagnostic_failure(error,diagnostic,source,worker,ops,context)
                 return {'format':1,'kind':'go-erp-meta-backup-archive','application_contents_changed':False,
                     'database_changed':False,'credentials_read':False,**result}
 
@@ -421,6 +545,9 @@ def main(args=None, out=sys.stdout):
         reason = str(error) if isinstance(error,Stop) and re.fullmatch(r'GO_ERP_META_BACKUP_[A-Z_]{1,100}',str(error)) else 'GO_ERP_META_BACKUP_PRIVATE_REVIEW_REQUIRED'
         result = {'format':1,'kind':'go-erp-meta-backup-archive','ok':False,'reason':reason,
             'application_contents_changed':False,'database_changed':False,'credentials_read':False}
+        phase = getattr(error,'go_erp_archive_phase',None)
+        if phase in PHASES:
+            result['phase'] = phase
         if isinstance(error,Stop) and re.fullmatch(r'GO_ERP_META_BACKUP_ARCHIVE_STOPPED_PRIVATE_AUDIT=/var/lib/go-erp-meta-backup-archives/archive-[a-f0-9]{32}',str(error)):
             result['audit'] = str(error).split('=',1)[1]
     print(json.dumps(result,sort_keys=True,separators=(',',':')),file=out)

@@ -3,6 +3,7 @@
 import hashlib
 import fcntl
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -97,6 +98,13 @@ class MetaBackupArchiveTests(unittest.TestCase):
     def run_archive(self,requested=False,**options):
         return subject.run_archive(self.root,self.backups,self.manifest,self.source,self.seed,
             requested=requested,audit_root=self.audit,ops=self.ops,**options)
+
+    def diagnostic_modules(self):
+        modules=[]
+        for name in ['diagnose_go_erp_live_watcher_root.py','go_erp_live_updates.py']:
+            spec=importlib.util.spec_from_file_location('archive_diagnostic_test_'+name[:-3],REPOSITORY/'deployment'/name)
+            module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); modules.append(module)
+        return modules[0].__dict__,modules[1]
 
     def assert_canonical_unchanged(self):
         for name,data in self.live_contents.items():
@@ -261,6 +269,80 @@ class MetaBackupArchiveTests(unittest.TestCase):
                     with subject.locked(parent,name,owner,self.ops): pass
             finally: os.close(descriptor)
             with subject.locked(parent,name,owner,self.ops) as guard: guard()
+
+    def test_actual_foreign_directory_guard_reports_plan_and_numeric_metadata(self):
+        directory=self.root/'app/Console'; os.chown(directory,0,0); directory.chmod(0o775)
+        before=self.tree(); diagnostic,worker=self.diagnostic_modules()
+        with self.assertRaises(self.ops['Stop']) as caught: self.run_archive(True)
+        report=subject.diagnostic_failure(caught.exception,diagnostic,self.source,worker,self.ops)
+        self.assertEqual(report['phase'],'PLAN')
+        self.assertEqual(report['reason'],'GO_ERP_META_BACKUP_GUARD_DIRECTORY_UNSAFE')
+        self.assertEqual(report['safe_path'],'app/Console')
+        self.assertEqual(report['directory_metadata'],{'uid':0,'gid':0,'mode':'0775'})
+        self.assertNotIn(str(self.base),json.dumps(report))
+        self.assertNotIn('PRIVATE_HISTORICAL_BACKUP',json.dumps(report))
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists()); self.assert_canonical_unchanged()
+
+    def test_source_error_keeps_projected_phase_and_fixed_reason_without_mutation(self):
+        diagnostic,worker=self.diagnostic_modules(); before=self.tree()
+        with mock.patch.object(self.source,'scan_snapshot',side_effect=self.source.SourceError('GO_ERP_LIVE_SOURCE_WORLD_WRITABLE')):
+            with self.assertRaises(self.source.SourceError) as caught: self.run_archive(True)
+        report=subject.diagnostic_failure(caught.exception,diagnostic,self.source,worker,self.ops)
+        self.assertEqual(report['phase'],'PROJECTED_SOURCE')
+        self.assertEqual(report['reason'],'GO_ERP_LIVE_SOURCE_WORLD_WRITABLE')
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+
+    def test_same_named_stop_or_unlisted_message_never_bypasses_output_allowlist(self):
+        diagnostic,worker=self.diagnostic_modules()
+        foreign=type('Stop',(Exception,),{})
+        for error in [foreign('DIRECTORY_UNSAFE'),self.ops['Stop']('SECRET_SERVER_PASSWORD'),TypeError('SECRET_SERVER_PASSWORD')]:
+            report=subject.diagnostic_failure(error,diagnostic,self.source,worker,self.ops)
+            self.assertEqual(report['reason'],'PRIVATE_FAILURE')
+            self.assertNotIn('SECRET_SERVER_PASSWORD',json.dumps(report))
+
+    def test_existing_own_stop_reason_is_preserved_by_main(self):
+        output=io.StringIO()
+        with mock.patch.object(subject,'execute',side_effect=subject.Stop('GO_ERP_META_BACKUP_EXACT_AFTER_SOURCE_REQUIRED')):
+            status=subject.main(['--release','a'*40],out=output)
+        report=json.loads(output.getvalue())
+        self.assertEqual(status,1); self.assertEqual(report['reason'],'GO_ERP_META_BACKUP_EXACT_AFTER_SOURCE_REQUIRED')
+        self.assertFalse(report['application_contents_changed']); self.assertFalse(report['database_changed'])
+
+    def test_root_group_writable_parent_without_a_backup_does_not_block_other_archive(self):
+        stem='app/Http/Kernel.php'; path=self.root/(stem+self.suffix)
+        retained=self.base/'retained-http-backup'; path.rename(retained)
+        self.payloads.pop(stem+self.suffix)
+        directory=self.root/'app/Http'; os.chown(directory,0,0); directory.chmod(0o775)
+        report=self.run_archive(True)
+        self.assertTrue(report['ok']); self.assertEqual(report['captured'],1)
+        self.assertEqual(retained.read_bytes(),b'PRIVATE_HISTORICAL_BACKUP_1\n')
+        self.assert_canonical_unchanged()
+        self.source.scan_snapshot(self.root,self.seed,1001)
+
+    def test_world_writable_parent_without_backup_still_blocks_before_any_archive(self):
+        stem='app/Http/Kernel.php'; path=self.root/(stem+self.suffix)
+        path.rename(self.base/'retained-http-backup')
+        directory=self.root/'app/Http'; os.chown(directory,0,0); directory.chmod(0o777)
+        before=self.tree(); diagnostic,worker=self.diagnostic_modules()
+        with self.assertRaises(self.source.SourceError) as caught: self.run_archive(True)
+        report=subject.diagnostic_failure(caught.exception,diagnostic,self.source,worker,self.ops)
+        self.assertEqual(report['phase'],'PROJECTED_SOURCE')
+        self.assertEqual(report['reason'],'GO_ERP_LIVE_SOURCE_WORLD_WRITABLE')
+        self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+        self.assert_canonical_unchanged()
+
+    def test_exact_complete_guard_prefix_is_reported_but_other_text_is_private(self):
+        diagnostic,worker=self.diagnostic_modules()
+        complete_stop=type('Stop',(Exception,),{})
+        context={'complete':{'Stop':complete_stop}}
+        error=complete_stop('GO_ERP_COMPLETE_SERVER_STATE_CHANGED_DURING_INSPECTION')
+        error.go_erp_archive_phase='AFTER_SOURCE'
+        report=subject.diagnostic_failure(error,diagnostic,self.source,worker,self.ops,context)
+        self.assertEqual(report['phase'],'AFTER_SOURCE')
+        self.assertEqual(report['reason'],'GO_ERP_META_BACKUP_GUARD_SERVER_STATE_CHANGED_DURING_INSPECTION')
+        private=subject.diagnostic_failure(complete_stop('SECRET_SERVER_PASSWORD'),diagnostic,self.source,worker,self.ops,context)
+        self.assertEqual(private['reason'],'PRIVATE_FAILURE')
+        self.assertNotIn('SECRET_SERVER_PASSWORD',json.dumps(private))
 
 
 if __name__=='__main__': unittest.main()
