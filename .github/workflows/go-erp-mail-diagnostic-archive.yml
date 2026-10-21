@@ -1,0 +1,25 @@
+name: GO ERP mail diagnostic archive
+on:
+  push:
+    branches: [codex/go-erp-mail-diagnostic-archive-20261022]
+  pull_request:
+    paths:
+      - 'deployment/archive_go_erp_mail_diagnostics_root.py'
+      - 'deployment/apply_go_erp_mail_diagnostic_archive_root.sh'
+      - 'tests/test_go_erp_mail_diagnostics_root.py'
+      - '.github/workflows/go-erp-mail-diagnostic-archive.yml'
+permissions:
+  contents: read
+jobs:
+  guarded-mail-diagnostic-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 24
+      - name: Verify exact diagnostic scope, private custody and normal source removals
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_mail_diagnostics_root.py
+      - name: Verify root entrypoint syntax
+        run: bash -n deployment/apply_go_erp_mail_diagnostic_archive_root.sh
