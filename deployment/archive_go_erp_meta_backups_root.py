@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Archive the two observed backup families after a complete projected scan."""
+"""Archive the observed exact backup families after a complete projected scan."""
 import contextlib
 import fcntl
 import hashlib
@@ -22,7 +22,8 @@ AUDITS = Path('/var/lib/go-erp-meta-backup-archives')
 UID, GID = 1001, 1003
 PARENT = '713a58ef48928f0b4143c80d12619f202c88561c'
 SUFFIX = '.bak-meta-20261020-044957'
-SUFFIXES = (SUFFIX, '.bak')
+LEGACY_SUFFIXES = (SUFFIX, '.bak')
+SUFFIXES = LEGACY_SUFFIXES + ('.bak.1785856307', '.bak-20261020-042159')
 SELF = 'deployment/archive_go_erp_meta_backups_root.py'
 PINS = {'deployment/finalize_go_erp_publication_links_root.py': '795cf1ea467143e8a8ba0d4b6213a0c5ab36e741',
         'deployment/diagnose_go_erp_live_watcher_root.py': '1842302a87b7e93253ad5be616c3ab3e56bdd4a1',
@@ -133,15 +134,39 @@ def diagnostic_failure(error, diagnostic, source, worker, ops, context=None):
 
 
 
-def unclassified_inventory(source, root, seed, planned_names=()):
+def redacted_inventory_metadata(name, stems):
+    """Identify a public manifest stem without printing a suppressed filename."""
+    root = name.split('/', 1)[0]
+    result = {'source_root': root if root in {
+        'app', 'bootstrap', 'config', 'database', 'desktop', 'resources', 'routes', 'public'} else 'other',
+        'known_manifest_php_stem': False, 'category': 'unknown-stem'}
+    for stem in sorted(stems, key=lambda value: (-len(value), value)):
+        if not name.startswith(stem+'.'):
+            continue
+        result.update(known_manifest_php_stem=True,
+            manifest_php_stem_sha256=hashlib.sha256(stem.encode('utf-8')).hexdigest(),
+            category='other-suffix')
+        suffix = name[len(stem):]
+        if re.fullmatch(r'\.bak(?:\.[0-9]{10}|-[0-9]{8}-[0-9]{6})', suffix):
+            result.update(category='numeric-backup', backup_suffix=suffix)
+        elif suffix == SUFFIX:
+            result.update(category='meta-backup', backup_suffix=suffix)
+        break
+    return result
+
+
+def unclassified_inventory(source, root, seed, planned_names=(), manifest=None):
     """Bounded metadata-only supplement; it never authorizes an archive path."""
     report = {'unclassified_additions': [], 'unclassified_count': 0,
-              'redacted_paths': 0, 'inventory_complete': False}
+              'redacted_paths': 0, 'redacted_additions': [], 'inventory_complete': False}
     root_fd = None
     try:
         roster = source._git(seed, ['ls-tree', '-r', '-z', '--name-only', 'HEAD']).split(b'\0')
         need(len(roster) <= 100001, 'INVENTORY_LIMIT')
         seed_names = {name.decode('utf-8') for name in roster if name}
+        stems = {row['path'] for row in (manifest or {}).get('sources', [])
+                 +(manifest or {}).get('protected', []) if row['path'].endswith('.php')}
+        need(len(stems) <= 20000, 'INVENTORY_LIMIT')
         planned = set(planned_names)
         root_fd, ancestry = source._open_root(root)
         entries = 0
@@ -181,6 +206,10 @@ def unclassified_inventory(source, root, seed, planned_names=()):
                 report['unclassified_count'] += 1
                 if not safe_source_path(name):
                     report['redacted_paths'] += 1
+                    if len(report['redacted_additions']) < 100:
+                        report['redacted_additions'].append(redacted_inventory_metadata(name, stems))
+                    else:
+                        truncated = True
                 elif len(report['unclassified_additions']) < 100:
                     report['unclassified_additions'].append(name)
                 else:
@@ -336,12 +365,14 @@ def prior_captures(root, backups, manifest, audit_root, ops):
                      and record.get('capture') == str(capture_path),'PRIOR_CAPTURE_BINDING_INVALID')
                 legacy = (record['format'] == 1 and record.get('suffix') == SUFFIX
                           and 'suffixes' not in record)
-                current = (record['format'] == 2 and record.get('suffixes') == list(SUFFIXES)
+                previous = (record['format'] == 2 and record.get('suffixes') == list(LEGACY_SUFFIXES)
+                            and 'suffix' not in record)
+                current = (record['format'] == 3 and record.get('suffixes') == list(SUFFIXES)
                            and 'suffix' not in record)
-                need(legacy or current, 'PRIOR_CAPTURE_FAMILY_BINDING_INVALID')
+                need(legacy or previous or current, 'PRIOR_CAPTURE_FAMILY_BINDING_INVALID')
                 # Each private plan authorizes only its original family roster.
-                # A format-1 plan can never gain the newly observed .bak scope.
-                record_suffixes = (SUFFIX,) if legacy else SUFFIXES
+                # Earlier plans cannot gain suffixes introduced by a later scope.
+                record_suffixes = (SUFFIX,) if legacy else LEGACY_SUFFIXES if previous else SUFFIXES
                 allowed = {stem+suffix for stem in stems for suffix in record_suffixes}
                 audit_path = Path(record.get('audit',''))
                 need(audit_path.parent == audit_root and re.fullmatch(r'archive-[a-f0-9]{32}',audit_path.name),'PRIOR_AUDIT_SCOPE_INVALID')
@@ -468,7 +499,7 @@ def run_archive(root, backups, manifest, source, seed, previous=None, requested=
                 'mode': format(stat.S_IMODE(row['before'].st_mode),'04o'), 'bytes': row['before'].st_size,
                 'mtime_ns': row['before'].st_mtime_ns, 'copy': 'copies/'+copy_name,
                 'capture': 'original-{:04d}.bin'.format(index)})
-        record = {'format': 2, 'kind': report['kind'], 'suffixes': list(SUFFIXES), 'parent_release': PARENT,
+        record = {'format': 3, 'kind': report['kind'], 'suffixes': list(SUFFIXES), 'parent_release': PARENT,
             'manifest_blob': 'da47b5e5dc50676d6046a6511b3905a0cd053ed1', 'capture': str(capture_path),
             'audit': str(audit_path), 'rows': mapping}
         ops['json_at'](audit, 'planned.json', record)
@@ -619,7 +650,7 @@ def execute(args):
                         and str(error) == 'GO_ERP_LIVE_SOURCE_UNCLASSIFIED_ADDITION'
                         and result['phase'] == 'PROJECTED_SOURCE'):
                     result.update(unclassified_inventory(source, ROOT, WORK/'checkout',
-                        getattr(error, 'go_erp_planned_names', ())))
+                        getattr(error, 'go_erp_planned_names', ()), manifest))
                 return {'format':1,'kind':'go-erp-meta-backup-archive','application_contents_changed':False,
                     'database_changed':False,'credentials_read':False,**result}
 

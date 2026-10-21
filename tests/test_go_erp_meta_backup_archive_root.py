@@ -375,8 +375,8 @@ class MetaBackupArchiveTests(unittest.TestCase):
             captured=[p for p in self.captured() if p.read_bytes()==self.payloads[name]]
             self.assertEqual(len(captured),1); self.assertEqual(captured[0].stat().st_ino,before.st_ino)
         record=json.loads((Path(report['capture_directory'])/'plan.json').read_text())
-        self.assertEqual(record['format'],2)
-        self.assertEqual(record['suffixes'],[self.suffix,'.bak'])
+        self.assertEqual(record['format'],3)
+        self.assertEqual(record['suffixes'],list(subject.SUFFIXES))
         self.source.scan_snapshot(self.root,self.seed,1001)
         before_retry=self.tree(); retry=self.run_archive(True)
         self.assertEqual(retry['captured'],0); self.assertEqual(before_retry,self.tree())
@@ -478,6 +478,81 @@ class MetaBackupArchiveTests(unittest.TestCase):
         self.assertNotIn('SECRET_GIT_CREDENTIAL',json.dumps(report))
         self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
         self.assert_canonical_unchanged()
+
+    def add_new_observed_backups(self):
+        for index,stem in enumerate(self.live_contents):
+            for family,suffix in enumerate(('.bak.1785856307','.bak-20261020-042159')):
+                name=stem+suffix; path=self.root/name
+                data=b'PRIVATE_NEW_FAMILY_'+str(index).encode()+b'_'+str(family).encode()+b'\n'
+                path.write_bytes(data); path.chmod(0o644); os.chown(path,1001,1003)
+                self.payloads[name]=data; self.original[name]=path.stat()
+
+    def downgrade_plan_to_format_two(self,capture):
+        plan=capture/'plan.json'; record=json.loads(plan.read_text())
+        record['format']=2; record['suffixes']=[self.suffix,'.bak']; record.pop('suffix',None)
+        encoded=json.dumps(record); plan.write_text(encoded)
+        (Path(record['audit'])/'planned.json').write_text(encoded)
+        return record
+
+    def test_new_two_observed_exact_families_preserve_originals_and_independent_copies(self):
+        self.add_new_observed_backups()
+        with self.assertRaises(self.source.SourceError): self.source.scan_snapshot(self.root,self.seed,1001)
+        before=self.tree(); readonly=self.run_archive()
+        self.assertEqual(readonly['pending'],6); self.assertEqual(before,self.tree())
+        report=self.run_archive(True)
+        self.assertTrue(report['ok']); self.assertEqual(report['captured'],6)
+        self.assertEqual(sorted(p.read_bytes() for p in self.captured()),sorted(self.payloads.values()))
+        self.assertEqual(sorted(p.read_bytes() for p in self.copies()),sorted(self.payloads.values()))
+        for name,value in self.original.items():
+            captured=[p for p in self.captured() if p.read_bytes()==self.payloads[name]]
+            self.assertEqual(len(captured),1); self.assertEqual(captured[0].stat().st_ino,value.st_ino)
+        record=json.loads((Path(report['capture_directory'])/'plan.json').read_text())
+        self.assertEqual(record['format'],3)
+        self.assertEqual(record['suffixes'],list(subject.SUFFIXES))
+        self.assert_canonical_unchanged(); self.source.scan_snapshot(self.root,self.seed,1001)
+
+    def test_other_epoch_and_timestamp_suffixes_remain_unapproved_without_mutation(self):
+        for index,suffix in enumerate(('.bak.1785856308','.bak-20261020-042158')):
+            with self.subTest(suffix=suffix):
+                path=self.root/('app/Console/Kernel.php'+suffix)
+                path.write_bytes(b'PRIVATE_UNAPPROVED_DATE'); path.chmod(0o644); os.chown(path,1001,1003)
+                before=self.tree()
+                with self.assertRaises(self.source.SourceError): self.run_archive(True)
+                self.assertEqual(before,self.tree()); self.assertFalse(self.audit.exists())
+                self.assert_canonical_unchanged()
+                path.rename(self.base/('retained-unapproved-'+str(index)))
+
+    def test_original_format_two_mixed_capture_remains_readable_and_idempotent(self):
+        self.add_classic_backups(); report=self.run_archive(True)
+        record=self.downgrade_plan_to_format_two(Path(report['capture_directory']))
+        self.assertTrue(all(any(row['path'].endswith(suffix) for suffix in [self.suffix,'.bak']) for row in record['rows']))
+        before=self.tree(); retry=self.run_archive(True)
+        self.assertTrue(retry['ok']); self.assertEqual(retry['captured'],0)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_format_two_record_cannot_retroactively_authorize_new_exact_family_rows(self):
+        self.add_new_observed_backups(); report=self.run_archive(True)
+        self.downgrade_plan_to_format_two(Path(report['capture_directory']))
+        before=self.tree()
+        with self.assertRaises(subject.Stop): self.run_archive(True)
+        self.assertEqual(before,self.tree()); self.assert_canonical_unchanged()
+
+    def test_known_sensitive_named_php_backup_is_preserved_without_public_path_disclosure(self):
+        stem='config/firebase.php'; current=b'<?php /* CURRENT_FIREBASE_CONFIG */\n'
+        path=self.root/stem; path.parent.mkdir(parents=True); path.write_bytes(current); path.chmod(0o644)
+        os.chown(path.parent,1001,1003); os.chown(path,1001,1003)
+        self.live_contents[stem]=current; self.canonical[stem]=path.stat()
+        self.manifest['sources'].append({'path':stem,'before_blob':'a'*40,'after_blob':blob(current),'phase':2})
+        name=stem+'.bak.1785856307'; backup=self.root/name; data=b'PRIVATE_FIREBASE_BACKUP_CONTENT'
+        backup.write_bytes(data); backup.chmod(0o644); os.chown(backup,1001,1003)
+        self.payloads[name]=data; self.original[name]=backup.stat()
+        report=self.run_archive(True)
+        self.assertTrue(report['ok']); self.assertEqual(report['captured'],3)
+        self.assertTrue(any(p.read_bytes()==data for p in self.captured()))
+        self.assertTrue(any(p.read_bytes()==data for p in self.copies()))
+        encoded=json.dumps(report)
+        self.assertNotIn(stem,encoded); self.assertNotIn('PRIVATE_FIREBASE_BACKUP_CONTENT',encoded)
+        self.assert_canonical_unchanged(); self.source.scan_snapshot(self.root,self.seed,1001)
 
 
 if __name__=='__main__': unittest.main()
