@@ -1,0 +1,25 @@
+name: GO ERP guarded live push retry
+on:
+  push:
+    branches: [codex/go-erp-live-push-diagnosis-20261022]
+  pull_request:
+    paths:
+      - 'deployment/diagnose_go_erp_live_push_root.py'
+      - 'deployment/retry_go_erp_live_push_root.sh'
+      - 'tests/test_go_erp_live_push_root.py'
+      - '.github/workflows/go-erp-live-push-diagnosis.yml'
+permissions:
+  contents: read
+jobs:
+  guarded-push-retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 24
+      - name: Verify original worker guards and private Git error classification
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_live_push_root.py
+      - name: Verify root entrypoint syntax
+        run: bash -n deployment/retry_go_erp_live_push_root.sh
