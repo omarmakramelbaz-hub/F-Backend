@@ -292,6 +292,18 @@ class TakeawayService
         }, 3);
     }
 
+    /** Browsing refreshes current authorization and tax without reconciling sales or cash. */
+    public function catalogSummary(string $value, $actor): array
+    {
+        $selection = $this->readBranches($value, $actor);
+        if (!$this->access->ready()) return ['ready'=>false, 'policy'=>[], 'permissions'=>[]];
+        $permissions = $this->access->permissions($actor);
+        $till = $selection['branch']['value'] !== '' ? $this->till($selection['branch']['value']) : null;
+        return ['ready'=>true, 'permissions'=>$permissions,
+            'policy'=>['tax_rate'=>Money::decimal((int) ($till->tax_bps ?? 0)), 'service_rate'=>'0.00',
+                'can_discount'=>$permissions['can_manage'], 'payment_methods'=>['cash'], 'currency'=>'EGP']];
+    }
+
     public function summary(string $value, $actor): array
     {
         $selection = $this->readBranches($value, $actor);

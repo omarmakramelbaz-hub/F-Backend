@@ -44,9 +44,10 @@ class TakeawayController extends Controller
     public function catalog(Request $request, TakeawayCatalog $catalog, TakeawayService $service)
     {
         $values = $request->validate($this->branchRules() + ['search'=>'nullable|string|max:100', 'category_id'=>'nullable|integer|min:1',
-            'page'=>'nullable|integer|min:1', 'per_page'=>'nullable|integer|min:1|max:100']);
+            'page'=>'nullable|integer|min:1', 'per_page'=>'nullable|integer|min:1|max:100', 'catalog_only'=>'sometimes|boolean']);
         $actor = auth('admin')->user();
-        return response()->json(array_merge($catalog->listing($values, $actor), $service->summary($values['branch'], $actor)));
+        return response()->json(array_merge($catalog->listing($values, $actor), !empty($values['catalog_only'])
+            ? $service->catalogSummary($values['branch'], $actor) : $service->summary($values['branch'], $actor)));
     }
 
     public function quote(Request $request, TakeawayService $service)

@@ -39,6 +39,7 @@ function fixture(selected = 'f:100') {
         consentEnterAffirmed: false, catalogGeneration: 0, quoteGeneration: 0, modalGeneration: 0,
         catalogController: null, quoteController: null, modalController: null, searchTimer: null, quoteTimer: null,
         clearTimeout() {}, modal: element(), customerPhone: element(), customerName: element(),
+        cancelCatalogNavigation() {},
         discountInput: element(), cashInput: element(), confirmedInput: element(), products: new Map(),
         node: () => element(), label: key => key,
         renderCategories() {}, renderPayments() {}, renderLines() {}, totals() {}, showQuantity() {},

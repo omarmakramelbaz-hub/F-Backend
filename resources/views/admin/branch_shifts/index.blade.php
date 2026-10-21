@@ -5,7 +5,12 @@
 #branch-shifts .sh-pending{display:flex;flex-direction:column;flex:0 1 auto;max-height:29%;min-height:78px;overflow:hidden;padding:0;border-color:#f1d7b9}
 #branch-shifts .sh-pending-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;flex-shrink:0;background:#fff8ee}
 #branch-shifts .sh-pending-heading h2{font-size:14px;color:#8c4f16}
-#branch-shifts [data-sh-pending-total]{display:inline-block;padding:1px 7px;border-radius:5px;background:#f58220;color:white;font-size:12px;margin-inline-start:5px}
+#branch-shifts [data-sh-pending-total],#branch-shifts [data-sh-expense-total]{display:inline-block;padding:1px 7px;border-radius:5px;background:#f58220;color:white;font-size:12px;margin-inline-start:5px}
+#branch-shifts [data-sh-expense-status]{margin:0;padding:5px 12px;font-size:11px;color:#92602d;flex-shrink:0}
+#branch-shifts [data-sh-expense-details]{padding:0 12px 6px;font-size:11px;flex-shrink:0}
+#branch-shifts [data-sh-expense-items]{margin:5px 0;padding-inline-start:18px;max-height:64px;overflow:auto}
+#branch-shifts [data-sh-expenses-link]{display:inline-block;color:#b85e0d;font-size:11px;font-weight:700;text-decoration:underline}
+#branch-shifts .sh-pending-heading h2{margin-bottom:3px}
 #branch-shifts [data-sh-pending-counts]{color:#92602d;font-size:11px;margin-top:3px}
 #branch-shifts .sh-pending .sh-hint{padding:7px 12px;font-size:10px;flex-shrink:0}
 #branch-shifts [data-sh-pending-table-wrap]{flex:1;border-top:1px solid #f3e7d8}
@@ -36,8 +41,10 @@
     <button type="button" data-sh-retry hidden>التحقق وإعادة نفس الإغلاق</button>
     <section class="sh-period"><span data-sh-period></span><button type="button" data-sh-refresh>تحديث الوردية</button></section>
     <section class="sh-report sh-pending" aria-labelledby="shift-pending-title">
-        <header class="sh-pending-heading"><div><h2 id="shift-pending-title">الفواتير المعلقة <span data-sh-pending-total>0</span></h2><p data-sh-pending-counts></p></div></header>
-        <p class="sh-hint">تشمل الفواتير غير المنتهية من الأيام السابقة. أغلِق جميع الفواتير قبل تقفيل الوردية.</p>
+        <header class="sh-pending-heading"><div><h2 id="shift-pending-title">الفواتير المعلقة <span data-sh-pending-total>0</span></h2><p data-sh-pending-counts></p></div><div><h2>المصروفات المعلقة <span data-sh-expense-total>0</span></h2><a data-sh-expenses-link hidden>تسوية المصروفات المعلقة</a></div></header>
+        <p class="sh-hint">تشمل الفواتير والمصروفات المعلقة من الأيام السابقة. أغلِق الفواتير وسوِّ المصروفات قبل تقفيل الوردية.</p>
+        <p data-sh-expense-status>لا توجد مصروفات معلقة.</p>
+        <details data-sh-expense-details hidden><summary>عرض المصروفات المعلقة</summary><ul data-sh-expense-items></ul></details>
         <p data-sh-pending-empty hidden>لا توجد فواتير معلقة. يمكنك متابعة إغلاق الوردية.</p>
         <div class="sh-table-wrap" data-sh-pending-table-wrap tabindex="0" role="region" aria-label="الفواتير المعلقة" hidden>
             <table><thead><tr><th>رقم الفاتورة</th><th>النوع</th><th>الفرع</th><th>الترابيزة</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody data-sh-pending-invoices></tbody></table>
@@ -46,7 +53,7 @@
     <section class="sh-report sh-all" data-sh-all hidden>
         <header><h2>الورديات الحالية لجميع الفروع</h2><p class="sh-hint">اختر فرعًا لعدّ النقدية وإغلاق ورديته.</p></header>
         <div class="sh-table-wrap" tabindex="0" role="region" aria-label="الورديات الحالية">
-            <table><thead><tr><th>الفرع</th><th>بداية الوردية</th><th>فواتير معلقة</th><th>مصروفات معلقة</th><th>طلبات نقدية لم تسوّ بعد</th></tr></thead><tbody data-sh-branch-reports></tbody></table>
+            <table><thead><tr><th>الفرع</th><th>بداية الوردية</th><th>الفواتير المعلقة</th><th>المصروفات المعلقة</th><th>طلبات نقدية لم تسوّ بعد</th></tr></thead><tbody data-sh-branch-reports></tbody></table>
         </div>
     </section>
     <div class="sh-layout">

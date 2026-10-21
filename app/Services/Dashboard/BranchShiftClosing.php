@@ -48,16 +48,17 @@ class BranchShiftClosing
         $actor=$this->manager($actor);
         if(($values['branch']??null)==='all')return $this->allData($actor);
         $v=Validator::make($values,['branch'=>'required|string|max:40'])->validate();$branch=$this->branch($v['branch'],$actor);$last=$this->latest($branch['value']);$built=$this->build($branch,$last);
-        $report=$built['snapshot'];$visible=array_intersect_key($report,array_flip(['branch','started_at','closed_at','pending_expenses','unsettled_app_cash','pending_invoices']));
+        $report=$built['snapshot'];$visible=array_intersect_key($report,array_flip(['branch','started_at','closed_at','pending_expenses','unsettled_app_cash','pending_invoices','pending_expense_items','pending_expenses_url']));
         $history=DB::table('branch_shift_closings')->where('branch',$branch['value'])->orderByDesc('sequence')->limit(30)->get()->map(fn($r)=>$this->stub($r))->all();
         return ['success'=>true,'previous_closing_id'=>$last?(int)$last->id:0,'review_token'=>$this->token($built),'report'=>$visible,'history'=>$history];
     }
     private function allData($actor): array
     {
         $actor=$this->access->actor($actor);abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
-        $branches=$this->branches($actor);abort_unless($branches,403);$reports=[];$history=[];$pending=0;$unsettled=0;$invoices=$this->emptyPendingInvoices();
+        $branches=$this->branches($actor);abort_unless($branches,403);$reports=[];$history=[];$pending=0;$unsettled=0;$invoices=$this->emptyPendingInvoices();$expenseItems=[];
         foreach($branches as $branch){
             $data=$this->data(['branch'=>$branch['value']],$actor);$reports[]=$data['report'];
+            $expenseItems=array_merge($expenseItems,$data['report']['pending_expense_items']);
             $pending+=(int)$data['report']['pending_expenses'];$unsettled+=(int)$data['report']['unsettled_app_cash'];
             $invoices['total']+=$data['report']['pending_invoices']['total'];
             foreach($invoices['counts'] as $channel=>$count)$invoices['counts'][$channel]+=$data['report']['pending_invoices']['counts'][$channel];
@@ -66,7 +67,19 @@ class BranchShiftClosing
         }
         usort($history,fn($a,$b)=>$b['id']<=>$a['id']);
         // Aggregate previews deliberately omit review tokens and all monetary totals.
-        return ['success'=>true,'all_branches'=>true,'report'=>['branch'=>['value'=>'all','name'=>'جميع الفروع'],'started_at'=>'—','pending_expenses'=>$pending,'unsettled_app_cash'=>$unsettled,'pending_invoices'=>$invoices],'branch_reports'=>$reports,'history'=>array_slice($history,0,30)];
+        return ['success'=>true,'all_branches'=>true,'report'=>['branch'=>['value'=>'all','name'=>'جميع الفروع'],'started_at'=>'—','pending_expenses'=>$pending,'unsettled_app_cash'=>$unsettled,'pending_invoices'=>$invoices,'pending_expense_items'=>$expenseItems,'pending_expenses_url'=>route('branch-expenses.index',['branch'=>'all','status'=>'pending'])],'branch_reports'=>$reports,'history'=>array_slice($history,0,30)];
+    }
+    /** Unreviewed expenses stay with their branch, including earlier operating days.
+     * Expense create/review and closing all hold the same restaurant row lock first.
+     */
+    private function pendingExpenses(array $branch,bool $lock=false): array
+    {
+        $query=DB::table('branch_expenses')->where('branch',$branch['value'])->where('status','pending')->orderBy('id');
+        if($lock)$query->lockForUpdate();
+        $rows=$query->get(['id','occurred_on','description','category']);$items=[];
+        foreach($rows as $row)$items[]=['id'=>(int)$row->id,'number'=>'EXP-'.str_pad((string)$row->id,6,'0',STR_PAD_LEFT),
+            'occurred_on'=>(string)$row->occurred_on,'description'=>(string)$row->description,'category'=>(string)$row->category,'branch_name'=>$branch['name']];
+        return ['total'=>$rows->count(),'items'=>$items];
     }
     private function emptyPendingInvoices(): array
     {
@@ -201,7 +214,8 @@ class BranchShiftClosing
         foreach($commands as $command){$row=json_decode($command->snapshot,true);$sign=($row['status']??'')==='approved'?1:($command->kind==='void'?-1:0);if(!$sign)continue;$amount=$sign*(int)$row['amount_cents'];$expenses+=$amount;if($row['payment_method']==='cash')$cashExpenses+=$amount;$sources[]=['source'=>'expense','source_id'=>$command->id];}
         $gross=0;$delivery=0;$present=[];foreach($channels as $kind=>$totals){$gross+=$totals['gross_cents'];$delivery+=$totals['delivery_cents'];$present[$kind]=['count'=>$totals['count'],'gross'=>Money::decimal($totals['gross_cents']),'delivery'=>Money::decimal($totals['delivery_cents']),'net'=>Money::decimal($totals['gross_cents']-$totals['delivery_cents'])];}
         $expected=$opening+$movement+$appCash-$cashDelivery;
-        $snapshot=['branch'=>$branch,'started_at'=>$this->time($started),'closed_at'=>$this->time($now),'channels'=>$present,'sales_total'=>Money::decimal($gross),'delivery_total'=>Money::decimal($delivery),'expenses_total'=>Money::decimal($expenses),'net_sales'=>Money::decimal($gross-$delivery-$expenses),'opening_cash'=>Money::decimal($opening),'cash_sales'=>Money::decimal($cashSales),'noncash_sales'=>Money::decimal($nonCash),'app_branch_cash'=>Money::decimal($appCash),'app_outside_drawer'=>Money::decimal($appOutside),'cash_delivery'=>Money::decimal($cashDelivery),'cash_expenses'=>Money::decimal($cashExpenses),'other_cash_movements'=>Money::decimal($movement-$cashSales+$cashExpenses),'expected_cash'=>Money::decimal($expected),'pending_expenses'=>DB::table('branch_expenses')->where('branch',$value)->where('status','pending')->count(),'unsettled_app_cash'=>$appPending,'pending_invoices'=>$this->pendingInvoices($branch)];
+        $pendingExpenses=$this->pendingExpenses($branch);
+        $snapshot=['branch'=>$branch,'started_at'=>$this->time($started),'closed_at'=>$this->time($now),'channels'=>$present,'sales_total'=>Money::decimal($gross),'delivery_total'=>Money::decimal($delivery),'expenses_total'=>Money::decimal($expenses),'net_sales'=>Money::decimal($gross-$delivery-$expenses),'opening_cash'=>Money::decimal($opening),'cash_sales'=>Money::decimal($cashSales),'noncash_sales'=>Money::decimal($nonCash),'app_branch_cash'=>Money::decimal($appCash),'app_outside_drawer'=>Money::decimal($appOutside),'cash_delivery'=>Money::decimal($cashDelivery),'cash_expenses'=>Money::decimal($cashExpenses),'other_cash_movements'=>Money::decimal($movement-$cashSales+$cashExpenses),'expected_cash'=>Money::decimal($expected),'pending_expenses'=>$pendingExpenses['total'],'pending_expense_items'=>$pendingExpenses['items'],'pending_expenses_url'=>route('branch-expenses.index',['branch'=>$value,'status'=>'pending']),'unsettled_app_cash'=>$appPending,'pending_invoices'=>$this->pendingInvoices($branch)];
         return ['snapshot'=>$snapshot,'sources'=>$sources,'expected'=>$expected,'till_balance'=>$balance,'activated_at'=>$activated,'started_at'=>$started,'closed_at'=>$now];
     }
     public function close(array $values,$actor): array
@@ -211,6 +225,7 @@ class BranchShiftClosing
         return DB::transaction(function()use($v,$hash,$counted,$actor){$branch=$this->branch($v['branch'],$actor,true);$old=DB::table('branch_shift_closings')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first();if($old){abort_unless(hash_equals($old->request_hash,$hash),409,'رقم الإغلاق مستخدم لبيانات مختلفة.');return ['success'=>true,'replayed'=>true,'closing'=>$this->stub($old)];}
             $last=$this->latest($v['branch']);abort_unless((int)($last->id??0)===(int)$v['previous_closing_id'],409,'تم إغلاق وردية من جهاز آخر. حدّث الصفحة وراجع الفترة الجديدة.');
             abort_unless($this->pendingInvoices($branch,true)['total']===0,409,'برجاء إغلاق الفواتير أولًا.');
+            abort_unless($this->pendingExpenses($branch,true)['total']===0,409,'لا يمكن إغلاق الوردية قبل تسوية المصروفات المعلقة باعتمادها أو رفضها.');
             DB::table('takeaway_tills')->insertOrIgnore(['branch'=>$v['branch'],'balance_cents'=>0,'tax_bps'=>0,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             $till=DB::table('takeaway_tills')->where('branch',$v['branch'])->lockForUpdate()->first();
             $built=$this->build($branch,$last);abort_unless(hash_equals($this->token($built),$v['review_token']),409,'تغيرت تحصيلات أو مصروفات الوردية أثناء العدّ. تم تحديث البيانات؛ أعد عدّ النقدية قبل الإغلاق.');$snapshot=$built['snapshot'];$snapshot+=['counted_cash'=>Money::decimal($counted),'variance'=>Money::decimal($counted-$built['expected']),'variance_label'=>$counted===$built['expected']?'مطابق':($counted>$built['expected']?'زيادة':'عجز'),'cashier'=>['id'=>(int)$actor->id,'name'=>(string)$actor->name],'notes'=>$v['notes']];
