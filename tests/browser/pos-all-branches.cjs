@@ -16,7 +16,7 @@ function html(kind, boot) {
         rendered.content = rendered.content.replace(/<dl data-dining-detail><\/dl>/, '').replace(/<label><span>[^<]*<\/span><strong data-dining-table-number>[^<]*<\/strong><\/label>/, '');
         assert(!rendered.content.includes('data-dining-detail>') && !rendered.content.includes('data-dining-table-number'), 'compact live fixture removes the old detail fields');
     }
-    const scriptPath = kind === 'dining' && process.env.POS_BRANCH_DINING_JS || path.join(root, `public/dashboard/js/${kind}-pos.js`);
+    const scriptPath = (kind === 'dining' ? process.env.POS_BRANCH_DINING_JS : process.env.POS_BRANCH_TAKEAWAY_JS) || path.join(root, `public/dashboard/js/${kind}-pos.js`);
     return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="fixture-token"><style>*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif}.content-wrapper{margin:0}</style><style>${fs.readFileSync(path.join(root, `public/dashboard/css/${kind}-pos.css`), 'utf8')}</style></head><body class="dashboard-theme dashboard-${kind}-page">${rendered.content}<script type="application/json" id="${kind}-bootstrap">${safe(boot)}</script><script type="application/json" id="${kind}-translations">${safe(rendered.labels)}</script><script>${fs.readFileSync(scriptPath, 'utf8')}</script></body></html>`;
 }
 
@@ -61,6 +61,45 @@ async function setup(browser,kind,stored){
  await takeaway.page.locator('[data-pos-modal-close]').click();
  await takeaway.page.locator('[data-pos-branch]').selectOption('f:100');
  await takeaway.page.locator('[data-pos-product="1"]').waitFor();
+ const navigation=await setup(browser,'takeaway');
+ await navigation.page.locator('[data-pos-branch]').selectOption('f:100');
+ await navigation.page.locator('[data-pos-product="1"]').waitFor();
+ for(const index of [1,2,3,4,0]){
+  await navigation.page.locator(`[data-pos-invoice="${index}"]`).click();
+  assert.strictEqual(await navigation.page.locator('[data-pos-branch]').inputValue(),'f:100','empty invoice '+index+' keeps the branch selected by owner/admin');
+  await navigation.page.locator('[data-pos-product="1"]').waitFor();
+  assert.strictEqual(navigation.calls.filter(call=>call.path.endsWith('/catalog')).at(-1).payload.branch,'f:100');
+ }
+ await navigation.page.locator('[data-pos-customer-phone]').fill('01012345678');
+ await navigation.page.locator('[data-pos-customer-name]').fill('عميل اختبار');
+ await navigation.page.locator('[data-pos-notes]').fill('مسودة فرع المحلة');
+ await navigation.page.locator('[data-pos-product="1"]').click();
+ await navigation.page.locator('[data-pos-lines] tr').first().waitFor();
+ await navigation.page.locator('[data-pos-invoice="1"]').click();
+ const firstDraft=await navigation.page.evaluate(()=>JSON.parse(sessionStorage.getItem('takeaway-invoices:v2:1')).invoices[0]);
+ await navigation.page.locator('[data-pos-branch]').selectOption('f:101');
+ await navigation.page.locator('[data-pos-product="1"]').waitFor();
+ for(const index of [2,3,4]){
+  await navigation.page.locator(`[data-pos-invoice="${index}"]`).click();
+  assert.strictEqual(await navigation.page.locator('[data-pos-branch]').inputValue(),'f:101','empty invoice follows the latest concrete branch');
+  await navigation.page.locator('[data-pos-product="1"]').waitFor();
+ }
+ await navigation.page.locator('[data-pos-invoice="0"]').click();
+ assert.strictEqual(await navigation.page.locator('[data-pos-branch]').inputValue(),'f:100','a populated invoice restores its original branch');
+ assert.strictEqual(await navigation.page.locator('[data-pos-customer-phone]').inputValue(),'01012345678');
+ assert.strictEqual(await navigation.page.locator('[data-pos-customer-name]').inputValue(),'عميل اختبار');
+ assert.strictEqual(await navigation.page.locator('[data-pos-notes]').inputValue(),'مسودة فرع المحلة');
+ await navigation.page.locator('[data-pos-invoice="1"]').click();
+ const restoredDraft=await navigation.page.evaluate(()=>JSON.parse(sessionStorage.getItem('takeaway-invoices:v2:1')).invoices[0]);
+ for(const key of ['branch','saleKey','cart','customerPhone','customerName','notes'])assert.deepStrictEqual(restoredDraft[key],firstDraft[key],'draft '+key+' stays bound to its invoice');
+ assert.strictEqual(await navigation.page.locator('[data-pos-branch]').inputValue(),'f:100','an empty tab follows the branch of the preceding draft');
+ await navigation.page.locator('[data-pos-branch]').selectOption('');
+ const readsBeforeAll=navigation.calls.filter(call=>call.path.endsWith('/catalog')).length;
+ for(const index of [2,3,4,1]){
+  await navigation.page.locator(`[data-pos-invoice="${index}"]`).click();
+  assert.strictEqual(await navigation.page.locator('[data-pos-branch]').inputValue(),'','an explicit all-branches choice remains selected on empty tabs');
+ }
+ assert.strictEqual(navigation.calls.filter(call=>call.path.endsWith('/catalog')).length,readsBeforeAll,'empty all-branches tabs do not fetch an arbitrary branch');
  const empty=await takeaway.page.evaluate(()=>JSON.parse(sessionStorage.getItem('takeaway-invoices:v2:1')));
  const reset=await setup(browser,'takeaway',empty);
  assert.strictEqual(await reset.page.locator('[data-pos-branch]').inputValue(),'','empty saved branch returns to all on reopening');
@@ -77,6 +116,15 @@ async function setup(browser,kind,stored){
  await uncertain.page.locator('[data-pos-lines] tr').first().waitFor();
  assert.strictEqual(await uncertain.page.locator('[data-pos-branch]').inputValue(),'f:100','pending sale retains its immutable branch');
  assert(await uncertain.page.locator('[data-pos-branch]').isDisabled());
+ await uncertain.page.waitForFunction(()=>!document.querySelector('[data-pos-invoice="1"]').disabled);
+ await uncertain.page.locator('[data-pos-invoice="1"]').click();
+ await uncertain.page.locator('[data-pos-branch]').selectOption('f:101');
+ await uncertain.page.locator('[data-pos-product="1"]').waitFor();
+ await uncertain.page.locator('[data-pos-invoice="0"]').click();
+ assert.strictEqual(await uncertain.page.locator('[data-pos-branch]').inputValue(),'f:100','switching back to a pending sale restores its immutable branch');
+ const pendingAfterSwitch=await uncertain.page.evaluate(()=>JSON.parse(sessionStorage.getItem('takeaway-invoices:v2:1')).invoices[0]);
+ assert.deepStrictEqual(pendingAfterSwitch.frozenPayload,sale.frozenPayload,'tab navigation never rewrites the frozen payment payload');
+ assert.strictEqual(pendingAfterSwitch.saleKey,sale.saleKey);
  const dining=await setup(browser,'dining');
  if(process.env.POS_BRANCH_COMPACT_DETAIL==='1'){assert.strictEqual(await dining.page.locator('[data-dining-detail]').count(),0);assert.strictEqual(await dining.page.locator('[data-dining-table-number]').count(),0);assert.strictEqual(await dining.page.locator('[data-dining-detail-title]').count(),1);}
  await dining.page.locator('[data-dining-table="100"]').waitFor();
@@ -96,6 +144,6 @@ async function setup(browser,kind,stored){
  await dining.page.evaluate(()=>window.posBranchIntervals.filter(item=>item.delay===15000).forEach(item=>item.callback()));
  await dining.page.waitForFunction(()=>document.querySelectorAll('[data-dining-table]').length===2);
  assert(dining.calls.filter(call=>call.path.endsWith('/tables')).length>floorReads,'periodic floor refresh remains active with compact detail markup');
- for(const context of [takeaway,reset,draft,sold,uncertain,dining])assert.deepStrictEqual(context.errors,[]);
- console.log('POS all branches browser checks passed: default selection, aggregate receipts and floor, concrete table routing, draft/pending preservation, completed reset.');
+ for(const context of [takeaway,navigation,reset,draft,sold,uncertain,dining])assert.deepStrictEqual(context.errors,[]);
+ console.log('POS all branches browser checks passed: defaults, invoice branch continuity, explicit all selection, branch-bound drafts/pending sales, aggregate floor and receipts, completed reset.');
 }finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}})().catch(error=>{console.error(error);process.exit(1);});
