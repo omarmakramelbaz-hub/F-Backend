@@ -25,7 +25,11 @@ class MeasuredBaselineTests(unittest.TestCase):
         cls.intermediate=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261020-0dc8.json').read_text())
         cls.intermediate_manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest-20261020-0dc8.json').read_text())
         cls.previous_evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261020-213904.json').read_text())
-        cls.evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261021-160126.json').read_text())
+        cls.observed=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline-20261021-160126.json').read_text())
+        cls.observed_manifest=json.loads((ROOT/'deployment/desktop_dashboard_server_manifest-20261021-160126.json').read_text())
+        cls.observed_evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261021-160126.json').read_text())
+        cls.evidence=json.loads((ROOT/'tests/fixtures/desktop-live-source-diagnosis-20261021-173154.json').read_text())
+        cls.reconstruction=json.loads((ROOT/'tests/fixtures/desktop-current-source-reconstruction-20261021-173154.json').read_text())
         cls.target=refresh.scan(ROOT)
         cls.diagnosis={'actual_head':cls.fixture['expected_head'],'actual_source':cls.fixture['source'],
             'source_differences':copy.deepcopy(cls.evidence['source_differences']),
@@ -34,9 +38,9 @@ class MeasuredBaselineTests(unittest.TestCase):
     def test_fixture_matches_the_exact_measured_production_evidence(self):
         self.assertEqual(self.fixture['expected_head'],'ee52f1798a542d2c5625c863112315a8aaba02cf')
         self.assertEqual(self.fixture['source'],{'format':1,'files':1164,
-            'sha256':'130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb','framework':'8.83.29'})
+            'sha256':'a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6','framework':'8.83.29'})
         self.assertEqual(refresh.digest(self.fixture['files']),self.fixture['source'])
-        self.assertEqual(len(self.fixture['measured_source_differences']),13)
+        self.assertEqual(len(self.fixture['measured_source_differences']),9)
         self.assertEqual(len(self.fixture['gui']),27)
         for name,pin in self.fixture['measured_source_differences'].items():
             self.assertEqual(self.fixture['files'][name]['blob'],pin,name)
@@ -45,7 +49,7 @@ class MeasuredBaselineTests(unittest.TestCase):
     def test_release_reverses_to_the_complete_measured_map_and_preserves_gui(self):
         self.assertEqual(refresh.digest(self.target),self.manifest['after_source'])
         self.assertEqual(self.manifest['after_source']['files'],1326)
-        self.assertEqual(self.manifest['after_source']['sha256'],'92a8872d9de924dd97ce3c45291c47ebd38e9659a5b6a300fb88a3bf79038dae')
+        self.assertEqual(self.manifest['after_source']['sha256'],'ef2f7d28823d3c447b71e052df49e9eba1b4a0f3edb7ab44e9c4d42417e150b3')
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerFacts.php', self.target)
         self.assertIn('app/Services/Dashboard/DesktopDashboardCustomerDirectory.php', self.target)
         self.assertIn('resources/views/admin/contracts/pdf.blade.php', self.target)
@@ -103,9 +107,10 @@ class MeasuredBaselineTests(unittest.TestCase):
             self.assertEqual(self.target[name],self.fixture['files'][name],name)
         previous_rows={row['path']:row for row in self.previous_manifest['sources']}
         rows={row['path']:row for row in self.manifest['sources']}
+        archived_target=installer.manifest_target_profile(self.intermediate_manifest)
         for name in merged:
             self.assertEqual(previous_rows[name]['before_blob'],historical['files'][name]['blob'],name)
-            self.assertEqual(previous_rows[name]['after_blob'],self.target[name]['blob'],name)
+            self.assertEqual(previous_rows[name]['after_blob'],archived_target[name],name)
             self.assertEqual(rows[name]['before_blob'],self.fixture['files'][name]['blob'],name)
             self.assertEqual(rows[name]['after_blob'],self.target[name]['blob'],name)
         cache='database/migrations/2026_10_20_045322_create_cache_table.php'
@@ -114,46 +119,47 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(next(row['blob']for row in self.manifest['protected']if row['path']==cache),self.fixture['files'][cache]['blob'])
         self.assertEqual(next(row['blob']for row in self.previous_manifest['protected']if row['path']==cache),historical['files'][cache]['blob'])
 
-    def test_latest_thirteen_live_updates_reconstruct_the_exact_measured_cohort_and_are_all_protected(self):
-        evidence=self.evidence
+    def test_thirteen_prior_live_updates_remain_proven_by_the_160126_measurement(self):
+        evidence=self.observed_evidence
+        observed_target=installer.manifest_target_profile(self.observed_manifest)
         self.assertEqual(evidence['kind'],'desktop-current-baseline-read-only-diagnosis')
-        self.assertEqual(evidence['actual_head'],self.fixture['expected_head'])
+        self.assertEqual(evidence['actual_head'],self.observed['expected_head'])
         self.assertEqual(evidence['expected_source'],self.previous['source'])
-        self.assertEqual(evidence['actual_source'],self.fixture['source'])
+        self.assertEqual(evidence['actual_source'],self.observed['source'])
         self.assertEqual(evidence['source_difference_count'],13)
         self.assertIs(evidence['source_differences_truncated'],False)
         for key in ['deployment_performed','metadata_changed','php_bootstrapped','database_read','source_content_printed']:
             self.assertIs(evidence[key],False,key)
         actual=copy.deepcopy(self.previous['files'])
-        changed={name for name in self.fixture['files']if self.fixture['files'][name]!=self.previous['files'].get(name)}
-        self.assertEqual(changed,set(self.fixture['measured_source_differences']))
+        changed={name for name in self.observed['files']if self.observed['files'][name]!=self.previous['files'].get(name)}
+        self.assertEqual(changed,set(self.observed['measured_source_differences']))
         self.assertEqual(len(changed),13)
-        self.assertEqual(set(self.fixture['files']),set(self.previous['files']))
-        protected={row['path']:row['blob']for row in self.manifest['protected']}
+        self.assertEqual(set(self.observed['files']),set(self.previous['files']))
+        protected={row['path']:row['blob']for row in self.observed_manifest['protected']}
         old_protected={row['path']:row['blob']for row in self.previous_manifest['protected']}
-        published={row['path']for row in self.manifest['sources']}
+        published={row['path']for row in self.observed_manifest['sources']}
         for row in evidence['source_differences']:
             name=row['path']
             self.assertEqual(row['change'],'normalized_changed')
             self.assertEqual(row['expected'],actual[name],name)
             actual[name]=row['actual']
-            self.assertEqual(actual[name],self.fixture['files'][name],name)
-            self.assertEqual(actual[name],self.target[name],name)
+            self.assertEqual(actual[name],self.observed['files'][name],name)
+            self.assertEqual(actual[name]['blob'],observed_target[name],name)
             self.assertEqual(old_protected[name],row['expected']['blob'],name)
             self.assertEqual(protected[name],row['actual']['blob'],name)
             self.assertNotIn(name,published)
             self.assertEqual(row['metadata'],{'uid':1001,'gid':1003,'mode':'0644','links':1,'regular':True})
-        self.assertEqual(actual,self.fixture['files'])
+        self.assertEqual(actual,self.observed['files'])
         self.assertEqual(refresh.digest(actual),evidence['actual_source'])
-        self.assertEqual(self.fixture['gui'],self.previous['gui'])
+        self.assertEqual(self.observed['gui'],self.previous['gui'])
         self.assertEqual(len(evidence['gui']),27)
         for row in evidence['gui']:
             self.assertEqual(row['expected'],row['actual'],row['path'])
-            self.assertEqual(self.fixture['gui'][row['path']],row['actual'])
-        immediate={name for name in self.fixture['gui']if name.startswith(('public/js/','public/css/'))}
+            self.assertEqual(self.observed['gui'][row['path']],row['actual'])
+        immediate={name for name in self.observed['gui']if name.startswith(('public/js/','public/css/'))}
         self.assertEqual({row['path']for row in evidence['additional_dashboard_gui']},immediate)
         self.assertEqual(len(immediate),26)
-        provenance=self.fixture['provenance']
+        provenance=self.observed['provenance']
         self.assertEqual(provenance['diagnosis_blob'],refresh.blob((ROOT/provenance['diagnosis_fixture']).read_bytes()))
         self.assertEqual(provenance['previous_baseline_blob'],refresh.blob((ROOT/provenance['previous_baseline_fixture']).read_bytes()))
 
@@ -193,25 +199,100 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(provenance['diagnosis_blob'],refresh.blob((ROOT/provenance['diagnosis_fixture']).read_bytes()))
         self.assertEqual(provenance['previous_baseline_blob'],refresh.blob((ROOT/provenance['previous_baseline_fixture']).read_bytes()))
 
-    def test_four_new_live_updates_are_retained_without_replacing_their_measured_bytes(self):
+    def test_four_updates_measured_at_160126_remain_proven_by_the_archived_cohort(self):
         latest={
             'app/Services/Dashboard/ExpenseStockPurchases.php':'74d4fb3e881c5ba59787c4dc909a080ef146e46d',
             'public/dashboard/css/dining-pos.css':'76b66d8a658d1aa275a32573bd71bf233e0d10bc',
             'public/dashboard/css/takeaway-pos.css':'9a7f1d9ac0ac32742376c74b376b426c83e0e3f1',
             'public/dashboard/js/takeaway-pos.js':'f8acd53642dfd78a4b22c8392603b7e1c535e1ea',
         }
-        changed={name for name in self.fixture['files']if self.fixture['files'][name]!=self.intermediate['files'].get(name)}
+        changed={name for name in self.observed['files']if self.observed['files'][name]!=self.intermediate['files'].get(name)}
         self.assertEqual(changed,set(latest))
-        self.assertEqual(set(self.fixture['files']),set(self.intermediate['files']))
-        self.assertEqual(set(self.fixture['measured_source_differences'])-set(self.intermediate['measured_source_differences']),set(latest))
-        protected={row['path']:row['blob']for row in self.manifest['protected']}
-        published={row['path']for row in self.manifest['sources']}
+        self.assertEqual(set(self.observed['files']),set(self.intermediate['files']))
+        self.assertEqual(set(self.observed['measured_source_differences'])-set(self.intermediate['measured_source_differences']),set(latest))
+        protected={row['path']:row['blob']for row in self.observed_manifest['protected']}
+        published={row['path']for row in self.observed_manifest['sources']}
+        observed_target=installer.manifest_target_profile(self.observed_manifest)
         for name,pin in latest.items():
-            self.assertEqual(self.fixture['files'][name]['blob'],pin,name)
-            self.assertEqual(self.target[name],self.fixture['files'][name],name)
+            self.assertEqual(self.observed['files'][name]['blob'],pin,name)
+            self.assertEqual(observed_target[name],pin,name)
             self.assertEqual(protected[name],pin,name)
             self.assertNotIn(name,published)
-        self.assertEqual(self.fixture['gui'],self.intermediate['gui'])
+        self.assertEqual(self.observed['gui'],self.intermediate['gui'])
+
+    def test_latest_menu_and_shift_measurement_reconstructs_the_full_current_cohort(self):
+        evidence=self.evidence;actual=copy.deepcopy(self.observed['files'])
+        self.assertEqual(evidence['kind'],'desktop-current-baseline-read-only-diagnosis')
+        self.assertEqual(evidence['release'],'6472433078a882b5fa9d1d548b6baa325a89e06c')
+        self.assertEqual(evidence['actual_head'],self.fixture['expected_head'])
+        self.assertEqual(evidence['expected_source'],self.observed['source'])
+        self.assertEqual(evidence['actual_source'],self.fixture['source'])
+        self.assertEqual(evidence['source_difference_count'],9)
+        self.assertIs(evidence['source_differences_truncated'],False)
+        for key in ['deployment_performed','metadata_changed','php_bootstrapped','database_read','source_content_printed']:
+            self.assertIs(evidence[key],False,key)
+        changed={name for name in self.fixture['files']if self.fixture['files'][name]!=self.observed['files'].get(name)}
+        self.assertEqual(changed,set(self.fixture['measured_source_differences']))
+        self.assertEqual(len(changed),9)
+        self.assertEqual(set(self.fixture['files']),set(self.observed['files']))
+        merged={'app/Services/Dashboard/BranchShiftClosing.php','public/dashboard/js/branch-shifts.js'}
+        protected={row['path']:row['blob']for row in self.manifest['protected']}
+        published={row['path']:row for row in self.manifest['sources']}
+        for row in evidence['source_differences']:
+            name=row['path']
+            self.assertEqual(row['change'],'normalized_changed')
+            self.assertEqual(row['expected'],actual[name],name)
+            actual[name]=row['actual']
+            self.assertEqual(actual[name],self.fixture['files'][name],name)
+            self.assertEqual(row['metadata'],{'uid':1001,'gid':1003,'mode':'0644','links':1,'regular':True})
+            if name in merged:
+                self.assertEqual(published[name]['before_blob'],row['actual']['blob'],name)
+                self.assertEqual(published[name]['after_blob'],self.target[name]['blob'],name)
+                self.assertEqual(published[name]['phase'],2,name)
+                self.assertNotEqual(row['actual'],self.target[name],name)
+            else:
+                self.assertEqual(actual[name],self.target[name],name)
+                self.assertEqual(protected[name],row['actual']['blob'],name)
+                self.assertNotIn(name,published)
+        self.assertEqual(actual,self.fixture['files'])
+        self.assertEqual(refresh.digest(actual),evidence['actual_source'])
+        self.assertEqual(self.fixture['gui'],self.observed['gui'])
+        self.assertEqual(len(evidence['gui']),27)
+        for row in evidence['gui']:
+            self.assertEqual(row['expected'],row['actual'],row['path'])
+            self.assertEqual(self.fixture['gui'][row['path']],row['actual'])
+        provenance=self.fixture['provenance']
+        self.assertEqual(provenance['diagnosis_fixture'],'tests/fixtures/desktop-live-source-diagnosis-20261021-173154.json')
+        self.assertEqual(provenance['diagnosis_blob'],refresh.blob((ROOT/provenance['diagnosis_fixture']).read_bytes()))
+        self.assertEqual(provenance['previous_baseline_fixture'],'tests/fixtures/desktop-actual-server-baseline-20261021-160126.json')
+        self.assertEqual(provenance['previous_baseline_blob'],refresh.blob((ROOT/provenance['previous_baseline_fixture']).read_bytes()))
+
+    def test_new_observation_confirms_the_candidate_and_the_explicit_desktop_merge(self):
+        proof=self.reconstruction
+        self.assertEqual(proof['kind'],'fresh-measured-source-reconstruction-and-reviewed-target-merge')
+        self.assertIs(proof['fresh_server_measurement'],True)
+        self.assertIs(proof['full_candidate_matches_fresh_measured_map'],True)
+        self.assertNotIn('required_next_step',proof)
+        self.assertEqual(proof['base_source'],self.observed['source'])
+        self.assertEqual(proof['derived_source'],self.evidence['actual_source'])
+        self.assertEqual(proof['composed_target'],self.manifest['after_source'])
+        self.assertEqual(proof['diagnosis_blob'],refresh.blob((ROOT/proof['diagnosis_fixture']).read_bytes()))
+        self.assertEqual({row['path']for row in proof['changes']},set(self.fixture['measured_source_differences']))
+        for row in proof['changes']:
+            name=row['path']
+            self.assertEqual(row['measured_before'],self.observed['files'][name],name)
+            self.assertEqual(row['derived_before'],self.fixture['files'][name],name)
+            self.assertEqual(row['composed_target'],self.target[name],name)
+        merge=proof['explicit_merge']
+        self.assertEqual(merge['path'],'public/dashboard/js/branch-shifts.js')
+        self.assertEqual(merge['result'],self.target[merge['path']])
+        self.assertTrue(all(value is True for value in merge['checks'].values()))
+        source=(ROOT/merge['path']).read_text()
+        self.assertIn('if(blockingWarning()){message(blockingWarning());lock();return;}',source)
+        self.assertIn("typeof window.FasakhanstaDesktop.printPending==='function'",source)
+        self.assertIn("typeof window.FasakhanstaDesktop.status==='function'",source)
+        self.assertIn('await window.FasakhanstaDesktop.printReceipt(',source)
+        self.assertNotIn('<<<<<<<',source)
 
     def test_generator_accepts_current_hash_records_and_keeps_historical_blob_pin_format(self):
         generated,fixture=refresh.generate(ROOT,self.fixture['files'],self.diagnosis)
@@ -245,8 +326,8 @@ class MeasuredBaselineTests(unittest.TestCase):
         self.assertEqual(next(row for row in self.manifest['sources']if row['path']==name),
             {'path':name,'before_blob':before,'after_blob':after,'phase':2})
         self.assertNotIn(name,{row['path']for row in self.manifest['protected']})
-        self.assertTrue(all(changed not in {row['path']for row in self.manifest['sources']}
-            for changed in self.fixture['measured_source_differences']))
+        self.assertEqual(set(self.fixture['measured_source_differences'])&{row['path']for row in self.manifest['sources']},
+            {'app/Services/Dashboard/BranchShiftClosing.php','public/dashboard/js/branch-shifts.js'})
 
     def test_every_retained_raw_source_byte_and_all_current_gui_are_checked_by_the_selector(self):
         by_path={row['path']:row['blob']for row in self.manifest['protected']}
@@ -283,6 +364,10 @@ class MeasuredBaselineTests(unittest.TestCase):
             'tests/fixtures/desktop-actual-server-baseline-20261020-0dc8.json':'72e0320189551de17b83f9cb7aa57b3fd0e41bff',
             'deployment/desktop_dashboard_server_manifest-20261020-0dc8.json':'f4a949256986a44e48708529c41f8d2ab8d8c396',
             'tests/fixtures/desktop-live-source-diagnosis-20261021-160126.json':'b4b4286168086f8b1899455f37e88c93ab0c023c',
+            'tests/fixtures/desktop-actual-server-baseline-20261021-160126.json':'577b20aaf75788a1212fa320f9b0c617d8168430',
+            'deployment/desktop_dashboard_server_manifest-20261021-160126.json':'af5c48005b53263e5d9c9d1b717986b54bf496c3',
+            'tests/fixtures/desktop-live-source-diagnosis-20261021-173154.json':'37f1c1f6f05f6dd04de0d100e1e4fe5556308e28',
+            'tests/fixtures/desktop-current-source-reconstruction-20261021-173154.json':'66c7c3cec6600ecbccdd01df7982e0e4b7bb2036',
         }
         for name,pin in pins.items():self.assertEqual(refresh.blob((ROOT/name).read_bytes()),pin,name)
         source=(ROOT/'deployment/apply_desktop_dashboard_server_root.sh').read_text()
@@ -309,6 +394,8 @@ class MeasuredBaselineTests(unittest.TestCase):
                     self.fixture['expected_head'],refresh.digest(mixed)))
                 self.assertFalse(installer.baseline_matches(root,os.geteuid(),self.manifest,
                     self.previous['expected_head'],self.previous['source']))
+                self.assertFalse(installer.baseline_matches(root,os.geteuid(),self.manifest,
+                    self.observed['expected_head'],self.observed['source']))
             self.assertEqual(list(root.iterdir()),[])
 
     def test_raw_crlf_only_mixed_source_is_rejected_even_with_same_fingerprint(self):

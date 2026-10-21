@@ -18,6 +18,15 @@ class PosServiceTicket
         $sort=function($v)use(&$sort){if(!is_array($v))return $v;$list=$v===[]||array_keys($v)===range(0,count($v)-1);if(!$list)ksort($v);foreach($v as $k=>$item)$v[$k]=$sort($item);return $v;};
         return hash('sha256',json_encode($sort($value),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
     }
+    /** Product navigation needs current service policy, not daily or shift financial totals. */
+    public function catalogSummary(string $channel,string $branch,$actor): array
+    {
+        $this->channel($channel);$data=$this->sales->catalogSummary($branch,$actor);$ready=$this->tables->ready();
+        $data['ready']=$data['ready']&&$ready;
+        $policy=$ready?$this->tables->policy($branch):['service_rate'=>'0.00','settings_revision'=>1];
+        $data['policy']=array_merge($data['policy']??[],['service_rate'=>$channel==='dine'?$policy['service_rate']:'0.00','settings_revision'=>$policy['settings_revision'],'channel'=>$channel]);
+        return $data;
+    }
     public function summary(string $channel,string $branch,$actor): array
     {
         $this->channel($channel);$data=$this->sales->summary($branch,$actor);$data['ready']=$data['ready']&&$this->tables->ready();

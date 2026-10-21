@@ -10,7 +10,7 @@
     var branch = branchSelect.value;
     var products = new Map(), cart = [], category = '', catalogPage = 1, pagination = {};
     var policy = {}, permissions = {}, quote = null, quoteGeneration = 0, catalogGeneration = 0;
-    var catalogController, quoteController, searchTimer, quoteTimer;
+    var catalogController, quoteController, searchTimer, quoteTimer, catalogTimer;
     var quantityMode = 'weight', quantityInput = '1', replaceQuantity = true;
     var paymentMethod = 'cash', loaded = false, disposed = false, selling = false, uncertain = false, sold = false, quarantined = false;
     var saleKey = uuid(), frozenPayload = null, lastReceipt = null, lastQuotedTotal = null, register = null, modalFocus, modalController, modalGeneration = 0, registerLocked = false;
@@ -139,7 +139,7 @@
         if (selling || registerLocked) { notify(label('sale_locked'), false, uncertain); return; }
         if (!restoring) storeInvoice(); consentEnterAffirmed = false; catalogGeneration++; quoteGeneration++; modalGeneration++;
         if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort();
-        clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true;
+        cancelCatalogNavigation(); clearTimeout(quoteTimer); modal.hidden = true;
         activeInvoice = index; var invoice = invoices[index];
         // Empty tabs follow the selected branch; existing sales and drafts keep their own branch.
         if (!restoring && invoice.branch !== branch && !invoice.sold && !invoice.uncertain && !invoice.frozenPayload && !invoice.quarantined && !invoiceIsDirty(invoice)) {
@@ -419,7 +419,7 @@
     async function requestQuote() {
         if (!cart.length || !branch || disposed || isLocked()) return;
         var generation = ++quoteGeneration; if (quoteController) quoteController.abort(); quoteController = new AbortController();
-        var payload = draft(); notify(label('calculating'));
+        var payload = draft();
         try {
             var response = await post(urls.quote, payload, quoteController.signal); var result = await read(response, 'quote_error');
             if (disposed || generation !== quoteGeneration) return;
@@ -479,12 +479,33 @@
         (values || []).forEach(function (value) { var button = node('button', '', value.name || value.label); button.type = 'button'; button.dataset.posCategory = value.id; button.classList.toggle('is-active', String(value.id) === category); button.setAttribute('aria-pressed', String(String(value.id) === category)); button.title = String(value.id) === category ? label('filter_reset') : value.name || value.label; categories.appendChild(button); });
         categories.hidden = !(values || []).length;
     }
-    async function loadCatalog(page) {
+    function cancelCatalogNavigation() {
+        clearTimeout(catalogTimer); catalogTimer = null; clearTimeout(searchTimer); searchTimer = null;
+    }
+    function selectCatalogCategory(value) {
+        if (!branch || disposed || isLocked()) return;
+        cancelCatalogNavigation(); category = category === String(value) ? '' : String(value);
+        root.querySelectorAll('[data-pos-category]').forEach(function (button) {
+            var selected = button.dataset.posCategory === category;
+            button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected));
+        });
+        loaded = false; var generation = ++catalogGeneration, selectedBranch = branch, selectedInvoice = activeInvoice;
+        if (catalogController) catalogController.abort();
+        root.querySelector('[data-pos-products]').setAttribute('aria-busy', 'true');
+        root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = label('loading');
+        catalogTimer = setTimeout(function () {
+            catalogTimer = null;
+            if (disposed || generation !== catalogGeneration || branch !== selectedBranch || activeInvoice !== selectedInvoice || isLocked()) return;
+            loadCatalog(1, true);
+        }, 80);
+    }
+    async function loadCatalog(page, catalogOnly) {
+        cancelCatalogNavigation();
         if (!branch || disposed || isLocked()) return;
         loaded = false; var generation = ++catalogGeneration; if (catalogController) catalogController.abort(); catalogController = new AbortController();
         var list = root.querySelector('[data-pos-products]'); list.setAttribute('aria-busy', 'true'); root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = label('loading'); lock();
         try {
-            var response = await fetch(endpoint(urls.catalog, { branch: branch, search: root.querySelector('[data-pos-search]').value.trim(), category_id: category, page: page || 1 }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: catalogController.signal });
+            var response = await fetch(endpoint(urls.catalog, { branch: branch, search: root.querySelector('[data-pos-search]').value.trim(), category_id: category, page: page || 1, catalog_only: catalogOnly ? 1 : undefined }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: catalogController.signal });
             var result = await read(response, 'load_error'); if (disposed || generation !== catalogGeneration) return;
             var items = result.items || result.products; if (!Array.isArray(items) || result.ready === false) throw new Error(result.message || label('load_error'));
             policy = result.policy || {}; permissions = result.permissions || boot.permissions || {}; loaded = true;
@@ -493,7 +514,7 @@
             invoices[activeInvoice].categories = result.categories || []; renderCategories(result.categories);
             pagination = result.pagination || {}; catalogPage = Number(pagination.page || 1); root.querySelector('[data-pos-pagination]').hidden = !pagination.last_page || pagination.last_page < 2; root.querySelector('[data-pos-page-label]').textContent = catalogPage + ' / ' + (pagination.last_page || 1); root.querySelector('[data-pos-page="previous"]').disabled = catalogPage <= 1; root.querySelector('[data-pos-page="next"]').disabled = catalogPage >= Number(pagination.last_page || 1);
             root.querySelector('[data-pos-catalog-message]').hidden = items.length > 0; root.querySelector('[data-pos-catalog-message]').textContent = label('no_products');
-            invoices[activeInvoice].today = result.today || null; updateRegister(result.register, result.today); renderPayments(result.payment_methods || policy.payment_methods); totals(quote); lock(); if (!permissions.can_checkout) notify(label('access_required'));
+            if (Object.prototype.hasOwnProperty.call(result, 'today')) invoices[activeInvoice].today = result.today || null; updateRegister(result.register, result.today); renderPayments(result.payment_methods || policy.payment_methods); totals(quote); lock(); if (!permissions.can_checkout) notify(label('access_required'));
             if (cart.length) renderLines();
             if (cart.length && !quote) invalidateQuote();
         } catch (error) { if (disposed || generation !== catalogGeneration || error.name === 'AbortError') return; list.replaceChildren(); products.clear(); root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = error.message || label('load_error'); notify(error.message || label('load_error'), false, true); }
@@ -509,7 +530,7 @@
         var selected = branchSelect.value;
         if (selected === branch) return;
         if (isLocked() || cart.length && !window.confirm(label('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
-        modalGeneration++; if (modalController) modalController.abort(); modal.hidden = true;
+        cancelCatalogNavigation(); modalGeneration++; if (modalController) modalController.abort(); modal.hidden = true;
         branch = selected; category = ''; root.querySelector('[data-pos-search]').value = ''; loaded = false; permissions = {}; register = null; resetDraft(); catalogGeneration++; if (catalogController) catalogController.abort(); updateRegister(null); root.querySelector('[data-pos-day-count]').hidden = true;
         if (branch) loadCatalog(1); else { root.querySelector('[data-pos-products]').replaceChildren(); root.querySelector('[data-pos-categories]').replaceChildren(); root.querySelector('[data-pos-catalog-message]').hidden = false; root.querySelector('[data-pos-catalog-message]').textContent = label('choose_branch_first'); notify(''); }
     }
@@ -726,8 +747,8 @@
         if (button.dataset.posOptions) return chooseProduct(products.get(button.dataset.posOptions));
         if (button.dataset.posRemove !== undefined) { cart.splice(Number(button.dataset.posRemove), 1); renderLines(); invalidateQuote(); return; }
         if (button.hasAttribute('data-pos-clear')) { if (!cart.length || window.confirm(label('confirm_clear'))) { resetDraft(); notify(''); } return; }
-        if (button.dataset.posCategory !== undefined) { category = category === button.dataset.posCategory ? '' : button.dataset.posCategory; return loadCatalog(1); }
-        if (button.dataset.posPage) return loadCatalog(catalogPage + (button.dataset.posPage === 'next' ? 1 : -1));
+        if (button.dataset.posCategory !== undefined) return selectCatalogCategory(button.dataset.posCategory);
+        if (button.dataset.posPage) return loadCatalog(catalogPage + (button.dataset.posPage === 'next' ? 1 : -1), true);
     });
     listen(branchSelect, 'change', changeBranch);
     listen(root, 'input', function (event) {
@@ -750,7 +771,7 @@
     });
     listen(customerConsent, 'blur', function () { consentEnterAffirmed = false; });
     if (window.jQuery) window.jQuery(branchSelect).on('change.takeawayPos', changeBranch);
-    listen(root.querySelector('[data-pos-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
+    listen(root.querySelector('[data-pos-search]'), 'input', function () { cancelCatalogNavigation(); searchTimer = setTimeout(function () { loadCatalog(1, true); }, 250); });
     listen(discountInput, 'input', function () { root.querySelector('[data-pos-discount-reason-wrap]').hidden = !policy.can_discount || !(minor(discountInput.value) > 0n); invalidateQuote(); }); listen(root.querySelector('[data-pos-discount-reason]'), 'input', invalidateQuote); listen(cashInput, 'input', showChange);
     listen(root.querySelector('[data-pos-details]'), 'click', function () { if (lastReceipt && lastReceipt.details_url) window.DashboardInvoiceDetails.open(endpoint(lastReceipt.details_url)); });
     listen(root.querySelector('[data-pos-reprint]'), 'click', function (event) { event.preventDefault(); if (canReprint(lastReceipt) && lastReceipt.receipt_url) printReceipt(event.currentTarget.href); });
@@ -778,7 +799,7 @@
     listen(window, 'beforeunload', function (event) { if (registerLocked || selling || hasUncertainInvoices() || hasOpenInvoices()) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) { window.DashboardSPA.onBeforeLeave(mayLeave); navigationGuardRegistered = true; }
     listen(document, 'click', function (event) { if (navigationGuardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && link.href.indexOf('#') < 0 && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; catalogGeneration++; quoteGeneration++; clearTimeout(searchTimer); clearTimeout(quoteTimer); if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort(); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.takeawayPos'); });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; catalogGeneration++; quoteGeneration++; cancelCatalogNavigation(); clearTimeout(quoteTimer); if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort(); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.takeawayPos'); });
     var restored = restoreInvoices(); storageReady = true; showConsent();
     if (restored) switchInvoice(activeInvoice, true);
     else { renderLines(); renderPayments(); showQuantity(); lock(); if (branch) loadCatalog(1); }

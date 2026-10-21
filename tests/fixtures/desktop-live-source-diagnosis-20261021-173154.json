@@ -1,0 +1,933 @@
+{
+  "kind": "desktop-current-baseline-read-only-diagnosis",
+  "release": "6472433078a882b5fa9d1d548b6baa325a89e06c",
+  "actual_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
+  "expected_head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
+  "actual_source": {
+    "format": 1,
+    "files": 1164,
+    "sha256": "a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6",
+    "framework": "8.83.29"
+  },
+  "expected_source": {
+    "files": 1164,
+    "format": 1,
+    "framework": "8.83.29",
+    "sha256": "130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb"
+  },
+  "source_matches_before": false,
+  "source_matches_release": false,
+  "source_difference_count": 9,
+  "source_differences": [
+    {
+      "path": "app/Http/Controllers/Dashboard/PosServiceController.php",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "29d72038068f96d981d4931e7233476499394f4c",
+        "sha256": "3ce5d8a6d5cd817a76f40761600153b9c26f6214dae4f5d567c75d0aef23f29e"
+      },
+      "actual": {
+        "blob": "348cfff323b9b030ab9500200bcbaea703a10ee0",
+        "sha256": "6b6b5963f243ee3c7ff893c99c186d0901121344f7bf667b4c70c77c9a83266a"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/TakeawayController.php",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042",
+        "sha256": "7b2e2e02ff600acfff49d6cd23512e18a9559dead96f990d5c021c0873c514be"
+      },
+      "actual": {
+        "blob": "4345fd758892cfbcbdaa1039754cb30d4595adfe",
+        "sha256": "848856ecfa4ed98af924a880b59f868e82c975f8a827c73d0d9a6ae97560a97f"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "app/Services/Dashboard/BranchShiftClosing.php",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "7d43f6c9944d9402e254f320425e3e6012f9848f",
+        "sha256": "4970601769956e00f302693a0b05a0cc5554ed579de60033bf89b894c2a247d5"
+      },
+      "actual": {
+        "blob": "e97808653e52287cba49b436fb0c8dd3aa68aed7",
+        "sha256": "afab309385c4df16dd338e86cd989b3b63c7100bfb02fb94354f8a6755c04034"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "app/Services/Dashboard/PosServiceTicket.php",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "288f2ae1285f3e95b904708b5794185623f5de45",
+        "sha256": "203c92bf0b130ec8e1be5f6289f23db885fce2281983f65af31300740c970a22"
+      },
+      "actual": {
+        "blob": "3549b9fa0df2dd97a630b20bb9753df4d4178bf4",
+        "sha256": "5fbed4da8857859c255ef250be026b0107f668082fdf662bfb93f46a19c1623a"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "app/Services/Dashboard/TakeawayService.php",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "b58729c6fc0fdd35fa23a4850de15e09019f6998",
+        "sha256": "f4693afa90ae6d15fa144a8b4372e5fcbf37a584955f89319428939542998f48"
+      },
+      "actual": {
+        "blob": "1d06901090f55ab3f6c5a331d58dd85679a90462",
+        "sha256": "5c28792e787fb08506b702ca76c6a386c3f7dbcd2b058ba5b960cf71262f4dbe"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/dashboard/js/branch-shifts.js",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "64c3a18f9a7874608c9459257a508ca06d0ff85f",
+        "sha256": "b3b35d2343391fc6109a1e026e9cd590e615ca0b3cf06d9629e40d18497a3476"
+      },
+      "actual": {
+        "blob": "0cdcbaec93e991094c47bde128e808be910e66da",
+        "sha256": "b7ceaa483c4dd2bb1d024e892d93edd913a7b9a5f0d791508a57693b99dc83f8"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/dashboard/js/dining-pos.js",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "5f8d75237d788a86822903286fe80b1444c4df42",
+        "sha256": "b028e8a61fef4838369851bf8c5190bf70f62c76ab6929cf29765adeb8e57371"
+      },
+      "actual": {
+        "blob": "32a9667aa0d076efcf588f575b8788d0061d44ea",
+        "sha256": "19d4d9047e01cb849c063e0bb34094828628827159e2092d368f8a229610e3ec"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/dashboard/js/takeaway-pos.js",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea",
+        "sha256": "9bf24c511f4b3cc4d4d713a43d5aec3089de6e1de6062f6df1965333800e5514"
+      },
+      "actual": {
+        "blob": "18b5ae3f0d876d3411e189c741e00bd40e83d984",
+        "sha256": "33574353caa638baba311b749604bc3f1e48ab7160ab298019cdc42d9588b624"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "resources/views/admin/branch_shifts/index.blade.php",
+      "change": "normalized_changed",
+      "expected": {
+        "blob": "65f0c137c71fe8530e540714eb461110bb98ea36",
+        "sha256": "aa19805e8d538d1f09e237caa2a65309838a60c45c9c39e20dc16b1ce0c81565"
+      },
+      "actual": {
+        "blob": "8fe3a0ea87789efbddd51077bc276129e2ea09c2",
+        "sha256": "99be3f25b92d27fcd6d398d1a7854f3f920741fc1b80e6c5c830e7526e3b3f96"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    }
+  ],
+  "source_differences_truncated": false,
+  "gui": [
+    {
+      "path": "public/css/dashboard-meta-ai-controls.css",
+      "expected": "0928502f344567b20599cf0216352a1e7b76da97",
+      "actual": "0928502f344567b20599cf0216352a1e7b76da97",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comment-ai.css",
+      "expected": "5d72796437513511b610442f942933fb00445719",
+      "actual": "5d72796437513511b610442f942933fb00445719",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-expanded.css",
+      "expected": "42cc07b4d05563953f373e531623f892b2c63998",
+      "actual": "42cc07b4d05563953f373e531623f892b2c63998",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-original.css",
+      "expected": "407e599ca0b9483cc8106404806e5b90244ff0b0",
+      "actual": "407e599ca0b9483cc8106404806e5b90244ff0b0",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-pending.css",
+      "expected": "ada23357ea36f9a481c30e37dfab67f707dbd404",
+      "actual": "ada23357ea36f9a481c30e37dfab67f707dbd404",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-timeline.css",
+      "expected": "e32ed96770e93d563500758395dfba6fde595a61",
+      "actual": "e32ed96770e93d563500758395dfba6fde595a61",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments.css",
+      "expected": "7c38d21dbe30bc0c386dd431e1fdfc321994c818",
+      "actual": "7c38d21dbe30bc0c386dd431e1fdfc321994c818",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-connection.css",
+      "expected": "660f7145725b073e60f5b60059c7dd5141e5bd5d",
+      "actual": "660f7145725b073e60f5b60059c7dd5141e5bd5d",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox-expanded.css",
+      "expected": "89f3d9b91126dface3ca087aa9e1fc319f56883f",
+      "actual": "89f3d9b91126dface3ca087aa9e1fc319f56883f",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox-viewport.css",
+      "expected": "1d3c4c9360619c6e3d7ab6a23d4188de36e96732",
+      "actual": "1d3c4c9360619c6e3d7ab6a23d4188de36e96732",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox.css",
+      "expected": "79e8e815e024199316d2f5bf86be56bf21ededfd",
+      "actual": "79e8e815e024199316d2f5bf86be56bf21ededfd",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-message-hub.css",
+      "expected": "631727d91df60dc2a65ded92b1b6cdda87de0afe",
+      "actual": "631727d91df60dc2a65ded92b1b6cdda87de0afe",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-inbox.css",
+      "expected": "639ac2223b4abcd679329000551d9c735e43b5af",
+      "actual": "639ac2223b4abcd679329000551d9c735e43b5af",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-orders.css",
+      "expected": "35d80672c039b1dcbd8fd52457ea8a7078e0421d",
+      "actual": "35d80672c039b1dcbd8fd52457ea8a7078e0421d",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-replies.css",
+      "expected": "aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854",
+      "actual": "aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/dashboard/branding/dashboard-brand.css",
+      "expected": "b8e5b389536cfe30ff42ea9a08ba1d26f2da3b86",
+      "actual": "b8e5b389536cfe30ff42ea9a08ba1d26f2da3b86",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls-replies-20261020-v2.js",
+      "expected": "1d8da56d78d3278d57c614c280301d6496bdfde5",
+      "actual": "1d8da56d78d3278d57c614c280301d6496bdfde5",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls-replies-20261020.js",
+      "expected": "43ee95210fe37363bc5b4cc17a8d233275912f9a",
+      "actual": "43ee95210fe37363bc5b4cc17a8d233275912f9a",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls.js",
+      "expected": "65132eece665098b324d2b4a37e2f83d8c2539f6",
+      "actual": "65132eece665098b324d2b4a37e2f83d8c2539f6",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-comment-ai.js",
+      "expected": "1c8b2cff7542e91c55faf694143698f44392800a",
+      "actual": "1c8b2cff7542e91c55faf694143698f44392800a",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-comments.js",
+      "expected": "f6de1fa10451d2f78ee99048f6e94e0d21364798",
+      "actual": "f6de1fa10451d2f78ee99048f6e94e0d21364798",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-inbox.js",
+      "expected": "15853304f93533ffac4670f1e92c57b999dab7c1",
+      "actual": "15853304f93533ffac4670f1e92c57b999dab7c1",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-message-hub.js",
+      "expected": "b84ea253a1919ba1d73f6e8d1fc70c5ec03b6e01",
+      "actual": "b84ea253a1919ba1d73f6e8d1fc70c5ec03b6e01",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-replies.js",
+      "expected": "aa956a1b06ea2da77434dd2e5f59d52cb5532c7a",
+      "actual": "aa956a1b06ea2da77434dd2e5f59d52cb5532c7a",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-inbox.js",
+      "expected": "964bc531f7119451a570cd9ee3e2a0996f2fd1af",
+      "actual": "964bc531f7119451a570cd9ee3e2a0996f2fd1af",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-orders.js",
+      "expected": "ecd33b427e2af3cf444ea116920fe7f1ec51dc8d",
+      "actual": "ecd33b427e2af3cf444ea116920fe7f1ec51dc8d",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-replies.js",
+      "expected": "65d49087c9b98d621e8d3a11151751c18416881a",
+      "actual": "65d49087c9b98d621e8d3a11151751c18416881a",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    }
+  ],
+  "related_meta_gui": [
+    {
+      "path": "public/js/dashboard-meta-inbox.js",
+      "actual": "15853304f93533ffac4670f1e92c57b999dab7c1",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-replies.js",
+      "actual": "aa956a1b06ea2da77434dd2e5f59d52cb5532c7a",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox.css",
+      "actual": "79e8e815e024199316d2f5bf86be56bf21ededfd",
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1
+      }
+    }
+  ],
+  "additional_dashboard_gui": [
+    {
+      "path": "public/css/dashboard-meta-ai-controls.css",
+      "actual": {
+        "blob": "0928502f344567b20599cf0216352a1e7b76da97",
+        "sha256": "f90f3ab4f7cacc21c987618c65305216421949efc336da43cec2973dadd9f530"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comment-ai.css",
+      "actual": {
+        "blob": "5d72796437513511b610442f942933fb00445719",
+        "sha256": "eb54595c3ef8d4e145cedaf57cdf667e17145890772903cd119453c53ca12b64"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-expanded.css",
+      "actual": {
+        "blob": "42cc07b4d05563953f373e531623f892b2c63998",
+        "sha256": "0edfe31d649d4570a1d491982b37b258e9c6badf955ef1c44209283a30632552"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-original.css",
+      "actual": {
+        "blob": "407e599ca0b9483cc8106404806e5b90244ff0b0",
+        "sha256": "785a7b1d5feb23b047d7755f17c702c6d5685803f15b5c84aaaf55c8bc9d82eb"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-pending.css",
+      "actual": {
+        "blob": "ada23357ea36f9a481c30e37dfab67f707dbd404",
+        "sha256": "0274da8288b75b4b4e437278cafeb4125a545c6f40c874b9f67cd6e712e9481f"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments-timeline.css",
+      "actual": {
+        "blob": "e32ed96770e93d563500758395dfba6fde595a61",
+        "sha256": "4f7bc4d08133c46ead7e51fc441e3d043c04488c43b342fce6127f516fbbe163"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-comments.css",
+      "actual": {
+        "blob": "7c38d21dbe30bc0c386dd431e1fdfc321994c818",
+        "sha256": "9415d0592da8a36fa83e69ed7a5f42cb6fa5b04eff6e47977aedc8d106b48dd6"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-connection.css",
+      "actual": {
+        "blob": "660f7145725b073e60f5b60059c7dd5141e5bd5d",
+        "sha256": "9fd7b6f0306a9b456fc54261c777ab386c806254a08f8a742f514d8b278ab6fb"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox-expanded.css",
+      "actual": {
+        "blob": "89f3d9b91126dface3ca087aa9e1fc319f56883f",
+        "sha256": "ad15d33b1e5d58540c3f61bc050e631a80889779e88b7bb1aeb85fe9f1d609eb"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox-viewport.css",
+      "actual": {
+        "blob": "1d3c4c9360619c6e3d7ab6a23d4188de36e96732",
+        "sha256": "e77d197c7ab4ed03bc93461e4347ae4737da859e0dc5a3f171a392a5a330e679"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-inbox.css",
+      "actual": {
+        "blob": "79e8e815e024199316d2f5bf86be56bf21ededfd",
+        "sha256": "fa20999dea45b6679f391971a59ca0312d3184ae62e31a246d4f27035986f66f"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-meta-message-hub.css",
+      "actual": {
+        "blob": "631727d91df60dc2a65ded92b1b6cdda87de0afe",
+        "sha256": "dea8e6b61d5bfe018e3d2ed111fb3dabba7623d2e3ef9d8117e53217fe965ea0"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-inbox.css",
+      "actual": {
+        "blob": "639ac2223b4abcd679329000551d9c735e43b5af",
+        "sha256": "93eb10e10807b579ff3ec46cabbb616bea74faf5bebe69b583521fbdcb2657e0"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-orders.css",
+      "actual": {
+        "blob": "35d80672c039b1dcbd8fd52457ea8a7078e0421d",
+        "sha256": "8ec56d46f2b3939b15b4cf8adcecd0f3b224e3883d2de4f4a08908652ed07d6b"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/css/dashboard-whatsapp-replies.css",
+      "actual": {
+        "blob": "aaf5d4b8a5c46b6aaaf43824c52ddefca00ba854",
+        "sha256": "47716b484827e4822545633c340b1077d0821aec6b928df29c66f6ac4b2d8638"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls-replies-20261020-v2.js",
+      "actual": {
+        "blob": "1d8da56d78d3278d57c614c280301d6496bdfde5",
+        "sha256": "dd3839495f470161dab3fe97f2f3cb0c30976396f0b93bb21d6cc7f2cbae600f"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls-replies-20261020.js",
+      "actual": {
+        "blob": "43ee95210fe37363bc5b4cc17a8d233275912f9a",
+        "sha256": "6f5bde90e965bea4ae6f7f799fb84ec8bc2f8de9e84f7bdb21e49d351ec23a6d"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-ai-controls.js",
+      "actual": {
+        "blob": "65132eece665098b324d2b4a37e2f83d8c2539f6",
+        "sha256": "210d8e478917ed8967f001e2f517e05a9bca4336e4720cc82c71040724934544"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-comment-ai.js",
+      "actual": {
+        "blob": "1c8b2cff7542e91c55faf694143698f44392800a",
+        "sha256": "5e5401369f9290a10775a37560957dde2197af7218ee1c8e4ff04fb8d539499c"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-comments.js",
+      "actual": {
+        "blob": "f6de1fa10451d2f78ee99048f6e94e0d21364798",
+        "sha256": "d883dc6df97651fb9abef445c52b30461d5b0bddf0e0600fbb4ea2793eab8921"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-inbox.js",
+      "actual": {
+        "blob": "15853304f93533ffac4670f1e92c57b999dab7c1",
+        "sha256": "c220ac4f257ca1ca22868904ff99ce3fea8cedf3c57aaf6a2daf4e5fb781a0bc"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-message-hub.js",
+      "actual": {
+        "blob": "b84ea253a1919ba1d73f6e8d1fc70c5ec03b6e01",
+        "sha256": "3af2e1558cfa4e580c6de3093fdfa9f5319f708d07259d79c73c04f19f6e3eb1"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-meta-replies.js",
+      "actual": {
+        "blob": "aa956a1b06ea2da77434dd2e5f59d52cb5532c7a",
+        "sha256": "6640fd441d0539b47c78d6c660581da0c47ff1fca5fce65246ecc9e7e358c8d0"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-inbox.js",
+      "actual": {
+        "blob": "964bc531f7119451a570cd9ee3e2a0996f2fd1af",
+        "sha256": "1bac751c717d50f3cfe7491cb2001db83f6386166d73e55fcf5c1d8f004777ce"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-orders.js",
+      "actual": {
+        "blob": "ecd33b427e2af3cf444ea116920fe7f1ec51dc8d",
+        "sha256": "be94d8458e67996e81e5207411facb8ee9f670363d09c36ee844f15b85b607c3"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    },
+    {
+      "path": "public/js/dashboard-whatsapp-replies.js",
+      "actual": {
+        "blob": "65d49087c9b98d621e8d3a11151751c18416881a",
+        "sha256": "23b6223a651144086ebae4d22251c3b99771e8ffc9cdeb209cb84b2cfb15fd2b"
+      },
+      "metadata": {
+        "uid": 1001,
+        "gid": 1003,
+        "mode": "0644",
+        "links": 1,
+        "regular": true
+      }
+    }
+  ],
+  "publication_metadata_states": {
+    "original": 0,
+    "repaired": 0,
+    "unreviewed": 0,
+    "absent": 0
+  },
+  "unreviewed_metadata": [],
+  "deployment_performed": false,
+  "metadata_changed": false,
+  "php_bootstrapped": false,
+  "database_read": false,
+  "source_content_printed": false,
+  "diagnostic_release": "8ca1f59cdc1d7e87b5533588cc55bdd6f7d23b10",
+  "source_scanned_as": "root"
+}

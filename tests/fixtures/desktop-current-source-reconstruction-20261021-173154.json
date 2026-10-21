@@ -1,0 +1,246 @@
+{
+  "base_source": {
+    "files": 1164,
+    "format": 1,
+    "framework": "8.83.29",
+    "sha256": "130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb"
+  },
+  "base_target": {
+    "files": 1326,
+    "format": 1,
+    "framework": "8.83.29",
+    "sha256": "92a8872d9de924dd97ce3c45291c47ebd38e9659a5b6a300fb88a3bf79038dae"
+  },
+  "changes": [
+    {
+      "app_6472433_before": {
+        "blob": "b58729c6fc0fdd35fa23a4850de15e09019f6998",
+        "sha256": "f4693afa90ae6d15fa144a8b4372e5fcbf37a584955f89319428939542998f48"
+      },
+      "composed_target": {
+        "blob": "1d06901090f55ab3f6c5a331d58dd85679a90462",
+        "sha256": "5c28792e787fb08506b702ca76c6a386c3f7dbcd2b058ba5b960cf71262f4dbe"
+      },
+      "derived_before": {
+        "blob": "1d06901090f55ab3f6c5a331d58dd85679a90462",
+        "sha256": "5c28792e787fb08506b702ca76c6a386c3f7dbcd2b058ba5b960cf71262f4dbe"
+      },
+      "measured_before": {
+        "blob": "b58729c6fc0fdd35fa23a4850de15e09019f6998",
+        "sha256": "f4693afa90ae6d15fa144a8b4372e5fcbf37a584955f89319428939542998f48"
+      },
+      "path": "app/Services/Dashboard/TakeawayService.php",
+      "publication_needed": false
+    },
+    {
+      "app_6472433_before": {
+        "blob": "288f2ae1285f3e95b904708b5794185623f5de45",
+        "sha256": "203c92bf0b130ec8e1be5f6289f23db885fce2281983f65af31300740c970a22"
+      },
+      "composed_target": {
+        "blob": "3549b9fa0df2dd97a630b20bb9753df4d4178bf4",
+        "sha256": "5fbed4da8857859c255ef250be026b0107f668082fdf662bfb93f46a19c1623a"
+      },
+      "derived_before": {
+        "blob": "3549b9fa0df2dd97a630b20bb9753df4d4178bf4",
+        "sha256": "5fbed4da8857859c255ef250be026b0107f668082fdf662bfb93f46a19c1623a"
+      },
+      "measured_before": {
+        "blob": "288f2ae1285f3e95b904708b5794185623f5de45",
+        "sha256": "203c92bf0b130ec8e1be5f6289f23db885fce2281983f65af31300740c970a22"
+      },
+      "path": "app/Services/Dashboard/PosServiceTicket.php",
+      "publication_needed": false
+    },
+    {
+      "app_6472433_before": {
+        "blob": "5a0d6b3f5b1cd67281c7d32974add5fd277408da",
+        "sha256": "25b56713730907965691f04b0ab9aba6538b9e952a223fc09db8e7ca4da1246c"
+      },
+      "composed_target": {
+        "blob": "20f1d45c75ede7e3c474fc02c7236740bca08711",
+        "sha256": "914f479cef4f953a5855477a342ed32bf71303be06d0772865a961991a9008ab"
+      },
+      "derived_before": {
+        "blob": "e97808653e52287cba49b436fb0c8dd3aa68aed7",
+        "sha256": "afab309385c4df16dd338e86cd989b3b63c7100bfb02fb94354f8a6755c04034"
+      },
+      "measured_before": {
+        "blob": "7d43f6c9944d9402e254f320425e3e6012f9848f",
+        "sha256": "4970601769956e00f302693a0b05a0cc5554ed579de60033bf89b894c2a247d5"
+      },
+      "path": "app/Services/Dashboard/BranchShiftClosing.php",
+      "publication_needed": true
+    },
+    {
+      "app_6472433_before": {
+        "blob": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042",
+        "sha256": "7b2e2e02ff600acfff49d6cd23512e18a9559dead96f990d5c021c0873c514be"
+      },
+      "composed_target": {
+        "blob": "4345fd758892cfbcbdaa1039754cb30d4595adfe",
+        "sha256": "848856ecfa4ed98af924a880b59f868e82c975f8a827c73d0d9a6ae97560a97f"
+      },
+      "derived_before": {
+        "blob": "4345fd758892cfbcbdaa1039754cb30d4595adfe",
+        "sha256": "848856ecfa4ed98af924a880b59f868e82c975f8a827c73d0d9a6ae97560a97f"
+      },
+      "measured_before": {
+        "blob": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042",
+        "sha256": "7b2e2e02ff600acfff49d6cd23512e18a9559dead96f990d5c021c0873c514be"
+      },
+      "path": "app/Http/Controllers/Dashboard/TakeawayController.php",
+      "publication_needed": false
+    },
+    {
+      "app_6472433_before": {
+        "blob": "29d72038068f96d981d4931e7233476499394f4c",
+        "sha256": "3ce5d8a6d5cd817a76f40761600153b9c26f6214dae4f5d567c75d0aef23f29e"
+      },
+      "composed_target": {
+        "blob": "348cfff323b9b030ab9500200bcbaea703a10ee0",
+        "sha256": "6b6b5963f243ee3c7ff893c99c186d0901121344f7bf667b4c70c77c9a83266a"
+      },
+      "derived_before": {
+        "blob": "348cfff323b9b030ab9500200bcbaea703a10ee0",
+        "sha256": "6b6b5963f243ee3c7ff893c99c186d0901121344f7bf667b4c70c77c9a83266a"
+      },
+      "measured_before": {
+        "blob": "29d72038068f96d981d4931e7233476499394f4c",
+        "sha256": "3ce5d8a6d5cd817a76f40761600153b9c26f6214dae4f5d567c75d0aef23f29e"
+      },
+      "path": "app/Http/Controllers/Dashboard/PosServiceController.php",
+      "publication_needed": false
+    },
+    {
+      "app_6472433_before": {
+        "blob": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea",
+        "sha256": "9bf24c511f4b3cc4d4d713a43d5aec3089de6e1de6062f6df1965333800e5514"
+      },
+      "composed_target": {
+        "blob": "18b5ae3f0d876d3411e189c741e00bd40e83d984",
+        "sha256": "33574353caa638baba311b749604bc3f1e48ab7160ab298019cdc42d9588b624"
+      },
+      "derived_before": {
+        "blob": "18b5ae3f0d876d3411e189c741e00bd40e83d984",
+        "sha256": "33574353caa638baba311b749604bc3f1e48ab7160ab298019cdc42d9588b624"
+      },
+      "measured_before": {
+        "blob": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea",
+        "sha256": "9bf24c511f4b3cc4d4d713a43d5aec3089de6e1de6062f6df1965333800e5514"
+      },
+      "path": "public/dashboard/js/takeaway-pos.js",
+      "publication_needed": false
+    },
+    {
+      "app_6472433_before": {
+        "blob": "5f8d75237d788a86822903286fe80b1444c4df42",
+        "sha256": "b028e8a61fef4838369851bf8c5190bf70f62c76ab6929cf29765adeb8e57371"
+      },
+      "composed_target": {
+        "blob": "32a9667aa0d076efcf588f575b8788d0061d44ea",
+        "sha256": "19d4d9047e01cb849c063e0bb34094828628827159e2092d368f8a229610e3ec"
+      },
+      "derived_before": {
+        "blob": "32a9667aa0d076efcf588f575b8788d0061d44ea",
+        "sha256": "19d4d9047e01cb849c063e0bb34094828628827159e2092d368f8a229610e3ec"
+      },
+      "measured_before": {
+        "blob": "5f8d75237d788a86822903286fe80b1444c4df42",
+        "sha256": "b028e8a61fef4838369851bf8c5190bf70f62c76ab6929cf29765adeb8e57371"
+      },
+      "path": "public/dashboard/js/dining-pos.js",
+      "publication_needed": false
+    },
+    {
+      "app_6472433_before": {
+        "blob": "bb5e38a82b8ce873efff0f7d1289bbcd237670ba",
+        "sha256": "63876fa7db2d589944dc7fb98114921e0098c7a3ad792e46d2a1edfd0e552468"
+      },
+      "composed_target": {
+        "blob": "63cd3901dcd09f7c9778d0d6e6b0c9acb0a2fd7d",
+        "sha256": "b810d912bc81da7c29ac66452e8cfaf540b17897079d10fc87d55409db217252"
+      },
+      "derived_before": {
+        "blob": "0cdcbaec93e991094c47bde128e808be910e66da",
+        "sha256": "b7ceaa483c4dd2bb1d024e892d93edd913a7b9a5f0d791508a57693b99dc83f8"
+      },
+      "measured_before": {
+        "blob": "64c3a18f9a7874608c9459257a508ca06d0ff85f",
+        "sha256": "b3b35d2343391fc6109a1e026e9cd590e615ca0b3cf06d9629e40d18497a3476"
+      },
+      "path": "public/dashboard/js/branch-shifts.js",
+      "publication_needed": true
+    },
+    {
+      "app_6472433_before": {
+        "blob": "65f0c137c71fe8530e540714eb461110bb98ea36",
+        "sha256": "aa19805e8d538d1f09e237caa2a65309838a60c45c9c39e20dc16b1ce0c81565"
+      },
+      "composed_target": {
+        "blob": "8fe3a0ea87789efbddd51077bc276129e2ea09c2",
+        "sha256": "99be3f25b92d27fcd6d398d1a7854f3f920741fc1b80e6c5c830e7526e3b3f96"
+      },
+      "derived_before": {
+        "blob": "8fe3a0ea87789efbddd51077bc276129e2ea09c2",
+        "sha256": "99be3f25b92d27fcd6d398d1a7854f3f920741fc1b80e6c5c830e7526e3b3f96"
+      },
+      "measured_before": {
+        "blob": "65f0c137c71fe8530e540714eb461110bb98ea36",
+        "sha256": "aa19805e8d538d1f09e237caa2a65309838a60c45c9c39e20dc16b1ce0c81565"
+      },
+      "path": "resources/views/admin/branch_shifts/index.blade.php",
+      "publication_needed": false
+    }
+  ],
+  "composed_target": {
+    "files": 1326,
+    "format": 1,
+    "framework": "8.83.29",
+    "sha256": "ef2f7d28823d3c447b71e052df49e9eba1b4a0f3edb7ab44e9c4d42417e150b3"
+  },
+  "conflicts": [],
+  "derived_source": {
+    "files": 1164,
+    "format": 1,
+    "framework": "8.83.29",
+    "sha256": "a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6"
+  },
+  "diagnosis_blob": "37f1c1f6f05f6dd04de0d100e1e4fe5556308e28",
+  "diagnosis_fixture": "tests/fixtures/desktop-live-source-diagnosis-20261021-173154.json",
+  "explicit_merge": {
+    "base": {
+      "blob": "64c3a18f9a7874608c9459257a508ca06d0ff85f",
+      "sha256": "b3b35d2343391fc6109a1e026e9cd590e615ca0b3cf06d9629e40d18497a3476"
+    },
+    "checks": {
+      "desktop_changes_only_these_two_blocks": true,
+      "menu_leaves_both_base_blocks_unchanged": true,
+      "native_pending_print_retained": true,
+      "native_receipt_print_retained": true,
+      "pending_expense_guard_retained": true,
+      "reversing_desktop_blocks_recovers_menu_exactly": true
+    },
+    "desktop": {
+      "blob": "bb5e38a82b8ce873efff0f7d1289bbcd237670ba",
+      "sha256": "63876fa7db2d589944dc7fb98114921e0098c7a3ad792e46d2a1edfd0e552468"
+    },
+    "menu": {
+      "blob": "0cdcbaec93e991094c47bde128e808be910e66da",
+      "sha256": "b7ceaa483c4dd2bb1d024e892d93edd913a7b9a5f0d791508a57693b99dc83f8"
+    },
+    "method": "Start from exact menu release-after, replace its unchanged printClosing and closeShift function blocks with the exact APP647 desktop blocks.",
+    "path": "public/dashboard/js/branch-shifts.js",
+    "reason": "Line-based diff3 conflicts because the unchanged closeShift function is adjacent to the menu update submit handler.",
+    "result": {
+      "blob": "63cd3901dcd09f7c9778d0d6e6b0c9acb0a2fd7d",
+      "sha256": "b810d912bc81da7c29ac66452e8cfaf540b17897079d10fc87d55409db217252"
+    }
+  },
+  "fresh_server_measurement": true,
+  "full_candidate_matches_fresh_measured_map": true,
+  "head": "ee52f1798a542d2c5625c863112315a8aaba02cf",
+  "kind": "fresh-measured-source-reconstruction-and-reviewed-target-merge",
+  "previous_measured_baseline_blob": "577b20aaf75788a1212fa320f9b0c617d8168430",
+  "previous_measured_baseline_fixture": "tests/fixtures/desktop-actual-server-baseline-20261021-160126.json"
+}

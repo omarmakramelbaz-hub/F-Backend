@@ -69,7 +69,7 @@ class ExpensePatchCohortTests(unittest.TestCase):
 
     def test_current_measured_cohort_cannot_be_derived_or_selected_as_the_historical_pair(self):
         current=json.loads((ROOT/'tests/fixtures/desktop-actual-server-baseline.json').read_text())
-        self.assertEqual(current['source']['sha256'],'130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb')
+        self.assertEqual(current['source']['sha256'],'a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6')
         with self.assertRaisesRegex(ValueError,'measured base'):
             variant.derive(ROOT,current,self.known)
         for path in ['deployment/desktop_dashboard_server_manifest-20261020-4288.json',

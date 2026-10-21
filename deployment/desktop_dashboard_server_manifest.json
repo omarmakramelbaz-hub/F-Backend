@@ -4,13 +4,13 @@
   "before_source": {
     "format": 1,
     "files": 1164,
-    "sha256": "130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb",
+    "sha256": "a6adf27f343f61a5264fd6b65c0aa8978f2825a0ed3e3379d522c89aac4ddfa6",
     "framework": "8.83.29"
   },
   "after_source": {
     "format": 1,
     "files": 1326,
-    "sha256": "92a8872d9de924dd97ce3c45291c47ebd38e9659a5b6a300fb88a3bf79038dae",
+    "sha256": "ef2f7d28823d3c447b71e052df49e9eba1b4a0f3edb7ab44e9c4d42417e150b3",
     "framework": "8.83.29"
   },
   "sources": [
@@ -1018,8 +1018,8 @@
     },
     {
       "path": "app/Services/Dashboard/BranchShiftClosing.php",
-      "before_blob": "7d43f6c9944d9402e254f320425e3e6012f9848f",
-      "after_blob": "5a0d6b3f5b1cd67281c7d32974add5fd277408da",
+      "before_blob": "e97808653e52287cba49b436fb0c8dd3aa68aed7",
+      "after_blob": "20f1d45c75ede7e3c474fc02c7236740bca08711",
       "phase": 2
     },
     {
@@ -1144,8 +1144,8 @@
     },
     {
       "path": "public/dashboard/js/branch-shifts.js",
-      "before_blob": "64c3a18f9a7874608c9459257a508ca06d0ff85f",
-      "after_blob": "bb5e38a82b8ce873efff0f7d1289bbcd237670ba",
+      "before_blob": "0cdcbaec93e991094c47bde128e808be910e66da",
+      "after_blob": "63cd3901dcd09f7c9778d0d6e6b0c9acb0a2fd7d",
       "phase": 2
     },
     {
@@ -2090,7 +2090,7 @@
     },
     {
       "path": "app/Http/Controllers/Dashboard/PosServiceController.php",
-      "blob": "29d72038068f96d981d4931e7233476499394f4c"
+      "blob": "348cfff323b9b030ab9500200bcbaea703a10ee0"
     },
     {
       "path": "app/Http/Controllers/Dashboard/PrintSettingsController.php",
@@ -2118,7 +2118,7 @@
     },
     {
       "path": "app/Http/Controllers/Dashboard/TakeawayController.php",
-      "blob": "4e15f46cfef4e5a4379d27fab1e0ca77b3b67042"
+      "blob": "4345fd758892cfbcbdaa1039754cb30d4595adfe"
     },
     {
       "path": "app/Http/Controllers/Dashboard/UserController.php",
@@ -3378,7 +3378,7 @@
     },
     {
       "path": "app/Services/Dashboard/PosServiceTicket.php",
-      "blob": "288f2ae1285f3e95b904708b5794185623f5de45"
+      "blob": "3549b9fa0df2dd97a630b20bb9753df4d4178bf4"
     },
     {
       "path": "app/Services/Dashboard/SupportFirestore.php",
@@ -3394,7 +3394,7 @@
     },
     {
       "path": "app/Services/Dashboard/TakeawayService.php",
-      "blob": "b58729c6fc0fdd35fa23a4850de15e09019f6998"
+      "blob": "1d06901090f55ab3f6c5a331d58dd85679a90462"
     },
     {
       "path": "app/Services/Dashboard/WhatsAppAcceptedReplyEvidence.php",
@@ -4346,7 +4346,7 @@
     },
     {
       "path": "public/dashboard/js/dining-pos.js",
-      "blob": "5f8d75237d788a86822903286fe80b1444c4df42"
+      "blob": "32a9667aa0d076efcf588f575b8788d0061d44ea"
     },
     {
       "path": "public/dashboard/js/home-overview.js",
@@ -4366,7 +4366,7 @@
     },
     {
       "path": "public/dashboard/js/takeaway-pos.js",
-      "blob": "f8acd53642dfd78a4b22c8392603b7e1c535e1ea"
+      "blob": "18b5ae3f0d876d3411e189c741e00bd40e83d984"
     },
     {
       "path": "public/js/dashboard-meta-ai-controls-replies-20261020-v2.js",
@@ -5098,7 +5098,7 @@
     },
     {
       "path": "resources/views/admin/branch_shifts/index.blade.php",
-      "blob": "65f0c137c71fe8530e540714eb461110bb98ea36"
+      "blob": "8fe3a0ea87789efbddd51077bc276129e2ea09c2"
     },
     {
       "path": "resources/views/admin/branch_shifts/receipt.blade.php",
