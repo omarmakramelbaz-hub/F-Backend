@@ -1,0 +1,25 @@
+name: GO ERP publication ownership recovery
+on:
+  push:
+    branches: [codex/go-erp-publication-owner-recovery-20261021]
+  pull_request:
+    paths:
+      - 'deployment/repair_go_erp_publication_ownership_root.py'
+      - 'tests/test_go_erp_publication_ownership_root.py'
+      - 'tests/fixtures/go-erp-publication-permissions-20261021-174908.json'
+      - '.github/workflows/go-erp-publication-ownership.yml'
+permissions:
+  contents: read
+jobs:
+  fixed-publication-ownership:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 8
+      - name: Load the immutable measured source fixtures
+        run: git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 91582ac5bf18ea83d30fdb50c179683d2dcae8fc e1d23bbff5ab955fd238fa2e3e7ca0b4971919e1
+      - name: Verify the exact ownership cohort and descriptor recovery
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_publication_ownership_root.py

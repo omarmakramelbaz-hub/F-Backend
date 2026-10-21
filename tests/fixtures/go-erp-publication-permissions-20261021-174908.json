@@ -1,0 +1,608 @@
+{
+  "kind": "go-erp-activation-permissions-repair",
+  "release": "3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4",
+  "source_matches_reviewed_before": true,
+  "protected_raw_pins_match": true,
+  "external_gui_paths_checked": 27,
+  "complete_external_gui_roster_matches": true,
+  "publication_paths_checked": 266,
+  "unsafe_publication_paths": [
+    {
+      "path": "app/Repositories/ResturantProductRepository.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Repositories/ResturantRepository.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Repositories/UserRepository.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0755",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "app/Http/Requests/Dashboard/QuestionAnswer/StoreQuestionAnswrRequest.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Middleware/TrustProxies.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/User/CartController.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0755",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Api/V1/Vendor/ResturantProductController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/AreaController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/CategoryController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ContactController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ContractController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/FeatureController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/ProductController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/QuestionAnswerController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/RolesController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/SettingsController.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0755",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "app/Http/Controllers/Dashboard/WalletController.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Exceptions/Handler.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0644",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "app/Http/Traits/UploadImageTrait.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Notifications/NotifyTransferWallet.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Notifications/NotifyWithdrawWallet.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "app/Observers/OrderCompetitionObserver.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0644",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "database/migrations/2022_08_05_174522_create_permission_tables.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/lang/ar/validation.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/admins/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/advertising.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/advertisings/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/areas/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/banners/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/categorys/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/contacts/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/contracts/form.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/contracts/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/coupon_wheels/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/env-setting.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/features/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/pending_vendors/index.blade.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0755",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "resources/views/admin/products/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/question_answers/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/customers_report.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/delegates_report.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/orders_report.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/reports/vendors_report.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/resturants/edit-item.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/resturants/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/resturants/show.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/roles/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/settings.blade.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0755",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "resources/views/admin/slidears/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/subscribers/index.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    },
+    {
+      "path": "resources/views/admin/users/index.blade.php",
+      "uid": 0,
+      "gid": 0,
+      "mode": "0755",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "owner_mismatch"
+      ]
+    },
+    {
+      "path": "resources/views/admin/users/show.blade.php",
+      "uid": 1001,
+      "gid": 1003,
+      "mode": "0775",
+      "links": 1,
+      "before_blob_matches": true,
+      "issues": [
+        "group_or_other_writable"
+      ]
+    }
+  ],
+  "publication_ancestor_issues": [],
+  "next_checkpoint_metadata_issues": [],
+  "prior_backups": {
+    "directory_exists": true,
+    "records": []
+  },
+  "reported_failure": {
+    "code": "DESKTOP_SOURCE_WRITABLE_BY_OTHER_USER",
+    "stage": "SOURCES_BEFORE_BACKUP",
+    "application_changes_started": false,
+    "server_backup_directory_created_by_that_attempt": false,
+    "backup_parent_or_lock_may_have_been_created": true
+  },
+  "application_files_changed": false,
+  "metadata_changed": false,
+  "php_bootstrapped": false,
+  "database_read": false,
+  "private_or_source_contents_printed": false,
+  "repair": {
+    "requested": true,
+    "blocked": true,
+    "modes_tightened": 0,
+    "reason": "unreviewed_cohort_or_metadata"
+  }
+}
+
