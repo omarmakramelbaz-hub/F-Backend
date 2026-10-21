@@ -102,7 +102,8 @@ class SetupTests(unittest.TestCase):
         self.s['private_bytes'] = lambda path, limit: data[self.s['SELF']]
         out = self.s['payload'](revision, Path('/tmp/private/apply.sh'))
         self.assertEqual(set(out), {Path(path).name for path in data})
-        self.assertEqual(calls[0][-1], 'refs/heads/codex/go-erp-automation-20261021')
+        self.assertEqual(calls[0][-1], 'refs/heads/codex/go-erp-current-activation-20261021')
+        self.assertEqual(self.s['BRANCH'], 'codex/go-erp-live-source-20261021')
         self.s['private_bytes'] = lambda path, limit: b'unreviewed'
         with self.assertRaisesRegex(self.s['SetupError'], 'ENTRYPOINT_NOT_PINNED'):
             self.s['payload'](revision, Path('/tmp/private/apply.sh'))

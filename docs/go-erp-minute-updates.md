@@ -62,9 +62,11 @@ refuses a receipt for a different source. It writes only root-owned release
 files under `storage/app/desktop-updates`, then atomically publishes `current.json`.
 It does not migrate, reset, check out or replace application files.
 
-For the current reviewed release, `deployment/go_erp_ci_publish_root.sh` combines
-the pinned activation/postflight and publication steps from the authorized root
-console. Download the installer and receipt from the same independently checked
+The earlier one-off `deployment/go_erp_ci_publish_root.sh` entry combines pinned
+activation/postflight and publication from the authorized root console, and
+remains tied to the frozen `codex/go-erp-minute-updates-20261020` branch. It is
+not the current activation entry or the live watcher's publication path.
+For that one-off path, download the installer and receipt from the same independently checked
 successful full Windows run into a root-owned directory with mode `0700` named
 `/var/tmp/go-erp-ci-<8-to-32-alphanumeric-characters>`, using the fixed filenames
 `GO-ERP-Preview-Setup.exe` and `go-erp-update-release.json`. Invoke the verified
@@ -96,19 +98,30 @@ enable the production timer or configure GitHub authorization.
 
 ## Activation status
 
-Adding this implementation does not activate production or certify a Windows
-package. The current root activation was rejected with
-`DESKTOP_NO_APPROVED_BASELINE_MATCHES`; no application files changed.
-`deployment/diagnose_go_erp_current_root.sh` measures that current source without
-PHP, database access, application writes or printing source contents. The latest
-measured cohort contains 1164 files with fingerprint
-`9ac0d2555aa6325563a7052f8aa4d304b60e7cecf4f3c515e3d736c57c279442`.
-Its nine changed live files are retained byte for byte in the refreshed baseline.
-One additional extraction compatibility correction lets the newly deployed exact
-final order form pass validation only with its later cited strict customer
-approval. The reviewed target contains 1326 files with fingerprint
-`f29af750f417b6fe3bbdef0c18d540bde8f919e218b047c3f62752524e901950`.
-Preparing these pins does not mean the root activation has run successfully.
+The server console confirmed recovery of 305 Git metadata ownership entries.
+That repair preserved application contents. A subsequent source-only diagnosis
+measured 1164 files at fingerprint
+`130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb`,
+with the unchanged production HEAD
+`ee52f1798a542d2c5625c863112315a8aaba02cf`. The report contains thirteen live
+source differences, including the installed POS branch-selection guard,
+stock-purchase changes and POS styles. It did not bootstrap PHP, read the
+database, publish source, or enable the update timer.
+
+The refreshed activation entry uses
+`codex/go-erp-current-activation-20261021` and exact release/helper pins. It
+classifies the full measured source and protected GUI bytes before any repair
+or publication. A newer server edit causes a safe stop and requires a new
+reviewed baseline. The previously accepted release branches remain unchanged.
+Preparing a refreshed release does not prove successful production activation;
+that requires the root console's final readiness and timer receipts.
+
+The accepted `0.4.4-preview.6` installer remains an updater-capable bootstrap.
+A refreshed server baseline cannot relabel that installer's source evidence.
+After activation, the watcher prepares a higher version from the actual server,
+requires fresh native Windows and messaging acceptance, and publishes that
+candidate only while its complete source still matches. Matching code becomes
+available locally after that newer installer has been accepted and installed.
 
 Matching source does not increase offline coverage: the preview continues to
 have bounded offline support and uses the connected dashboard for the complete

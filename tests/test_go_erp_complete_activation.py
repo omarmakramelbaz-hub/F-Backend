@@ -215,14 +215,17 @@ class EntryTests(unittest.TestCase):
         self.s = load()
 
     def test_fixed_application_and_helper_pins_equal_reviewed_bytes(self):
+        self.assertIsNotNone(self.s['REVISION'].fullmatch(self.s['APP_RELEASE']))
         for name, expected in {**self.s['APP_FILES'], **self.s['AUTOMATION_FILES']}.items():
             with self.subTest(name=name):
                 self.assertEqual(self.s['blob']((ROOT / name).read_bytes()), expected)
         manifest = json.loads((ROOT / self.s['MANIFEST']).read_bytes())
         self.assertEqual(manifest['before_source']['files'], 1164)
+        self.assertEqual(manifest['before_source']['sha256'],
+                         '130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb')
         self.assertEqual(manifest['after_source']['files'], 1326)
         self.assertEqual(manifest['after_source']['sha256'],
-                         'f29af750f417b6fe3bbdef0c18d540bde8f919e218b047c3f62752524e901950')
+                         '92a8872d9de924dd97ce3c45291c47ebd38e9659a5b6a300fb88a3bf79038dae')
 
     def test_reviewed_operations_import_does_not_run_cli(self):
         operations = self.s['namespace']((ROOT / self.s['OPERATIONS']).read_bytes(), 'test_ops', shell=True)
@@ -262,7 +265,7 @@ class EntryTests(unittest.TestCase):
         self.s['source_file'] = lambda rev, name, expected=None: b'own' if name == self.s['SELF'] else name.encode()
         value = self.s['payload'](revision, Path('/tmp/entry.sh'))
         self.assertEqual(set(value), set(self.s['APP_FILES']) | set(self.s['AUTOMATION_FILES']))
-        self.assertEqual(calls[0][-1], 'refs/heads/codex/go-erp-automation-20261021')
+        self.assertEqual(calls[0][-1], 'refs/heads/codex/go-erp-current-activation-20261021')
         self.assertIn(('merge-base', '--is-ancestor', self.s['APP_RELEASE'], revision), calls)
         self.s['private_entry'] = lambda path: b'not reviewed'
         with self.assertRaisesRegex(self.s['Stop'], 'ENTRYPOINT_NOT_REVIEWED'):

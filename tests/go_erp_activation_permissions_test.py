@@ -271,6 +271,7 @@ class ActivationPermissionsTests(unittest.TestCase):
         self.assertFalse(report['server_backup_directory_created_by_that_attempt'])
 
     def test_manifest_scope_and_all_immutable_payload_pins(self):
+        self.assertIsNotNone(subject['SHA'].fullmatch(subject['RELEASE']))
         manifest = json.loads((ROOT / 'deployment/desktop_dashboard_server_manifest.json').read_text())
         self.assertEqual(len(subject['validate_manifest'](manifest)['sources']), 266)
         for name, pin in subject['PINS'].items():

@@ -1,7 +1,7 @@
 name: GO ERP minute update contracts
 on:
   push:
-    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021]
+    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021]
   pull_request:
     paths:
       - 'desktop-pos/**'
@@ -40,6 +40,16 @@ jobs:
         run: sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_live*.py'
       - name: Verify the complete root console activation entry
         run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_complete_activation.py
+      - name: Verify the exact current server source transformation
+        run: |
+          python3 -B tests/desktop_dashboard_actual_baseline_test.py
+          python3 -B tests/desktop_dashboard_expense_rejection_baseline_test.py
+          python3 -B tests/desktop_dashboard_server_install_test.py
+          python3 -B tests/desktop_dashboard_current_source_diagnosis_test.py
+      - name: Check preserved current application syntax
+        run: |
+          php -l app/Services/Dashboard/ExpenseStockPurchases.php
+          node --check public/dashboard/js/takeaway-pos.js
       - name: Verify authenticated release feed and immutable installer transport
         run: sudo -n -- php -n tests/desktop_dashboard_updates_test.php
       - name: Check the read-only production diagnostic

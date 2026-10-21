@@ -125,3 +125,24 @@ verified 2,532 packaged files and 78,067,470 bytes, including existing Unicode
 and space-containing image names. Python and JavaScript inventory hashes agree.
 This is source/integration evidence; Windows execution is certified only by the
 separate successful native Windows workflow for each released candidate.
+
+## Refreshed activation after live edits
+
+The refreshed operator entry and setup use the fixed branch
+`codex/go-erp-current-activation-20261021`. Their payload checks still require the
+exact requested revision and exact helper bytes. The unattended candidate
+branch remains `codex/go-erp-live-source-20261021`, preserving its existing
+source inventory, workflow and acceptance boundaries.
+
+The latest root console diagnosis measured source fingerprint
+`130b4e77cdff3a3b54168ebeb124a27d9bbfc92970d5d3d740c7231bd18ff8fb` across
+1164 files after Git ownership recovery. Those source and GUI identities must
+match the refreshed manifest before activation. The Git recovery receipt and
+read-only source report do not certify that server activation or the timer has
+run.
+
+The existing accepted `0.4.4-preview.6` Windows installer can supply the first
+updater. It cannot stand in for acceptance of a new source revision. A new
+watcher candidate needs a higher version and all fresh Windows, contract,
+messaging and source proofs before publication. The worker and publisher do
+not reuse the old installer's source receipt.

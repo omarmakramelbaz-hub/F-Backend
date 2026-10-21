@@ -19,8 +19,8 @@ import sys
 import tempfile
 
 ROOT = Path('/home/fasakha/public_html')
-APP_RELEASE = '0dc8f94e015af515980924004d6bb0dfcb253936'
-AUTOMATION_BRANCH = 'refs/heads/codex/go-erp-automation-20261021'
+APP_RELEASE = '6472433078a882b5fa9d1d548b6baa325a89e06c'
+AUTOMATION_BRANCH = 'refs/heads/codex/go-erp-current-activation-20261021'
 SELF = 'deployment/activate_go_erp_complete_root.sh'
 REPAIR = 'deployment/diagnose_go_erp_activation_permissions_root.sh'
 SETUP = 'deployment/install_go_erp_live_updates_root.sh'
@@ -29,15 +29,15 @@ MANIFEST = 'deployment/desktop_dashboard_server_manifest.json'
 SCANNER = 'deployment/diagnose_desktop_dashboard_current_source.py'
 SOURCE = 'deployment/desktop_dashboard_server_preflight.py'
 APP_FILES = {
-    MANIFEST: 'f4a949256986a44e48708529c41f8d2ab8d8c396',
+    MANIFEST: 'af5c48005b53263e5d9c9d1b717986b54bf496c3',
     SCANNER: 'e7a7a8271481013a1c16167d6f7a6ff429687ef5',
     SOURCE: '4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4',
-    'deployment/apply_desktop_dashboard_server_root.sh': 'b3b5a0ebe3460bae2e05c2f6b5f358d5861d50e4',
+    'deployment/apply_desktop_dashboard_server_root.sh': 'ee46643e3d9ef5177e160372cabe8b2cd1a81f59',
     'deployment/desktop_dashboard_release.php': '69f4efc30a440d7e80778d0618f0f0fa7f79d46d',
 }
 AUTOMATION_FILES = {
-    REPAIR: 'cb58aba5a5b0911311734df21bfbcae8341706c6',
-    SETUP: '6fb27cf5efc77a78b0cc384552a3edc8c90663ce',
+    REPAIR: 'b0b5df11f5fba8ddbec9d715642ebdabe9de3e76',
+    SETUP: '0c71e641b24c8bb56010d5d00e69795861e1db95',
     OPERATIONS: '1549c97c8513265db3188a5c24ccc8c753abd103',
 }
 REVISION = re.compile(r'[a-f0-9]{40}\Z')
