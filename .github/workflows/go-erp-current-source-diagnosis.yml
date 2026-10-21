@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+      - name: Fetch the immutable baseline for pinned-payload tests
+        run: git fetch --quiet --no-tags --no-prune --no-recurse-submodules --depth=1 origin 6472433078a882b5fa9d1d548b6baa325a89e06c
       - name: Verify root source inspection and private failure handling
         run: sudo -n -- python3 -B tests/test_go_erp_current_source_root.py
       - name: Verify the shared read-only source scanner
