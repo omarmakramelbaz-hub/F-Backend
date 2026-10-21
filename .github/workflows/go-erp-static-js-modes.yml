@@ -1,11 +1,12 @@
-name: GO ERP bounded static JavaScript modes
+name: GO ERP bounded static site modes
 on:
   push:
-    branches: [codex/go-erp-static-js-modes-20261022]
+    branches: [codex/go-erp-static-site-modes-20261022]
   pull_request:
     paths:
       - 'deployment/repair_go_erp_static_source_modes_root.py'
       - 'tests/test_go_erp_static_source_modes_root.py'
+      - 'deployment/apply_go_erp_static_site_modes_root.sh'
       - '.github/workflows/go-erp-static-js-modes.yml'
 permissions:
   contents: read
@@ -18,5 +19,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 20
-      - name: Verify bounded chmod, private audit, race handling and retry
+      - name: Verify exact JS and CSS modes, CRLF variants, audit and retry
         run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_static_source_modes_root.py
+      - name: Verify root entrypoint syntax
+        run: bash -n deployment/apply_go_erp_static_site_modes_root.sh

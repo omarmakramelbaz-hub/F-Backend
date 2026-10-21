@@ -67,12 +67,15 @@ class StaticSourceModesTests(unittest.TestCase):
         for parent,name,owner in [(self.work,'watcher.lock',(0,0)),
                 (self.backups,'server-install.lock',(1001,1003))]:
             path=parent/name;path.write_bytes(b'');path.chmod(0o600);os.chown(path,*owner)
+        self.seed_payloads=dict(self.payloads)
         self.before={name:(self.root/name).stat() for name in self.payloads}
         self.source=module('actual_static_source_reader',REPOSITORY/'deployment/go_erp_live_source.py')
         self.ops=module('actual_static_source_primitives',REPOSITORY/'deployment/finalize_go_erp_publication_links_root.py').__dict__
         self.archive=module('actual_static_source_archive',REPOSITORY/'deployment/archive_go_erp_meta_backups_root.py').__dict__
 
     def run_repair(self,requested=True,**kwargs):
+        kwargs.setdefault('approved_blobs',subject.approved_variants(
+            {name:(data,'100644') for name,data in self.seed_payloads.items()}))
         return subject.run_repair(self.root,self.work,self.backups,self.source,self.ops,self.archive,
             requested=requested,**kwargs)
 
@@ -103,12 +106,12 @@ class StaticSourceModesTests(unittest.TestCase):
 
     def test_readonly_preflight_does_not_change_modes_or_create_audit(self):
         before=self.snapshot();report=self.run_repair(False)
-        self.assertEqual(report['pending'],6);self.assertEqual(report['changed'],0)
+        self.assertEqual(report['pending'],len(self.payloads));self.assertEqual(report['changed'],0)
         self.assertEqual(before,self.snapshot())
 
-    def test_six_exact_blobs_only_lose_other_write_permission(self):
+    def test_exact_raw_blobs_only_lose_other_write_permission(self):
         report=self.run_repair()
-        self.assertTrue(report['ok']);self.assertEqual(report['changed'],6)
+        self.assertTrue(report['ok']);self.assertEqual(report['changed'],len(self.payloads))
         self.assert_data_unchanged({name:0o664 for name in self.payloads})
         self.assertFalse(report['application_contents_changed']);self.assertFalse(report['database_changed'])
         audit=Path(report['audit']);self.assertEqual(audit.stat().st_uid,0)
@@ -119,7 +122,8 @@ class StaticSourceModesTests(unittest.TestCase):
                 self.assertEqual(path.stat().st_uid,0);self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
 
     def test_group_and_execute_bits_are_preserved(self):
-        modes=[0o777,0o646,0o702,0o602,0o662,0o666]
+        pattern=[0o777,0o646,0o702,0o602,0o662,0o666]
+        modes=[pattern[index%len(pattern)] for index in range(len(self.payloads))]
         for name,mode in zip(self.payloads,modes):
             (self.root/name).chmod(mode);self.before[name]=(self.root/name).stat()
         self.run_repair();self.assert_data_unchanged({name:mode&~0o002 for name,mode in zip(self.payloads,modes)})
@@ -133,7 +137,7 @@ class StaticSourceModesTests(unittest.TestCase):
         name=next(iter(self.payloads));path=self.root/name
         data=b'// APPROVED_NEW_LIVE_SOURCE\n';path.write_bytes(data);path.chmod(0o644)
         self.payloads[name]=data;self.before[name]=path.stat()
-        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],5)
+        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],len(self.payloads)-1)
         expected={other:(0o644 if other==name else 0o664) for other in self.payloads}
         self.assert_data_unchanged(expected)
 
@@ -145,10 +149,69 @@ class StaticSourceModesTests(unittest.TestCase):
         path=self.root/'public/site/js/new.js';path.write_bytes(b'// UNKNOWN\n');path.chmod(0o666);os.chown(path,1001,1003)
         self.assert_refused_unchanged()
 
+    def test_unknown_world_writable_css_blocks_entire_plan(self):
+        path=self.root/'public/site/styles/new.css';path.write_bytes(b'/* UNKNOWN */\n')
+        path.chmod(0o666);os.chown(path,1001,1003);self.assert_refused_unchanged()
+
+    def test_trusted_crlf_variants_and_two_exact_directories_are_repaired_together(self):
+        for name,raw in self.seed_payloads.items():
+            self.assertNotIn(b'\r\n',raw)
+            data=raw.replace(b'\n',b'\r\n');path=self.root/name;path.write_bytes(data)
+            self.payloads[name]=data;self.before[name]=path.stat()
+        directories={}
+        for name in subject.DIRECTORY_TARGETS:
+            path=self.root/name;path.chmod(0o777);directories[name]=path.stat()
+        report=self.run_repair();self.assertTrue(report['ok'])
+        self.assertEqual(report['changed'],13);self.assertEqual(report['verified_changed'],13)
+        self.assertEqual(report['attempted'],13);self.assertEqual(report['pending'],0)
+        self.assertFalse(report['metadata_change_possible']);self.assertEqual(report['uncertain_paths'],[])
+        self.assert_data_unchanged({name:0o664 for name in self.payloads})
+        for name,before in directories.items():
+            after=(self.root/name).stat();self.assertEqual(stat.S_IMODE(after.st_mode),0o775)
+            for key in ['st_dev','st_ino','st_uid','st_gid','st_nlink','st_mtime_ns']:
+                self.assertEqual(getattr(after,key),getattr(before,key),key)
+        self.assertEqual(report['remaining_world_writable_count'],0)
+        self.assertTrue(report['inventory_complete'])
+
+    def test_default_raw_only_policy_refuses_crlf_without_trusted_seed_variants(self):
+        name=next(name for name,data in self.seed_payloads.items() if b'\n' in data)
+        path=self.root/name;path.write_bytes(self.seed_payloads[name].replace(b'\n',b'\r\n'))
+        before=self.snapshot()
+        report=subject.run_repair(self.root,self.work,self.backups,self.source,self.ops,self.archive)
+        self.assertFalse(report['ok']);self.assertEqual(report['changed'],0)
+        self.assertEqual(before,self.snapshot())
+        self.assertEqual(list(self.work.glob('static-source-modes-*')),[])
+
+    def test_approved_css_directory_symlink_blocks_all_repairs(self):
+        path=self.root/subject.DIRECTORY_TARGETS[0];path.chmod(0o777)
+        retained=self.base/'retained-styles';path.rename(retained);path.symlink_to(retained)
+        self.assert_refused_unchanged();self.assertTrue(path.is_symlink())
+        self.assertEqual(stat.S_IMODE(retained.stat().st_mode),0o777)
+
+    def test_partial_directory_first_repair_resumes_without_repeating_changed_directory(self):
+        for name in subject.DIRECTORY_TARGETS:(self.root/name).chmod(0o777)
+        visited=[]
+        def fail_second(row):
+            visited.append((row['kind'],row['path']))
+            if len(visited)==2:raise RuntimeError('INJECTED_DIRECTORY_REPAIR_FAILURE')
+        report=self.run_repair(before_chmod=fail_second)
+        self.assertFalse(report['ok']);self.assertEqual(report['changed'],1)
+        self.assertEqual(report['verified_changed'],1);self.assertEqual(report['attempted'],1)
+        self.assertEqual(visited,[('directory',name) for name in subject.DIRECTORY_TARGETS])
+        self.assertEqual(stat.S_IMODE((self.root/subject.DIRECTORY_TARGETS[0]).stat().st_mode),0o775)
+        self.assertEqual(stat.S_IMODE((self.root/subject.DIRECTORY_TARGETS[1]).stat().st_mode),0o777)
+        self.assert_data_unchanged({name:0o666 for name in self.payloads})
+        resumed=self.run_repair();self.assertTrue(resumed['ok']);self.assertEqual(resumed['changed'],12)
+        for name in subject.DIRECTORY_TARGETS:
+            self.assertEqual(stat.S_IMODE((self.root/name).stat().st_mode),0o775)
+        self.assert_data_unchanged({name:0o664 for name in self.payloads})
+        before=self.snapshot();third=self.run_repair();self.assertEqual(third['changed'],0)
+        self.assertEqual(before,self.snapshot())
+
     def test_unknown_safe_direct_javascript_is_not_modified(self):
         path=self.root/'public/site/js/new.js';data=b'// CURRENT_SAFE_ADDITION\n'
         path.write_bytes(data);path.chmod(0o644);os.chown(path,1001,1003);before=path.stat()
-        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],6)
+        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],len(self.payloads))
         self.assertEqual(path.read_bytes(),data);self.assertEqual(path.stat().st_mode,before.st_mode)
         self.assertEqual(path.stat().st_ino,before.st_ino)
 
@@ -186,7 +249,7 @@ class StaticSourceModesTests(unittest.TestCase):
         self.assertEqual(sum(not (self.root/name).stat().st_mode&0o002 for name in self.payloads),1)
         audits=list(self.work.glob('static-source-modes-*'));self.assertEqual(len(audits),1)
         self.assertTrue((audits[0]/'plan.json').is_file());self.assert_data_unchanged()
-        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],5)
+        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],len(self.payloads)-1)
         self.assert_data_unchanged({name:0o664 for name in self.payloads})
         before=self.snapshot();third=self.run_repair();self.assertEqual(third['changed'],0)
         self.assertEqual(before,self.snapshot())
@@ -205,14 +268,14 @@ class StaticSourceModesTests(unittest.TestCase):
             report=self.run_repair()
         self.assertEqual(len(failures),1);self.assertFalse(report['ok'])
         self.assertEqual(report['attempted'],1);self.assertEqual(report['changed'],1)
-        self.assertEqual(report['verified_changed'],0);self.assertEqual(report['pending'],6)
+        self.assertEqual(report['verified_changed'],0);self.assertEqual(report['pending'],len(self.payloads))
         self.assertTrue(report['metadata_change_possible']);self.assertEqual(report['uncertain_paths'],[first])
         stopped=json.loads((Path(report['audit'])/'stopped.json').read_text())
         self.assertEqual(stopped['attempted'],1);self.assertEqual(stopped['applied'],1)
         self.assertEqual(stopped['verified_changed'],0)
         self.assertTrue(stopped['metadata_change_possible']);self.assertEqual(stopped['uncertain_paths'],[first])
         self.assert_data_unchanged({name:0o664 if name==first else 0o666 for name in self.payloads})
-        self.assertEqual(report['remaining_world_writable_count'],5)
+        self.assertEqual(report['remaining_world_writable_count'],len(self.payloads)-1)
         self.assertEqual(report['inventory_omitted_count'],0)
         self.assertEqual(report['inventory_omitted_planned_paths'],[])
         self.assertTrue(report['inventory_complete'])
@@ -221,7 +284,7 @@ class StaticSourceModesTests(unittest.TestCase):
         name='app/Console/UnchangedLive.php';path=self.root/name
         path.parent.mkdir(parents=True);path.write_bytes(b'<?php // LIVE_SOURCE_UNCHANGED\n')
         path.chmod(0o666);os.chown(path,1001,1003);saved=path.stat();data=path.read_bytes()
-        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],6)
+        report=self.run_repair();self.assertTrue(report['ok']);self.assertEqual(report['changed'],len(self.payloads))
         self.assertEqual(report['remaining_world_writable_count'],1)
         self.assertEqual([row['path'] for row in report['remaining_world_writable']],[name])
         self.assertEqual(path.read_bytes(),data)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove only other-write from six byte-proven B3 public JavaScript files."""
+"""Remove only other-write from eleven proven B3 assets and two exact directories."""
 import contextlib
 import errno
 import hashlib
@@ -17,6 +17,7 @@ WORK = Path('/var/lib/go-erp-live-updates')
 BACKUPS = Path('/home/fasakha/desktop-dashboard-release-backups')
 B3 = '75c3fe50b3609ef5822904a23d7c4ed0afd07eff'
 PREFIX = 'public/site/js/'
+DIRECTORY_TARGETS = ('public/site/styles','public/site/styles/plugin')
 FILE_PINS = {
     PREFIX+'bootstrap.bundle.min.js':'fe19d88aeb7277028a2265b9ed06ab8f1bd29fe1',
     PREFIX+'jquery-3.6.0.min.js':'c4c6022f2982e8dae64cebd6b9a2b59f2547faad',
@@ -24,6 +25,11 @@ FILE_PINS = {
     PREFIX+'script.js':'8c51b569071d19f31ad76f42c5110cdea0926282',
     PREFIX+'swiper-bundle.min.js':'6dac048c2180fa9f1fcbf6996c40dcf24a9c4417',
     PREFIX+'wow.min.js':'a123b5e0fdccf0db5e153b2a0e17d0261747499c',
+    'public/site/styles/plugin/animate.css':'60f0c962c57fa4bfe2f5bb02f1da4a07e470990e',
+    'public/site/styles/plugin/bootstrap.min.css':'edfbbb03b6c9e5bc1dff94ba177f9f99b6a38849',
+    'public/site/styles/plugin/nice-select.css':'4e3bcc62aed7431775a386642f88a2612dd212aa',
+    'public/site/styles/plugin/swiper.min.css':'94bcf7f9ac18ddd096fc5164df13b8441e34620d',
+    'public/site/styles/style.css':'cb36f3caaf86f1b29c9c7a60085213954c9930ef',
 }
 MODULE_PINS = ('1842302a87b7e93253ad5be616c3ab3e56bdd4a1',
                'c09b74e27e968e66caf36a65822f10d5cb0ea21a',
@@ -46,6 +52,16 @@ def need(ok, code):
 
 def blob(data):
     return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+
+def approved_variants(seed):
+    """Compute both forms solely from the immutable, raw-hash-proven seed bytes."""
+    result = {}
+    for name,pin in FILE_PINS.items():
+        need(name in seed and blob(seed[name][0]) == pin,'SEED_BLOB_INVALID')
+        data = seed[name][0]
+        need(b'\r' not in data,'SEED_BLOB_INVALID')
+        result[name] = {pin,blob(data.replace(b'\n',b'\r\n'))}
+    return result
 
 def identity(value):
     return (value.st_dev,value.st_ino,value.st_mode,value.st_uid,value.st_gid,
@@ -112,7 +128,7 @@ def world_write_inventory(source, root, archive, omitted=()):
     root_fd = None
     try:
         omitted = set(omitted)
-        need(omitted <= set(FILE_PINS), 'POLICY_BLOCKED')
+        need(omitted <= set(FILE_PINS)|set(DIRECTORY_TARGETS), 'POLICY_BLOCKED')
         root_fd, ancestry = source._open_root(root)
         entries = 0
         truncated = False
@@ -181,28 +197,52 @@ def safe_error(error, archive=None, ops=None):
         return 'GO_ERP_STATIC_MODES_'+str(error)
     return 'PRIVATE_FAILURE'
 
-def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=None):
+def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=None,approved_blobs=None):
     result = {'kind':'go-erp-static-source-modes','ok':False,'changed':0,'pending':0,
               'attempted':0,'verified_changed':0,'metadata_change_possible':False,'uncertain_paths':[],
               'application_contents_changed':False,'database_changed':False,'issues':[]}
-    rows = []
-    directory = private = audit = None
+    rows, scopes = [], {}
+    base = private = audit = None
     phase = 'LOCK'
     try:
+        approved_blobs = ({name:{pin} for name,pin in FILE_PINS.items()}
+                          if approved_blobs is None else approved_blobs)
+        need(set(approved_blobs) == set(FILE_PINS) and all(
+            FILE_PINS[name] in values and 1 <= len(values) <= 2
+            and all(isinstance(value,str) and re.fullmatch(r'[a-f0-9]{40}',value) for value in values)
+            for name,values in approved_blobs.items()),'SEED_BLOB_INVALID')
         with archive['locked'](work,'watcher.lock',(0,0),ops) as watcher:
             with archive['locked'](backups,'server-install.lock',(1001,1003),ops) as installer:
                 def locks():
                     watcher(); installer()
                 phase = 'PLAN'
-                directory = ops['Dirs'](root/'public/site/js')
-                entries = set(os.listdir(directory.fd))
-                need(len(entries) <= 10000,'SCOPE_CHANGED')
-                snapshots = {name:os.stat(name,dir_fd=directory.fd,follow_symlinks=False)
-                             for name in sorted(entries)}
+                base = ops['Dirs'](root/'public/site')
+                for name,parent_path in (('public/site/js',None),('public/site/styles',None),
+                                         ('public/site/styles/plugin','public/site/styles')):
+                    parent = base.fd if parent_path is None else scopes[parent_path]['fd']
+                    short = name.rsplit('/',1)[1]
+                    fd = os.open(short,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
+                    saved = os.fstat(fd)
+                    scope = {'path':name,'name':short,'parent':parent,'fd':fd,'saved':saved,
+                             'expected':saved,'kind':'directory','before_mode':stat.S_IMODE(saved.st_mode),
+                             'after_mode':stat.S_IMODE(saved.st_mode)&~0o002}
+                    scopes[name] = scope
+                    need(stat.S_ISDIR(saved.st_mode) and (saved.st_uid,saved.st_gid) in ((0,0),(1001,1003))
+                         and (name in DIRECTORY_TARGETS or not saved.st_mode & 0o002),'DIRECTORY_CHANGED')
+                    need(identity(os.stat(short,dir_fd=parent,follow_symlinks=False))
+                         == identity(saved),'DIRECTORY_CHANGED')
+                    entries = set(os.listdir(fd))
+                    need(len(entries) <= 10000,'SCOPE_CHANGED')
+                    scope['entries'] = entries
+                    scope['snapshots'] = {entry:os.stat(entry,dir_fd=fd,follow_symlinks=False)
+                                          for entry in sorted(entries)}
+                    if name in DIRECTORY_TARGETS:
+                        rows.append(scope)
                 total = 0
                 for name in sorted(FILE_PINS):
-                    short = name[len(PREFIX):]
-                    saved = snapshots.get(short)
+                    parent_path,short = name.rsplit('/',1)
+                    parent = scopes[parent_path]
+                    saved = parent['snapshots'].get(short)
                     issue = None
                     if saved is None:
                         issue = 'MISSING_APPROVED_FILE'
@@ -216,34 +256,36 @@ def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=
                             item.update(uid=saved.st_uid,gid=saved.st_gid,mode=stat.S_IMODE(saved.st_mode))
                         result['issues'].append(item)
                         continue
-                    fd = os.open(short,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=directory.fd)
-                    row = {'path':name,'name':short,'fd':fd,'saved':saved,'expected':saved,
-                           'before_mode':stat.S_IMODE(saved.st_mode),
+                    fd = os.open(short,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent['fd'])
+                    row = {'path':name,'name':short,'parent':parent['fd'],'fd':fd,'saved':saved,
+                           'expected':saved,'kind':'file','before_mode':stat.S_IMODE(saved.st_mode),
                            'after_mode':stat.S_IMODE(saved.st_mode)&~0o002}
                     rows.append(row)
                     need(identity(os.fstat(fd)) == identity(saved),'FILE_CHANGED')
                     row['blob'] = read_blob(fd,saved)
                     total += saved.st_size
                     need(total <= MAX_TOTAL,'TOTAL_LIMIT')
-                    if saved.st_mode & 0o002 and row['blob'] != FILE_PINS[name]:
+                    if saved.st_mode & 0o002 and row['blob'] not in approved_blobs[name]:
                         result['issues'].append({'path':name,'reason':'WORLD_WRITABLE_BYTES_DIFFER',
-                            'expected_blob':FILE_PINS[name],'actual_blob':row['blob'],
-                            'uid':saved.st_uid,'gid':saved.st_gid,'mode':stat.S_IMODE(saved.st_mode)})
-                for short,saved in snapshots.items():
-                    name = PREFIX+short
-                    if name not in FILE_PINS and saved.st_mode & 0o002:
-                        item = {'reason':'UNAPPROVED_WORLD_WRITABLE_ENTRY','uid':saved.st_uid,
-                                'gid':saved.st_gid,'mode':stat.S_IMODE(saved.st_mode)}
-                        if archive['safe_source_path'](name):
-                            item['path'] = name
-                        else:
-                            item['path_redacted'] = True
-                        result['issues'].append(item)
+                            'expected_blob':FILE_PINS[name],'approved_blobs':sorted(approved_blobs[name]),
+                            'actual_blob':row['blob'],'uid':saved.st_uid,'gid':saved.st_gid,
+                            'mode':stat.S_IMODE(saved.st_mode)})
+                allowed = set(FILE_PINS)|set(DIRECTORY_TARGETS)
+                for scope in scopes.values():
+                    for short,saved in scope['snapshots'].items():
+                        name = scope['path']+'/'+short
+                        if name not in allowed and saved.st_mode & 0o002:
+                            item = {'reason':'UNAPPROVED_WORLD_WRITABLE_ENTRY','uid':saved.st_uid,
+                                    'gid':saved.st_gid,'mode':stat.S_IMODE(saved.st_mode)}
+                            if archive['safe_source_path'](name):
+                                item['path'] = name
+                            else:
+                                item['path_redacted'] = True
+                            result['issues'].append(item)
                 result['issue_count'] = len(result['issues'])
                 result['issues'] = result['issues'][:100]
                 candidates = [row for row in rows if row['before_mode'] != row['after_mode']]
-                result['pending'] = len(candidates)
-                result['planned'] = len(candidates)
+                result['pending'] = result['planned'] = len(candidates)
                 phase = 'INVENTORY'
                 omitted = [row['path'] for row in candidates] if requested and not result['issue_count'] else []
                 result.update(world_write_inventory(source,root,archive,omitted))
@@ -252,17 +294,25 @@ def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=
                 if result['issue_count']:
                     result.update(phase='PLAN',reason='GO_ERP_STATIC_MODES_POLICY_BLOCKED')
                     return result
+                target_rows = {row['path']:row for row in rows}
                 def verify():
-                    locks(); directory.verify()
-                    need(set(os.listdir(directory.fd)) == entries,'SCOPE_CHANGED')
-                    for short,saved in snapshots.items():
-                        expected = next((row['expected'] for row in rows if row['name'] == short),saved)
-                        need(identity(os.stat(short,dir_fd=directory.fd,follow_symlinks=False))
-                             == identity(expected),'SCOPE_CHANGED')
+                    locks(); base.verify()
+                    for scope in scopes.values():
+                        expected = scope['expected']
+                        need(identity(os.fstat(scope['fd'])) == identity(expected)
+                             == identity(os.stat(scope['name'],dir_fd=scope['parent'],follow_symlinks=False)),
+                             'DIRECTORY_CHANGED')
+                        need(set(os.listdir(scope['fd'])) == scope['entries'],'SCOPE_CHANGED')
+                        for short,saved in scope['snapshots'].items():
+                            row = target_rows.get(scope['path']+'/'+short)
+                            expected = row['expected'] if row is not None else saved
+                            need(identity(os.stat(short,dir_fd=scope['fd'],follow_symlinks=False))
+                                 == identity(expected),'SCOPE_CHANGED')
                     for row in rows:
                         expected = row['expected']
                         need(identity(os.fstat(row['fd'])) == identity(expected),'FILE_CHANGED')
-                        need(read_blob(row['fd'],expected) == row['blob'],'FILE_BYTES_CHANGED')
+                        if row['kind'] == 'file':
+                            need(read_blob(row['fd'],expected) == row['blob'],'FILE_BYTES_CHANGED')
                 phase = 'VERIFY'
                 verify()
                 if not requested or not candidates:
@@ -276,8 +326,9 @@ def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=
                 audit = ops['Dirs'](work/audit_name,(0,0),0o700)
                 result['audit'] = str(work/audit_name)
                 record = {'kind':result['kind'],'seed_revision':B3,'files':[
-                    {'path':row['path'],'blob':row['blob'],'before':row['before_mode'],
-                     'after':row['after_mode'],'device':row['saved'].st_dev,'inode':row['saved'].st_ino,
+                    {'path':row['path'],'kind':row['kind'],'blob':row.get('blob'),
+                     'before':row['before_mode'],'after':row['after_mode'],
+                     'device':row['saved'].st_dev,'inode':row['saved'].st_ino,
                      'uid':row['saved'].st_uid,'gid':row['saved'].st_gid,'mtime_ns':row['saved'].st_mtime_ns}
                     for row in candidates]}
                 ops['json_at'](audit,'plan.json',record)
@@ -298,8 +349,9 @@ def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=
                     expected[2] = stat.S_IFMT(row['saved'].st_mode)|row['after_mode']
                     need(identity(after)[:-1] == tuple(expected)[:-1],'MODE_POSTCONDITION_FAILED')
                     row['expected'] = after
-                    need(read_blob(row['fd'],after) == row['blob'],'FILE_BYTES_CHANGED')
-                    need(identity(os.stat(row['name'],dir_fd=directory.fd,follow_symlinks=False))
+                    if row['kind'] == 'file':
+                        need(read_blob(row['fd'],after) == row['blob'],'FILE_BYTES_CHANGED')
+                    need(identity(os.stat(row['name'],dir_fd=row['parent'],follow_symlinks=False))
                          == identity(after),'FILE_CHANGED')
                     result['verified_changed'] += 1
                     result['pending'] -= 1
@@ -336,8 +388,11 @@ def run_repair(root,work,backups,source,ops,archive,requested=True,before_chmod=
         return result
     finally:
         for row in rows:
-            os.close(row['fd'])
-        for held in (audit,private,directory):
+            if row['kind'] == 'file':
+                os.close(row['fd'])
+        for scope in reversed(list(scopes.values())):
+            os.close(scope['fd'])
+        for held in (audit,private,base):
             if held is not None:
                 held.close()
 
@@ -350,8 +405,9 @@ def execute(args):
     try:
         revision,seed = source._seed(WORK/'checkout')
         need(revision == B3,'SEED_REVISION_INVALID')
-        need({name for name in seed if name.startswith(PREFIX)} == set(FILE_PINS),'SEED_ROSTER_INVALID')
-        need(all(blob(seed[name][0]) == pin for name,pin in FILE_PINS.items()),'SEED_BLOB_INVALID')
+        need({name for name in seed if name.startswith((PREFIX,'public/site/styles/'))}
+             == set(FILE_PINS),'SEED_ROSTER_INVALID')
+        variants = approved_variants(seed)
     except Exception as error:
         error.go_erp_static_phase = 'SEED'
         if (type(error) is source.SourceError and len(error.args) == 1
@@ -359,7 +415,7 @@ def execute(args):
                 and re.fullmatch(r'GO_ERP_LIVE_SOURCE_[A-Z_]{1,100}',error.args[0])):
             error.go_erp_static_reason = error.args[0]
         raise
-    return run_repair(ROOT,WORK,BACKUPS,source,ops,archive)
+    return run_repair(ROOT,WORK,BACKUPS,source,ops,archive,approved_blobs=variants)
 
 def main(args=None):
     try:
