@@ -1,0 +1,25 @@
+name: GO ERP private push protection locations
+on:
+  push:
+    branches: [codex/go-erp-push-protection-diagnosis-20261022]
+  pull_request:
+    paths:
+      - 'deployment/diagnose_go_erp_push_protection_root.py'
+      - 'deployment/retry_go_erp_push_protection_root.sh'
+      - 'tests/test_go_erp_push_protection_root.py'
+      - '.github/workflows/go-erp-push-protection-diagnosis.yml'
+permissions:
+  contents: read
+jobs:
+  private-rejection-locations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 24
+      - name: Verify finite locations and original retry guards
+        run: sudo -n -- python3 -B tests/test_go_erp_push_protection_root.py
+      - name: Verify root entrypoint syntax
+        run: bash -n deployment/retry_go_erp_push_protection_root.sh
