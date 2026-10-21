@@ -21,7 +21,7 @@ Windows account and application directory. Versions before
 
 From the authorized root console on `srv1836524`, export and hash-check
 `deployment/activate_go_erp_complete_root.sh` from the reviewed immutable
-`codex/go-erp-automation-20261021` release. Run it with `--release` and that full
+`codex/go-erp-current-activation-20261021` release. Run it with `--release` and that full
 commit SHA. It classifies the exact approved before/after source state, repairs
 only eligible permission bits and activates the dashboard when needed, then
 performs fresh application/authentication checks before installing the timer.
