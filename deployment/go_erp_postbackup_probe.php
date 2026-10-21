@@ -43,7 +43,7 @@ try {
     foreach ($manifest['sources'] as $row) {
         $name = $row['path'] ?? null;
         if (is_string($name) && str_starts_with($name, 'resources/views/') && str_ends_with($name, '.blade.php')) {
-            if (!preg_match('#\Aresources/views/[A-Za-z0-9_.@/-]+\.blade\.php\z/D', $name)
+            if (!preg_match('#\Aresources/views/[A-Za-z0-9_.@/-]+\.blade\.php\z#D', $name)
                 || in_array('..', explode('/', $name), true) || isset($views[$name])) throw new RuntimeException();
             $views[$name] = true;
         }
@@ -89,7 +89,7 @@ try {
     $compiled = [];
     foreach (array_keys($views) as $source) {
         $target = $compiler->getCompiledPath($root.'/'.$source);
-        if (!preg_match('#\A'.preg_quote($root, '#').'/storage/framework/views/[a-f0-9]{40}\.php\z/D', $target)) {
+        if (!preg_match('#\A'.preg_quote($root, '#').'/storage/framework/views/[a-f0-9]{40}\.php\z#D', $target)) {
             throw new RuntimeException();
         }
         $metadata = null;

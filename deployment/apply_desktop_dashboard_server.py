@@ -230,6 +230,155 @@ def write_private(path,data):
     fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb')as stream:stream.write(data);stream.flush();os.fsync(stream.fileno())
 
+
+FAILURE_STAGES=frozenset(('BOOTSTRAP','MANIFEST','SELECTION','SOURCES','PREFLIGHT','BACKUP',
+    'COMPATIBILITY','PUBLICATION','MIGRATION','ENTRYPOINTS','ENVIRONMENT','CACHE','POSTFLIGHT','WEB'))
+FAILURE_CLASSES=frozenset(('SafeError','OSError','PermissionError','FileNotFoundError','NotADirectoryError',
+    'IsADirectoryError','BlockingIOError','RuntimeError','TypeError','ValueError','KeyError',
+    'UnicodeDecodeError','JSONDecodeError','TimeoutExpired','KeyboardInterrupt','SystemExit'))
+# Literal reviewed APP/base failure identifiers only. Never serialize exception messages.
+FAILURE_REASONS=frozenset((
+    'ANCESTOR_NOT_DIRECTORY_OR_SYMLINK',
+    'ANCESTOR_OWNER_NEEDS_REVIEW',
+    'ANOTHER_INBOX_INSTALL_IS_RUNNING',
+    'ATOMIC_EXCHANGE_CHECK_FAILED',
+    'ATOMIC_RENAME_FAILED',
+    'ATOMIC_RENAME_UNAVAILABLE',
+    'BACKUP_AND_PROJECT_REQUIRE_SAME_FILESYSTEM',
+    'COMMAND_AUTOLOAD_NEEDS_REVIEW',
+    'COMPOSED_PHP_LINT_FAILED',
+    'CORE_FILE_HASH_NEEDS_REVIEW',
+    'DESKTOP_ADDITIVE_MIGRATION_FAILED',
+    'DESKTOP_ALTERNATIVE_MANIFEST_PAIR_REQUIRED',
+    'DESKTOP_ALTERNATIVE_PAYLOAD_SCOPE_INVALID',
+    'DESKTOP_ALTERNATIVE_TARGET_DISAGREES',
+    'DESKTOP_APPROVED_BASELINE_AMBIGUOUS',
+    'DESKTOP_ARCHIVED_ABSENT_FILE_CHANGED',
+    'DESKTOP_ARCHIVED_FILE_CHANGED',
+    'DESKTOP_ARCHIVED_FILE_MISSING_OR_INVALID',
+    'DESKTOP_ARCHIVED_FILE_UNREADABLE',
+    'DESKTOP_ARCHIVED_SOURCE_INVALID',
+    'DESKTOP_ARCHIVED_SOURCE_LIMIT',
+    'DESKTOP_ARCHIVED_SOURCE_LINK',
+    'DESKTOP_ARCHIVED_SOURCE_MISMATCH',
+    'DESKTOP_ARCHIVED_SOURCE_UNREADABLE',
+    'DESKTOP_BACKUP_FILESYSTEM_INVALID',
+    'DESKTOP_BACKUP_SPACE_INSUFFICIENT',
+    'DESKTOP_BASELINE_CHANGED_DURING_SELECTION',
+    'DESKTOP_BASELINE_HEAD_UNAVAILABLE',
+    'DESKTOP_CACHE_SCOPE_INVALID',
+    'DESKTOP_CODE_BACKUP_FAILED',
+    'DESKTOP_CODE_BACKUP_INVALID',
+    'DESKTOP_COMPILED_VIEW_LINT_FAILED',
+    'DESKTOP_COMPILED_VIEW_SCOPE_INVALID',
+    'DESKTOP_DATABASE_BACKUP_INVALID',
+    'DESKTOP_DATABASE_SIZE_INVALID',
+    'DESKTOP_ENTRYPOINT_ORDER_INVALID',
+    'DESKTOP_ENVIRONMENT_MODE_INVALID',
+    'DESKTOP_EXISTING_SOURCE_ORDER_INVALID',
+    'DESKTOP_HEAD_CHANGED_AFTER_PUBLICATION',
+    'DESKTOP_INSTALL_ALREADY_RUNNING',
+    'DESKTOP_LOCK_METADATA_INVALID',
+    'DESKTOP_MANIFEST_PIN_INVALID',
+    'DESKTOP_MANIFEST_PROTECTED_INVALID',
+    'DESKTOP_MANIFEST_SCOPE_INVALID',
+    'DESKTOP_MANIFEST_SOURCE_INVALID',
+    'DESKTOP_MIGRATION_SCOPE_INVALID',
+    'DESKTOP_NO_APPROVED_BASELINE_MATCHES',
+    'DESKTOP_PHP_LINT_FAILED',
+    'DESKTOP_POSTFLIGHT_RESULT_INVALID',
+    'DESKTOP_PRIVATE_CHECK_FAILED',
+    'DESKTOP_PRIVATE_CHECK_RESULT_INVALID',
+    'DESKTOP_PRIVATE_ROUTE_CACHE_FAILED',
+    'DESKTOP_PROTECTED_ASSET_CHANGED',
+    'DESKTOP_PROTECTED_ASSET_CHANGED_AFTER_PUBLICATION',
+    'DESKTOP_PROTECTED_ASSET_CHANGED_DURING_BACKUP',
+    'DESKTOP_PUBLICATION_BASE_INVALID',
+    'DESKTOP_PUBLICATION_ORDER_INVALID',
+    'DESKTOP_PUBLISHED_SOURCE_MISMATCH',
+    'DESKTOP_REQUEST_COMPATIBILITY_PAIR_INVALID',
+    'DESKTOP_REVIEWED_AFTER_SOURCE_MISMATCH',
+    'DESKTOP_REVIEWED_BEFORE_SOURCE_MISMATCH',
+    'DESKTOP_RUN_AS_FASAKHA_FOR_FIXED_ROOT',
+    'DESKTOP_SERVER_HEAD_CHANGED',
+    'DESKTOP_SERVER_SOURCE_CHANGED',
+    'DESKTOP_SOURCE_CHANGED',
+    'DESKTOP_SOURCE_CHANGED_AFTER_VERIFICATION',
+    'DESKTOP_SOURCE_CHANGED_DURING_BACKUP',
+    'DESKTOP_SOURCE_EMPTY',
+    'DESKTOP_SOURCE_LIMIT',
+    'DESKTOP_SOURCE_LINK',
+    'DESKTOP_SOURCE_METADATA_INVALID',
+    'DESKTOP_SOURCE_PATH_INVALID',
+    'DESKTOP_SOURCE_ROOT_INVALID',
+    'DESKTOP_SOURCE_UNREADABLE',
+    'DESKTOP_SOURCE_WRITABLE_BY_OTHER_USER',
+    'DESKTOP_WEB_AUTH_DEADLINE_EXCEEDED',
+    'DESKTOP_WEB_AUTH_RECEIPT_INVALID',
+    'DESKTOP_WEB_AUTH_STATUS_INVALID',
+    'DESKTOP_WEB_AUTH_VERIFICATION_FAILED',
+    'EXISTING_INBOX_FILE_DIFFERS_FROM_PINNED_RELEASE',
+    'FILE_CHANGED_CONCURRENTLY',
+    'FILE_CHANGED_DURING_ATOMIC_EXCHANGE',
+    'FILE_CHANGED_DURING_READ',
+    'FILE_NOT_READABLE_OR_SYMLINK',
+    'FILE_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'FILE_TOO_LARGE',
+    'GIT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'INBOX_MIGRATION_FAILED_TABLES_RETAINED',
+    'INBOX_ROUTE_CLEAR_FAILED',
+    'INBOX_SMOKE_FAILED',
+    'INSTALL_LOCK_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'INVALID_CONSUMPTION_LIMIT',
+    'INVALID_RELEASE_OR_CONSUMPTION_LIMIT',
+    'MENU_ANCHOR_AMBIGUOUS',
+    'MENU_HASH_NEEDS_REVIEW',
+    'PINNED_PHP_LINT_FAILED',
+    'PINNED_PROTOCOL_OR_CONSUMER_TEST_FAILED',
+    'PINNED_RELEASE_FILE_MISSING_OR_INVALID',
+    'PINNED_RELEASE_FILE_NOT_REGULAR',
+    'PINNED_RELEASE_NOT_A_COMMIT',
+    'PRIVATE_BACKUP_DIRECTORY_NEEDS_REVIEW',
+    'PROJECT_DIRECTORY_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'PROJECT_ROOT_OWNER_OR_TYPE_NEEDS_REVIEW',
+    'REQUIRED_FILE_MISSING',
+    'ROUTES_ANCHOR_AMBIGUOUS',
+    'ROUTES_CLOSING_TAG_NEEDS_REVIEW',
+    'ROUTES_HASH_NEEDS_REVIEW',
+    'RUN_AS_FASAKHA_FOR_CONFIRMED_PROJECT_ROOT',
+    'UNSAFE_PATH',
+    'USAGE_ROOT_RELEASE_OPTIONAL_CONSUME',
+))
+
+def safe_failure_fact(error,stage,approved_paths=(),publication_started=True):
+    fact={'format':1,'stage':stage if stage in FAILURE_STAGES else 'UNKNOWN',
+          'reason':'PRIVATE_FAILURE','error_class':type(error).__name__ if type(error).__name__ in FAILURE_CLASSES else 'Exception',
+          'publication_started':bool(publication_started)}
+    if isinstance(error,(SafeError,base.SafeError)):
+        message=str(error)
+        if message in FAILURE_REASONS:fact['reason']=message
+        else:
+            match=re.fullmatch(r'DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: ([A-Za-z0-9_.@/-]{1,512}); UID=([0-9]{1,10}); MODE=([0-7]{4})',message)
+            if match:
+                fact['reason']='DESKTOP_SOURCE_OWNER_NEEDS_REVIEW'
+                name=match[1]
+                if name in approved_paths or re.fullmatch(r'storage/framework/views/[a-f0-9]{40}\.php',name):
+                    fact.update(path=name,uid=int(match[2]),mode=match[3])
+    if isinstance(error,OSError) and type(error.errno)is int and 1<=error.errno<=4095:fact['errno']=error.errno
+    return fact
+
+def record_failure(backup,error,stage,approved_paths=(),publication_started=True):
+    fact=safe_failure_fact(error,stage,approved_paths,publication_started)
+    # Rollback always precedes this best-effort diagnostic. A full disk or an
+    # existing audit must never change the original recovery outcome/receipt.
+    try:write_private(backup/'failed.json',(json.dumps(fact,sort_keys=True)+'\n').encode())
+    except BaseException:pass
+    if 'path'in fact:
+        try:print('DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: '+fact['path']+'; UID='+str(fact['uid'])+'; MODE='+fact['mode'],file=sys.stderr)
+        except BaseException:pass
+    try:print('DESKTOP_ACTIVATION_STOPPED; STAGE='+fact['stage']+'; REASON='+fact['reason']+'; CLASS='+fact['error_class'],file=sys.stderr)
+    except BaseException:pass
+
 def patch_env(data):
     # Retain every other line byte-for-byte, including saved Meta/WhatsApp settings.
     lines=data.splitlines(keepends=True)
@@ -488,10 +637,15 @@ def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verif
                  'files':{name:None if item is None else{'blob':blob(item.content),'uid':item.uid,'gid':item.gid,'mode':item.mode,'device':item.device,'inode':item.inode}for name,item in before.items()}}
         write_private(backup/'receipt.json',(json.dumps(receipt,sort_keys=True,indent=2)+'\n').encode())
         # Backup succeeds before the first source, schema, .env or cache change.
-        if source_fingerprint(root,uid)!=value['before_source']:raise SafeError('DESKTOP_SOURCE_CHANGED_DURING_BACKUP')
-        for relative,item in before.items():base.assert_snapshot(root/relative,item,uid,root)
-        for relative,content in protected.items():
-            if read_source(root/relative,root,uid)!=content:raise SafeError('DESKTOP_PROTECTED_ASSET_CHANGED_DURING_BACKUP')
+        approved_failure_paths=set(before)|set(proposals)|{'storage/framework/views'}
+        try:
+            if source_fingerprint(root,uid)!=value['before_source']:raise SafeError('DESKTOP_SOURCE_CHANGED_DURING_BACKUP')
+            for relative,item in before.items():base.assert_snapshot(root/relative,item,uid,root)
+            for relative,content in protected.items():
+                if read_source(root/relative,root,uid)!=content:raise SafeError('DESKTOP_PROTECTED_ASSET_CHANGED_DURING_BACKUP')
+        except BaseException as error:
+            record_failure(backup,error,STAGE,approved_failure_paths,publication_started=False)
+            raise
         written={};created=[]
         def publish(relative,content,original):
             return base.replace_file(root/relative,content,original,uid,root,created,journal=written,relative=relative,private_directory=publications)
@@ -553,8 +707,10 @@ def install(root,uid,manifest_path,manifest_pin,runner=command,web_checker=verif
                 if read_source(root/relative,root,uid)!=content:raise SafeError('DESKTOP_PROTECTED_ASSET_CHANGED_AFTER_PUBLICATION')
             code,head=runner(root,['/usr/bin/git','rev-parse','HEAD'],capture=True)
             if code or head.strip().decode()!=value['expected_head']:raise SafeError('DESKTOP_HEAD_CHANGED_AFTER_PUBLICATION')
-        except BaseException:
+        except BaseException as error:
+            failed_stage=STAGE
             restored=rollback(root,uid,written,created)
+            record_failure(backup,error,failed_stage,approved_failure_paths)
             status='FILES_RESTORED'if restored else'CONCURRENT_FILES_RETAINED_REVIEW_REQUIRED'
             raise SafeError('DESKTOP_ACTIVATION_FAILED; '+status+'; ADDITIVE_TABLES_AND_BUSINESS_OPERATIONS_RETAINED; BACKUP='+str(backup))from None
         write_private(backup/'activated.json',(json.dumps(result,sort_keys=True)+'\n').encode())

@@ -10,8 +10,8 @@ APP='deployment/apply_desktop_dashboard_server.py'
 # Filled from the final reviewed payload by pin_desktop_dashboard_installer.py.
 HELPER_PINS = {
     'deployment/desktop_dashboard_server_manifest.json': 'da47b5e5dc50676d6046a6511b3905a0cd053ed1',
-    'deployment/apply_desktop_dashboard_server.py': '811af31df25af5bf430703ef756320b97acb184d',
-    'deployment/desktop_dashboard_release.php': '69f4efc30a440d7e80778d0618f0f0fa7f79d46d',
+    'deployment/apply_desktop_dashboard_server.py': 'ef567818db2ebf97b7db97e193f3dfab77a38865',
+    'deployment/desktop_dashboard_release.php': '11017fc9141e4393d4648fb63d00522614497868',
     'deployment/install_whatsapp_inbox.py': 'f09c87de0206b54b8a8ca7d7359b8e15b32ebe98',
 }
 class SafeError(Exception):pass
@@ -21,6 +21,22 @@ def blob(data):return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).
 def failure_status(failure):
     if failure=='DESKTOP_NO_APPROVED_BASELINE_MATCHES':return 'DESKTOP_ROOT_PRECHECK_FAILED_NO_APPLICATION_CHANGES'
     return 'DESKTOP_ROOT_INSTALL_FAILED_REVIEW_PRIVATE_BACKUPS'
+
+def public_failure_lines(error, approved_paths):
+    """Forward only fixed receipts and approved, nonprivate path metadata."""
+    result = []
+    for line in error.decode('ascii', 'replace').splitlines():
+        owner = re.fullmatch(r'DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: ([A-Za-z0-9_.@/-]+); UID=([0-9]{1,10}); MODE=([0-7]{4})', line)
+        safe_owner = owner is not None and (owner[1] in approved_paths or
+            re.fullmatch(r'storage/framework/views/[a-f0-9]{40}\.php', owner[1]) is not None)
+        safe = (safe_owner or re.fullmatch(r'DESKTOP_[A-Z_]+(?:; STAGE=[A-Z_]+)?', line) is not None
+            or re.fullmatch(r'DESKTOP_ACTIVATION_FAILED; (?:FILES_RESTORED|CONCURRENT_FILES_RETAINED_REVIEW_REQUIRED); ADDITIVE_TABLES_AND_BUSINESS_OPERATIONS_RETAINED; BACKUP=/home/fasakha/desktop-dashboard-release-backups/server-[A-Za-z0-9_-]{6,32}', line) is not None
+            or re.fullmatch(r'DESKTOP_ACTIVATION_STOPPED; STAGE=[A-Z_]{1,40}; REASON=[A-Z_]{1,96}; CLASS=[A-Za-z_]{1,40}', line) is not None)
+        if safe and line not in result:
+            result.append(line)
+        if len(result) == 16:
+            break
+    return result
 
 def command(args,timeout=120):
     process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
@@ -118,12 +134,8 @@ def main():
             # diagnostics are never repeated, even when a child failed.
             try:failure=error.decode('ascii').strip()
             except UnicodeError:failure=''
-            if re.fullmatch(r'DESKTOP_ACTIVATION_FAILED; (FILES_RESTORED|CONCURRENT_FILES_RETAINED_REVIEW_REQUIRED); ADDITIVE_TABLES_AND_BUSINESS_OPERATIONS_RETAINED; BACKUP=/home/fasakha/desktop-dashboard-release-backups/server-[A-Za-z0-9_-]{6,32}',failure):
-                print(failure,file=sys.stderr)
-            elif (match:=re.fullmatch(r'DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: ([A-Za-z0-9_.@/-]+); UID=([0-9]{1,10}); MODE=([0-7]{4})',failure))and match[1]in approved_paths:
-                print(failure,file=sys.stderr)
-            elif re.fullmatch(r'DESKTOP_[A-Z_]+(?:; STAGE=[A-Z_]+)?',failure):
-                print(failure,file=sys.stderr)
+            for line in public_failure_lines(error, approved_paths):
+                print(line,file=sys.stderr)
             raise SafeError(failure_status(failure))
         for row in rows:print(row)
         return 0

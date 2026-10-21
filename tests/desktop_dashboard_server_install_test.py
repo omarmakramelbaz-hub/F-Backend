@@ -569,4 +569,77 @@ class CompatibilityBridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(installer.SafeError,'REQUEST_COMPATIBILITY_PAIR_INVALID'):self.f.install()
         self.assertEqual(self.f.calls,[]);self.assertEqual(self.legacy.read_bytes(),self.old)
 
+class ActivationFailureFactTests(unittest.TestCase):
+    def setUp(self):self.f=Fixture()
+    def tearDown(self):self.f.close()
+    def failure(self):
+        output=io.StringIO()
+        with contextlib.redirect_stderr(output):
+            with self.assertRaises(installer.SafeError) as caught:self.f.install()
+        backup=next(path for path in (self.f.root.parent/'desktop-dashboard-release-backups').glob('server-*') if path.is_dir())
+        return backup,output.getvalue(),str(caught.exception)
+    def test_migration_diagnostic_is_written_after_exact_rollback(self):
+        self.f.fail='migration';backup,output,recovery=self.failure()
+        fact=json.loads((backup/'failed.json').read_bytes())
+        self.assertEqual(fact,{'format':1,'stage':'MIGRATION','reason':'DESKTOP_ADDITIVE_MIGRATION_FAILED',
+            'error_class':'SafeError','publication_started':True})
+        self.assertIn('DESKTOP_ACTIVATION_STOPPED; STAGE=MIGRATION; REASON=DESKTOP_ADDITIVE_MIGRATION_FAILED; CLASS=SafeError',output)
+        self.assertIn('FILES_RESTORED',recovery);self.assertIn('ADDITIVE_TABLES_AND_BUSINESS_OPERATIONS_RETAINED',recovery)
+        self.assertEqual(installer.source_fingerprint(self.f.root,self.f.uid),self.f.manifest['before_source'])
+        self.assertTrue((self.f.folder/'retained-business-operation').exists())
+        self.assertEqual(stat.S_IMODE((backup/'failed.json').stat().st_mode),0o600)
+    def test_unknown_error_does_not_disclose_message_or_arguments(self):
+        secret='PRIVATE_SQL_PASSWORD /root/secret.env'
+        def fail(args):
+            if args[:3]==[installer.PHP,'artisan','migrate']:raise RuntimeError(secret)
+        self.f.event=fail;backup,output,recovery=self.failure()
+        data=(backup/'failed.json').read_text()
+        self.assertNotIn(secret,data+output+recovery);self.assertNotIn('/root/',data+output)
+        self.assertEqual(json.loads(data)['reason'],'PRIVATE_FAILURE')
+        self.assertEqual(json.loads(data)['error_class'],'RuntimeError')
+        self.assertIn('FILES_RESTORED',recovery)
+    def test_audit_write_failure_cannot_change_completed_rollback_or_receipt(self):
+        self.f.fail='migration';original=installer.write_private;observed=[]
+        def write(path,data):
+            if path.name=='failed.json':
+                observed.append(installer.source_fingerprint(self.f.root,self.f.uid))
+                self.assertEqual((self.f.root/'.env').read_bytes(),self.f.env)
+                raise OSError(28,'PRIVATE_DISK_ERROR')
+            return original(path,data)
+        with patch.object(installer,'write_private',side_effect=write):backup,output,recovery=self.failure()
+        self.assertEqual(observed,[self.f.manifest['before_source']])
+        self.assertIn('FILES_RESTORED',recovery);self.assertIn('STAGE=MIGRATION',output)
+        self.assertNotIn('PRIVATE_DISK_ERROR',output+recovery);self.assertFalse((backup/'failed.json').exists())
+        self.assertTrue((self.f.folder/'retained-business-operation').exists())
+    def test_prepublication_postreceipt_guard_has_no_false_rollback_claim(self):
+        original=installer.write_private;peer=b'<?php /* peer edit retained */'
+        def write(path,data):
+            result=original(path,data)
+            if path.name=='receipt.json':self.f.write(self.f.root/'app/Services/Existing.php',peer)
+            return result
+        with patch.object(installer,'write_private',side_effect=write):backup,output,recovery=self.failure()
+        fact=json.loads((backup/'failed.json').read_bytes())
+        self.assertEqual(fact['stage'],'BACKUP');self.assertFalse(fact['publication_started'])
+        self.assertEqual(fact['reason'],'DESKTOP_SOURCE_CHANGED_DURING_BACKUP')
+        self.assertEqual(recovery,'DESKTOP_SOURCE_CHANGED_DURING_BACKUP')
+        self.assertNotIn('FILES_RESTORED',output+recovery);self.assertEqual(self.f.migrations,[])
+        self.assertEqual((self.f.root/'app/Services/Existing.php').read_bytes(),peer)
+    def test_owner_metadata_is_reconstructed_only_within_approved_scope(self):
+        path='app/Services/Existing.php';error=installer.SafeError('DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: '+path+'; UID=0; MODE=0644')
+        fact=installer.safe_failure_fact(error,'CACHE',{path})
+        self.assertEqual((fact['path'],fact['uid'],fact['mode']),(path,0,'0644'))
+        compiled='storage/framework/views/'+'a'*40+'.php'
+        self.assertEqual(installer.safe_failure_fact(installer.SafeError('DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: '+compiled+'; UID=0; MODE=0600'),'CACHE')['path'],compiled)
+        foreign=installer.safe_failure_fact(installer.SafeError('DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: private-secret.env; UID=0; MODE=0600'),'CACHE')
+        self.assertNotIn('path',foreign);self.assertNotIn('private-secret',json.dumps(foreign))
+        output=io.StringIO()
+        with contextlib.redirect_stderr(output):installer.record_failure(self.f.folder,error,'CACHE',{path})
+        self.assertTrue(output.getvalue().startswith('DESKTOP_SOURCE_OWNER_NEEDS_REVIEW: '+path+'; UID=0; MODE=0644\nDESKTOP_ACTIVATION_STOPPED;'))
+    def test_unknown_identifier_and_os_details_remain_private(self):
+        fact=installer.safe_failure_fact(installer.SafeError('DESKTOP_ARBITRARY_SECRET'),'BAD_STAGE')
+        self.assertEqual((fact['stage'],fact['reason']),('UNKNOWN','PRIVATE_FAILURE'))
+        fact=installer.safe_failure_fact(OSError(28,'SECRET_ERROR','/private/database.sql'),'BACKUP')
+        self.assertEqual(fact['errno'],28);self.assertEqual(fact['reason'],'PRIVATE_FAILURE')
+        self.assertNotIn('SECRET',json.dumps(fact));self.assertNotIn('/private',json.dumps(fact))
+
 if __name__=='__main__':unittest.main()

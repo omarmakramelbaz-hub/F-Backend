@@ -23,7 +23,7 @@ OWNER_BLOB = '6ceff5c798411e42ca4d7673764eb72ded3ed2e6'
 MANIFEST_BLOB = 'da47b5e5dc50676d6046a6511b3905a0cd053ed1'
 SELF = 'deployment/diagnose_go_erp_postbackup_root.py'
 PROBE = 'deployment/go_erp_postbackup_probe.php'
-PROBE_BLOB = '5adf1f9598ce782fa46cb469983fd56ab7c7ffc4'
+PROBE_BLOB = '6b8b0f11fd40d2bbf1a8733c39a39f2bfabad8b2'
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
 MIGRATION_TABLES = [
     ['desktop_dashboard_commands', 'desktop_dashboard_entities', 'desktop_dashboard_devices'],

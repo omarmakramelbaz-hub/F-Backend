@@ -118,10 +118,10 @@ try {
         $result=['configuration_ready'=>true];
     } elseif($mode==='blade') {
         $relative=$argv[4]??'';
-        if(!preg_match('#\Aresources/views/[A-Za-z0-9_./-]+\.blade\.php\z/D',$relative)||str_contains($relative,'..'))throw new RuntimeException();
+        if(!preg_match('#\Aresources/views/[A-Za-z0-9_./-]+\.blade\.php\z#D',$relative)||str_contains($relative,'..'))throw new RuntimeException();
         $path=$project.'/'.$relative;if(realpath($path)!==$path||is_link($path))throw new RuntimeException();
         $compiler=app('blade.compiler');$target=$compiler->getCompiledPath($path);
-        if(!preg_match('#\A'.preg_quote($project,'#').'/storage/framework/views/[a-f0-9]{40}\.php\z/D',$target))throw new RuntimeException();
+        if(!preg_match('#\A'.preg_quote($project,'#').'/storage/framework/views/[a-f0-9]{40}\.php\z#D',$target))throw new RuntimeException();
         $output=$private.'/compiled-'.hash('sha256',$relative).'.php';$compiled=$compiler->compileString(file_get_contents($path));
         $stream=fopen($output,'xb');if(!$stream||fwrite($stream,$compiled)!==strlen($compiled))throw new RuntimeException();fflush($stream);fclose($stream);chmod($output,0600);
         $result=['target'=>substr($target,strlen($project)+1),'compiled'=>basename($output)];

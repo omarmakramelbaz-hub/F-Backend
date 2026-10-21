@@ -59,13 +59,13 @@ class PostbackupProbeTests(unittest.TestCase):
         self.assertIn('ob_end_clean()', self.text)
         self.assertIn("'error_class'=>in_array($class, $allowed, true) ? $class : 'Throwable'", self.text)
 
-    @unittest.skipUnless(PHP, 'PHP CLI unavailable locally; required by the CI job')
     def test_php_lint(self):
+        self.assertIsNotNone(PHP, 'PHP CLI is required for this runtime test')
         result = subprocess.run([PHP, '-l', str(PROBE)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    @unittest.skipUnless(PHP, 'PHP CLI unavailable locally; required by the CI job')
     def test_cli_invalid_private_path_is_bounded_json_without_echoing_input(self):
+        self.assertIsNotNone(PHP, 'PHP CLI is required for this runtime test')
         result = subprocess.run([PHP, str(PROBE), '/INVALID_PRIVATE_SECRET_ROOT',
             '/INVALID_PRIVATE_SECRET_DIRECTORY', '/INVALID_PRIVATE_SECRET_MANIFEST'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)
