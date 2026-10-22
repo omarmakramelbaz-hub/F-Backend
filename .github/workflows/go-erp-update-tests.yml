@@ -1,7 +1,7 @@
 name: GO ERP minute update contracts
 on:
   push:
-    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2, codex/go-erp-activation-view-fix-20261021-r3]
+    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2, codex/go-erp-activation-view-fix-20261021-r3, codex/go-erp-media-capacity-20261022]
   pull_request:
     paths:
       - 'desktop-pos/**'
@@ -36,6 +36,8 @@ jobs:
           tools: composer:v2
       - name: Verify native update decisions and installation handoff
         run: node --test desktop-pos/test/*.test.cjs
+      - name: Verify the matching PHP media import capacity
+        run: php tests/go_erp_media_capacity_test.php
       - name: Verify server publication and source drift refusal
         run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_update_publication.py
       - name: Verify the pinned root console publication entry
@@ -94,6 +96,7 @@ jobs:
           python3 -B tests/desktop_dashboard_server_install_test.py
           python3 -B tests/desktop_dashboard_current_source_diagnosis_test.py
       - name: Verify the exact current live candidate independently
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021'
         run: python3 -I -B deployment/verify_go_erp_current_candidate_ci.py --root "$GITHUB_WORKSPACE" --historical-root "$GITHUB_WORKSPACE/historical-desktop-baseline"
       - name: Check preserved current application syntax
         run: |

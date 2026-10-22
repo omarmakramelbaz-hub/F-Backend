@@ -49,6 +49,23 @@ test('native manifests reject traversal, Windows device names, executable types,
   assert.equal(fetched, 0);
 });
 
+test('complete account manifests can exceed one GiB, accept two GiB exactly, and reject overflow before any download', async t => {
+  const directory = await root(t);
+  const large = Array.from({ length: 128 }, (_, index) => ({ ...item(`products/${index + 1}/original.png`), bytes: media.MAX_FILE }));
+  const rejectedBefore = large.slice(0, 64).concat({ ...item('products/129/extra.png'), bytes: 1 });
+  assert.doesNotThrow(() => media.manifest(rejectedBefore));
+  assert.doesNotThrow(() => media.manifest(large));
+  let fetched = 0;
+  await assert.rejects(media.download(directory, large.concat({ ...item('products/129/extra.png'), bytes: 1 }),
+    async () => { fetched++; return response(); }), /حجم التجهيز المسموح/);
+  assert.equal(fetched, 0);
+  assert.deepEqual(await fs.readdir(directory), []);
+  // Private attachments share the same aggregate budget with public images.
+  const mixed = large.map((part, index) => index % 2 ? { ...part, area: 'private', path: `branch-expenses/${index}.png` } : part);
+  assert.doesNotThrow(() => media.manifest(mixed));
+  assert.throws(() => media.manifest(mixed.concat({ ...item('branch-expenses/extra.png'), area: 'private', bytes: 1 })));
+});
+
 test('hash and length mismatches, truncated streams and interrupted downloads never leave an activatable image', async t => {
   const directory = await root(t), image = item('public/image.png');
   for (const make of [() => response(Buffer.alloc(bytes.length)), () => response(bytes.subarray(0, 10)),

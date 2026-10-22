@@ -10,7 +10,7 @@ class DesktopDashboardMedia
     public const MIMES=['png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','gif'=>'image/gif','webp'=>'image/webp','ico'=>'image/x-icon'];
     public const PRIVATE_MIMES=['png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','pdf'=>'application/pdf'];
     public const MAX_FILE=16*1024*1024;
-    public const MAX_TOTAL=1024*1024*1024;
+    public const MAX_TOTAL=2*1024*1024*1024;
     public const MAX_FILES=20000;
     private const MODELS=['User'=>'users','Admin'=>'users','Resturant'=>'resturants','ResturantProduct'=>'resturant_products',
         'Product'=>'products','Category'=>'categories','Advertising'=>'advertisings','Banner'=>'banners','Slidear'=>'slidears',
@@ -113,7 +113,8 @@ class DesktopDashboardMedia
                     'enrollment_binding'=>$this->devices->enrollmentFingerprint($device),
                     'snapshot_id'=>$snapshot,'path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'proof'=>$proof,'expires_at'=>time()+3600]+$namespace));
                 $files[$key]=['path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'ticket'=>$ticket]+$namespace;
-            }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['path'=>$path,'reason'=>'unavailable-or-unsupported']+($area==='private'?['area'=>'private']:[]);}
+            }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['path'=>$path,
+                'reason'=>$error->getStatusCode()===413?'media-capacity-exceeded':'unavailable-or-unsupported']+($area==='private'?['area'=>'private']:[]);}
         };
         foreach($dataset['media']??[] as $row){
             try{

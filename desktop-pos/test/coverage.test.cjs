@@ -25,6 +25,13 @@ function fixture() {
   };
   return { source, manifest, snapshot, candidate, next };
 }
+test('capacity failures explain the aggregate limit without accepting an incomplete image snapshot', () => {
+  const f = fixture(); f.snapshot.coverage.media = false;
+  f.snapshot.media_issues = [{ path: 'products/1/original.png', reason: 'media-capacity-exceeded' }];
+  assert.throws(() => coverage.snapshotCoverage(f.snapshot, f.manifest, true), /سعة تجهيز الجهاز/);
+  f.snapshot.media_issues[0].reason = 'unavailable-or-unsupported';
+  assert.throws(() => coverage.snapshotCoverage(f.snapshot, f.manifest, true), /قائمة صور التجهيز/);
+});
 test('partial scope requires native opt-in and an exact explicitly preview source-bound route inventory', () => {
   const f = fixture();
   assert.throws(() => coverage.snapshotCoverage(f.snapshot, f.manifest));

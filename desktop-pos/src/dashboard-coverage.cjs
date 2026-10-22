@@ -50,6 +50,9 @@ function previewPrepared(value, manifest) {
   } catch { return false; }
 }
 function snapshotCoverage(snapshot, manifest, allowPreview = false) {
+  if (snapshot.coverage?.media !== true && Array.isArray(snapshot.media_issues)
+      && snapshot.media_issues.some(item => item?.reason === 'media-capacity-exceeded'))
+    throw Error('صور الحساب تتجاوز سعة تجهيز الجهاز؛ يلزم مراجعة حجم الصور قبل استكمال التجهيز.');
   if (snapshot.coverage?.media !== true || !Array.isArray(snapshot.media)) throw Error('قائمة صور التجهيز لم تكتمل بعد.');
   if (snapshot.coverage.full_dashboard === true) return { fullCoverage: true };
   if (allowPreview !== true || snapshot.coverage.full_dashboard !== false || !previewManifest(manifest)

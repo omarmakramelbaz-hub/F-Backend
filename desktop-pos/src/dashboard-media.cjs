@@ -6,7 +6,7 @@ const { isDeepStrictEqual } = require('node:util');
 
 const MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon' };
 const PRIVATE_MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', pdf: 'application/pdf' };
-const MAX_FILE = 16 * 1024 * 1024, MAX_TOTAL = 1024 * 1024 * 1024, MAX_FILES = 20000;
+const MAX_FILE = 16 * 1024 * 1024, MAX_TOTAL = 2 * 1024 * 1024 * 1024, MAX_FILES = 20000;
 function safePath(value, area = 'public') {
   if (typeof value !== 'string' || !value || Buffer.byteLength(value) > 500 || /[\\\x00-\x1f\x7f:*?"<>|%]/u.test(value)) return false;
   if (!['public', 'private'].includes(area) || (area === 'private' && !value.startsWith('branch-expenses/'))) return false;

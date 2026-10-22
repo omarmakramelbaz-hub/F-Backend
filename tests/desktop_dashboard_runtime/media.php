@@ -2,6 +2,21 @@
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Services\Dashboard\{DesktopDashboardBootstrap,DesktopDashboardDevices};
+// The independent PHP import receipt must admit the same account-sized media set
+// as native preparation, while retaining a bounded aggregate public/private budget.
+$capacityParts=[];
+for($n=0;$n<128;$n++)$capacityParts[]=['path'=>'capacity/'.$n.'.png','bytes'=>16*1024*1024,
+    'sha256'=>str_repeat('a',64),'mime'=>'image/png'];
+verify(count(\App\Services\Dashboard\DesktopDashboardMedia::receipt($capacityParts))===128,
+    'the original PHP media import admits the full two-GiB image manifest');
+try{
+    \App\Services\Dashboard\DesktopDashboardMedia::receipt([...$capacityParts,
+        ['path'=>'capacity/extra.png','bytes'=>1,'sha256'=>str_repeat('b',64),'mime'=>'image/png']]);
+    throw new RuntimeException('Aggregate media overflow was accepted.');
+}catch(\Symfony\Component\HttpKernel\Exception\HttpException $capacityError){
+    verify($capacityError->getStatusCode()===413,'the original PHP media import refuses aggregate overflow');
+}
+unset($capacityParts);
 // Original full-schema fixture: scoped uploads, actual image bytes, binary API and revocation.
 $imageBytes=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=');
 $imageFiles=['resturants/1/logo.png','resturants/2/foreign.png','products/3/رنجة.png','products/3/conversions/thumb.png','users/4/avatar.png','users/5/foreign.png','branding/logo.png'];
