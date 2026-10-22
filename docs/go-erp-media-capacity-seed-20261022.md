@@ -34,3 +34,29 @@ directory, then retry preparation online. The installed source and seed receipt
 alone is not offline readiness; preparation and a disconnected read test must
 still succeed. The next watcher tick can build a higher compatible release
 using the existing complete CI and publication gates.
+
+
+## Preserve numeric snapshot transport in subsequent automatic releases
+
+The reviewed preview.25 core is
+`a0178ead801e8d39185cd0830171804141767995`. Its native downloader retains
+the original server JSON in a private binding, freezes parsed metadata, and
+passes the captured JSON to PHP without converting integral floats or large
+integers through JavaScript serialization. Server row hashes and every source,
+enrollment, schema and media check remain enforced. The Windows fixture now
+imports and refreshes a real DOUBLE and an exact BIGINT through this path.
+
+The successor policy seed changes only the existing bounded verifier, its tests,
+this document and the update-contract workflow. It pins that exact core; no
+application, native, dependency, build or version changes may enter through the
+policy layer. The original historical proof and exact previous capacity seed
+retain their former validation rules. Automatic captured candidates are still
+verified independently against the complete new seed inventory and parent.
+
+A separate reviewed seed-only watcher migration is required. Do not rerun the
+old capacity installer to perform this migration: its predecessor and single
+production PHP change were specific to the original one-GiB rollout. The new
+migration must retain the existing credential, version/sequence high-water
+state, publication history and dependency guard while retiring only capture
+state bound to the previous seed. Neither a policy-seed receipt nor a successful
+installer build certifies offline readiness on a particular Windows profile.

@@ -1,7 +1,7 @@
 name: GO ERP minute update contracts
 on:
   push:
-    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2, codex/go-erp-activation-view-fix-20261021-r3, codex/go-erp-media-capacity-20261022, codex/go-erp-media-capacity-seed-20261022, codex/go-erp-snapshot-transport-20261022]
+    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2, codex/go-erp-activation-view-fix-20261021-r3, codex/go-erp-media-capacity-20261022, codex/go-erp-media-capacity-seed-20261022, codex/go-erp-snapshot-transport-20261022, codex/go-erp-snapshot-transport-seed-20261022]
   pull_request:
     paths:
       - 'desktop-pos/**'
@@ -38,6 +38,8 @@ jobs:
         run: node --test desktop-pos/test/*.test.cjs
       - name: Verify the matching PHP media import capacity
         run: php tests/go_erp_media_capacity_test.php
+      - name: Load the exact reviewed snapshot transport core
+        run: git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin a0178ead801e8d39185cd0830171804141767995
       - name: Verify bounded capacity seed upgrade and rollback
         run: sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_media_capacity*.py'
       - name: Verify server publication and source drift refusal
@@ -90,6 +92,16 @@ jobs:
           test "$(git rev-parse HEAD)" = 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
           git diff-index --quiet 75c3fe50b3609ef5822904a23d7c4ed0afd07eff --
           HISTORICAL
+      - name: Verify the immutable snapshot transport policy seed
+        if: github.ref == 'refs/heads/codex/go-erp-snapshot-transport-seed-20261022'
+        run: |
+          python3 -B - <<'PYTHON'
+          import importlib.util,json,os
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('reviewed_seed','deployment/verify_go_erp_media_capacity_seed.py')
+          policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(policy)
+          print(json.dumps(policy.validate_seed(Path.cwd(),os.environ['GITHUB_SHA']),sort_keys=True))
+          PYTHON
       - name: Verify every original historical source transformation
         working-directory: historical-desktop-baseline
         run: |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preserve the original candidate proof while admitting its reviewed capacity seed."""
+"""Preserve candidate proofs while admitting the exact reviewed snapshot transport core."""
 import argparse
 import importlib.util
 import json
@@ -8,7 +8,9 @@ import re
 import subprocess
 import tempfile
 
-CORE = 'd27b2942848714c455f55c9bf2c3dc52f7b89c25'
+CORE = 'a0178ead801e8d39185cd0830171804141767995'
+LEGACY_CAPACITY_CORE = 'd27b2942848714c455f55c9bf2c3dc52f7b89c25'
+LEGACY_CAPACITY_SEED = '7523ff6888a6e3d0a6f5b7712c553909f12c043b'
 REMOTE = 'https://github.com/omarmakramelbaz-hub/F-Backend.git'
 POLICY_FILES = frozenset((
     '.github/workflows/go-erp-update-tests.yml',
@@ -44,8 +46,10 @@ def validate_seed(root, revision, core=CORE):
         match=re.fullmatch(r':(000000|100644) 100644 [a-f0-9]{40} [a-f0-9]{40} [AM]\t(.+)',line)
         need(match is not None and match[2] in POLICY_FILES and match[2] not in seen,'UNREVIEWED_SEED_DELTA')
         seen.add(match[2])
-    need({'deployment/verify_go_erp_media_capacity_seed.py','deployment/apply_go_erp_media_capacity_root.py',
-          '.github/workflows/go-erp-update-tests.yml'}<=seen,'POLICY_INCOMPLETE')
+    required={'deployment/verify_go_erp_media_capacity_seed.py','.github/workflows/go-erp-update-tests.yml'}
+    if core==LEGACY_CAPACITY_CORE:
+        required.add('deployment/apply_go_erp_media_capacity_root.py')
+    need(required<=seen,'POLICY_INCOMPLETE')
     # All application, native, dependency and build bytes must equal the fixed core.
     return {'core':core,'seed':revision,'policy_files':sorted(seen)}
 
@@ -61,20 +65,24 @@ def verify(root, historical):
     if base==original.BASE_REVISION:
         return original.validate_checkout(root,historical)
     need(bool(REV.fullmatch(base)),'CANDIDATE_BASE')
+    core=LEGACY_CAPACITY_CORE if base==LEGACY_CAPACITY_SEED else CORE
     # A complete local object lineage needs no network. A shallow CI checkout
     # fetches only the fixed public seed revision when those objects are absent.
-    try: proof=validate_seed(root,base,core=CORE)
+    try: proof=validate_seed(root,base,core=core)
     except RuntimeError as error:
         if str(error)!='GO_ERP_CAPACITY_SEED_GIT_FAILED':raise
         git(root,'fetch','--quiet','--depth=16','--no-tags','--no-recurse-submodules',REMOTE,base)
-        proof=validate_seed(root,base,core=CORE)
+        proof=validate_seed(root,base,core=core)
     with tempfile.TemporaryDirectory(prefix='go-erp-capacity-ci-') as temporary:
         seed=Path(temporary)/'seed'
         git(root,'worktree','add','--quiet','--detach',str(seed),base)
         try: result=original.validate_checkout(root,seed,expected_base=base)
         finally:
             git(root,'worktree','remove','--force',str(seed))
-    result['policy']='media-capacity-seed-v1';result['reviewed_capacity_core']=proof['core']
+    if base==LEGACY_CAPACITY_SEED:
+        result['policy']='media-capacity-seed-v1';result['reviewed_capacity_core']=proof['core']
+    else:
+        result['policy']='snapshot-transport-seed-v1';result['reviewed_snapshot_transport_core']=proof['core']
     return result
 
 if __name__=='__main__':
