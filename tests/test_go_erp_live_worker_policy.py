@@ -114,8 +114,11 @@ class CandidatePolicyTransitions(unittest.TestCase):
         self.assertEqual(self.value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
         self.assertEqual(self.value.state['counter'], 8)
 
-    def test_explicit_different_policy_rebuilds_once(self):
-        self.assert_migrates_once('blocked', policy='prior-reviewed-policy')
+    def test_blocked_v1_policy_rebuilds_once_before_its_ci_backoff(self):
+        self.assert_migrates_once('blocked', policy='historical-baseline-v1')
+
+    def test_pushed_v1_policy_rebuilds_once_while_ci_results_are_delayed(self):
+        self.assert_migrates_once('waiting-ci', policy='historical-baseline-v1')
 
     def test_matching_accepted_feed_stays_current_without_policy_only_rebuild(self):
         desired = self.first_candidate()

@@ -62,7 +62,7 @@ class CandidatePolicyTests(unittest.TestCase):
     def test_real_candidate_policy_is_outside_application_authority(self):
         inventory = copy.deepcopy(self.snapshot['metadata'])
         result = self.prepare()
-        self.assertEqual(result['candidatePolicy'], 'historical-baseline-v1')
+        self.assertEqual(result['candidatePolicy'], 'historical-baseline-v2')
         self.assertEqual(self.snapshot['metadata'], inventory)
         candidate = json.loads((self.seed / source.CANDIDATE_PATH).read_bytes())
         self.assertEqual(candidate['inventory'], inventory['inventory'])
@@ -203,7 +203,8 @@ class CandidatePolicyTests(unittest.TestCase):
         self.assertEqual(original[original_end:], current[replacement_end:])
         for test in ('actual_baseline', 'expense_rejection_baseline', 'server_install', 'current_source_diagnosis'):
             self.assertEqual(current.count('python3 -B tests/desktop_dashboard_' + test + '_test.py'), 1)
-        self.assertIn('ref: ' + validator.BASE_REVISION, current)
+        self.assertIn('git checkout --quiet --detach --no-recurse-submodules ' + validator.BASE_REVISION, current)
+        self.assertEqual(current.count('uses: actions/checkout@v4'), 1)
         self.assertIn('working-directory: historical-desktop-baseline', current)
         self.assertIn('origin 3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4', current)
 

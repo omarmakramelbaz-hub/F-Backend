@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import stat
 import signal
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -246,10 +247,12 @@ class RuntimeUpgradeTests(unittest.TestCase):
         with self.assertRaises(subject.Stop):subject.execute([])
 
 class RuntimePayloadBindingTests(unittest.TestCase):
-    def test_final_runtime_pins_match_all_five_reviewed_release_files(self):
+    def test_legacy_runtime_pins_match_all_five_immutable_v1_release_files(self):
         self.assertEqual(set(subject.PINS),set(subject.ROSTER))
         for name,pin in subject.PINS.items():
-            self.assertEqual(subject.blob((REPO/'deployment'/name).read_bytes()),pin,name)
+            raw=subprocess.check_output(['git','-c','safe.directory='+str(REPO),'-C',str(REPO),
+                'show','6dcc70f8fa78ee9ab93ea8acf08cb405bb690216:deployment/'+name])
+            self.assertEqual(subject.blob(raw),pin,name)
         self.assertEqual(subject.PINS['publish_go_erp_update.py'],subject.OLD_PINS['publish_go_erp_update.py'])
     def test_entrypoint_pin_matches_the_exact_upgrade_helper(self):
         wrapper=(REPO/'deployment/upgrade_go_erp_live_runtime_root.sh').read_text()

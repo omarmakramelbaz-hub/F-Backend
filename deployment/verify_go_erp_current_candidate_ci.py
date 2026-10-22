@@ -10,7 +10,7 @@ import subprocess
 import types
 
 BASE_REVISION = '75c3fe50b3609ef5822904a23d7c4ed0afd07eff'
-POLICY = 'historical-baseline-v1'
+POLICY = 'historical-baseline-v2'
 MAX_JSON = 16 * 1024 ** 2
 
 

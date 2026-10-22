@@ -20,12 +20,12 @@ REPOSITORY = 'omarmakramelbaz-hub/F-Backend'
 REMOTE_URL = 'https://github.com/' + REPOSITORY + '.git'
 LIVE_BRANCH = 'codex/go-erp-live-source-20261021'
 CANDIDATE_PATH = 'deployment/go_erp_live_source_candidate.json'
-CANDIDATE_POLICY = 'historical-baseline-v1'
+CANDIDATE_POLICY = 'historical-baseline-v2'
 POLICY_ASSETS = {
     '.github/workflows/go-erp-update-tests.yml': ('go_erp_current_candidate_ci.yml',
-        '176abf7f1b4b533e486acf15b98a80bce3ecc38a9ed73bf78204cd82373cbf3e'),
+        '203ca21186223cacb7feb98dc8eb372bceb258c4e0f01e4c7a8b917b417271ea'),
     'deployment/verify_go_erp_current_candidate_ci.py': ('verify_go_erp_current_candidate_ci.py',
-        '5033087ee07982bb61d64fbe52e306a58d84f43b7841e44eb5b067d4b57c8173'),
+        'e005df2cd2229188d79418754dedd1ea18cbfb5256727ee126a881dfa660461a'),
 }
 ROOTS = frozenset(('app', 'bootstrap', 'config', 'database', 'desktop', 'public', 'resources', 'routes'))
 NEW_CODE_SUFFIXES = frozenset(('.php', '.js', '.cjs', '.mjs', '.css', '.html', '.json'))

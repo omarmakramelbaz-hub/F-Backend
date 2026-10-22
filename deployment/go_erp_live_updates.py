@@ -55,7 +55,7 @@ REV = re.compile(r'[a-f0-9]{40}\Z')
 SAFE_INTEGER = 9007199254740991
 REMOTE = 'https://github.com/' + REPOSITORY + '.git'
 DEPENDENCIES = ('composer.json', 'composer.lock', 'vendor/composer/installed.json', 'vendor/composer/installed.php')
-CANDIDATE_POLICY = 'historical-baseline-v1'
+CANDIDATE_POLICY = 'historical-baseline-v2'
 
 
 class WatchError(Exception):
