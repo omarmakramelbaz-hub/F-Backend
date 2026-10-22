@@ -63,7 +63,38 @@ jobs:
           python3 -B tests/test_go_erp_postbackup_probe.py
           php -l deployment/desktop_dashboard_release.php
           php -l deployment/go_erp_postbackup_probe.php
-      - name: Verify the exact current server source transformation
+      - name: Check out the immutable historical desktop baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          historical="$GITHUB_WORKSPACE/historical-desktop-baseline"
+          test ! -e "$historical"
+          test ! -L "$historical"
+          mkdir -- "$historical"
+          # The immutable baseline has an unconfigured historical gitlink.
+          # Fetch public commit objects without checkout's auth/submodule cleanup.
+          env -i PATH=/usr/bin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+            GO_ERP_HISTORICAL_ROOT="$historical" \
+            /bin/bash --noprofile --norc -euo pipefail <<'HISTORICAL'
+          git() {
+            /usr/bin/git -c credential.helper= -c core.hooksPath=/dev/null \
+              -c core.fsmonitor=false -c core.autocrlf=false -c core.attributesFile=/dev/null \
+              -c http.followRedirects=false -c submodule.recurse=false \
+              -c protocol.allow=never -c protocol.https.allow=always \
+              -C "$GO_ERP_HISTORICAL_ROOT" "$@"
+          }
+          git init --quiet --template=
+          git remote add origin https://github.com/omarmakramelbaz-hub/F-Backend.git
+          git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+          git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4
+          git checkout --quiet --detach --no-recurse-submodules 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+          test "$(git rev-parse HEAD)" = 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+          git diff-index --quiet 75c3fe50b3609ef5822904a23d7c4ed0afd07eff --
+          HISTORICAL
+      - name: Verify every original historical source transformation
+        working-directory: historical-desktop-baseline
         run: |
           python3 -B tests/desktop_dashboard_actual_baseline_test.py
           python3 -B tests/desktop_dashboard_expense_rejection_baseline_test.py
