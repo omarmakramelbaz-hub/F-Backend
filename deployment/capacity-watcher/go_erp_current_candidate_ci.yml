@@ -1,0 +1,127 @@
+name: GO ERP minute update contracts
+on:
+  push:
+    branches: [main, codex/go-erp-minute-updates-20261020, codex/go-erp-live-source-20261021, codex/go-erp-automation-20261021, codex/go-erp-current-activation-20261021, codex/go-erp-current-activation-20261021-r2, codex/go-erp-activation-view-fix-20261021-r3]
+  pull_request:
+    paths:
+      - 'desktop-pos/**'
+      - 'app/**/DesktopDashboardUpdate*.php'
+      - 'routes/api.php'
+      - 'deployment/*go_erp*'
+      - 'tests/*go_erp*'
+      - 'tests/desktop_dashboard_updates_test.php'
+      - 'deployment/desktop_dashboard_release.php'
+      - 'deployment/apply_desktop_dashboard_server*'
+      - '.github/scripts/desktop-update-receipt.cjs'
+      - '.github/scripts/desktop-live-source-acceptance.cjs'
+      - '.github/workflows/go-erp-update-tests.yml'
+permissions:
+  contents: read
+jobs:
+  update-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          extensions: pdo_sqlite
+          tools: composer:v2
+      - name: Verify native update decisions and installation handoff
+        run: node --test desktop-pos/test/*.test.cjs
+      - name: Verify server publication and source drift refusal
+        run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_update_publication.py
+      - name: Verify the pinned root console publication entry
+        run: python3 -B -m unittest discover -s tests -p test_go_erp_ci_publish_root.py
+      - name: Verify source capture, accepted build publication, and private timer setup
+        run: sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_live*.py'
+      - name: Verify the complete root console activation entry
+        run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_complete_activation.py
+      - name: Load the immutable prior deployment helper for diagnostic comparisons
+        run: git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4
+      - name: Verify PHP view guards with the actual runtime
+        run: python3 -B tests/test_go_erp_php_view_paths.py
+      - name: Verify private activation failure receipts and bounded forwarding
+        run: python3 -B tests/test_go_erp_activation_failure_receipts.py
+      - name: Verify post-backup metadata and read-only runtime probe
+        run: |
+          sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_postbackup_root.py
+          python3 -B tests/test_go_erp_postbackup_probe.py
+          php -l deployment/desktop_dashboard_release.php
+          php -l deployment/go_erp_postbackup_probe.php
+      - name: Check out the immutable historical desktop baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          historical="$GITHUB_WORKSPACE/historical-desktop-baseline"
+          test ! -e "$historical"
+          test ! -L "$historical"
+          mkdir -- "$historical"
+          # The immutable baseline has an unconfigured historical gitlink.
+          # Fetch public commit objects without checkout's auth/submodule cleanup.
+          env -i PATH=/usr/bin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+            GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_TERMINAL_PROMPT=0 \
+            GO_ERP_HISTORICAL_ROOT="$historical" \
+            /bin/bash --noprofile --norc -euo pipefail <<'HISTORICAL'
+          git() {
+            /usr/bin/git -c credential.helper= -c core.hooksPath=/dev/null \
+              -c core.fsmonitor=false -c core.autocrlf=false -c core.attributesFile=/dev/null \
+              -c http.followRedirects=false -c submodule.recurse=false \
+              -c protocol.allow=never -c protocol.https.allow=always \
+              -C "$GO_ERP_HISTORICAL_ROOT" "$@"
+          }
+          git init --quiet --template=
+          git remote add origin https://github.com/omarmakramelbaz-hub/F-Backend.git
+          git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+          git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 3b7d53e6021ce825dd6fc56218cb6ce25f72b3b4
+          git checkout --quiet --detach --no-recurse-submodules 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+          test "$(git rev-parse HEAD)" = 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+          git diff-index --quiet 75c3fe50b3609ef5822904a23d7c4ed0afd07eff --
+          HISTORICAL
+      - name: Verify every original historical source transformation
+        working-directory: historical-desktop-baseline
+        run: |
+          python3 -B tests/desktop_dashboard_actual_baseline_test.py
+          python3 -B tests/desktop_dashboard_expense_rejection_baseline_test.py
+          python3 -B tests/desktop_dashboard_server_install_test.py
+          python3 -B tests/desktop_dashboard_current_source_diagnosis_test.py
+      - name: Verify the exact current live candidate independently
+        run: python3 -I -B deployment/verify_go_erp_current_candidate_ci.py --root "$GITHUB_WORKSPACE" --historical-root "$GITHUB_WORKSPACE/historical-desktop-baseline"
+      - name: Check preserved current application syntax
+        run: |
+          php -l app/Services/Dashboard/ExpenseStockPurchases.php
+          php -l app/Services/Dashboard/TakeawayService.php
+          php -l app/Services/Dashboard/PosServiceTicket.php
+          php -l app/Services/Dashboard/BranchShiftClosing.php
+          php -l app/Http/Controllers/Dashboard/TakeawayController.php
+          php -l app/Http/Controllers/Dashboard/PosServiceController.php
+          node --check public/dashboard/js/takeaway-pos.js
+          node --check public/dashboard/js/dining-pos.js
+          node --check public/dashboard/js/branch-shifts.js
+      - name: Verify merged shift controls in the browser code
+        run: |
+          node tests/shift_pending_expenses_test.cjs
+          node tests/desktop_shift_native_merge_test.cjs
+      - name: Prepare isolated accounting test dependencies
+        run: composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-progress --no-scripts --no-plugins --no-security-blocking
+      - name: Verify merged accounting and offline import behavior
+        env:
+          SHIFT_PENDING_TEST_AUTOLOAD: ${{ github.workspace }}/tests/desktop_pos_runtime/vendor/autoload.php
+        run: |
+          php tests/desktop_pos_runtime/run.php
+          php tests/shift_pending_expenses_test.php
+      - name: Verify authenticated release feed and immutable installer transport
+        run: sudo -n -- php -n tests/desktop_dashboard_updates_test.php
+      - name: Check the read-only production diagnostic
+        run: |
+          bash -n deployment/diagnose_go_erp_current_root.sh
+          bash -n deployment/install_go_erp_live_updates_root.sh
+          bash -n deployment/activate_go_erp_complete_root.sh
