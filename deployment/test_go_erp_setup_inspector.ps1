@@ -48,7 +48,7 @@ try {
     if (-not $ready -or $ready.Port -lt 1024 -or $ready.Port -gt 65535 -or $ready.Pid -lt 1) { throw 'READY_MESSAGE_INVALID' }
     $appProcess = Get-Process -Id $ready.Pid
     if ($appProcess.Path -cne (Join-Path $installed 'GO ERP.exe')) { throw 'WRONG_PACKAGED_PROCESS' }
-    $targets = @(Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 5)
+    $targets = @(Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 5)
     if ($targets.Count -ne 1 -or $targets[0].webSocketDebuggerUrl -notmatch '^ws://127\.0\.0\.1:[0-9]+/[a-fA-F0-9-]+$') { throw 'INSPECTOR_TARGET_INVALID' }
     $socket = New-Object Net.WebSockets.ClientWebSocket
     $cancel = New-Object Threading.CancellationTokenSource
@@ -109,13 +109,13 @@ try {
     Write-Output 'GO_ERP_CI_CAPTURE_VALIDATED'
     if ($diagnostic.ExitCode -ne 0) {
         $httpReachable = $false
-        try { $null = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2; $httpReachable = $true } catch {}
-        Write-Output ('GO_ERP_CI_LISTENER ' + (@{ httpReachable = $httpReachable; appExited = $appProcess.HasExited } | ConvertTo-Json -Compress))
+        try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2; $httpReachable = $true } catch {}
+        Write-Output ('GO_ERP_CI_LISTENER ' + (@{ httpReachable = $httpReachable; appExited = $appProcess.HasExited; appResponding = $appProcess.Responding; windowExists = ($appProcess.MainWindowHandle -ne 0) } | ConvertTo-Json -Compress))
         throw ('DIAGNOSTIC_CAPTURE_FAILED:' + (Get-FixedDiagnosticFailure))
     }
     if (@($output -split '\r?\n' | Where-Object { $_ -ceq 'GO_ERP_INSPECTOR_CLOSED' }).Count -ne 1) { throw 'INSPECTOR_CLEANUP_NOT_CONFIRMED' }
     $stillListening = $true
-    try { $null = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }
+    try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }
     if ($stillListening) { throw 'INSPECTOR_LISTENER_LEFT_OPEN' }
     $windowDeadline = [DateTime]::UtcNow.AddSeconds(10)
     do { $appProcess.Refresh(); if (-not $appProcess.HasExited -and $appProcess.MainWindowHandle -eq 0) { Start-Sleep -Milliseconds 100 } } while (-not $appProcess.HasExited -and $appProcess.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $windowDeadline)

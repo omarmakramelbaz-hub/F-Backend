@@ -94,7 +94,7 @@ try {
     do {
         if ($goTarget.HasExited) { throw 'GO_ERP_INSPECTOR_LAUNCH_FAILED' }
         try {
-            $targets = @(Invoke-RestMethod -Uri "http://127.0.0.1:$goPort/json/list" -TimeoutSec 1 -UseBasicParsing)
+            $targets = @(Invoke-RestMethod -DisableKeepAlive -Uri "http://127.0.0.1:$goPort/json/list" -TimeoutSec 1 -UseBasicParsing)
             if ($targets.Count -eq 1 -and $targets[0].type -ceq 'node') { $target = $targets[0] }
         } catch {}
         if (!$target) { Start-Sleep -Milliseconds 100 }
