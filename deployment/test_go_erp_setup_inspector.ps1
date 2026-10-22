@@ -118,8 +118,10 @@ try {
     if (!$closeSent -or !$exitedAfterClose) {
         $appProcess.Refresh()
         $windowChanged = !$appProcess.HasExited -and $appProcess.MainWindowHandle -ne 0 -and $appProcess.MainWindowHandle -ne $windowBeforeClose
-        $waitingForDebugger = $false
-        if (Test-Path -LiteralPath $stderrPath) { $waitingForDebugger = [IO.File]::ReadAllText($stderrPath).Contains('Waiting for the debugger to disconnect') }
+        $waitingForDebugger = $null
+        try {
+            if (Test-Path -LiteralPath $stderrPath) { $waitingForDebugger = ((Get-Content -LiteralPath $stderrPath -Raw -ErrorAction Stop) -like '*Waiting for the debugger to disconnect*') }
+        } catch {} # Optional observation must not hide the normal-exit evidence.
         Write-Output ('GO_ERP_CI_NORMAL_EXIT ' + (@{ exitedBeforeClose = $exitedBeforeClose; windowExists = $windowExists; responding = $responding; closeSent = $closeSent; exitedAfterClose = $exitedAfterClose; windowChanged = $windowChanged; waitingForDebugger = $waitingForDebugger } | ConvertTo-Json -Compress))
         throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE'
     }
