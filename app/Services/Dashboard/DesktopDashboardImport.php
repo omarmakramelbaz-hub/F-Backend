@@ -10,7 +10,9 @@ class DesktopDashboardImport
     {
         abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
-        Validator::make($snapshot,['format'=>'required|in:1','kind'=>'required|in:initial-dashboard-data',
+        Validator::make(self::validationMetadata($snapshot,
+            ['format','kind','snapshot_id','device_id','actor_id','branches','schema_hash','tables','coverage'],['tables','coverage']),
+            ['format'=>'required|in:1','kind'=>'required|in:initial-dashboard-data',
             'snapshot_id'=>'required|uuid','device_id'=>'required|uuid','actor_id'=>'required|integer|min:1',
             'branches'=>'required|array|min:1','branches.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D','tables'=>'required|array',
             'coverage'=>'required|array'])->validate();
@@ -81,7 +83,7 @@ class DesktopDashboardImport
         require_once database_path('migrations/2026_10_08_230000_create_desktop_dashboard_source_manifest.php');
         (new \CreateDesktopDashboardSourceManifest)->up();
         if(($snapshot['coverage']['print_protocol']??null)===1){
-            Validator::make($snapshot,['enrollment.enrollment_hash'=>'required|regex:/^[a-f0-9]{64}$/D','enrollment.enrolled_at'=>'required|date'])->validate();
+            Validator::make(self::validationMetadata($snapshot,['enrollment']),['enrollment.enrollment_hash'=>'required|regex:/^[a-f0-9]{64}$/D','enrollment.enrolled_at'=>'required|date'])->validate();
             DB::table('desktop_dashboard_devices')->insert(['id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],'name'=>'Local dashboard',
                 'enrollment_hash'=>$snapshot['enrollment']['enrollment_hash'],'enrolled_at'=>$snapshot['enrollment']['enrolled_at'],
                 // This is not a server bearer credential and is never used for server authentication.
@@ -108,6 +110,16 @@ class DesktopDashboardImport
             'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage'],
             'source'=>$snapshot['source'],
             'branches'=>$snapshot['branches'],'table_rows'=>array_map(fn($part)=>count($part['rows']),$snapshot['tables']),'media'=>$media];
+    }
+
+    private static function validationMetadata(array $snapshot,array $keys,array $containers=[]): array
+    {
+        $data=array_intersect_key($snapshot,array_fill_keys($keys,true));
+        // Laravel recursively copies validation data and its returned result.
+        // These containers have only required|array rules; retain their exact
+        // empty/nonempty and type semantics without copying every business row.
+        foreach($containers as $key)if(isset($data[$key])&&is_array($data[$key]))$data[$key]=$data[$key]===[]?[]:[true];
+        return $data;
     }
 
     /** Reopen and inspect the staging database in an independent native PHP process. */
