@@ -1,7 +1,7 @@
 name: GO ERP verified public image repair
 on:
   push:
-    branches: [codex/go-erp-media-repair-20261022]
+    branches: [codex/go-erp-media-repair-20261022, codex/go-erp-missing-image-placeholders-20261022]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,5 +21,8 @@ jobs:
           php -l deployment/go_erp_media_file_repair.php
           php -l deployment/repair_go_erp_media.php
           php tests/go_erp_media_file_repair_test.php
+          php -l deployment/fill_go_erp_missing_images.php
+          php tests/go_erp_missing_images_test.php
           python3 -B -m unittest discover -s tests -p test_go_erp_media_backup_stage.py
           bash -n deployment/repair_go_erp_media_root.sh
+          bash -n deployment/fill_go_erp_missing_images_root.sh
