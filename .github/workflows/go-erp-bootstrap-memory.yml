@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
@@ -34,8 +34,8 @@ jobs:
       - name: Reproduce the old 128 MiB failure and verify scoped preparation memory
         run: |
           baseline_dir=$(mktemp -d "$RUNNER_TEMP/go-erp-bootstrap-baseline.XXXXXXXX")
-          git show HEAD^:app/Services/Dashboard/DesktopDashboardBootstrap.php > "$baseline_dir/DesktopDashboardBootstrap.php"
-          git show HEAD^:app/Services/Dashboard/DesktopDashboardData.php > "$baseline_dir/DesktopDashboardData.php"
+          git show 69d1d5cef66969419f739c43c3eed8afd1920219:app/Services/Dashboard/DesktopDashboardBootstrap.php > "$baseline_dir/DesktopDashboardBootstrap.php"
+          git show 69d1d5cef66969419f739c43c3eed8afd1920219:app/Services/Dashboard/DesktopDashboardData.php > "$baseline_dir/DesktopDashboardData.php"
           DESKTOP_MEMORY_BASELINE_BOOTSTRAP="$baseline_dir/DesktopDashboardBootstrap.php" DESKTOP_MEMORY_BASELINE_DATA="$baseline_dir/DesktopDashboardData.php" php -d memory_limit=128M tests/desktop_dashboard_bootstrap_memory_test.php
       - name: Verify guarded deployment with actual ownership and rollback
         run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_bootstrap_memory_root.py

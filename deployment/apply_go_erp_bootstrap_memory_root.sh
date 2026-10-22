@@ -45,10 +45,15 @@ if systemctl is-active --quiet go-erp-live-updates.timer; then
   go_restore_timer=1
   systemctl stop go-erp-live-updates.timer
 fi
-for go_wait in {1..15}; do
+for go_wait in {1..120}; do
   go_state="$(systemctl show go-erp-live-updates.service -p ActiveState --value)"
   case "$go_state" in
-    active|activating|reloading|deactivating) sleep 1 ;;
+    active|activating|reloading|deactivating)
+      if [ "$(( (go_wait - 1) % 6 ))" -eq 0 ]; then
+        printf 'GO_ERP_MEMORY_PATCH_WAITING_SERVICE waited_seconds=%s max_wait_seconds=600\n' "$(( (go_wait - 1) * 5 ))"
+      fi
+      sleep 5
+      ;;
     *) break ;;
   esac
 done

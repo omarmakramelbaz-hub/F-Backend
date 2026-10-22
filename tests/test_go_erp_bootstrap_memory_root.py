@@ -239,7 +239,8 @@ def git_blob(data):
 
 class EntryFixture:
     def __init__(self, active=True, patch_status=0, doctor_status=0,
-                 busy=False, restore_fails=False, tamper=False):
+                 busy=False, restore_fails=False, tamper=False, busy_checks=0,
+                 signal_on_sleep=False):
         self.temp = tempfile.TemporaryDirectory(prefix='go-erp-memory-wrapper-test-')
         self.root = Path(self.temp.name)
         self.bin = self.root / 'bin'
@@ -248,7 +249,8 @@ class EntryFixture:
         self.config = self.root / 'config.json'
         self.operations = self.root / 'operations.jsonl'
         self.config.write_text(json.dumps({'active': active, 'busy': busy,
-            'restore_fails': restore_fails, 'tamper': tamper}))
+            'restore_fails': restore_fails, 'tamper': tamper, 'busy_checks':busy_checks,
+            'checks':0,'signal_on_sleep':signal_on_sleep}))
         patch = self.script('patch', patch_status)
         doctor = self.script('doctor', doctor_status)
         ops = b'# private filesystem helpers are staged, not executed by Bash\n'
@@ -276,9 +278,12 @@ class EntryFixture:
         self.executable('id', '#!/bin/sh\nprintf "0\\n"\n')
         self.executable('hostname', '#!/bin/sh\nprintf "srv1836524\\n"\n')
         self.executable('sleep', r'''#!/usr/bin/python3
-import json,os,sys
+import json,os,signal,sys
 with open(os.environ['WRAPPER_EVENTS'],'a') as stream:
     stream.write(json.dumps(['sleep',*sys.argv[1:]])+'\n')
+config=json.load(open(os.environ['WRAPPER_CONFIG']))
+if config['signal_on_sleep']:
+    os.kill(os.getppid(),signal.SIGTERM)
 ''')
         self.executable('runuser', r'''#!/usr/bin/python3
 import json,os,sys
@@ -312,7 +317,9 @@ if args==['stop','go-erp-live-updates.timer']:
 if args==['start','go-erp-live-updates.timer']:
     sys.exit(1 if config['restore_fails'] else 0)
 if args==['show','go-erp-live-updates.service','-p','ActiveState','--value']:
-    print('active' if config['busy'] else 'inactive')
+    config['checks']+=1
+    with open(os.environ['WRAPPER_CONFIG'],'w') as stream:json.dump(config,stream)
+    print('active' if config['busy'] or config['checks']<=config['busy_checks'] else 'inactive')
     sys.exit(0)
 sys.exit(98)
 ''')
@@ -393,9 +400,26 @@ class BootstrapMemoryWrapperTests(unittest.TestCase):
         result = fixture.run()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(fixture.steps(), [])
-        self.assertEqual(fixture.calls().count(['sleep', '1']), 15)
+        self.assertEqual(fixture.calls().count(['sleep', '5']), 120)
+        self.assertEqual(result.stdout.count('GO_ERP_MEMORY_PATCH_WAITING_SERVICE '),20)
+        self.assertIn('waited_seconds=570 max_wait_seconds=600',result.stdout)
         self.assertIn('GO_ERP_MEMORY_PATCH_WAITING_FOR_EXISTING_SERVICE', result.stdout)
         self.assert_timer(fixture, stopped=1, started=1)
+
+    def test_service_finishing_after_previous_limit_proceeds_without_killing(self):
+        fixture = self.fixture(busy_checks=20)
+        result = fixture.run()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(fixture.calls().count(['sleep','5']),20)
+        self.assertEqual([row[0] for row in fixture.steps()],['patch','doctor'])
+        self.assert_timer(fixture,stopped=1,started=1)
+
+    def test_termination_while_waiting_restores_timer_and_keeps_signal_status(self):
+        fixture = self.fixture(busy=True,signal_on_sleep=True)
+        result = fixture.run()
+        self.assertEqual(result.returncode,143,result.stderr)
+        self.assertEqual(fixture.steps(),[])
+        self.assert_timer(fixture,stopped=1,started=1)
 
     def test_restore_failure_is_visible_and_fails_the_command(self):
         fixture = self.fixture(patch_status=7, restore_fails=True)
