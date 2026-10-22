@@ -32,8 +32,39 @@ function Get-FixedDiagnosticFailure {
 try {
     $install = Start-Process -FilePath $InstallerPath -ArgumentList @('/S', ('/D=' + $installed)) -PassThru
     if (-not $install.WaitForExit(300000) -or $install.ExitCode -ne 0) { throw 'CI_INSTALL_FAILED' }
+    # Only this disposable fixture acknowledges the exact nonfatal startup
+    # network error that the real user is instructed to dismiss manually.
+    $dialogReceiptPath = Join-Path $fixture 'startup-dialog.json'
+    $preloadPath = Join-Path $fixture 'acknowledge-startup.cjs'
+    $preloadConfig = @{ executable = (Join-Path $installed 'GO ERP.exe'); receipt = $dialogReceiptPath } | ConvertTo-Json -Compress
+    $preload = @'
+'use strict';
+const config=PRELOAD_CONFIG;
+process.once('loaded',()=>{
+ const path=require('node:path'),fs=require('node:fs');
+ if(process.type!=='browser'||process.versions.electron!=='44.6.0'||path.resolve(process.execPath).toLowerCase()!==path.resolve(config.executable).toLowerCase())return;
+ const {dialog}=require('electron'),original=dialog.showErrorBox;let count=0;
+ fs.writeFileSync(config.receipt,JSON.stringify({installed:true,count}),{flag:'wx'});
+ dialog.showErrorBox=function(title,message){
+  if(title==='GO ERP'&&message==="\u062c\u0647\u0651\u0632 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0646 \u062d\u0633\u0627\u0628 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u062f\u0648\u0646 \u0625\u0646\u062a\u0631\u0646\u062a."){
+   if(++count>8)throw Error('CI_STARTUP_DIALOG_REPEAT_LIMIT');
+   fs.writeFileSync(config.receipt,JSON.stringify({installed:true,count}));return;
+  }
+  return Reflect.apply(original,this,arguments);
+ };
+});
+'@
+    [IO.File]::WriteAllText($preloadPath, $preload.Replace('PRELOAD_CONFIG', $preloadConfig), $utf8)
     $script = Join-Path $PSScriptRoot 'diagnose_go_erp_setup.ps1'
-    $diagnostic = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"')) -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $hadNodeOptions = Test-Path Env:NODE_OPTIONS
+    $savedNodeOptions = $env:NODE_OPTIONS
+    if ($savedNodeOptions) { throw 'CI_NODE_OPTIONS_ALREADY_SET' }
+    try {
+        $env:NODE_OPTIONS = '--require="' + $preloadPath + '"'
+        $diagnostic = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"')) -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    } finally {
+        if ($hadNodeOptions) { $env:NODE_OPTIONS = $savedNodeOptions } else { Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue }
+    }
     $ready = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     do {
@@ -46,6 +77,9 @@ try {
         if (-not $ready) { Start-Sleep -Milliseconds 200 }
     } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
     if (-not $ready -or $ready.Port -lt 1024 -or $ready.Port -gt 65535 -or $ready.Pid -lt 1) { throw 'READY_MESSAGE_INVALID' }
+    $hookDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (!(Test-Path -LiteralPath $dialogReceiptPath) -and [DateTime]::UtcNow -lt $hookDeadline) { Start-Sleep -Milliseconds 50 }
+    if (!(Test-Path -LiteralPath $dialogReceiptPath)) { throw 'CI_STARTUP_DIALOG_HOOK_NOT_INSTALLED' }
     $appProcess = Get-Process -Id $ready.Pid
     if ($appProcess.Path -cne (Join-Path $installed 'GO ERP.exe')) { throw 'WRONG_PACKAGED_PROCESS' }
     $targets = @(Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 5)
@@ -118,11 +152,13 @@ try {
     if (!$closeSent -or !$exitedAfterClose) {
         $appProcess.Refresh()
         $windowChanged = !$appProcess.HasExited -and $appProcess.MainWindowHandle -ne 0 -and $appProcess.MainWindowHandle -ne $windowBeforeClose
+        $startupDialogs = $null
+        try { if (Test-Path -LiteralPath $dialogReceiptPath) { $startupDialogs = (Get-Content -LiteralPath $dialogReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json).count } } catch {}
         $waitingForDebugger = $null
         try {
-            if (Test-Path -LiteralPath $stderrPath) { $waitingForDebugger = ((Get-Content -LiteralPath $stderrPath -Raw -ErrorAction Stop) -like '*Waiting for the debugger to disconnect*') }
+            if (Test-Path -LiteralPath $stderrPath) { $text = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction Stop; if ($null -ne $text) { $waitingForDebugger = [bool]($text -like '*Waiting for the debugger to disconnect*') } }
         } catch {} # Optional observation must not hide the normal-exit evidence.
-        Write-Output ('GO_ERP_CI_NORMAL_EXIT ' + (@{ exitedBeforeClose = $exitedBeforeClose; windowExists = $windowExists; responding = $responding; closeSent = $closeSent; exitedAfterClose = $exitedAfterClose; windowChanged = $windowChanged; waitingForDebugger = $waitingForDebugger } | ConvertTo-Json -Compress))
+        Write-Output ('GO_ERP_CI_NORMAL_EXIT ' + (@{ exitedBeforeClose = $exitedBeforeClose; windowExists = $windowExists; responding = $responding; closeSent = $closeSent; exitedAfterClose = $exitedAfterClose; windowChanged = $windowChanged; startupDialogs = $startupDialogs; waitingForDebugger = $waitingForDebugger } | ConvertTo-Json -Compress))
         throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE'
     }
     if (-not $diagnostic.WaitForExit(15000)) { throw 'DIAGNOSTIC_DID_NOT_EXIT' }
@@ -150,7 +186,9 @@ try {
     $stillListening = $true
     try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }
     if ($stillListening) { throw 'INSPECTOR_LISTENER_LEFT_OPEN' }
-    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.25';sourceRevision='a0178ead801e8d39185cd0830171804141767995';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;inspectorClosed=$true}
+    $dialogReceipt = Get-Content -LiteralPath $dialogReceiptPath -Raw | ConvertFrom-Json
+    if ($dialogReceipt.installed -ne $true -or $dialogReceipt.count -lt 1 -or $dialogReceipt.count -gt 8) { throw 'CI_STARTUP_DIALOG_NOT_OBSERVED' }
+    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.25';sourceRevision='a0178ead801e8d39185cd0830171804141767995';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;ciStartupDialogsAcknowledged=$dialogReceipt.count;inspectorClosed=$true}
     $proof | ConvertTo-Json -Compress
 } finally {
     if ($socket) { $socket.Dispose() }
