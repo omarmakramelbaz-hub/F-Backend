@@ -7,20 +7,6 @@ use App\Services\Dashboard\{DesktopDashboardBootstrap,DesktopDashboardImport,Des
 final class GoErpPreflightReachedWriteFence extends RuntimeException {}
 final class GoErpPreflightBlockedDatabaseCall extends RuntimeException {}
 
-final class GoErpDisconnectedImportFence
-{
-    public function connection($name=null) {if($name!==null)$this->blocked();return $this;}
-    public function getConfig($key=null) {if($key!=='host')$this->blocked();return '127.0.0.1';}
-    public function getDatabaseName() {return 'fasakhansta_dashboard_stage_0000000000000000';}
-    public function select($query,$bindings=[],$read=true) {if($query!=='SHOW TABLES'||$bindings!==[])$this->blocked();return [];}
-    public function statement($query,$bindings=[]) {
-        if($query!=='SET FOREIGN_KEY_CHECKS=0'||$bindings!==[])$this->blocked();
-        throw new GoErpPreflightReachedWriteFence();
-    }
-    public function __call($method,$arguments) {$this->blocked();}
-    private function blocked() {throw new GoErpPreflightBlockedDatabaseCall();}
-}
-
 $phase='bootstrap';$finished=false;$reserve=str_repeat('x',1024*1024);$started=microtime(true);
 register_shutdown_function(function()use(&$finished,&$reserve,&$phase){
     if($finished)return;$reserve='';$error=error_get_last();
@@ -33,6 +19,22 @@ $summary=[];
 try {
     $root='/home/fasakha/public_html';
     require $root.'/vendor/autoload.php';
+    // Laravel lazily constructs its typed database presence verifier.
+    final class GoErpDisconnectedImportFence implements Illuminate\Database\ConnectionResolverInterface
+    {
+        public function getDefaultConnection() {return 'go_erp_disconnected_preflight';}
+        public function setDefaultConnection($name) {$this->blocked();}
+        public function connection($name=null) {if($name!==null)$this->blocked();return $this;}
+        public function getConfig($key=null) {if($key!=='host')$this->blocked();return '127.0.0.1';}
+        public function getDatabaseName() {return 'fasakhansta_dashboard_stage_0000000000000000';}
+        public function select($query,$bindings=[],$read=true) {if($query!=='SHOW TABLES'||$bindings!==[])$this->blocked();return [];}
+        public function statement($query,$bindings=[]) {
+            if($query!=='SET FOREIGN_KEY_CHECKS=0'||$bindings!==[])$this->blocked();
+            throw new GoErpPreflightReachedWriteFence();
+        }
+        public function __call($method,$arguments) {$this->blocked();}
+        private function blocked() {throw new GoErpPreflightBlockedDatabaseCall();}
+    }
     $app=require $root.'/bootstrap/app.php';
     $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
     if($app->version()!=='8.83.29')throw new LogicException('Unsupported diagnostic engine.');
