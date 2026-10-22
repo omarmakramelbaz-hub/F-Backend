@@ -37,13 +37,17 @@ function Go-Observe($message) {
         }
     }
 }
-function Go-Command([string]$method, $parameters) {
+function Go-Send([string]$method, $parameters) {
     $script:goSequence++
     $id = $script:goSequence
     $json = @{ id = $id; method = $method; params = $parameters } | ConvertTo-Json -Depth 12 -Compress
     $bytes = [Text.Encoding]::UTF8.GetBytes($json)
     $segment = New-Object 'System.ArraySegment[byte]' -ArgumentList @(,$bytes)
     [void]($script:goSocket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, $script:goCancel.Token).GetAwaiter().GetResult())
+    return $id
+}
+function Go-Command([string]$method, $parameters) {
+    $id = Go-Send $method $parameters
     while ($true) {
         $message = Go-Receive
         Go-Observe $message
@@ -176,7 +180,11 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
                 $goCancel.CancelAfter(3000)
                 if ($action -ceq 'resume') { [void](Go-Command 'Debugger.resume' @{}); $goPaused = $false }
                 if ($action -ceq 'remove' -and $goBreakpoint) { [void](Go-Command 'Debugger.removeBreakpoint' @{ breakpointId = $goBreakpoint }) }
-                if ($action -ceq 'close') { [void](Go-Evaluate '(()=>{const inspector=process.getBuiltinModule("node:inspector");setImmediate(()=>inspector.close());return true})()') }
+                if ($action -ceq 'close') {
+                    # Closing the active inspector has no CDP reply. Send once,
+                    # then close this WebSocket and verify the listener below.
+                    [void](Go-Send 'Runtime.evaluate' @{ expression = 'process.getBuiltinModule("node:inspector").close()'; silent = $true })
+                }
                 $goCleanup.Add($action + '-ok')
             } catch { $goCleanup.Add($action + '-failed') }
         }
