@@ -1,0 +1,77 @@
+name: Full native GO ERP large-import memory proof
+'on':
+  workflow_dispatch:
+  push:
+    branches: [codex/go-erp-large-import-proof-20261022]
+    paths:
+      - app/Services/Dashboard/DesktopDashboardImport.php
+      - tests/desktop_dashboard_runtime/large-import-fixture.php
+      - desktop-pos/test/large-import-native.cjs
+      - .github/workflows/go-erp-large-import-proof.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  full-windows-256m-import:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Preserve exact reviewed application bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'EXACT_CHECKOUT_CONFIGURATION_FAILED' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'EXACT_CHECKOUT_CONFIGURATION_FAILED' }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Authenticate accepted immutable native runtime
+        shell: pwsh
+        env:
+          ARTIFACT_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ github.repository }}' -cne 'omarmakramelbaz-hub/F-Backend') { throw 'REPOSITORY_DIFFERS' }
+          $headers = @{ Authorization = "Bearer $env:ARTIFACT_TOKEN"; Accept = 'application/vnd.github+json' }
+          $base = 'https://api.github.com/repos/${{ github.repository }}/actions'
+          $run = Invoke-RestMethod -Headers $headers -Uri "$base/runs/39852237922"
+          if ($run.id -ne 39852237922 -or $run.run_attempt -ne 1 -or $run.head_sha -cne 'a0178ead801e8d39185cd0830171804141767995' -or $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or $run.repository.id -ne 1311412084 -or $run.head_repository.id -ne 1311412084) { throw 'ACCEPTED_RUN_DIFFERS' }
+          $artifact = Invoke-RestMethod -Headers $headers -Uri "$base/artifacts/12460350101"
+          if ($artifact.id -ne 12460350101 -or $artifact.expired -or $artifact.name -cne 'tested-dashboard-runtime' -or $artifact.size_in_bytes -ne 305479130 -or $artifact.digest -cne 'sha256:93e775c945aba349b779666d1db03f637b05e96e13c8d992f77f65fe8a3d7377' -or $artifact.workflow_run.id -ne 39852237922 -or $artifact.workflow_run.head_sha -cne 'a0178ead801e8d39185cd0830171804141767995') { throw 'ACCEPTED_ARTIFACT_DIFFERS' }
+      - name: Reuse accepted PHP MariaDB and Laravel binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: '12460350101'
+          run-id: '39852237922'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/native-download
+          skip-decompress: true
+          digest-mismatch: error
+      - name: Verify archive before using the disposable runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archives = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/native-download" -File -Recurse)
+          if ($archives.Count -ne 1 -or $archives[0].Length -ne 305479130 -or (Get-FileHash -LiteralPath $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne '93e775c945aba349b779666d1db03f637b05e96e13c8d992f77f65fe8a3d7377') { throw 'ARCHIVE_BYTES_DIFFER' }
+          $archive = Join-Path $env:RUNNER_TEMP 'accepted-native-runtime.zip'
+          Move-Item -LiteralPath $archives[0].FullName -Destination $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/accepted-native"
+          $manifests = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/accepted-native" -Filter manifest.json -File -Recurse | Where-Object { $_.Directory.Name -ceq 'runtime-bundle' })
+          if ($manifests.Count -ne 1) { throw 'RUNTIME_ROOT_DIFFERS' }
+          "GO_ERP_PROOF_BUNDLE=$($manifests[0].Directory.FullName)" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Prove real full-kernel import and independent enrollment verification at256M
+        shell: pwsh
+        run: |
+          node desktop-pos/test/large-import-native.cjs "$env:GO_ERP_PROOF_BUNDLE" "$env:RUNNER_TEMP/large-import-proof/receipt.json"
+          if ($LASTEXITCODE -ne 0) { throw 'FULL_NATIVE_LARGE_IMPORT_PROOF_FAILED' }
+          $receipt = Get-Content -LiteralPath "$env:RUNNER_TEMP/large-import-proof/receipt.json" -Raw | ConvertFrom-Json
+          if ($receipt.fixtureRevision -cne $env:GITHUB_SHA -or $receipt.platform -cne 'win32' -or !$receipt.completed -or !$receipt.fullDesktopKernel -or !$receipt.privateMariaDb -or $receipt.productionData -or $receipt.concurrentDevicesTested -ne 1 -or !$receipt.original.reproducedOutOfMemory -or !$receipt.original.stoppedBeforeDdl -or !$receipt.fixed.independentVerification -or $receipt.fixed.printProtocol -ne 1 -or $receipt.fixed.rows -ne 34000 -or $receipt.fixed.tables -ne 119 -or $receipt.fixed.memory.limit -cne '256M' -or $receipt.fixed.memory.framework -cne '12.70.0') { throw 'NATIVE_RECEIPT_DIFFERS' }
+      - name: Retain exact bounded synthetic proof receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-erp-large-native-import-proof
+          path: ${{ runner.temp }}/large-import-proof/receipt.json
+          if-no-files-found: error
+          retention-days: 14
