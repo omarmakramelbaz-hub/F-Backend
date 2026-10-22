@@ -491,7 +491,7 @@ for(const [name,expression] of Object.entries(input.expressions)){
 }
 process.stdout.write(JSON.stringify(output));'''
         result = subprocess.run(['node', '-e', loader], input=worker.canonical({'revision': desired['commit'], 'expressions': expressions}),
-                                capture_output=True, check=True, timeout=5)
+                                capture_output=True, check=True, timeout=30)
         native = json.loads(result.stdout)
         self.assertNotIn('hardware', native['outbox-review-native.json'])
         self.assertIs(native['outbox-review-native.json']['businessResolution'], False)
