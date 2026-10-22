@@ -18,10 +18,15 @@ const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 async function execute(file, args, options, input = '', timeout = 300000) {
   const child = spawn(file, args, { ...options, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  let stdout = '', stderr = '', exceeded = false, timedOut = false;
+  let stdout = '', stderr = '', stderrCarry = '', exceeded = false, timedOut = false;
+  const memoryRows = [];
   child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
   child.stdout.on('data', bytes => { stdout += bytes; if (Buffer.byteLength(stdout) > 1024 * 1024) { exceeded = true; child.kill(); } });
-  child.stderr.on('data', bytes => { stderr = (stderr + bytes).slice(-65536); });
+  child.stderr.on('data', bytes => {
+    stderr = (stderr + bytes).slice(-65536);
+    const lines = (stderrCarry + bytes).split(/\r?\n/); stderrCarry = lines.pop().slice(-512);
+    for (const line of lines) if (line.startsWith('GO_ERP_NATIVE_MEMORY ')) memoryRows.push(line);
+  });
   const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeout);
   child.stdin.on('error', () => {});
   if (input && typeof input.pipe === 'function') input.pipe(child.stdin); else child.stdin.end(input);
@@ -29,11 +34,19 @@ async function execute(file, args, options, input = '', timeout = 300000) {
     const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
     assert.equal(exceeded, false, 'Native proof output stays bounded.');
     assert.equal(timedOut, false, 'Native proof child completes within deadline.');
-    return { code, stdout, stderr };
+    if (stderrCarry.startsWith('GO_ERP_NATIVE_MEMORY ')) memoryRows.push(stderrCarry);
+    return { code, stdout, stderr, memoryRows };
   } finally { clearTimeout(timer); }
 }
-function probe(stderr, fixed) {
-  const rows = stderr.split(/\r?\n/).filter(line => line.startsWith('GO_ERP_NATIVE_MEMORY '));
+function probe(result, fixed) {
+  const rows = result.memoryRows;
+  if (rows.length !== 1) throw Error('Native shutdown probe differs: ' + JSON.stringify({
+    exitCode: result.code, markers: rows.length,
+    outOfMemory: /Allowed memory size .* exhausted/.test(result.stdout + result.stderr),
+    startupFailure: /PHP Startup|auto_prepend_file|Failed opening required/.test(result.stderr),
+    importDiagnostic: result.stderr.includes('DESKTOP_IMPORT_DIAGNOSTIC '),
+    stdoutBytes: Buffer.byteLength(result.stdout), stderrTailBytes: Buffer.byteLength(result.stderr)
+  }));
   assert.equal(rows.length, 1, 'Actual PHP shutdown memory receipt occurs once.');
   const value = JSON.parse(rows[0].slice('GO_ERP_NATIVE_MEMORY '.length));
   assert.equal(value.limit, '256M');
@@ -70,12 +83,14 @@ async function runCase(bundle, temporary, fixed) {
     const database = await execute(runtime.php, [...args, path.join(runtime.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
     assert.equal(database.code, 0, database.stderr);
-    const peakProbe = path.join(profile, 'peak.php');
     // A small shutdown-only reserve lets the negative OOM control report its
     // fixed memory counters. It is identical in both cases, outside app source.
-    await fs.writeFile(peakProbe, `<?php $GLOBALS['native_proof_reserve']=str_repeat('r',65536);register_shutdown_function(static function(){unset($GLOBALS['native_proof_reserve']);fwrite(STDERR,'GO_ERP_NATIVE_MEMORY '.json_encode(['peak_bytes'=>memory_get_peak_usage(true),'limit'=>ini_get('memory_limit'),'framework'=>class_exists('Illuminate\\\\Foundation\\\\Application',false)?\\Illuminate\\Foundation\\Application::VERSION:null],JSON_THROW_ON_ERROR).PHP_EOL);});`);
-    const imported = await execute(runtime.php, [...args, '-d', 'auto_prepend_file=' + peakProbe, path.join(runtime.application, 'desktop/import.php')], options, fsSync.createReadStream(wire));
-    const memory = probe(imported.stderr, fixed);
+    // Require the exact entry point from a fixed CLI wrapper so Windows startup
+    // INI path parsing cannot skip the probe. The importer and full kernel remain
+    // unchanged, and the same wrapper/reserve is used in both controls.
+    const importProgram = `$GLOBALS['native_proof_reserve']=str_repeat('r',65536);register_shutdown_function(static function(){unset($GLOBALS['native_proof_reserve']);fwrite(STDERR,'GO_ERP_NATIVE_MEMORY '.json_encode(['peak_bytes'=>memory_get_peak_usage(true),'limit'=>ini_get('memory_limit'),'framework'=>class_exists('Illuminate\\\\Foundation\\\\Application',false)?\\Illuminate\\Foundation\\Application::VERSION:null],JSON_THROW_ON_ERROR).PHP_EOL);});require $argv[1].'/desktop/import.php';`;
+    const imported = await execute(runtime.php, [...args, '-r', importProgram, runtime.application], options, fsSync.createReadStream(wire));
+    const memory = probe(imported, fixed);
     const bootstrap = `require $argv[1].'/desktop/bootstrap.php';`;
     const inspect = async code => {
       const result = await execute(runtime.php, [...args, '-r', bootstrap + code, runtime.application], options);
