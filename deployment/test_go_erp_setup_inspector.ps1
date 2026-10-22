@@ -26,7 +26,7 @@ $stderrPath = Join-Path $fixture 'diagnostic-error.txt'
 $diagnostic = $null; $appProcess = $null; $socket = $null
 function Get-FixedDiagnosticFailure {
     if (-not (Test-Path -LiteralPath $stdoutPath)) { return 'NO_DIAGNOSTIC_OUTPUT' }
-    return (@(Get-Content -LiteralPath $stdoutPath | Where-Object { $_ -cmatch '^GO_ERP_[A-Z0-9_]+$' } | Select-Object -Last 3) -join ',')
+    return (@(Get-Content -LiteralPath $stdoutPath | Where-Object { $_ -cmatch '^GO_ERP_[A-Z0-9_]+$' -or $_.StartsWith('GO_ERP_DIAGNOSTIC_LOCATION ') } | Select-Object -Last 3) -join ',')
 }
 try {
     $install = Start-Process -FilePath $InstallerPath -ArgumentList @('/S', ('/D=' + $installed)) -PassThru
@@ -52,7 +52,7 @@ try {
     $socket = New-Object Net.WebSockets.ClientWebSocket
     $cancel = New-Object Threading.CancellationTokenSource
     $cancel.CancelAfter(10000)
-    $socket.ConnectAsync([Uri]$targets[0].webSocketDebuggerUrl, $cancel.Token).GetAwaiter().GetResult()
+    [void]($socket.ConnectAsync([Uri]$targets[0].webSocketDebuggerUrl, $cancel.Token).GetAwaiter().GetResult())
     # Only this CI test injects a synthetic call. The packaged module, bundled
     # PHP and unmodified run()/sanitizer execute against temporary fixture files.
     $fixtureJson = ConvertTo-Json -InputObject $application -Compress
@@ -73,7 +73,7 @@ try {
     $expression = $expression.Replace('FIXTURE_ROOT', $fixtureJson)
     $request = @{id=1;method='Runtime.evaluate';params=@{expression=$expression;returnByValue=$true}} | ConvertTo-Json -Depth 8 -Compress
     $bytes = [Text.Encoding]::UTF8.GetBytes($request)
-    $socket.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, $cancel.Token).GetAwaiter().GetResult()
+    [void]($socket.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, $cancel.Token).GetAwaiter().GetResult())
     $response = $null
     do {
         $message = New-Object IO.MemoryStream

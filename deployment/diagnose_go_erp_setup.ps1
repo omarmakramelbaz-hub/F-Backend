@@ -6,6 +6,7 @@ $goExpectedRevision = 'a0178ead801e8d39185cd0830171804141767995'
 $goExpectedSource = '4a0ab46d8a7d79ad4842879fb83e5ea08276d795fdeb538ac416b220c054dafc'
 $goSocket = $null; $goBreakpoint = $null; $goPaused = $false
 $goTarget = $null; $goPort = 0; $goCaptured = $false; $goClosed = $true; $goBound = $false
+$goPhase = 'preflight'
 $goSequence = 0; $goEvents = New-Object System.Collections.Queue
 $goScripts = New-Object System.Collections.Generic.List[object]
 $goDeadline = [DateTime]::UtcNow.AddSeconds(600)
@@ -41,7 +42,7 @@ function Go-Command([string]$method, $parameters) {
     $json = @{ id = $id; method = $method; params = $parameters } | ConvertTo-Json -Depth 12 -Compress
     $bytes = [Text.Encoding]::UTF8.GetBytes($json)
     $segment = New-Object 'System.ArraySegment[byte]' -ArgumentList @(,$bytes)
-    $script:goSocket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, $script:goCancel.Token).GetAwaiter().GetResult()
+    [void]($script:goSocket.SendAsync($segment, [Net.WebSockets.WebSocketMessageType]::Text, $true, $script:goCancel.Token).GetAwaiter().GetResult())
     while ($true) {
         $message = Go-Receive
         Go-Observe $message
@@ -61,7 +62,7 @@ function Go-PortOpen {
     try {
         $pending = $tcp.ConnectAsync('127.0.0.1', $script:goPort)
         if (!$pending.Wait(500)) { return $true } # An uncertain connection is not proof of closure.
-        $pending.GetAwaiter().GetResult(); return $true
+        [void]($pending.GetAwaiter().GetResult()); return $true
     } catch {
         $reason = $_.Exception
         while ($reason.InnerException) { $reason = $reason.InnerException }
@@ -79,6 +80,7 @@ try {
     if ($receipt.version -cne $goExpectedVersion -or $receipt.sourceRevision -cne $goExpectedRevision -or !(Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'GO_ERP_BUILD_RECEIPT_MISMATCH' }
     $listener = New-Object Net.Sockets.TcpListener -ArgumentList @([Net.IPAddress]::Loopback, 0)
     $listener.Start(); $goPort = $listener.LocalEndpoint.Port; $listener.Stop()
+    $goPhase = 'launch'
     $goTarget = Start-Process -FilePath $executable -ArgumentList @("--inspect=127.0.0.1:$goPort") -PassThru
     $goClosed = $false
     $endpointDeadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -94,13 +96,17 @@ try {
     if (!$target) { throw 'GO_ERP_INSPECTOR_UNAVAILABLE' }
     $socketUri = [Uri]$target.webSocketDebuggerUrl
     if ($socketUri.Scheme -cne 'ws' -or $socketUri.Host -cne '127.0.0.1' -or $socketUri.Port -ne $goPort) { throw 'GO_ERP_INSPECTOR_ENDPOINT_MISMATCH' }
+    $goPhase = 'connect'
     $goSocket = New-Object Net.WebSockets.ClientWebSocket
-    $goSocket.ConnectAsync($socketUri, $goCancel.Token).GetAwaiter().GetResult()
+    [void]($goSocket.ConnectAsync($socketUri, $goCancel.Token).GetAwaiter().GetResult())
+    $goPhase = 'bind-process'
     $binding = Go-Evaluate 'JSON.stringify({pid:process.pid,electron:process.versions.electron})' | ConvertFrom-Json
     if ($binding.pid -ne $goTarget.Id -or $binding.electron -cne '44.6.0') { throw 'GO_ERP_INSPECTOR_PROCESS_MISMATCH' }
     $goBound = $true
     # A bounded fallback closes the listener even if this diagnostic terminal is closed.
+    $goPhase = 'watchdog'
     [void](Go-Evaluate 'setTimeout(()=>process.mainModule.require("node:inspector").close(),620000).unref();true')
+    $goPhase = 'source'
     [void](Go-Command 'Debugger.enable' @{})
     $goCancel.CancelAfter(20000)
     try { while ($goScripts.Count -eq 0) { Go-Observe (Go-Receive) } }
@@ -115,11 +121,13 @@ try {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { $digest = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($source))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
     if ($digest -cne $goExpectedSource) { throw 'GO_ERP_INSPECTOR_SOURCE_MISMATCH' }
+    $goPhase = 'breakpoint'
     $breakpoint = Go-Command 'Debugger.setBreakpointByUrl' @{ lineNumber = 60; url = $scripts[0].url }
     $goBreakpoint = $breakpoint.breakpointId
     if (@($breakpoint.locations).Count -ne 1 -or $breakpoint.locations[0].lineNumber -ne 60 -or $breakpoint.locations[0].scriptId -cne $scripts[0].scriptId) { throw 'GO_ERP_INSPECTOR_BREAKPOINT_MISMATCH' }
     Write-Output ('GO_ERP_INSPECTOR_READY ' + (@{ Port = $goPort; Pid = $goTarget.Id } | ConvertTo-Json -Compress))
     Write-Output 'Open Program > Prepare for offline work once. This diagnostic waits up to ten minutes.'
+    $goPhase = 'wait-prepare'
     $paused = $null
     while (!$paused) {
         if ($goEvents.Count) { $message = $goEvents.Dequeue() } else { $message = Go-Receive; Go-Observe $message; if ($goEvents.Count) { $message = $goEvents.Dequeue() } }
@@ -137,6 +145,7 @@ const operation=executable==='mariadb-install-db.exe'?'database-initialize':scri
 const tail=child.stderrTail();
 return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow,timedOut:cause.timedOut,...(cause.import?{import:{phase:cause.import.phase,type:cause.import.type,file:cause.import.file,line:cause.import.line,status:cause.import.status}}:{}),fatal:{phpFatal:/PHP Fatal error:/i.test(tail),phpParse:/PHP Parse error:/i.test(tail),outOfMemory:/Allowed memory size of [0-9]+ bytes exhausted|Out of memory/i.test(tail),phpStartup:/PHP (?:Warning: )?PHP Startup:|PHP Startup:/i.test(tail),accessDenied:/Access denied for user/i.test(tail),connectionRefused:/SQLSTATE\[HY000\] \[2002\]|actively refused|Connection refused/i.test(tail),missingExtension:/Unable to load dynamic library|could not find driver|Call to undefined function/i.test(tail),missingFile:/Could not open input file:|Failed opening required/i.test(tail)}})})()
 '@
+    $goPhase = 'capture'
     $evaluation = Go-Command 'Debugger.evaluateOnCallFrame' @{ callFrameId = $frame.callFrameId; expression = $expression; returnByValue = $true; silent = $true }
     if ($evaluation.PSObject.Properties['exceptionDetails'] -or $evaluation.result.type -cne 'string') { throw 'GO_ERP_INSPECTOR_CAUSE_UNAVAILABLE' }
     $diagnostic = $evaluation.result.value | ConvertFrom-Json
@@ -149,6 +158,9 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
     $code = [string]$_.Exception.Message
     if ($code -cnotmatch '^GO_ERP_[A-Z0-9_]+$') { $code = 'GO_ERP_DIAGNOSTIC_FAILED' }
     Write-Output $code
+    $type = $_.Exception.GetType().FullName
+    if ($type -cnotmatch '^[A-Za-z0-9_.+]{1,160}$') { $type = 'other' }
+    Write-Output ('GO_ERP_DIAGNOSTIC_LOCATION ' + (@{ phase = $goPhase; type = $type; line = $_.InvocationInfo.ScriptLineNumber; hresult = $_.Exception.HResult } | ConvertTo-Json -Compress))
 } finally {
     if ($goBound -and $goSocket) {
         # Each cleanup action is independent: a failed optional removal must
