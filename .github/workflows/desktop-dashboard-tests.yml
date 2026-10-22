@@ -2,7 +2,7 @@ name: Original local dashboard on Windows
 
 on:
   push:
-    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021', 'codex/go-erp-media-capacity-20261022']
+    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021', 'codex/go-erp-media-capacity-20261022', 'codex/go-erp-snapshot-transport-20261022']
   workflow_dispatch:
   pull_request:
     paths:
@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022'
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -87,7 +87,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022'
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -499,7 +499,7 @@ jobs:
       actions: read
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022'
         shell: pwsh
         run: |
           git config --global core.autocrlf false

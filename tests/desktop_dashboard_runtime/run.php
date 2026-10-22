@@ -31,7 +31,7 @@ function denied(callable $fn,int $status,string $message){try{$fn();}catch(\Symf
 require_once __DIR__.'/runtime-engine.php';
 check($app->version()===DesktopRuntimeEngineProof::expected($application) && count($app['router']->getRoutes())>=565,'the complete captured application boots its locked supported engine and original routes');
 Schema::create('users',function(Blueprint $t){$t->id();$t->string('name');$t->string('account_type');$t->unsignedBigInteger('owner_resturant_id')->nullable();$t->string('password')->nullable();$t->string('remember_token')->nullable();$t->string('email')->nullable();$t->string('mobile')->nullable();});
-Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->string('phone')->default('01000000000');$t->string('address')->default('المنصورة');});
+Schema::create('resturants',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('parent_id')->nullable();$t->string('name');$t->string('phone')->default('01000000000');$t->string('address')->default('المنصورة');$t->double('avg_rate')->default(0);$t->unsignedBigInteger('desktop_transport_bigint')->default(9007199254740993);});
 Schema::create('categories',function(Blueprint $t){$t->id();$t->string('name_ar');$t->string('name_en');});
 Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->unsignedBigInteger('product_id');$t->unsignedBigInteger('category_id');$t->string('product_name');$t->decimal('product_price',14,2);$t->string('status');$t->text('price');});
 Schema::create('orders',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->string('type');$t->string('status');$t->string('payment_type');$t->string('transfer_price_by')->nullable();$t->timestamps();});
@@ -178,6 +178,8 @@ $bootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export
 check($bootstrap['device_id']===$device && $bootstrap['actor_id']===1 && !$bootstrap['coverage']['full_dashboard'],'initial data is bound to the enrolled account and reports incomplete coverage');
 $branchEnrollment=app(DesktopDashboardDevices::class)->enroll(['device_id'=>(string)Str::uuid(),'name'=>'جهاز الكاشير','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(10));
 $cashierBootstrap=app(\App\Services\Dashboard\DesktopDashboardBootstrap::class)->export(app(DesktopDashboardDevices::class)->device($branchEnrollment['token']));
+check(is_float($cashierBootstrap['tables']['resturants']['rows'][0]['avg_rate'])&&$cashierBootstrap['tables']['resturants']['rows'][0]['avg_rate']===0.0
+    &&$cashierBootstrap['tables']['resturants']['rows'][0]['desktop_transport_bigint']===9007199254740993,'the original PHP export retains integral DOUBLE and unsafe JavaScript integer types for native transport verification');
 // Synthetic, disposable source for the separate Windows supervisor test. These flags
 // exercise activation machinery; the actual server export remains explicitly incomplete.
 if($nativeSnapshot=getenv('DESKTOP_TEST_SNAPSHOT_FILE')){

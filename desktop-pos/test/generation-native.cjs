@@ -17,20 +17,84 @@ const DashboardMode = require(path.join(codeRoot, 'dashboard-mode.cjs'));
 const DashboardRemoteState = require(path.join(codeRoot, 'dashboard-remote-state.cjs'));
 const sourceCode = require(path.join(codeRoot, 'dashboard-source.cjs'));
 const coverageCode = require(path.join(codeRoot, 'dashboard-coverage.cjs'));
+const readSnapshot = require(path.join(codeRoot, 'dashboard-download.cjs'));
 
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
   const [bundle, sourceFile] = process.argv.slice(2);
-  const snapshot = JSON.parse(await fs.readFile(sourceFile, 'utf8'));
+  // Keep the server's canonical bytes throughout the fixture. Rebuilding its
+  // table rows in JavaScript would lose the numeric types this test protects.
+  let snapshotWire = await fs.readFile(sourceFile, 'utf8');
+  const downloadSnapshot = (wire = snapshotWire) => readSnapshot(new Response(wire, { headers: { 'content-type': 'application/json' } }));
+  let snapshot = await downloadSnapshot();
   assert.equal(snapshot.coverage.full_dashboard, false, 'The original scoped bootstrap must not be promoted to full dashboard coverage.');
+  const rewriteProgram = String.raw`
+use App\Services\Dashboard\DesktopDashboardBootstrap as Bootstrap;
+$raw=stream_get_contents(STDIN,32*1024*1024+1);
+if(strlen($raw)>32*1024*1024)throw new RuntimeException('Synthetic snapshot rewrite input exceeds its bound.');
+$input=json_decode($raw,true,512,JSON_THROW_ON_ERROR);unset($raw);
+require $argv[1].'/app/Services/Dashboard/DesktopDashboardBootstrap.php';
+$snapshot=json_decode($input['wire'],true,512,JSON_THROW_ON_ERROR);$patch=$input['patch'];unset($input);
+switch($patch['kind']){
+case 'media':$snapshot['media']=$patch['files'];break;
+case 'id':$snapshot['snapshot_id']=$patch['id'];break;
+case 'coverage':array_shift($snapshot['coverage']['write_routes']);break;
+case 'source':$snapshot['source']['sha256']=$patch['sha256'];break;
+case 'crm':
+    $snapshot['snapshot_id']=$patch['id'];
+    $tables=json_decode($patch['tables_wire'],true,512,JSON_THROW_ON_ERROR);
+    foreach($tables as $table=>$rows){
+        if(!in_array($table,['branch_customers','crm_customers','crm_customer_sources','branch_operation_commands'],true)||!isset($snapshot['tables'][$table]))throw new RuntimeException('Unexpected synthetic CRM table.');
+        $snapshot['tables'][$table]['rows']=$rows;
+        $snapshot['tables'][$table]['sha256']=hash('sha256',Bootstrap::json($rows));
+    }
+    break;
+case 'upgrade':
+    $snapshot['snapshot_id']=$patch['id'];$snapshot['source']=$patch['source'];
+    $table=&$snapshot['tables']['branch_customers'];
+    $prefix='CREATE TABLE '.chr(96).'branch_customers'.chr(96).' (';
+    if(!str_starts_with($table['ddl'],$prefix))throw new RuntimeException('Synthetic upgrade DDL did not match.');
+    $table['ddl']=$prefix.chr(10).'  '.chr(96).'desktop_upgrade_fixture'.chr(96).' varchar(40) DEFAULT NULL,'.substr($table['ddl'],strlen($prefix));
+    foreach($table['rows'] as &$row)$row['desktop_upgrade_fixture']=null;unset($row);
+    $table['sha256']=hash('sha256',Bootstrap::json($table['rows']));unset($table);
+    $schema=[];foreach($snapshot['tables'] as $name=>$part)$schema[$name]=hash('sha256',$part['ddl']);ksort($schema);
+    $snapshot['schema_hash']=hash('sha256',Bootstrap::json($schema));
+    break;
+default:throw new RuntimeException('Unknown synthetic snapshot rewrite.');
+}
+foreach($snapshot['tables'] as $part)if(!hash_equals($part['sha256'],hash('sha256',Bootstrap::json($part['rows']))))throw new RuntimeException('Synthetic rewrite changed an advertised table hash.');
+$wire=Bootstrap::json($snapshot);
+if(strlen($wire)>16*1024*1024)throw new RuntimeException('Synthetic snapshot rewrite output exceeds its bound.');
+echo $wire;
+`;
+  const rewriteWire = async (patch, wire = snapshotWire) => {
+    const input = JSON.stringify({ wire, patch });
+    assert.ok(Buffer.byteLength(input) <= 32 * 1024 * 1024, 'Synthetic rewrite input remains bounded.');
+    const child = spawn(path.join(bundle, 'php/php.exe'), ['-n', '-d', 'memory_limit=256M', '-r', rewriteProgram, path.join(bundle, 'application')],
+      { cwd: path.join(bundle, 'application'), windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    let output = '', error = '', bytes = 0, overflow = false, timedOut = false;
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+    child.stdout.on('data', part => { bytes += Buffer.byteLength(part); if (bytes > 16 * 1024 * 1024) { overflow = true; child.kill(); } else output += part; });
+    child.stderr.on('data', part => { if (error.length < 65536) error += part.slice(0, 65536 - error.length); });
+    const timeout = setTimeout(() => { timedOut = true; child.kill(); }, 30000);
+    try {
+      child.stdin.on('error', () => {}); child.stdin.end(input);
+      const exit = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+      assert.equal(timedOut, false, 'Synthetic rewrite completes within its deadline.');
+      assert.equal(overflow, false, 'Synthetic rewrite output remains bounded.');
+      assert.equal(exit, 0, error);
+      return output;
+    } finally { clearTimeout(timeout); }
+  };
+  const updateSnapshot = async patch => { snapshotWire = await rewriteWire(patch); snapshot = await downloadSnapshot(); };
   const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=', 'base64');
   const imagePath = 'products/42/رنجة.png', imageTicket = 'synthetic-media-capability';
-  snapshot.media = [{ path: imagePath, sha256: crypto.createHash('sha256').update(imageBytes).digest('hex'),
-    bytes: imageBytes.length, mime: 'image/png', ticket: imageTicket }];
   const pdfBytes = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
   const pdfPath = 'branch-expenses/فاتورة.pdf', pdfTicket = 'synthetic-private-capability';
-  snapshot.media.push({ area: 'private', path: pdfPath, sha256: crypto.createHash('sha256').update(pdfBytes).digest('hex'),
-    bytes: pdfBytes.length, mime: 'application/pdf', ticket: pdfTicket });
+  await updateSnapshot({ kind: 'media', files: [
+    { path: imagePath, sha256: crypto.createHash('sha256').update(imageBytes).digest('hex'), bytes: imageBytes.length, mime: 'image/png', ticket: imageTicket },
+    { area: 'private', path: pdfPath, sha256: crypto.createHash('sha256').update(pdfBytes).digest('hex'), bytes: pdfBytes.length, mime: 'application/pdf', ticket: pdfTicket }
+  ] });
   let imageRequests = 0;
   const mediaServer = http.createServer((request, response) => {
     const ticket = new URL(request.url, 'http://fixture').searchParams.get('ticket');
@@ -64,6 +128,8 @@ async function main() {
     assert.equal(exit, 0, error); return JSON.parse(output);
   };
   const bootstrap = "$input=json_decode(stream_get_contents(STDIN),true);$app=require getenv('DESKTOP_TEST_APPLICATION').'/desktop/bootstrap.php';";
+  const numericProbe = () => php(bootstrap + "$row=(array)\\Illuminate\\Support\\Facades\\DB::table('resturants')->where('id',100)->first();"
+    + "echo json_encode(['integralFloat'=>is_float($row['avg_rate'])&&$row['avg_rate']===0.0,'exactInteger'=>$row['desktop_transport_bigint']===9007199254740993,'integerText'=>(string)$row['desktop_transport_bigint']]);");
   try {
     // A tiny malformed input must reach JSON validation under the installed memory
     // limit, rather than allocating the complete 256 MiB permitted input ceiling.
@@ -83,15 +149,17 @@ async function main() {
     await runtime.metadata.write('credentials', settings);
     const preparationOptions = { runtime,
       enroll: async () => ({ protocol: 1, device_id: snapshot.device_id, actor_id: snapshot.actor_id, token: 'a'.repeat(64), branches: snapshot.branches }),
-      download: async () => snapshot };
+      download: async () => downloadSnapshot() };
     await assert.rejects(new DashboardPreparation(preparationOptions).prepare('https://fixture.test', 'synthetic-signed-in-CSRF'));
     assert.equal(runtime.children.length, 0); assert.equal(await runtime.isPrepared(), false);
     await assert.rejects(new DashboardPreparation({ ...preparationOptions, allowPreview: true,
-      download: async () => ({ ...snapshot, coverage: { ...snapshot.coverage, write_routes: snapshot.coverage.write_routes.slice(1) } })
+      download: async () => downloadSnapshot(await rewriteWire({ kind: 'coverage' }))
     }).prepare('https://fixture.test', 'synthetic-signed-in-CSRF'));
     assert.equal(runtime.children.length, 0); assert.equal(await runtime.isPrepared(), false);
     const preparation = new DashboardPreparation({ ...preparationOptions, allowPreview: true });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    assert.deepEqual(await numericProbe(), { integralFloat: true, exactInteger: true, integerText: '9007199254740993' });
+    console.log('PASS real Windows initial preparation imports the PHP integral DOUBLE and exact 64-bit integer through the original snapshot download bytes');
     assert.match(runtime.environment.JWT_SECRET,/^[a-f0-9]{64}$/);
     assert.notEqual(runtime.environment.JWT_SECRET,runtime.environment.APP_KEY);
     assert.deepEqual(await php(bootstrap + "echo json_encode(['guard'=>get_class(auth('api')),'anonymous'=>auth('api')->user()===null,'privateSecret'=>hash_equals(getenv('JWT_SECRET'),(string)config('jwt.secret'))]);"),
@@ -125,19 +193,18 @@ async function main() {
     const command = await php(bootstrap + "$values=['branch'=>'f:100','idempotency_key'=>$input['id'],'name'=>'عميل مزامنة','phone'=>'01012345678','address'=>'المنصورة'];"
       + "$actor=\\App\\Models\\User::withoutGlobalScopes()->findOrFail($input['actor']);$journal=app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class);"
       + "$result=$journal->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$values],[],fn()=>app(\\App\\Services\\Dashboard\\BranchCustomers::class)->save($values,$actor));"
-      + captureTablesPhp + "echo json_encode(['result'=>$result,'values'=>$values,'tables'=>$tables]);",
+      + captureTablesPhp + "echo json_encode(['result'=>$result,'values'=>$values,'tables'=>$tables,'tables_wire'=>\\App\\Services\\Dashboard\\DesktopDashboardBootstrap::json($tables)]);",
       { id: crypto.randomUUID(), device: snapshot.device_id, actor: snapshot.actor_id });
     const pending = await runtime.control({ action: 'pending' }); assert.equal(pending.counts.pending, 1);
     let downloads = 0;
     const coordinator = () => new DashboardGeneration({ runtime, metadata: runtime.metadata, allowPreview: true,
-      download: async () => { downloads++; return snapshot; } });
+      download: async () => { downloads++; return downloadSnapshot(); } });
     await assert.rejects(coordinator().run()); assert.equal(downloads, 0);
     await runtime.control({ action: 'failed', command_id: pending.commands[0].command_id, message: 'synthetic conflict', conflict: true });
     await assert.rejects(coordinator().run()); assert.equal(downloads, 0);
     await runtime.control({ action: 'acknowledge', command_id: pending.commands[0].command_id,
       receipt: { device_id: snapshot.device_id, command_id: pending.commands[0].command_id, committed: true, result: command.result } });
     // The synthetic server fixture now reflects the confirmed customer, as a coherent bootstrap must.
-    snapshot.snapshot_id = crypto.randomUUID();
     assert.deepEqual(Object.keys(command.tables).sort(), ['branch_customers','branch_operation_commands','crm_customer_sources','crm_customers']);
     const capturedCrm = command.tables.crm_customers.find(row => row.phone === '+201012345678');
     assert.ok(capturedCrm);
@@ -145,21 +212,20 @@ async function main() {
     assert.equal(Number(capturedCrm.service_consent), 0); assert.equal(Number(capturedCrm.marketing_consent), 0);
     assert.ok(command.tables.crm_customer_sources.some(row => Number(row.customer_id) === Number(capturedCrm.id)
       && row.branch === 'f:100' && row.channel === 'delivery'));
-    for (const [table, rows] of Object.entries(command.tables)) {
-      assert.ok(snapshot.tables[table], 'Confirmed snapshot requires ' + table);
-      snapshot.tables[table].rows = rows;
-      snapshot.tables[table].sha256 = crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex');
-    }
+    for (const table of Object.keys(command.tables)) assert.ok(snapshot.tables[table], 'Confirmed snapshot requires ' + table);
+    await updateSnapshot({ kind: 'crm', id: crypto.randomUUID(), tables_wire: command.tables_wire });
     const retainedPointer = await runtime.metadata.read('prepared');
     const retainedFiles = await fs.readdir(path.join(runtime.profile, 'generations'));
     await assert.rejects(new DashboardGeneration({ runtime, metadata: runtime.metadata, allowPreview: true,
-      download: async () => ({ ...snapshot, source: { ...snapshot.source, sha256: '0'.repeat(64) } }) }).run(), /نسخة البرنامج/);
+      download: async () => downloadSnapshot(await rewriteWire({ kind: 'source', sha256: '0'.repeat(64) })) }).run(), /نسخة البرنامج/);
     assert.deepEqual(await runtime.metadata.read('prepared'), retainedPointer);
     assert.deepEqual(await fs.readdir(path.join(runtime.profile, 'generations')), retainedFiles);
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
     assert.equal((await runtime.control({ action: 'pending' })).counts.acknowledged, 1);
     assert.equal(imageRequests, 2);
     let next = await coordinator().run(); assert.notEqual(next.database, initial.database);
+    assert.deepEqual(await numericProbe(), { integralFloat: true, exactInteger: true, integerText: '9007199254740993' });
+    console.log('PASS real Windows refresh preserves the PHP integral DOUBLE and exact 64-bit integer without rebuilding server table hashes in JavaScript');
     assert.equal(imageRequests, 4);
     const refreshedTables = await php(bootstrap + captureTablesPhp + "echo json_encode($tables);");
     assert.deepEqual(refreshedTables, command.tables);
@@ -181,7 +247,7 @@ async function main() {
     const remoteState = new DashboardRemoteState(runtime.metadata);
     const mode = new DashboardMode({ runtime, view, generations: coordinator(), remoteState,
       probe: async () => ({ actor_id: snapshot.actor_id, device_id: snapshot.device_id }) });
-    snapshot.snapshot_id = crypto.randomUUID(); await mode.refresh(); next = await runtime.connection();
+    await updateSnapshot({ kind: 'id', id: crypto.randomUUID() }); await mode.refresh(); next = await runtime.connection();
     assert.equal(local, false); assert.ok(await runtime.metadata.read('return'));
     await assert.rejects(mode.local({ method: 'POST' }));
     const heldId = crypto.randomUUID(), heldValues = {...command.values, idempotency_key:heldId};
@@ -193,7 +259,7 @@ async function main() {
     await assert.rejects(new DashboardRemoteState(runtime.metadata).assertClean());
     await remoteState.complete('native-http-operation');
     await assert.rejects(mode.local({ method: 'GET' }));
-    snapshot.snapshot_id = crypto.randomUUID(); await mode.refresh(); next = await runtime.connection();
+    await updateSnapshot({ kind: 'id', id: crypto.randomUUID() }); await mode.refresh(); next = await runtime.connection();
     await remoteState.assertClean();
     await mode.local({ method: 'GET' }); assert.equal(local, true); assert.equal(await runtime.metadata.read('return'), null);
     assert.deepEqual(destinations, ['https://fixture.test', runtime.origin]);
@@ -249,14 +315,7 @@ async function main() {
     await fs.writeFile(path.join(newInstall,'manifest.json'),JSON.stringify(newManifest));
     await runtime.stop();runtime=create(newInstall);await runtime.start();
     assert.equal(runtime.application,beforeApplication);assert.equal(runtime.manifest.sourceRevision,beforeUpgrade.sourceRevision);
-    snapshot.snapshot_id=crypto.randomUUID();snapshot.source=newManifest.sourceFingerprint;
-    const changedTable=snapshot.tables.branch_customers;
-    assert.match(changedTable.ddl,/^CREATE TABLE `branch_customers` \(/);
-    changedTable.ddl=changedTable.ddl.replace(/^CREATE TABLE `branch_customers` \(/,'$&\n  `desktop_upgrade_fixture` varchar(40) DEFAULT NULL,');
-    changedTable.rows=changedTable.rows.map(row=>({...row,desktop_upgrade_fixture:null}));
-    changedTable.sha256=crypto.createHash('sha256').update(JSON.stringify(changedTable.rows)).digest('hex');
-    const changedSchema=Object.fromEntries(Object.keys(snapshot.tables).sort().map(name=>[name,crypto.createHash('sha256').update(snapshot.tables[name].ddl).digest('hex')]));
-    snapshot.schema_hash=crypto.createHash('sha256').update(JSON.stringify(changedSchema)).digest('hex');
+    await updateSnapshot({ kind: 'upgrade', id: crypto.randomUUID(), source: newManifest.sourceFingerprint });
     const write=runtime.metadata.write.bind(runtime.metadata);
     runtime.metadata.write=async(name,value)=>{if(name==='prepared'&&value.sourceRevision===newManifest.sourceRevision)throw Error('synthetic upgrade pointer failure');return write(name,value);};
     await assert.rejects(coordinator().run(),/synthetic upgrade pointer failure/);runtime.metadata.write=write;
