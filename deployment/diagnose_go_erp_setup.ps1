@@ -7,7 +7,6 @@ $goExpectedSource = '4a0ab46d8a7d79ad4842879fb83e5ea08276d795fdeb538ac416b220c05
 $goSocket = $null; $goBreakpoint = $null; $goPaused = $false
 $goTarget = $null; $goPort = 0; $goCaptured = $false; $goClosed = $true; $goBound = $false
 $goPhase = 'preflight'
-$goNativeInspectorUrl = $null
 $goCleanup = New-Object System.Collections.Generic.List[string]
 $goSequence = 0; $goEvents = New-Object System.Collections.Queue
 $goScripts = New-Object System.Collections.Generic.List[object]
@@ -86,6 +85,7 @@ try {
     if ($receipt.version -cne $goExpectedVersion -or $receipt.sourceRevision -cne $goExpectedRevision -or !(Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'GO_ERP_BUILD_RECEIPT_MISMATCH' }
     $listener = New-Object Net.Sockets.TcpListener -ArgumentList @([Net.IPAddress]::Loopback, 0)
     $listener.Start(); $goPort = $listener.LocalEndpoint.Port; $listener.Stop()
+    Write-Output 'Wait for GO_ERP_INSPECTOR_READY before clicking Prepare.'
     $goPhase = 'launch'
     $goTarget = Start-Process -FilePath $executable -ArgumentList @("--inspect=127.0.0.1:$goPort") -PassThru
     $goClosed = $false
@@ -109,9 +109,6 @@ try {
     $binding = Go-Evaluate 'JSON.stringify({pid:process.pid,electron:process.versions.electron})' | ConvertFrom-Json
     if ($binding.pid -ne $goTarget.Id -or $binding.electron -cne '44.6.0') { throw 'GO_ERP_INSPECTOR_PROCESS_MISMATCH' }
     $goBound = $true
-    # A bounded fallback closes the listener even if this diagnostic terminal is closed.
-    $goPhase = 'watchdog'
-    [void](Go-Evaluate '(()=>{const inspector=process.getBuiltinModule("node:inspector");setTimeout(()=>inspector.close(),620000).unref();return true})()')
     $goPhase = 'source'
     [void](Go-Command 'Debugger.enable' @{})
     $goCancel.CancelAfter(20000)
@@ -169,10 +166,9 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
     Write-Output ('GO_ERP_DIAGNOSTIC_LOCATION ' + (@{ phase = $goPhase; type = $type; line = $_.InvocationInfo.ScriptLineNumber; hresult = $_.Exception.HResult } | ConvertTo-Json -Compress))
 } finally {
     if ($goBound -and $goSocket) {
-        # Each cleanup action is independent: a failed optional removal must
-        # never skip resume or closing the listener. The fallback timer remains
-        # armed if the transport itself has already disconnected.
-        foreach ($action in @('resume', 'remove', 'close')) {
+        # Each detach action is independent. The user's normal exit closes the
+        # inspector listener; this script never shuts down or kills the app.
+        foreach ($action in @('resume', 'remove', 'disable')) {
             if ($goSocket.State -ne [Net.WebSockets.WebSocketState]::Open) { break }
             try {
                 $goDeadline = [DateTime]::UtcNow.AddSeconds(3)
@@ -181,12 +177,7 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
                 $goCancel.CancelAfter(3000)
                 if ($action -ceq 'resume') { [void](Go-Command 'Debugger.resume' @{}); $goPaused = $false }
                 if ($action -ceq 'remove' -and $goBreakpoint) { [void](Go-Command 'Debugger.removeBreakpoint' @{ breakpointId = $goBreakpoint }) }
-                if ($action -ceq 'close') {
-                    # Closing the active inspector has no CDP reply. Send once,
-                    # then close this WebSocket and verify the listener below.
-                    try { $goNativeInspectorUrl = [bool](Go-Evaluate 'Boolean(process.getBuiltinModule("node:inspector").url())') } catch {}
-                    [void](Go-Send 'Runtime.evaluate' @{ expression = 'process.getBuiltinModule("node:inspector").close()'; silent = $true })
-                }
+                if ($action -ceq 'disable') { [void](Go-Command 'Debugger.disable' @{}) }
                 $goCleanup.Add($action + '-ok')
             } catch { $goCleanup.Add($action + '-failed') }
         }
@@ -199,6 +190,12 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
         } catch {} finally { $closeCancel.Dispose() }
         $goSocket.Abort(); $goSocket.Dispose()
     }
+    if ($goCaptured -and $goTarget -and !$goTarget.HasExited) {
+        Write-Output 'GO_ERP_DIAGNOSTIC_CAPTURED_CLOSE_PROGRAM_FROM_MENU'
+        Write-Output 'Dismiss the preparation error, then use Program > Close program. Waiting up to two minutes for your normal exit.'
+        $exitDeadline = [DateTime]::UtcNow.AddSeconds(120)
+        while (!$goTarget.HasExited -and [DateTime]::UtcNow -lt $exitDeadline) { Start-Sleep -Milliseconds 250 }
+    }
     if ($goPort -gt 0) {
         $closeDeadline = [DateTime]::UtcNow.AddSeconds(5)
         do { $goClosed = !(Go-PortOpen); if (!$goClosed) { Start-Sleep -Milliseconds 100 } } until ($goClosed -or [DateTime]::UtcNow -ge $closeDeadline)
@@ -207,7 +204,7 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
     if ($goClosed -and $goTarget) { Write-Output 'GO_ERP_INSPECTOR_CLOSED' }
     if (!$goClosed) {
         Write-Output 'GO_ERP_INSPECTOR_CLOSE_PROGRAM_USING_ITS_EXIT_MENU'
-        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; nativeInspectorUrl = $goNativeInspectorUrl; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
+        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
     }
 }
 if (!$goCaptured -or !$goClosed) { exit 1 }

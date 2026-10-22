@@ -92,7 +92,24 @@ try {
     if ($response.PSObject.Properties['error'] -or $response.result.PSObject.Properties['exceptionDetails'] -or $response.result.result.value -cne 'CI_FIXTURE_SCHEDULED') { throw 'FIXTURE_CALL_FAILED' }
     try { [void]($socket.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'fixture scheduled', $cancel.Token).GetAwaiter().GetResult()) } catch {}
     $socket.Dispose(); $socket = $null; $cancel.Dispose()
-    if (-not $diagnostic.WaitForExit(60000)) { throw 'DIAGNOSTIC_DID_NOT_EXIT' }
+    # The production diagnostic never closes the real user's app. In this
+    # disposable CI account, simulate the requested normal window/menu exit.
+    $closeRequested = $false
+    $closeDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+        if (Test-Path -LiteralPath $stdoutPath) {
+            $closeRequested = @(Get-Content -LiteralPath $stdoutPath | Where-Object { $_ -ceq 'GO_ERP_DIAGNOSTIC_CAPTURED_CLOSE_PROGRAM_FROM_MENU' }).Count -eq 1
+        }
+        if (!$closeRequested -and !$diagnostic.HasExited) { Start-Sleep -Milliseconds 200 }
+    } until ($closeRequested -or $diagnostic.HasExited -or [DateTime]::UtcNow -ge $closeDeadline)
+    if (!$closeRequested) { throw ('NORMAL_EXIT_REQUEST_MISSING:' + (Get-FixedDiagnosticFailure)) }
+    $windowDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $appProcess.Refresh()
+        if (!$appProcess.HasExited -and ($appProcess.MainWindowHandle -eq 0 -or !$appProcess.Responding)) { Start-Sleep -Milliseconds 100 }
+    } until ($appProcess.HasExited -or ($appProcess.MainWindowHandle -ne 0 -and $appProcess.Responding) -or [DateTime]::UtcNow -ge $windowDeadline)
+    if ($appProcess.HasExited -or $appProcess.MainWindowHandle -eq 0 -or !$appProcess.Responding -or !$appProcess.CloseMainWindow() -or !$appProcess.WaitForExit(60000)) { throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE' }
+    if (-not $diagnostic.WaitForExit(15000)) { throw 'DIAGNOSTIC_DID_NOT_EXIT' }
     $output = [IO.File]::ReadAllText($stdoutPath)
     $errorOutput = [IO.File]::ReadAllText($stderrPath)
     if ($output.Contains('CI_RAW_SECRET_MUST_NOT_APPEAR') -or $output.Contains('CI_STDOUT_SECRET_MUST_NOT_APPEAR') -or $output.Contains('CI_SYNTHETIC_ONLY') -or $errorOutput.Contains('CI_RAW_SECRET_MUST_NOT_APPEAR') -or $errorOutput.Contains('CI_STDOUT_SECRET_MUST_NOT_APPEAR') -or $errorOutput.Contains('CI_SYNTHETIC_ONLY')) { throw 'PRIVATE_VALUE_LEAKED' }
@@ -117,10 +134,7 @@ try {
     $stillListening = $true
     try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }
     if ($stillListening) { throw 'INSPECTOR_LISTENER_LEFT_OPEN' }
-    $windowDeadline = [DateTime]::UtcNow.AddSeconds(10)
-    do { $appProcess.Refresh(); if (-not $appProcess.HasExited -and $appProcess.MainWindowHandle -eq 0) { Start-Sleep -Milliseconds 100 } } while (-not $appProcess.HasExited -and $appProcess.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $windowDeadline)
-    if ($appProcess.HasExited -or $appProcess.MainWindowHandle -eq 0 -or -not $appProcess.CloseMainWindow() -or -not $appProcess.WaitForExit(60000)) { throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE' }
-    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.25';sourceRevision='a0178ead801e8d39185cd0830171804141767995';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;inspectorClosed=$true}
+    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.25';sourceRevision='a0178ead801e8d39185cd0830171804141767995';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;inspectorClosed=$true}
     $proof | ConvertTo-Json -Compress
 } finally {
     if ($socket) { $socket.Dispose() }
