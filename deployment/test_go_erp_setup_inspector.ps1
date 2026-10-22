@@ -26,7 +26,7 @@ $stderrPath = Join-Path $fixture 'diagnostic-error.txt'
 $diagnostic = $null; $appProcess = $null; $socket = $null
 function Get-FixedDiagnosticFailure {
     if (-not (Test-Path -LiteralPath $stdoutPath)) { return 'NO_DIAGNOSTIC_OUTPUT' }
-    return (@(Get-Content -LiteralPath $stdoutPath | Where-Object { $_ -cmatch '^GO_ERP_[A-Z0-9_]+$' -or $_.StartsWith('GO_ERP_DIAGNOSTIC_LOCATION ') } | Select-Object -Last 3) -join ',')
+    return (@(Get-Content -LiteralPath $stdoutPath | Where-Object { $_ -cmatch '^GO_ERP_[A-Z0-9_]+$' -or $_.StartsWith('GO_ERP_DIAGNOSTIC_LOCATION ') -or $_.StartsWith('GO_ERP_INSPECTOR_CLEANUP ') } | Select-Object -Last 3) -join ',')
 }
 try {
     $install = Start-Process -FilePath $InstallerPath -ArgumentList @('/S', ('/D=' + $installed)) -PassThru
@@ -89,6 +89,7 @@ try {
         $message.Dispose()
     } while (-not $response)
     if ($response.PSObject.Properties['error'] -or $response.result.PSObject.Properties['exceptionDetails'] -or $response.result.result.value -cne 'CI_FIXTURE_SCHEDULED') { throw 'FIXTURE_CALL_FAILED' }
+    try { [void]($socket.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'fixture scheduled', $cancel.Token).GetAwaiter().GetResult()) } catch {}
     $socket.Dispose(); $socket = $null; $cancel.Dispose()
     if (-not $diagnostic.WaitForExit(60000) -or $diagnostic.ExitCode -ne 0) { throw ('DIAGNOSTIC_CAPTURE_FAILED:' + (Get-FixedDiagnosticFailure)) }
     $output = [IO.File]::ReadAllText($stdoutPath)

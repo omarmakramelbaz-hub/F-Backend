@@ -7,6 +7,7 @@ $goExpectedSource = '4a0ab46d8a7d79ad4842879fb83e5ea08276d795fdeb538ac416b220c05
 $goSocket = $null; $goBreakpoint = $null; $goPaused = $false
 $goTarget = $null; $goPort = 0; $goCaptured = $false; $goClosed = $true; $goBound = $false
 $goPhase = 'preflight'
+$goCleanup = New-Object System.Collections.Generic.List[string]
 $goSequence = 0; $goEvents = New-Object System.Collections.Queue
 $goScripts = New-Object System.Collections.Generic.List[object]
 $goDeadline = [DateTime]::UtcNow.AddSeconds(600)
@@ -105,7 +106,7 @@ try {
     $goBound = $true
     # A bounded fallback closes the listener even if this diagnostic terminal is closed.
     $goPhase = 'watchdog'
-    [void](Go-Evaluate 'setTimeout(()=>process.mainModule.require("node:inspector").close(),620000).unref();true')
+    [void](Go-Evaluate '(()=>{const inspector=process.getBuiltinModule("node:inspector");setTimeout(()=>inspector.close(),620000).unref();return true})()')
     $goPhase = 'source'
     [void](Go-Command 'Debugger.enable' @{})
     $goCancel.CancelAfter(20000)
@@ -175,17 +176,28 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
                 $goCancel.CancelAfter(3000)
                 if ($action -ceq 'resume') { [void](Go-Command 'Debugger.resume' @{}); $goPaused = $false }
                 if ($action -ceq 'remove' -and $goBreakpoint) { [void](Go-Command 'Debugger.removeBreakpoint' @{ breakpointId = $goBreakpoint }) }
-                if ($action -ceq 'close') { [void](Go-Evaluate 'setImmediate(()=>process.mainModule.require("node:inspector").close());true') }
-            } catch {}
+                if ($action -ceq 'close') { [void](Go-Evaluate '(()=>{const inspector=process.getBuiltinModule("node:inspector");setImmediate(()=>inspector.close());return true})()') }
+                $goCleanup.Add($action + '-ok')
+            } catch { $goCleanup.Add($action + '-failed') }
         }
     }
-    if ($goSocket) { $goSocket.Abort(); $goSocket.Dispose() }
+    if ($goSocket) {
+        $closeCancel = New-Object System.Threading.CancellationTokenSource
+        $closeCancel.CancelAfter(3000)
+        try {
+            if ($goSocket.State -eq [Net.WebSockets.WebSocketState]::Open) { [void]($goSocket.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'diagnostic complete', $closeCancel.Token).GetAwaiter().GetResult()) }
+        } catch {} finally { $closeCancel.Dispose() }
+        $goSocket.Abort(); $goSocket.Dispose()
+    }
     if ($goPort -gt 0) {
         $closeDeadline = [DateTime]::UtcNow.AddSeconds(5)
         do { $goClosed = !(Go-PortOpen); if (!$goClosed) { Start-Sleep -Milliseconds 100 } } until ($goClosed -or [DateTime]::UtcNow -ge $closeDeadline)
     }
     $goCancel.Dispose()
     if ($goClosed -and $goTarget) { Write-Output 'GO_ERP_INSPECTOR_CLOSED' }
-    if (!$goClosed) { Write-Output 'GO_ERP_INSPECTOR_CLOSE_PROGRAM_USING_ITS_EXIT_MENU' }
+    if (!$goClosed) {
+        Write-Output 'GO_ERP_INSPECTOR_CLOSE_PROGRAM_USING_ITS_EXIT_MENU'
+        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
+    }
 }
 if (!$goCaptured -or !$goClosed) { exit 1 }
