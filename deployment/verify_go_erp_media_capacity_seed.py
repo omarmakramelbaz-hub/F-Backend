@@ -61,9 +61,13 @@ def verify(root, historical):
     if base==original.BASE_REVISION:
         return original.validate_checkout(root,historical)
     need(bool(REV.fullmatch(base)),'CANDIDATE_BASE')
-    git(root,'fetch','--quiet','--depth=16','--no-tags','--no-recurse-submodules',REMOTE,base)
-    # The bounded lineage must contain the exact capacity core object.
-    proof=validate_seed(root,base,core=CORE)
+    # A complete local object lineage needs no network. A shallow CI checkout
+    # fetches only the fixed public seed revision when those objects are absent.
+    try: proof=validate_seed(root,base,core=CORE)
+    except RuntimeError as error:
+        if str(error)!='GO_ERP_CAPACITY_SEED_GIT_FAILED':raise
+        git(root,'fetch','--quiet','--depth=16','--no-tags','--no-recurse-submodules',REMOTE,base)
+        proof=validate_seed(root,base,core=CORE)
     with tempfile.TemporaryDirectory(prefix='go-erp-capacity-ci-') as temporary:
         seed=Path(temporary)/'seed'
         git(root,'worktree','add','--quiet','--detach',str(seed),base)
