@@ -42,6 +42,11 @@ jobs:
         run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_update_publication.py
       - name: Verify the pinned root console publication entry
         run: python3 -B -m unittest discover -s tests -p test_go_erp_ci_publish_root.py
+      - name: Load exact immutable runtime predecessors for ownership and source fixtures
+        run: |
+          for revision in 75c3fe50b3609ef5822904a23d7c4ed0afd07eff 6dcc70f8fa78ee9ab93ea8acf08cb405bb690216 b2adc9953bde8c501ba52f0f56636d91a0dff75d; do
+            git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin "$revision"
+          done
       - name: Verify source capture, accepted build publication, and private timer setup
         run: sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_live*.py'
       - name: Verify the complete root console activation entry
