@@ -8,6 +8,7 @@ const { GenerationStore, prepared, generation } = require('./dashboard-generatio
 const media = require('./dashboard-media.cjs');
 const RuntimeArchive = require('./runtime-archive.cjs');
 const sourceCode = require('./dashboard-source.cjs');
+const readSnapshot = require('./dashboard-download.cjs');
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function freePort() {
@@ -352,7 +353,7 @@ class LocalRuntime {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     await run(context.php, [...phpArgs, path.join(context.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
-    const receipt = JSON.parse(await run(context.php, [...phpArgs, path.join(context.application, 'desktop/import.php')], options, JSON.stringify(snapshot), 300000));
+    const receipt = JSON.parse(await run(context.php, [...phpArgs, path.join(context.application, 'desktop/import.php')], options, readSnapshot.input(snapshot), 300000));
     const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
       path.join(this.storageFor(value), 'app'));
     if (archive) await run(context.php, [...phpArgs, path.join(context.application, 'desktop/archive.php')], options,
