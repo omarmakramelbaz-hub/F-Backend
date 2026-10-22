@@ -1,0 +1,43 @@
+name: GO ERP offline preparation memory
+on:
+  push:
+    branches: [codex/go-erp-bootstrap-memory-20261022]
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/DesktopDashboardBootstrap.php'
+      - 'app/Services/Dashboard/DesktopDashboardData.php'
+      - 'tests/desktop_dashboard_bootstrap_memory_test.php'
+      - 'deployment/apply_go_erp_bootstrap_memory_root.py'
+      - 'deployment/apply_go_erp_bootstrap_memory_root.sh'
+      - 'tests/test_go_erp_bootstrap_memory_root.py'
+      - '.github/workflows/go-erp-bootstrap-memory.yml'
+permissions:
+  contents: read
+jobs:
+  preparation-memory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Check PHP syntax
+        run: |
+          php -l app/Services/Dashboard/DesktopDashboardBootstrap.php
+          php -l app/Services/Dashboard/DesktopDashboardData.php
+          php -l tests/desktop_dashboard_bootstrap_memory_test.php
+      - name: Reproduce the old 128 MiB failure and verify scoped preparation memory
+        run: |
+          baseline_dir=$(mktemp -d "$RUNNER_TEMP/go-erp-bootstrap-baseline.XXXXXXXX")
+          git show HEAD^:app/Services/Dashboard/DesktopDashboardBootstrap.php > "$baseline_dir/DesktopDashboardBootstrap.php"
+          git show HEAD^:app/Services/Dashboard/DesktopDashboardData.php > "$baseline_dir/DesktopDashboardData.php"
+          DESKTOP_MEMORY_BASELINE_BOOTSTRAP="$baseline_dir/DesktopDashboardBootstrap.php" DESKTOP_MEMORY_BASELINE_DATA="$baseline_dir/DesktopDashboardData.php" php -d memory_limit=128M tests/desktop_dashboard_bootstrap_memory_test.php
+      - name: Verify guarded deployment with actual ownership and rollback
+        run: sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_bootstrap_memory_root.py
+      - name: Check the pinned root entrypoint
+        run: bash -n deployment/apply_go_erp_bootstrap_memory_root.sh
