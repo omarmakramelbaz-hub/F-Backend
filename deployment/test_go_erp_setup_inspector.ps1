@@ -108,7 +108,21 @@ try {
         $appProcess.Refresh()
         if (!$appProcess.HasExited -and ($appProcess.MainWindowHandle -eq 0 -or !$appProcess.Responding)) { Start-Sleep -Milliseconds 100 }
     } until ($appProcess.HasExited -or ($appProcess.MainWindowHandle -ne 0 -and $appProcess.Responding) -or [DateTime]::UtcNow -ge $windowDeadline)
-    if ($appProcess.HasExited -or $appProcess.MainWindowHandle -eq 0 -or !$appProcess.Responding -or !$appProcess.CloseMainWindow() -or !$appProcess.WaitForExit(60000)) { throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE' }
+    $windowBeforeClose = $appProcess.MainWindowHandle
+    $exitedBeforeClose = $appProcess.HasExited
+    $windowExists = !$exitedBeforeClose -and $appProcess.MainWindowHandle -ne 0
+    $responding = !$exitedBeforeClose -and $appProcess.Responding
+    $closeSent = $false; $exitedAfterClose = $false
+    if (!$exitedBeforeClose -and $windowExists -and $responding) { $closeSent = $appProcess.CloseMainWindow() }
+    if ($closeSent) { $exitedAfterClose = $appProcess.WaitForExit(60000) }
+    if (!$closeSent -or !$exitedAfterClose) {
+        $appProcess.Refresh()
+        $windowChanged = !$appProcess.HasExited -and $appProcess.MainWindowHandle -ne 0 -and $appProcess.MainWindowHandle -ne $windowBeforeClose
+        $waitingForDebugger = $false
+        if (Test-Path -LiteralPath $stderrPath) { $waitingForDebugger = [IO.File]::ReadAllText($stderrPath).Contains('Waiting for the debugger to disconnect') }
+        Write-Output ('GO_ERP_CI_NORMAL_EXIT ' + (@{ exitedBeforeClose = $exitedBeforeClose; windowExists = $windowExists; responding = $responding; closeSent = $closeSent; exitedAfterClose = $exitedAfterClose; windowChanged = $windowChanged; waitingForDebugger = $waitingForDebugger } | ConvertTo-Json -Compress))
+        throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE'
+    }
     if (-not $diagnostic.WaitForExit(15000)) { throw 'DIAGNOSTIC_DID_NOT_EXIT' }
     $output = [IO.File]::ReadAllText($stdoutPath)
     $errorOutput = [IO.File]::ReadAllText($stderrPath)
