@@ -25,6 +25,7 @@ class DesktopDashboardBootstrap
         'phone_delivery_batch_items'=>['batch_id','phone_delivery_batches','id'],
     ];
     private const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|partner_auth_email|fcm_id|verification_code|activation_code|mobile_code|email_code|otp_first_no)(?:$|_)/i';
+    private const MEMORY_BUDGET=512*1024*1024;
     public function __construct(private DesktopDashboardDevices $devices,private DesktopDashboardData $data) {}
 
     public function export(object $device): array
@@ -35,6 +36,7 @@ class DesktopDashboardBootstrap
         DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         return DB::transaction(function()use($device,$source){
             $fresh=$this->devices->lockAuthenticated($device);
+            $this->memoryBudget();
             $actor=$this->devices->actor($fresh);$branches=[];
             foreach(json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR) as $branch){
                 $this->devices->branch($fresh,$branch,$actor);$branches[]=$branch;
@@ -51,6 +53,11 @@ class DesktopDashboardBootstrap
                     if(isset($queries[$table])&&!empty($queries[$table]->wheres))$queries[$table]->orWhereIn($column,$createdOwners);
             }
             $dataset=$this->data->rows($queries);
+            // These manifests need the original scoped rows. Compute them before
+            // releasing each raw table as its redacted transport copy is built.
+            $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
+            $roleMemberships=app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]);
+            $eligibility=$this->data->pendingEligibility($queries,$dataset);
             $tables=[];$schema=[];$rows=0;$bytes=0;
             foreach($queries as $table=>$query){
                 abort_unless(preg_match('/^[a-z][a-z0-9_]{0,63}$/D',$table),409);
@@ -65,7 +72,8 @@ class DesktopDashboardBootstrap
                     $safeDefault=in_array($column->value,["''",'NULL','null',''],true)||(in_array($column->type,['tinyint','smallint','int','bigint'],true)&&in_array($column->value,['0','1'],true));
                     abort_if(preg_match(self::PRIVATE_COLUMN,$column->name)&&$column->value!==null&&!$safeDefault,409,'مخطط بيانات الاعتماد يحتاج تنقية قبل تجهيز الجهاز.');
                 }
-                $data=[];
+                $data=[];$tableHash=hash_init('sha256');hash_update($tableHash,'[');$bytes+=2;
+                abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
                 foreach($dataset[$table] as $record){
                     $row=$record;
                     if($table==='settings'&&($row['name']??'')==='app_balance'&&(int)$actor->id!==1)$row['payload']=self::json('0');
@@ -76,18 +84,22 @@ class DesktopDashboardBootstrap
                         if($table==='users'&&$column==='password')$row[$column]='!desktop-disabled-'.Str::random(64);
                     }
                     foreach($row as $column=>$value)if(is_string($value)&&in_array($column,['payload','snapshot','data','metadata','custom_properties','responsive_images','context_snapshot'],true))$row[$column]=$this->redactJson($value);
+                    // Identical to json($data), without allocating a second
+                    // whole-table JSON string beside the raw and redacted rows.
+                    $encoded=self::json($row);$separator=$data===[]?'':',';
+                    $bytes+=strlen($separator)+strlen($encoded);abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
+                    hash_update($tableHash,$separator);hash_update($tableHash,$encoded);
                     $data[]=$row;$rows++;abort_if($rows>500000,413,'البيانات تحتاج تجهيزًا على دفعات.');
                 }
-                $encoded=self::json($data);$bytes+=strlen($encoded);abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
-                $schema[$table]=hash('sha256',$ddl);$tables[$table]=['ddl'=>$ddl,'rows'=>$data,'sha256'=>hash('sha256',$encoded)];
+                hash_update($tableHash,']');unset($dataset[$table],$encoded,$record,$row);
+                $schema[$table]=hash('sha256',$ddl);$tables[$table]=['ddl'=>$ddl,'rows'=>$data,'sha256'=>hash_final($tableHash)];
             }
             ksort($schema);
-            $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
             abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
             $coverage=['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),
-                'role_memberships'=>app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]),'full_dashboard'=>false,'print_protocol'=>1,'catalog_scopes'=>$scopeGrants->available()?1:0,'media'=>$media['complete']];
+                'role_memberships'=>$roleMemberships,'full_dashboard'=>false,'print_protocol'=>1,'catalog_scopes'=>$scopeGrants->available()?1:0,'media'=>$media['complete']];
             if($scopeGrants->available()){$coverage['catalog_grants_sha256']=hash('sha256',self::json($created));$coverage['catalog_structural_branches']=$scopeGrants->structural($fresh,$actor);$coverage['base_branches_sha256']=hash('sha256',self::json($baseBranches));$coverage['catalog_branches_sha256']=hash('sha256',self::json($branches));}
-            $eligibility=$this->data->pendingEligibility($queries,$dataset);if($eligibility!==null)$coverage['pending_vendor_eligibility']=$eligibility;
+            if($eligibility!==null)$coverage['pending_vendor_eligibility']=$eligibility;
             return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$actor->id,'branches'=>$branches,'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at,'base_branches'=>$baseBranches],'created_scopes'=>$created,'generated_at'=>now('UTC')->toIso8601String(),
                 'source'=>$source,
@@ -95,6 +107,21 @@ class DesktopDashboardBootstrap
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
                 'coverage'=>$coverage];
         });
+    }
+    private function memoryBudget(): void
+    {
+        // The authenticated bootstrap request also serializes the returned
+        // snapshot in its controller. Keep this request-local budget until PHP
+        // finishes the response; restoring it at export() return is too early.
+        $quantity=static function($value): ?float {
+            $value=trim((string)$value);if($value==='-1')return INF;
+            if(!preg_match('/^([0-9]+)\\s*([KMG]?)$/iD',$value,$match))return null;
+            return (float)$match[1]*(1024**([''=>0,'K'=>1,'M'=>2,'G'=>3][strtoupper($match[2])]));
+        };
+        $message='ذاكرة تجهيز الجهاز غير كافية؛ يلزم السماح بذاكرة 512 ميجا لطلب التجهيز فقط.';
+        $before=$quantity(ini_get('memory_limit'));abort_unless($before!==null,503,$message);
+        if($before>=self::MEMORY_BUDGET)return;
+        abort_unless(@ini_set('memory_limit','512M')!==false&&($quantity(ini_get('memory_limit'))??0)>=self::MEMORY_BUDGET,503,$message);
     }
     private function redactJson(string $value): string
     {

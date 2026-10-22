@@ -88,7 +88,12 @@ class DesktopDashboardData
     public function rows(array $queries): array
     {
         $data=[];$total=0;$eligibilityOnly=isset($queries['pending_vendors'])&&$queries['pending_vendors']->columns===self::GO_ELIGIBILITY_FIELDS;
-        foreach($queries as $table=>$query){$data[$table]=array_map(fn($row)=>(array)$row,$query->get()->all());$total+=count($data[$table]);abort_if($total>500000,413);}
+        foreach($queries as $table=>$query){
+            $data[$table]=[];
+            // Avoid retaining a Collection of stdClass rows beside the full
+            // array dataset. Reject the first excess row before appending it.
+            foreach($query->cursor() as $row){abort_if($total>=500000,413);$data[$table][]=(array)$row;$total++;}
+        }
         if($eligibilityOnly)$data['pending_vendors']=array_map(fn($row)=>$row+['full_name'=>'','mobile'=>''],$data['pending_vendors']);
         $references=DB::select('SELECT TABLE_NAME AS source_table,COLUMN_NAME AS source_column,REFERENCED_TABLE_NAME AS target_table,REFERENCED_COLUMN_NAME AS target_column FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=? AND REFERENCED_TABLE_NAME IS NOT NULL',[DB::connection()->getDatabaseName()]);
         // MySQL legacy schemas contain cycles (users -> restaurant -> user). Resolve parents to a fixed point.
@@ -103,7 +108,7 @@ class DesktopDashboardData
                 abort_if($eligibilityOnly&&$ref->target_table==='pending_vendors',409,'مرجع طلب شراكة خارج دليل أهلية المتجر؛ لم تُجهّز بيانات مراجعة الطلبات.');
                 abort_unless(in_array($ref->target_table,self::REFERENCE_TABLES,true),409,'مرجع مالي خارج نسخة الفرع؛ لم تُفعّل قاعدة محلية ناقصة.');
                 foreach(array_chunk($missing,1000) as $ids){
-                    foreach(DB::table($ref->target_table)->whereIn($ref->target_column,$ids)->get() as $row){$data[$ref->target_table][]=(array)$row;$changed=true;$total++;}
+                    foreach(DB::table($ref->target_table)->whereIn($ref->target_column,$ids)->cursor() as $row){abort_if($total>=500000,413);$data[$ref->target_table][]=(array)$row;$changed=true;$total++;}
                 }
                 abort_if($total>500000,413);
             }
@@ -126,6 +131,7 @@ class DesktopDashboardData
         $query=DB::table('media')->where(function($q)use($models,$data,$eligibilityOnly){
             $q->whereRaw('1=0');foreach($models as $model=>$table){if($eligibilityOnly&&$model==='PendingVendor')continue;$ids=array_column($data[$table]??[],'id');if($ids)$q->orWhere(fn($sub)=>$sub->where('model_type','App\\Models\\'.$model)->whereIn('model_id',$ids));}
         });
-        $data['media']=array_map(fn($row)=>(array)$row,$query->get()->all());return $data;
+        $remaining=500000-(array_sum(array_map('count',$data))-count($data['media']));$data['media']=[];
+        foreach($query->cursor() as $row){abort_if(count($data['media'])>=$remaining,413);$data['media'][]=(array)$row;}return $data;
     }
 }
