@@ -1,0 +1,57 @@
+name: GO ERP live compiler policy upgrade
+on:
+  push:
+    branches: [codex/go-erp-live-runtime-policy-20261022]
+  pull_request:
+    paths:
+      - 'deployment/go_erp_live_source.py'
+      - 'deployment/go_erp_live_updates.py'
+      - 'deployment/go_erp_current_candidate_ci.yml'
+      - 'deployment/verify_go_erp_current_candidate_ci.py'
+      - 'deployment/upgrade_go_erp_live_runtime_root.*'
+      - 'tests/test_go_erp_live_candidate_policy.py'
+      - 'tests/test_go_erp_live_worker_policy.py'
+      - 'tests/test_go_erp_live_runtime_upgrade_root.py'
+      - 'tests/test_go_erp_live_runtime_upgrade_wrapper_root.py'
+      - '.github/workflows/go-erp-live-runtime-policy.yml'
+permissions:
+  contents: read
+jobs:
+  compiler-and-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Load the immutable historical compiler protocol
+        run: git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
+      - name: Verify live inventory, deterministic compiler policy, and retry behavior
+        run: |
+          sudo -n -- python3 -B tests/test_go_erp_live_source.py
+          sudo -n -- python3 -B tests/test_go_erp_live_candidate_policy.py
+      - name: Verify worker acceptance, policy migration, and feed recovery
+        run: |
+          sudo -n -- python3 -B tests/test_go_erp_live_updates.py
+          sudo -n -- python3 -B tests/test_go_erp_live_worker_policy.py
+      - name: Verify immutable runtime upgrade and rollback with real ownership
+        run: |
+          sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_live_runtime_upgrade_root.py
+          python3 -B tests/test_go_erp_live_runtime_upgrade_wrapper_root.py
+      - name: Recheck the offline preparation memory fix
+        run: |
+          baseline_dir=$(mktemp -d "$RUNNER_TEMP/go-erp-memory-baseline.XXXXXXXX")
+          git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 69d1d5cef66969419f739c43c3eed8afd1920219
+          git show 69d1d5cef66969419f739c43c3eed8afd1920219:app/Services/Dashboard/DesktopDashboardBootstrap.php > "$baseline_dir/DesktopDashboardBootstrap.php"
+          git show 69d1d5cef66969419f739c43c3eed8afd1920219:app/Services/Dashboard/DesktopDashboardData.php > "$baseline_dir/DesktopDashboardData.php"
+          DESKTOP_MEMORY_BASELINE_BOOTSTRAP="$baseline_dir/DesktopDashboardBootstrap.php" DESKTOP_MEMORY_BASELINE_DATA="$baseline_dir/DesktopDashboardData.php" php -d memory_limit=128M tests/desktop_dashboard_bootstrap_memory_test.php
+      - name: Check the pinned root entrypoint
+        run: bash -n deployment/upgrade_go_erp_live_runtime_root.sh

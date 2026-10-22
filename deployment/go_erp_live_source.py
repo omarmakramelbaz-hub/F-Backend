@@ -20,6 +20,13 @@ REPOSITORY = 'omarmakramelbaz-hub/F-Backend'
 REMOTE_URL = 'https://github.com/' + REPOSITORY + '.git'
 LIVE_BRANCH = 'codex/go-erp-live-source-20261021'
 CANDIDATE_PATH = 'deployment/go_erp_live_source_candidate.json'
+CANDIDATE_POLICY = 'historical-baseline-v1'
+POLICY_ASSETS = {
+    '.github/workflows/go-erp-update-tests.yml': ('go_erp_current_candidate_ci.yml',
+        '176abf7f1b4b533e486acf15b98a80bce3ecc38a9ed73bf78204cd82373cbf3e'),
+    'deployment/verify_go_erp_current_candidate_ci.py': ('verify_go_erp_current_candidate_ci.py',
+        '5033087ee07982bb61d64fbe52e306a58d84f43b7841e44eb5b067d4b57c8173'),
+}
 ROOTS = frozenset(('app', 'bootstrap', 'config', 'database', 'desktop', 'public', 'resources', 'routes'))
 NEW_CODE_SUFFIXES = frozenset(('.php', '.js', '.cjs', '.mjs', '.css', '.html', '.json'))
 PUBLIC_MEDIA_SUFFIXES = frozenset(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.svg',
@@ -562,9 +569,49 @@ def _write_file(root_fd, name, data, mode):
         os.close(fd)
 
 
+def _policy_assets():
+    # Release companions are independently pinned bytes, never live authority.
+    # CI checkouts can belong to the runner; installed root releases belong to
+    # root. In either case only the module's owner (or root) can own a companion.
+    module = Path(__file__).absolute()
+    info = module.lstat()
+    _need(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and not info.st_mode & 0o022,
+          'POLICY_MODULE')
+    root_fd, ancestry = _open_root(module.parent)
+    try:
+        result = {}
+        for name, (asset, expected) in POLICY_ASSETS.items():
+            data, identity, _ = _read_at(root_fd, asset, web_uid=info.st_uid)
+            _need(len(data) <= 1024 * 1024 and not identity[2] & 0o022
+                  and _digest(data) == expected, 'POLICY_ASSET')
+            result[name] = data
+        check, current = _open_root(module.parent)
+        os.close(check)
+        _need(current == ancestry and _identity(module.lstat()) == _identity(info), 'POLICY_ASSET_CHANGED')
+        return result
+    finally:
+        os.close(root_fd)
+
+
+def _verify_policy(checkout, assets):
+    root_fd, _ = _open_root(checkout, trusted=True)
+    try:
+        for name, data in assets.items():
+            actual, identity, _ = _read_at(root_fd, name, trusted=True)
+            expected_blob = _git(checkout, ['hash-object', '--stdin', '--no-filters'], data).strip()
+            _need(actual == data and stat.S_IMODE(identity[2]) == 0o644
+                  and _git(checkout, ['ls-tree', '-z', 'HEAD', '--', name])
+                      == b'100644 blob ' + expected_blob + b'\t' + name.encode() + b'\0'
+                  and _git(checkout, ['cat-file', 'blob', expected_blob.decode()]) == data,
+                  'CANDIDATE_POLICY')
+    finally:
+        os.close(root_fd)
+
+
 def prepare_candidate(checkout, snapshot, version_sequence, heartbeat=None):
     """Commit a private, clean checkout; retrying an unpushed candidate is idempotent."""
     metadata, files = _validate_snapshot(snapshot)
+    policy = _policy_assets()
     _need(type(version_sequence) is int and 0 < version_sequence <= MAX_SEQUENCE, 'VERSION_SEQUENCE')
     _need(heartbeat is None or callable(heartbeat), 'HEARTBEAT')
     heartbeat = heartbeat or (lambda: None)
@@ -587,6 +634,7 @@ def prepare_candidate(checkout, snapshot, version_sequence, heartbeat=None):
             _need(candidate['version'].endswith('-preview.' + str(version_sequence)), 'CANDIDATE_BASE')
             _verify_package(checkout, candidate['version'])
             _verify_tree(checkout, metadata, files)
+            _verify_policy(checkout, policy)
             heartbeat()
             return _result(checkout, candidate, current, True)
         seed_revision, seed = _seed(checkout)
@@ -612,6 +660,7 @@ def prepare_candidate(checkout, snapshot, version_sequence, heartbeat=None):
         writes['desktop-pos/package.json'] = (json.dumps(package, ensure_ascii=False, indent=2) + '\n').encode()
         writes['desktop-pos/package-lock.json'] = (json.dumps(lock, ensure_ascii=False, indent=2) + '\n').encode()
         writes[CANDIDATE_PATH] = _canonical(candidate) + b'\n'
+        writes.update(policy)
         # No git add/checkout/commit: they can invoke attributes, filters or
         # hooks. Create exact raw blobs and populate the existing clean index.
         index_records = []
@@ -650,6 +699,7 @@ def prepare_candidate(checkout, snapshot, version_sequence, heartbeat=None):
         _git(checkout, ['symbolic-ref', 'HEAD', 'refs/heads/' + LIVE_BRANCH])
         _need(_trusted_git(checkout) == commit, 'CANDIDATE_VERIFY')
         _verify_tree(checkout, metadata, files)
+        _verify_policy(checkout, policy)
         heartbeat()
         return _result(checkout, candidate, commit, False)
     except OSError:
@@ -688,4 +738,4 @@ def _verify_package(checkout, version):
 def _result(checkout, candidate, commit, reused):
     return {'commit': commit, 'tree': _git(checkout, ['rev-parse', 'HEAD^{tree}']).decode().strip(),
         'version': candidate['version'], 'inventorySha256': candidate['inventorySha256'],
-        'candidatePath': CANDIDATE_PATH, 'reused': reused}
+        'candidatePath': CANDIDATE_PATH, 'candidatePolicy': CANDIDATE_POLICY, 'reused': reused}

@@ -55,6 +55,7 @@ REV = re.compile(r'[a-f0-9]{40}\Z')
 SAFE_INTEGER = 9007199254740991
 REMOTE = 'https://github.com/' + REPOSITORY + '.git'
 DEPENDENCIES = ('composer.json', 'composer.lock', 'vendor/composer/installed.json', 'vendor/composer/installed.php')
+CANDIDATE_POLICY = 'historical-baseline-v1'
 
 
 class WatchError(Exception):
@@ -636,6 +637,11 @@ class Worker:
     def save(self):
         atomic_json(self.state_file, self.state)
 
+    def candidate_policy(self):
+        need(getattr(self.source, 'CANDIDATE_POLICY', None) == CANDIDATE_POLICY,
+             'CANDIDATE_POLICY_UNREVIEWED')
+        return CANDIDATE_POLICY
+
     def scan(self):
         return self.source.scan_snapshot(self.live, self.checkout, self.web_uid, self.state.get('observed'))
 
@@ -716,6 +722,7 @@ class Worker:
         invalidate_feed(self.live)
 
     def prepare(self, snapshot):
+        policy = self.candidate_policy()
         expected, counter = source_identity(snapshot), self.next_counter()
         require_space(self.work, sum(row.get('bytes', 0) for row in snapshot['metadata']['inventory'].values()) * 3 + 128 * 1024 ** 2)
         destination = self.work / 'staging' / ('candidate-' + str(counter) + '-' + expected[:16])
@@ -728,8 +735,9 @@ class Worker:
             need(isinstance(result, dict) and REV.fullmatch(result.get('commit', ''))
                  and result.get('inventorySha256') == expected
                  and result.get('candidatePath') == 'deployment/go_erp_live_source_candidate.json'
+                 and result.get('candidatePolicy') == policy
                  and isinstance(result.get('version'), str), 'CANDIDATE_INVALID')
-            desired = {key: result[key] for key in ('commit', 'version', 'inventorySha256')}
+            desired = {key: result[key] for key in ('commit', 'version', 'inventorySha256', 'candidatePolicy')}
             desired['candidatePath'] = str(destination)
             desired.update({'pushed': False, 'failures': 0, 'retry_at': 0, 'status': 'prepared'})
             self.state['observed'], self.state['desired'] = snapshot['metadata'], desired
@@ -865,6 +873,7 @@ class Worker:
 
     def tick(self):
         try:
+            policy = self.candidate_policy()
             self.check_dependencies()
             snapshot = self.scan()
             current = source_identity(snapshot)
@@ -878,9 +887,13 @@ class Worker:
                         return 'GO_ERP_LIVE_UPDATE_CURRENT'
                 except FileNotFoundError:
                     pass
-                desired = None
-                self.state['desired'] = None
-            if desired is None or desired.get('inventorySha256') != current:
+                # A lost feed requires one replacement build. Keep that build
+                # while CI runs instead of replacing it on every minute tick.
+                if desired is None or desired.get('commit') == published.get('commit'):
+                    desired = None
+                    self.state['desired'] = None
+            if (desired is None or desired.get('inventorySha256') != current
+                    or desired.get('candidatePolicy') != policy):
                 self.invalidate()
                 self.retire_candidate(desired)
                 desired = self.prepare(snapshot)
