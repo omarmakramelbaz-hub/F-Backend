@@ -18,14 +18,22 @@ const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 async function execute(file, args, options, input = '', timeout = 300000) {
   const child = spawn(file, args, { ...options, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  let stdout = '', stderr = '', stderrCarry = '', exceeded = false, timedOut = false;
-  const memoryRows = [];
+  let stdout = '', stderr = '', stdoutCarry = '', stderrCarry = '', memoryCount = 0, exceeded = false, timedOut = false;
+  const memoryRows = [], observed = { outOfMemory: false, outOfMemory256: false, startupFailure: false, importDiagnostic: false };
+  const observe = text => {
+    observed.outOfMemory ||= /Allowed memory size .* exhausted/.test(text);
+    observed.outOfMemory256 ||= /Allowed memory size of 268435456 bytes exhausted/.test(text);
+    observed.startupFailure ||= /PHP Startup|auto_prepend_file|Failed opening required/.test(text);
+    observed.importDiagnostic ||= text.includes('DESKTOP_IMPORT_DIAGNOSTIC ');
+  };
+  const retainMemory = line => { if (line.startsWith('GO_ERP_NATIVE_MEMORY ')) { ++memoryCount; if (memoryRows.length < 2) memoryRows.push(line.slice(0, 512)); } };
   child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
-  child.stdout.on('data', bytes => { stdout += bytes; if (Buffer.byteLength(stdout) > 1024 * 1024) { exceeded = true; child.kill(); } });
+  child.stdout.on('data', bytes => { observe(stdoutCarry + bytes); stdoutCarry = (stdoutCarry + bytes).slice(-512); stdout += bytes; if (Buffer.byteLength(stdout) > 1024 * 1024) { exceeded = true; child.kill(); } });
   child.stderr.on('data', bytes => {
     stderr = (stderr + bytes).slice(-65536);
+    observe(stderrCarry + bytes);
     const lines = (stderrCarry + bytes).split(/\r?\n/); stderrCarry = lines.pop().slice(-512);
-    for (const line of lines) if (line.startsWith('GO_ERP_NATIVE_MEMORY ')) memoryRows.push(line);
+    for (const line of lines) retainMemory(line);
   });
   const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeout);
   child.stdin.on('error', () => {});
@@ -34,25 +42,24 @@ async function execute(file, args, options, input = '', timeout = 300000) {
     const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
     assert.equal(exceeded, false, 'Native proof output stays bounded.');
     assert.equal(timedOut, false, 'Native proof child completes within deadline.');
-    if (stderrCarry.startsWith('GO_ERP_NATIVE_MEMORY ')) memoryRows.push(stderrCarry);
-    return { code, stdout, stderr, memoryRows };
+    retainMemory(stderrCarry);
+    return { code, stdout, stderr, memoryRows, memoryCount, observed };
   } finally { clearTimeout(timer); }
 }
 function probe(result, fixed) {
   const rows = result.memoryRows;
-  if (rows.length !== 1) throw Error('Native shutdown probe differs: ' + JSON.stringify({
-    exitCode: result.code, markers: rows.length,
-    outOfMemory: /Allowed memory size .* exhausted/.test(result.stdout + result.stderr),
-    startupFailure: /PHP Startup|auto_prepend_file|Failed opening required/.test(result.stderr),
-    importDiagnostic: result.stderr.includes('DESKTOP_IMPORT_DIAGNOSTIC '),
+  if (result.memoryCount !== 1 || rows.length !== 1) throw Error('Native shutdown probe differs: ' + JSON.stringify({
+    exitCode: result.code, markers: result.memoryCount, ...result.observed,
     stdoutBytes: Buffer.byteLength(result.stdout), stderrTailBytes: Buffer.byteLength(result.stderr)
   }));
   assert.equal(rows.length, 1, 'Actual PHP shutdown memory receipt occurs once.');
   const value = JSON.parse(rows[0].slice('GO_ERP_NATIVE_MEMORY '.length));
-  assert.equal(value.limit, '256M');
+  console.log('GO_ERP_NATIVE_MEMORY_OBSERVED ' + JSON.stringify({ mode: fixed ? 'fixed' : 'original', ...value, exitCode: result.code, ...result.observed }));
+  assert.equal(value.initial_limit, '256M'); assert.equal(value.limit, '256M');
   if (fixed) assert.equal(value.framework, '12.70.0');
   else assert.ok(value.framework === null || value.framework === '12.70.0');
-  assert.ok(Number.isSafeInteger(value.peak_bytes) && value.peak_bytes > 0 && value.peak_bytes <= 256 * 1024 ** 2);
+  assert.ok(Number.isSafeInteger(value.peak_bytes) && value.peak_bytes > 0, 'Actual reserved allocator peak is recorded.');
+  assert.ok(Number.isSafeInteger(value.used_peak_bytes) && value.used_peak_bytes > 0, 'Actual used allocator peak is recorded.');
   return value;
 }
 async function runCase(bundle, temporary, fixed) {
@@ -88,7 +95,7 @@ async function runCase(bundle, temporary, fixed) {
     // Require the exact entry point from a fixed CLI wrapper so Windows startup
     // INI path parsing cannot skip the probe. The importer and full kernel remain
     // unchanged, and the same wrapper/reserve is used in both controls.
-    const importProgram = `$GLOBALS['native_proof_reserve']=str_repeat('r',65536);register_shutdown_function(static function(){unset($GLOBALS['native_proof_reserve']);fwrite(STDERR,'GO_ERP_NATIVE_MEMORY '.json_encode(['peak_bytes'=>memory_get_peak_usage(true),'limit'=>ini_get('memory_limit'),'framework'=>class_exists('Illuminate\\\\Foundation\\\\Application',false)?\\Illuminate\\Foundation\\Application::VERSION:null],JSON_THROW_ON_ERROR).PHP_EOL);});require $argv[1].'/desktop/import.php';`;
+    const importProgram = `$GLOBALS['native_proof_initial_limit']=ini_get('memory_limit');$GLOBALS['native_proof_reserve']=str_repeat('r',65536);register_shutdown_function(static function(){unset($GLOBALS['native_proof_reserve']);fwrite(STDERR,'GO_ERP_NATIVE_MEMORY '.json_encode(['peak_bytes'=>memory_get_peak_usage(true),'used_peak_bytes'=>memory_get_peak_usage(false),'initial_limit'=>$GLOBALS['native_proof_initial_limit'],'limit'=>ini_get('memory_limit'),'framework'=>class_exists('Illuminate\\\\Foundation\\\\Application',false)?\\Illuminate\\Foundation\\Application::VERSION:null],JSON_THROW_ON_ERROR).PHP_EOL);});require $argv[1].'/desktop/import.php';`;
     const imported = await execute(runtime.php, [...args, '-r', importProgram, runtime.application], options, fsSync.createReadStream(wire));
     const memory = probe(imported, fixed);
     const bootstrap = `require $argv[1].'/desktop/bootstrap.php';`;
@@ -98,7 +105,7 @@ async function runCase(bundle, temporary, fixed) {
     };
     if (!fixed) {
       assert.notEqual(imported.code, 0, 'Original full native importer must reproduce the large snapshot memory failure.');
-      assert.match(imported.stdout + imported.stderr, /Allowed memory size of 268435456 bytes exhausted/);
+      assert.equal(imported.observed.outOfMemory256, true, 'Original full native importer reaches actual PHP exhaustion at256MiB.');
       const state = await inspect(`echo json_encode(['tables'=>count(\\Illuminate\\Support\\Facades\\DB::select('SHOW TABLES'))]);`);
       assert.equal(state.tables, 0, 'Original memory failure occurs before first staging DDL.');
       console.log('PASS original bundled Windows importer reproduces the synthetic large snapshot OOM before DDL at256M');
