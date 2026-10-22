@@ -1,0 +1,25 @@
+name: GO ERP verified public image repair
+on:
+  push:
+    branches: [codex/go-erp-media-repair-20261022]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  repair-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          extensions: pdo_sqlite, fileinfo
+      - name: Verify actual files, SQLite transactions and repair failure guards
+        run: |
+          php -l deployment/go_erp_media_file_repair.php
+          php -l deployment/repair_go_erp_media.php
+          php tests/go_erp_media_file_repair_test.php
+          python3 -B -m unittest discover -s tests -p test_go_erp_media_backup_stage.py
+          bash -n deployment/repair_go_erp_media_root.sh
