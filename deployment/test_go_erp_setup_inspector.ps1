@@ -16,6 +16,7 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 [IO.File]::WriteAllText((Join-Path $application 'desktop/database.php'), @'
 <?php
 fwrite(STDERR, "CI_RAW_SECRET_MUST_NOT_APPEAR\n");
+fwrite(STDOUT, "Fatal error: Allowed memory size of 268435456 bytes exhausted in CI_STDOUT_SECRET_MUST_NOT_APPEAR\n");
 fwrite(STDERR, 'DESKTOP_IMPORT_DIAGNOSTIC '.json_encode([
     'phase'=>'import', 'type'=>'RuntimeException', 'file'=>'fixture.php', 'line'=>7, 'status'=>null
 ])."\n");
@@ -91,10 +92,10 @@ try {
     if ($response.PSObject.Properties['error'] -or $response.result.PSObject.Properties['exceptionDetails'] -or $response.result.result.value -cne 'CI_FIXTURE_SCHEDULED') { throw 'FIXTURE_CALL_FAILED' }
     try { [void]($socket.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'fixture scheduled', $cancel.Token).GetAwaiter().GetResult()) } catch {}
     $socket.Dispose(); $socket = $null; $cancel.Dispose()
-    if (-not $diagnostic.WaitForExit(60000) -or $diagnostic.ExitCode -ne 0) { throw ('DIAGNOSTIC_CAPTURE_FAILED:' + (Get-FixedDiagnosticFailure)) }
+    if (-not $diagnostic.WaitForExit(60000)) { throw 'DIAGNOSTIC_DID_NOT_EXIT' }
     $output = [IO.File]::ReadAllText($stdoutPath)
     $errorOutput = [IO.File]::ReadAllText($stderrPath)
-    if ($output.Contains('CI_RAW_SECRET_MUST_NOT_APPEAR') -or $output.Contains('CI_SYNTHETIC_ONLY') -or $errorOutput.Contains('CI_RAW_SECRET_MUST_NOT_APPEAR') -or $errorOutput.Contains('CI_SYNTHETIC_ONLY')) { throw 'PRIVATE_VALUE_LEAKED' }
+    if ($output.Contains('CI_RAW_SECRET_MUST_NOT_APPEAR') -or $output.Contains('CI_STDOUT_SECRET_MUST_NOT_APPEAR') -or $output.Contains('CI_SYNTHETIC_ONLY') -or $errorOutput.Contains('CI_RAW_SECRET_MUST_NOT_APPEAR') -or $errorOutput.Contains('CI_STDOUT_SECRET_MUST_NOT_APPEAR') -or $errorOutput.Contains('CI_SYNTHETIC_ONLY')) { throw 'PRIVATE_VALUE_LEAKED' }
     $resultLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('GO_ERP_SETUP_DIAGNOSTIC ') })
     if ($resultLines.Count -ne 1) { throw 'DIAGNOSTIC_RESULT_MISSING' }
     $result = $resultLines[0].Substring(24) | ConvertFrom-Json
@@ -104,7 +105,14 @@ try {
     if (@(Compare-Object @($result.import.PSObject.Properties.Name | Sort-Object) @('file','line','phase','status','type')).Count -ne 0) { throw 'UNEXPECTED_IMPORT_FIELD' }
     $fatalKeys = @('phpFatal','phpParse','outOfMemory','phpStartup','accessDenied','connectionRefused','missingExtension','missingFile') | Sort-Object
     if (@(Compare-Object @($result.fatal.PSObject.Properties.Name | Sort-Object) $fatalKeys).Count -ne 0) { throw 'UNEXPECTED_FATAL_FIELD' }
-    foreach ($key in $fatalKeys) { if ($result.fatal.$key -isnot [bool] -or $result.fatal.$key) { throw 'FATAL_CLASSIFICATION_DIFFERS' } }
+    foreach ($key in $fatalKeys) { if ($result.fatal.$key -isnot [bool] -or $result.fatal.$key -ne ($key -cin @('phpFatal', 'outOfMemory'))) { throw 'FATAL_CLASSIFICATION_DIFFERS' } }
+    Write-Output 'GO_ERP_CI_CAPTURE_VALIDATED'
+    if ($diagnostic.ExitCode -ne 0) {
+        $httpReachable = $false
+        try { $null = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2; $httpReachable = $true } catch {}
+        Write-Output ('GO_ERP_CI_LISTENER ' + (@{ httpReachable = $httpReachable; appExited = $appProcess.HasExited } | ConvertTo-Json -Compress))
+        throw ('DIAGNOSTIC_CAPTURE_FAILED:' + (Get-FixedDiagnosticFailure))
+    }
     if (@($output -split '\r?\n' | Where-Object { $_ -ceq 'GO_ERP_INSPECTOR_CLOSED' }).Count -ne 1) { throw 'INSPECTOR_CLEANUP_NOT_CONFIRMED' }
     $stillListening = $true
     try { $null = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }

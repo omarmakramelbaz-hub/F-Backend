@@ -7,6 +7,7 @@ $goExpectedSource = '4a0ab46d8a7d79ad4842879fb83e5ea08276d795fdeb538ac416b220c05
 $goSocket = $null; $goBreakpoint = $null; $goPaused = $false
 $goTarget = $null; $goPort = 0; $goCaptured = $false; $goClosed = $true; $goBound = $false
 $goPhase = 'preflight'
+$goNativeInspectorUrl = $null
 $goCleanup = New-Object System.Collections.Generic.List[string]
 $goSequence = 0; $goEvents = New-Object System.Collections.Queue
 $goScripts = New-Object System.Collections.Generic.List[object]
@@ -147,8 +148,8 @@ try {
 (()=>{const script=typeof args[2]==='string'?args[2].split(/[\\/]/).pop():'';
 const executable=typeof file==='string'?file.split(/[\\/]/).pop():'';
 const operation=executable==='mariadb-install-db.exe'?'database-initialize':script==='database.php'?(args[3]==='stage'?'database-stage':args[3]==='shutdown'?'database-shutdown':'database-ready'):({'import.php':'import','verify.php':'verify','verify-media.php':'verify-media','archive.php':'archive'}[script]||'unknown');
-const tail=child.stderrTail();
-return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow,timedOut:cause.timedOut,...(cause.import?{import:{phase:cause.import.phase,type:cause.import.type,file:cause.import.file,line:cause.import.line,status:cause.import.status}}:{}),fatal:{phpFatal:/PHP Fatal error:/i.test(tail),phpParse:/PHP Parse error:/i.test(tail),outOfMemory:/Allowed memory size of [0-9]+ bytes exhausted|Out of memory/i.test(tail),phpStartup:/PHP (?:Warning: )?PHP Startup:|PHP Startup:/i.test(tail),accessDenied:/Access denied for user/i.test(tail),connectionRefused:/SQLSTATE\[HY000\] \[2002\]|actively refused|Connection refused/i.test(tail),missingExtension:/Unable to load dynamic library|could not find driver|Call to undefined function/i.test(tail),missingFile:/Could not open input file:|Failed opening required/i.test(tail)}})})()
+const text=child.stderrTail()+'\n'+output.slice(-8000);
+return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow,timedOut:cause.timedOut,...(cause.import?{import:{phase:cause.import.phase,type:cause.import.type,file:cause.import.file,line:cause.import.line,status:cause.import.status}}:{}),fatal:{phpFatal:/(?:PHP )?Fatal error:/i.test(text),phpParse:/(?:PHP )?Parse error:/i.test(text),outOfMemory:/Allowed memory size of [0-9]+ bytes exhausted|(?:PHP )?Fatal error:\s*Out of memory/i.test(text),phpStartup:/PHP (?:Warning: )?PHP Startup:|PHP Startup:/i.test(text),accessDenied:/Access denied for user/i.test(text),connectionRefused:/SQLSTATE\[HY000\] \[2002\]|actively refused|Connection refused/i.test(text),missingExtension:/Unable to load dynamic library|could not find driver|Call to undefined function/i.test(text),missingFile:/Could not open input file:|Failed opening required/i.test(text)}})})()
 '@
     $goPhase = 'capture'
     $evaluation = Go-Command 'Debugger.evaluateOnCallFrame' @{ callFrameId = $frame.callFrameId; expression = $expression; returnByValue = $true; silent = $true }
@@ -183,6 +184,7 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
                 if ($action -ceq 'close') {
                     # Closing the active inspector has no CDP reply. Send once,
                     # then close this WebSocket and verify the listener below.
+                    try { $goNativeInspectorUrl = [bool](Go-Evaluate 'Boolean(process.getBuiltinModule("node:inspector").url())') } catch {}
                     [void](Go-Send 'Runtime.evaluate' @{ expression = 'process.getBuiltinModule("node:inspector").close()'; silent = $true })
                 }
                 $goCleanup.Add($action + '-ok')
@@ -205,7 +207,7 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
     if ($goClosed -and $goTarget) { Write-Output 'GO_ERP_INSPECTOR_CLOSED' }
     if (!$goClosed) {
         Write-Output 'GO_ERP_INSPECTOR_CLOSE_PROGRAM_USING_ITS_EXIT_MENU'
-        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
+        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; nativeInspectorUrl = $goNativeInspectorUrl; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
     }
 }
 if (!$goCaptured -or !$goClosed) { exit 1 }
