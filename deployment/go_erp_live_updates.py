@@ -903,6 +903,16 @@ class Worker:
             if desired.get('status') == 'blocked':
                 return 'GO_ERP_LIVE_UPDATE_CI_REVIEW_REQUIRED'
             if desired.get('status') == 'retry-build':
+                if desired.get('pushed'):
+                    # An exact rerun may have recovered this candidate during
+                    # its build backoff. Keep all publication checks, and only
+                    # replace it if CI still reports a completed failure.
+                    self.guard_live(current, force=True)
+                    try:
+                        return self.fetch_accepted(desired) or 'GO_ERP_LIVE_UPDATE_WAITING_CI'
+                    except WatchError as error:
+                        if str(error) != 'GO_ERP_LIVE_CI_FAILED':
+                            raise
                 failures = desired['failures']
                 self.retire_candidate(desired)
                 desired = self.prepare(snapshot)

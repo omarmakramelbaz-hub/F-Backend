@@ -291,10 +291,12 @@ class CheckoutPolicyUpgradeTests(unittest.TestCase):
         with self.assertRaises(subject.Stop):subject.execute([])
 
 class CheckoutPolicyPayloadBindingTests(unittest.TestCase):
-    def test_new_runtime_pins_match_all_five_current_release_files(self):
+    def test_new_runtime_pins_match_all_five_immutable_v2_release_files(self):
         self.assertEqual(set(subject.PINS),set(subject.ROSTER))
         for name,pin in subject.PINS.items():
-            self.assertEqual(subject.blob((REPO/'deployment'/name).read_bytes()),pin,name)
+            raw=subprocess.check_output(['git','-c','safe.directory='+str(REPO),'-C',str(REPO),
+                'show','b2adc9953bde8c501ba52f0f56636d91a0dff75d:deployment/'+name])
+            self.assertEqual(subject.blob(raw),pin,name)
         self.assertEqual(subject.PINS['publish_go_erp_update.py'],subject.OLD_PINS['publish_go_erp_update.py'])
     def test_predecessor_pins_match_all_five_immutable_v1_release_files(self):
         self.assertEqual(set(subject.OLD_PINS),set(subject.ROSTER))

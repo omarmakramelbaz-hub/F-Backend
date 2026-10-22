@@ -293,6 +293,43 @@ class RootWorkerTests(unittest.TestCase):
         values['go-erp-live-source-acceptance.json'] = worker.canonical(proof)
         return values
 
+    def accepted_ci(self, value, desired, values=None):
+        runs = {name: run(name, desired['commit'], 500 + index)
+                for index, name in enumerate(worker.WORKFLOWS)}
+        runs['whatsapp-integrated-regressions.yml']['run_attempt'] = 2
+        jobs = {name: [{'name': job, 'status': 'completed', 'conclusion': 'success',
+                       'run_id': record['id'], 'head_sha': desired['commit'], 'run_attempt': record['run_attempt']}
+                      for job in sorted(worker.WORKFLOWS[name])] for name, record in runs.items()}
+        raw = self.archive(values or self.proof_files(desired)).read_bytes()
+        artifact = {'id': 12, 'name': worker.ARTIFACT, 'expired': False,
+                    'digest': 'sha256:' + sha(raw), 'size_in_bytes': len(raw),
+                    'workflow_run': {'id': 500, 'repository_id': worker.REPOSITORY_ID,
+                                     'head_repository_id': worker.REPOSITORY_ID,
+                                     'head_sha': desired['commit'], 'head_branch': worker.BRANCH}}
+        calls, downloads = [], []
+        def pages(path, key):
+            calls.append((path, key))
+            if key == 'workflow_runs':
+                for name, record in runs.items():
+                    if '/actions/workflows/' + name + '/runs?' in path:
+                        return [record] if record is not None and 'head_sha=' + desired['commit'] in path else []
+            if key == 'jobs':
+                for name, record in runs.items():
+                    if record and path == ('/repos/' + worker.REPOSITORY + '/actions/runs/' + str(record['id'])
+                                           + '/attempts/' + str(record['run_attempt']) + '/jobs'):
+                        return jobs[name]
+            if key == 'artifacts' and path == '/repos/' + worker.REPOSITORY + '/actions/runs/500/artifacts':
+                return [artifact]
+            self.fail('Unexpected synthetic GitHub request: ' + path)
+        url = 'https://api.github.com/repos/' + worker.REPOSITORY + '/actions/artifacts/12/zip'
+        transport = worker.GitHub('synthetic-ci-token', Opener([Response(raw, url)]))
+        def download(*args):
+            downloads.append(args[0])
+            return transport.download(*args)
+        value.client.pages, value.client.download = pages, download
+        value.client.json = lambda path, missing=False: {'object': {'sha': desired['commit']}}
+        return types.SimpleNamespace(runs=runs, jobs=jobs, calls=calls, downloads=downloads)
+
     def test_download_stream_checks_size_hash_deadline_and_live_heartbeat(self):
         payload = b'0123456789' * 10000
         url = 'https://api.github.com/repos/' + worker.REPOSITORY + '/actions/artifacts/1/zip'
@@ -441,6 +478,151 @@ class RootWorkerTests(unittest.TestCase):
         self.assertEqual((self.live / 'storage/app/desktop-updates' / (current['installer']['sha256'] + '.exe')).read_bytes(), values['GO-ERP-Preview-Setup.exe'])
         self.assertEqual(list((self.work / 'staging').iterdir()), [])
         self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_CURRENT')
+
+    def test_retry_build_publishes_exact_successful_rerun_without_a_replacement_candidate(self):
+        value = self.make_worker()
+        value.clock = lambda: 1000
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        desired = value.state['desired']
+        previous = publisher.validate_receipt(self.receipt('0.4.4-preview.6', 400, 'b' * 40))
+        value.state.update({'published': {'inventorySha256': 'f' * 64, 'commit': 'b' * 40, 'release': previous},
+                            'published_history': [previous], 'sequence_floor': 400, 'version_floor': previous['version']})
+        ci = self.accepted_ci(value, desired)
+        messaging = ci.runs['whatsapp-integrated-regressions.yml']
+        messaging.update({'run_attempt': 1, 'conclusion': 'cancelled'})
+        with self.assertRaisesRegex(worker.WatchError, '^GO_ERP_LIVE_CI_FAILED$'):
+            value.tick()
+        self.assertEqual((desired['status'], desired['failures'], desired['retry_at']), ('retry-build', 1, 1900))
+        before = copy.deepcopy(desired)
+        messaging.update({'run_attempt': 2, 'conclusion': 'success'})
+        value.clock = lambda: 1900
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_PUBLISHED')
+        self.assertEqual(value.state['desired'], {**before, 'status': 'published'})
+        self.assertEqual(value.state['counter'], 7)
+        self.assertEqual(len(self.pushes), 1)
+        self.assertEqual(value.state['last_remote_sha'], before['commit'])
+        current = publisher.read_json(self.live / 'storage/app/desktop-updates/current.json', root_owned=True)
+        self.assertEqual((current['source_revision'], current['version']), (before['commit'], before['version']))
+        self.assertEqual(value.state['published']['release'], current)
+        self.assertEqual(value.state['published_history'], [previous, current])
+        self.assertEqual((value.state['sequence_floor'], value.state['version_floor']), (500, before['version']))
+        self.assertIn(('/repos/' + worker.REPOSITORY + '/actions/runs/502/attempts/2/jobs', 'jobs'), ci.calls)
+        self.assertEqual(ci.downloads, [12])
+        self.assertEqual(list((self.work / 'staging').iterdir()), [])
+        self.assertNotIn(value.config['token'], value.state_file.read_text())
+
+    def test_retry_build_retains_pending_or_missing_reruns_without_spending_another_failure(self):
+        value = self.make_worker()
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        desired = value.state['desired']
+        desired.update({'status': 'retry-build', 'failures': 1, 'retry_at': 900})
+        value.clock = lambda: 1000
+        before = copy.deepcopy(desired)
+        ci = self.accepted_ci(value, desired)
+        messaging = copy.deepcopy(ci.runs['whatsapp-integrated-regressions.yml'])
+        for status in ('queued', 'in_progress', None):
+            ci.runs['whatsapp-integrated-regressions.yml'] = ({**messaging, 'status': status, 'conclusion': None}
+                                                            if status is not None else None)
+            with self.subTest(status=status):
+                self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+                self.assertEqual(value.state['desired'], before)
+                self.assertEqual(value.state['counter'], 7)
+                self.assertEqual(len(self.pushes), 1)
+                self.assertFalse((self.live / 'storage/app/desktop-updates/current.json').exists())
+        self.assertEqual(ci.downloads, [])
+
+    def test_retry_build_replaces_only_a_still_failed_candidate_after_its_existing_backoff(self):
+        value = self.make_worker()
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        desired = value.state['desired']
+        desired.update({'status': 'retry-build', 'failures': 1, 'retry_at': 900})
+        value.clock = lambda: 1000
+        ci = self.accepted_ci(value, desired)
+        ci.runs['whatsapp-integrated-regressions.yml']['conclusion'] = 'failure'
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        replacement = value.state['desired']
+        self.assertNotEqual(replacement['commit'], desired['commit'])
+        self.assertEqual(replacement['version'], '0.4.4-preview.8')
+        self.assertEqual((replacement['failures'], replacement['retry_at'], replacement['status']), (1, 0, 'waiting-ci'))
+        self.assertEqual(value.state['counter'], 8)
+        self.assertEqual(len(self.pushes), 2)
+        self.assertEqual(ci.downloads, [])
+        self.assertFalse((self.live / 'storage/app/desktop-updates/current.json').exists())
+
+    def test_recovered_ci_cannot_bypass_active_backoff_or_the_blocked_review_gate(self):
+        value = self.make_worker()
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        desired = value.state['desired']
+        value.clock = lambda: 1000
+        ci = self.accepted_ci(value, desired)
+        for status, failures, retry_at, result in [('retry-build', 1, 1001, 'GO_ERP_LIVE_UPDATE_RETRY_DEFERRED'),
+                                                  ('blocked', 3, 900, 'GO_ERP_LIVE_UPDATE_CI_REVIEW_REQUIRED')]:
+            desired.update({'status': status, 'failures': failures, 'retry_at': retry_at})
+            before = copy.deepcopy(desired)
+            with self.subTest(status=status):
+                self.assertEqual(value.tick(), result)
+                self.assertEqual(value.state['desired'], before)
+                self.assertEqual(value.state['counter'], 7)
+                self.assertEqual(len(self.pushes), 1)
+                self.assertEqual(ci.calls, [])
+                self.assertEqual(ci.downloads, [])
+
+    def test_retry_build_retains_exact_job_proof_transport_and_sequence_acceptance_guards(self):
+        value = self.make_worker()
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        value.state['desired'].update({'status': 'retry-build', 'failures': 1, 'retry_at': 900})
+        value.clock = lambda: 1000
+        before = copy.deepcopy(value.state)
+        for fault, code in [('old-job-attempt', 'CI_JOB_ACCEPTANCE_INCOMPLETE'),
+                            ('proof', 'CI_LIVE_PROOF_MISMATCH'),
+                            ('transport', 'GITHUB_REQUEST_FAILED'),
+                            ('sequence', 'RELEASE_SEQUENCE_ROLLBACK')]:
+            value.state = copy.deepcopy(before)
+            desired = value.state['desired']
+            values = self.proof_files(desired)
+            if fault == 'proof':
+                proof = json.loads(values['go-erp-live-source-acceptance.json'])
+                proof['revision'] = 'f' * 40
+                values['go-erp-live-source-acceptance.json'] = worker.canonical(proof)
+            ci = self.accepted_ci(value, desired, values)
+            if fault == 'old-job-attempt':
+                ci.jobs['whatsapp-integrated-regressions.yml'][0]['run_attempt'] = 1
+            elif fault == 'transport':
+                def unavailable(path, key):
+                    raise worker.WatchError('GO_ERP_LIVE_GITHUB_REQUEST_FAILED')
+                value.client.pages = unavailable
+            elif fault == 'sequence':
+                value.state['sequence_floor'] = 500
+            with self.subTest(fault=fault), self.assertRaisesRegex(worker.WatchError, '^GO_ERP_LIVE_' + code + '$'):
+                value.tick()
+            self.assertEqual((desired['commit'], desired['version']),
+                             (before['desired']['commit'], before['desired']['version']))
+            self.assertEqual((desired['status'], desired['failures']), ('retry-build', 2))
+            self.assertEqual(value.state['counter'], before['counter'])
+            self.assertEqual(value.state['last_remote_sha'], before['last_remote_sha'])
+            self.assertEqual(len(self.pushes), 1)
+            self.assertFalse((self.live / 'storage/app/desktop-updates/current.json').exists())
+            self.assertEqual(list((self.work / 'staging').iterdir()), [])
+
+    def test_retry_build_superseded_during_download_never_publishes_or_rebuilds_that_tick(self):
+        value = self.make_worker()
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_WAITING_CI')
+        desired = value.state['desired']
+        desired.update({'status': 'retry-build', 'failures': 1, 'retry_at': 900})
+        value.clock = lambda: 1000
+        self.accepted_ci(value, desired)
+        download = value.client.download
+        def changed_download(*args):
+            self.write('public/css/site.css', b'body {color: changed-during-rerun-download;}\n')
+            value.live_due = 0
+            return download(*args)
+        value.client.download = changed_download
+        self.assertEqual(value.tick(), 'GO_ERP_LIVE_UPDATE_SUPERSEDED')
+        self.assertIsNone(value.state['desired'])
+        self.assertEqual(value.state['counter'], 7)
+        self.assertEqual(len(self.pushes), 1)
+        self.assertFalse((self.live / 'storage/app/desktop-updates/current.json').exists())
+        self.assertEqual(list((self.work / 'staging').iterdir()), [])
 
     def test_stale_attempt_run_candidate_receipt_and_package_proofs_cannot_publish(self):
         value = self.make_worker()

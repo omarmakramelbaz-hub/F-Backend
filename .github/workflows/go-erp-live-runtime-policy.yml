@@ -1,7 +1,7 @@
 name: GO ERP live compiler policy upgrade
 on:
   push:
-    branches: [codex/go-erp-live-runtime-policy-20261022, codex/go-erp-baseline-checkout-fix-20261022]
+    branches: [codex/go-erp-live-runtime-policy-20261022, codex/go-erp-baseline-checkout-fix-20261022, codex/go-erp-ci-rerun-recovery-20261022]
   pull_request:
     paths:
       - 'deployment/go_erp_live_source.py'
@@ -10,12 +10,14 @@ on:
       - 'deployment/verify_go_erp_current_candidate_ci.py'
       - 'deployment/upgrade_go_erp_live_runtime_root.*'
       - 'deployment/upgrade_go_erp_checkout_policy_root.*'
+      - 'deployment/upgrade_go_erp_ci_retry_root.*'
       - 'tests/test_go_erp_live_candidate_policy.py'
       - 'tests/test_go_erp_live_worker_policy.py'
       - 'tests/test_go_erp_live_runtime_upgrade_root.py'
       - 'tests/test_go_erp_live_runtime_upgrade_wrapper_root.py'
       - 'tests/test_go_erp_historical_checkout_ci.py'
       - 'tests/test_go_erp_checkout_policy_upgrade*.py'
+      - 'tests/test_go_erp_ci_retry_upgrade*.py'
       - '.github/workflows/go-erp-live-runtime-policy.yml'
 permissions:
   contents: read
@@ -39,6 +41,7 @@ jobs:
         run: |
           git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 75c3fe50b3609ef5822904a23d7c4ed0afd07eff
           git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin 6dcc70f8fa78ee9ab93ea8acf08cb405bb690216
+          git -c gc.auto=0 fetch --quiet --no-tags --no-recurse-submodules --depth=1 origin b2adc9953bde8c501ba52f0f56636d91a0dff75d
       - name: Reproduce the historical gitlink and verify credential-free checkout
         run: python3 -B tests/test_go_erp_historical_checkout_ci.py
       - name: Verify live inventory, deterministic compiler policy, and retry behavior
@@ -55,6 +58,8 @@ jobs:
           python3 -B tests/test_go_erp_live_runtime_upgrade_wrapper_root.py
           sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_checkout_policy_upgrade_root.py
           python3 -B tests/test_go_erp_checkout_policy_upgrade_wrapper_root.py
+          sudo -n -- env GO_ERP_TEST_REQUIRE_REAL_CHOWN=1 python3 -B tests/test_go_erp_ci_retry_upgrade_root.py
+          python3 -B tests/test_go_erp_ci_retry_upgrade_wrapper_root.py
       - name: Recheck the offline preparation memory fix
         run: |
           baseline_dir=$(mktemp -d "$RUNNER_TEMP/go-erp-memory-baseline.XXXXXXXX")
@@ -66,3 +71,4 @@ jobs:
         run: |
           bash -n deployment/upgrade_go_erp_live_runtime_root.sh
           bash -n deployment/upgrade_go_erp_checkout_policy_root.sh
+          bash -n deployment/upgrade_go_erp_ci_retry_root.sh
