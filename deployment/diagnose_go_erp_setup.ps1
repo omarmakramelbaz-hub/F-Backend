@@ -67,7 +67,9 @@ function Go-PortOpen {
     $tcp = New-Object Net.Sockets.TcpClient
     try {
         $pending = $tcp.ConnectAsync('127.0.0.1', $script:goPort)
-        if (!$pending.Wait(500)) { return $true } # An uncertain connection is not proof of closure.
+        # Windows may need about two seconds to report a refused loopback
+        # connection. Keep the same attempt alive long enough to observe it.
+        if (!$pending.Wait(3000)) { return $true } # An uncertain connection is not proof of closure.
         [void]($pending.GetAwaiter().GetResult()); return $true
     } catch {
         $reason = $_.Exception

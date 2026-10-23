@@ -327,6 +327,28 @@ try {
     $install = Start-Process -FilePath $InstallerPath -ArgumentList @('/S', ('/D=' + $installed)) -PassThru
     if (-not $install.WaitForExit(300000) -or $install.ExitCode -ne 0) { throw 'CI_INSTALL_FAILED' }
     $script = Join-Path $PSScriptRoot 'diagnose_go_erp_setup.ps1'
+    # Exercise the exact production probe with a controlled local listener.
+    # No short timeout may be mistaken for proof that the port is closed.
+    $parseErrors = $null; $parseTokens = $null
+    $parsedScript = [Management.Automation.Language.Parser]::ParseFile($script, [ref]$parseTokens, [ref]$parseErrors)
+    if ($parseErrors.Count) { throw 'CI_PRODUCTION_SCRIPT_PARSE_FAILED' }
+    $portFunction = @($parsedScript.FindAll({param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Go-PortOpen'
+    }, $true))
+    if ($portFunction.Count -ne 1) { throw 'CI_PORT_PROBE_FUNCTION_DIFFERS' }
+    Invoke-Expression $portFunction[0].Extent.Text
+    $probeListener = New-Object Net.Sockets.TcpListener -ArgumentList @([Net.IPAddress]::Loopback, 0)
+    try {
+        $probeListener.Start()
+        $script:goPort = $probeListener.LocalEndpoint.Port
+        if ((Go-PortOpen) -ne $true) { throw 'CI_LIVE_PORT_REPORTED_CLOSED' }
+        $probeListener.Stop()
+        $probeWatch = [Diagnostics.Stopwatch]::StartNew()
+        $closedPortResult = Go-PortOpen
+        $probeWatch.Stop()
+        if ($closedPortResult -ne $false) { throw 'CI_CLOSED_PORT_NOT_CONFIRMED' }
+        Write-Output ('GO_ERP_CI_PORT_PROBE ' + (@{liveDetected=$true;refusalDetected=$true;closedElapsedMs=$probeWatch.ElapsedMilliseconds} | ConvertTo-Json -Compress))
+    } finally { $probeListener.Stop() }
     $diagnostic = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"')) -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
     $ready = $null; $launched = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
