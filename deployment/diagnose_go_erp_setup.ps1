@@ -1,11 +1,11 @@
 # Windows PowerShell 5.1. Captures only fixed classifications on the next normal Prepare click.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
-$goExpectedVersion = '0.4.4-preview.25'
-$goExpectedRevision = 'a0178ead801e8d39185cd0830171804141767995'
+$goExpectedVersion = '0.4.4-preview.30'
+$goExpectedRevision = 'c6605145f740371485944aed1a04045efe71e828'
 $goExpectedSource = '4a0ab46d8a7d79ad4842879fb83e5ea08276d795fdeb538ac416b220c054dafc'
 $goSocket = $null; $goBreakpoint = $null; $goPaused = $false
-$goTarget = $null; $goPort = 0; $goCaptured = $false; $goClosed = $true; $goBound = $false
+$goTarget = $null; $goExited = $false; $goPort = 0; $goCaptured = $false; $goClosed = $true; $goBound = $false
 $goPhase = 'preflight'
 $goCleanup = New-Object System.Collections.Generic.List[string]
 $goSequence = 0; $goEvents = New-Object System.Collections.Queue
@@ -13,6 +13,7 @@ $goScripts = New-Object System.Collections.Generic.List[object]
 $goDeadline = [DateTime]::UtcNow.AddSeconds(600)
 $goCancel = New-Object System.Threading.CancellationTokenSource
 $goCancel.CancelAfter(610000)
+Write-Output 'If a startup error dialog appears, dismiss it normally. Wait for GO_ERP_INSPECTOR_READY before choosing Prepare.'
 function Go-Receive {
     $stream = New-Object System.IO.MemoryStream
     try {
@@ -78,7 +79,7 @@ try {
     if ($PSVersionTable.PSVersion.Major -lt 5) { throw 'GO_ERP_POWERSHELL_5_REQUIRED' }
     if (@(Get-Process -Name 'GO ERP' -ErrorAction SilentlyContinue).Count) { throw 'GO_ERP_CLOSE_PROGRAM_USING_ITS_EXIT_MENU_FIRST' }
     $installed = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FasakhanstaDashboardPreview'
-    if ($installed.DisplayVersion -cne $goExpectedVersion -or $installed.UninstallString -cnotmatch '^"([A-Za-z]:\\[^"]+)\\Uninstall\.exe"$') { throw 'GO_ERP_EXACT_PREVIEW_25_REQUIRED' }
+    if ($installed.DisplayVersion -cne $goExpectedVersion -or $installed.UninstallString -cnotmatch '^"([A-Za-z]:\\[^"]+)\\Uninstall\.exe"$') { throw 'GO_ERP_EXACT_PREVIEW_30_REQUIRED' }
     $directory = $Matches[1]
     $executable = Join-Path $directory 'GO ERP.exe'
     $receipt = Get-Content -LiteralPath (Join-Path $directory 'resources\desktop-build.json') -Raw | ConvertFrom-Json
@@ -88,6 +89,7 @@ try {
     Write-Output 'Wait for GO_ERP_INSPECTOR_READY before clicking Prepare.'
     $goPhase = 'launch'
     $goTarget = Start-Process -FilePath $executable -ArgumentList @("--inspect=127.0.0.1:$goPort") -PassThru
+    Write-Output ('GO_ERP_INSPECTOR_STARTED ' + (@{ Port = $goPort; Pid = $goTarget.Id } | ConvertTo-Json -Compress))
     $goClosed = $false
     $endpointDeadline = [DateTime]::UtcNow.AddSeconds(20)
     $target = $null
@@ -146,7 +148,9 @@ try {
 const executable=typeof file==='string'?file.split(/[\\/]/).pop():'';
 const operation=executable==='mariadb-install-db.exe'?'database-initialize':script==='database.php'?(args[3]==='stage'?'database-stage':args[3]==='shutdown'?'database-shutdown':'database-ready'):({'import.php':'import','verify.php':'verify','verify-media.php':'verify-media','archive.php':'archive'}[script]||'unknown');
 const text=child.stderrTail()+'\n'+output.slice(-8000);
-return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow,timedOut:cause.timedOut,...(cause.import?{import:{phase:cause.import.phase,type:cause.import.type,file:cause.import.file,line:cause.import.line,status:cause.import.status}}:{}),fatal:{phpFatal:/(?:PHP )?Fatal error:/i.test(text),phpParse:/(?:PHP )?Parse error:/i.test(text),outOfMemory:/Allowed memory size of [0-9]+ bytes exhausted|(?:PHP )?Fatal error:\s*Out of memory/i.test(text),phpStartup:/PHP (?:Warning: )?PHP Startup:|PHP Startup:/i.test(text),accessDenied:/Access denied for user/i.test(text),connectionRefused:/SQLSTATE\[HY000\] \[2002\]|actively refused|Connection refused/i.test(text),missingExtension:/Unable to load dynamic library|could not find driver|Call to undefined function/i.test(text),missingFile:/Could not open input file:|Failed opening required/i.test(text)}})})()
+const nativeCode=result instanceof Error&&['ENOENT','EACCES','EPERM','ENOMEM','ENOEXEC','ENAMETOOLONG','UNKNOWN'].includes(result.code)?result.code:null;
+const signal=['SIGTERM','SIGKILL'].includes(child.signalCode)?child.signalCode:null;
+return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow,timedOut:cause.timedOut,nativeCode,signal,...(cause.import?{import:{phase:cause.import.phase,type:cause.import.type,file:cause.import.file,line:cause.import.line,status:cause.import.status}}:{}),fatal:{phpFatal:/(?:PHP )?Fatal error:/i.test(text),phpParse:/(?:PHP )?Parse error:/i.test(text),outOfMemory:/Allowed memory size of [0-9]+ bytes exhausted|(?:PHP )?Fatal error:\s*Out of memory/i.test(text),phpStartup:/PHP (?:Warning: )?PHP Startup:|PHP Startup:/i.test(text),accessDenied:/Access denied for user/i.test(text),connectionRefused:/SQLSTATE\[HY000\] \[2002\]|actively refused|Connection refused/i.test(text),missingExtension:/Unable to load dynamic library|could not find driver|Call to undefined function/i.test(text),missingFile:/Could not open input file:|Failed opening required/i.test(text)}})})()
 '@
     $goPhase = 'capture'
     $evaluation = Go-Command 'Debugger.evaluateOnCallFrame' @{ callFrameId = $frame.callFrameId; expression = $expression; returnByValue = $true; silent = $true }
@@ -190,21 +194,23 @@ return JSON.stringify({operation,exitCode:cause.exitCode,overflow:cause.overflow
         } catch {} finally { $closeCancel.Dispose() }
         $goSocket.Abort(); $goSocket.Dispose()
     }
-    if ($goCaptured -and $goTarget -and !$goTarget.HasExited) {
-        Write-Output 'GO_ERP_DIAGNOSTIC_CAPTURED_CLOSE_PROGRAM_FROM_MENU'
+    if ($goTarget -and !$goTarget.HasExited) {
+        if ($goCaptured) { Write-Output 'GO_ERP_DIAGNOSTIC_CAPTURED_CLOSE_PROGRAM_FROM_MENU' }
+        else { Write-Output 'GO_ERP_DIAGNOSTIC_CLOSE_PROGRAM_FROM_MENU' }
         Write-Output 'Dismiss the preparation error, then use Program > Close program. Waiting up to two minutes for your normal exit.'
         $exitDeadline = [DateTime]::UtcNow.AddSeconds(120)
         while (!$goTarget.HasExited -and [DateTime]::UtcNow -lt $exitDeadline) { Start-Sleep -Milliseconds 250 }
     }
+    $goExited = [bool]($goTarget -and $goTarget.HasExited)
     if ($goPort -gt 0) {
         $closeDeadline = [DateTime]::UtcNow.AddSeconds(5)
         do { $goClosed = !(Go-PortOpen); if (!$goClosed) { Start-Sleep -Milliseconds 100 } } until ($goClosed -or [DateTime]::UtcNow -ge $closeDeadline)
     }
     $goCancel.Dispose()
-    if ($goClosed -and $goTarget) { Write-Output 'GO_ERP_INSPECTOR_CLOSED' }
-    if (!$goClosed) {
+    if ($goClosed -and $goExited) { Write-Output 'GO_ERP_INSPECTOR_CLOSED' }
+    if (!$goClosed -or ($goTarget -and !$goExited)) {
         Write-Output 'GO_ERP_INSPECTOR_CLOSE_PROGRAM_USING_ITS_EXIT_MENU'
-        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
+        Write-Output ('GO_ERP_INSPECTOR_CLEANUP ' + (@{ bound = $goBound; captured = $goCaptured; appExited = $goExited; actions = @($goCleanup.ToArray()) } | ConvertTo-Json -Compress))
     }
 }
-if (!$goCaptured -or !$goClosed) { exit 1 }
+if (!$goCaptured -or !$goClosed -or !$goExited) { exit 1 }

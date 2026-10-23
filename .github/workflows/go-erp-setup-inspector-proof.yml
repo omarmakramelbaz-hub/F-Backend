@@ -1,8 +1,8 @@
-name: Prove read-only GO ERP setup diagnostics on accepted preview25
+name: Prove attended GO ERP setup diagnostics on accepted preview30
 'on':
   workflow_dispatch:
   push:
-    branches: [codex/go-erp-setup-inspector-20261022]
+    branches: [codex/go-erp-setup-inspector30-20261023]
     paths:
       - deployment/diagnose_go_erp_setup.ps1
       - deployment/test_go_erp_setup_inspector.ps1
@@ -25,15 +25,15 @@ jobs:
           if ('${{ github.repository }}' -cne 'omarmakramelbaz-hub/F-Backend') { throw 'REPOSITORY_DIFFERS' }
           $headers = @{ Authorization = "Bearer $env:ARTIFACT_TOKEN"; Accept = 'application/vnd.github+json' }
           $base = 'https://api.github.com/repos/${{ github.repository }}/actions'
-          $run = Invoke-RestMethod -Headers $headers -Uri "$base/runs/39852237922"
-          if ($run.id -ne 39852237922 -or $run.run_attempt -ne 1 -or $run.head_sha -cne 'a0178ead801e8d39185cd0830171804141767995' -or $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or $run.repository.id -ne 1311412084 -or $run.head_repository.id -ne 1311412084) { throw 'ACCEPTED_RUN_DIFFERS' }
-          $artifact = Invoke-RestMethod -Headers $headers -Uri "$base/artifacts/12460343840"
-          if ($artifact.id -ne 12460343840 -or $artifact.expired -or $artifact.name -cne 'fasakhansta-dashboard-installer-preview' -or $artifact.size_in_bytes -ne 415495701 -or $artifact.digest -cne 'sha256:1abc96a0cfcbcdb25177b1691215c8d232731335e2a452728d35ce30432fc76d' -or $artifact.workflow_run.id -ne 39852237922 -or $artifact.workflow_run.head_sha -cne 'a0178ead801e8d39185cd0830171804141767995') { throw 'ACCEPTED_ARTIFACT_DIFFERS' }
+          $run = Invoke-RestMethod -Headers $headers -Uri "$base/runs/39872151507"
+          if ($run.id -ne 39872151507 -or $run.run_attempt -ne 1 -or $run.head_sha -cne 'c6605145f740371485944aed1a04045efe71e828' -or $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or $run.repository.id -ne 1311412084 -or $run.head_repository.id -ne 1311412084) { throw 'ACCEPTED_RUN_DIFFERS' }
+          $artifact = Invoke-RestMethod -Headers $headers -Uri "$base/artifacts/12467904684"
+          if ($artifact.id -ne 12467904684 -or $artifact.expired -or $artifact.name -cne 'fasakhansta-dashboard-installer-preview' -or $artifact.size_in_bytes -ne 415501243 -or $artifact.digest -cne 'sha256:419f6a014686a164db10d07b8df89dc1f930a3712a0fa35cf93c3ca8ac2b8b3d' -or $artifact.workflow_run.id -ne 39872151507 -or $artifact.workflow_run.head_sha -cne 'c6605145f740371485944aed1a04045efe71e828') { throw 'ACCEPTED_ARTIFACT_DIFFERS' }
       - name: Download accepted archive without rebuilding the app
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          artifact-ids: '12460343840'
-          run-id: '39852237922'
+          artifact-ids: '12467904684'
+          run-id: '39872151507'
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/inspector-download
           skip-decompress: true
@@ -43,16 +43,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $archives = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/inspector-download" -File -Recurse)
-          if ($archives.Count -ne 1 -or $archives[0].Length -ne 415495701 -or (Get-FileHash -LiteralPath $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne '1abc96a0cfcbcdb25177b1691215c8d232731335e2a452728d35ce30432fc76d') { throw 'ARCHIVE_BYTES_DIFFER' }
-          $archive = Join-Path $env:RUNNER_TEMP 'accepted-preview25.zip'
+          if ($archives.Count -ne 1 -or $archives[0].Length -ne 415501243 -or (Get-FileHash -LiteralPath $archives[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne '419f6a014686a164db10d07b8df89dc1f930a3712a0fa35cf93c3ca8ac2b8b3d') { throw 'ARCHIVE_BYTES_DIFFER' }
+          $archive = Join-Path $env:RUNNER_TEMP 'accepted-preview30.zip'
           Move-Item -LiteralPath $archives[0].FullName -Destination $archive
-          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/accepted-preview25"
-          $setup = Join-Path $env:RUNNER_TEMP 'accepted-preview25/GO-ERP-Preview-Setup.exe'
-          if ((Get-Item -LiteralPath $setup).Length -ne 415857288 -or (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne '73ca2b66ff142f90900dc0e5a7369f8d42695c234deeb0cd3524f0dd7f4f42e1') { throw 'INSTALLER_BYTES_DIFFER' }
-          $receipt = Get-Content -LiteralPath "$env:RUNNER_TEMP/accepted-preview25/installer-checks.json" -Raw | ConvertFrom-Json
-          if ($receipt.sourceRevision -cne 'a0178ead801e8d39185cd0830171804141767995' -or $receipt.version -cne '0.4.4-preview.25' -or $receipt.installation -ne $true -or $receipt.installer.sha256 -cne '73ca2b66ff142f90900dc0e5a7369f8d42695c234deeb0cd3524f0dd7f4f42e1') { throw 'ACCEPTANCE_RECEIPT_DIFFERS' }
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/accepted-preview30"
+          $setup = Join-Path $env:RUNNER_TEMP 'accepted-preview30/GO-ERP-Preview-Setup.exe'
+          if ((Get-Item -LiteralPath $setup).Length -ne 415858374 -or (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne '7fe210fdf6f81f66054e276a1753b7dce6d08e0ab799d05b4cc4a7cab2adbffa') { throw 'INSTALLER_BYTES_DIFFER' }
+          $receipt = Get-Content -LiteralPath "$env:RUNNER_TEMP/accepted-preview30/installer-checks.json" -Raw | ConvertFrom-Json
+          if ($receipt.sourceRevision -cne 'c6605145f740371485944aed1a04045efe71e828' -or $receipt.version -cne '0.4.4-preview.30' -or $receipt.installation -ne $true -or $receipt.installer.sha256 -cne '7fe210fdf6f81f66054e276a1753b7dce6d08e0ab799d05b4cc4a7cab2adbffa') { throw 'ACCEPTANCE_RECEIPT_DIFFERS' }
       - name: Exercise packaged main run failure with actual Windows PowerShell 5
         shell: powershell
         run: |
-          & ./deployment/test_go_erp_setup_inspector.ps1 -InstallerPath "$env:RUNNER_TEMP/accepted-preview25/GO-ERP-Preview-Setup.exe"
+          & ./deployment/test_go_erp_setup_inspector.ps1 -InstallerPath "$env:RUNNER_TEMP/accepted-preview30/GO-ERP-Preview-Setup.exe"
           if (-not $?) { throw 'INSPECTOR_PROOF_FAILED' }

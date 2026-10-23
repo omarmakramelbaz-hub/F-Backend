@@ -29,65 +29,300 @@ function Get-FixedDiagnosticFailure {
     if (-not (Test-Path -LiteralPath $stdoutPath)) { return 'NO_DIAGNOSTIC_OUTPUT' }
     return (@(Get-Content -LiteralPath $stdoutPath | Where-Object { $_ -cmatch '^GO_ERP_[A-Z0-9_]+$' -or $_.StartsWith('GO_ERP_DIAGNOSTIC_LOCATION ') -or $_.StartsWith('GO_ERP_INSPECTOR_CLEANUP ') } | Select-Object -Last 3) -join ',')
 }
+$script:ciSequence = 0; $script:ciOwnedPid = 0; $script:ciStartupDismissed = 0; $script:cancel = $null
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+namespace GoErpInspectorCi {
+    public enum DialogStatus {
+        NoDialog, Dismissed, UnexpectedDialog, AmbiguousDialog, UnsafeButton,
+        ChangedBeforeClick, EnumerationLimit, EnumerationFailed,
+        SendTimedOut, SendFailed, StillVisible
+    }
+    public sealed class DialogResult {
+        public DialogStatus Status;
+        public int VisibleDialogs;
+        public int ExactMessageMatches;
+        public bool ClickSent;
+    }
+    public static class StartupDialog {
+        // Exact application constant; no text from the window is ever returned.
+        private const string ExpectedMessage = "\u062c\u0647\u0651\u0632 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0646 \u062d\u0633\u0627\u0628 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u062f\u0648\u0646 \u0625\u0646\u062a\u0631\u0646\u062a.";
+        private const uint BM_CLICK = 0x00F5;
+        private const uint SendFlags = 0x0001 | 0x0002 | 0x0020;
+        private delegate bool EnumProc(IntPtr window, IntPtr parameter);
+
+        [DllImport("user32.dll", SetLastError=true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumWindows(EnumProc callback, IntPtr parameter);
+        [DllImport("user32.dll", SetLastError=true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr parameter);
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+        private static extern int GetWindowTextLength(IntPtr window);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr window, StringBuilder text, int capacity);
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindow(IntPtr window);
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindowEnabled(IntPtr window);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDlgItem(IntPtr parent, int item);
+        [DllImport("user32.dll")]
+        private static extern int GetDlgCtrlID(IntPtr window);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetParent(IntPtr window);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        private static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
+            UIntPtr wparam, IntPtr lparam, uint flags, uint timeout, out UIntPtr result);
+
+        private sealed class Observation {
+            public int VisibleDialogs;
+            public int ExactMessageMatches;
+            public int ExactDialogs;
+            public bool Unexpected;
+            public bool AmbiguousMessage;
+            public bool Limit;
+            public bool Failed;
+            public IntPtr Dialog;
+        }
+        private static bool Owned(IntPtr window, uint processId) {
+            uint owner;
+            return IsWindow(window) && GetWindowThreadProcessId(window, out owner) != 0 && owner == processId;
+        }
+        private static bool ClassIs(IntPtr window, string expected) {
+            StringBuilder name = new StringBuilder(64);
+            return GetClassName(window, name, name.Capacity) == expected.Length
+                && String.Equals(name.ToString(), expected, StringComparison.OrdinalIgnoreCase);
+        }
+        private static int ExactStaticMatches(IntPtr dialog, uint processId, Observation observation) {
+            int children = 0;
+            int matches = 0;
+            EnumChildWindows(dialog, delegate(IntPtr child, IntPtr parameter) {
+                if (++children > 128) { observation.Limit = true; return false; }
+                // Never read text from a foreign-PID window or a non-STATIC control.
+                if (!Owned(child, processId) || !ClassIs(child, "Static")) return true;
+                if (GetWindowTextLength(child) != ExpectedMessage.Length) return true;
+                // One extra character prevents a growing caption being truncated
+                // to the expected message between the length/read operations.
+                StringBuilder text = new StringBuilder(ExpectedMessage.Length + 2);
+                int length = GetWindowText(child, text, text.Capacity);
+                if (length == ExpectedMessage.Length
+                    && String.Equals(text.ToString(), ExpectedMessage, StringComparison.Ordinal)) matches++;
+                return true;
+            }, IntPtr.Zero);
+            return matches;
+        }
+        private static Observation Observe(uint processId) {
+            Observation observation = new Observation();
+            int windows = 0;
+            bool completed = EnumWindows(delegate(IntPtr window, IntPtr parameter) {
+                if (++windows > 2048) { observation.Limit = true; return false; }
+                if (!Owned(window, processId) || !IsWindowVisible(window) || !ClassIs(window, "#32770")) return true;
+                observation.VisibleDialogs++;
+                if (observation.VisibleDialogs > 8) { observation.Limit = true; return false; }
+                int matches = ExactStaticMatches(window, processId, observation);
+                observation.ExactMessageMatches += matches;
+                if (matches == 1) { observation.ExactDialogs++; observation.Dialog = window; }
+                else { observation.Unexpected = true; if (matches > 1) observation.AmbiguousMessage = true; }
+                return !observation.Limit;
+            }, IntPtr.Zero);
+            observation.Failed = !completed && !observation.Limit;
+            return observation;
+        }
+        private static DialogResult Result(DialogStatus status, Observation observation, bool clicked) {
+            DialogResult result = new DialogResult();
+            result.Status = status;
+            result.VisibleDialogs = observation.VisibleDialogs;
+            result.ExactMessageMatches = observation.ExactMessageMatches;
+            result.ClickSent = clicked;
+            return result;
+        }
+        private static DialogStatus Validate(Observation observation) {
+            if (observation.Limit) return DialogStatus.EnumerationLimit;
+            if (observation.Failed) return DialogStatus.EnumerationFailed;
+            if (observation.AmbiguousMessage || observation.ExactDialogs > 1) return DialogStatus.AmbiguousDialog;
+            if (observation.Unexpected) return DialogStatus.UnexpectedDialog;
+            if (observation.VisibleDialogs == 0) return DialogStatus.NoDialog;
+            if (observation.VisibleDialogs != 1 || observation.ExactDialogs != 1) return DialogStatus.AmbiguousDialog;
+            return DialogStatus.Dismissed; // Validation passed; no click has happened yet.
+        }
+        public static DialogResult Dismiss(uint processId) {
+            Observation first = Observe(processId);
+            DialogStatus valid = Validate(first);
+            if (valid != DialogStatus.Dismissed) return Result(valid, first, false);
+            // Re-enumerate immediately before acting. A newly appeared unexpected
+            // or duplicate dialog must not be ignored in favor of the old handle.
+            Observation current = Observe(processId);
+            valid = Validate(current);
+            if (valid != DialogStatus.Dismissed || current.Dialog != first.Dialog)
+                return Result(DialogStatus.ChangedBeforeClick, current, false);
+            IntPtr dialog = current.Dialog;
+            IntPtr button = GetDlgItem(dialog, 1);
+            if (!Owned(dialog, processId) || !IsWindowVisible(dialog) || !ClassIs(dialog, "#32770")
+                || button == IntPtr.Zero || !Owned(button, processId) || GetParent(button) != dialog
+                || GetDlgCtrlID(button) != 1 || !ClassIs(button, "Button")
+                || !IsWindowVisible(button) || !IsWindowEnabled(button))
+                return Result(DialogStatus.UnsafeButton, current, false);
+            UIntPtr nativeResult;
+            IntPtr sent = SendMessageTimeout(button, BM_CLICK, UIntPtr.Zero, IntPtr.Zero,
+                SendFlags, 1000, out nativeResult);
+            if (sent == IntPtr.Zero) {
+                return Result(Marshal.GetLastWin32Error() == 1460 ? DialogStatus.SendTimedOut : DialogStatus.SendFailed,
+                    current, false);
+            }
+            for (int attempt = 0; attempt < 10; attempt++) {
+                if (!Owned(dialog, processId) || !IsWindowVisible(dialog) || !ClassIs(dialog, "#32770"))
+                    return Result(DialogStatus.Dismissed, current, true);
+                Thread.Sleep(50);
+            }
+            return Result(DialogStatus.StillVisible, current, true);
+        }
+    }
+}
+'@
+function Invoke-GoErpCiStartupDialogDismissal {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$ReadyProcessId)
+    if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_OS -cne 'Windows') { throw 'GO_ERP_ISOLATED_WINDOWS_CI_REQUIRED' }
+    $observation = [GoErpInspectorCi.StartupDialog]::Dismiss([uint32]$ReadyProcessId)
+    [pscustomobject]@{
+        Status = $observation.Status.ToString()
+        VisibleDialogs = $observation.VisibleDialogs
+        ExactMessageMatches = $observation.ExactMessageMatches
+        ClickSent = $observation.ClickSent
+    }
+}
+function Dismiss-CiStartupDialog {
+    # An ordinary fixed IDOK acknowledgement models the attended user's action.
+    # It never dismisses any other dialog, and never changes the application.
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $dialog = Invoke-GoErpCiStartupDialogDismissal -ReadyProcessId $script:ciOwnedPid
+        if ($dialog.Status -ceq 'NoDialog') { return }
+        if ($dialog.Status -cne 'Dismissed' -or !$dialog.ClickSent -or $dialog.ExactMessageMatches -ne 1 -or $dialog.VisibleDialogs -ne 1) { throw ('CI_STARTUP_DIALOG_' + $dialog.Status.ToUpperInvariant()) }
+        $script:ciStartupDismissed++
+        if ($script:ciStartupDismissed -gt 8) { throw 'CI_STARTUP_DIALOG_REPEAT_LIMIT' }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'CI_STARTUP_DIALOG_TIMEOUT'
+}
+function Connect-CiInspector {
+    $targets = @(Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 5)
+    if ($targets.Count -ne 1 -or $targets[0].webSocketDebuggerUrl -notmatch ('^ws://127\.0\.0\.1:' + $ready.Port + '/[a-fA-F0-9-]+$')) { throw 'INSPECTOR_TARGET_INVALID' }
+    $script:socket = New-Object Net.WebSockets.ClientWebSocket
+    $script:cancel = New-Object Threading.CancellationTokenSource
+    $script:cancel.CancelAfter(10000)
+    [void]($script:socket.ConnectAsync([Uri]$targets[0].webSocketDebuggerUrl, $script:cancel.Token).GetAwaiter().GetResult())
+}
+function Invoke-CiEvaluate([string]$expression) {
+    $script:ciSequence++
+    $id = $script:ciSequence
+    $request = @{id=$id;method='Runtime.evaluate';params=@{expression=$expression;returnByValue=$true;silent=$true}} | ConvertTo-Json -Depth 8 -Compress
+    $bytes = [Text.Encoding]::UTF8.GetBytes($request)
+    [void]($script:socket.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, $script:cancel.Token).GetAwaiter().GetResult())
+    do {
+        $message = New-Object IO.MemoryStream
+        try {
+            do {
+                $buffer = New-Object byte[] 65536
+                $part = $script:socket.ReceiveAsync([ArraySegment[byte]]::new($buffer), $script:cancel.Token).GetAwaiter().GetResult()
+                if ($part.MessageType -ne [Net.WebSockets.WebSocketMessageType]::Text) { throw 'FIXTURE_WEBSOCKET_CLOSED' }
+                $message.Write($buffer, 0, $part.Count)
+                if ($message.Length -gt 1048576) { throw 'FIXTURE_RESPONSE_TOO_LARGE' }
+            } while (-not $part.EndOfMessage)
+            $value = [Text.Encoding]::UTF8.GetString($message.ToArray()) | ConvertFrom-Json
+        } finally { $message.Dispose() }
+        if ($value.PSObject.Properties['id'] -and $value.id -eq $id) {
+            if ($value.PSObject.Properties['error'] -or $value.result.PSObject.Properties['exceptionDetails'] -or !$value.result.result.PSObject.Properties['value']) { throw 'CI_EVALUATION_FAILED' }
+            return $value.result.result.value
+        }
+    } while ($true)
+}
+function Assert-CiBinding {
+    $binding = Invoke-CiEvaluate "JSON.stringify({pid:process.pid,electron:process.versions.electron,version:process.mainModule.require('electron').app.getVersion(),executable:process.execPath})" | ConvertFrom-Json
+    if ($binding.pid -ne $ready.Pid -or $binding.electron -cne '44.6.0' -or $binding.version -cne '0.4.4-preview.30' -or $binding.executable -cne (Join-Path $installed 'GO ERP.exe')) { throw 'CI_BINDING_DIFFERS' }
+}
+function Disconnect-CiInspector {
+    if ($script:socket) {
+        $closeCancel = New-Object Threading.CancellationTokenSource
+        $closeCancel.CancelAfter(3000)
+        try {
+            if ($script:socket.State -eq [Net.WebSockets.WebSocketState]::Open) { [void]($script:socket.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'CI complete', $closeCancel.Token).GetAwaiter().GetResult()) }
+        } catch {} finally { $closeCancel.Dispose(); $script:socket.Abort(); $script:socket.Dispose(); $script:socket = $null }
+    }
+    if ($script:cancel) { $script:cancel.Dispose(); $script:cancel = $null }
+}
 try {
     $install = Start-Process -FilePath $InstallerPath -ArgumentList @('/S', ('/D=' + $installed)) -PassThru
     if (-not $install.WaitForExit(300000) -or $install.ExitCode -ne 0) { throw 'CI_INSTALL_FAILED' }
-    # Only this disposable fixture acknowledges the exact nonfatal startup
-    # network error that the real user is instructed to dismiss manually.
-    $dialogReceiptPath = Join-Path $fixture 'startup-dialog.json'
-    $preloadPath = Join-Path $fixture 'acknowledge-startup.cjs'
-    $preloadConfig = @{ executable = (Join-Path $installed 'GO ERP.exe'); receipt = $dialogReceiptPath } | ConvertTo-Json -Compress
-    $preload = @'
-'use strict';
-const config=PRELOAD_CONFIG;
-process.once('loaded',()=>{
- const path=require('node:path'),fs=require('node:fs');
- if(process.type!=='browser'||process.versions.electron!=='44.6.0'||path.resolve(process.execPath).toLowerCase()!==path.resolve(config.executable).toLowerCase())return;
- const {dialog}=require('electron'),original=dialog.showErrorBox;let count=0;
- fs.writeFileSync(config.receipt,JSON.stringify({installed:true,count}),{flag:'wx'});
- dialog.showErrorBox=function(title,message){
-  if(title==='GO ERP'&&message==="\u062c\u0647\u0651\u0632 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0646 \u062d\u0633\u0627\u0628 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u062f\u0648\u0646 \u0625\u0646\u062a\u0631\u0646\u062a."){
-   if(++count>8)throw Error('CI_STARTUP_DIALOG_REPEAT_LIMIT');
-   fs.writeFileSync(config.receipt,JSON.stringify({installed:true,count}));return;
-  }
-  return Reflect.apply(original,this,arguments);
- };
-});
-'@
-    [IO.File]::WriteAllText($preloadPath, $preload.Replace('PRELOAD_CONFIG', $preloadConfig), $utf8)
     $script = Join-Path $PSScriptRoot 'diagnose_go_erp_setup.ps1'
-    $hadNodeOptions = Test-Path Env:NODE_OPTIONS
-    $savedNodeOptions = $env:NODE_OPTIONS
-    if ($savedNodeOptions) { throw 'CI_NODE_OPTIONS_ALREADY_SET' }
-    try {
-        $env:NODE_OPTIONS = '--require="' + $preloadPath + '"'
-        $diagnostic = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"')) -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-    } finally {
-        if ($hadNodeOptions) { $env:NODE_OPTIONS = $savedNodeOptions } else { Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue }
-    }
-    $ready = $null
+    $diagnostic = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"')) -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $ready = $null; $launched = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     do {
         if ($diagnostic.HasExited) { throw ('DIAGNOSTIC_EXITED_BEFORE_READY:' + (Get-FixedDiagnosticFailure)) }
         if (Test-Path -LiteralPath $stdoutPath) {
+            $launchPrefix = 'GO_ERP_INSPECTOR_STARTED '
+            $launchLines = @(Get-Content -LiteralPath $stdoutPath | Where-Object { $_.StartsWith($launchPrefix) })
+            if ($launchLines.Count -gt 1) { throw 'MULTIPLE_LAUNCH_MESSAGES' }
+            if (!$launched -and $launchLines.Count -eq 1) {
+                $launched = $launchLines[0].Substring($launchPrefix.Length) | ConvertFrom-Json
+                if ($launched.Pid -lt 1 -or $launched.Port -lt 1024 -or $launched.Port -gt 65535) { throw 'LAUNCH_MESSAGE_INVALID' }
+                $appProcess = Get-Process -Id $launched.Pid
+                if ($appProcess.Path -cne (Join-Path $installed 'GO ERP.exe')) { throw 'WRONG_PACKAGED_PROCESS' }
+                $script:ciOwnedPid = $launched.Pid
+            }
+            if ($script:ciOwnedPid -gt 0) { Dismiss-CiStartupDialog }
             $line = @(Get-Content -LiteralPath $stdoutPath | Where-Object { $_.StartsWith('GO_ERP_INSPECTOR_READY ') })
             if ($line.Count -gt 1) { throw 'MULTIPLE_READY_MESSAGES' }
             if ($line.Count -eq 1) { $ready = $line[0].Substring(23) | ConvertFrom-Json }
         }
         if (-not $ready) { Start-Sleep -Milliseconds 200 }
     } while (-not $ready -and [DateTime]::UtcNow -lt $deadline)
-    if (-not $ready -or $ready.Port -lt 1024 -or $ready.Port -gt 65535 -or $ready.Pid -lt 1) { throw 'READY_MESSAGE_INVALID' }
-    $hookDeadline = [DateTime]::UtcNow.AddSeconds(10)
-    while (!(Test-Path -LiteralPath $dialogReceiptPath) -and [DateTime]::UtcNow -lt $hookDeadline) { Start-Sleep -Milliseconds 50 }
-    if (!(Test-Path -LiteralPath $dialogReceiptPath)) { throw 'CI_STARTUP_DIALOG_HOOK_NOT_INSTALLED' }
+    if (-not $ready -or $ready.Pid -ne $script:ciOwnedPid -or $ready.Port -ne $launched.Port -or $ready.Port -lt 1024 -or $ready.Port -gt 65535 -or $ready.Pid -lt 1) { throw 'READY_MESSAGE_INVALID' }
     $appProcess = Get-Process -Id $ready.Pid
     if ($appProcess.Path -cne (Join-Path $installed 'GO ERP.exe')) { throw 'WRONG_PACKAGED_PROCESS' }
-    $targets = @(Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 5)
-    if ($targets.Count -ne 1 -or $targets[0].webSocketDebuggerUrl -notmatch '^ws://127\.0\.0\.1:[0-9]+/[a-fA-F0-9-]+$') { throw 'INSPECTOR_TARGET_INVALID' }
-    $socket = New-Object Net.WebSockets.ClientWebSocket
-    $cancel = New-Object Threading.CancellationTokenSource
-    $cancel.CancelAfter(10000)
-    [void]($socket.ConnectAsync([Uri]$targets[0].webSocketDebuggerUrl, $cancel.Token).GetAwaiter().GetResult())
+    Dismiss-CiStartupDialog
+    Connect-CiInspector
+    Assert-CiBinding
+    if ($script:ciStartupDismissed -eq 0) {
+        # Exercise the exact ordinary startup dialog deterministically when the
+        # fresh CI account's ambient network happened to avoid it. No hooks or
+        # dialog/source overrides are installed. Bound the ACK to three seconds
+        # and detach within another three before the eight-second modal timer.
+        $script:cancel.Dispose()
+        $script:cancel = New-Object Threading.CancellationTokenSource
+        $script:cancel.CancelAfter(3000)
+        $showDialog = @'
+(()=>{const {dialog}=process.mainModule.require('electron');
+ setTimeout(()=>dialog.showErrorBox('GO ERP','\u062c\u0647\u0651\u0632 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0646 \u062d\u0633\u0627\u0628 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u062f\u0648\u0646 \u0625\u0646\u062a\u0631\u0646\u062a.'),8000);
+ return 'CI_STARTUP_DIALOG_SCHEDULED';})()
+'@
+        try {
+            if ((Invoke-CiEvaluate $showDialog) -cne 'CI_STARTUP_DIALOG_SCHEDULED') { throw 'CI_STARTUP_DIALOG_NOT_SCHEDULED' }
+        } finally { Disconnect-CiInspector }
+        $modalDeadline = [DateTime]::UtcNow.AddSeconds(15)
+        do {
+            Dismiss-CiStartupDialog
+            if ($script:ciStartupDismissed -eq 0) { Start-Sleep -Milliseconds 100 }
+        } until ($script:ciStartupDismissed -gt 0 -or [DateTime]::UtcNow -ge $modalDeadline)
+        if ($script:ciStartupDismissed -eq 0) { throw 'CI_STARTUP_DIALOG_NOT_OBSERVED' }
+        Connect-CiInspector
+        Assert-CiBinding
+    }
     # Only this CI test injects a synthetic call. The packaged module, bundled
     # PHP and unmodified run()/sanitizer execute against temporary fixture files.
     $fixtureJson = ConvertTo-Json -InputObject $application -Compress
@@ -106,26 +341,9 @@ process.once('loaded',()=>{
  return 'CI_FIXTURE_SCHEDULED';})()
 '@
     $expression = $expression.Replace('FIXTURE_ROOT', $fixtureJson)
-    $request = @{id=1;method='Runtime.evaluate';params=@{expression=$expression;returnByValue=$true}} | ConvertTo-Json -Depth 8 -Compress
-    $bytes = [Text.Encoding]::UTF8.GetBytes($request)
-    [void]($socket.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, $cancel.Token).GetAwaiter().GetResult())
-    $response = $null
-    do {
-        $message = New-Object IO.MemoryStream
-        do {
-            $buffer = New-Object byte[] 65536
-            $part = $socket.ReceiveAsync([ArraySegment[byte]]::new($buffer), $cancel.Token).GetAwaiter().GetResult()
-            if ($part.MessageType -ne [Net.WebSockets.WebSocketMessageType]::Text) { throw 'FIXTURE_WEBSOCKET_CLOSED' }
-            $message.Write($buffer, 0, $part.Count)
-            if ($message.Length -gt 1048576) { throw 'FIXTURE_RESPONSE_TOO_LARGE' }
-        } while (-not $part.EndOfMessage)
-        $value = [Text.Encoding]::UTF8.GetString($message.ToArray()) | ConvertFrom-Json
-        if ($value.PSObject.Properties['id'] -and $value.id -eq 1) { $response = $value }
-        $message.Dispose()
-    } while (-not $response)
-    if ($response.PSObject.Properties['error'] -or $response.result.PSObject.Properties['exceptionDetails'] -or $response.result.result.value -cne 'CI_FIXTURE_SCHEDULED') { throw 'FIXTURE_CALL_FAILED' }
-    try { [void]($socket.CloseAsync([Net.WebSockets.WebSocketCloseStatus]::NormalClosure, 'fixture scheduled', $cancel.Token).GetAwaiter().GetResult()) } catch {}
-    $socket.Dispose(); $socket = $null; $cancel.Dispose()
+    try {
+        if ((Invoke-CiEvaluate $expression) -cne 'CI_FIXTURE_SCHEDULED') { throw 'FIXTURE_CALL_FAILED' }
+    } finally { Disconnect-CiInspector }
     # The production diagnostic never closes the real user's app. In this
     # disposable CI account, simulate the requested normal window/menu exit.
     $closeRequested = $false
@@ -137,30 +355,25 @@ process.once('loaded',()=>{
         if (!$closeRequested -and !$diagnostic.HasExited) { Start-Sleep -Milliseconds 200 }
     } until ($closeRequested -or $diagnostic.HasExited -or [DateTime]::UtcNow -ge $closeDeadline)
     if (!$closeRequested) { throw ('NORMAL_EXIT_REQUEST_MISSING:' + (Get-FixedDiagnosticFailure)) }
-    $windowDeadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        $appProcess.Refresh()
-        if (!$appProcess.HasExited -and ($appProcess.MainWindowHandle -eq 0 -or !$appProcess.Responding)) { Start-Sleep -Milliseconds 100 }
-    } until ($appProcess.HasExited -or ($appProcess.MainWindowHandle -ne 0 -and $appProcess.Responding) -or [DateTime]::UtcNow -ge $windowDeadline)
-    $windowBeforeClose = $appProcess.MainWindowHandle
-    $exitedBeforeClose = $appProcess.HasExited
-    $windowExists = !$exitedBeforeClose -and $appProcess.MainWindowHandle -ne 0
-    $responding = !$exitedBeforeClose -and $appProcess.Responding
-    $closeSent = $false; $exitedAfterClose = $false
-    if (!$exitedBeforeClose -and $windowExists -and $responding) { $closeSent = $appProcess.CloseMainWindow() }
-    if ($closeSent) { $exitedAfterClose = $appProcess.WaitForExit(60000) }
-    if (!$closeSent -or !$exitedAfterClose) {
-        $appProcess.Refresh()
-        $windowChanged = !$appProcess.HasExited -and $appProcess.MainWindowHandle -ne 0 -and $appProcess.MainWindowHandle -ne $windowBeforeClose
-        $startupDialogs = $null
-        try { if (Test-Path -LiteralPath $dialogReceiptPath) { $startupDialogs = (Get-Content -LiteralPath $dialogReceiptPath -Raw -ErrorAction Stop | ConvertFrom-Json).count } } catch {}
-        $waitingForDebugger = $null
-        try {
-            if (Test-Path -LiteralPath $stderrPath) { $text = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction Stop; if ($null -ne $text) { $waitingForDebugger = [bool]($text -like '*Waiting for the debugger to disconnect*') } }
-        } catch {} # Optional observation must not hide the normal-exit evidence.
-        Write-Output ('GO_ERP_CI_NORMAL_EXIT ' + (@{ exitedBeforeClose = $exitedBeforeClose; windowExists = $windowExists; responding = $responding; closeSent = $closeSent; exitedAfterClose = $exitedAfterClose; windowChanged = $windowChanged; startupDialogs = $startupDialogs; waitingForDebugger = $waitingForDebugger } | ConvertTo-Json -Compress))
-        throw 'PACKAGED_APP_DID_NOT_RESUME_AND_CLOSE'
-    }
+    Dismiss-CiStartupDialog
+    Connect-CiInspector
+    try {
+        Assert-CiBinding
+        # Invoke only the installed application's exact normal menu role. The
+        # production diagnostic never performs this CI-only action.
+        $menuExit = @'
+(()=>{const {Menu}=process.mainModule.require('electron');
+ const menu=Menu.getApplicationMenu();
+ const roots=menu?menu.items.filter(i=>i.label==='\u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062c'):[];
+ if(roots.length!==1||!roots[0].submenu||!roots[0].enabled||!roots[0].visible)throw Error('CI_PROGRAM_MENU_DIFFERS');
+ const items=roots[0].submenu.items.filter(i=>i.label==='\u0625\u063a\u0644\u0627\u0642 \u0627\u0644\u0628\u0631\u0646\u0627\u0645\u062c');
+ if(items.length!==1||items[0].role!=='quit'||!items[0].enabled||!items[0].visible||typeof items[0].click!=='function')throw Error('CI_EXIT_MENU_DIFFERS');
+ setTimeout(()=>items[0].click({},null,null),250);
+ return 'CI_NORMAL_MENU_EXIT_SCHEDULED';})()
+'@
+        if ((Invoke-CiEvaluate $menuExit) -cne 'CI_NORMAL_MENU_EXIT_SCHEDULED') { throw 'NORMAL_MENU_EXIT_NOT_SCHEDULED' }
+    } finally { Disconnect-CiInspector }
+    if (!$appProcess.WaitForExit(60000)) { throw 'PACKAGED_APP_NORMAL_MENU_EXIT_TIMEOUT' }
     if (-not $diagnostic.WaitForExit(15000)) { throw 'DIAGNOSTIC_DID_NOT_EXIT' }
     $output = [IO.File]::ReadAllText($stdoutPath)
     $errorOutput = [IO.File]::ReadAllText($stderrPath)
@@ -168,8 +381,8 @@ process.once('loaded',()=>{
     $resultLines = @($output -split '\r?\n' | Where-Object { $_.StartsWith('GO_ERP_SETUP_DIAGNOSTIC ') })
     if ($resultLines.Count -ne 1) { throw 'DIAGNOSTIC_RESULT_MISSING' }
     $result = $resultLines[0].Substring(24) | ConvertFrom-Json
-    if ($result.operation -cne 'database-stage' -or $result.exitCode -ne 17 -or $result.overflow -ne $false -or $result.timedOut -ne $false -or $result.import.phase -cne 'import' -or $result.import.type -cne 'RuntimeException' -or $result.import.file -cne 'fixture.php' -or $result.import.line -ne 7 -or $null -ne $result.import.status) { throw 'SANITIZED_CAUSE_DIFFERS' }
-    $expectedKeys = @('operation','exitCode','overflow','timedOut','import','fatal') | Sort-Object
+    if ($result.operation -cne 'database-stage' -or $result.exitCode -ne 17 -or $result.overflow -ne $false -or $result.timedOut -ne $false -or $null -ne $result.nativeCode -or $null -ne $result.signal -or $result.import.phase -cne 'import' -or $result.import.type -cne 'RuntimeException' -or $result.import.file -cne 'fixture.php' -or $result.import.line -ne 7 -or $null -ne $result.import.status) { throw 'SANITIZED_CAUSE_DIFFERS' }
+    $expectedKeys = @('operation','exitCode','overflow','timedOut','nativeCode','signal','import','fatal') | Sort-Object
     if (@(Compare-Object @($result.PSObject.Properties.Name | Sort-Object) $expectedKeys).Count -ne 0) { throw 'UNEXPECTED_DIAGNOSTIC_FIELD' }
     if (@(Compare-Object @($result.import.PSObject.Properties.Name | Sort-Object) @('file','line','phase','status','type')).Count -ne 0) { throw 'UNEXPECTED_IMPORT_FIELD' }
     $fatalKeys = @('phpFatal','phpParse','outOfMemory','phpStartup','accessDenied','connectionRefused','missingExtension','missingFile') | Sort-Object
@@ -186,16 +399,11 @@ process.once('loaded',()=>{
     $stillListening = $true
     try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }
     if ($stillListening) { throw 'INSPECTOR_LISTENER_LEFT_OPEN' }
-    $dialogReceipt = Get-Content -LiteralPath $dialogReceiptPath -Raw | ConvertFrom-Json
-    if ($dialogReceipt.installed -ne $true -or $dialogReceipt.count -lt 1 -or $dialogReceipt.count -gt 8) { throw 'CI_STARTUP_DIALOG_NOT_OBSERVED' }
-    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.25';sourceRevision='a0178ead801e8d39185cd0830171804141767995';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;ciStartupDialogsAcknowledged=$dialogReceipt.count;inspectorClosed=$true}
+    if ($script:ciStartupDismissed -lt 1) { throw 'CI_STARTUP_DIALOG_NOT_OBSERVED' }
+    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.30';sourceRevision='c6605145f740371485944aed1a04045efe71e828';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;actualNormalMenuExit=$true;ciStartupDialogsDismissed=$script:ciStartupDismissed;inspectorClosed=$true}
     $proof | ConvertTo-Json -Compress
 } finally {
-    if ($socket) { $socket.Dispose() }
-    # CI owns this brand-new account and fixture. Use the normal close path;
-    # do not kill processes or delete any application profile/lock.
-    if ($appProcess) {
-        $appProcess.Refresh()
-        if (-not $appProcess.HasExited -and $appProcess.MainWindowHandle -ne 0) { $null = $appProcess.CloseMainWindow(); $null = $appProcess.WaitForExit(10000) }
-    }
+    Disconnect-CiInspector
+    # No generic window dismissal, process kill, profile deletion or fallback
+    # exit can make a failed proof pass. CI retains its isolated failure state.
 }
