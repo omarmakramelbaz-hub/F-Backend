@@ -68,6 +68,7 @@
         <link rel="stylesheet" href="{{ url('/dashboard') }}/dist/css/my-custom.css">
         <link rel="stylesheet" href="{{ asset('dashboard/css/dashboard-spa.css') }}?v=20261003-pos-service-1">
         <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-brand.css')) }}">
+        <link rel="stylesheet" href="{{ asset('dashboard/css/dashboard-fit.css') }}?v={{ filemtime(public_path('dashboard/css/dashboard-fit.css')) }}">
         
     <style>
     .cke_notification_warning{
