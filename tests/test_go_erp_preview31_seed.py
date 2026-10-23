@@ -16,9 +16,9 @@ spec.loader.exec_module(policy)
 
 
 class Preview31SeedTests(unittest.TestCase):
-    def test_release_pins_the_reviewed_private_diagnostic_core(self):
-        self.assertEqual(policy.CORE, '04950fe07bbbb69a759bb6eace79bf32c7a1a500')
-        self.assertEqual(policy.POLICY, 'native-import422-diagnostic-seed-v1')
+    def test_release_pins_the_reviewed_original_wire_hash_core(self):
+        self.assertEqual(policy.CORE, '162735244677ed9c4cc6e21cf4e86729cd0f868d')
+        self.assertEqual(policy.POLICY, 'native-import-wire-hash-seed-v1')
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='go-erp-preview31-policy-')
