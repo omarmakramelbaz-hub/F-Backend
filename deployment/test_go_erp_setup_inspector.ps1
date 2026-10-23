@@ -39,19 +39,25 @@ using System.Threading;
 namespace GoErpInspectorCi {
     public enum DialogStatus {
         NoDialog, Dismissed, UnexpectedDialog, AmbiguousDialog, UnsafeButton,
-        ChangedBeforeClick, EnumerationLimit, EnumerationFailed,
+        ChangedBeforeClick, EnumerationLimit, EnumerationFailed, TextReadFailed,
         SendTimedOut, SendFailed, StillVisible
     }
     public sealed class DialogResult {
         public DialogStatus Status;
         public int VisibleDialogs;
         public int ExactMessageMatches;
+        public int StaticControls;
+        public int LengthMatches;
+        public int TextReadFailures;
+        public int TextReadCalls;
         public bool ClickSent;
     }
     public static class StartupDialog {
         // Exact application constant; no text from the window is ever returned.
         private const string ExpectedMessage = "\u062c\u0647\u0651\u0632 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0646 \u062d\u0633\u0627\u0628 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u062f\u0648\u0646 \u0625\u0646\u062a\u0631\u0646\u062a.";
         private const uint BM_CLICK = 0x00F5;
+        private const uint WM_GETTEXT = 0x000D;
+        private const uint WM_GETTEXTLENGTH = 0x000E;
         private const uint SendFlags = 0x0001 | 0x0002 | 0x0020;
         private delegate bool EnumProc(IntPtr window, IntPtr parameter);
 
@@ -65,10 +71,6 @@ namespace GoErpInspectorCi {
         private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
         [DllImport("user32.dll", CharSet=CharSet.Unicode)]
         private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
-        [DllImport("user32.dll", CharSet=CharSet.Unicode)]
-        private static extern int GetWindowTextLength(IntPtr window);
-        [DllImport("user32.dll", CharSet=CharSet.Unicode)]
-        private static extern int GetWindowText(IntPtr window, StringBuilder text, int capacity);
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool IsWindow(IntPtr window);
@@ -84,19 +86,38 @@ namespace GoErpInspectorCi {
         private static extern int GetDlgCtrlID(IntPtr window);
         [DllImport("user32.dll")]
         private static extern IntPtr GetParent(IntPtr window);
-        [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-        private static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
+        [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode, SetLastError=true)]
+        private static extern IntPtr SendMessageTimeoutValue(IntPtr window, uint message,
             UIntPtr wparam, IntPtr lparam, uint flags, uint timeout, out UIntPtr result);
+        [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode, SetLastError=true)]
+        private static extern IntPtr SendMessageTimeoutText(IntPtr window, uint message,
+            UIntPtr wparam, [Out] StringBuilder text, uint flags, uint timeout, out UIntPtr result);
 
         private sealed class Observation {
             public int VisibleDialogs;
             public int ExactMessageMatches;
             public int ExactDialogs;
+            public int StaticControls;
+            public int LengthMatches;
+            public int TextReadFailures;
+            public int TextReadCalls;
             public bool Unexpected;
             public bool AmbiguousMessage;
             public bool Limit;
             public bool Failed;
             public IntPtr Dialog;
+        }
+        private sealed class ReadBudget {
+            public int Remaining = 16;
+            public DateTime Deadline = DateTime.UtcNow.AddSeconds(4);
+        }
+        private static bool BeginRead(ReadBudget budget, Observation observation, out uint timeout) {
+            double remaining = (budget.Deadline - DateTime.UtcNow).TotalMilliseconds;
+            timeout = 0;
+            if (budget.Remaining <= 0 || remaining < 1) { observation.Limit = true; return false; }
+            budget.Remaining--; observation.TextReadCalls++;
+            timeout = (uint)Math.Min(1000, remaining);
+            return true;
         }
         private static bool Owned(IntPtr window, uint processId) {
             uint owner;
@@ -107,25 +128,49 @@ namespace GoErpInspectorCi {
             return GetClassName(window, name, name.Capacity) == expected.Length
                 && String.Equals(name.ToString(), expected, StringComparison.OrdinalIgnoreCase);
         }
-        private static int ExactStaticMatches(IntPtr dialog, uint processId, Observation observation) {
+        private static int ExactStaticMatches(IntPtr dialog, uint processId, Observation observation, ReadBudget budget) {
             int children = 0;
             int matches = 0;
             EnumChildWindows(dialog, delegate(IntPtr child, IntPtr parameter) {
                 if (++children > 128) { observation.Limit = true; return false; }
-                // Never read text from a foreign-PID window or a non-STATIC control.
-                if (!Owned(child, processId) || !ClassIs(child, "Static")) return true;
-                if (GetWindowTextLength(child) != ExpectedMessage.Length) return true;
+                // Only the exact bound application PID's STATIC controls are read.
+                if (!Owned(child, processId) || !ClassIs(child, "Static") || GetParent(child) != dialog) return true;
+                observation.StaticControls++;
+                // GetWindowText does not read another process's control text.
+                // Fixed system messages marshal Unicode safely across processes;
+                // each read has a one-second bound and never returns raw text.
+                UIntPtr length;
+                uint timeout;
+                if (!BeginRead(budget, observation, out timeout)) return false;
+                if (SendMessageTimeoutValue(child, WM_GETTEXTLENGTH, UIntPtr.Zero, IntPtr.Zero,
+                    SendFlags, timeout, out length) == IntPtr.Zero) {
+                    observation.TextReadFailures++; return false;
+                }
+                if (length.ToUInt64() != (ulong)ExpectedMessage.Length) return true;
+                observation.LengthMatches++;
+                if (!Owned(child, processId) || !ClassIs(child, "Static") || GetParent(child) != dialog) {
+                    observation.TextReadFailures++; return false;
+                }
                 // One extra character prevents a growing caption being truncated
                 // to the expected message between the length/read operations.
                 StringBuilder text = new StringBuilder(ExpectedMessage.Length + 2);
-                int length = GetWindowText(child, text, text.Capacity);
-                if (length == ExpectedMessage.Length
+                UIntPtr copied;
+                if (!BeginRead(budget, observation, out timeout)) return false;
+                if (SendMessageTimeoutText(child, WM_GETTEXT, new UIntPtr((uint)text.Capacity), text,
+                    SendFlags, timeout, out copied) == IntPtr.Zero) {
+                    observation.TextReadFailures++; return false;
+                }
+                if (!Owned(child, processId) || !ClassIs(child, "Static") || GetParent(child) != dialog) {
+                    observation.TextReadFailures++; return false;
+                }
+                if (copied.ToUInt64() == (ulong)ExpectedMessage.Length
+                    && text.Length == ExpectedMessage.Length
                     && String.Equals(text.ToString(), ExpectedMessage, StringComparison.Ordinal)) matches++;
                 return true;
             }, IntPtr.Zero);
             return matches;
         }
-        private static Observation Observe(uint processId) {
+        private static Observation Observe(uint processId, ReadBudget budget) {
             Observation observation = new Observation();
             int windows = 0;
             bool completed = EnumWindows(delegate(IntPtr window, IntPtr parameter) {
@@ -133,11 +178,11 @@ namespace GoErpInspectorCi {
                 if (!Owned(window, processId) || !IsWindowVisible(window) || !ClassIs(window, "#32770")) return true;
                 observation.VisibleDialogs++;
                 if (observation.VisibleDialogs > 8) { observation.Limit = true; return false; }
-                int matches = ExactStaticMatches(window, processId, observation);
+                int matches = ExactStaticMatches(window, processId, observation, budget);
                 observation.ExactMessageMatches += matches;
                 if (matches == 1) { observation.ExactDialogs++; observation.Dialog = window; }
                 else { observation.Unexpected = true; if (matches > 1) observation.AmbiguousMessage = true; }
-                return !observation.Limit;
+                return !observation.Limit && observation.TextReadFailures == 0;
             }, IntPtr.Zero);
             observation.Failed = !completed && !observation.Limit;
             return observation;
@@ -147,11 +192,16 @@ namespace GoErpInspectorCi {
             result.Status = status;
             result.VisibleDialogs = observation.VisibleDialogs;
             result.ExactMessageMatches = observation.ExactMessageMatches;
+            result.StaticControls = observation.StaticControls;
+            result.LengthMatches = observation.LengthMatches;
+            result.TextReadFailures = observation.TextReadFailures;
+            result.TextReadCalls = observation.TextReadCalls;
             result.ClickSent = clicked;
             return result;
         }
         private static DialogStatus Validate(Observation observation) {
             if (observation.Limit) return DialogStatus.EnumerationLimit;
+            if (observation.TextReadFailures > 0) return DialogStatus.TextReadFailed;
             if (observation.Failed) return DialogStatus.EnumerationFailed;
             if (observation.AmbiguousMessage || observation.ExactDialogs > 1) return DialogStatus.AmbiguousDialog;
             if (observation.Unexpected) return DialogStatus.UnexpectedDialog;
@@ -160,12 +210,13 @@ namespace GoErpInspectorCi {
             return DialogStatus.Dismissed; // Validation passed; no click has happened yet.
         }
         public static DialogResult Dismiss(uint processId) {
-            Observation first = Observe(processId);
+            ReadBudget budget = new ReadBudget();
+            Observation first = Observe(processId, budget);
             DialogStatus valid = Validate(first);
             if (valid != DialogStatus.Dismissed) return Result(valid, first, false);
             // Re-enumerate immediately before acting. A newly appeared unexpected
             // or duplicate dialog must not be ignored in favor of the old handle.
-            Observation current = Observe(processId);
+            Observation current = Observe(processId, budget);
             valid = Validate(current);
             if (valid != DialogStatus.Dismissed || current.Dialog != first.Dialog)
                 return Result(DialogStatus.ChangedBeforeClick, current, false);
@@ -177,7 +228,7 @@ namespace GoErpInspectorCi {
                 || !IsWindowVisible(button) || !IsWindowEnabled(button))
                 return Result(DialogStatus.UnsafeButton, current, false);
             UIntPtr nativeResult;
-            IntPtr sent = SendMessageTimeout(button, BM_CLICK, UIntPtr.Zero, IntPtr.Zero,
+            IntPtr sent = SendMessageTimeoutValue(button, BM_CLICK, UIntPtr.Zero, IntPtr.Zero,
                 SendFlags, 1000, out nativeResult);
             if (sent == IntPtr.Zero) {
                 return Result(Marshal.GetLastWin32Error() == 1460 ? DialogStatus.SendTimedOut : DialogStatus.SendFailed,
@@ -202,6 +253,10 @@ function Invoke-GoErpCiStartupDialogDismissal {
         Status = $observation.Status.ToString()
         VisibleDialogs = $observation.VisibleDialogs
         ExactMessageMatches = $observation.ExactMessageMatches
+        StaticControls = $observation.StaticControls
+        LengthMatches = $observation.LengthMatches
+        TextReadFailures = $observation.TextReadFailures
+        TextReadCalls = $observation.TextReadCalls
         ClickSent = $observation.ClickSent
     }
 }
@@ -212,7 +267,10 @@ function Dismiss-CiStartupDialog {
     do {
         $dialog = Invoke-GoErpCiStartupDialogDismissal -ReadyProcessId $script:ciOwnedPid
         if ($dialog.Status -ceq 'NoDialog') { return }
-        if ($dialog.Status -cne 'Dismissed' -or !$dialog.ClickSent -or $dialog.ExactMessageMatches -ne 1 -or $dialog.VisibleDialogs -ne 1) { throw ('CI_STARTUP_DIALOG_' + $dialog.Status.ToUpperInvariant()) }
+        if ($dialog.Status -cne 'Dismissed' -or !$dialog.ClickSent -or $dialog.ExactMessageMatches -ne 1 -or $dialog.VisibleDialogs -ne 1) {
+            Write-Output ('GO_ERP_CI_STARTUP_DIALOG_REFUSED ' + ($dialog | ConvertTo-Json -Compress))
+            throw ('CI_STARTUP_DIALOG_' + $dialog.Status.ToUpperInvariant())
+        }
         $script:ciStartupDismissed++
         if ($script:ciStartupDismissed -gt 8) { throw 'CI_STARTUP_DIALOG_REPEAT_LIMIT' }
         Start-Sleep -Milliseconds 100
