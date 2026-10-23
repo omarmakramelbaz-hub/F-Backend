@@ -138,8 +138,13 @@ try{
     $GLOBALS['local']=false;refuses(fn()=>$handoff->verify($checked,$seal,$proof,$captureToken,$old,$identity),'Nonlocal configuration');$GLOBALS['local']=true;
     putenv('DESKTOP_DASHBOARD_LOCAL=false');refuses(fn()=>$handoff->verify($checked,$seal,$proof,$captureToken,$old,$identity),'Missing private CLI boundary');putenv('DESKTOP_DASHBOARD_LOCAL=true');
     file_put_contents($root.'/app/public/products/photo.png','changed attachment bytes');refuses(fn()=>$handoff->verify($checked,$seal,$proof,$captureToken,$old,$identity),'Attachment changed after verification');file_put_contents($root.'/app/public/products/photo.png','synthetic attachment');
+    // Restored bytes do not restore a file's sealed identity. Force a distinct
+    // mtime from the exact captured value instead of relying on the wall clock.
+    check(touch($root.'/app/public/products/photo.png',$seal['files'][0]['identity']['mtime']+2),'Fixture changes the captured attachment timestamp');
+    refuses(fn()=>$handoff->verify($checked,$seal,$proof,$captureToken,$old,$identity),'Restoring bytes cannot reuse the old private stat proof');
     refuses(fn()=>$archive->seal($checked,$old,$id,$refreshToken,$identity,$seal,$proof,null),'Partial fast request cannot fall back');
-    DB::$fenced=false;$archive->seal($checked,$old,$id,$refreshToken,$identity,$seal);
+    // Ordinary archival must run the full hasher, not reuse the obsolete seal.
+    DB::$fenced=false;$archive->seal($checked,$old,$id,$refreshToken,$identity);
     check(app(App\Services\Dashboard\DesktopDashboardImport::class)->calls===$calls+1,'Ordinary archive retains full verification');
     check(count(array_filter(DB::$queries,fn($sql)=>str_starts_with($sql,'INSERT INTO')))===1,'Ordinary archive retains replay SQL copy');
     DB::$source->state='ready';$bad=$receipt;$bad['delta_replay']['sha256']=str_repeat('0',64);refuses(fn()=>$handoff->capture($bad,$captureToken),'Wrong prestaged replay digest');
