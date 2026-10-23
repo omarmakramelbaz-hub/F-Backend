@@ -1,7 +1,8 @@
 (function () {
     'use strict';
-    // GO live control room on the home page. It reads the same data as the page it sits on
-    // (owner/admin overview or branch home) and follows that page's refreshes.
+    // GO live home screen. It covers the window over the usual home page (owner/admin overview or branch home),
+    // reads the same data and follows that page's refreshes. GO in the middle steps into the usual page;
+    // each section opens its own page.
     if (window.DashboardSPA && !window.DashboardSPA.isCurrentPage()) return;
     var root = document.getElementById('go-hud'); if (!root) return;
     var source = document.getElementById('home-overview-bootstrap') || document.getElementById('branch-home-bootstrap'); if (!source) return;
@@ -11,7 +12,9 @@
     var core = root.querySelector('[data-hud-core]'), nodesBox = root.querySelector('[data-hud-nodes]'), checksBox = root.querySelector('[data-hud-checks]');
     var tally = root.querySelector('[data-hud-tally]'), statusText = root.querySelector('[data-hud-status]'), skip = root.querySelector('[data-hud-skip]');
     var W = 0, H = 0, stars = [], links = [], particles = [], pulses = [], timers = [], start = performance.now(), revealAt = reduce ? -10 : Infinity;
-    var frame = 0, booting = false, desktopMode = '', orbit = null, lastPulse = 0, mode = '';
+    var frame = 0, booting = false, desktopMode = '', orbit = null, lastBeat = -1, mode = '', waves = [], leaving = false;
+    var enterButton = root.querySelector('[data-hud-enter]'), corona = core.querySelector('.hud-corona'), LINKS = boot.hud_links || {};
+    var BEAT = 3.2; // seconds between two heartbeats of the GO sun
     var numbers = new Intl.NumberFormat('ar-EG-u-nu-latn', {maximumFractionDigits: 0});
     var CHANNELS = {takeaway: 'تيك أواي', dine: 'الصالة', phone: 'الدليفري', app: 'التطبيق'};
     var PERIODS = {today: 'اليوم', week: 'آخر 7 أيام', month: 'هذا الشهر'};
@@ -71,32 +74,43 @@
         return list.slice(0, W && W < 760 ? 8 : 12);
     }
 
+
     // ---- drawing ----
     function size() {
         var ratio = Math.min(2, window.devicePixelRatio || 1); W = root.clientWidth; H = root.clientHeight;
-        canvas.width = W * ratio; canvas.height = H * ratio; ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        canvas.width = W * ratio; canvas.height = H * ratio; canvas.style.height = H + 'px'; ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         stars = []; for (var i = 0; i < Math.round(W * H / 5200); i++) stars.push({x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.3 + .2, t: Math.random() * 6});
+        // Cosmic waves: long luminous lines across the whole screen, drawn together towards the sun.
+        waves = []; var count = W < 760 ? 12 : 22;
+        for (var w = 0; w < count; w++) waves.push({o: w / (count - 1) * 2 - 1 + (Math.random() - .5) * .1, a: 10 + Math.random() * 26, k: .0035 + Math.random() * .004,
+            s: .25 + Math.random() * .45, p: Math.random() * 6.3, a2: 5 + Math.random() * 14, k2: .009 + Math.random() * .008, s2: .15 + Math.random() * .3,
+            p2: Math.random() * 6.3, tilt: (Math.random() - .5) * .22, hue: 186 + Math.random() * 28, alpha: .07 + Math.random() * .12,
+            width: .8 + Math.random() * 1.2, run: Math.random(), speed: .035 + Math.random() * .05, left: w % 2 === 0});
         if (!booting && nodesBox.children.length && nodesBox.children.length !== nodes().length) fillNodes(false);
         layout();
     }
     // The solar system is drawn in units: the GO mark is 360 wide, Neptune's orbit 640 by 256 around it.
     function layout() {
-        var next = W < 760 ? 'compact' : W < 1180 ? 'mid' : 'wide', els = nodesBox.children, n = els.length, i;
+        var next = W < 760 ? 'compact' : W < 1180 ? 'mid' : 'wide', els = nodesBox.children, n = els.length, i, box = checksBox.parentNode;
         if (next !== mode) { root.classList.remove('compact', 'mid', 'wide'); root.classList.add(next); mode = next; }
         links = [];
         if (mode === 'compact') {
             // Phones: the sections are tiles under the system, so nothing is placed by hand.
-            core.style.left = core.style.top = core.style.width = pill.style.left = ''; root.style.removeProperty('--hud-cx');
+            core.style.left = core.style.top = core.style.width = pill.style.left = box.style.marginTop = ''; root.style.removeProperty('--hud-cx');
             for (i = 0; i < n; i++) { els[i].style.left = els[i].style.top = ''; els[i].classList.remove('right', 'left'); }
             var unit = core.offsetWidth / 1380;
             orbit = {x: core.offsetLeft + core.offsetWidth / 2, y: core.offsetTop + core.offsetHeight / 2, logo: 180 * unit, rx: 640 * unit, ry: 256 * unit};
+            root.style.setProperty('--hud-cy', orbit.y + 'px');
             return;
         }
-        var ringH = mode === 'mid' ? 440 : H, panel = mode === 'wide' ? checksBox.parentNode.offsetWidth + 28 : 0, cx = (W - panel) / 2, cy = ringH / 2 + 12;
-        var rx = Math.min(cx - 150, 470), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .76 / 640, ry * .74 / 256));
+        // Laptops: the checks sit under the system and the system takes what is left of the screen.
+        var ringH = mode === 'mid' ? Math.max(440, H - box.offsetHeight - 110) : H;
+        box.style.marginTop = mode === 'mid' ? ringH + 'px' : '';
+        var panel = mode === 'wide' ? box.offsetWidth + 40 : 0, cx = (W - panel) / 2, cy = ringH / 2 + 12;
+        var rx = Math.min(cx - 150, 520), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .76 / 640, ry * .74 / 256));
         // Wide screens keep the system in the space beside the check panel, so no section runs under it.
         core.style.left = cx + 'px'; core.style.top = cy + 'px'; core.style.width = Math.round(360 * scale) + 'px';
-        pill.style.left = cx + 'px'; root.style.setProperty('--hud-cx', cx + 'px');
+        pill.style.left = cx + 'px'; root.style.setProperty('--hud-cx', cx + 'px'); root.style.setProperty('--hud-cy', cy + 'px');
         orbit = {x: cx, y: cy, logo: 180 * scale, rx: 650 * scale, ry: 262 * scale};
         for (i = 0; i < n; i++) {
             var a = -Math.PI / 2 + i * 2 * Math.PI / n, cos = Math.cos(a), sin = Math.sin(a), x = cx + cos * rx, y = cy + sin * ry, item = els[i];
@@ -108,31 +122,66 @@
                 warn: item.classList.contains('warn'), money: item.classList.contains('money')});
         }
     }
-    function pulse() { lastPulse = (performance.now() - start) / 1000; pulses.push(lastPulse); }
+    function pulse() { pulses.push((performance.now() - start) / 1000); }
+    // The GO sun beats like a heart: a strong beat and a softer echo every few seconds.
+    function beatAt(t) { var p = t % BEAT; return Math.exp(-Math.pow((p - .25) / .14, 2)) + .55 * Math.exp(-Math.pow((p - .68) / .18, 2)); }
     function point(l, t) { var u = 1 - t; return {x: u * u * l.sx + 2 * u * t * l.mx + t * t * l.ex, y: u * u * l.sy + 2 * u * t * l.my + t * t * l.ey}; }
+    function waveY(v, x, t, cx, cy, spread) {
+        var u = Math.min(1, Math.abs(x - cx) / (W * .5)), pinch = .12 + .88 * Math.pow(u, 1.2);
+        return cy + v.o * spread * pinch + (x - cx) * v.tilt * pinch + (v.a * Math.sin(x * v.k + t * v.s + v.p) + v.a2 * Math.sin(x * v.k2 - t * v.s2 + v.p2)) * (.3 + .7 * pinch);
+    }
+    function glow(x, y, r, flat, stops) {
+        var g = ctx.createRadialGradient(x, y, 0, x, y, r); stops.forEach(function (s) { g.addColorStop(s[0], s[1]); });
+        ctx.fillStyle = g; ctx.save(); ctx.translate(x, y); ctx.scale(1, flat); ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.restore(); ctx.fill();
+    }
     function draw(now) {
         frame = 0;
         if (!root.isConnected) { dispose(); return; }
-        // The box can grow after its lists fill in (phones); keep the drawing at the box's real size.
         if (root.clientWidth !== W || root.clientHeight !== H) size();
-        var t = (now - start) / 1000; ctx.clearRect(0, 0, W, H);
-        for (var i = 0; i < stars.length; i++) { var s = stars[i]; ctx.globalAlpha = .25 + .35 * Math.sin(t * 1.3 + s.t); ctx.fillStyle = '#9fdcff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill(); }
+        var t = (now - start) / 1000, beat = reduce ? .4 : beatAt(t), fade = booting ? Math.min(1, t / 2) : 1, scroll = root.scrollTop, i;
+        ctx.clearRect(0, 0, W, H);
+        for (i = 0; i < stars.length; i++) { var s = stars[i]; ctx.globalAlpha = .25 + .35 * Math.sin(t * 1.3 + s.t); ctx.fillStyle = '#9fdcff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill(); }
         ctx.globalAlpha = 1;
-        // A soft wave leaves the GO mark every few seconds and on every refresh: the room is live.
-        if (orbit && !reduce && !booting) {
-            if (t - lastPulse > 7) pulse();
-            for (var k = pulses.length - 1; k >= 0; k--) {
-                var age = (t - pulses[k]) / 3; if (age >= 1 || age < 0) { pulses.splice(k, 1); continue; }
-                var reach = orbit.logo + (orbit.rx * 1.06 - orbit.logo) * (1 - Math.pow(1 - age, 3));
-                ctx.strokeStyle = 'rgba(255,154,46,' + (.34 * (1 - age)).toFixed(3) + ')'; ctx.lineWidth = 1.5;
-                ctx.beginPath(); ctx.ellipse(orbit.x, orbit.y, reach, reach * .4, 0, 0, 6.283); ctx.stroke();
+        if (orbit) {
+            var cx = orbit.x, cy = orbit.y - scroll;
+            ctx.globalCompositeOperation = 'lighter';
+            // the blue cosmic halo breathes with the sun
+            glow(cx, cy, orbit.rx * (1.32 + .05 * beat), .62, [[0, 'rgba(40,135,255,' + ((.07 + .09 * beat) * fade).toFixed(3) + ')'], [.55, 'rgba(30,110,230,' + ((.035 + .04 * beat) * fade).toFixed(3) + ')'], [1, 'rgba(20,90,200,0)']]);
+            // cosmic waves, brighter on every beat, with sparks of energy running into the sun
+            var spread = Math.max(H * .62, orbit.ry * 2.6);
+            for (i = 0; i < waves.length; i++) {
+                var v = waves[i], x; ctx.lineWidth = v.width;
+                ctx.strokeStyle = 'hsla(' + v.hue.toFixed(0) + ',100%,62%,' + (v.alpha * (1 + .7 * beat) * fade).toFixed(3) + ')';
+                ctx.beginPath(); for (x = -30; x <= W + 30; x += 14) { var y = waveY(v, x, t, cx, cy, spread); if (x === -30) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
+                var run = (v.run + t * v.speed) % 1; if (run > .9 || fade < 1) continue;
+                for (var j = 0; j < 7; j++) {
+                    var along = Math.max(0, run - j * .006), sx = v.left ? along * cx : W - along * (W - cx), dim = (1 - j / 7) * (1 - run / .9);
+                    ctx.fillStyle = 'hsla(' + v.hue.toFixed(0) + ',100%,78%,' + (.55 * dim).toFixed(3) + ')';
+                    ctx.beginPath(); ctx.arc(sx, waveY(v, sx, t, cx, cy, spread), 1.9 - j * .2, 0, 6.283); ctx.fill();
+                }
             }
+            // the solar pulse: the GO sun swells and throws rings outward on every beat
+            glow(cx, cy, orbit.logo * (1.75 + .45 * beat), .74, [[0, 'rgba(255,205,120,' + ((.22 + .26 * beat) * fade).toFixed(3) + ')'], [.42, 'rgba(253,125,15,' + ((.12 + .14 * beat) * fade).toFixed(3) + ')'], [1, 'rgba(253,114,1,0)']]);
+            ctx.globalCompositeOperation = 'source-over';
+            if (!reduce) {
+                var cycle = Math.floor(t / BEAT); if (cycle !== lastBeat && !booting) { lastBeat = cycle; pulse(); }
+                for (var k = pulses.length - 1; k >= 0; k--) {
+                    var age = (t - pulses[k]) / 3.2; if (age >= 1 || age < 0) { pulses.splice(k, 1); continue; }
+                    var reach = orbit.logo + (orbit.rx * 1.12 - orbit.logo) * (1 - Math.pow(1 - age, 3));
+                    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,160,60,' + (.4 * (1 - age)).toFixed(3) + ')';
+                    ctx.beginPath(); ctx.ellipse(cx, cy, reach, reach * .4, 0, 0, 6.283); ctx.stroke();
+                    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(80,200,255,' + (.22 * (1 - age)).toFixed(3) + ')';
+                    ctx.beginPath(); ctx.ellipse(cx, cy, reach * .86, reach * .86 * .4, 0, 0, 6.283); ctx.stroke();
+                }
+            }
+            if (corona) corona.style.opacity = (.6 + .4 * Math.min(1, beat)).toFixed(3);
         }
+        ctx.save(); ctx.translate(0, -scroll);
         var grown = Math.min(1, Math.max(0, (t - revealAt) / 1.1));
-        for (var j = 0; j < links.length; j++) {
-            var l = links[j], end = Math.max(0, Math.min(1, grown * 1.4 - j * .02)); if (!end) continue;
+        for (var q = 0; q < links.length; q++) {
+            var l = links[q], end = Math.max(0, Math.min(1, grown * 1.4 - q * .02)); if (!end) continue;
             ctx.strokeStyle = l.warn ? 'rgba(255,194,74,.45)' : l.money ? 'rgba(255,154,46,.5)' : 'rgba(51,225,255,.38)'; ctx.lineWidth = 1.2; ctx.beginPath();
-            for (var q = 0; q <= 20; q++) { var p = point(l, end * q / 20); if (q) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }
+            for (var z = 0; z <= 20; z++) { var p = point(l, end * z / 20); if (z) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }
             ctx.stroke();
             if (end === 1) { ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(l.sx, l.sy, 2, 0, 6.283); ctx.fill(); }
         }
@@ -145,9 +194,25 @@
                 ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(pt.x, pt.y, 1.8, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
             }
         }
-        if (!reduce && !document.hidden) frame = requestAnimationFrame(draw);
+        ctx.restore();
+        if (!reduce && !document.hidden && !leaving) frame = requestAnimationFrame(draw);
     }
-    function loop() { if (!frame && !reduce && !document.hidden && root.isConnected) frame = requestAnimationFrame(draw); }
+    function loop() { if (!frame && !reduce && !document.hidden && !leaving && root.isConnected) frame = requestAnimationFrame(draw); }
+
+    // ---- GO: the way into the usual home page ----
+    function mountGo() {
+        var logo = core.querySelector('.hud-logo'); if (!logo || logo.parentNode.classList.contains('hud-go')) return;
+        var go = document.createElementNS('http://www.w3.org/2000/svg', 'a');
+        go.setAttribute('class', 'hud-go'); go.setAttribute('href', '#home'); go.setAttribute('role', 'button'); go.setAttribute('aria-label', 'GO — الدخول على الرئيسية');
+        var hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        [['class', 'hud-hit'], ['x', -200], ['y', -100], ['width', 400], ['height', 200], ['rx', 100]].forEach(function (a) { hit.setAttribute(a[0], a[1]); });
+        logo.parentNode.insertBefore(go, logo); go.appendChild(hit); go.appendChild(logo);
+    }
+    // Leaves the live screen and shows the usual home page underneath, untouched, with its sidebar and data.
+    function enterHome() {
+        if (leaving) return; leaving = true; pulse(); root.classList.add('leaving');
+        timers.push(setTimeout(function () { root.hidden = true; dispose(); }, reduce ? 0 : 650));
+    }
 
     // ---- content ----
     function fillChecks(animated) {
@@ -163,7 +228,9 @@
         tally.replaceChildren(el('strong', ok + ' من ' + list.length), document.createTextNode(' سليمة' + (warn ? ' · ' + warn + ' محتاجة متابعة' : '')));
     }
     function nodeElement(n) {
-        var item = el('div', undefined, 'hud-node ' + n[3]), tag = el('div', undefined, 'hud-tag');
+        // A section opens its own page when the account may see it (the same pages as the sidebar).
+        var url = LINKS[n[0]], item = el(url ? 'a' : 'div', undefined, 'hud-node ' + n[3]), tag = el('div', undefined, 'hud-tag');
+        if (url) { item.href = url; item.setAttribute('aria-label', n[1] + ': ' + n[2] + ' — فتح الصفحة'); }
         item.dataset.key = n[0]; item.appendChild(el('span', undefined, 'hud-dot')); tag.appendChild(el('b', n[2])); tag.appendChild(el('small', n[1])); item.appendChild(tag);
         return item;
     }
@@ -172,7 +239,7 @@
         layout();
     }
     function ready() {
-        booting = false; root.classList.add('ready'); statusText.textContent = 'النظام جاهز'; if (skip) skip.hidden = true; pulse();
+        booting = false; root.classList.add('ready'); statusText.textContent = 'النظام جاهز'; if (skip) skip.hidden = true; if (enterButton) enterButton.hidden = false; pulse();
     }
     function finish() {
         timers.forEach(clearTimeout); timers = [];
@@ -213,17 +280,28 @@
         layout(); fillTally(fillChecks(false)); pulse();
     }
     function dispose() {
-        timers.forEach(clearTimeout); timers = []; if (frame) cancelAnimationFrame(frame); frame = 0;
+        timers.forEach(clearTimeout); timers = []; if (frame) cancelAnimationFrame(frame); frame = 0; leaving = true;
+        document.documentElement.classList.remove('go-hud-open');
         document.removeEventListener('go:home-data', onData); window.removeEventListener('resize', size); document.removeEventListener('visibilitychange', loop);
+        document.removeEventListener('keydown', onKey); document.removeEventListener('dashboard:before-unload', dispose);
     }
     function onData(event) { update(event.detail); }
+    function onKey(e) { if (e.key === 'Escape' && !e.defaultPrevented) { if (booting) finish(); else enterHome(); } }
 
+    document.documentElement.classList.add('go-hud-open');
     var who = account(); root.querySelector('[data-hud-who]').textContent = who.who; root.querySelector('[data-hud-day]').textContent = who.day;
-    size();
+    mountGo(); size();
     if (root.dataset.intro === '1' && !reduce) intro(); else settled();
     if (skip) skip.addEventListener('click', finish);
-    root.addEventListener('click', function (e) { if (booting && e.target !== skip) finish(); });
+    if (enterButton) enterButton.addEventListener('click', enterHome);
+    root.addEventListener('click', function (e) {
+        // During the start-up sequence any click finishes it; afterwards GO steps into the usual home page.
+        if (booting) { if (e.target !== skip) { e.preventDefault(); finish(); } return; }
+        var go = e.target.closest && e.target.closest('.hud-go'); if (go) { e.preventDefault(); enterHome(); }
+    });
     document.addEventListener('go:home-data', onData);
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('dashboard:before-unload', dispose);
     window.addEventListener('resize', size);
     document.addEventListener('visibilitychange', loop);
     if (window.FasakhanstaDesktop && typeof window.FasakhanstaDesktop.status === 'function') {
