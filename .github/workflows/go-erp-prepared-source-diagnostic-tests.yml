@@ -1,0 +1,29 @@
+name: GO ERP read-only prepared source diagnostic
+
+on:
+  push:
+    branches: ['codex/go-erp-*-diagnostic-*']
+    paths:
+      - deployment/diagnose_go_erp_prepared_source.py
+      - tests/test_go_erp_prepared_source_diagnostic.py
+      - .github/workflows/go-erp-prepared-source-diagnostic-tests.yml
+  pull_request:
+    paths:
+      - deployment/diagnose_go_erp_prepared_source.py
+      - tests/test_go_erp_prepared_source_diagnostic.py
+      - .github/workflows/go-erp-prepared-source-diagnostic-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the fixed public Preview 37 object for the private proof cache
+        run: git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 5f2b0fecafec1c3803499284b0abcca4ecfed7e4
+      - name: Verify reviewed names, private reads and no mutations
+        run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_prepared_source_diagnostic.py
