@@ -317,7 +317,12 @@ const watchdog = setTimeout(() => {
     await page.unroute('**/admin/categorysDeleteAll');
     process.stdout.write('PASS original bulk-delete button retains rows and its UUID after a lost reply, including reordered selections\n');
     // UI contract only: the real native preparation/supervisor is tested separately on Windows.
+    await page.getByRole('link', { name: 'برنامج الكمبيوتر', exact: true }).click();
+    await page.waitForURL(input.origin + '/admin/desktop-dashboard');
+    await page.locator('[data-desktop-program]').waitFor();
+    assert.equal(await page.locator('[data-desktop-controls]').isVisible(), false, 'Normal browser has no native device actions.');
     assert.equal(await page.getByRole('button', { name: 'تجهيز بدون إنترنت' }).count(), 0);
+    assert.equal(await page.locator('a[href*="/desktop-pos/download"]').count(), 0, 'The modern program page never offers the legacy POS installer.');
     await page.evaluate(() => {
       const state = { available: true, prepared: false, mode: 'server', phase: 'idle', progress: 0, error: '' };
       window.FasakhanstaDesktop = { status: async () => state, onState: () => () => {},
@@ -331,14 +336,11 @@ const watchdog = setTimeout(() => {
     const originalNotice = page.locator('.swal-overlay--show-modal .swal-button').first();
     if (await originalNotice.count()) await originalNotice.click();
     await page.locator('.swal-overlay--show-modal').waitFor({ state: 'hidden' });
-    await page.getByRole('button', { name: 'تجهيز بدون إنترنت' }).click();
-    assert.equal(await page.locator('dialog').isVisible(), true);
-    await page.getByRole('button', { name: 'تجهيز الجهاز', exact: true }).click();
-    await page.locator('[data-error]').filter({ hasText: '<img src=x onerror=alert(1)>' }).waitFor();
-    assert.equal(await page.locator('[data-error] img').count(), 0);
-    await page.locator('dialog').getByRole('button', { name: 'إغلاق', exact: true }).click();
-    assert.equal(await page.locator('dialog').isVisible(), false);
-    process.stdout.write('PASS original dashboard preparation dialog uses its current CSRF token and renders native errors as text\n');
+    await page.getByRole('button', { name: 'تجهيز الجهاز أول مرة', exact: true }).click();
+    await page.locator('[data-desktop-error]').filter({ hasText: '<img src=x onerror=alert(1)>' }).waitFor();
+    assert.equal(await page.locator('[data-desktop-error] img').count(), 0);
+    assert.equal(await page.locator('.main-header button').filter({ hasText: 'تجهيز بدون إنترنت' }).count(), 0);
+    process.stdout.write('PASS visible program section uses its current CSRF token, offers device setup only in the native app and renders errors as text\n');
     assert.deepEqual([...externalStatic], [], 'Original layout and editor must not request external scripts, styles or fonts.');
     assert.deepEqual([...missingAssets], [], 'Bundled layout dependencies must load through the private HTTP gateway.');
     process.stdout.write('PASS original Arabic font, layout dependencies and Arabic editor load locally with external requests blocked\n');

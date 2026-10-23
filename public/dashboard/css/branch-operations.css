@@ -84,3 +84,22 @@
 
 /* employee monthly net total */
 .op-employees .op-card-net{color:#175abb;background:#f1f6ff}.op-daily-table tfoot td.op-net-total{color:#175abb;background:#f1f6ff;font-variant-numeric:tabular-nums}.op-daily-table tfoot td.op-net-total strong{display:block;font-size:15px;white-space:nowrap}
+/* employee ID photos and work regulation */
+.op-workspace .op-identity-badge{margin-inline-start:auto;min-height:22px;padding:1px 8px;font-size:10px;font-weight:700;border-radius:10px;white-space:nowrap}
+.op-workspace .op-identity-badge.is-complete{color:#197845;background:#f0faf4;border-color:#cfe6d8}
+.op-workspace .op-identity-badge.is-missing{color:#b77506;background:#fffaf1;border-color:#efdfb5}
+.op-identity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.op-identity-side{margin:0;display:flex;flex-direction:column;gap:8px;border:1px solid #e2e6ed;border-radius:6px;padding:10px;background:#fbfcff}
+.op-identity-side figcaption{font-weight:700;font-size:13px}
+.op-identity-side img{width:100%;max-height:220px;object-fit:contain;background:#fff;border-radius:4px}
+.op-identity-missing{color:#b77506;font-size:12px;margin:0}
+.op-regulation-ok{color:#197845;font-weight:700;margin:14px 0 4px}
+.op-regulation-missing{color:#c32837;font-weight:700;margin:14px 0 4px}
+.op-regulation{margin-top:10px;border:1px solid #e2e6ed;border-radius:6px;padding:8px 12px;max-height:340px;overflow:auto;font-size:12px;line-height:1.8}
+.op-regulation summary{cursor:pointer;font-weight:700}
+.op-regulation h3{font-size:13px;font-weight:700;margin:10px 0 4px}
+.op-regulation ul{padding-inline-start:18px;margin:0}
+.op-regulation-field .op-check{display:flex;flex-direction:row;align-items:flex-start;gap:8px;font-weight:700}
+.op-regulation-field .op-check input{margin-top:4px;width:auto;min-height:0}
+.op-regulation-field small{display:block;color:#b77506;margin-top:4px}
+@media(max-width:650px){.op-identity-grid{grid-template-columns:1fr}}

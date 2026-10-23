@@ -2,6 +2,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { GenerationStore, prepared, generation } = require('./dashboard-generation.cjs');
@@ -88,7 +89,7 @@ function startChild(file, args, options, capture = false) {
 }
 // A short, data-free reason shown with the failure so a support report names the real step and cause.
 function failureReason(args, cause, text) {
-  const scripts = ['database.php', 'import.php', 'verify.php', 'verify-media.php', 'archive.php'];
+  const scripts = ['database.php', 'import.php', 'verify.php', 'verify-media.php', 'archive.php', 'delta.php'];
   const script = args.filter(value => typeof value === 'string').map(value => value.split(/[\\/]/).pop()).reverse()
     .find(value => scripts.includes(value));
   const step = script ? ' [' + script + ']' : '';
@@ -103,11 +104,16 @@ function failureReason(args, cause, text) {
   if (/(?:PHP )?(?:Fatal|Parse) error:/i.test(text)) return step + ' السبب: توقفت خطوة PHP بسبب خطأ داخلي.';
   return step + ' (رمز الخروج ' + cause.exitCode + ')';
 }
-async function run(file, args, options, input = '', timeout = 90000) {
+async function run(file, args, options, input = '', timeout = 90000, outputLimit = 20 * 1024 * 1024) {
   const child = startChild(file, args, options, true);
-  let output = ''; let overflow = false;
+  let output = ''; let outputBytes = 0; let overflow = false;
   child.stdout.setEncoding('utf8');
-  child.stdout.on('data', bytes => { output += bytes.toString(); if (Buffer.byteLength(output) > 20 * 1024 * 1024) { overflow = true; child.kill(); } });
+  child.stdout.on('data', bytes => {
+    if(overflow)return;
+    outputBytes+=Buffer.byteLength(bytes);
+    if(outputBytes>outputLimit){overflow=true;child.kill();return;}
+    output+=bytes;
+  });
   child.stdin.on('error', () => {});
   child.stdin.end(input);
   let timer;
@@ -192,6 +198,12 @@ async function phpIniFor(bundle,manifest,profile) {
 class LocalRuntime {
   static phpArguments(context) {
     return ['-c', phpRelativePath(context.application, context.phpIni)];
+  }
+  static deltaInput(capture,delta,token) {
+    const input='{"action":"reconstruct","capture_database":'+JSON.stringify(capture.capture_database)
+      +',"capture_token":'+JSON.stringify(token)+',"capture":'+JSON.stringify(capture)+',"delta":'+readSnapshot.input(delta)+'}';
+    if(Buffer.byteLength(input)>384*1024*1024)throw Error('بيانات تحديث الخلفية أكبر من الحد المسموح؛ العمل المحلي مستمر.');
+    return input;
   }
   constructor({ bundle, profile, safeStorage, downloadMedia, authorizeInstalled = async () => false, platform = process.platform, onFailure = () => {} }) {
     this.installedBundle = bundle; this.bundle = bundle; this.stagedContexts = new Map(); this.profile = path.join(profile, 'dashboard');
@@ -415,6 +427,221 @@ class LocalRuntime {
     const php=path.join(bundle,'php','php.exe');await fs.access(php);
     return {bundle,application,php,phpIni:await phpIniFor(bundle,manifest,this.profile),manifest,sourceFingerprint};
   }
+  async authorizeDeltaContext(context) {
+    if(this.stopping||!context?.manifest||typeof this.authorizeInstalled!=='function'
+      ||await this.authorizeInstalled(context.manifest)!==true)throw Error('تعذر تأكيد نسخة البرنامج المتصلة؛ العمل المحلي مستمر.');
+    return true;
+  }
+  async deltaContext(previous) {
+    if(this.stopping||!this.environment||!this.manifest||!sourceCode.same(previous.sourceFingerprint,this.sourceFingerprint))
+      throw Error('مصدر قاعدة الجهاز لا يطابق التشغيل الحالي؛ بيانات الجهاز محفوظة.');
+    const archive=new RuntimeArchive(this.profile,this.metadata),installed=await archive.manifest(this.installedBundle);
+    if(!/^[a-f0-9]{64}$/.test(installed.sourceHashes?.['desktop/delta.php']||'')||!sourceCode.valid(installed.sourceFingerprint))
+      throw Error('نسخة البرنامج تحتاج تحديثًا لاستقبال تغييرات السيرفر في الخلفية.');
+    // An offline or unapproved installer cannot start a clone using new code against old data.
+    await this.authorizeDeltaContext({manifest:installed});
+    if(installed.sourceRevision===this.manifest.sourceRevision&&sourceCode.same(installed.sourceFingerprint,this.sourceFingerprint))return this.context();
+    const bundle=await archive.retain(this.installedBundle),manifest=await archive.manifest(bundle),application=path.join(bundle,'application');
+    const sourceFingerprint=await sourceCode.fingerprint(application);
+    if(manifest.sourceRevision!==installed.sourceRevision||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint)
+      ||!sourceCode.same(installed.sourceFingerprint,sourceFingerprint))throw Error('لم تتأكد ملفات تحديث البرنامج؛ النسخة الحالية محفوظة.');
+    RuntimeArchive.databaseCompatible(await this.metadata.read('runtimes/'+this.manifest.sourceRevision),await this.metadata.read('runtimes/'+manifest.sourceRevision));
+    const context={bundle,application,php:path.join(bundle,'php','php.exe'),phpIni:await phpIniFor(bundle,manifest,this.profile),manifest,sourceFingerprint};
+    await fs.access(context.php);await this.authorizeDeltaContext(context);return context;
+  }
+  deltaBackgroundValid(record) {
+    const database=value=>value==='fasakhansta_dashboard'||/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/.test(value||'');
+    return record?.format===1&&record.kind==='dashboard-delta-background'&&/^[a-f0-9]{64}$/.test(record.token||'')
+      &&/^[a-f0-9]{40}$/.test(record.sourceRevision||'')&&sourceCode.valid(record.sourceFingerprint)
+      &&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(record.device_id||'')&&Number.isSafeInteger(record.actor_id)&&record.actor_id>0
+      &&database(record.source_database)&&generation(record.capture_generation)
+      &&record.capture_database==='fasakhansta_dashboard_stage_'+record.capture_generation&&record.capture_database!==record.source_database
+      &&(record.candidate_generation===null&&record.candidate_database===null||generation(record.candidate_generation)
+        &&record.candidate_database==='fasakhansta_dashboard_stage_'+record.candidate_generation
+        &&record.candidate_database!==record.capture_database&&record.candidate_database!==record.source_database);
+  }
+  async restoreDeltaContext(record) {
+    if(!this.deltaBackgroundValid(record))throw Error('تعذر التحقق من سجل تحديث الخلفية؛ بيانات الجهاز محفوظة.');
+    if(this.manifest?.sourceRevision===record.sourceRevision&&sourceCode.same(this.sourceFingerprint,record.sourceFingerprint)
+      &&/^[a-f0-9]{64}$/.test(this.manifest.sourceHashes?.['desktop/delta.php']||''))return this.context();
+    const archive=new RuntimeArchive(this.profile,this.metadata),bundle=path.join(this.profile,'runtimes',record.sourceRevision);
+    const receipt=await this.metadata.read('runtimes/'+record.sourceRevision);
+    await archive.verify(bundle,receipt);
+    const manifest=await archive.manifest(bundle),application=path.join(bundle,'application'),sourceFingerprint=await sourceCode.fingerprint(application);
+    if(manifest.sourceRevision!==record.sourceRevision||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint)
+      ||!sourceCode.same(record.sourceFingerprint,sourceFingerprint)||!/^[a-f0-9]{64}$/.test(manifest.sourceHashes?.['desktop/delta.php']||''))
+      throw Error('مصدر سجل تحديث الخلفية غير متطابق؛ احتفظ ببيانات الجهاز.');
+    RuntimeArchive.databaseCompatible(await this.metadata.read('runtimes/'+this.manifest.sourceRevision),receipt);
+    return {bundle,application,php:path.join(bundle,'php','php.exe'),phpIni:await phpIniFor(bundle,manifest,this.profile),manifest,sourceFingerprint};
+  }
+  async deltaDatabaseExists(stage) {
+    if(!generation(stage.value.generation)||stage.value.database!=='fasakhansta_dashboard_stage_'+stage.value.generation)throw Error('اسم قاعدة تحديث الخلفية غير صالح.');
+    const settings=await this.settings();
+    const result=JSON.parse(await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/database.php'),'stage-status'],
+      {env:stage.options.env,cwd:stage.options.cwd},JSON.stringify({password:settings.rootPassword,appPassword:settings.appPassword}),15000));
+    if(result?.format!==1||result.database!==stage.value.database||typeof result.exists!=='boolean')throw Error('تعذر تأكيد حالة قاعدة تحديث الخلفية.');
+    return result.exists;
+  }
+  async recoverDeltaBackground() {
+    const record=await this.metadata.read('delta-background');if(!record)return;
+    if(!this.deltaBackgroundValid(record)||(await this.settings()).deviceId!==record.device_id||await this.metadata.read('refresh'))
+      throw Error('تعذر استرجاع تحديث الخلفية قبل تسوية انتقال قاعدة الجهاز.');
+    const context=await this.restoreDeltaContext(record),active=await this.connection();
+    if(active.deviceId!==record.device_id||active.actorId!==record.actor_id||active.database===record.capture_database)
+      throw Error('سجل تحديث الخلفية لا يطابق حساب قاعدة الجهاز.');
+    const describe=(id,database)=>{
+      const value={generation:id,database},env={...this.environmentFor(value),PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d'),
+        DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database};
+      return {value,root:path.join(this.profile,'generations',id),env,options:{env,cwd:context.application},args:LocalRuntime.phpArguments(context),context};
+    };
+    const capture={capture_database:record.capture_database,source_database:record.source_database};
+    this.deltaCaptures??=new Map();
+    this.deltaCaptures.set(record.capture_database,{...describe(record.capture_generation,record.capture_database),capture:null,
+      source_database:record.source_database,token:record.token});
+    if(record.candidate_database&&record.candidate_database!==active.database){
+      const candidate={generation:record.candidate_generation,database:record.candidate_database};
+      this.deltaStages??=new Map();this.deltaStages.set(record.candidate_generation,{...describe(record.candidate_generation,record.candidate_database),candidate,
+        receipt:null,token:record.token,capture});
+      if(await this.releaseDeltaStage(candidate,record.token)!==true)throw Error('تعذر تأكيد إزالة نسخة تحديث غير مفعّلة؛ النسخة الحالية محفوظة.');
+    }
+    if(await this.releaseDeltaCapture(capture,record.token)!==true)throw Error('تعذر تأكيد تسوية نسخة قراءة الخلفية؛ النسخة الحالية محفوظة.');
+  }
+  async createDeltaDatabase(context,id) {
+    if(this.stopping||!this.environment||!generation(id))throw Error('تعذر بدء تحديث الخلفية؛ بيانات الجهاز محفوظة.');
+    const value={generation:id,database:'fasakhansta_dashboard_stage_'+id},root=path.join(this.profile,'generations',id);
+    await fs.mkdir(path.dirname(root),{recursive:true,mode:0o700});await fs.mkdir(root,{mode:0o700});
+    for(const dir of ['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private'])
+      await fs.mkdir(path.join(this.storageFor(value),dir),{recursive:true,mode:0o700});
+    const env={...this.environmentFor(value),PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d')};
+    this.deltaController??=new AbortController();
+    const settings=await this.settings(),args=LocalRuntime.phpArguments(context),options={env,cwd:context.application,signal:this.deltaController.signal};
+    await run(context.php,[...args,path.join(context.application,'desktop/database.php'),'stage'],options,
+      JSON.stringify({password:settings.rootPassword,appPassword:settings.appPassword}));
+    return {value,root,env,options,args,context};
+  }
+  async captureDelta(context,previous,id,token) {
+    if(!/^[a-f0-9]{64}$/.test(token||''))throw Error('بيانات تحديث الخلفية غير صالحة.');
+    if(await this.metadata.read('delta-background'))throw Error('يلزم استرجاع نسخة قراءة الخلفية السابقة أولًا.');
+    const background={format:1,kind:'dashboard-delta-background',token,sourceRevision:context.manifest.sourceRevision,
+      sourceFingerprint:context.sourceFingerprint,source_database:previous.database,capture_generation:id,
+      capture_database:'fasakhansta_dashboard_stage_'+id,candidate_generation:null,candidate_database:null,device_id:previous.deviceId,actor_id:previous.actorId};
+    if(!this.deltaBackgroundValid(background))throw Error('بيانات نسخة القراءة غير صالحة.');
+    // Persist the private capability before CREATE DATABASE, including a crash before PHP's first marker.
+    await this.metadata.write('delta-background',background);
+    const stage=await this.createDeltaDatabase(context,id),input={action:'capture',source_database:previous.database,
+      device_id:previous.deviceId,actor_id:previous.actorId,snapshot_id:previous.snapshotId,schema_hash:previous.schemaHash,
+      source:previous.sourceFingerprint,capture_token:token};
+    stage.options.env.DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE=previous.database;
+    const retained={...stage,capture:null,source_database:previous.database,token};
+    this.deltaCaptures??=new Map();this.deltaCaptures.set(stage.value.database,retained);
+    try{
+      const capture=JSON.parse(await run(context.php,[...stage.args,'-d','memory_limit=-1',path.join(context.application,'desktop/delta.php')],
+        stage.options,JSON.stringify(input),300000,72*1024*1024));
+      if(capture?.capture_database!==stage.value.database||capture?.source_database!==previous.database)throw Error('تعذر تأكيد نسخة القراءة المحلية؛ البيانات الحالية محفوظة.');
+      retained.capture=capture;return capture;
+    }catch(error){await this.releaseDeltaCapture({capture_database:stage.value.database,source_database:previous.database},token).catch(()=>{});throw error;}
+  }
+  async stageDelta(context,capture,delta,id,token) {
+    const retained=this.deltaCaptures?.get(capture.capture_database);
+    if(!retained||retained.token!==token||retained.context!==context||retained.capture!==capture)throw Error('نسخة القراءة لا تخص تحديث الخلفية الحالي.');
+    media.manifest(delta.media);
+    // Preserve the exact original wire representation of every added row.
+    const input=LocalRuntime.deltaInput(capture,delta,token);
+    const background=await this.metadata.read('delta-background');
+    if(!this.deltaBackgroundValid(background)||background.token!==token||background.capture_database!==capture.capture_database
+      ||background.candidate_database!==null)throw Error('سجل نسخة تحديث الخلفية غير متطابق.');
+    await this.metadata.write('delta-background',{...background,candidate_generation:id,candidate_database:'fasakhansta_dashboard_stage_'+id});
+    const stage=await this.createDeltaDatabase(context,id);
+    const candidate={...stage.value};
+    const retainedStage={...stage,candidate,receipt:null,token,capture};
+    this.deltaStages??=new Map();this.deltaStages.set(id,retainedStage);
+    try{
+    const receipt=JSON.parse(await run(context.php,[...stage.args,'-d','memory_limit=-1',path.join(context.application,'desktop/delta.php')],stage.options,input,300000));
+    retainedStage.receipt=receipt;
+    const profiles=importPhpProfiles(receipt?.php_profiles);
+    if(profiles)await fs.writeFile(path.join(stage.root,'import-php-profiles.json'),JSON.stringify(profiles)+'\n',{flag:'wx',mode:0o600});
+    const active=await this.connection(),storage=this.storageFor(active);
+    const images=await media.download(path.join(this.storageFor(stage.value),'app/public'),delta.media,this.downloadMedia,()=>this.stopping,
+      path.join(this.storageFor(stage.value),'app'),{publicRoot:path.join(storage,'app/public'),privateRoot:path.join(storage,'app'),cacheRoot:path.join(this.profile,'media-cache')});
+    // Full row/media verification and stat-seal creation happen before the short final fence.
+    const preverified=JSON.parse(await run(context.php,[...stage.args,path.join(context.application,'desktop/verify.php')],stage.options,
+      JSON.stringify({action:'preverify',receipt,handoff_token:token}),300000));
+    const {media_seal:mediaSeal,archive_handoff:archiveHandoff,...checked}=preverified;
+    if(checked.verified!==true||!mediaSeal||checked.snapshot_id!==delta.snapshot_id||checked.device_id!==active.deviceId
+      ||checked.actor_id!==delta.actor_id||checked.schema_hash!==delta.schema_hash
+      ||!isDeepStrictEqual(checked.branches,delta.branches)||!isDeepStrictEqual(checked.coverage,delta.coverage)
+      ||!sourceCode.same(checked.source,delta.source)||archiveHandoff?.format!==1||archiveHandoff.kind!=='desktop-preverified-handoff'
+      ||!/^[a-f0-9]{64}$/.test(archiveHandoff.signature||'')||archiveHandoff.payload?.database!==stage.value.database
+      ||archiveHandoff.payload.source_database!==capture.source_database||archiveHandoff.payload.sequence!==capture.sequence
+      ||!isDeepStrictEqual(archiveHandoff.payload.replay,checked.delta_replay))throw Error('تعذر تأكيد بيانات تحديث الخلفية؛ البيانات الحالية محفوظة.');
+    media.verifyReceipt(checked.media,images.files);
+    Object.assign(candidate,{receipt:checked,mediaSeal,archiveHandoff,sourceRevision:context.manifest.sourceRevision,
+      sourceFingerprint:checked.source,mediaVerified:images.verified});
+    this.stagedContexts.set(id,context);return candidate;
+    }catch(error){await this.releaseDeltaStage(candidate,token).catch(()=>{});throw error;}
+  }
+  async finalizeDelta(candidate,intent) {
+    const stage=this.deltaStages?.get(candidate.generation);
+    if(this.stopping||!stage||stage.candidate!==candidate||!candidate.mediaSeal||!candidate.archiveHandoff)throw Error('تعذر تأكيد نسخة تحديث الخلفية.');
+    // The final durable-fence transaction must settle even when program exit
+    // cancels earlier background work. It performs only the preverified stat handoff.
+    await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/archive.php')],
+      {env:stage.options.env,cwd:stage.options.cwd},
+      JSON.stringify({receipt:candidate.receipt,source:intent.previous.database,refresh_id:intent.id,token:intent.token,
+        source_identity:{snapshot_id:intent.previous.snapshotId,schema_hash:intent.previous.schemaHash},media_seal:candidate.mediaSeal,
+        archive_handoff:candidate.archiveHandoff,handoff_token:stage.token}),90000);
+  }
+  async releaseDeltaCapture(capture,token) {
+    const stage=this.deltaCaptures?.get(capture.capture_database);
+    if(!stage||stage.token!==token||stage.source_database!==capture.source_database||stage.capture&&stage.capture!==capture)return;
+    const active=await this.connection();if(active.database===capture.capture_database)return false;
+    const options={cwd:stage.options.cwd,env:{...stage.options.env,DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database}};
+    if(await this.deltaDatabaseExists(stage)){
+      const result=JSON.parse(await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/delta.php')],options,
+        JSON.stringify({action:'discard-capture',capture_database:capture.capture_database,source_database:capture.source_database,
+          active_database:active.database,capture_token:token,...(stage.capture?{capture:stage.capture}:{})}),90000));
+      if(result?.discarded!==true||result.database!==capture.capture_database)return false;
+    }
+    this.deltaCaptures.delete(capture.capture_database);
+    if(await this.removeDeltaDirectory(stage.value)!==true)return false;
+    const background=await this.metadata.read('delta-background'),current=await this.connection();
+    if(background?.token===token&&background.capture_database===capture.capture_database
+      &&(!background.candidate_database||background.candidate_database===current.database))await this.metadata.write('delta-background',null);
+    return true;
+  }
+  async releaseDeltaStage(candidate,token) {
+    const stage=this.deltaStages?.get(candidate.generation);
+    if(!stage||stage.candidate!==candidate||stage.token!==token)return;
+    if(await this.metadata.read('refresh'))return false;
+    const active=await this.connection();if(active.database===candidate.database)return false;
+    const options={cwd:stage.options.cwd,env:{...stage.options.env,DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database}};
+    if(await this.deltaDatabaseExists(stage)){
+      const result=JSON.parse(await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/delta.php')],options,
+        JSON.stringify({action:'discard-stage',stage_database:candidate.database,source_database:stage.capture.source_database,
+          active_database:active.database,capture_database:stage.capture.capture_database,capture_token:token,
+          ...(stage.receipt?{receipt:stage.receipt}:{})}),90000));
+      if(result?.discarded!==true||result.database!==candidate.database)return false;
+    }
+    if((await this.connection()).database===candidate.database)return false;
+    this.deltaStages.delete(candidate.generation);this.stagedContexts.delete(candidate.generation);
+    if(await this.removeDeltaDirectory(stage.value)!==true)return false;
+    const background=await this.metadata.read('delta-background');
+    if(background?.token===token&&background.candidate_database===candidate.database)
+      await this.metadata.write('delta-background',{...background,candidate_generation:null,candidate_database:null});
+    return true;
+  }
+  async removeDeltaDirectory(value) {
+    if(!generation(value.generation)||value.database!=='fasakhansta_dashboard_stage_'+value.generation)return false;
+    const root=path.join(this.profile,'generations',value.generation),parent=path.dirname(root);
+    if((await this.connection()).database===value.database||await this.metadata.read('refresh'))return false;
+    for(const file of [this.profile,parent,root]){
+      let stat;try{stat=await fs.lstat(file);}catch(error){if(error.code==='ENOENT')return true;throw error;}
+      if(!stat.isDirectory()||stat.isSymbolicLink())return false;
+    }
+    // Only this supervisor's fresh, privately marked and positively discarded temporary stage is removed.
+    await fs.rm(root,{recursive:true,force:false});return true;
+  }
+  cancelDelta(){this.deltaController?.abort();}
   async stage(snapshot, id, archive) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
     const context = await this.candidate(snapshot);
@@ -492,6 +719,7 @@ class LocalRuntime {
     Object.assign(this,context);
     this.environment = { ...this.environmentFor(next), PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d') };
     this.stagedContexts.delete(next.generation);
+    this.deltaStages?.delete(next.generation);
     if (!this.stopping) await this.startWeb();
   }
   async stop() {

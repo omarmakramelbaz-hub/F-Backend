@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,protocol,net,safeStorage,dialog}=require('electron');
+const {app,BrowserWindow,ipcMain,protocol,net,safeStorage,dialog,session}=require('electron');
 const fs=require('node:fs');const path=require('node:path');const {pathToFileURL}=require('node:url');
 const Store=require('./store.cjs'), Sync=require('./sync.cjs'), receipt=require('./receipt.cjs');
 const Shutdown=require('./shutdown.cjs');
@@ -7,6 +7,7 @@ const DashboardSync=require('./dashboard-sync.cjs');
 const synchronizePrintOutcomes=require('./dashboard-print-sync.cjs');
 const SyncSchedule=require('./sync-schedule.cjs');
 const {DashboardGeneration}=require('./dashboard-generation.cjs');
+const {DashboardDelta}=require('./dashboard-delta.cjs');
 const {DashboardPreparation}=require('./dashboard-preparation.cjs');
 const DashboardMode=require('./dashboard-mode.cjs');
 const {DashboardConnected}=require('./dashboard-connected.cjs');
@@ -14,6 +15,7 @@ const DashboardConnectedReview=require('./dashboard-connected-review.cjs');
 const DashboardRemoteState=require('./dashboard-remote-state.cjs');
 const DashboardRemoteAttempts=require('./dashboard-remote-attempts.cjs');
 const DashboardOutboxReview=require('./dashboard-outbox-review.cjs');
+const {DashboardLiveSocial}=require('./dashboard-live-social.cjs');
 const {DashboardUpdater}=require('./dashboard-updater.cjs');
 const createUpdateInstall=require('./update-install.cjs');
 const RuntimeArchive=require('./runtime-archive.cjs');
@@ -25,10 +27,10 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,updater,quitting=false,installingUpdate=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,quitting=false,installingUpdate=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
-const shutdown=new Shutdown(app,()=>{quitting=true;updater?.stop();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>{await updater?.running;await localRuntime?.stop();});
+const shutdown=new Shutdown(app,()=>{quitting=true;updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>{await updater?.running;await localRuntime?.stop();});
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -75,6 +77,18 @@ async function dashboardMediaRequest(ticket) {
     return new Response(stream,{status:response.status,headers:response.headers});
   }catch(error){requests.delete(controller);throw error;}
 }
+async function dashboardDeltaRequest(index,credential) {
+  const input=JSON.stringify(index);
+  if(Buffer.byteLength(input)>64*1024*1024)throw Error('فهرس تغييرات الجهاز أكبر من الحد المسموح؛ العمل المحلي مستمر.');
+  const controller=new AbortController();requests.add(controller);
+  try{
+    const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/delta',{
+      method:'POST',headers:{Accept:'application/json','Content-Type':'application/octet-stream',Authorization:'Bearer '+credential.token},
+      body:input,redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(128000)])});
+    if(!response.ok){await response.body?.cancel().catch(()=>{});const error=Error('تعذر استقبال تغييرات السيرفر؛ العمل المحلي مستمر.');error.status=response.status;throw error;}
+    return await readSnapshot(response,256*1024*1024);
+  }finally{requests.delete(controller);}
+}
 async function dashboardEnrollment(serverOrigin, input, csrf) {
   if(!dashboard?.session())throw Error('افتح حسابك على الداشبورد أولًا.');
   const controller=new AbortController();requests.add(controller);
@@ -92,10 +106,10 @@ async function dashboardState() {
   const remote=remoteState?await remoteState.read():{pending:[],dirty:false};
   return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',full_central:connectedAccess?await connectedAccess.selected():false,remote_pending:remote.pending.length,remote_dirty:remote.dirty,...(localSync?.state||{}),
     pending:(localSync?.state.pending||0)+(store?.counts().pending||0),update:updater?.state,
-    sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
+    data_refresh:incomingDelta?.state||{phase:'idle'},sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
 }
 async function updateReady(insideTransition=false) {
-  if(quitting||installingUpdate||!dashboardMode||syncSchedule.running||syncSchedule.waiting||generations?.running
+  if(quitting||installingUpdate||liveSocial?.busy()||incomingDelta?.running||!dashboardMode||syncSchedule.running||syncSchedule.waiting||generations?.running
     ||shutdown.pending.size>(insideTransition?1:0)||(!insideTransition&&dashboardMode.accepted.size)
     ||!(await localRuntime.isPrepared())||!(await dashboard.canRefresh()))return false;
   const old=store.counts(),remote=await remoteState.read();
@@ -118,7 +132,7 @@ function connectUpdater(profile) {
       return dashboard.withUpdateIdle(async()=>{
         // The view now blocks writes, navigation and printing. Stop background
         // work before taking the same durable database fence used by snapshots.
-        if(quitting||syncSchedule.running||generations?.running||shutdown.pending.size>1)return {deferred:true};
+        if(quitting||liveSocial?.busy()||incomingDelta?.running||syncSchedule.running||generations?.running||shutdown.pending.size>1)return {deferred:true};
         syncSchedule.stop();installingUpdate=true;
         try {
           const remote=await remoteState.read(),local=await localRuntime.control({action:'pending'});
@@ -166,17 +180,22 @@ function connectDashboardSync() {
     allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion())});
   dashboardMode=new DashboardMode({runtime:localRuntime,generations,view:dashboard,probe:dashboardSession,remoteState,remoteAttempts,
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
-  localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,
+  incomingDelta=new DashboardDelta({runtime:localRuntime,metadata:localRuntime.metadata,view:dashboard,
+    download:dashboardDeltaRequest,recover:()=>generations.recover(),remoteState,
+    handoff:work=>localSync.withRefreshHandoff(work),
+    allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
+    onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
+  localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,backgroundRefresh:true,
     effects:async({printProtocol})=>{
       if(!synchronizePrintOutcomes.activeProtocol(printProtocol))return {pending:0,deferred:false};
       if(!localRuntime.supportsPrintEffects())throw Error('سجل الطباعة لا يطابق مصدر البرنامج؛ العمليات محفوظة.');
       if(dashboard?.current().local)await dashboard.recoverPrintEffects();
       return synchronizePrintOutcomes({local:value=>localRuntime.control(value),
         remote:value=>dashboardRequest(value,false,undefined,'print-outcomes'),stopped:()=>quitting});
-    },refresh:async()=>{
+    },refresh:()=>shutdown.run(async()=>{
     if(connectedAccess&&await connectedAccess.deferRefresh())return {deferred:true};
     const old=store.counts();if(old.pending)throw Error('توجد عمليات محفوظة من النسخة السابقة؛ يلزم تأكيدها قبل تحديث بيانات الجهاز.');
-    return dashboardMode.refresh({stayLocal:true});},
+    return dashboardMode.serialize('incoming-delta',()=>incomingDelta.run());}),
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
 }
 function notify() {if(!quitting&&win&&!win.isDestroyed())win.webContents.send('pos:state',state());}
@@ -253,6 +272,10 @@ app.whenReady().then(async()=>{
       authorizeInstalled:manifest=>updater?updater.authorizeInstalled(manifest):false,
       onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     remoteState=new DashboardRemoteState(localRuntime.metadata);
+    liveSocial=new DashboardLiveSocial({runtime:localRuntime,sourceSession:()=>dashboard?.session(),
+      createSession:partition=>session.fromPartition(partition),createWindow:options=>new BrowserWindow(options),quitting:()=>quitting||installingUpdate,
+      confirmMicrophone:async window=>(await dialog.showMessageBox(window,{type:'question',title:'GO ERP',message:'السماح للرسائل المتصلة باستخدام الميكروفون لتسجيل رسالة صوتية؟',buttons:['السماح','إلغاء'],defaultId:1,cancelId:1})).response===0,
+      notify:message=>{if(!quitting)dialog.showErrorBox('GO ERP',message);}});
     connectedAccess=new DashboardConnected({runtime:localRuntime,view:()=>dashboard,mode:()=>dashboardMode,generations:()=>generations,remoteState,
       remoteAttempts:{recover:()=>remoteAttempts.recover()},probe:dashboardSession,
       synchronize:async()=>{await syncSchedule.request();const counts=await localRuntime.control({action:'pending'});if(counts.counts.pending||counts.counts.conflicts)throw Error('توجد عمليات محلية معلقة أو متعارضة؛ أكمل مراجعتها ومزامنتها قبل الداشبورد المتصلة.');},
@@ -283,6 +306,7 @@ app.whenReady().then(async()=>{
       if(ready.prepared)await dashboardMode.local({method:'GET'});
       return ready;
     }:undefined,status:dashboardState,remoteState,remoteAttempts,
+    liveSocial:liveSocial?kind=>liveSocial.open(kind):undefined,
     connected:connectedAccess?async()=>{if(!(await localRuntime.isPrepared()))return dashboard.open();return connectedAccess.open();}:undefined,
     reauthenticate:connectedAccess?()=>connectedAccess.reauthenticate():undefined,
     localMode:connectedAccess?()=>connectedAccess.local():undefined,

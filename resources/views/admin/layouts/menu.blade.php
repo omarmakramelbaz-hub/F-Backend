@@ -40,6 +40,9 @@
                         </p>
                     </a>
                 </li>
+                @if((config('desktop_dashboard.enabled') || config('desktop_dashboard.local')) && app(\App\Services\Dashboard\TakeawayAccess::class)->canAccess(auth('admin')->user()))
+                <li class="nav-item"><a href="{{ route('desktop-dashboard.index') }}" data-spa-off class="nav-link {{ request()->is('admin/desktop-dashboard*') ? 'active' : '' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
+                @endif
                 @if(app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()))
                     <li class="nav-item">
                         <a href="{{ route('orders.applies') }}" class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
@@ -91,9 +94,6 @@
                     @foreach(['delivery-companies'=>'شركات الدليفري','customers'=>'قائمة العملاء'] as $module=>$title)
                     <li class="nav-item"><a href="{{ route($module.'.index') }}" class="nav-link {{ request()->is('admin/'.$module.'*')?'active':'' }}"><i class="nav-icon fas {{ $module==='customers'?'fa-address-book':'fa-shipping-fast' }}"></i><p>{{ $title }}</p></a></li>
                     @endforeach
-                    @if(config('desktop_pos.enabled'))
-                    <li class="nav-item"><a href="{{ route('desktop-pos.index') }}" class="nav-link {{ request()->is('admin/desktop-pos*')?'active':'' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
-                    @endif
                     <li class="nav-item"><a href="{{ route('print-settings.index') }}" class="nav-link {{ request()->is('admin/print-settings*') ? 'active' : '' }}"><i class="nav-icon fas fa-print"></i><p>{{ __('printing.title') }}</p></a></li>
                 @endif
                 @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))

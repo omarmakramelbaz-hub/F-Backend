@@ -7,6 +7,14 @@ try {
     if (!$port || $port < 1024 || $port > 65535) throw new RuntimeException('Invalid local database port.');
     $pdo = new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4', 'root', $input['password'], [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT=>2]);
     if (($argv[1] ?? '') === 'shutdown') { $pdo->exec('SHUTDOWN'); exit(0); }
+    if (($argv[1] ?? '') === 'stage-status') {
+        $database=(string)getenv('DB_DATABASE');
+        if(!preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',$database))throw new RuntimeException('Invalid private staging database name.');
+        $exists=$pdo->prepare('SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');$exists->execute([$database]);
+        echo json_encode(['format'=>1,'database'=>$database,'exists'=>$exists->fetchColumn()!==false],JSON_THROW_ON_ERROR).PHP_EOL;
+        exit(0);
+    }
+
     if (!preg_match('/^[a-f0-9]{64}$/D', $input['appPassword'] ?? '')) throw new RuntimeException('Invalid local database credentials.');
     $database=(string)getenv('DB_DATABASE');$stage=($argv[1]??'')==='stage';
     if(!preg_match('/^fasakhansta_dashboard(?:_stage_[a-f0-9]{16})?$/D',$database)

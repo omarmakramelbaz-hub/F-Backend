@@ -154,7 +154,8 @@
     on(root.querySelector('[data-stock-next]'), 'click', function () { load(current.pagination.page + 1); });
     on(root.querySelector('[data-stock-retry]'), 'click', function () { if (frozen) commit(frozen, true); });
     on(window, 'beforeunload', function (event) { if (dirty || frozen || busy || minimumBusy || minimumEditor) { event.preventDefault(); event.returnValue = ''; } });
-    if (window.DashboardSPA) { window.DashboardSPA.onBeforeLeave(function () { if (minimumBusy) { notice('انتظر اكتمال حفظ الحد الأدنى قبل مغادرة الصفحة.'); return false; } if (frozen || busy) { notice('تحقق من آخر إضافة قبل مغادرة الصفحة.', true); return false; } return !(dirty || minimumEditor) || confirm('مغادرة الصفحة دون حفظ التغييرات؟'); }); window.DashboardSPA.onCleanup(function () { disposed = true; generation++; clearTimeout(timer); clearInterval(refreshTimer); if (controller) controller.abort(); listeners.forEach(function (off) { off(); }); }); }
+    function refreshIdle() { return !disposed && !locked() && !dirty && !minimumEditor; }
+    if (window.DashboardSPA) { window.DashboardSPA.onBeforeLeave(function () { if (minimumBusy) { notice('انتظر اكتمال حفظ الحد الأدنى قبل مغادرة الصفحة.'); return false; } if (frozen || busy) { notice('تحقق من آخر إضافة قبل مغادرة الصفحة.', true); return false; } return !(dirty || minimumEditor) || confirm('مغادرة الصفحة دون حفظ التغييرات؟'); }); if (window.DashboardSPA.onIdle) window.DashboardSPA.onIdle(refreshIdle); window.DashboardSPA.onCleanup(function () { disposed = true; generation++; clearTimeout(timer); clearInterval(refreshTimer); if (controller) controller.abort(); listeners.forEach(function (off) { off(); }); }); }
     on(root,'inventory:busy',function(event){recipeBusy=!!event.detail;lock();});
     on(root,'inventory:recipe-saved',function(){load(1);});
     render(boot.initial);

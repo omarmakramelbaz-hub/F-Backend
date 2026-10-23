@@ -230,6 +230,40 @@ jobs:
             foreach ($field in @('create','edit','explicitConsent','scopedWithdrawal','recordedWithdrawalReopenRejected','committedResponseLost','recoveredSameUuid')) {
               if ($customerDirectoryProof.$field -ne $true) { throw "Original customer directory browser proof did not exercise: $field" }
             }
+            & php tests/desktop_dashboard_runtime/delta-local.php "$bundle/application" $port 2>&1 | Tee-Object -Variable deltaLocalOutput
+            if ($LASTEXITCODE -ne 0 -or ([regex]::Matches(($deltaLocalOutput -join "`n"), '(?m)^DESKTOP_DELTA_LOCAL_COMPLETE 12$')).Count -ne 1) { throw 'The actual InnoDB nonblocking delta capture, reconstruction and cleanup fixture did not complete.' }
+            & php tests/desktop_dashboard_runtime/delta-handoff.php "$bundle/application" $port 2>&1 | Tee-Object -Variable deltaHandoffOutput
+            $deltaHandoffExit = $LASTEXITCODE
+            $deltaHandoffMarkers = [regex]::Matches(($deltaHandoffOutput -join "`n"), '(?m)^DESKTOP_DELTA_HANDOFF_COMPLETE (\{[^\r\n]+\})$')
+            if ($deltaHandoffExit -ne 0 -or $deltaHandoffMarkers.Count -ne 1) { throw 'The actual Laravel background delta, signed handoff and bounded final archive fixture did not complete exactly once.' }
+            $deltaHandoffReceipt = $deltaHandoffMarkers[0].Groups[1].Value | ConvertFrom-Json
+            if ($deltaHandoffReceipt.checks -ne 16 -or $deltaHandoffReceipt.runtimeFramework -cne $runtimeEngine -or $deltaHandoffReceipt.actualPrintProtocol -ne 1 -or $deltaHandoffReceipt.productionEnvironmentLoaded -isnot [bool] -or $deltaHandoffReceipt.productionEnvironmentLoaded -ne $false) { throw 'The delta handoff proof differs from the captured runtime or private scope.' }
+            foreach ($field in @('actualFramework','actualMariaDB','fullVerificationBeforeFence','noHistoryScanUnderFence')) { if ($deltaHandoffReceipt.$field -isnot [bool] -or $deltaHandoffReceipt.$field -ne $true) { throw "The delta handoff did not verify $field" } }
+            $employeeIdentityProofDirectory = "$env:RUNNER_TEMP/employee-identity-browser"
+            New-Item -ItemType Directory -Path $employeeIdentityProofDirectory -Force | Out-Null
+            & php tests/desktop_dashboard_runtime/employee-identity-http.php "$bundle/application" $port $employeeIdentityProofDirectory $env:GITHUB_SHA 2>&1 | Tee-Object -Variable employeeIdentityOutput
+            $employeeIdentityExit = $LASTEXITCODE
+            $employeeIdentityMarkers = [regex]::Matches(($employeeIdentityOutput -join "`n"), '(?m)^ORIGINAL_EMPLOYEE_IDENTITY_BROWSER_COMPLETE [^\r\n]+$')
+            if ($employeeIdentityExit -ne 0 -or $employeeIdentityMarkers.Count -ne 1) { throw 'The original employee identity browser and device replay proof did not complete exactly once.' }
+            $employeeIdentityReceipt = Get-Content "$employeeIdentityProofDirectory/receipt.json" -Raw | ConvertFrom-Json
+            foreach ($field in @('completed','verifiedImport','privateDatabasesDropped','httpStopped','browserStopped','sourceVerifiedAfter','helpersVerifiedAfter','privateMediaHttpVerified','consentJournalVerified','consentReplayVerified','duplicateReplayVerified','staleQueuedConsentRejected')) {
+              if ($employeeIdentityReceipt.$field -isnot [bool] -or $employeeIdentityReceipt.$field -ne $true) { throw "Original employee identity receipt is incomplete: $field" }
+            }
+            if ($employeeIdentityReceipt.kind -cne 'original-employee-identity-browser' -or $employeeIdentityReceipt.helperBinding -cne 'exact-git-revision' -or $employeeIdentityReceipt.sourceRevision -cne $env:GITHUB_SHA -or $employeeIdentityReceipt.fixtureRevision -cne $env:GITHUB_SHA -or $employeeIdentityReceipt.schemaInventory -ne 106 -or $employeeIdentityReceipt.checks -lt 45) { throw 'Original employee identity proof differs from the exact candidate source or bounded coverage.' }
+            foreach ($phase in @('central','local')) {
+              $employeeProof = $employeeIdentityReceipt.browserProof.$phase
+              if ($employeeProof.browser -cne 'Windows Edge' -or $employeeProof.browserPlatform -cne 'win32' -or $employeeProof.phase -cne $phase -or $employeeProof.sourceCommit -cne $env:GITHUB_SHA -or $employeeProof.fixtureRevision -cne $env:GITHUB_SHA -or $employeeProof.newPageErrors -ne 0 -or $employeeProof.newEmployeeConsoleErrors -ne 0) { throw "Original employee identity proof is not actual Windows Edge for this candidate: $phase" }
+              foreach ($field in @('regulationRendered','privatePublicUrlDenied')) { if ($employeeProof.$field -ne $true) { throw "Employee browser did not exercise $phase $field" } }
+              foreach ($field in @('domInjection','providersReplaced')) { if ($employeeProof.$field -isnot [bool] -or $employeeProof.$field -ne $false) { throw "Employee browser changed the original application: $phase $field" } }
+            }
+            foreach ($field in @('realUpload','immutableABA','staleConsentRejected','firstAcceptanceDatePreserved','withdrawal','branchReadOnly','outOfScopeDenied')) {
+              if ($employeeIdentityReceipt.browserProof.central.$field -ne $true) { throw "Employee central browser did not exercise: $field" }
+            }
+            if ($employeeIdentityReceipt.browserProof.local.externalRequestsBlocked -ne 0) { throw 'The actual offline employee page attempted an external request.' }
+            foreach ($field in @('privatePhotos','imagesDecoded','displayedPhotoSourcesBound','onlineUploadExplanation','consentJournal')) {
+              if ($employeeIdentityReceipt.browserProof.local.$field -ne $true) { throw "Employee local browser did not exercise: $field" }
+            }
+            foreach ($field in @('fullDashboard','domInjection','providersReplaced')) { if ($employeeIdentityReceipt.$field -isnot [bool] -or $employeeIdentityReceipt.$field -ne $false) { throw "Employee identity proof scope differs: $field" } }
             & php tests/desktop_dashboard_runtime/settings-engine-compatibility.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsEngineOutput
             if ($LASTEXITCODE -ne 0 -or !(($settingsEngineOutput -join "`n") -match '(?m)^SETTINGS_ENGINE_COMPATIBILITY_COMPLETE ')) { throw 'The actual Windows settings engine changed original row identities, locks, payloads or transaction behavior.' }
             & php tests/desktop_dashboard_runtime/settings.php "$bundle/application" $port 2>&1 | Tee-Object -Variable settingsProofOutput
@@ -408,6 +442,14 @@ jobs:
         with:
           name: original-customer-directory-browser-windows
           path: ${{ runner.temp }}/customer-directory-browser
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the original employee identity Windows Edge and device receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-employee-identity-windows
+          path: ${{ runner.temp }}/employee-identity-browser
           if-no-files-found: error
           retention-days: 14
       - name: Retain the original Review Edge receipt

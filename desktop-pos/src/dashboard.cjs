@@ -8,7 +8,7 @@ const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0, authentication = null;
@@ -17,6 +17,8 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   const remoteWrites = new Map();
   const nativeConnectedPrints = new Map();
   const activeRequests = new Set();
+  const businessPage = url => ['/admin/takeaway','/admin/branch-expenses','/admin/branch-stock','/admin/branch-shifts'].includes(new URL(url).pathname);
+  const idlePage = url => ['/admin/dashboard','/admin/desktop-dashboard'].includes(new URL(url).pathname) || businessPage(url);
   const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
     available:()=>Boolean(localToken) && !refreshing && !quitting(),prepareDocument:prepareEffectDocument}) : null;
   async function prepareEffectDocument(prepared) {
@@ -81,6 +83,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       return prepare(origin, typeof value?.csrf === 'string' ? value.csrf : '');
     },
     synchronize: () => synchronize(),
+    'live-social': kind => {
+      if(!localToken||!liveSocial||!['messages','comments'].includes(kind))throw Error('افتح الرسائل والتعليقات من نسخة الجهاز المجهّزة.');
+      return liveSocial(kind);
+    },
     'review-sync': () => {
       if(!reviewSync)throw Error('جهّز الجهاز أولًا لمراجعة سجل المزامنة.');
       return reviewSync(window);
@@ -308,6 +314,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
+      ...(liveSocial?[
+        {label:'الرسائل المتصلة مباشرة',click:()=>accepted(()=>liveSocial('messages')).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))},
+        {label:'تعليقات السوشيال المتصلة مباشرة',click:()=>accepted(()=>liveSocial('comments')).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}
+      ]:[]),
       ...(connected?[{label:'الداشبورد المتصلة كاملة',click:()=>accepted(()=>connected()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
       ...(reauthenticate?[{label:'تجديد تسجيل دخول السيرفر',click:()=>accepted(()=>reauthenticate()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
       ...(localMode?[{label:'العودة لنسخة الجهاز بعد التحديث',click:()=>accepted(()=>localMode()).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
@@ -351,15 +361,17 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if (loading || refreshing || authentication || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
     if (!window || window.isDestroyed()) return true;
     const current = window.webContents.getURL();
-    if (!policy.sameOrigin(current, origin) || new URL(current).pathname !== '/admin/dashboard') return false;
-    // Home filters and visible dialogs can also contain unsaved work. A failed
-    // probe defers replacement instead of guessing that the page is idle.
+    if (!policy.sameOrigin(current, origin) || !idlePage(current)) return false;
+    // Business pages provide pure, synchronous checks for drafts and pending
+    // actions. Renderer failures always defer the short final handoff.
     try {
       return await window.webContents.executeJavaScript(`(() => {
         if (document.readyState !== 'complete') return false;
+        if (${businessPage(current)} && window.DashboardSPA?.isIdle?.() !== true) return false;
         const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
         if (document.activeElement?.matches(editable)) return false;
-        if (document.querySelector('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"]')) return false;
+        if (Array.from(document.querySelectorAll('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"],dialog[open]'))
+          .some(element => !element.closest('[hidden]') && element.getClientRects().length > 0)) return false;
         return !Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
           if (field.disabled || field.readOnly) return false;
           if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
@@ -371,10 +383,17 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   }
   async function refresh(work) {
     if (!localToken || refreshing || quitting()) throw Error('تعذر تحديث الداشبورد الحالية.');
-    if (!(await canRefresh())) return { deferred: true };
-    return switchTo({ origin, localToken }, work, { preserveCurrent: true });
+    const returnURL = window?.webContents.getURL();let entered=false;
+    try{
+      return await withUpdateIdle(async()=>{
+        entered=true;
+        return await work();
+      },{retireCurrent:true});
+    }finally{
+      if(entered&&!refreshing&&window&&!window.isDestroyed()&&!quitting())await open(policy.sameOrigin(returnURL,origin)?returnURL:home);
+    }
   }
-  async function withUpdateIdle(work) {
+  async function withUpdateIdle(work,{retireCurrent=false}={}) {
     if (typeof work !== 'function') throw Error('عملية تحديث البرنامج غير صالحة.');
     if (!(await canRefresh())) return { deferred: true };
     const heldWindow = window, contents = heldWindow?.webContents;
@@ -383,11 +402,12 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       && !children.size && !remoteWrites.size && !activeRequests.size
       && heldWindow && window === heldWindow && !heldWindow.isDestroyed()
       && contents.getURL() === currentURL && policy.sameOrigin(currentURL, origin)
-      && new URL(currentURL).pathname === '/admin/dashboard';
+      && idlePage(currentURL);
     // Recheck native work after the first asynchronous renderer probe. No child
     // window is closed and no page is stopped, replaced, or reloaded by this gate.
     if (refreshing || !idle()) return { deferred: true };
     refreshing = true;
+    let retirementFailed=false;
     const id = crypto.randomUUID();
     const blockInput = event => event.preventDefault();
     contents.on('before-input-event', blockInput);
@@ -411,8 +431,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         try {
           const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
           if (window.location.href !== expectedURL || document.readyState !== 'complete'
+            || (${businessPage(currentURL)} && window.DashboardSPA?.isIdle?.() !== true)
             || document.activeElement?.matches(editable)
-            || document.querySelector('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"]')
+            || Array.from(document.querySelectorAll('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"],dialog[open]'))
+              .some(element => !element.closest('[hidden]') && element.getClientRects().length > 0)
             || document.querySelector('[contenteditable]:not([contenteditable="false"])')
             || Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
               if (field.disabled || field.readOnly) return false;
@@ -424,8 +446,17 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         } catch { release(); return false; }
       })()`);
       if (held !== true || !idle()) return { deferred: true };
-      return await work();
+      try{return await work();}
+      finally{
+        // Retire the old form before unlocking input and native requests. It
+        // must never submit into the generation that has just been activated.
+        if(retireCurrent&&!quitting()&&!heldWindow.isDestroyed()){
+          try{await heldWindow.loadURL('about:blank');}
+          catch{retirementFailed=true;}
+        }
+      }
     } finally {
+      if(retirementFailed)throw Object.assign(Error('تعذر استرجاع الصفحة بعد تحديث البيانات؛ أعد فتح البرنامج. مصادر العمليات محفوظة.'),{code:'DASHBOARD_HANDOFF_RESTART_REQUIRED'});
       if (!quitting() && !heldWindow.isDestroyed()) {
         try {
           const released = await contents.executeJavaScript(`(() => {

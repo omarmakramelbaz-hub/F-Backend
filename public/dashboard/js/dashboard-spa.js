@@ -62,6 +62,7 @@
         this.cleanups = [];
         this.globals = new Map();
         this.leaveGuards = [];
+        this.idleGuards = [];
     }
     PageScope.prototype.run = function (callback, context, args) {
         if (this.closed) return;
@@ -101,7 +102,29 @@
         this.cleanups = [];
         this.globals.clear();
         this.leaveGuards = [];
+        this.idleGuards = [];
     };
+
+    function idlePage() {
+        var scope = page;
+        if (!started || !scope || scope.closed || navigation || submitting || pendingHistory || restoringHistory || currentDialog
+            || !scope.idleGuards.length || scope.idleGuards.length < scope.leaveGuards.length) return false;
+        try {
+            // A transition is busy even before its backdrop or dialog becomes visible.
+            if (Array.from(document.querySelectorAll('.modal')).some(function (element) { return modalPhase(element) !== 'hidden'; })) return false;
+            if (document.querySelector('dialog[open]')) return false;
+            if (Array.from(document.querySelectorAll('.modal-backdrop,.swal2-container,[role="dialog"][aria-modal="true"]')).some(function (element) {
+                return !element.hidden && !element.closest('[hidden]') && element.getClientRects().length > 0;
+            })) return false;
+            var guards = scope.idleGuards.slice();
+            for (var index = 0; index < guards.length; index++) {
+                // Navigation guards can ask to discard work. Idle probes cannot:
+                // they are synchronous observations and only literal true grants a cutover.
+                if (guards[index]() !== true) return false;
+            }
+            return scope === page && !scope.closed && !navigation && !submitting && !pendingHistory && !restoringHistory && !currentDialog;
+        } catch (_) { return false; }
+    }
 
     EventTarget.prototype.addEventListener = function (type, callback, options) {
         var scope = currentScope();
@@ -845,6 +868,18 @@
             scope.cleanups.push(remove);
             return remove;
         },
+        onIdle: function (callback) {
+            var scope = currentScope() || page;
+            if (typeof callback !== 'function' || scope.closed) return function () {};
+            scope.idleGuards.push(callback);
+            var remove = function () {
+                var index = scope.idleGuards.indexOf(callback);
+                if (index !== -1) scope.idleGuards.splice(index, 1);
+            };
+            scope.cleanups.push(remove);
+            return remove;
+        },
+        isIdle: idlePage,
         ready: function () { return started; },
         isCurrentPage: function () { var scope = currentScope(); return !scope || scope === page && !scope.closed; }
     };

@@ -61,7 +61,17 @@ class BranchPayroll
             'schedule_type'=>'sometimes|required|in:branch,part_time',
             'attendance_start'=>'required_if:schedule_type,part_time|nullable|date_format:H:i',
             'attendance_end'=>'required_if:schedule_type,part_time|nullable|date_format:H:i',
-            'attendance_shift'=>'required_if:schedule_type,part_time|nullable|in:morning,evening'])->validate();
+            'attendance_shift'=>'required_if:schedule_type,part_time|nullable|in:morning,evening',
+            'regulation_accepted'=>'sometimes|boolean',
+            'regulation_version'=>'sometimes|string|max:20','regulation_hash'=>['sometimes','string','regex:/^[a-f0-9]{64}$/D']])->validate();
+        if(array_key_exists('regulation_accepted',$v)){
+            abort_unless(EmployeeIdentity::ready(),503,'يجب تثبيت تحديث بطاقة الموظف أولًا.');
+            $v['regulation_accepted']=filter_var($v['regulation_accepted'],FILTER_VALIDATE_BOOLEAN);
+            // A queued device command may outlive the regulation it displayed. Never
+            // substitute the server's newer text for what the employee actually read.
+            if($v['regulation_accepted'])abort_unless(($v['regulation_version']??null)===EmployeeRegulation::VERSION
+                &&hash_equals(EmployeeRegulation::sha256(),$v['regulation_hash']??''),422,'نسخة لائحة العمل تغيرت؛ افتح اللائحة الحالية واقرأها قبل تسجيل الموافقة.');
+        }
         $scheduleKeys=['schedule_type','attendance_start','attendance_end','attendance_shift'];
         if(array_intersect_key($v,array_flip($scheduleKeys))){
             abort_unless(isset($v['schedule_type']),422,'اختر نوع الدوام عند تعديل مواعيد الموظف.');
@@ -79,6 +89,12 @@ class BranchPayroll
             abort_unless($this->canManageEmployees($actor),403,'إضافة الموظفين وتعديل بياناتهم متاحان للأونر والأدمن فقط.');
             $row=!empty($v['employee_id'])?$this->employee($v['employee_id'],$v['branch'],true):null;if($row)$this->ops->revision($row,$v);
             $data=array_intersect_key($v,array_flip(['branch','name','phone','wallet_phone','job_title','shift','hired_on','left_on','notes','active','schedule_type','attendance_start','attendance_end','attendance_shift']));$data+=['left_on'=>null,'revision'=>$row?(int)$row->revision+1:1,'actor_id'=>$actor->id,'updated_at'=>now('UTC')];
+            // Acceptance keeps its first date for the same regulation version; unticking clears it.
+            if(array_key_exists('regulation_accepted',$v)){
+                if(!$v['regulation_accepted'])$data+=['regulation_version'=>null,'regulation_accepted_at'=>null,'regulation_accepted_by'=>null];
+                elseif(!$row||!EmployeeRegulation::status($row)['current'])
+                    $data+=['regulation_version'=>EmployeeRegulation::VERSION,'regulation_accepted_at'=>now('UTC'),'regulation_accepted_by'=>$actor->id];
+            }
             if($row){$id=$row->id;DB::table('branch_employees')->where('id',$id)->update($data);}else $id=DB::table('branch_employees')->insertGetId($data+['created_at'=>now('UTC')]);
             if(Schema::hasTable('branch_employee_pay_hours')&&(!$row||array_key_exists('schedule_type',$v))){
                 $minutes=EmployeePayHours::scheduledMinutes((object)array_merge((array)($row??(object)[]),$data));
@@ -367,7 +383,7 @@ class BranchPayroll
         $ids=$employees->pluck('id');$days=DB::table('branch_employee_days')->whereIn('employee_id',$ids)->where('day',$v['day'])->get()->keyBy('employee_id');
         $daily=DB::table('branch_employee_entries')->whereIn('employee_id',$ids)->where('day',$v['day'])->whereNull('voided_at')->selectRaw('employee_id,kind,COUNT(*) AS count,SUM(amount_cents) AS amount')->groupBy('employee_id','kind')->get()->groupBy('employee_id');
         $closed=DB::table('branch_payrolls')->whereIn('employee_id',$ids)->where('month',substr($v['day'],0,7))->pluck('employee_id')->all();
-        $items=[];foreach($employees as $employee){$statement=$netPageStatements[$employee->id]??$this->period($employee,$v['month']);$item=(array)$employee;$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$item['day_closed']=in_array($employee->id,$closed);$item['daily']=array_fill_keys(['bonus','deduction','advance'],['count'=>0,'amount'=>'0.00']);foreach($daily[$employee->id]??[] as $sum)$item['daily'][$sum->kind]=['count'=>(int)$sum->count,'amount'=>Money::decimal((int)$sum->amount)];$items[]=$item;}
+        $items=[];foreach($employees as $employee){$statement=$netPageStatements[$employee->id]??$this->period($employee,$v['month']);$item=EmployeeIdentity::present((array)$employee);$item['attendance']=isset($days[$employee->id])?(array)$days[$employee->id]:null;$item['statement']=array_diff_key($statement,array_flip(['attendance','entries','employee']));$item['day_closed']=in_array($employee->id,$closed);$item['daily']=array_fill_keys(['bonus','deduction','advance'],['count'=>0,'amount'=>'0.00']);foreach($daily[$employee->id]??[] as $sum)$item['daily'][$sum->kind]=['count'=>(int)$sum->count,'amount'=>Money::decimal((int)$sum->amount)];$items[]=$item;}
         $today=DB::table('branch_employee_days')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->selectRaw('status,COUNT(*) AS count')->groupBy('status')->pluck('count','status');
         $entrySums=DB::table('branch_employee_entries')->whereIn('employee_id',(clone $q)->select('id'))->where('day',$v['day'])->whereNull('voided_at')->selectRaw('kind,SUM(amount_cents) AS amount')->groupBy('kind')->pluck('amount','kind');
         $attendanceRules=[];if(Schema::hasTable('branch_attendance_rules'))foreach(DB::table('branch_attendance_rules')->whereIn('branch',array_column($branches,'value'))->get() as $rule)$attendanceRules[$rule->branch][$rule->shift]=$this->ruleData($rule);

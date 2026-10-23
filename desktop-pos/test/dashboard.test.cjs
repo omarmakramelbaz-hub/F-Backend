@@ -132,7 +132,7 @@ test('native printing rejects foreign pages, unowned frames and non-receipts bef
 });
 test('remote dashboard exposes bounded preparation, status and receipt actions without the offline store or device token',()=>{
   let api,name;vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard-preload.cjs'),'utf8'),{require:()=>({contextBridge:{exposeInMainWorld:(n,a)=>{name=n;api=a;}},ipcRenderer:{invoke:async()=>({ok:true,value:true})}})});
-  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','printEffect','printPending','status','prepare','synchronize','reviewSync','onState']);
+  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','printEffect','printPending','status','prepare','synchronize','reviewSync','openLive','onState']);
   assert.ok(policy.sameOrigin('https://fasakhaninja.com/admin/customers'));assert.equal(policy.sameOrigin('https://fasakhaninja.com.evil.test/admin'),false);
   assert.equal(policy.sameOrigin('https://user:password@fasakhaninja.com/admin'),false);assert.equal(policy.externalURL('file:///x'),false);
 });
@@ -154,6 +154,16 @@ test('sync review uses the native dialog callback and rejects foreign or child f
   assert.equal((await handler({...event,senderFrame:{url:'https://foreign.test/admin/dashboard'}})).ok,false);
   assert.equal((await handler({...event,sender:{id:999}})).ok,false);assert.equal(calls.length,1);
   assert.ok(f.electron.menu[0].submenu.some(value=>value.label==='مراجعة المزامنة'));
+});
+
+test('only the owned local dashboard may open the two live social pages without switching its origin',async t=>{
+  const calls=[],local='http://127.0.0.1:45123',f=fixture(t,{origin:local,localToken:'private',serverOrigin:policy.DEFAULT_ORIGIN,liveSocial:async kind=>{calls.push(kind);return {live:true,kind};}});
+  await f.dashboard.open();const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:live-social');
+  assert.equal((await handler(event,'messages')).ok,true);assert.equal((await handler(event,'comments')).ok,true);
+  assert.equal((await handler(event,'orders')).ok,false);assert.equal((await handler({...event,sender:{id:999}},'messages')).ok,false);
+  assert.equal((await handler({...event,senderFrame:{url:policy.DEFAULT_ORIGIN+'/admin/dashboard'}},'messages')).ok,false);
+  assert.equal(f.dashboard.current().local,true);assert.equal(f.windows[0].url,local+'/admin/dashboard');assert.deepEqual(calls,['messages','comments']);
+  await f.dashboard.switchTo({origin:policy.DEFAULT_ORIGIN,localToken:''});assert.equal((await handler({sender,senderFrame:{url:sender.getURL()}},'messages')).ok,false);
 });
 
 test('switching between original remote and local pages keeps one window and prevents stale forms or local header forwarding',async t=>{
@@ -216,9 +226,11 @@ test('bulk background replacement waits for active forms, popups and outstanding
   const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
   const window=f.windows[0];let updates=0;
   await f.dashboard.open(origin+'/admin/takeaway');
+  const probe=window.webContents.executeJavaScript;window.webContents.executeJavaScript=async()=>false;
   assert.equal((await f.dashboard.refresh(async()=>updates++)).deferred,true);
   assert.equal(window.url,origin+'/admin/takeaway');assert.equal(updates,0);assert.equal(window.webContents.stopped,undefined);
-  await f.dashboard.open();const child=new window.constructor(window.options);window.webContents.emit('did-create-window',child);
+  await f.dashboard.open();window.webContents.executeJavaScript=probe;
+  const child=new window.constructor(window.options);window.webContents.emit('did-create-window',child);
   assert.equal((await f.dashboard.refresh(async()=>updates++)).deferred,true);assert.equal(child.destroyed,false);
   child.emit('closed');
   f.session.webRequest.headers({id:42,url:origin+'/admin/dashboard',method:'GET',webContentsId:window.webContents.id,requestHeaders:{}},()=>{});
@@ -234,14 +246,29 @@ test('a settled home refresh keeps the selected report URL and blocks navigation
 });
 test('focused or changed home fields and visible dialogs defer snapshots while settled read content permits them',async t=>{
   const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});await f.dashboard.open();
-  const document={readyState:'complete',activeElement:{matches:()=>false},querySelector:()=>null,querySelectorAll:()=>[]};
+  let fields=[],dialogs=[];
+  const document={readyState:'complete',activeElement:{matches:()=>false},querySelector:()=>null,
+    querySelectorAll:selector=>selector.startsWith('.modal')?dialogs:fields};
   f.windows[0].webContents.executeJavaScript=async source=>vm.runInNewContext(source,{document});
   assert.equal(await f.dashboard.canRefresh(),true);
   document.activeElement.matches=()=>true;assert.equal(await f.dashboard.canRefresh(),false);document.activeElement.matches=()=>false;
-  document.querySelector=()=>({});assert.equal(await f.dashboard.canRefresh(),false);document.querySelector=()=>null;
-  document.querySelectorAll=()=>[{tagName:'INPUT',type:'text',value:'changed',defaultValue:''}];assert.equal(await f.dashboard.canRefresh(),false);
-  document.querySelectorAll=()=>[{tagName:'SELECT',options:[{selected:true,defaultSelected:false}]}];assert.equal(await f.dashboard.canRefresh(),false);
-  document.querySelectorAll=()=>[];document.readyState='loading';assert.equal(await f.dashboard.canRefresh(),false);
+  dialogs=[{closest:()=>null,getClientRects:()=>[{}]}];assert.equal(await f.dashboard.canRefresh(),false);
+  dialogs=[{closest:()=>({}),getClientRects:()=>[{}]}];assert.equal(await f.dashboard.canRefresh(),true);
+  dialogs=[{closest:()=>null,getClientRects:()=>[]}];assert.equal(await f.dashboard.canRefresh(),true);dialogs=[];
+  fields=[{tagName:'INPUT',type:'text',value:'changed',defaultValue:''}];assert.equal(await f.dashboard.canRefresh(),false);
+  fields=[{tagName:'SELECT',options:[{selected:true,defaultSelected:false}]}];assert.equal(await f.dashboard.canRefresh(),false);
+  fields=[];document.readyState='loading';assert.equal(await f.dashboard.canRefresh(),false);
+});
+test('business routes require their scoped idle proof while status and home pages accept settled content',async t=>{
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private'});
+  await f.dashboard.open(origin+'/admin/desktop-dashboard');
+  assert.equal(await f.dashboard.canRefresh(),true);
+  let applied=0;await f.dashboard.withUpdateIdle(async()=>{applied++;});assert.equal(applied,1);
+  for(const path of ['/admin/desktop-dashboard/download','/admin/orders','/admin/branch-stock/adjust']){
+    await f.dashboard.open(origin+path);assert.equal(await f.dashboard.canRefresh(),false);
+    assert.equal((await f.dashboard.withUpdateIdle(async()=>{applied++;})).deferred,true);
+  }
+  assert.equal(applied,1);
 });
 test('prepared local pages cannot submit absolute production requests outside scheduled native reconciliation',async t=>{
   const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private',serverOrigin:policy.DEFAULT_ORIGIN});await f.dashboard.open();

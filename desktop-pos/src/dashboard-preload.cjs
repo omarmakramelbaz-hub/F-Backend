@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('FasakhanstaDesktop', Object.freeze({
   prepare: csrf => invoke('prepare', { csrf: String(csrf) }),
   synchronize: () => invoke('synchronize'),
   reviewSync: () => invoke('review-sync'),
+  openLive: kind => invoke('live-social', String(kind)),
   onState: callback => {
     if (typeof callback !== 'function') throw Error('Invalid state callback.');
     const listener = (_event, state) => callback(state);

@@ -81,7 +81,7 @@ test('update idle gate blocks input, forms, native requests, navigation and menu
 
 test('an edit arriving after the first idle probe defers update and preserves the form', async () => {
   const f = fixture(); await f.dashboard.open(); const w = f.windows[0], field = { tagName: 'INPUT', type: 'text', value: '', defaultValue: '' };
-  f.document.querySelectorAll = () => [field]; f.race(() => { field.value = 'new unsaved work'; });
+  f.document.querySelectorAll = selector => selector.startsWith('.modal') ? [] : [field]; f.race(() => { field.value = 'new unsaved work'; });
   let applied = false; const result = await f.dashboard.withUpdateIdle(async () => { applied = true; });
   assert.equal(result.deferred, true); assert.equal(applied, false); assert.equal(field.value, 'new unsaved work');
   assert.equal(w.loads.length, 1); assert.equal(f.listenerCount(), 0); assert.equal(w.stopped, undefined);
@@ -145,4 +145,60 @@ test('shutdown keeps the update input fence until the window is destroyed', asyn
   await f.dashboard.withUpdateIdle(async () => { f.close(); return { installing: true }; });
   assert.ok(f.listenerCount() > 0); assert.equal(f.dispatch('submit').prevented, true);
   assert.equal(f.windows[0].loads.length, 1);
+});
+
+test('ordinary business pages require an exact synchronous scoped idle result before both handoff probes', async () => {
+  for (const route of ['takeaway','branch-expenses','branch-stock','branch-shifts']) {
+    const f = fixture(); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/' + route);
+    let applied = 0;
+    assert.equal(await f.dashboard.canRefresh(), false);
+    for (const probe of [() => false, () => 1, () => Promise.resolve(true), () => { throw Error('page busy'); }]) {
+      f.page.DashboardSPA = { isIdle: probe };
+      assert.equal((await f.dashboard.withUpdateIdle(async () => applied++)).deferred, true);
+    }
+    f.page.DashboardSPA = { isIdle: () => true };
+    assert.equal(await f.dashboard.canRefresh(), true);
+    f.race(() => { f.page.DashboardSPA.isIdle = () => false; });
+    assert.equal((await f.dashboard.withUpdateIdle(async () => applied++)).deferred, true);
+    assert.equal(applied, 0); assert.equal(f.listenerCount(), 0);
+    f.page.DashboardSPA.isIdle = () => true;
+    await f.dashboard.withUpdateIdle(async () => applied++);
+    assert.equal(applied, 1); assert.equal(f.listenerCount(), 0);
+  }
+});
+
+test('hidden modal templates permit a handoff while an open visible HTML dialog preserves work', async () => {
+  const f = fixture(); await f.dashboard.open(); let applied = 0;
+  let hidden = true, rendered = true;
+  f.document.querySelectorAll = selector => selector.startsWith('.modal')
+    ? [{ closest: () => hidden ? {} : null, getClientRects: () => rendered ? [{}] : [] }] : [];
+  await f.dashboard.withUpdateIdle(async () => applied++); assert.equal(applied, 1);
+  hidden = false; rendered = false;
+  await f.dashboard.withUpdateIdle(async () => applied++); assert.equal(applied, 2);
+  rendered = true;
+  assert.equal((await f.dashboard.withUpdateIdle(async () => applied++)).deferred, true);
+  assert.equal(applied, 2); assert.equal(f.listenerCount(), 0);
+});
+
+test('data refresh uses the atomic renderer fence and retires the old form before unlocking', async () => {
+  const origin='http://127.0.0.1:43123',f=fixture({origin,localToken:'private'});
+  await f.dashboard.open(origin+'/admin/takeaway');f.page.DashboardSPA={isIdle:()=>true};
+  let finish,started;const entered=new Promise(resolve=>{started=resolve;});
+  const refreshing=f.dashboard.refresh(async()=>{started();await new Promise(resolve=>{finish=resolve;});return 'activated';});
+  await entered;
+  assert.equal(f.dispatch('beforeinput').prevented,true);assert.equal(f.dispatch('submit').prevented,true);
+  let decision;f.session.webRequest.headers({id:77,url:origin+'/admin/takeaway/save',method:'POST',webContentsId:f.windows[0].webContents.id,requestHeaders:{}},value=>{decision=value;});
+  assert.equal(decision.cancel,true);assert.equal(f.windows[0].loads.length,1);
+  finish();assert.equal(await refreshing,'activated');
+  assert.deepEqual(f.windows[0].loads,[origin+'/admin/takeaway','about:blank',origin+'/admin/takeaway']);
+  assert.equal(f.listenerCount(),0);assert.equal(f.dispatch('beforeinput').prevented,false);
+});
+
+test('a failed old-document retirement retains the fence and asks for restart',async()=>{
+  const origin='http://127.0.0.1:43123',f=fixture({origin,localToken:'private'});
+  await f.dashboard.open();const w=f.windows[0],url=w.url;
+  w.loadURL=async()=>{throw Error('fixture renderer failed');};
+  await assert.rejects(f.dashboard.refresh(async()=> 'activated'),error=>error.code==='DASHBOARD_HANDOFF_RESTART_REQUIRED');
+  assert.equal(w.url,url);assert.ok(f.listenerCount()>0);assert.equal(f.dispatch('submit').prevented,true);
+  assert.equal(await f.dashboard.canRefresh(),false);
 });

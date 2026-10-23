@@ -2,7 +2,7 @@
 namespace App\Services\Dashboard;
 
 use App\Models\User;
-use Illuminate\Support\Facades\{Crypt,DB};
+use Illuminate\Support\Facades\{Cache,Crypt,DB};
 
 /** Explicit scoped images and private expense attachments. Never enumerate shared storage. */
 class DesktopDashboardMedia
@@ -12,10 +12,13 @@ class DesktopDashboardMedia
     public const MAX_FILE=16*1024*1024;
     public const MAX_TOTAL=2*1024*1024*1024;
     public const MAX_FILES=20000;
+    private const PROOF_CACHE_SECONDS=30;
     private const MODELS=['User'=>'users','Admin'=>'users','Resturant'=>'resturants','ResturantProduct'=>'resturant_products',
         'Product'=>'products','Category'=>'categories','Advertising'=>'advertisings','Banner'=>'banners','Slidear'=>'slidears',
         'Feature'=>'features','PendingVendor'=>'pending_vendors','Area'=>'areas','Review'=>'reviews'];
     private const SETTINGS=['logo','favicon','advertise_image'];
+    private const USER_PARENTS=['orders'=>['user_id'],'go_store_orders'=>['customer_id'],'products'=>['added_by'],
+        'categories'=>['added_by'],'resturants'=>['added_by']];
     public function __construct(private DesktopDashboardDevices $devices,private DesktopDashboardData $data) {}
 
     public static function safePath($path,string $area='public'): bool
@@ -71,17 +74,44 @@ class DesktopDashboardMedia
         foreach($branches as $branch)$this->devices->branch($device,$branch,$actor);
         abort_unless(count($branches),403);return $branches;
     }
-    private function owner(array $row,array $queries): bool
+    /** Project only the original scoped queries; FK-expanded dataset rows never grant media access. */
+    private function ownerMembership(array $rows,array $queries): array
+    {
+        $columns=[];$users=false;$pending=false;
+        foreach($rows as $row){
+            $model=str_starts_with((string)($row['model_type']??''),'App\\Models\\')?substr($row['model_type'],11):'';
+            $table=self::MODELS[$model]??null;if(!$table||!isset($queries[$table]))continue;
+            $columns[$table]['id']=true;$users=$users||in_array($model,['User','Admin'],true);$pending=$pending||$model==='PendingVendor';
+        }
+        if($users)foreach(self::USER_PARENTS as $table=>$names)if(isset($queries[$table]))foreach($names as $name)
+            if(\Illuminate\Support\Facades\Schema::hasColumn($table,$name))$columns[$table][$name]=true;
+        if($pending&&isset($queries['users'])&&\Illuminate\Support\Facades\Schema::hasColumn('users','pending_vendor_id'))$columns['users']['pending_vendor_id']=true;
+        $membership=[];$count=0;
+        foreach($columns as $table=>$names){
+            foreach((clone $queries[$table])->select(array_keys($names))->cursor() as $record){
+                abort_if(++$count>500000,413);
+                foreach($names as $name=>$_){$value=$record->$name??null;if($value!==null)$membership[$table][$name][(string)$value]=true;}
+            }
+        }
+        return $membership;
+    }
+    private function owner(array $row,array $queries,?array $membership=null): bool
     {
         $model=str_starts_with((string)$row['model_type'],'App\\Models\\')?substr($row['model_type'],11):'';
         $table=self::MODELS[$model]??null;
         if(!$table||!isset($queries[$table]))return false;
+        if($membership!==null){
+            $id=in_array($model,['User','Admin'],true)?(string)(int)$row['model_id']:(string)$row['model_id'];
+            if(isset($membership[$table]['id'][$id]))return true;
+            if(in_array($model,['User','Admin'],true))foreach(self::USER_PARENTS as $parent=>$columns)foreach($columns as $column)
+                if(isset($membership[$parent][$column][$id]))return true;
+            return $model==='PendingVendor'&&isset($membership['users']['pending_vendor_id'][$id]);
+        }
         if(in_array($model,['User','Admin'],true)){
             $id=(int)$row['model_id'];
             if((clone $queries['users'])->where('id',$id)->exists())return true;
             // Foreign-key parents displayed by the original branch pages: their public profiles only.
-            foreach(['orders'=>['user_id'],'go_store_orders'=>['customer_id'],'products'=>['added_by'],
-                'categories'=>['added_by'],'resturants'=>['added_by']] as $parent=>$columns){
+            foreach(self::USER_PARENTS as $parent=>$columns){
                 if(!isset($queries[$parent]))continue;
                 foreach($columns as $column)if(\Illuminate\Support\Facades\Schema::hasColumn($parent,$column)
                     &&(clone $queries[$parent])->where($column,$id)->exists())return true;
@@ -93,18 +123,55 @@ class DesktopDashboardMedia
             &&(clone $queries['users'])->where('pending_vendor_id',$row['model_id'])->exists());
         return (clone $queries[$table])->where('id',$row['model_id'])->exists();
     }
+    private static function fileIdentity(array $stat): array
+    {
+        $identity=[];
+        foreach(['dev','ino','mode','size','mtime','ctime'] as $key){abort_unless(isset($stat[$key])&&is_int($stat[$key]),409);$identity[$key]=$stat[$key];}
+        abort_unless(($identity['mode']&0170000)===0100000&&$identity['size']>0&&$identity['size']<=self::MAX_FILE,409);
+        return $identity;
+    }
+    /** Called only after the manifest's original row/scope authorization. Cache no scope, ticket or account data. */
+    private function fileProof(string $file,string $mime,string $extension): array
+    {
+        clearstatcache(true,$file);$named=@lstat($file);abort_unless(is_array($named),409);$before=self::fileIdentity($named);
+        $stream=@fopen($file,'rb');abort_unless(is_resource($stream),409);
+        try{
+            $opened=fstat($stream);abort_unless(is_array($opened)&&self::fileIdentity($opened)===$before,409);
+            $key='desktop-media-proof:1:'.hash('sha256',$file."\0".json_encode($before,JSON_THROW_ON_ERROR));
+            try{$cached=Cache::get($key);}catch(\Throwable $error){$cached=null;}
+            $valid=is_array($cached)&&array_keys($cached)===['format','identity','mime','sha256','expires_at']
+                &&$cached['format']===1&&$cached['identity']===$before&&$cached['mime']===$mime
+                &&is_string($cached['sha256'])&&preg_match('/^[a-f0-9]{64}$/D',$cached['sha256'])
+                &&is_int($cached['expires_at'])&&$cached['expires_at']>time()&&$cached['expires_at']<=time()+self::PROOF_CACHE_SECONDS;
+            if($valid)$sha=$cached['sha256'];
+            else{
+                // MIME and checksum refer to this descriptor; paths may be replaced during export.
+                $head=fread($stream,65536);abort_unless(is_string($head)&&$head!=='',409);
+                $detected=(new \finfo(FILEINFO_MIME_TYPE))->buffer($head);
+                abort_unless($detected===$mime||($extension==='ico'&&in_array($detected,['image/vnd.microsoft.icon','image/x-icon'],true)),409);
+                abort_unless(rewind($stream),409);$hash=hash_init('sha256');$read=hash_update_stream($hash,$stream,self::MAX_FILE+1);
+                abort_unless($read===$before['size'],409);$sha=hash_final($hash);
+            }
+            $after=fstat($stream);clearstatcache(true,$file);$current=@lstat($file);
+            abort_unless(is_array($after)&&is_array($current)&&self::fileIdentity($after)===$before&&self::fileIdentity($current)===$before,409);
+            if(!$valid){
+                try{Cache::put($key,['format'=>1,'identity'=>$before,'mime'=>$mime,'sha256'=>$sha,'expires_at'=>time()+self::PROOF_CACHE_SECONDS],self::PROOF_CACHE_SECONDS);}
+                catch(\Throwable $error){/* Cache outages must not change the verified media contract. */}
+            }
+            return ['bytes'=>$before['size'],'sha256'=>$sha];
+        }finally{fclose($stream);}
+    }
     public function manifest(array $dataset,object $device,User $actor,string $snapshot): array
     {
         $queries=$this->data->queries($device,$actor,$this->branches($device,$actor));
+        $owners=$this->ownerMembership($dataset['media']??[],$queries);
         $files=[];$issues=[];$total=0;
         $add=function(string $path,array $proof,string $area='public',array $expected=[])use(&$files,&$issues,&$total,$device,$actor,$snapshot){
             $key=$area."\0".$path;
             try{
-                $file=self::file($path,$area);$bytes=filesize($file);$extension=strtolower(pathinfo($path,PATHINFO_EXTENSION));
-                $mime=($area==='private'?self::PRIVATE_MIMES:self::MIMES)[$extension];$detected=(new \finfo(FILEINFO_MIME_TYPE))->file($file);
-                abort_unless($bytes>0&&$bytes<=self::MAX_FILE&&($detected===$mime
-                    ||($extension==='ico'&&in_array($detected,['image/vnd.microsoft.icon','image/x-icon'],true))),409);
-                $sha=hash_file('sha256',$file);abort_unless(is_string($sha),409);
+                $file=self::file($path,$area);$extension=strtolower(pathinfo($path,PATHINFO_EXTENSION));
+                $mime=($area==='private'?self::PRIVATE_MIMES:self::MIMES)[$extension];$proofFile=$this->fileProof($file,$mime,$extension);
+                $bytes=$proofFile['bytes'];$sha=$proofFile['sha256'];
                 if($area==='private')abort_unless(($expected['sha256']??null)===$sha&&($expected['mime']??null)===$mime,409);
                 if(isset($files[$key]))return;
                 abort_if(count($files)>=self::MAX_FILES||$total+$bytes>self::MAX_TOTAL,413);
@@ -118,7 +185,7 @@ class DesktopDashboardMedia
         };
         foreach($dataset['media']??[] as $row){
             try{
-                abort_unless($this->owner($row,$queries)&&config('media-library.path_generator')===\Spatie\MediaLibrary\Support\PathGenerator\DefaultPathGenerator::class
+                abort_unless($this->owner($row,$queries,$owners)&&config('media-library.path_generator')===\Spatie\MediaLibrary\Support\PathGenerator\DefaultPathGenerator::class
                     &&ctype_digit((string)$row['id'])&&(int)$row['id']>0&&is_string($row['file_name'])&&!str_contains($row['file_name'],'/'),409);
                 [$root,$prefix]=$this->disk($row['disk']);$relative=$row['id'].'/'.$row['file_name'];
                 $proof=['kind'=>'media','id'=>(int)$row['id'],'disk'=>$row['disk'],'relative'=>$relative];
@@ -139,13 +206,26 @@ class DesktopDashboardMedia
             }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['media_id'=>(int)$row['id'],'reason'=>'unavailable-or-unsupported'];}
         }
         foreach($dataset['go_store_products']??[] as $row){
-            if(!empty($row['image_path']))$add($row['image_path'],['kind'=>'store-product','id'=>(int)$row['id']]);
+            if(!empty($row['image_path'])){
+                abort_unless(isset($queries['go_store_products'])&&(clone $queries['go_store_products'])->where('id',$row['id'])->where('image_path',$row['image_path'])->exists(),403);
+                $add($row['image_path'],['kind'=>'store-product','id'=>(int)$row['id']]);
+            }
         }
         foreach($dataset['branch_expenses']??[] as $row){
             if(empty($row['attachment_path']))continue;
             abort_unless(isset($queries['branch_expenses'])&&(clone $queries['branch_expenses'])->where('id',$row['id'])->exists(),403);
             $add($row['attachment_path'],['kind'=>'expense','id'=>(int)$row['id']],'private',
                 ['sha256'=>$row['attachment_hash']??null,'mime'=>$row['attachment_mime']??null]);
+        }
+        foreach($dataset['branch_employees']??[] as $row){
+            if(!isset($queries['branch_employees']))break;
+            foreach(EmployeeIdentity::SIDES as $side){
+                $path=$row['id_'.$side.'_path']??null;if(empty($path))continue;
+                if(!EmployeeIdentity::validPath($path)){$issues[]=['path'=>$path,'area'=>'private','reason'=>'unavailable-or-unsupported'];continue;}
+                abort_unless((clone $queries['branch_employees'])->where('id',$row['id'])->exists(),403);
+                $add($path,['kind'=>'employee-id','id'=>(int)$row['id'],'side'=>$side],'private',
+                    ['sha256'=>$row['id_'.$side.'_hash']??null,'mime'=>$row['id_'.$side.'_mime']??null]);
+            }
         }
         foreach($dataset['settings']??[] as $row){
             if(($row['group']??'')!=='general'||!in_array($row['name'],self::SETTINGS,true))continue;
@@ -175,7 +255,7 @@ class DesktopDashboardMedia
             &&is_string($value['enrollment_binding']??null)&&hash_equals($this->devices->enrollmentFingerprint($device),$value['enrollment_binding'])
             &&($value['actor_id']??null)===(int)$actor->id&&($value['expires_at']??0)>=time(),403);
         $proof=$value['proof']??[];$path=$value['path']??'';$area=$value['area']??'public';
-        abort_unless($area===(($proof['kind']??'')==='expense'?'private':'public'),403);
+        abort_unless($area===(in_array($proof['kind']??'',['expense','employee-id'],true)?'private':'public'),403);
         switch($proof['kind']??''){
             case 'media':
                 $row=(array)DB::table('media')->where('id',$proof['id'])->first();abort_unless($row&&$this->owner($row,$queries),403);
@@ -195,6 +275,10 @@ class DesktopDashboardMedia
             case 'expense':
                 $row=isset($queries['branch_expenses'])?(clone $queries['branch_expenses'])->where('id',$proof['id'])->first():null;
                 abort_unless($row&&$row->attachment_path===$path&&$row->attachment_hash===$value['sha256']&&$row->attachment_mime===$value['mime'],403);break;
+            case 'employee-id':
+                $side=$proof['side']??'';abort_unless(in_array($side,EmployeeIdentity::SIDES,true)&&EmployeeIdentity::validPath($path),403);
+                $row=isset($queries['branch_employees'])?(clone $queries['branch_employees'])->where('id',$proof['id'])->first():null;
+                abort_unless($row&&$row->{'id_'.$side.'_path'}===$path&&$row->{'id_'.$side.'_hash'}===$value['sha256']&&$row->{'id_'.$side.'_mime'}===$value['mime'],403);break;
             default:abort(403);
         }
         // Hash the exact bytes returned; changed/deleted files force a fresh coherent bootstrap.

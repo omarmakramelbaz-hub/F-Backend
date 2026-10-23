@@ -171,6 +171,14 @@
     function invoiceIsDirty(invoice) { return invoice.cart.length > 0 || !!(invoice.customerPhone || '').trim() || !!(invoice.customerName || '').trim() || !!invoice.notes.trim() || !!invoice.cash.trim() || !!invoice.reference.trim() || minor(invoice.discount) > 0n; }
     function hasOpenInvoices() { storeInvoice(); return invoices.some(function (invoice) { return !invoice.sold && invoiceIsDirty(invoice); }); }
     function hasUncertainInvoices() { storeInvoice(); return invoices.some(function (invoice) { return invoice.uncertain; }); }
+    function refreshIdle() {
+        if (disposed || registerLocked || selling || modal.hidden !== true) return false;
+        var current = captureInvoice();
+        return invoices.every(function (invoice, index) {
+            var value = index === activeInvoice ? current : invoice;
+            return !value.uncertain && (value.sold || !invoiceIsDirty(value));
+        });
+    }
 
     function normalizedCustomerPhone(value) {
         var phone = String(value || '').trim().replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/[۰-۹]/g, function (d) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)); });
@@ -798,6 +806,7 @@
     listen(window, 'blur', function () { enterKeyDown = false; consentEnterAffirmed = false; composing = false; });
     listen(window, 'beforeunload', function (event) { if (registerLocked || selling || hasUncertainInvoices() || hasOpenInvoices()) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) { window.DashboardSPA.onBeforeLeave(mayLeave); navigationGuardRegistered = true; }
+    if (window.DashboardSPA && window.DashboardSPA.onIdle) window.DashboardSPA.onIdle(refreshIdle);
     listen(document, 'click', function (event) { if (navigationGuardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && link.href.indexOf('#') < 0 && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; catalogGeneration++; quoteGeneration++; cancelCatalogNavigation(); clearTimeout(quoteTimer); if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort(); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.takeawayPos'); });
     var restored = restoreInvoices(); storageReady = true; showConsent();

@@ -2,19 +2,41 @@
 
 /** The native bridge reads the PHP outbox and confirms one original business command at a time. */
 class DashboardSync {
-  constructor({ local, remote, refresh, effects, refreshInterval = 60000, now = Date.now, onState = () => {} }) {
+  constructor({ local, remote, refresh, effects, backgroundRefresh = false, refreshInterval, now = Date.now, onState = () => {} }) {
     this.local = local; this.remote = remote; this.onState = onState; this.stopped = false;
-    this.refresh = refresh; this.effects = effects; this.refreshInterval = refreshInterval; this.now = now; this.nextRefresh = 0;
+    this.backgroundRefresh = backgroundRefresh === true; this.refreshing = null; this.handoff = false;
+    this.refresh = refresh; this.effects = effects; this.refreshInterval = refreshInterval ?? (this.backgroundRefresh ? 30000 : 60000); this.now = now; this.nextRefresh = 0;
     this.state = { online: false, pending: 0, conflicts: 0, acknowledged: 0, error: '', refresh_deferred: false };
   }
   stop() { this.stopped = true; }
   run() {
     if (this.running) return this.running;
-    if (this.stopped) return Promise.resolve(this.state);
+    if (this.stopped || this.handoff) return Promise.resolve(this.state);
     this.running = this.flush().finally(() => { this.running = null; });
     return this.running;
   }
   report(values) { Object.assign(this.state, values); if (!this.stopped) this.onState({ ...this.state }); }
+  withRefreshHandoff(work) {
+    // Claim the short final cutover synchronously. No acknowledgement may
+    // start or finish across replacement of its originating local database.
+    if (this.stopped || this.running || this.handoff) return Promise.resolve({ deferred: true });
+    this.handoff = true;
+    return Promise.resolve().then(work).finally(() => { this.handoff = false; });
+  }
+  startRefresh() {
+    if (this.stopped || this.refreshing || this.handoff) return;
+    // Measure cadence from admission, rather than delaying another interval
+    // after a slow download. Missed slots never create overlapping captures.
+    this.nextRefresh = this.now() + this.refreshInterval;
+    this.report({ refresh_running: true });
+    this.refreshing = Promise.resolve().then(() => this.stopped ? { deferred: true } : this.refresh()).then(result => {
+      if (this.stopped) return;
+      if (result?.deferred) this.report({ refresh_deferred: true });
+      else this.report({ online: true, error: '', refresh_deferred: false, refreshedAt: new Date(this.now()).toISOString() });
+    }).catch(error => { this.report({ error: error.message }); }).finally(() => {
+      this.refreshing = null; this.report({ refresh_running: false });
+    });
+  }
   async flush() {
     try {
       let batchSize;
@@ -33,6 +55,7 @@ class DashboardSync {
             if(effects.deferred){this.report({refresh_deferred:true});return this.state;}
           }
           if (this.refresh && outbox.counts.pending === 0 && outbox.counts.conflicts === 0 && this.now() >= this.nextRefresh) {
+            if (this.backgroundRefresh) { this.startRefresh(); return this.state; }
             const result = await this.refresh();
             // An active local form defers replacement, not the next scheduled
             // upload. It has not proved server connectivity or refreshed data.

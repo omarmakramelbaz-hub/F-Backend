@@ -1,12 +1,12 @@
 <?php
 namespace App\Http\Controllers\Dashboard;
 use App\Http\Controllers\Controller;
-use App\Services\Dashboard\{BranchOperations,BranchCustomers,BranchPayroll,DeliveryCompanies,TakeawayAccess,WhatsAppInboxAccess,CustomerMessagingService};
+use App\Services\Dashboard\{BranchOperations,BranchCustomers,BranchPayroll,DeliveryCompanies,TakeawayAccess,WhatsAppInboxAccess,CustomerMessagingService,EmployeeIdentity,EmployeeRegulation};
 use Illuminate\Http\Request;
 
 class BranchOperationsController extends Controller
 {
-    public function __construct(){ $this->middleware(function($request,$next){abort_unless(app(TakeawayAccess::class)->canAccess(auth('admin')->user()),403);/* Central employee profile routes, including stored remote replies. *//* Branch wallet phone entry retains branch-scoped write authorization. */if(in_array($request->route()?->getName(),['employees.save'],true))abort_unless(app(BranchPayroll::class)->canManageEmployees(auth('admin')->user()),403,'إضافة الموظفين وتعديل بياناتهم متاحان للأونر والأدمن فقط.');return $next($request);}); }
+    public function __construct(){ $this->middleware(function($request,$next){abort_unless(app(TakeawayAccess::class)->canAccess(auth('admin')->user()),403);/* Central employee profile routes, including stored remote replies. *//* Branch wallet phone entry retains branch-scoped write authorization. */if(in_array($request->route()?->getName(),['employees.save','employees.identity'],true))abort_unless(app(BranchPayroll::class)->canManageEmployees(auth('admin')->user()),403,'إضافة الموظفين وتعديل بياناتهم متاحان للأونر والأدمن فقط.');return $next($request);}); }
     private function module(Request $r): string {return explode('.',$r->route()->getName())[0];}
     private function service(Request $r){return app(['customers'=>BranchCustomers::class,'delivery-companies'=>DeliveryCompanies::class,'employees'=>BranchPayroll::class][$this->module($r)]);}
     private function actor(Request $r){$actor=auth('admin')->user();if($this->module($r)==='employees')abort_unless(in_array($actor->account_type,['admin','vendor','resturant_owner'],true),403);return $actor;}
@@ -19,9 +19,13 @@ class BranchOperationsController extends Controller
             foreach(['directory-save','consent'] as $name)$urls[$name]=route($module.'.'.$name);
             if(!config('desktop_dashboard.local',false))foreach(['messaging-status','messaging-configure','feedback-template-prepare','marketing-template-prepare','campaign-queue'] as $name)$urls[$name]=route($module.'.'.$name);
         }
-        if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export'] as $name)$urls[$name]=route($module.'.'.$name);
+        if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export','identity-image','regulation'] as $name)$urls[$name]=route($module.'.'.$name);
+        // Photo uploads are not part of the device's offline sync; the device shows where to upload instead.
+        if($module==='employees'&&!config('desktop_dashboard.local',false))$urls['identity']=route('employees.identity');
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
         $boot=['module'=>$module,'branches'=>$branches,'selected_branch'=>$selected,'initial'=>$initial,'actor_id'=>(int)$actor->id,'allow_all'=>$allowAll,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>$urls];
+        if($module==='employees')$boot['regulation']=['title'=>EmployeeRegulation::TITLE,'version'=>EmployeeRegulation::VERSION,'sha256'=>EmployeeRegulation::sha256(),
+            'acceptance'=>EmployeeRegulation::ACCEPTANCE,'sections'=>EmployeeRegulation::sections()];
         if($module==='customers')$boot['can_message']=!config('desktop_dashboard.local',false)&&app(WhatsAppInboxAccess::class)->canAccess($actor);
         $view=$module==='customers'&&($initial['registry']??false)?'admin.customer_crm.index':'admin.branch_operations.index';
         return view($view,compact('boot'));
@@ -63,6 +67,14 @@ class BranchOperationsController extends Controller
         $ops->access->branch($v['branch'],$actor);
         return response()->json($s->queueCampaign($actor,$v));
     }
+    public function identity(Request $r,EmployeeIdentity $s){$this->actor($r);return response()->json($s->upload($r->only('branch','employee_id','side'),$r->file('photo'),auth('admin')->user()));}
+    public function identityImage(Request $r,EmployeeIdentity $s)
+    {
+        $this->actor($r);$file=$s->image($r->only('branch','employee_id','side'),auth('admin')->user());
+        return response()->stream(function()use($file){try{fpassthru($file['stream']);}finally{fclose($file['stream']);}},200,
+            ['Content-Type'=>$file['mime'],'Content-Length'=>(string)$file['bytes'],'Content-Disposition'=>'inline','Cache-Control'=>'private, no-store, max-age=0','X-Content-Type-Options'=>'nosniff']);
+    }
+    public function regulation(Request $r){$this->actor($r);return view('admin.employees.regulation');}
     public function attendance(Request $r,BranchPayroll $s){return response()->json($s->attendance($r->all(),$this->actor($r)));}
     public function attendanceRules(Request $r,BranchPayroll $s){return response()->json($s->saveAttendanceRules($r->all(),$this->actor($r)));}
     public function entry(Request $r,BranchPayroll $s){return response()->json($s->entry($r->all(),$this->actor($r)));}

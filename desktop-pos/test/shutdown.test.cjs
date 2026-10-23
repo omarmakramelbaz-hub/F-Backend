@@ -2,16 +2,19 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {EventEmitter}=require('node:events');
 const Store=require('../src/store.cjs');
 const Sync=require('../src/sync.cjs');
+const SyncSchedule=require('../src/sync-schedule.cjs');
+const readSnapshot=require('../src/dashboard-download.cjs');
 const {randomUUID}=require('node:crypto');
 const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();await new Promise(setImmediate);};
 
-async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false}={}){
+async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,deltaBridge=false,deltaRun,runtimeControl}={}){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'pos-shutdown-')),file=path.join(profile,'fasakhansta-pos.sqlite');
   const seed=new Store(file),snapshot={id:randomUUID(),generated_at:new Date().toISOString(),branch:{value:'f:100',name:'اختبار'},actor:{id:10,name:'كاشير'},tax_bps:0,service_bps:0,can_discount:false,categories:[],products:[{id:1,name:'رنجة',unit:'piece',variants:[{option_id:'',label:'أساسي',unit_price_cents:10000,quantity_mode:'piece'}]}]};
   seed.saveSnapshot(snapshot);const order=seed.newOrder();seed.update(order.id,{...order.data,items:[{product_id:1,option_id:'',quantity_mode:'piece',quantity:'1'}],cash_received:'100.00'});const sale=seed.dispatch(order.id,'sale');
   if(paired)seed.set('connection',{origin:'https://fasakhaninja.com',device_id:1,token_cipher:Buffer.from('test-token').toString('base64')});seed.close();
   if(packaged){fs.mkdirSync(path.join(profile,'dashboard-runtime'));fs.writeFileSync(path.join(profile,'dashboard-runtime','manifest.json'),'{}');}
-  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,dashboardOpens=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0;
+  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
+  class ScheduledClock extends SyncSchedule{constructor(options){super({...options,now:()=>scheduleNow});}}
   class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
     constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;}
@@ -34,15 +37,20 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
     constructor(){this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async()=>null,write:async()=>{}};}
     async isPrepared(){return runtimeReady;}async start(){return {origin:this.origin,token:this.token};}
     async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:randomUUID(),actorId:10};}async stop(){}
+    async control(input){return runtimeControl?runtimeControl(input):{commands:[],counts:{pending:0,conflicts:0}};}
   }
   class Preparation{
     constructor(options){preparationOptions=options;}async status(){return {available:true,prepared:runtimeReady};}
     async prepare(){runtimeReady=true;await preparationOptions.onPrepared();return {available:true,prepared:true};}
   }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  class DeltaBridge{
+    constructor(options){deltaOptions=options;this.state={phase:'idle'};this.running=null;}
+    run(){this.running=Promise.resolve().then(()=>deltaRun?deltaRun():{unchanged:true}).finally(()=>{this.running=null;});return this.running;}stop(){deltaStops++;}
+  }
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
-  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.ok(delay > 29900 && delay <= 30000);timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get dashboardOpens(){return dashboardOpens;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
+  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
 }
 
 test('closing the last app window does not re-enter quit or close SQLite twice, and the ledger reopens intact',async t=>{
@@ -113,6 +121,96 @@ test('the actual preparation handler switches local only after clearing the prot
   // DashboardMode.local asserts clean remote state, so this succeeds only after
   // the outer preparation snapshot has flushed its clean encrypted record.
   f.app.quit();await settle();assert.ok(f.app.exited);
+});
+
+function deltaIndex(){
+  return {format:1,kind:'dashboard-delta-index',device_id:randomUUID(),actor_id:10,
+    source:{format:1,files:20,sha256:'a'.repeat(64),framework:'8.83.29'},
+    tables:{users:{schema_sha256:'b'.repeat(64),count:1,hashes:{['c'.repeat(64)]:1}}}};
+}
+
+test('the actual packaged delta transport posts only the bounded index and preserves original numeric wire bytes',async t=>{
+  const requests=[],wire='{"format":1,"kind":"dashboard-data-delta","tables":{"users":{"delta":{"add":[{"id":9223372036854775807,"amount":1.234567890123456789e-7,"integral":1.0}],"remove":{}}}}}';
+  const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,fetch:async(url,options)=>{
+    requests.push({url,options});return new Response(wire,{headers:{'Content-Type':'application/json','Content-Length':String(Buffer.byteLength(wire))}});
+  }});
+  assert.ok(f.deltaOptions);assert.equal(requests.length,0);const index=deltaIndex(),credential={serverOrigin:'https://fasakhaninja.com',token:'d'.repeat(64),
+    capture_token:'private-native-capture-token',capture_database:'private-capture-database'};
+  const result=await f.deltaOptions.download(index,credential);assert.equal(requests.length,1);
+  const sent=requests[0];assert.equal(sent.url,'https://fasakhaninja.com/api/desktop-dashboard/delta');assert.equal(sent.options.method,'POST');
+  assert.equal(sent.options.headers.Accept,'application/json');assert.equal(sent.options.headers['Content-Type'],'application/octet-stream');
+  assert.equal(sent.options.headers.Authorization,'Bearer '+credential.token);assert.equal(sent.options.redirect,'error');
+  assert.equal(sent.options.body,JSON.stringify(index));assert.deepEqual(JSON.parse(sent.options.body),index);
+  assert.equal(sent.options.body.includes('private-native-capture-token'),false);assert.equal(sent.options.body.includes('private-capture-database'),false);
+  assert.equal(Object.hasOwn(JSON.parse(sent.options.body),'rows'),false);assert.equal(Object.hasOwn(JSON.parse(sent.options.body),'capture'),false);
+  assert.equal(readSnapshot.input(result),wire);assert.notEqual(JSON.stringify(result),wire,'The importer retains the original PHP float/int representation.');
+  assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');assert.equal(f.dashboardOptions.localToken,'owned-local');
+  f.app.quit();await settle();assert.equal(f.deltaStops,1);assert.ok(f.app.exited);
+});
+
+test('the actual delta transport cancels rejected private response bodies and reports only its fixed safe message',async t=>{
+  const secret='PRIVATE_ACCOUNT_ORDER_AND_TOKEN';let cancelled=0,read=0;
+  const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,fetch:async()=>({ok:false,status:403,
+    body:{cancel:async()=>{cancelled++;}},json:async()=>{read++;return {message:secret};},text:async()=>{read++;return secret;}})});
+  let caught;try{await f.deltaOptions.download(deltaIndex(),{serverOrigin:'https://fasakhaninja.com',token:'e'.repeat(64)});}catch(error){caught=error;}
+  assert.ok(caught);assert.equal(caught.status,403);assert.equal(caught.message,'تعذر استقبال تغييرات السيرفر؛ العمل المحلي مستمر.');
+  assert.equal(caught.message.includes(secret),false);assert.equal(cancelled,1);assert.equal(read,0);
+  assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');f.app.quit();await settle();assert.equal(f.deltaStops,1);
+});
+
+test('the actual delta reader refuses a declared response above its limit without allocating that body',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,fetch:async()=>new Response('{}',{
+    headers:{'Content-Type':'application/json','Content-Length':String(256*1024*1024+1)}})});
+  await assert.rejects(f.deltaOptions.download(deltaIndex(),{serverOrigin:'https://fasakhaninja.com',token:'f'.repeat(64)}));
+  assert.equal(f.dashboardOptions.localToken,'owned-local');f.app.quit();await settle();assert.ok(f.app.exited);
+});
+
+test('quitting stops the actual incoming delta bridge and aborts its active network transport once',async t=>{
+  let aborted=0,requested=0;
+  const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,fetch:async(_url,options)=>{
+    requested++;return new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>{aborted++;reject(options.signal.reason);},{once:true}));
+  }});
+  const pending=f.deltaOptions.download(deltaIndex(),{serverOrigin:'https://fasakhaninja.com',token:'1'.repeat(64)}),rejected=assert.rejects(pending);
+  await settle();assert.equal(requested,1);f.app.quit();f.app.quit();await rejected;await settle();
+  assert.equal(f.deltaStops,1);assert.equal(aborted,1);assert.ok(f.app.exited);assert.equal(f.timers.size,0);
+  const reopened=new Store(f.file);try{assert.equal(reopened.pending()[0].id,f.sale.id);assert.equal(reopened.order(f.order.id).status,'paid');}finally{reopened.close();}
+});
+
+test('the actual delta download remains abortable after response headers while its body is still streaming',async t=>{
+  let headersReturned=false,aborted=0;
+  const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,fetch:async(_url,options)=>{
+    const body=new ReadableStream({start(controller){
+      controller.enqueue(Buffer.from('{"format":1,'));
+      options.signal.addEventListener('abort',()=>{aborted++;controller.error(options.signal.reason);},{once:true});
+    }});
+    headersReturned=true;return new Response(body,{headers:{'Content-Type':'application/json'}});
+  }});
+  const pending=f.deltaOptions.download(deltaIndex(),{serverOrigin:'https://fasakhaninja.com',token:'2'.repeat(64)}),rejected=assert.rejects(pending);
+  await settle();assert.equal(headersReturned,true);assert.equal(aborted,0);f.app.quit();await rejected;await settle();
+  assert.equal(aborted,1);assert.equal(f.deltaStops,1);assert.ok(f.app.exited);assert.equal(f.timers.size,0);
+});
+
+test('the actual packaged background refresh is independently admitted and shutdown drains it after its schedule slot finishes',async t=>{
+  let entered=0,release;const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,
+    deltaRun:async()=>{entered++;await new Promise(resolve=>release=resolve);return {unchanged:true};}});
+  f.store.acknowledge(f.sale.id,{id:f.sale.id});await f.syncSlot();assert.equal(entered,1);
+  // This final handoff is available only after the upload run has finished;
+  // an awaited whole refresh would still own DashboardSync.running here.
+  assert.equal(await f.deltaOptions.handoff(async()=> 'short-cutover'),'short-cutover');
+  f.app.quit();await settle();assert.equal(f.deltaStops,1);assert.equal(f.app.exited,false);assert.equal(f.store.db.isOpen,true);
+  release();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+});
+
+test('the actual packaged next slot uploads a new command while its previous incoming preparation remains unresolved',async t=>{
+  const queue=[],sent=[];let release,started=0;
+  const f=await fixture(t,{packaged:true,prepared:true,deltaBridge:true,
+    deltaRun:async()=>{started++;await new Promise(resolve=>release=resolve);return {unchanged:true};},
+    runtimeControl:async input=>{if(input.action==='acknowledge')queue.shift();return {commands:queue.slice(0,1),counts:{pending:queue.length,conflicts:0}};},
+    fetch:async(url,options)=>{assert.ok(url.endsWith('/desktop-dashboard/commands'));sent.push(JSON.parse(options.body).command_id);return new Response('{"committed":true}');}});
+  f.store.acknowledge(f.sale.id,{id:f.sale.id});await f.syncSlot();assert.equal(started,1);
+  queue.push({command_id:'sale-accepted-during-background-copy'});await f.syncSlot();
+  assert.deepEqual(sent,['sale-accepted-during-background-copy']);assert.equal(queue.length,0);assert.equal(started,1);
+  f.app.quit();release();await settle();assert.equal(f.app.exited,true);
 });
 
 test('quitting during an unknown sync response aborts transport and replays the same saved sale safely after restart',async t=>{

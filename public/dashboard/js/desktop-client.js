@@ -1,4 +1,4 @@
-/* Native desktop preparation/status inside the original dashboard. Normal browsers have no bridge. */
+/* Device setup lives in Program for computer; native actions keep their original trusted IPC gate. */
 (() => {
     const native = window.FasakhanstaDesktop;
     if (!native || typeof native.status !== 'function' || window.FasakhanstaDesktopUI) return;
@@ -6,56 +6,73 @@
     const labels = { idle: 'الجهاز يحتاج تجهيزًا للعمل بدون إنترنت', enrolling: 'ربط الجهاز بحسابك', downloading: 'تنزيل بيانات الحساب',
         starting: 'تجهيز التشغيل على الجهاز', verifying: 'تنزيل الصور وفحص البيانات', activating: 'حفظ النسخة المحلية',
         ready: 'الجهاز مجهّز للعمل بدون إنترنت', failed: 'تعذر إكمال تجهيز الجهاز' };
-    let state = {}, button, panel, description, progress, error, action, review, timer, unsubscribe;
-    function render(value) {
-        state = value;
-        if (!button) return;
-        button.hidden = !state.available;
-        button.textContent = state.mode === 'local' ? 'العمل على الجهاز' : state.prepared ? 'السيرفر · الجهاز مجهّز' : 'تجهيز بدون إنترنت';
-        const waiting = Number(state.pending || 0), conflicts = Number(state.conflicts || 0);
-        description.textContent = (labels[state.phase] || labels.idle)
-            + (waiting ? ' · ' + waiting + ' عملية تنتظر المزامنة' : '') + (conflicts ? ' · ' + conflicts + ' عملية تحتاج مراجعة' : '')
-            + (state.prepared ? ' · المزامنة كل ٣٠ ثانية' : '') + (state.sync_queued ? ' · طلب المزامنة في الدورة القادمة' : '');
-        progress.value = Math.max(0, Math.min(100, Number(state.progress || 0)));
-        progress.hidden = state.prepared || ['idle', 'failed'].includes(state.phase);
-        error.textContent = state.error || '';
-        action.disabled = !['idle', 'failed', 'ready'].includes(state.phase) || Boolean(state.sync_queued || state.sync_running);
-        action.textContent = state.prepared ? (state.sync_running ? 'جارٍ المزامنة' : state.sync_queued ? 'بانتظار الدورة القادمة' : 'طلب مزامنة') : 'تجهيز الجهاز';
-        review.hidden = !state.prepared || typeof native.reviewSync !== 'function';
-    }
-    async function update() { try { render(await native.status()); } catch { /* A transition/closed page cannot reopen another window. */ } }
+    const updateLabels = { idle: 'فحص التحديثات تلقائي', checking: 'جارٍ فحص تحديث البرنامج', current: 'البرنامج محدّث',
+        downloading: 'جارٍ تنزيل تحديث البرنامج', staged: 'التحديث جاهز وينتظر انتهاء العمليات الجارية والمزامنة',
+        installing: 'جارٍ تثبيت تحديث البرنامج', unavailable: 'لم تُنشر نسخة متوافقة جديدة بعد', error: 'تعذر فحص التحديث حاليًا؛ سيحاول البرنامج تلقائيًا' };
+    let mounted = null, cleanup = () => {};
     function mount() {
-        const navbar = document.querySelector('.main-header .navbar-nav');
-        if (!navbar || button) return;
-        const item = document.createElement('li'); item.className = 'nav-item';
-        button = document.createElement('button'); button.type = 'button'; button.hidden = true;
-        button.className = 'btn btn-sm btn-outline-warning mx-2'; item.append(button); navbar.append(item);
-        panel = document.createElement('dialog'); panel.dir = 'rtl';
-        panel.style.cssText = 'border:0;border-radius:16px;padding:24px;max-width:480px;width:calc(100% - 32px);color:#24324b';
-        panel.innerHTML = '<h5>العمل بدون إنترنت</h5><p data-description></p><progress max="100" style="width:100%"></progress>'
-            + '<p data-error class="text-danger" role="alert"></p><div class="d-flex justify-content-between mt-3">'
-            + '<button type="button" class="btn btn-warning" data-action>تجهيز الجهاز</button>'
-            + '<button type="button" class="btn btn-outline-warning" data-review hidden>مراجعة المزامنة</button>'
-            + '<button type="button" class="btn btn-outline-secondary" data-close>إغلاق</button></div>';
-        document.body.append(panel); description = panel.querySelector('[data-description]'); progress = panel.querySelector('progress');
-        error = panel.querySelector('[data-error]'); action = panel.querySelector('[data-action]');
-        review = panel.querySelector('[data-review]');
-        panel.querySelector('[data-close]').addEventListener('click', () => panel.close());
-        button.addEventListener('click', () => { panel.showModal(); update(); });
-        action.addEventListener('click', async () => {
-            action.disabled = true; error.textContent = '';
+        const root = document.querySelector('[data-desktop-program]');
+        if (root === mounted) return;
+        cleanup(); mounted = root;
+        if (!root) return;
+        const controls = root.querySelector('[data-desktop-controls]'), note = root.querySelector('[data-desktop-browser-note]');
+        const description = root.querySelector('[data-desktop-description]'), connection = root.querySelector('[data-desktop-connection]');
+        const refreshed = root.querySelector('[data-desktop-refreshed]');
+        const progress = root.querySelector('[data-desktop-progress]'), error = root.querySelector('[data-desktop-error]');
+        const action = root.querySelector('[data-desktop-action]'), review = root.querySelector('[data-desktop-review]');
+        const updateStatus = root.querySelector('[data-desktop-update]');
+        let state = {}, active = true, busy = false;
+        const text = value => typeof value === 'string' ? value.slice(0, 4000) : '';
+        const count = value => Number.isSafeInteger(value) && value > 0 ? value : 0;
+        function render(value) {
+            if (!active || !value || typeof value !== 'object') return;
+            state = value; controls.hidden = state.available !== true; note.hidden = state.available === true;
+            if (controls.hidden) return;
+            const waiting = count(state.pending), conflicts = count(state.conflicts);
+            description.textContent = (Object.hasOwn(labels, state.phase) ? labels[state.phase] : labels.idle)
+                + (state.prepared ? (state.mode === 'local' ? ' · العمل على الجهاز' : ' · الداشبورد المتصلة') + ' · المزامنة تلقائية كل ٣٠ ثانية' : '')
+                + (waiting ? ' · ' + waiting + ' عملية تنتظر المزامنة' : '')
+                + (conflicts ? ' · ' + conflicts + ' عملية تحتاج مراجعة' : '')
+                + (state.sync_queued ? ' · طلب المزامنة في الدورة القادمة' : '');
+            connection.textContent = typeof state.online === 'boolean' ? (state.online ? 'حالة آخر اتصال بالمزامنة: متصل' : 'حالة آخر اتصال بالمزامنة: لم يتأكد الاتصال بالسيرفر') : '';
+            const at = typeof state.refreshedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(state.refreshedAt) ? new Date(state.refreshedAt) : null;
+            refreshed.textContent = at && Number.isFinite(at.getTime()) && at.toISOString() === state.refreshedAt
+                ? 'آخر تحديث لبيانات الجهاز من السيرفر: ' + at.toLocaleString('ar-EG') : '';
+            progress.value = Math.max(0, Math.min(100, Number(state.progress) || 0));
+            progress.hidden = state.prepared === true || ['idle', 'failed'].includes(state.phase);
+            error.textContent = text(state.error);
+            action.disabled = busy || !['idle', 'failed', 'ready'].includes(state.phase) || Boolean(state.sync_queued || state.sync_running);
+            action.textContent = state.prepared ? (state.sync_running ? 'جارٍ المزامنة' : state.sync_queued ? 'بانتظار الدورة القادمة' : 'طلب مزامنة') : 'تجهيز الجهاز أول مرة';
+            review.hidden = state.prepared !== true || typeof native.reviewSync !== 'function'; review.disabled = busy;
+            const update = state.update && typeof state.update === 'object' ? state.update : {};
+            const version = typeof update.version === 'string' && update.version.length <= 100
+                && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(update.version) ? update.version : '';
+            updateStatus.textContent = 'تحديث البرنامج: ' + (Object.hasOwn(updateLabels, update.status) ? updateLabels[update.status] : 'يبدأ الفحص التلقائي بعد تجهيز الجهاز') + (version ? ' · ' + version : '');
+        }
+        async function update() { try { render(await native.status()); } catch { /* A transitioning/closed page cannot reopen another window. */ } }
+        const prepare = async () => {
+            if (busy || action.disabled) return;
+            busy = true; action.disabled = true; review.disabled = true; error.textContent = '';
             try {
-                render(state.prepared ? await native.synchronize() : await native.prepare(document.querySelector('meta[name="csrf-token"]')?.content || ''));
-            } catch (failure) { error.textContent = failure.message; action.disabled = false; }
-        });
-        review.addEventListener('click', async () => {
-            review.disabled = true; error.textContent = '';
-            try { await native.reviewSync(); await update(); }
-            catch (failure) { error.textContent = failure.message; }
-            finally { review.disabled = false; }
-        });
-        unsubscribe = native.onState(render); update(); timer = setInterval(update, 5000);
+                const result = state.prepared ? await native.synchronize() : await native.prepare(document.querySelector('meta[name="csrf-token"]')?.content || '');
+                busy = false; render(result);
+            } catch (failure) { busy = false; if (active) { render(state); error.textContent = text(failure.message); } }
+        };
+        const reviewSync = async () => {
+            if (busy || review.hidden) return;
+            busy = true; action.disabled = true; review.disabled = true; error.textContent = '';
+            try { await native.reviewSync(); busy = false; await update(); }
+            catch (failure) { busy = false; if (active) { render(state); error.textContent = text(failure.message); } }
+        };
+        action.addEventListener('click', prepare); review.addEventListener('click', reviewSync);
+        const unsubscribe = typeof native.onState === 'function' ? native.onState(render) : null;
+        const timer = setInterval(update, 5000); update();
+        cleanup = () => { if (!active) return; active = false; clearInterval(timer); if (typeof unsubscribe === 'function') unsubscribe(); action.removeEventListener('click', prepare); review.removeEventListener('click', reviewSync); };
     }
-    document.addEventListener('DOMContentLoaded', mount); mount();
-    window.addEventListener('pagehide', () => { clearInterval(timer); unsubscribe?.(); }, { once: true });
+    document.addEventListener('DOMContentLoaded', mount);
+    document.addEventListener('dashboard:page-mounted', mount);
+    document.addEventListener('dashboard:before-unload', () => { cleanup(); mounted = null; });
+    window.addEventListener('pageshow', mount);
+    window.addEventListener('pagehide', () => { cleanup(); mounted = null; });
+    mount();
 })();

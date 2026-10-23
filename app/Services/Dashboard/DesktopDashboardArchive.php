@@ -6,20 +6,31 @@ use Illuminate\Support\Facades\{DB,Validator};
 /** Carry UUID replay protection, while keeping original encrypted receipts in their original database. */
 class DesktopDashboardArchive
 {
-    public function seal(array $receipt,string $source,string $id,string $token,?array $sourceIdentity=null): array
+    public function seal(array $receipt,string $source,string $id,string $token,?array $sourceIdentity=null,?array $mediaSeal=null,?array $archiveHandoff=null,?string $handoffToken=null): array
     {
-        app(DesktopDashboardImport::class)->verify($receipt);
+        $preverified=null;
+        if($archiveHandoff!==null||$handoffToken!==null){
+            abort_unless($archiveHandoff!==null&&$handoffToken!==null&&$mediaSeal!==null,403);
+            $preverified=app(DesktopDashboardHandoff::class)->verify($receipt,$mediaSeal,$archiveHandoff,$handoffToken,$source,$sourceIdentity);
+        }else app(DesktopDashboardImport::class)->verify($receipt,$mediaSeal);
         Validator::make(['id'=>$id,'token'=>$token],['id'=>'required|uuid','token'=>'required|regex:/^[a-f0-9]{64}$/D'])->validate();
         if($sourceIdentity!==null)Validator::make($sourceIdentity,['snapshot_id'=>'required|uuid','schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D'])->validate();
         abort_unless(preg_match('/^fasakhansta_dashboard(?:_stage_[a-f0-9]{16})?$/D',$source)
             &&$source!==DB::connection()->getDatabaseName()&&DB::transactionLevel()===0,403);
-        return DB::transaction(function()use($receipt,$source,$id,$token,$sourceIdentity){
+        return DB::transaction(function()use($receipt,$source,$id,$token,$sourceIdentity,$preverified){
             $state=DB::selectOne('SELECT * FROM `'.$source.'`.`desktop_dashboard_local_state` WHERE device_id=? FOR UPDATE',[$receipt['device_id']]);
             abort_unless($state&&$state->state==='held'&&$state->refresh_id===$id
                 &&hash_equals((string)$state->refresh_token_hash,hash('sha256',$token))
                 &&(int)$state->actor_id===(int)$receipt['actor_id']
                 &&$state->schema_hash===($sourceIdentity['schema_hash']??$receipt['schema_hash'])
                 &&($sourceIdentity===null||$state->snapshot_id===$sourceIdentity['snapshot_id']),409);
+            if($preverified!==null){
+                // refresh-begin owns the active journal fence and rejects every non-ACK
+                // command. Its captured sequence is the CAS against the private replay
+                // projection verified before the fence; no history scan/copy is needed.
+                abort_unless((int)$state->fenced_sequence===$preverified['sequence'],409);
+                return ['archived_commands'=>$preverified['replay']['rows']];
+            }
             $invalid=DB::selectOne('SELECT COUNT(*) AS total FROM `'.$source.'`.`desktop_dashboard_commands` WHERE status<>? OR device_id<>? OR actor_id<>?',
                 ['acknowledged',$receipt['device_id'],$receipt['actor_id']]);abort_unless((int)$invalid->total===0,409);
             $older=DB::selectOne('SELECT COUNT(*) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[$source,'desktop_dashboard_archived_commands']);

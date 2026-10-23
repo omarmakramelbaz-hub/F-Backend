@@ -130,7 +130,7 @@ class DesktopDashboardImport
     }
 
     /** Reopen and inspect the staging database in an independent native PHP process. */
-    public function verify(array $receipt): array
+    public function verify(array $receipt,?array $mediaSeal=null): array
     {
         abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
@@ -140,7 +140,7 @@ class DesktopDashboardImport
             'tables'=>'required|integer|min:1','rows'=>'required|integer|min:0'])->validate();
         abort_unless($receipt['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($receipt['source']??null),409,'مصدر برنامج التجهيز لا يطابق النسخة المعتمدة.');
-        return DB::transaction(function()use($receipt){
+        $result=DB::transaction(function()use($receipt){
             app(DesktopDashboardPrintLedger::class)->fence($receipt['device_id']);
             $state=DB::table('desktop_dashboard_local_state')->where('device_id',$receipt['device_id'])->lockForUpdate()->first();
             abort_unless($state&&$state->state==='ready'&&$state->snapshot_id===$receipt['snapshot_id']
@@ -174,8 +174,13 @@ class DesktopDashboardImport
             $manifest=DB::table('desktop_dashboard_media_manifest')->where('device_id',$receipt['device_id'])->first();
             abort_unless($manifest&&$manifest->snapshot_id===$receipt['snapshot_id']
                 &&hash_equals($manifest->sha256,hash('sha256',DesktopDashboardBootstrap::json($media))),409,'قائمة صور التجهيز لا تطابق النسخة المعتمدة.');
-            DesktopDashboardMedia::verifyFiles($media);
             return array_merge($receipt,['verified'=>true]);
         });
+        // The inactive generation is private to the native staging process.
+        // Do not retain the shared print-ledger scope lock while hashing a
+        // gigabyte of attachments: the active cashier uses that same scope.
+        if($mediaSeal===null)DesktopDashboardMedia::verifyFiles($result['media']??[]);
+        else DesktopDashboardMediaSeal::verify($result['media']??[],$mediaSeal);
+        return $result;
     }
 }
