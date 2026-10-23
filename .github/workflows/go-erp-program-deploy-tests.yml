@@ -7,6 +7,7 @@ on:
       - deployment/*program*
       - deployment/*nav*
       - deployment/*mode_inventory*
+      - deployment/*fixture_seed*
       - deployment/nav-successor-prior/**
       - deployment/program-navigation/**
       - deployment/go_erp_employee_migration.py
@@ -18,6 +19,8 @@ on:
       - tests/test_go_erp_payment_nav_*.py
       - tests/test_go_erp_confirmation_nav_*.py
       - tests/test_go_erp_mode_inventory_*.py
+      - tests/test_go_erp_fixture_seed_*.py
+      - tests/test_go_erp_windows_media_seed_identity.py
       - app/**
       - desktop/**
       - resources/**
@@ -29,6 +32,7 @@ on:
       - deployment/*program*
       - deployment/*nav*
       - deployment/*mode_inventory*
+      - deployment/*fixture_seed*
       - deployment/nav-successor-prior/**
       - deployment/program-navigation/**
       - tests/test_go_erp_program_*.py
@@ -36,6 +40,8 @@ on:
       - tests/test_go_erp_payment_nav_*.py
       - tests/test_go_erp_confirmation_nav_*.py
       - tests/test_go_erp_mode_inventory_*.py
+      - tests/test_go_erp_fixture_seed_*.py
+      - tests/test_go_erp_windows_media_seed_identity.py
       - .github/workflows/go-erp-program-deploy-tests.yml
   workflow_dispatch:
 
@@ -45,7 +51,7 @@ permissions:
 jobs:
   deployment-transaction:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Load the exact reviewed predecessor objects for identity and inode tests
@@ -56,6 +62,7 @@ jobs:
           git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 59d4fd2466137ee5c31a9f4701d3f5bc024a6ea3
           git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 31d4020a9195904e1578bd6207f5dc805aa1541d dceb59ad489bbba6b6534a4da784f6d26c82b2ff
           git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 5f2b0fecafec1c3803499284b0abcca4ecfed7e4
+          git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 4e0c33197b6d9cd635e3396e1edbf567bfb3a020 e64e69667198b7dceddd4dfe516d963f43bbae27
       - name: Verify the application and two-cohort watcher transaction
         run: |
           bash -n deployment/run_go_erp_program_root.sh
@@ -67,6 +74,9 @@ jobs:
           sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_confirmation_nav_*.py'
           bash -n deployment/run_go_erp_mode_inventory_root.sh
           sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_mode_inventory_*.py'
+          bash -n deployment/run_go_erp_fixture_seed_root.sh
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_windows_media_seed_identity.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_fixture_seed_*.py'
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_wrapper.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_application_patch.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_watcher_upgrade.py
