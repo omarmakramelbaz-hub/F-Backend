@@ -10,6 +10,41 @@ const RuntimeArchive = require('./runtime-archive.cjs');
 const sourceCode = require('./dashboard-source.cjs');
 const readSnapshot = require('./dashboard-download.cjs');
 
+// Only these reviewed literal abort messages may accompany import locations.
+// The PHP producer independently checks the same file/status/message mapping.
+const importMessages = {
+  'DesktopDashboardImport.php': {
+    409: [
+      'نسخة برنامج الجهاز لا تطابق بيانات السيرفر؛ النسخة الحالية وسجلاتها محفوظة.',
+      'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.',
+      'جدول مرتبط غير موجود في نسخة الحساب.',
+      'نسخة الحساب تحتوي على مرجع ناقص؛ لم تُفعّل قاعدة التجهيز.'
+    ],
+    422: ['مخطط قاعدة التجهيز غير مقبول.', 'بيانات التجهيز غير مكتملة.', 'بصمة مخطط التجهيز مختلفة.']
+  }
+};
+
+function importPhpComparison(value) {
+  const profile = (item, scope, sapis) => item && item.capture_scope === scope
+    && sapis.includes(item.php_sapi) && typeof item.php_version === 'string'
+    && /^[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9.]{0,24}$/.test(item.php_version)
+    && ['serialize_precision', 'precision'].every(key => typeof item[key] === 'string' && /^(?:-1|[0-9]|[12][0-9]|30)$/.test(item[key]))
+      ? { capture_scope: scope, php_sapi: item.php_sapi, php_version: item.php_version,
+        serialize_precision: item.serialize_precision, precision: item.precision } : null;
+  const server = profile(value?.server, 'snapshot_export', ['fpm-fcgi', 'cgi-fcgi', 'apache2handler', 'litespeed', 'cli']);
+  const desktop = profile(value?.desktop, 'desktop_import', ['cli']);
+  return server && desktop ? { server, desktop, server_web_request: server.php_sapi !== 'cli',
+    same_serialize_precision: server.serialize_precision === desktop.serialize_precision } : null;
+}
+
+function importPhpReason(comparison) {
+  if (!comparison) return '';
+  const description = item => item.php_sapi + '/' + item.php_version
+    + ' serialize_precision=' + item.serialize_precision + ' precision=' + item.precision;
+  return ' PHP: ' + (comparison.server_web_request ? 'الموقع=' : 'مصدر البيانات=')
+    + description(comparison.server) + '؛ الجهاز=' + description(comparison.desktop);
+}
+
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function freePort() {
   const server = net.createServer();
@@ -41,7 +76,9 @@ function failureReason(args, cause, text) {
   if (cause.timedOut) return step + ' السبب: الخطوة أخذت وقتًا أطول من المسموح.';
   if (cause.overflow) return step + ' السبب: ناتج الخطوة أكبر من المسموح.';
   if (cause.import) return step + ' السبب: ' + cause.import.phase + ' ' + cause.import.type + ' ' + cause.import.file + ':' + cause.import.line
-    + (cause.import.status ? ' (' + cause.import.status + ')' : '');
+    + (cause.import.status ? ' (' + cause.import.status + ')' : '')
+    + (cause.import.message ? ': ' + cause.import.message : '')
+    + importPhpReason(cause.import.php_comparison);
   if (/(?:PHP )?(?:Fatal|Parse) error:/i.test(text)) return step + ' السبب: توقفت خطوة PHP بسبب خطأ داخلي.';
   return step + ' (رمز الخروج ' + cause.exitCode + ')';
 }
@@ -70,6 +107,9 @@ async function run(file, args, options, input = '', timeout = 90000) {
               && Number.isSafeInteger(value.line) && value.line > 0
               && (value.status === null || Number.isInteger(value.status) && value.status >= 400 && value.status <= 599)) {
             cause.import = { phase: value.phase, type: value.type, file: value.file, line: value.line, status: value.status };
+            if (importMessages[value.file]?.[value.status]?.includes(value.message)) cause.import.message = value.message;
+            const comparison = importPhpComparison(value.php_comparison);
+            if (comparison) cause.import.php_comparison = comparison;
           }
         } catch {}
       }

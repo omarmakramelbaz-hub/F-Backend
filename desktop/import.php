@@ -19,9 +19,11 @@ try{
     echo json_encode($result,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
 }catch(Throwable $error){
     fwrite(STDERR,"تعذر تجهيز قاعدة البيانات المحلية؛ لم تُغيّر بيانات الجهاز الحالية.\n");
-    // Record only classification and location, never SQL, snapshot values or credentials.
-    fwrite(STDERR,'DESKTOP_IMPORT_DIAGNOSTIC '.json_encode(['phase'=>$phase,'type'=>get_class($error),
-        'file'=>basename($error->getFile()),'line'=>$error->getLine(),
-        'status'=>$error instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface?$error->getStatusCode():null],JSON_UNESCAPED_SLASHES).PHP_EOL);
+    require_once __DIR__.'/import-diagnostic.php';
+    // Report the Dashboard check behind abort(), rather than its vendor throw site.
+    // The helper omits raw messages, trace arguments and all full paths.
+    fwrite(STDERR,'DESKTOP_IMPORT_DIAGNOSTIC '.json_encode(
+        DesktopImportDiagnostic::report($error,$phase,dirname(__DIR__),$snapshot??null),
+        JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL);
     exit(1);
 }

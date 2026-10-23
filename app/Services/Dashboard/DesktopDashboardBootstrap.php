@@ -103,6 +103,10 @@ class DesktopDashboardBootstrap
             return ['format'=>1,'kind'=>'initial-dashboard-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$actor->id,'branches'=>$branches,'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at,'base_branches'=>$baseBranches],'created_scopes'=>$created,'generated_at'=>now('UTC')->toIso8601String(),
                 'source'=>$source,
+                // Captured by this export request, not by a CLI/FPM configuration proxy.
+                // These settings are diagnostic only; no hash or encoder setting changes.
+                'transport_php'=>['capture_scope'=>'snapshot_export','php_sapi'=>PHP_SAPI,'php_version'=>PHP_VERSION,
+                    'serialize_precision'=>(string)ini_get('serialize_precision'),'precision'=>(string)ini_get('precision')],
                 'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
                 'coverage'=>$coverage];

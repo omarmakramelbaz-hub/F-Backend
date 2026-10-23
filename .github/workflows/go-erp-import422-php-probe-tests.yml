@@ -1,0 +1,59 @@
+name: GO ERP import PHP settings probe
+
+on:
+  push:
+    branches: ['codex/go-erp-import422-*']
+    paths:
+      - deployment/diagnose_go_erp_desktop_import_php.ps1
+      - tests/test_go_erp_desktop_import_php.ps1
+      - .github/workflows/go-erp-import422-php-probe-tests.yml
+      - desktop/**
+      - desktop-pos/src/local-runtime.cjs
+      - desktop-pos/test/**
+      - app/Services/Dashboard/DesktopDashboardBootstrap.php
+      - deployment/diagnose_go_erp_*422*
+      - deployment/diagnose_go_erp_numeric_transport.php
+      - tests/test_go_erp_import422_probe.py
+  pull_request:
+    paths:
+      - deployment/diagnose_go_erp_desktop_import_php.ps1
+      - tests/test_go_erp_desktop_import_php.ps1
+      - .github/workflows/go-erp-import422-php-probe-tests.yml
+      - desktop/**
+      - desktop-pos/src/local-runtime.cjs
+      - desktop-pos/test/**
+      - app/Services/Dashboard/DesktopDashboardBootstrap.php
+      - deployment/diagnose_go_erp_*422*
+      - deployment/diagnose_go_erp_numeric_transport.php
+      - tests/test_go_erp_import422_probe.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify diagnostic privacy and real PHP hash boundaries
+        env:
+          CI: 'true'
+          DESKTOP_TEST_PHP: php
+          GO_ERP_TEST_PHP: php
+        run: |
+          php --version
+          node --test desktop-pos/test/import-diagnostic.test.cjs desktop-pos/test/local-runtime-import.test.cjs desktop-pos/test/bootstrap-transport-php.test.cjs desktop-pos/test/snapshot-precision.test.cjs desktop-pos/test/snapshot-transport.test.cjs
+          python3 -m unittest discover -s tests -p test_go_erp_import422_probe.py
+  windows-powershell51:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the read-only probe with Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/test_go_erp_desktop_import_php.ps1

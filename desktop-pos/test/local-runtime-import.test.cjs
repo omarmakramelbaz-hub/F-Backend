@@ -114,6 +114,85 @@ test('stdout memory failures get a fixed useful reason and preserve the sanitize
   });
 });
 
+test('the actual staging error displays the Dashboard check and reviewed fixed abort message', async t => {
+  const importCause = { phase: 'import', type: 'Symfony\\Component\\HttpKernel\\Exception\\HttpException',
+    file: 'DesktopDashboardImport.php', line: 46, status: 422, message: 'بيانات التجهيز غير مكتملة.' };
+  const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+    stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(importCause) } : {});
+  await assert.rejects(f.runtime.stage(f.snapshot, '5'.repeat(16)), error => {
+    assert.match(error.message, /DesktopDashboardImport\.php:46 \(422\)/);
+    assert.ok(error.message.includes(importCause.message));
+    assert.deepEqual({ ...error.cause.import }, importCause);
+    return true;
+  });
+  assert.equal(f.runtime.stagedContexts.size, 0);
+  assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
+});
+
+test('the native boundary drops unreviewed diagnostic messages while retaining safe locations', async t => {
+  const base = { phase: 'import', type: 'Symfony\\Component\\HttpKernel\\Exception\\HttpException',
+    file: 'DesktopDashboardImport.php', line: 51, status: 422 };
+  for (const changed of [
+    { message: 'SQLSTATE[HY000] private@example.invalid PRIVATE_TOKEN' },
+    { message: 'بيانات التجهيز غير مكتملة.\nPRIVATE_TOKEN' },
+    { message: 'بيانات التجهيز غير مكتملة.', status: 403 },
+    { message: 'بيانات التجهيز غير مكتملة.', file: 'OtherService.php' },
+    { message: { secret: 'PRIVATE_TOKEN' } }
+  ]) {
+    const report = { ...base, ...changed };
+    const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+      stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) } : {});
+    await assert.rejects(f.runtime.stage(f.snapshot, '6'.repeat(16)), error => {
+      assert.ok(error.message.includes(report.file + ':' + report.line));
+      assert.equal(Object.hasOwn(error.cause.import, 'message'), false);
+      for (const forbidden of ['SQLSTATE', 'private@example.invalid', 'PRIVATE_TOKEN', 'بيانات التجهيز غير مكتملة.'])
+        assert.equal(error.message.includes(forbidden), false);
+      return true;
+    });
+    assert.equal(f.runtime.stagedContexts.size, 0);
+    assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
+  }
+});
+
+test('the native import error displays only validated web and desktop PHP settings', async t => {
+  const server = { capture_scope: 'snapshot_export', php_sapi: 'fpm-fcgi', php_version: '8.2.30', serialize_precision: '17', precision: '14' };
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.4.15', serialize_precision: '-1', precision: '14' };
+  const base = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422 };
+  for (const isWeb of [true, false]) {
+    const source = { ...server, php_sapi: isWeb ? 'fpm-fcgi' : 'cli' };
+    const report = { ...base, php_comparison: { server: { ...source, private: 'PRIVATE_ACCOUNT_VALUE' }, desktop,
+      server_web_request: !isWeb, same_serialize_precision: true, private: 'PRIVATE_ACCOUNT_VALUE' } };
+    const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+      stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) } : {});
+    await assert.rejects(f.runtime.stage(f.snapshot, '7'.repeat(16)), error => {
+      assert.ok(error.message.includes((isWeb ? 'الموقع=' : 'مصدر البيانات=') + source.php_sapi + '/8.2.30 serialize_precision=17 precision=14'));
+      assert.ok(error.message.includes('الجهاز=cli/8.4.15 serialize_precision=-1 precision=14'));
+      assert.equal(error.message.includes('PRIVATE_ACCOUNT_VALUE'), false);
+      assert.deepEqual(JSON.parse(JSON.stringify(error.cause.import.php_comparison)), { server: source, desktop,
+        server_web_request: isWeb, same_serialize_precision: false });
+      return true;
+    });
+  }
+});
+
+test('the native import boundary rejects malformed PHP settings without forwarding private text', async t => {
+  const server = { capture_scope: 'snapshot_export', php_sapi: 'fpm-fcgi', php_version: '8.2.30', serialize_precision: '17', precision: '14' };
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.4.15', serialize_precision: '-1', precision: '14' };
+  for (const changed of [{ php_version: '8.2.30 PRIVATE_ACCOUNT_VALUE' }, { serialize_precision: '17\nPRIVATE_ACCOUNT_VALUE' },
+    { precision: 14 }, { capture_scope: 'pool-private-script' }, { php_sapi: ['fpm-fcgi'] }]) {
+    const report = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422,
+      php_comparison: { server: { ...server, ...changed }, desktop } };
+    const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+      stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) } : {});
+    await assert.rejects(f.runtime.stage(f.snapshot, '8'.repeat(16)), error => {
+      assert.equal(Object.hasOwn(error.cause.import, 'php_comparison'), false);
+      assert.equal(error.message.includes('PHP:'), false);
+      assert.equal(error.message.includes('PRIVATE_ACCOUNT_VALUE'), false);
+      return true;
+    });
+  }
+});
+
 test('only known portable script basenames can label a failure', () => {
   const { reason } = loadRuntime(() => ({}));
   const cause = { exitCode: 1, overflow: false, timedOut: false };
