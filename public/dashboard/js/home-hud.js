@@ -7,10 +7,21 @@
     var source = document.getElementById('home-overview-bootstrap') || document.getElementById('branch-home-bootstrap'); if (!source) return;
     var boot = JSON.parse(source.textContent), data = boot.initial || {};
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var canvas = root.querySelector('canvas'), ctx = canvas.getContext('2d');
+    var canvas = root.querySelector('canvas.hud-back'), ctx = canvas.getContext('2d'), frontCanvas = root.querySelector('canvas.hud-front'), fctx = frontCanvas.getContext('2d');
     var core = root.querySelector('[data-hud-core]'), nodesBox = root.querySelector('[data-hud-nodes]'), checksBox = root.querySelector('[data-hud-checks]');
     var tally = root.querySelector('[data-hud-tally]'), statusText = root.querySelector('[data-hud-status]'), skip = root.querySelector('[data-hud-skip]');
-    var W = 0, H = 0, stars = [], links = [], particles = [], timers = [], start = performance.now(), revealAt = reduce ? -10 : Infinity, frame = 0, booting = false, desktopMode = '';
+    var W = 0, H = 0, stars = [], links = [], particles = [], timers = [], start = performance.now(), revealAt = reduce ? -10 : Infinity, frame = 0, booting = false, desktopMode = '', orbitMax = 300;
+    // The solar system around the GO mark: share of the orbit band, size, seconds per turn, start angle, lit and shaded colour.
+    var PLANETS = [
+        {f: 0, size: 3.4, period: 9, phase: .3, c: ['#e2ddd8', '#857e77']},
+        {f: .14, size: 5.2, period: 14, phase: 2.1, c: ['#fff0c0', '#c4933f']},
+        {f: .29, size: 5.6, period: 19, phase: 4.0, c: ['#a6dbff', '#1d5cbd'], land: true},
+        {f: .43, size: 4.4, period: 26, phase: 1.2, c: ['#ffb08a', '#a3341c']},
+        {f: .6, size: 11.5, period: 42, phase: 5.1, c: ['#f7dfb8', '#a8703f'], bands: true},
+        {f: .74, size: 9.5, period: 58, phase: 3.3, c: ['#fbe7b4', '#b58d4a'], ring: true},
+        {f: .87, size: 7.4, period: 76, phase: .9, c: ['#dafcff', '#47b2c0']},
+        {f: 1, size: 7.2, period: 96, phase: 2.7, c: ['#aec7ff', '#2445b3']}
+    ], TILT = -0.14, flat = .34;
     var numbers = new Intl.NumberFormat('ar-EG-u-nu-latn', {maximumFractionDigits: 0});
     var CHANNELS = {takeaway: 'تيك أواي', dine: 'الصالة', phone: 'الدليفري', app: 'التطبيق'};
     var PERIODS = {today: 'اليوم', week: 'آخر 7 أيام', month: 'هذا الشهر'};
@@ -74,7 +85,8 @@
     function centre() { return {x: core.offsetLeft, y: core.offsetTop, r: core.offsetWidth / 2}; }
     function size() {
         var ratio = Math.min(2, window.devicePixelRatio || 1); W = root.clientWidth; H = root.clientHeight;
-        canvas.width = W * ratio; canvas.height = H * ratio; ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        canvas.width = frontCanvas.width = W * ratio; canvas.height = frontCanvas.height = H * ratio;
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0); fctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         stars = []; for (var i = 0; i < Math.round(W * H / 5200); i++) stars.push({x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.3 + .2, t: Math.random() * 6});
         if (!booting && nodesBox.children.length && nodesBox.children.length !== nodes().length) fillNodes(false);
         layout();
@@ -85,6 +97,8 @@
         core.style.left = narrow ? '' : side + 'px';
         var c = centre(), els = nodesBox.children, n = els.length;
         var rx = narrow ? Math.min(W * .39, 200) : Math.max(160, Math.min(side - 150, 470)), ry = narrow ? 200 : Math.min(H * .34, 260);
+        flat = narrow ? .5 : .34;
+        orbitMax = narrow ? Math.max(c.r * 1.5, rx * .92) : Math.min(c.r * 3.7, rx * .86);
         links = [];
         for (var i = 0; i < n; i++) {
             var a = -Math.PI / 2 + i * 2 * Math.PI / n, x = c.x + Math.cos(a) * rx, y = c.y + Math.sin(a) * ry, item = els[i];
@@ -102,9 +116,10 @@
         if (root.clientWidth !== W || root.clientHeight !== H) size();
         var t = (now - start) / 1000, c = centre(); ctx.clearRect(0, 0, W, H);
         for (var i = 0; i < stars.length; i++) { var s = stars[i]; ctx.globalAlpha = .25 + .35 * Math.sin(t * 1.3 + s.t); ctx.fillStyle = '#9fdcff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill(); }
-        ctx.globalAlpha = 1; ctx.lineWidth = 1;
-        for (var k = 1; k <= 3; k++) { ctx.strokeStyle = 'rgba(51,225,255,' + (0.10 / k) + ')'; ctx.beginPath(); ctx.ellipse(c.x, c.y, c.r * (1.6 + k * .75), c.r * (1.1 + k * .5), 0, 0, 6.283); ctx.stroke(); }
-        ctx.strokeStyle = 'rgba(255,154,46,.55)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.x, c.y, c.r * 1.32, t * 1.2, t * 1.2 + 1.1); ctx.stroke();
+        ctx.globalAlpha = 1; fctx.clearRect(0, 0, W, H);
+        var planets = orbits(c, t), fade = booting ? Math.min(1, t / 1.6) : 1;
+        ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(120,175,215,' + (0.16 * fade) + ')';
+        planets.forEach(function (o) { ctx.beginPath(); ctx.ellipse(c.x, c.y, o.rx, o.ry, TILT, 0, 6.283); ctx.stroke(); });
         var grown = Math.min(1, Math.max(0, (t - revealAt) / 1.1));
         for (var j = 0; j < links.length; j++) {
             var l = links[j], end = Math.max(0, Math.min(1, grown * 1.4 - j * .02)); if (!end) continue;
@@ -121,7 +136,38 @@
                 ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(pt.x, pt.y, 1.8, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
             }
         }
+        planets.forEach(function (o) { planet(o.front ? fctx : ctx, o, c, fade); });
         if (!reduce && !document.hidden) frame = requestAnimationFrame(draw);
+    }
+    function orbits(c, t) {
+        var inner = c.r * 1.12, k = Math.max(.8, Math.min(1.4, c.r / 95));
+        return PLANETS.map(function (p) {
+            var rx = inner + (orbitMax - inner) * p.f, ry = rx * flat, a = p.phase + (reduce ? 0 : t * 6.283 / p.period);
+            var x = Math.cos(a) * rx, y = Math.sin(a) * ry, depth = .85 + .22 * Math.sin(a);
+            return {p: p, rx: rx, ry: ry, front: Math.sin(a) > 0, r: p.size * k * depth,
+                x: c.x + x * Math.cos(TILT) - y * Math.sin(TILT), y: c.y + x * Math.sin(TILT) + y * Math.cos(TILT)};
+        });
+    }
+    function planet(g, o, c, alpha) {
+        var p = o.p, R = o.r, dx = c.x - o.x, dy = c.y - o.y, len = Math.hypot(dx, dy) || 1;
+        g.save(); g.globalAlpha = alpha;
+        if (p.ring) ringHalf(g, o, R, Math.PI, 2 * Math.PI);
+        // lit from the GO "sun" in the middle
+        var shade = g.createRadialGradient(o.x + dx / len * R * .45, o.y + dy / len * R * .45, R * .1, o.x, o.y, R * 1.05);
+        shade.addColorStop(0, p.c[0]); shade.addColorStop(1, p.c[1]);
+        g.shadowColor = p.c[0]; g.shadowBlur = R * 1.2; g.fillStyle = shade; g.beginPath(); g.arc(o.x, o.y, R, 0, 6.283); g.fill(); g.shadowBlur = 0;
+        if (p.bands || p.land) {
+            g.save(); g.beginPath(); g.arc(o.x, o.y, R, 0, 6.283); g.clip();
+            if (p.bands) { g.strokeStyle = 'rgba(140,85,45,.38)'; g.lineWidth = R * .16; [-.45, -.05, .35].forEach(function (b) { g.beginPath(); g.moveTo(o.x - R, o.y + b * R); g.lineTo(o.x + R, o.y + b * R + R * .08); g.stroke(); }); }
+            if (p.land) { g.fillStyle = 'rgba(80,175,105,.75)'; g.beginPath(); g.ellipse(o.x - R * .25, o.y - R * .1, R * .38, R * .26, .5, 0, 6.283); g.fill(); g.beginPath(); g.ellipse(o.x + R * .35, o.y + R * .3, R * .22, R * .16, -.4, 0, 6.283); g.fill(); }
+            g.restore();
+        }
+        if (p.ring) ringHalf(g, o, R, 0, Math.PI);
+        g.restore();
+    }
+    function ringHalf(g, o, R, from, to) {
+        g.strokeStyle = 'rgba(232,207,152,.85)'; g.lineWidth = Math.max(1, R * .22);
+        g.beginPath(); g.ellipse(o.x, o.y, R * 2.1, R * .62, TILT - .25, from, to); g.stroke();
     }
     function loop() { if (!frame && !reduce && !document.hidden && root.isConnected) frame = requestAnimationFrame(draw); }
 
