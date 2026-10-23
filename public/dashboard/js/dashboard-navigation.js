@@ -17,7 +17,7 @@
     const paths = node => Array.from(node.querySelectorAll('a[href]')).filter(link => !link.getAttribute('href').startsWith('#')).map(link => {
         try { return new URL(link.href, location.href).pathname; } catch (error) { return ''; }
     });
-    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|meta|meta\/comments|desktop-pos|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
+    const priority = node => paths(node).some(path => /\/admin\/(dashboard|whatsapp|meta|meta\/comments|desktop-pos|desktop-dashboard|applies-orders|takeaway|dining|phone-orders|branch-orders|branch-expenses|branch-stock|branch-shifts|customers|employees|delivery-companies|print-settings|go-stores)\/?$/.test(path));
     // Move only links rendered by the server's existing access checks.
     function placeShortcut(route, anchorRoute, position = 'after') {
         const find = value => rootNodes.find(node => paths(node).some(path => path.replace(/\/$/, '') === '/admin/' + value));
@@ -30,6 +30,7 @@
     }
     placeShortcut('meta', 'dashboard');
     placeShortcut('desktop-pos', 'print-settings', 'before');
+    placeShortcut('desktop-dashboard', 'print-settings');
     function section(node) {
         const routes = paths(node).join(' ');
         if (/\/admin\/(users|roles|pending_vendors)/.test(routes)) return 'people';
