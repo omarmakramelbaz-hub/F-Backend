@@ -42,6 +42,8 @@ jobs:
         run: git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin a0178ead801e8d39185cd0830171804141767995
       - name: Verify the reviewed seed lineage as the checkout owner
         run: python3 -B -m unittest discover -s tests -p test_go_erp_media_capacity_seed.py
+      - name: Verify the reviewed native import memory seed and immutable candidate code
+        run: python3 -B -m unittest discover -s tests -p test_go_erp_preview31_seed.py
       - name: Verify bounded capacity seed upgrade and rollback
         run: sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_media_capacity_upgrade.py
       - name: Verify server publication and source drift refusal
@@ -114,7 +116,7 @@ jobs:
           python3 -B tests/desktop_dashboard_current_source_diagnosis_test.py
       - name: Verify the exact current live candidate independently
         if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021'
-        run: python3 -I -B deployment/verify_go_erp_media_capacity_seed.py --root "$GITHUB_WORKSPACE" --historical-root "$GITHUB_WORKSPACE/historical-desktop-baseline"
+        run: python3 -I -B deployment/verify_go_erp_preview31_seed.py --root "$GITHUB_WORKSPACE" --historical-root "$GITHUB_WORKSPACE/historical-desktop-baseline"
       - name: Check preserved current application syntax
         run: |
           php -l app/Services/Dashboard/ExpenseStockPurchases.php
