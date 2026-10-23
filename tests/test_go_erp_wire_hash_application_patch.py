@@ -1,0 +1,392 @@
+"""Root-only real filesystem exchange tests; no service, PHP or database is run."""
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import shutil
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location('patch', ROOT / 'deployment/go_erp_wire_hash_application_patch.py')
+PATCH = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(PATCH)
+SCAN_SPEC = importlib.util.spec_from_file_location('scanner', ROOT / 'deployment/refresh_desktop_dashboard_server_manifest.py')
+SCANNER = importlib.util.module_from_spec(SCAN_SPEC)
+SCAN_SPEC.loader.exec_module(SCANNER)
+
+
+class ReviewedPayloadTests(unittest.TestCase):
+    def test_final_package_identity_payloads_and_application_fingerprint_match(self):
+        spec = importlib.util.spec_from_file_location('wire_hash_adapter_release',
+            ROOT / 'deployment/upgrade_go_erp_wire_hash_watcher_root.py')
+        adapter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(adapter)
+        for revision in (adapter.OLD_SEED, adapter.NEW_SEED, adapter.CORE, adapter.BASELINE):
+            self.assertRegex(revision, r'\A[a-f0-9]{40}\Z')
+        self.assertNotEqual(adapter.OLD_SEED, adapter.NEW_SEED)
+        self.assertNotEqual(adapter.CORE, adapter.NEW_SEED)
+        self.assertEqual(adapter.OLD_SOURCE, PATCH.BEFORE_SOURCE)
+        self.assertEqual(adapter.NEW_SOURCE, PATCH.AFTER_SOURCE)
+        self.assertRegex(adapter.NEW_INVENTORY, r'\A[a-f0-9]{64}\Z')
+        self.assertNotEqual(adapter.NEW_INVENTORY, adapter.OLD_INVENTORY)
+        self.assertEqual(PATCH.blob((ROOT / 'deployment' / adapter.APPLICATION_MODULE).read_bytes()),
+                         adapter.APPLICATION_BLOB)
+        self.assertEqual(PATCH.blob((ROOT / 'deployment/import422-prior' / adapter.BASE_MODULE).read_bytes()),
+                         adapter.BASE_BLOB)
+        self.assertEqual(PATCH.blob((ROOT / 'deployment/import422-prior/upgrade_go_erp_capacity_watcher_root.py').read_bytes()),
+                         '60df7ec876f9634e0a7dcb4c5a420d0d5ecd9ae9')
+        for name, (before, after) in PATCH.PINS.items():
+            self.assertEqual(PATCH.blob((ROOT / name).read_bytes()), after)
+            if before is not None:
+                original = subprocess.check_output(['git', '-c', 'safe.directory=' + str(ROOT),
+                    'show', adapter.BASELINE + ':' + name], cwd=ROOT)
+                self.assertEqual(PATCH.blob(original), before)
+        self.assertEqual(SCANNER.digest(SCANNER.scan(ROOT)), PATCH.AFTER_SOURCE)
+
+
+@unittest.skipUnless(os.geteuid() == 0, 'real inode exchange requires root')
+class ExchangeTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix='go-erp-wire-hash-application-patch-')
+        self.base = Path(self.directory.name)
+        self.root, self.audit = self.base / 'live', self.base / 'audit'
+        self.package = self.base / 'package'
+        self.package.mkdir(mode=0o700)
+        for name in [*PATCH.PINS, 'deployment/refresh_desktop_dashboard_server_manifest.py']:
+            destination = self.package / ('application/' + name if name in PATCH.PINS else 'refresh_desktop_dashboard_server_manifest.py')
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, destination)
+        self.root.mkdir(mode=0o755)
+        self.audit.mkdir(mode=0o700)
+        self.originals = {}
+        for name, (old, _) in PATCH.PINS.items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if old is not None:
+                data = subprocess.check_output(['git', '-c', 'safe.directory=' + str(ROOT), 'show',
+                    'aaeaebe9e9cfb67a038f9b408800189ccdb96631:' + name], cwd=ROOT)
+                self.assertEqual(PATCH.blob(data), old)
+                path.write_bytes(data)
+                self.originals[name] = data
+        (self.root / 'artisan').write_text('<?php // unrelated fixture source')
+        self.before_map = SCANNER.scan(self.root)
+        self.after_map = copy.deepcopy(self.before_map)
+        for name in PATCH.PINS:
+            self.after_map[name] = SCANNER.file_record(ROOT / name)
+        self.real_before, self.real_after = PATCH.BEFORE_SOURCE, PATCH.AFTER_SOURCE
+        PATCH.BEFORE_SOURCE, PATCH.AFTER_SOURCE = SCANNER.digest(self.before_map), SCANNER.digest(self.after_map)
+        manifest = {'version': 1, 'expected_head': 'preserved-history', 'before_source': {'preserved': True},
+            'after_source': PATCH.BEFORE_SOURCE,
+            'sources': [{'path': name, 'before_blob': None, 'after_blob': PATCH.blob(data), 'phase': 2}
+                        for name, data in self.originals.items()],
+            'protected': [{'path': 'artisan', 'blob': self.before_map['artisan']['blob']}],
+            'migrations': ['preserved-migration-roster']}
+        (self.root / 'deployment').mkdir()
+        (self.root / PATCH.MANIFEST).write_text(json.dumps(manifest))
+        self.manifest = (self.root / PATCH.MANIFEST).read_bytes()
+        lock = self.base / 'watcher.lock'
+        self.lock_fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+        self.patch = PATCH.ApplicationPatch(self.root, self.package, self.audit, 0, 0, self.lock_fd)
+        self.original_inodes = {name: (self.root / name).stat().st_ino for name in self.originals}
+
+    def tearDown(self):
+        PATCH.BEFORE_SOURCE, PATCH.AFTER_SOURCE = self.real_before, self.real_after
+        os.close(self.lock_fd)
+        if self.patch.stage_fd is not None:
+            self.patch._cleanup()
+        self.directory.cleanup()
+
+    def test_real_apply_and_rollback_restore_original_inodes_and_manifest(self):
+        summary = self.patch.prepare()
+        self.assertEqual(summary['application_files'], 4)
+        self.patch.apply()
+        self.assertTrue(self.patch.verify())
+        for name in PATCH.PINS:
+            self.assertEqual((self.root / name).read_bytes(), (ROOT / name).read_bytes())
+        manifest = json.loads((self.root / PATCH.MANIFEST).read_bytes())
+        self.assertEqual(manifest['before_source'], {'preserved': True})
+        self.assertEqual(manifest['expected_head'], 'preserved-history')
+        self.assertEqual(manifest['migrations'], ['preserved-migration-roster'])
+        self.patch.rollback()
+        self.assertTrue(self.patch.rollback())
+        self.assertEqual((self.root / PATCH.MANIFEST).read_bytes(), self.manifest)
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+            self.assertEqual((self.root / name).stat().st_ino, self.original_inodes[name])
+        self.assertFalse((self.root / 'desktop/snapshot-row-hashes.php').exists())
+        self.assertFalse(self.patch.stage.exists())
+
+    def test_commit_removes_only_owned_stage_and_verifies_idempotent_state(self):
+        self.patch.prepare()
+        self.patch.apply()
+        stage = self.patch.stage
+        self.patch.commit()
+        self.assertFalse(stage.exists())
+        self.assertTrue((self.audit / 'application-committed.json').is_file())
+        self.assertTrue(PATCH.verify_current(self.root, self.package, 0, 0, self.lock_fd)['already_current'])
+        with self.assertRaisesRegex(PATCH.Stop, 'ALREADY_COMMITTED'):
+            self.patch.rollback()
+
+    def test_source_change_before_apply_does_not_publish_any_target(self):
+        self.patch.prepare()
+        (self.root / 'artisan').write_text('<?php // concurrent source change')
+        with self.assertRaisesRegex(PATCH.Stop, 'SOURCE_CHANGED_BEFORE_APPLY'):
+            self.patch.apply()
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+        self.assertFalse((self.root / 'desktop/snapshot-row-hashes.php').exists())
+
+    def test_new_helper_created_after_prepare_is_preserved_without_exchanges(self):
+        self.patch.prepare()
+        helper = self.root / 'desktop/snapshot-row-hashes.php'
+        external = b'<?php // concurrent helper source'
+        helper.write_bytes(external)
+        with self.assertRaisesRegex(PATCH.Stop, 'SOURCE_CHANGED_BEFORE_APPLY'):
+            self.patch.apply()
+        self.assertEqual(helper.read_bytes(), external)
+        self.assertTrue(all(not item['moved'] for item in self.patch.slots))
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+            self.assertEqual((self.root / name).stat().st_ino, self.original_inodes[name])
+
+    def test_same_path_creation_at_new_helper_exchange_is_never_overwritten(self):
+        self.patch.prepare()
+        original_rename = PATCH.rename
+        helper = self.root / 'desktop/snapshot-row-hashes.php'
+        external = b'<?php // writer won the same-path creation race'
+        raced = False
+        def concurrent_creation(left_fd, left, right_fd, right, flags):
+            nonlocal raced
+            if right == helper.name and flags == 1 and not raced:
+                raced = True
+                helper.write_bytes(external)
+            return original_rename(left_fd, left, right_fd, right, flags)
+        with mock.patch.object(PATCH, 'rename', side_effect=concurrent_creation):
+            with self.assertRaisesRegex(PATCH.Stop, 'ROLLBACK_SOURCE_DIFFERS'):
+                self.patch.apply()
+        self.assertTrue(raced)
+        self.assertEqual(helper.read_bytes(), external)
+        self.assertFalse(self.patch.committed)
+        self.assertTrue(all(not item['moved'] for item in self.patch.slots))
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+            self.assertEqual((self.root / name).stat().st_ino, self.original_inodes[name])
+
+    def test_unexpected_published_writer_is_not_overwritten_on_rollback(self):
+        self.patch.prepare()
+        self.patch.apply()
+        path = self.root / 'desktop/import.php'
+        path.write_text('<?php // unexpected writer')
+        with self.assertRaisesRegex(PATCH.Stop, 'ROLLBACK_TARGET_CHANGED'):
+            self.patch.rollback()
+        self.assertEqual(path.read_text(), '<?php // unexpected writer')
+        self.assertTrue(all(slot['moved'] for slot in self.patch.slots))
+
+    def test_changed_retained_original_is_not_restored(self):
+        self.patch.prepare()
+        self.patch.apply()
+        first = self.patch.slots[0]
+        (self.patch.stage / first['slot']).write_text('<?php // unexpected retained original')
+        with self.assertRaisesRegex(PATCH.Stop, 'HELD_ORIGINAL_CHANGED'):
+            self.patch.commit()
+        with self.assertRaisesRegex(PATCH.Stop, 'ROLLBACK_ORIGINAL_CHANGED'):
+            self.patch.rollback()
+        self.assertEqual((self.root / first['name']).read_bytes(), first['wanted'])
+        self.assertTrue(all(slot['moved'] for slot in self.patch.slots))
+
+    def test_mid_apply_failure_and_outer_retry_roll_back_once(self):
+        self.patch.prepare()
+        original_rename = PATCH.rename
+        calls = 0
+        def failure(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise OSError('synthetic exchange failure')
+            return original_rename(*args)
+        with mock.patch.object(PATCH, 'rename', side_effect=failure):
+            with self.assertRaisesRegex(OSError, 'synthetic exchange failure'):
+                self.patch.apply()
+        self.assertTrue(self.patch.rolled_back)
+        self.assertTrue(self.patch.rollback())
+        self.assertEqual((self.root / PATCH.MANIFEST).read_bytes(), self.manifest)
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+
+    def test_early_prepare_failure_has_safe_no_mutation_rollback(self):
+        (self.package / 'refresh_desktop_dashboard_server_manifest.py').write_text('# unreviewed scanner')
+        with self.assertRaisesRegex(PATCH.Stop, 'SCANNER_PIN_INVALID'):
+            self.patch.prepare()
+        self.assertTrue(self.patch.rollback())
+        self.assertTrue(self.patch.rollback())
+        self.assertEqual((self.root / PATCH.MANIFEST).read_bytes(), self.manifest)
+
+    def remove_manifest(self, directory=False):
+        (self.root / PATCH.MANIFEST).unlink()
+        if directory:
+            (self.root / 'deployment').rmdir()
+
+    def assert_manifest_absent(self, directory=False):
+        self.assertFalse((self.root / PATCH.MANIFEST).exists())
+        if directory:
+            self.assertFalse((self.root / 'deployment').exists())
+
+    def test_missing_manifest_file_commit_and_idempotent_verification_preserve_absence(self):
+        self.remove_manifest()
+        summary = self.patch.prepare()
+        self.assertFalse(summary['manifest_refreshed'])
+        self.assertTrue(summary['manifest_preserved_absent'])
+        self.assertEqual(len(self.patch.slots), 4)
+        self.patch.apply()
+        self.patch.commit()
+        self.assert_manifest_absent()
+        current = PATCH.verify_current(self.root, self.package, 0, 0, self.lock_fd)
+        self.assertTrue(current['already_current'])
+        self.assertFalse(current['manifest_refreshed'])
+        self.assertTrue(current['manifest_preserved_absent'])
+        receipt = json.loads((self.audit / 'application-committed.json').read_bytes())
+        self.assertTrue(receipt['manifest_preserved_absent'])
+
+    def test_missing_deployment_directory_commit_creates_no_directory_or_history(self):
+        self.remove_manifest(directory=True)
+        self.patch.prepare()
+        self.patch.apply()
+        self.patch.commit()
+        self.assert_manifest_absent(directory=True)
+        current = PATCH.verify_current(self.root, self.package, 0, 0, self.lock_fd)
+        self.assertTrue(current['manifest_preserved_absent'])
+        self.assert_manifest_absent(directory=True)
+
+    def test_missing_manifest_file_rollback_restores_source_and_absence(self):
+        self.remove_manifest()
+        self.patch.prepare()
+        self.patch.apply()
+        self.patch.rollback()
+        self.assertTrue(self.patch.rollback())
+        self.assert_manifest_absent()
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+            self.assertEqual((self.root / name).stat().st_ino, self.original_inodes[name])
+        intent = json.loads((self.audit / 'application-intent.json').read_bytes())
+        self.assertEqual(len(intent['files']), 4)
+        self.assertTrue(intent['manifest_preserved_absent'])
+
+    def test_missing_deployment_directory_rollback_preserves_absence(self):
+        self.remove_manifest(directory=True)
+        self.patch.prepare()
+        self.patch.apply()
+        self.patch.rollback()
+        self.assert_manifest_absent(directory=True)
+        self.assertFalse((self.root / 'desktop/snapshot-row-hashes.php').exists())
+
+    def test_manifest_appearing_before_apply_is_left_untouched(self):
+        self.remove_manifest()
+        self.patch.prepare()
+        path = self.root / PATCH.MANIFEST
+        external = b'{"external_metadata":true}'
+        path.write_bytes(external)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_APPEARED'):
+            self.patch.apply()
+        self.assertEqual(path.read_bytes(), external)
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+        self.assertTrue(all(not row['moved'] for row in self.patch.slots))
+
+    def test_manifest_appearing_after_apply_is_not_overwritten_by_commit_or_rollback(self):
+        self.remove_manifest(directory=True)
+        self.patch.prepare()
+        self.patch.apply()
+        (self.root / 'deployment').mkdir()
+        path = self.root / PATCH.MANIFEST
+        external = b'{"external_metadata":true}'
+        path.write_bytes(external)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_APPEARED'):
+            self.patch.commit()
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_APPEARED'):
+            self.patch.rollback()
+        self.assertEqual(path.read_bytes(), external)
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+        # Only this fixture owns this new file; the production patch left it intact.
+        path.unlink()
+        (self.root / 'deployment').rmdir()
+        self.assertTrue(self.patch.rollback())
+        self.assert_manifest_absent(directory=True)
+
+    def test_symlink_manifest_is_refused_and_is_not_treated_as_absent(self):
+        path = self.root / PATCH.MANIFEST
+        path.unlink()
+        target = self.base / 'external-metadata'
+        target.write_text('{}')
+        path.symlink_to(target)
+        with self.assertRaises(OSError):
+            self.patch.prepare()
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(target.read_text(), '{}')
+
+    def test_symlink_deployment_directory_is_refused(self):
+        self.remove_manifest(directory=True)
+        target = self.base / 'external-deployment'
+        target.mkdir()
+        (self.root / 'deployment').symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_DIRECTORY_UNSAFE'):
+            self.patch.prepare()
+        self.assertTrue((self.root / 'deployment').is_symlink())
+        self.assertFalse(list(target.iterdir()))
+
+    def test_world_writable_manifest_is_refused_instead_of_ignored(self):
+        path = self.root / PATCH.MANIFEST
+        path.chmod(0o666)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_FILE_UNSAFE'):
+            self.patch.prepare()
+        self.assertEqual(path.read_bytes(), self.manifest)
+
+    def test_present_manifest_change_between_first_read_and_staging_is_not_overwritten(self):
+        original_read = PATCH.optional_manifest
+        path = self.root / PATCH.MANIFEST
+        changed = self.manifest + b'\n'
+        def concurrent_change(*args):
+            data, info = original_read(*args)
+            path.write_bytes(changed)
+            return data, info
+        with mock.patch.object(PATCH, 'optional_manifest', side_effect=concurrent_change):
+            with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_CHANGED_BEFORE_STAGING'):
+                self.patch.prepare()
+        self.assertEqual(path.read_bytes(), changed)
+        self.assertTrue(all(not row['moved'] for row in self.patch.slots))
+        self.assertTrue(self.patch.rollback())
+        self.assertEqual(path.read_bytes(), changed)
+
+    def test_present_manifest_deletion_between_first_read_and_staging_is_not_recreated(self):
+        original_read = PATCH.optional_manifest
+        path = self.root / PATCH.MANIFEST
+        def concurrent_deletion(*args):
+            data, info = original_read(*args)
+            path.unlink()
+            return data, info
+        with mock.patch.object(PATCH, 'optional_manifest', side_effect=concurrent_deletion):
+            with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_CHANGED_BEFORE_STAGING'):
+                self.patch.prepare()
+        self.assertFalse(path.exists())
+        self.assertTrue(all(not row['moved'] for row in self.patch.slots))
+        self.assertTrue(self.patch.rollback())
+        self.assertFalse(path.exists())
+
+    def test_unreviewed_manifest_stops_before_exchanges(self):
+        value = json.loads(self.manifest)
+        value['after_source']['sha256'] = '0' * 64
+        (self.root / PATCH.MANIFEST).write_text(json.dumps(value))
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_UNREVIEWED'):
+            self.patch.prepare()
+        self.assertFalse(self.patch.prepared)
+        self.assertTrue(self.patch.rollback())
+        self.assertTrue(self.patch.rollback())
+        self.assertFalse((self.root / 'desktop/snapshot-row-hashes.php').exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

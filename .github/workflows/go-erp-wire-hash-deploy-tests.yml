@@ -1,0 +1,38 @@
+name: GO ERP raw snapshot hash deployment
+
+on:
+  push:
+    branches: ['codex/go-erp-wire-hash-deploy-*']
+    paths:
+      - deployment/*wire_hash*
+      - deployment/wire-hash-prior/**
+      - tests/test_go_erp_wire_hash_*.py
+      - desktop/import.php
+      - desktop/import-diagnostic.php
+      - desktop/snapshot-row-hashes.php
+      - app/Services/Dashboard/DesktopDashboardImport.php
+      - .github/workflows/go-erp-wire-hash-deploy-tests.yml
+  pull_request:
+    paths:
+      - deployment/*wire_hash*
+      - deployment/wire-hash-prior/**
+      - tests/test_go_erp_wire_hash_*.py
+      - .github/workflows/go-erp-wire-hash-deploy-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-transaction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the accepted Preview 35 source for real inode rollback tests
+        run: git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin aaeaebe9e9cfb67a038f9b408800189ccdb96631
+      - name: Verify the combined application and watcher transaction
+        run: |
+          bash -n deployment/run_go_erp_wire_hash_root.sh
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_wire_hash_application_patch.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_wire_hash_watcher_upgrade.py

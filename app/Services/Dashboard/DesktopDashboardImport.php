@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\{DB,Validator};
 /** Import into a brand-new private staging database. It never replaces a working local ledger. */
 class DesktopDashboardImport
 {
-    public function import(array $snapshot): array
+    public function import(array $snapshot,?array $rowHashes=null): array
     {
         abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
@@ -19,6 +19,12 @@ class DesktopDashboardImport
         abort_unless($snapshot['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($snapshot['source']??null),409,'نسخة برنامج الجهاز لا تطابق بيانات السيرفر؛ النسخة الحالية وسجلاتها محفوظة.');
         abort_unless(DB::select('SHOW TABLES')===[],409,'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.');
+        // Only the native entry point derives these hashes from the exact JSON
+        // it decoded. Public snapshot fields cannot override row verification.
+        if($rowHashes!==null){
+            abort_unless(array_keys($rowHashes)===array_keys($snapshot['tables']),422,'بيانات التجهيز غير مكتملة.');
+            foreach($rowHashes as $digest)abort_unless(is_string($digest)&&preg_match('/^[a-f0-9]{64}$/D',$digest),422,'بيانات التجهيز غير مكتملة.');
+        }
         abort_unless(!array_key_exists('catalog_scopes',$snapshot['coverage'])||in_array($snapshot['coverage']['catalog_scopes'],[0,1],true),422,'وصف تغطية نطاقات الكتالوج غير صالح.');
         $catalog=($snapshot['coverage']['catalog_scopes']??null)===1;
         $base=$snapshot['enrollment']['base_branches']??$snapshot['branches'];
@@ -43,7 +49,8 @@ class DesktopDashboardImport
                 &&!preg_match('/;|--|#|\/\*|REFERENCES\s+_\s*\.|\b(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|RENAME|TRUNCATE|GRANT|REVOKE|INTO|OUTFILE|INFILE|TABLESPACE|DIRECTORY|FEDERATED|TRIGGER|PROCEDURE|FUNCTION|EVENT)\b/i',substr($syntax,strlen('CREATE TABLE'))),422,'مخطط قاعدة التجهيز غير مقبول.');
             preg_match_all('/REFERENCES\s+`([^`]+)`\s*\(/i',$ddl,$references);
             foreach($references[1] as $target)abort_unless(array_key_exists($target,$snapshot['tables']),409,'جدول مرتبط غير موجود في نسخة الحساب.');
-            abort_unless(preg_match('/^[a-f0-9]{64}$/D',$part['sha256'])&&hash_equals($part['sha256'],hash('sha256',DesktopDashboardBootstrap::json($part['rows']))),422,'بيانات التجهيز غير مكتملة.');
+            abort_unless(is_string($part['sha256'])&&preg_match('/^[a-f0-9]{64}$/D',$part['sha256'])
+                &&hash_equals($part['sha256'],$rowHashes===null?hash('sha256',DesktopDashboardBootstrap::json($part['rows'])):$rowHashes[$table]),422,'بيانات التجهيز غير مكتملة.');
             $schema[$table]=hash('sha256',$ddl);$rowCount+=count($part['rows']);abort_if($rowCount>500000,413);
         }
         ksort($schema);abort_unless(hash_equals($snapshot['schema_hash'],hash('sha256',DesktopDashboardBootstrap::json($schema))),422,'بصمة مخطط التجهيز مختلفة.');
