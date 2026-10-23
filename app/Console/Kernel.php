@@ -43,6 +43,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('crm:whatsapp-process')->everyMinute()->withoutOverlapping(5);
         $schedule->command('dashboard-push:dispatch')->everyMinute()->withoutOverlapping(2);
         $schedule->command('order-board:advance')->everyMinute()->withoutOverlapping(5);
+        $schedule->command('order-payments:reconcile --apply --limit=5')->everyMinute()->withoutOverlapping(5);
         $schedule->command('orders:retry-live-activities')->everyMinute()->withoutOverlapping(5);
         // Continue quotation waves and retry notices even while clients are closed.
         // The command checks schema/readiness before touching marketplace tables.

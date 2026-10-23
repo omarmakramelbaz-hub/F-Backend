@@ -90,6 +90,7 @@ return [
     'address' => 'العنوان',
     'payment' => 'الدفع',
     'payment_failed' => 'فشل الدفع',
+    'payment_paid' => 'مدفوع',
     'details' => 'عرض التفاصيل',
     'print' => 'طباعة',
     'accept' => 'قبول الطلب',

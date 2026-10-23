@@ -316,7 +316,15 @@ class OrderBoardService
                 if ($group === 'new') $q->where(function ($pending) { $pending->whereNull('accepted_notify')->orWhere('accepted_notify', '!=', 'yes'); });
                 if ($group === 'preparing') $q->orWhere(function ($accepted) { $accepted->whereIn('status', ['pending','another_delegate','new_order'])->where('accepted_notify', 'yes'); });
             }
-            if ($source === 'legacy' && $group === 'completed') $q->orWhereNull('status');
+            if ($source === 'legacy' && $group === 'new') $q->orWhere(function ($checkout) {
+                $checkout->whereNull('status')->where('type', 'current')->whereIn('payment_type', ['online', 'v_cash']);
+            });
+            if ($source === 'legacy' && $group === 'completed') $q->orWhere(function ($unknown) {
+                $unknown->whereNull('status')->where(function ($other) {
+                    $other->whereNull('type')->orWhere('type', '!=', 'current')
+                        ->orWhereNull('payment_type')->orWhereNotIn('payment_type', ['online', 'v_cash']);
+                });
+            });
         });
     }
 
@@ -417,12 +425,17 @@ class OrderBoardService
             'status'=>$status, 'status_label'=>$this->statusLabel($status), 'group'=>$this->group($source, $row),
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
-            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'total'=>null,
+            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'payment_paid'=>false, 'total'=>null,
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
                 'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
         if ($source === 'legacy') {
+            $card['payment_paid'] = $this->legacyPaymentPaid($row);
+            if ($this->awaitingLegacyPayment($row)) {
+                $card['status_label'] = $card['payment_paid'] ? 'طلب جديد' : 'بانتظار تأكيد الدفع';
+                $card['action_note'] = $card['payment_paid'] ? 'تم الدفع؛ بانتظار قبول الطلب.' : 'بانتظار تأكيد الدفع قبل قبول الطلب.';
+            }
             if ($status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') $card['status_label'] = 'مع المندوب';
             elseif (in_array($status, ['pending','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') $card['status_label'] = 'قيد التجهيز';
             $restaurant = $this->related['resturants'][$row->resturant_id ?? null] ?? null;
@@ -532,6 +545,7 @@ class OrderBoardService
 
     private function group(string $source, object $row): string
     {
+        if ($source === 'legacy' && $this->awaitingLegacyPayment($row)) return 'new';
         $status = $row->status ?? '';
         if (in_array($status, ['completed','cancelled','declined','rejected','expired',''], true)) return 'completed';
         if (in_array($status, ['shipped','out_for_delivery','in_progress','awaiting_confirmation'], true)) return 'courier';
@@ -539,6 +553,14 @@ class OrderBoardService
         if (in_array($status, ['accepted','preparing','ready','booked','disputed'], true)
             || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes')) return 'preparing';
         return 'new';
+    }
+
+    private function awaitingLegacyPayment(object $row): bool
+    {
+        // Checkout creates a null status until the payment callback activates it.
+        // Payment completion is separate from staff acceptance and delivery.
+        return ($row->status ?? null) === null && ($row->type ?? '') === 'current'
+            && in_array($row->payment_type ?? '', ['online', 'v_cash'], true);
     }
 
     private function statusLabel(string $status): string
@@ -555,6 +577,20 @@ class OrderBoardService
         return ['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'بطاقة بنكية','credit_card'=>'بطاقة بنكية',
             'mobile_wallet'=>'محفظة إلكترونية','v_cash'=>'فودافون كاش','paymob'=>'دفع إلكتروني','online'=>'بطاقة بنكية',
             'paymob_card_payment'=>'بطاقة بنكية','paymob_mobile_wallet_payment'=>'محفظة إلكترونية'][$method] ?? ($method ?: 'غير محدد');
+    }
+
+    private function legacyPaymentPaid(object $row): bool
+    {
+        if (($row->type ?? '') !== 'current' || !in_array($row->payment_type ?? '', ['online', 'v_cash'], true)
+            || in_array($row->status ?? '', ['cancelled', 'declined', 'rejected'], true)) return false;
+        foreach ($this->related['payments'][$row->id] ?? [] as $payment) {
+            if ((int) ($payment->user_id ?? 0) !== (int) ($row->user_id ?? 0)
+                || !preg_match('/^[1-9][0-9]{0,29}$/D', (string) ($payment->transaction_id ?? ''))
+                || !in_array(strtolower(trim((string) ($payment->status ?? ''))), ['1', 'true', 'paid', 'succeeded', 'success'], true)) continue;
+            try { if (\App\Services\GoServices\Money::minor($payment->total_price ?? null) > 0) return true; }
+            catch (\InvalidArgumentException $error) { /* Unknown historical amounts are not paid evidence. */ }
+        }
+        return false;
     }
 
     private function paymentFailed(string $source, object $row): bool

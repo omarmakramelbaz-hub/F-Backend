@@ -151,7 +151,11 @@ class PosServiceTicket
             }
             $cart=json_decode($row->cart_snapshot,true);if($v['action']!=='cancel')abort_unless(count($cart['items']),422,'الفاتورة فارغة.');
             $status=$row->status;$revision=(int)$row->revision+1;$when=now('UTC');$changes=['revision'=>$revision,'updated_at'=>$when];$meta=[];
-            if($v['action']==='cancel'){abort_unless(!$row->last_kitchen_id,409,'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');$status='cancelled';$changes['cancel_reason']=trim($v['reason']);}
+            if($v['action']==='cancel'){
+                if($channel==='phone')abort_unless(in_array($row->status,['new','preparing'],true),409,'إلغاء طلب الدليفري متاح أثناء التجهيز وقبل تسليمه للمندوب.');
+                else abort_unless(!$row->last_kitchen_id,409,'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');
+                $status='cancelled';$changes['cancel_reason']=trim($v['reason']);
+            }
             elseif($v['action']==='send_kitchen'){$status=$channel==='dine'?'preparing':($row->status==='new'?'preparing':$row->status);}
             elseif($v['action']==='request_bill'){
                 if($channel==='dine')$status='awaiting_bill';
