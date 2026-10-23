@@ -38,7 +38,8 @@ class ExchangeTests(unittest.TestCase):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             if old is not None:
-                data = subprocess.check_output(['git', 'show', '27eae737be190a9900fed67810393a0b68627119:' + name], cwd=ROOT)
+                data = subprocess.check_output(['git', '-c', 'safe.directory=' + str(ROOT), 'show',
+                    '27eae737be190a9900fed67810393a0b68627119:' + name], cwd=ROOT)
                 self.assertEqual(PATCH.blob(data), old)
                 path.write_bytes(data)
                 self.originals[name] = data
