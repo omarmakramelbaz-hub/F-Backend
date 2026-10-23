@@ -8,13 +8,22 @@
     var source = document.getElementById('home-overview-bootstrap') || document.getElementById('branch-home-bootstrap'); if (!source) return;
     var boot = JSON.parse(source.textContent), data = boot.initial || {};
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var canvas = root.querySelector('canvas'), ctx = canvas.getContext('2d'), pill = root.querySelector('[data-hud-pill]');
+    var canvas = root.querySelector('canvas'), ctx = canvas.getContext('2d');
     var core = root.querySelector('[data-hud-core]'), nodesBox = root.querySelector('[data-hud-nodes]'), checksBox = root.querySelector('[data-hud-checks]');
-    var tally = root.querySelector('[data-hud-tally]'), statusText = root.querySelector('[data-hud-status]'), skip = root.querySelector('[data-hud-skip]');
+    var tally = root.querySelector('[data-hud-tally]'), skip = root.querySelector('[data-hud-skip]');
     var W = 0, H = 0, stars = [], links = [], particles = [], pulses = [], timers = [], start = performance.now(), revealAt = reduce ? -10 : Infinity;
     var frame = 0, booting = false, desktopMode = '', orbit = null, lastBeat = -1, mode = '', waves = [], leaving = false;
     var enterButton = root.querySelector('[data-hud-enter]'), LINKS = boot.hud_links || {};
     var sun = core.querySelector('canvas.hud-sun'), sctx = sun ? sun.getContext('2d') : null, sunR = 0, sunS = 0, motes = [];
+    var surgeUntil = 0, motionTime = 0, lastMotion = 0, seenOrders = new Set();
+    function onOrderAlert(event) {
+        var keys = event.detail && event.detail.pending; if (!Array.isArray(keys)) return;
+        var fresh = false; keys.forEach(function (key) {
+            if (typeof key !== 'string' || !/^(legacy|store|service|partner_service):[1-9][0-9]*$/.test(key) || seenOrders.has(key)) return;
+            seenOrders.add(key); fresh = true;
+        });
+        if (fresh && !reduce && !leaving) surgeUntil = performance.now() + 12000;
+    }
     var BEAT = 3.2, HALO = 240; // seconds between two heartbeats of the GO sun; the halo's radius in solar-system units
     var numbers = new Intl.NumberFormat('ar-EG-u-nu-latn', {maximumFractionDigits: 0});
     var CHANNELS = {takeaway: 'تيك أواي', dine: 'الصالة', phone: 'الدليفري', app: 'التطبيق'};
@@ -30,7 +39,7 @@
     function account() {
         var d = data, cards = d.branch_cards || [], branch = d.filters && d.filters.branch;
         var picked = branch ? (d.branches || []).filter(function (b) { return b.value === branch; })[0] : null;
-        var who = d.branch_home ? ((picked || cards[0] || {}).name || 'الفرع') : (picked ? picked.name : 'نظرة شاملة على الفروع');
+        var who = d.branch_home ? ((picked || cards[0] || {}).name || 'الفرع') : (picked ? picked.name : '');
         var period = d.filters ? (PERIODS[d.filters.period] || (d.filters.from + ' — ' + d.filters.to)) : '';
         var day = d.operating_day ? 'يوم التشغيل ' + d.operating_day.date : '';
         return {who: who, day: period && period !== 'اليوم' ? day + ' · ' + period : day};
@@ -55,6 +64,7 @@
 
     function nodes() {
         var d = data, list = [], m = d.modules || {}, finance = d.can_view_financials && d.sales;
+        if (LINKS.employees) list.push(['employees', 'متابعة الموظفين', 'الحضور والرواتب', '']);
         if (finance) list.push(['sales', d.branch_home ? 'مبيعات الفرع' : 'المبيعات', money(d.sales.gross_cents), 'money']);
         if (d.owner_drawer && d.owner_drawer.ready) list.push(['drawer', 'أدراج الفروع', money(d.owner_drawer.total_cents), 'money']);
         (d.channels || []).forEach(function (c) { if (CHANNELS[c.key]) list.push(['ch-' + c.key, CHANNELS[c.key], num(c.count), '']); });
@@ -97,7 +107,7 @@
         links = [];
         if (mode === 'compact') {
             // Phones: the sections are tiles under the system, so nothing is placed by hand.
-            core.style.left = core.style.top = core.style.width = pill.style.left = box.style.marginTop = ''; root.style.removeProperty('--hud-cx');
+            core.style.left = core.style.top = core.style.width = box.style.marginTop = ''; root.style.removeProperty('--hud-cx');
             for (i = 0; i < n; i++) { els[i].style.left = els[i].style.top = ''; els[i].classList.remove('right', 'left'); }
             var unit = core.offsetWidth / 1380; setSun(HALO * unit);
             orbit = {x: core.offsetLeft + core.offsetWidth / 2, y: core.offsetTop + core.offsetHeight / 2, logo: 150 * unit, rx: 676 * unit, ry: 270 * unit};
@@ -111,7 +121,7 @@
         var rx = Math.min(cx - 150, 520), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .8 / 660, ry * .76 / 264));
         // Wide screens keep the system in the space beside the check panel, so no section runs under it.
         core.style.left = cx + 'px'; core.style.top = cy + 'px'; core.style.width = Math.round(360 * scale) + 'px';
-        pill.style.left = cx + 'px'; root.style.setProperty('--hud-cx', cx + 'px'); root.style.setProperty('--hud-cy', cy + 'px');
+        root.style.setProperty('--hud-cx', cx + 'px'); root.style.setProperty('--hud-cy', cy + 'px');
         orbit = {x: cx, y: cy, logo: 150 * scale, rx: 676 * scale, ry: 270 * scale}; setSun(HALO * scale);
         for (i = 0; i < n; i++) {
             var a = -Math.PI / 2 + i * 2 * Math.PI / n, cos = Math.cos(a), sin = Math.sin(a), x = cx + cos * rx, y = cy + sin * ry, item = els[i];
@@ -148,9 +158,9 @@
     // The halo matches the reference: a lemon-yellow ring of light with a yellow-green glow, a bright sky-blue disc
     // full of fine sparks with a burst at its centre and two faint inner circles, thin cyan rings outside, a light bar under it.
     function ring(g, c, R, width, colour) { g.lineWidth = width; g.strokeStyle = colour; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.stroke(); }
-    function drawSun(t, beat, fade) {
+    function drawSun(t, beat, fade, surge) {
         if (!sctx || !sunR) return;
-        var g = sctx, c = sunS / 2, R = sunR, i, heat = Math.min(1.1, .84 + .22 * beat) * fade, a; // steady light that swells gently on the beat: no fast flicker, easy on the eyes
+        var g = sctx, c = sunS / 2, R = sunR, i, heat = Math.min(1.1, .84 + .22 * beat + .28 * surge) * fade, a; // steady light that swells gently on the beat: no fast flicker, easy on the eyes
         g.clearRect(0, 0, sunS, sunS); g.globalCompositeOperation = 'lighter';
         // light just outside the ring, and the thin cyan rings around it
         var out = g.createRadialGradient(c, c, R, c, c, R * 1.3);
@@ -183,8 +193,8 @@
         ring(g, c, R * .34, 1, 'rgba(170,240,255,' + (.2 * fade).toFixed(3) + ')');
         // fine sparks, slowly turning
         for (i = 0; i < motes.length; i++) {
-            var m = motes[i]; a = m.a + t * m.w;
-            var glint = (.18 + .5 * (.5 + .5 * Math.sin(t * 2.1 + m.tw))) * fade;
+            var m = motes[i]; a = m.a + motionTime * m.w;
+            var glint = (.18 + .5 * (.5 + .5 * Math.sin(motionTime * 2.1 + m.tw))) * fade;
             g.fillStyle = 'rgba(190,245,255,' + glint.toFixed(3) + ')';
             g.fillRect(c + Math.cos(a) * m.r * R - m.z / 2, c + Math.sin(a) * m.r * R - m.z / 2, m.z, m.z);
         }
@@ -223,6 +233,8 @@
         if (!root.isConnected) { dispose(); return; }
         if (root.clientWidth !== W || root.clientHeight !== H) size();
         var t = (now - start) / 1000, beat = reduce ? .4 : beatAt(t), fade = booting ? Math.min(1, t / 2) : 1, scroll = root.scrollTop, i;
+        var surge = reduce ? 0 : Math.max(0, Math.min(1, (surgeUntil - now) / 4000));
+        motionTime += Math.min(.05, Math.max(0, (now - (lastMotion || now)) / 1000)) * (1 + 3 * surge); lastMotion = now;
         ctx.clearRect(0, 0, W, H);
         for (i = 0; i < stars.length; i++) { var s = stars[i]; ctx.globalAlpha = .25 + .35 * Math.sin(t * 1.3 + s.t); ctx.fillStyle = '#9fdcff'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill(); }
         ctx.globalAlpha = 1;
@@ -238,18 +250,19 @@
             var spread = Math.max(H * .62, orbit.ry * 2.6);
             for (i = 0; i < waves.length; i++) {
                 var v = waves[i], x; ctx.lineWidth = v.width;
-                ctx.strokeStyle = 'hsla(' + v.hue.toFixed(0) + ',100%,62%,' + (v.alpha * (1 + .7 * beat) * fade).toFixed(3) + ')';
-                ctx.beginPath(); for (x = -30; x <= W + 30; x += 14) { var y = waveY(v, x, t, cx, cy, spread); if (x === -30) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
-                var run = (v.run + t * v.speed) % 1; if (run > .9 || fade < 1) continue;
+                ctx.strokeStyle = 'hsla(' + v.hue.toFixed(0) + ',100%,62%,' + (v.alpha * (1 + .7 * beat + surge) * fade).toFixed(3) + ')';
+                ctx.beginPath(); for (x = -30; x <= W + 30; x += 14) { var y = waveY(v, x, motionTime, cx, cy, spread); if (x === -30) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke();
+                var run = (v.run + motionTime * v.speed) % 1; if (run > .9 || fade < 1) continue;
                 for (var j = 0; j < 7; j++) {
                     var along = Math.max(0, run - j * .006), sx = v.left ? along * cx : W - along * (W - cx), dim = (1 - j / 7) * (1 - run / .9);
                     ctx.fillStyle = 'hsla(' + v.hue.toFixed(0) + ',100%,78%,' + (.55 * dim).toFixed(3) + ')';
-                    ctx.beginPath(); ctx.arc(sx, waveY(v, sx, t, cx, cy, spread), 1.9 - j * .2, 0, 6.283); ctx.fill();
+                    ctx.beginPath(); ctx.arc(sx, waveY(v, sx, motionTime, cx, cy, spread), 1.9 - j * .2, 0, 6.283); ctx.fill();
                 }
             }
             ctx.globalCompositeOperation = 'source-over';
             if (!reduce) { var cycle = Math.floor(t / BEAT); if (cycle !== lastBeat && !booting) { lastBeat = cycle; pulse(); } }
-            drawSun(t, beat, fade);
+            if (surge > 0 && (pulses.length === 0 || t - pulses[pulses.length - 1] > .38)) pulses.push(t);
+            drawSun(t, beat, fade, surge);
         }
         ctx.save(); ctx.translate(0, -scroll);
         var grown = Math.min(1, Math.max(0, (t - revealAt) / 1.1));
@@ -314,7 +327,7 @@
         layout();
     }
     function ready() {
-        booting = false; root.classList.add('ready'); statusText.textContent = 'النظام جاهز'; if (skip) skip.hidden = true; if (enterButton) enterButton.hidden = false; pulse();
+        booting = false; root.classList.add('ready'); if (skip) skip.hidden = true; if (enterButton) enterButton.hidden = false; pulse();
     }
     function finish() {
         timers.forEach(clearTimeout); timers = [];
@@ -324,7 +337,7 @@
         fillTally(checks()); ready();
     }
     function intro() {
-        booting = true; statusText.textContent = 'جاري فحص النظام'; if (skip) skip.hidden = false;
+        booting = true; if (skip) skip.hidden = false;
         var list = fillChecks(true); fillNodes(true);
         var after = function (ms, fn) { timers.push(setTimeout(fn, ms)); };
         after(150, function () { core.classList.add('lit'); });
@@ -357,12 +370,14 @@
     function dispose() {
         timers.forEach(clearTimeout); timers = []; if (frame) cancelAnimationFrame(frame); frame = 0; leaving = true;
         document.documentElement.classList.remove('go-hud-open');
-        document.removeEventListener('go:home-data', onData); window.removeEventListener('resize', size); document.removeEventListener('visibilitychange', loop);
+        document.removeEventListener('dashboard:order-alert-state', onOrderAlert); document.removeEventListener('go:home-data', onData); window.removeEventListener('resize', size); document.removeEventListener('visibilitychange', loop);
         document.removeEventListener('keydown', onKey); document.removeEventListener('dashboard:before-unload', dispose);
     }
     function onData(event) { update(event.detail); }
     function onKey(e) { if (e.key === 'Escape' && !e.defaultPrevented) { if (booting) finish(); else enterHome(); } }
 
+    document.addEventListener('dashboard:order-alert-state', onOrderAlert);
+    if (window.DashboardOrderAlerts) onOrderAlert({detail: window.DashboardOrderAlerts.state()});
     document.documentElement.classList.add('go-hud-open');
     var who = account(); root.querySelector('[data-hud-who]').textContent = who.who; root.querySelector('[data-hud-day]').textContent = who.day;
     mountGo(); size();

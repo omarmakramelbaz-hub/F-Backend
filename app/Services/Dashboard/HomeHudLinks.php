@@ -28,6 +28,7 @@ class HomeHudLinks
             if (count(app(BranchShiftClosing::class)->branches($user))) $add(['drawer'], 'branch-shifts.index');
             $add(['sales', 'active', 'branches', 'cancelled'], 'branch-orders.index');
             $add(['customers'], 'customers.index');
+            if (in_array($user->account_type ?? null, ['admin', 'vendor', 'resturant_owner'], true)) $add(['employees'], 'employees.index');
         }
         if (($user->account_type ?? null) === 'admin' && ((int) $user->id === 1 || $user->can('resturant-list'))) $add(['go-stores'], 'go-stores.index');
         if ($user->can('delegate-list')) $add(['go-partners'], 'users.index', ['account_type' => 'delegate']);

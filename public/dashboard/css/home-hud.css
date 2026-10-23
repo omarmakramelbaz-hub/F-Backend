@@ -9,12 +9,6 @@ html.go-hud-open,html.go-hud-open body{overflow:hidden!important}
 #go-hud[hidden]{display:none}
 #go-hud.leaving{opacity:0;transform:scale(1.06);pointer-events:none}
 #go-hud *{box-sizing:border-box}
-/* thin corner brackets frame the screen */
-#go-hud::after{content:"";position:fixed;inset:10px;z-index:1;pointer-events:none;opacity:.55;
-  background:linear-gradient(var(--hud-cyan),var(--hud-cyan)) top left/20px 1px,linear-gradient(var(--hud-cyan),var(--hud-cyan)) top left/1px 20px,
-  linear-gradient(var(--hud-cyan),var(--hud-cyan)) top right/20px 1px,linear-gradient(var(--hud-cyan),var(--hud-cyan)) top right/1px 20px,
-  linear-gradient(var(--hud-cyan),var(--hud-cyan)) bottom left/20px 1px,linear-gradient(var(--hud-cyan),var(--hud-cyan)) bottom left/1px 20px,
-  linear-gradient(var(--hud-cyan),var(--hud-cyan)) bottom right/20px 1px,linear-gradient(var(--hud-cyan),var(--hud-cyan)) bottom right/1px 20px;background-repeat:no-repeat}
 #go-hud canvas{position:absolute;top:0;left:0;width:100%;display:block;z-index:0;pointer-events:none}
 
 #go-hud .hud-status{position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:5;display:inline-flex;align-items:center;gap:8px;
@@ -115,3 +109,12 @@ html.go-hud-open,html.go-hud-open body{overflow:hidden!important}
 @keyframes hud-orbit{from{transform:rotate(var(--orbit-start))}to{transform:rotate(var(--orbit-end))}}
 @keyframes hud-counter{from{transform:rotate(var(--counter-start))}to{transform:rotate(var(--counter-end))}}
 @media (prefers-reduced-motion:reduce){#go-hud,#go-hud *{transition:none!important;animation:none!important}}
+
+/* Keep the GO mark inside the smallest solar circle throughout its heartbeat. */
+#go-hud .hud-logo-pulse{transform-box:view-box;transform-origin:0 0}
+@media(prefers-reduced-motion:no-preference){#go-hud .hud-logo-pulse{animation:hud-logo-pulse 3.2s ease-in-out infinite}}
+@keyframes hud-logo-pulse{0%,38%,100%{transform:scale(1)}12%{transform:scale(1.07)}22%{transform:scale(1)}28%{transform:scale(1.04)}}
+
+#go-hud .hud-solar-far{z-index:0}
+#go-hud .hud-core .hud-sun{z-index:1}
+#go-hud .hud-solar-near{z-index:2}
