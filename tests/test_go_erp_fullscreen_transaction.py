@@ -7,6 +7,7 @@ restore live application/hold files around that engine's reported outcome.
 import contextlib
 import copy
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -511,6 +512,88 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
                 self.assertEqual(nav, fixture.nav.read_bytes()); self.assertIsNone(fixture.nav_patch)
                 self.assertEqual(0, fixture.upgrade_calls)
                 self.assert_paymob_preserved(fixture)
+
+    def observed_legacy_hold(self, fixture):
+        value = subject.hold_value(subject.OLD_CORE, subject.ADVANCED_SOURCE,
+            '1480586d09f7b87ac2528f74b14a5694c631d31c6ddc5c32eb8dc750c5550a9c')
+        raw = subject.canonical(value)
+        self.assertEqual(358, len(raw))
+        self.assertEqual('8cfd6212d2e3e9c7ed72f4e555eb4fd71639c8dc0c8567c4c450a3fae768262f',
+            hashlib.sha256(raw).hexdigest())
+        fixture.hold.write_bytes(raw)
+        return value, raw
+
+    def test_exact_observed_legacy_hold_is_superseded_and_rollback_retains_exact_original_bytes(self):
+        for outcome in ('success', 'rollback'):
+            with self.subTest(outcome=outcome):
+                fixture = self.fixture(advanced=True, outcome=outcome)
+                old, raw = self.observed_legacy_hold(fixture)
+                self.assertNotIn(old['inventory_sha256'], subject.CANDIDATE_SOURCES)
+                self.assertNotIn(old['inventory_sha256'], subject.LIVE_SOURCES)
+                self.assertNotIn(old['inventory_sha256'], subject.PREPARED_SOURCES)
+                if outcome == 'success':
+                    result = self.run_apply(fixture)
+                    self.assertTrue(result['ok']); self.assertEqual(37, result['counter'])
+                    self.assertFalse(result['application_contents_changed']); self.assertFalse(result['database_changed'])
+                    self.assertTrue(result['publication_held']); self.assertFalse(result['published'])
+                    self.assertEqual(subject.hold_value(subject.CORE, subject.HUD_ADVANCED_SOURCE, subject.HUD_ADVANCED_INVENTORY),
+                        json.loads(fixture.hold.read_bytes()))
+                    self.assertEqual(raw, (Path(result['backup']) / 'before-hold.json').read_bytes())
+                    audit = json.loads((Path(result['backup']) / 'intent.json').read_bytes())
+                    self.assertEqual(hashlib.sha256(raw).hexdigest(), audit['old_hold_sha256'])
+                else:
+                    with self.assertRaisesRegex(subject.Stop, '^ROLLED_BACK_TIMER_PAUSED$'): self.run_apply(fixture)
+                    self.assertEqual(raw, fixture.hold.read_bytes())
+                    self.assertEqual(fixture.original_controls, fixture.controls())
+                self.assertIsNone(fixture.nav_patch); self.assertEqual(1, fixture.upgrade_calls)
+                self.assert_paymob_preserved(fixture)
+
+    def test_observed_legacy_hold_altered_fields_or_raw_hash_refuse_before_mutation(self):
+        for mutation in ('source', 'inventory', 'core', 'authorization', 'false-auth', 'extra', 'raw'):
+            with self.subTest(mutation=mutation):
+                fixture = self.fixture(advanced=True)
+                value, raw = self.observed_legacy_hold(fixture)
+                value = copy.deepcopy(value)
+                if mutation == 'source': value['source'] = subject.HR_SOURCE
+                elif mutation == 'inventory': value['inventory_sha256'] = 'f' * 64
+                elif mutation == 'core': value['core'] = 'f' * 40
+                elif mutation == 'authorization': value['authorization'] = {'candidate': 'a' * 40}
+                elif mutation == 'false-auth': value['authorization'] = False
+                elif mutation == 'extra': value['extra'] = True
+                changed = raw + b'\n' if mutation == 'raw' else subject.canonical(value)
+                fixture.hold.write_bytes(changed)
+                controls, nav = fixture.controls(), fixture.nav.read_bytes()
+                with self.assertRaisesRegex(subject.Stop, '^OLD_HOLD_DIFFERS_OR_AUTHORIZED$'): self.run_apply(fixture)
+                self.assertEqual(changed, fixture.hold.read_bytes()); self.assertEqual(controls, fixture.controls())
+                self.assertEqual(nav, fixture.nav.read_bytes()); self.assertIsNone(fixture.nav_patch)
+                self.assertEqual(0, fixture.upgrade_calls)
+                self.assert_paymob_preserved(fixture)
+
+    def test_observed_legacy_hold_authorization_races_are_never_overwritten(self):
+        for race in ('capture', 'pre-exchange'):
+            with self.subTest(race=race):
+                fixture = self.fixture(advanced=True, race=race)
+                self.observed_legacy_hold(fixture)
+                reason = 'OLD_HOLD_CHANGED' if race == 'capture' else 'RECOVERY_REQUIRED_TIMER_PAUSED'
+                with self.assertRaisesRegex(subject.Stop, '^' + reason + '$'): self.run_apply(fixture)
+                self.assertIsInstance(json.loads(fixture.hold.read_bytes())['authorization'], dict)
+                self.assertEqual(fixture.original_controls, fixture.controls())
+                self.assertIsNone(fixture.nav_patch); self.assertEqual(0, fixture.upgrade_calls)
+                self.assert_paymob_preserved(fixture)
+
+    def test_observed_legacy_hold_reformatted_between_recognition_and_capture_is_retained(self):
+        fixture = self.fixture(advanced=True)
+        _, raw = self.observed_legacy_hold(fixture)
+        original_remote = fixture.remote
+        def reformat(checkout):
+            original_remote(checkout)
+            fixture.hold.write_bytes(raw + b'\n')
+        fixture.remote = reformat
+        with self.assertRaisesRegex(subject.Stop, '^OLD_HOLD_CHANGED$'): self.run_apply(fixture)
+        self.assertEqual(raw + b'\n', fixture.hold.read_bytes())
+        self.assertEqual(fixture.original_controls, fixture.controls())
+        self.assertIsNone(fixture.nav_patch); self.assertEqual(0, fixture.upgrade_calls)
+        self.assert_paymob_preserved(fixture)
 
     def test_forged_candidate_proof_refuses_before_any_application_or_control_mutation(self):
         for change in ({'revision': 'f' * 40}, {'base_revision': 'f' * 40},

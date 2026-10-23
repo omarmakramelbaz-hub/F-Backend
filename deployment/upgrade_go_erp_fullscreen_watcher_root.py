@@ -25,6 +25,8 @@ OLD_CANDIDATE = 'dceb59ad489bbba6b6534a4da784f6d26c82b2ff'
 ADVANCED_CANDIDATE = '5f2b0fecafec1c3803499284b0abcca4ecfed7e4'
 ADVANCED_INVENTORY = 'de5ac407604249df2198aa71c2d7b4ca0a88ac16bba3cf3f028c61e3077111d8'
 ADVANCED_SOURCE = {'format':1,'files':1346,'framework':'8.83.29','sha256':'41172badb00910203115a45b26c695d47757ee1cc4ac26d07ba556a7f657ea63'}
+OBSERVED_OLD_HOLD_INVENTORY = '1480586d09f7b87ac2528f74b14a5694c631d31c6ddc5c32eb8dc750c5550a9c'
+OBSERVED_OLD_HOLD_SHA256 = '8cfd6212d2e3e9c7ed72f4e555eb4fd71639c8dc0c8567c4c450a3fae768262f'
 OLD_INVENTORY = '0068ecaeb994a7c7bd3916eeaa137a1c33e0f2ddf3f1e5b3807a35db61d56005'
 BEFORE_INVENTORY = 'fddb71ab6baa4a13292816355e463054dbcca600135ce132cfaa36e0eab2faef'
 AFTER_INVENTORY = '2a356d414bd5c60d51be3a17ab526c16038b3eec1f50e775d6169becc40107eb'
@@ -166,6 +168,15 @@ def migrated_state(value, old_seed=OLD_SEED, new_seed=NEW_SEED, publication=None
 def hold_value(core, source, inventory):
     return {'format':1,'kind':'go-erp-program-rollout-hold','core':core,'source':source,
             'inventory_sha256':inventory,'authorization':None}
+
+
+def old_hold_allowed(value, raw):
+    if value in [hold_value(OLD_CORE,source,inventory) for inventory,source in CANDIDATE_SOURCES.items()]:
+        return True
+    # This observed, unauthorised hold is only a superseded control record.
+    # Its inventory grants no authority to a candidate or the live source scan.
+    return (value==hold_value(OLD_CORE,ADVANCED_SOURCE,OBSERVED_OLD_HOLD_INVENTORY)
+        and hashlib.sha256(raw).hexdigest()==OBSERVED_OLD_HOLD_SHA256)
 
 
 class Context:
@@ -326,7 +337,8 @@ def apply(ctx):
                      'PREVIOUS_FULLSCREEN_TRANSACTION_REQUIRES_REVIEW')
         before,config,state=ctx.slots()
         gate=ctx.worker
-        current_hold=gate.program_gate_json(WORK/'program-rollout-hold.json')
+        current_hold_bytes=gate.program_gate_bytes(WORK/'program-rollout-hold.json')
+        current_hold=gate.program_gate_parse(current_hold_bytes)
         if config['base_revision']==NEW_SEED:
             allowed=[hold_value(CORE,source,inventory) for inventory,source in PREPARED_SOURCES.items()]
             need(current_hold in allowed,'NEW_HOLD_UNREVIEWED')
@@ -342,8 +354,7 @@ def apply(ctx):
             return result
         proof=ctx.bind_candidate(state)
         migrated_state(state,OLD_SEED,NEW_SEED,None,proof)
-        allowed_old=[hold_value(OLD_CORE,source,inventory) for inventory,source in CANDIDATE_SOURCES.items()]
-        need(current_hold in allowed_old,'OLD_HOLD_DIFFERS_OR_AUTHORIZED')
+        need(old_hold_allowed(current_hold,current_hold_bytes),'OLD_HOLD_DIFFERS_OR_AUTHORIZED')
         ctx.expected_old=current_hold
         need(not (WORK/('program-rollout-completed-'+OLD_CORE+'.json')).exists(),'OLD_ROLLOUT_ALREADY_COMPLETED')
         ctx.remote(WORK/'checkout')
@@ -360,6 +371,7 @@ def apply(ctx):
         patch=None;hold_switched=False;watcher_result=None;old_hold_bytes=gate.program_gate_bytes(WORK/'program-rollout-hold.json')
         old_hold_key=u.exact_key((WORK/'program-rollout-hold.json').lstat())
         need(gate.program_gate_parse(old_hold_bytes)==ctx.expected_old
+             and old_hold_allowed(ctx.expected_old,old_hold_bytes)
              and gate.program_gate_bytes(WORK/'program-rollout-hold.json')==old_hold_bytes
              and u.exact_key((WORK/'program-rollout-hold.json').lstat())==old_hold_key,'OLD_HOLD_CHANGED')
         live_hold_key=held_hold_key=None
@@ -368,6 +380,7 @@ def apply(ctx):
             u.write_at(audit,'exchange-hold.json',canonical(ctx.expected_new))
             u.json_at(audit,'intent.json',{'format':1,'old_seed':OLD_SEED,'new_seed':NEW_SEED,'native_core':CORE,
                 'old_hold':ctx.expected_old,'new_hold':ctx.expected_new,'controls_sha256':{key:hashlib.sha256(value).hexdigest() for key,value in before.items()},
+                'old_hold_sha256':hashlib.sha256(old_hold_bytes).hexdigest(),
                 'old_candidate':state['desired']['commit'],'navigation_already_applied':actual[0] not in NAV_TARGETS})
             if actual[0] in NAV_TARGETS:
                 patch=navigation_patch(ctx,audit_path,lock_fd);patch.prepare();verify();patch.apply();patch.verify()
@@ -375,6 +388,7 @@ def apply(ctx):
             verify();ctx.confirm_old(before)
             need(gate.program_gate_bytes(WORK/'program-rollout-hold.json')==old_hold_bytes
                  and gate.program_gate_parse(old_hold_bytes)==ctx.expected_old
+                 and old_hold_allowed(ctx.expected_old,old_hold_bytes)
                  and u.exact_key((WORK/'program-rollout-hold.json').lstat())==old_hold_key,'OLD_HOLD_CHANGED')
             u.exchange(audit.fd,'exchange-hold.json',work.fd,'program-rollout-hold.json');hold_switched=True
             os.fsync(audit.fd);os.fsync(work.fd)
