@@ -350,6 +350,10 @@ try {
         Write-Output ('GO_ERP_CI_PORT_PROBE ' + (@{liveDetected=$true;refusalDetected=$true;closedElapsedMs=$probeWatch.ElapsedMilliseconds} | ConvertTo-Json -Compress))
     } finally { $probeListener.Stop() }
     $diagnostic = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"')) -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    # Windows PowerShell Start-Process with redirected streams can lose the
+    # exit code unless its managed Process handle is opened before it exits.
+    $diagnosticHandle = $diagnostic.Handle
+    if ($null -eq $diagnosticHandle -or $diagnosticHandle -eq [IntPtr]::Zero) { throw 'CI_DIAGNOSTIC_HANDLE_UNAVAILABLE' }
     $ready = $null; $launched = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     do {
@@ -447,7 +451,9 @@ try {
     if (@(Compare-Object @($result.fatal.PSObject.Properties.Name | Sort-Object) $fatalKeys).Count -ne 0) { throw 'UNEXPECTED_FATAL_FIELD' }
     foreach ($key in $fatalKeys) { if ($result.fatal.$key -isnot [bool] -or $result.fatal.$key -ne ($key -cin @('phpFatal', 'outOfMemory'))) { throw 'FATAL_CLASSIFICATION_DIFFERS' } }
     Write-Output 'GO_ERP_CI_CAPTURE_VALIDATED'
-    if ($diagnostic.ExitCode -ne 0) {
+    $diagnosticExitCode = $diagnostic.ExitCode
+    Write-Output ('GO_ERP_CI_DIAGNOSTIC_EXIT ' + (@{known=($null -ne $diagnosticExitCode);code=$diagnosticExitCode} | ConvertTo-Json -Compress))
+    if ($null -eq $diagnosticExitCode -or $diagnosticExitCode -ne 0) {
         $httpReachable = $false
         try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2; $httpReachable = $true } catch {}
         Write-Output ('GO_ERP_CI_LISTENER ' + (@{ httpReachable = $httpReachable; appExited = $appProcess.HasExited; appResponding = $appProcess.Responding; windowExists = ($appProcess.MainWindowHandle -ne 0) } | ConvertTo-Json -Compress))
