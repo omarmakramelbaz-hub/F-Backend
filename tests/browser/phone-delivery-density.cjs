@@ -11,7 +11,7 @@ function fn(name, input = source) {
   const rest = input.slice(start), end = rest.slice(1).search(/\n    (?:async )?function /);
   return end < 0 ? rest : rest.slice(0, end + 1);
 }
-const functions = ['validDeliveryOrigin','ticketDeliveryOrigin','deliveryOriginLabel','text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','dispatchControl','dispatchModal','preparationCreatedAt','updatePreparationTimer','preparationBadge','completedBadge','card','updateBatchTotal','renderBoard','validCash','plainEnter','cashKeyboard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
+const functions = ['validDeliveryOrigin','ticketDeliveryOrigin','deliveryOriginLabel','text','element','scaled','decimal','money','dateLabel','button','ticketStage','ticketActions','detailContent','cancelModal','dispatchControl','dispatchModal','preparationCreatedAt','updatePreparationTimer','preparationBadge','completedBadge','card','updateBatchTotal','renderBoard','validCash','plainEnter','cashKeyboard','finishBatch','settlement'].map(name=>fn(name)).join('\n');
 function translations(locale) {
   return Object.fromEntries([...read(`resources/lang/${locale}/phone_orders.php`).matchAll(/'([^']+)'\s*=>\s*'([^']*)'/g)].map(m=>[m[1],m[2]]));
 }
@@ -35,7 +35,7 @@ var root=document.getElementById('phone-orders'),modal=root.querySelector('[data
 function begin(){return new AbortController();}function endpoint(url){return url;}async function fetchTicket(id){return Object.values(boardData.columns).flatMap(c=>c.items).find(t=>t.id===id);}async function post(url,values){var t=await fetchTicket(values.ticket_id);return {total:t.total,quote_hash:t.quote_hash};}async function read(result){return result;}
 function openModal(){modalGeneration++;modal.hidden=false;return root.querySelector('[data-phone-modal-content]');}
 function canWrite(){return true;}function locked(){return false;}function lock(){root.querySelectorAll('[data-unavailable]').forEach(n=>n.disabled=true);}
-function action(t,a){calls.push({id:t.id,action:a});}function print(url){calls.push({print:url});}function settlement(id){calls.push({settlement:id});}function editTicket(id){calls.push({edit:id});}function execute(op){calls.push(op);}function uuid(){return 'test-command';}function notify(message){alerts.push(message);}function loadOrders(){calls.push({page:true});}
+function action(t,a,p,r){calls.push({id:t.id,action:a,reason:r});}function print(url){calls.push({print:url});}function settlement(id){calls.push({settlement:id});}function editTicket(id){calls.push({edit:id});}function execute(op){calls.push(op);}function uuid(){return 'test-command';}function notify(message){alerts.push(message);}function loadOrders(){calls.push({page:true});}
 function detailsModal(id){var t=Object.values(boardData.columns).flatMap(c=>c.items).find(t=>t.id===id);modal.hidden=false;detailContent(t,root.querySelector('[data-phone-modal-content]'));}
 ${functions}
 renderBoard();document.getElementById('close').onclick=function(){modal.hidden=true;};window.testBoard={selectedOrders,boardData,renderBoard,card,finishBatch,settlement};`;
@@ -63,7 +63,16 @@ renderBoard();document.getElementById('close').onclick=function(){modal.hidden=t
    assert.equal(await page.getByRole('dialog').locator('.ph-detail-actions button').count(),0);await page.locator('#close').click();
    const dialog=page.getByRole('dialog');
    const preparing=page.locator('[data-phone-column="preparing"] .ph-ticket').first();
-   assert.deepEqual(await preparing.getByRole('button').allTextContents(),[labels.view_order,labels.edit_order,labels.assign_company]);
+   assert.deepEqual(await preparing.getByRole('button').allTextContents(),[labels.view_order,labels.edit_order,labels.assign_company,labels.cancel]);
+   await preparing.getByRole('button',{name:labels.cancel,exact:true}).click();
+   await dialog.locator('[data-phone-cancel-reason]').fill('  ');
+   await dialog.locator('[data-phone-cancel-submit]').click();
+   assert.equal(await page.evaluate(()=>calls.length),0,'Blank cancellation reason must not create a command');
+   await dialog.locator('[data-phone-cancel-reason]').fill('  Customer changed their mind  ');
+   await dialog.locator('[data-phone-cancel-submit]').click();
+   assert.equal(await page.evaluate(()=>calls.at(-1).action),'cancel');
+   assert.equal(await page.evaluate(()=>calls.at(-1).reason),'Customer changed their mind');
+   await page.locator('#close').click();
    assert.equal(await page.getByRole('button',{name:labels.order_actions,exact:true}).count(),0);
    await preparing.getByRole('button',{name:labels.edit_order,exact:true}).click();
    assert.equal(await page.evaluate(()=>calls.at(-1).edit),1);

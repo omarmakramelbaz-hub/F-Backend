@@ -316,7 +316,15 @@ class OrderBoardService
                 if ($group === 'new') $q->where(function ($pending) { $pending->whereNull('accepted_notify')->orWhere('accepted_notify', '!=', 'yes'); });
                 if ($group === 'preparing') $q->orWhere(function ($accepted) { $accepted->whereIn('status', ['pending','another_delegate','new_order'])->where('accepted_notify', 'yes'); });
             }
-            if ($source === 'legacy' && $group === 'completed') $q->orWhereNull('status');
+            if ($source === 'legacy' && $group === 'new') $q->orWhere(function ($checkout) {
+                $checkout->whereNull('status')->where('type', 'current')->whereIn('payment_type', ['online', 'v_cash']);
+            });
+            if ($source === 'legacy' && $group === 'completed') $q->orWhere(function ($unknown) {
+                $unknown->whereNull('status')->where(function ($other) {
+                    $other->whereNull('type')->orWhere('type', '!=', 'current')
+                        ->orWhereNull('payment_type')->orWhereNotIn('payment_type', ['online', 'v_cash']);
+                });
+            });
         });
     }
 
@@ -423,6 +431,10 @@ class OrderBoardService
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
                 'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
         if ($source === 'legacy') {
+            if ($this->awaitingLegacyPayment($row)) {
+                $card['status_label'] = 'بانتظار تأكيد الدفع';
+                $card['action_note'] = 'بانتظار تأكيد الدفع قبل قبول الطلب.';
+            }
             if ($status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') $card['status_label'] = 'مع المندوب';
             elseif (in_array($status, ['pending','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') $card['status_label'] = 'قيد التجهيز';
             $restaurant = $this->related['resturants'][$row->resturant_id ?? null] ?? null;
@@ -532,6 +544,7 @@ class OrderBoardService
 
     private function group(string $source, object $row): string
     {
+        if ($source === 'legacy' && $this->awaitingLegacyPayment($row)) return 'new';
         $status = $row->status ?? '';
         if (in_array($status, ['completed','cancelled','declined','rejected','expired',''], true)) return 'completed';
         if (in_array($status, ['shipped','out_for_delivery','in_progress','awaiting_confirmation'], true)) return 'courier';
@@ -539,6 +552,14 @@ class OrderBoardService
         if (in_array($status, ['accepted','preparing','ready','booked','disputed'], true)
             || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes')) return 'preparing';
         return 'new';
+    }
+
+    private function awaitingLegacyPayment(object $row): bool
+    {
+        // Checkout creates a null status until the payment callback activates it.
+        // Payment completion is separate from staff acceptance and delivery.
+        return ($row->status ?? null) === null && ($row->type ?? '') === 'current'
+            && in_array($row->payment_type ?? '', ['online', 'v_cash'], true);
     }
 
     private function statusLabel(string $status): string

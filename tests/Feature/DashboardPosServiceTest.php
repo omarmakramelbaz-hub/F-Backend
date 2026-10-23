@@ -316,11 +316,37 @@ class DashboardPosServiceTest extends TestCase
     public function test_cancelled_order_is_not_automatically_printed(): void
     {
         $v=$this->savePayload('phone');$v['send_to_kitchen']=true;$ticket=$this->tickets()->save('phone',$v,$this->actor(1))['ticket'];
-        // Historical cancellations remain excluded from automatic branch printing. New cancellations after kitchen are rejected.
-        DB::table('pos_service_tickets')->where('id',$ticket['id'])->update(['status'=>'cancelled']);
+        $cancel=['branch'=>'f:100','expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key(1700),'action'=>'cancel','reason'=>'Customer cancelled during preparation'];
+        $before=[];foreach(['users','wallets','orders','takeaway_orders','takeaway_order_items','takeaway_tills','takeaway_till_entries','pos_service_kitchen_tickets'] as $table)$before[$table]=DB::table($table)->orderBy('id')->get()->toArray();
+        $this->invalid(fn()=>$this->tickets()->action('phone',$ticket['id'],array_replace($cancel,['reason'=>'  ']),$this->actor()));
+        $this->denied(fn()=>$this->tickets()->action('phone',$ticket['id'],$cancel,$this->actor(11)),404);
+        $this->denied(fn()=>$this->tickets()->action('phone',$ticket['id'],array_replace($cancel,['expected_revision'=>99]),$this->actor()));
+        $cancelled=$this->tickets()->action('phone',$ticket['id'],$cancel,$this->actor());
+        $this->assertSame('cancelled',$cancelled['ticket']['status']);$this->assertSame($cancel['reason'],$cancelled['ticket']['cancel_reason']);
+        $this->assertTrue($this->tickets()->action('phone',$ticket['id'],$cancel,$this->actor())['replayed']);
+        $this->denied(fn()=>$this->tickets()->settle('phone',$ticket['id'],$this->settlePayload($cancelled['ticket'],1701),$this->actor()));
+        foreach($before as $table=>$rows)$this->assertEquals($rows,DB::table($table)->orderBy('id')->get()->toArray(),'Cancellation changed '.$table);
+        $board=app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->listing(['branch'=>'f:100'],$this->actor());
+        $this->assertSame(0,$board['columns']['preparing']['pagination']['total']);
+        $this->assertSame(1,$board['columns']['finished']['pagination']['total']);
+        $this->assertNotNull($board['columns']['finished']['items'][0]['completed_at']);
         $printing=app(\App\Services\Dashboard\PosBranchPrinting::class);
         $this->assertCount(0,$printing->listing(['branch'=>'f:100'],$this->actor())['jobs']);
         $this->denied(fn()=>$printing->claim(['branch'=>'f:100','job_id'=>DB::table('pos_branch_print_jobs')->value('id'),'claim_token'=>$this->key(51)],$this->actor()));
+    }
+    public function test_phone_cancellation_is_refused_after_handoff_or_collection(): void
+    {
+        $ticket=$this->saved('phone');
+        $v=['branch'=>'f:100','expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key(1710),'action'=>'cancel','reason'=>'Customer cancelled'];
+        foreach(['out_for_delivery','finished'] as $status){
+            DB::table('pos_service_tickets')->where('id',$ticket['id'])->update(['status'=>$status]);
+            $this->denied(fn()=>$this->tickets()->action('phone',$ticket['id'],$v,$this->actor()));
+            $this->assertSame($status,DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('status'));
+        }
+        DB::table('pos_service_tickets')->where('id',$ticket['id'])->update(['status'=>'preparing','payment_status'=>'paid']);
+        $this->denied(fn()=>$this->tickets()->action('phone',$ticket['id'],$v,$this->actor()));
+        DB::table('pos_service_tickets')->where('id',$ticket['id'])->update(['payment_status'=>'unpaid','bill_issued_at'=>now('UTC')]);
+        $this->denied(fn()=>$this->tickets()->action('phone',$ticket['id'],$v,$this->actor()));
     }
     public function test_branch_can_add_tables_without_permission_to_change_service_charge(): void
     {
@@ -358,7 +384,7 @@ class DashboardPosServiceTest extends TestCase
     public static function serviceChannels(): array {return [['dine'],['phone']];}
 
     /** @dataProvider serviceChannels */
-    public function test_sent_kitchen_cannot_be_cancelled_or_emptied_but_can_be_revised(string $channel): void
+    public function test_sent_kitchen_cannot_be_emptied_and_dine_cannot_be_cancelled_but_can_be_revised(string $channel): void
     {
         $v=$this->savePayload($channel);$ticket=$this->tickets()->save($channel,$v,$this->actor())['ticket'];
         $command=['branch'=>'f:100','idempotency_key'=>$this->key(100),'expected_revision'=>1,'action'=>'send_kitchen'];
@@ -373,8 +399,10 @@ class DashboardPosServiceTest extends TestCase
         };
         $afterSend=$state();
         $cancel=['branch'=>'f:100','idempotency_key'=>$this->key(101),'expected_revision'=>2,'action'=>'cancel','reason'=>'Customer left'];
-        $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$cancel,$this->actor()));
-        $this->assertSame($afterSend,$state(),'Rejected cancellation must retain the ticket, kitchen, commands, table and finances.');
+        if($channel==='dine'){
+            $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$cancel,$this->actor()));
+            $this->assertSame($afterSend,$state(),'Rejected cancellation must retain the ticket, kitchen, commands, table and finances.');
+        }
         $v['ticket_id']=$ticket['id'];$v['expected_revision']=2;$v['idempotency_key']=$this->key(102);$v['items']=[];
         $this->denied(fn()=>$this->tickets()->save($channel,$v,$this->actor()));
         $this->assertSame($afterSend,$state(),'Rejected emptying must not persist any part of the edit.');

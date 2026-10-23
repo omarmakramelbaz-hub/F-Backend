@@ -1,0 +1,21 @@
+{
+  "base_revision": "dceb59ad489bbba6b6534a4da784f6d26c82b2ff",
+  "files": {
+    "app/Services/Dashboard/OrderBoardService.php": {
+      "before": "7c71d13981256de96873edced8143613cd1c00454e16552d132ae6ced424b3ef",
+      "after": "2017c1aaf7456e8b28a32de4c25619cf27fcea3cbf44467c6be814a8d280a23d"
+    },
+    "app/Services/Dashboard/PosServiceTicket.php": {
+      "before": "5fbed4da8857859c255ef250be026b0107f668082fdf662bfb93f46a19c1623a",
+      "after": "7da5db38087515505ec3766974aea9a7bd56c64ee42a4a9c3ac5465d4dcbb3a6"
+    },
+    "public/dashboard/js/phone-orders.js": {
+      "before": "aae7a0383417318a3d24b3378595d86cf2ddbbfa4499a32096cc019dc1d9a2ed",
+      "after": "5e129d86e09e0de7b7ad02d2f375f83115bf07ca7344f7032ae0b5266afae92f"
+    },
+    "public/dashboard/css/phone-delivery-refresh.css": {
+      "before": "5afad4eb6f835c45224b376f10a59368fa559345bbc2d178d21a3ec572208251",
+      "after": "2094d3b19350a03e80da24afa92cefcfa23eebd4fc4a06539841bf4fa24098e7"
+    }
+  }
+}

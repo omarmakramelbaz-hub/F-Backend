@@ -1,0 +1,20 @@
+# Electronic checkout states and delivery cancellation
+
+Card and Vodafone Cash restaurant checkouts initially have a NULL order status. The application order board previously included every NULL status in its completed column. Current electronic checkouts now appear in New with a waiting-for-payment label and no acceptance actions. Persisted failure evidence still shows the existing failed-payment badge. The payment callback's existing transition to Pending remains unchanged; staff acceptance, courier handoff and completion remain separate transitions. True completed/cancelled/declined records are not reopened or rewritten.
+
+Phone delivery staff can now cancel an unpaid New/Preparing ticket after kitchen submission, before courier handoff or bill locking. The form fetches the latest revision, requires a reason and uses the existing branch-authorized, revisioned, idempotent action journal and recovery path. The backend repeats those checks under its existing branch/ticket locks. Kitchen snapshots and cancellation audit remain available. Cancellation creates no sale or collection; this workflow posts inventory through checkout, which cancelled tickets cannot enter. Pending printer claims already exclude cancelled tickets. Dine-in cancellation rules are unchanged.
+
+## Publication
+
+`apply_payment_delivery_fix_root.py --git-dir <isolated-bare-repository> --release <pinned-commit>` checks the package and live baselines without writing application source. Add `--apply` to publish. It is restricted to root on srv1836524 and `/home/fasakha/public_html`. It accepts only the four paths pinned in `payment_delivery_fix.json`, verifies source/package SHA256, rejects symlinks and unexpected live edits, lints staged PHP/JavaScript, saves original files and metadata, preserves live ownership/modes and rolls back earlier replacements if a later write fails. Repeats and partial prior application are supported. Concurrent drift is rejected.
+
+The installer shares `/var/lib/go-erp-live-updates/watcher.lock` when the source watcher is installed. `WATCHER_BUSY_RETRY_AFTER_COMPLETION` means the current build must finish before retrying this same command. The watcher branch, its current Preview 36 build, database, existing order rows, balances, printer configuration and employee changes are not replaced. The normal watcher can build the next desktop version after the live source changes. No Git checkout, migration or payment/refund operation is performed by this installer.
+
+## Verification
+
+- Payment regression suite: 13 tests, 242 assertions passed, including both payment methods, NULL/pending/accepted/shipped/terminal grouping, board counts, no implicit writes, failed payment evidence and missing optional payment tables.
+- POS service suite: 59 tests, 633 assertions passed. Includes cancellation after kitchen submission, reason, scope/revision checks, replay, preserved finance/snapshot rows, finished-column audit timestamp, print exclusion and refusal after handoff, payment or bill locking.
+- Additional order-board suite: 26 tests, 286 assertions passed. Two historical SwiftMailer failure-injection tests could not run against the available Symfony Mailer runtime. The test runtime used Laravel 12 with the desktop compatibility layer and an adapter for the legacy named media migration; these results are not a Laravel 8 production run.
+- Chromium: full Blade, production JavaScript and CSS passed a 12-viewport desktop/mobile/zoom matrix. A real UI cancellation with a lost response and double click recovered through the original journal protocol with exactly one POST. Blank reasons caused zero POSTs. Separate Arabic/English density and action tests passed.
+- Publication fixtures: 8 tests passed for backups, metadata, repeats, partial installation, drift, package tampering, symlink rejection and rollback.
+- PHP/JavaScript syntax and Git whitespace checks passed. No live server deployment, live payment, actual printer or Windows installer was run from this environment.

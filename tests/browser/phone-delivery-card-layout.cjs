@@ -10,7 +10,7 @@ assert(process.env.CRM_TEST_AUTOLOAD && fs.existsSync(process.env.CRM_TEST_AUTOL
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const liveLayout = liveLayoutRevision ? cp.execFileSync('git', ['show', liveLayoutRevision + ':public/dashboard/css/phone-orders.css'], {cwd:root, encoding:'utf8'}) : read('public/dashboard/css/phone-orders.css');
 const font = fs.readFileSync(path.join(root, 'public/dashboard/vendor/desktop-external/fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ1iFo0C3.woff2')).toString('base64');
-const urls = {catalog:'/admin/phone-orders/catalog', board:'/admin/phone-orders/board', delivery_settings:'/admin/phone-orders/delivery-settings', companies:'/admin/delivery-companies/data', show:'/admin/phone-orders/tickets/__TICKET__'};
+const urls = {catalog:'/admin/phone-orders/catalog', board:'/admin/phone-orders/board', delivery_settings:'/admin/phone-orders/delivery-settings', companies:'/admin/delivery-companies/data', show:'/admin/phone-orders/tickets/__TICKET__',action:'/admin/phone-orders/tickets/__TICKET__/action',recover:'/admin/phone-orders/recover'};
 const branch = {id:100, value:'f:100', name:'فرع المحلة الكبرى', kind:'f'};
 const boot = {branches:[branch], selected_branch:branch.value, permissions:{can_checkout:true, can_operate:true}, can_view_all_branches:true, receiver_branch:null, company_filter:0, open_phone_maps:false, urls};
 fs.writeFileSync(path.join(tmp, 'boot.json'), JSON.stringify(boot));
@@ -37,8 +37,9 @@ const columns = Object.fromEntries(['preparing','courier','finished'].map((stage
     if(stage==='courier')items[0].status='finished'; // Legacy unpaid deliveries still belong to the courier queue.
     return [stage,{items,pagination:{page:1,last_page:1,total:items.length}}];
 }));
-async function setup(browser, viewport) {
+async function setup(browser, viewport, cancellation = false) {
     const page = await browser.newPage({viewport}), errors = [], calls = [], unexpected = [];
+    const localColumns=JSON.parse(JSON.stringify(columns));let committed=null;
     page.on('pageerror', error => errors.push(error.message)); page.setDefaultTimeout(12000);
     await page.clock.install({time:now-1000}); await page.clock.pauseAt(now);
     await page.addInitScript(() => {
@@ -50,11 +51,21 @@ async function setup(browser, viewport) {
         const request=route.request(), url=new URL(request.url());
         if(url.origin!=='https://layout.test'){unexpected.push(url.href);return route.abort();}
         if(url.pathname==='/admin/phone-orders')return route.fulfill({contentType:'text/html',body:html()});
-        calls.push({method:request.method(),path:url.pathname});assert.equal(request.method(),'GET','layout checks cannot mutate an order');let result;
+        calls.push({method:request.method(),path:url.pathname});let result;
+        if(cancellation && /\/tickets\/101\/action$/.test(url.pathname)){
+            assert.equal(request.method(),'POST');const payload=request.postDataJSON();assert.equal(payload.action,'cancel');assert.equal(payload.reason,'Customer cancelled');assert.equal(payload.branch,branch.value);assert.equal(payload.expected_revision,1);
+            assert.equal(committed,null,'A committed lost-response cancellation is recovered without a second write');
+            const ticket=localColumns.preparing.items.shift();ticket.status='cancelled';ticket.revision++;ticket.cancel_reason=payload.reason;ticket.completed_at=new Date(now).toISOString();localColumns.finished.items.unshift(ticket);
+            committed={success:true,ticket,operation:{idempotency_key:payload.idempotency_key,ticket_id:ticket.id}};
+            return route.abort('failed');
+        }
+        assert.equal(request.method(),'GET','only an explicit cancellation may write');
         if(url.pathname===urls.catalog)result={success:true,ready:true,items:[{id:1,name:'رنجة اختبار',price:'100.00',unit_price:'100.00',quantity_mode:'piece',unit:'piece',available:true,options:[]}],categories:[],policy:{can_discount:true,payment_methods:['cash']},permissions:{can_checkout:true},pagination:{page:1,last_page:1,total:1}};
-        else if(url.pathname===urls.board)result={success:true,branch:branch.value,columns,companies:[]};
+        else if(url.pathname===urls.board)result={success:true,branch:branch.value,columns:localColumns,companies:[]};
         else if(url.pathname===urls.delivery_settings)result={success:true,settings:{branch,ready:true,latitude:30.1,longitude:31.2,km_price:'20.00'}};
         else if(url.pathname===urls.companies)result={success:true,items:[{id:1,branch:branch.value,name:'شركة التوصيل التجريبية'}]};
+        else if(cancellation && url.pathname===urls.recover){assert(committed);assert.equal(url.searchParams.get('idempotency_key'),committed.operation.idempotency_key);result={...committed,found:true,replayed:true};}
+        else if(cancellation && /\/tickets\/101$/.test(url.pathname))result={success:true,ticket:localColumns.preparing.items.find(t=>t.id===101)};
         else{unexpected.push(url.pathname);return route.abort();}
         return route.fulfill({json:result});
     });
@@ -63,7 +74,7 @@ async function setup(browser, viewport) {
     return {page,errors,calls,unexpected};
 }
 async function measure(page) {
-    const expectedActions=Object.fromEntries(Object.values(columns).flatMap(column=>column.items.map(ticket=>[ticket.id,['finished','cancelled'].includes(ticket.status)?1:3])));
+    const expectedActions=Object.fromEntries(Object.entries(columns).flatMap(([stage,column])=>column.items.map(ticket=>[ticket.id,['finished','cancelled'].includes(ticket.status)?1:stage==='preparing'?4:3])));
     return page.evaluate(expectedActions => {
         const failures=[], rect=node=>{const b=node.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width,height:b.height};};
         const visible=node=>{const s=getComputedStyle(node),r=node.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0;};
@@ -124,6 +135,16 @@ const cases=[{width:1920,height:1200,dense:true},{width:1920,height:1080,dense:t
             await page.evaluate(()=>window.layoutCleanup.forEach(callback=>callback()));await page.close();
         }
         assert(narrowColumns>0,'the matrix must exercise desktop board columns narrower than 300px');assert(densityCases>0,'a desktop viewport must have and verify ten-card capacity');
+        const cancel=await setup(browser,{width:1366,height:768},true),page=cancel.page;
+        await page.locator('[data-phone-ticket="101"]').getByRole('button',{name:rendered.labels.cancel,exact:true}).click();
+        const reason=page.locator('[data-phone-cancel-reason]'),submit=page.locator('[data-phone-cancel-submit]');
+        await reason.fill('  ');await submit.click();assert.equal(cancel.calls.filter(call=>call.method==='POST').length,0);
+        await reason.fill('  Customer cancelled  ');await submit.dblclick();
+        await page.waitForFunction(()=>!document.querySelector('[data-phone-retry]').hidden);
+        await page.getByRole('dialog').locator('[data-phone-retry]').click();
+        await page.waitForFunction(()=>document.querySelector('[data-phone-column="finished"] [data-phone-ticket="101"]'));
+        assert.equal(cancel.calls.filter(call=>call.method==='POST').length,1);assert.equal(await page.locator('[data-phone-ticket="101"]').getByRole('button').count(),1);
+        assert.deepEqual(cancel.errors,[]);assert.deepEqual(cancel.unexpected,[]);await page.close();
         console.log('Phone delivery cards: real live layout, long Arabic names/actions, courier timers, finished times, containment, unclipped labels, non-overlap, responsive/zoom widths and ten-card density passed.');
     }finally{await browser.close();fs.rmSync(tmp,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

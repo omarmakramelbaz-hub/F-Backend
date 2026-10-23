@@ -85,7 +85,8 @@
 #phone-orders .ph-ticket-quick-actions { gap: 4px; max-width: 100%; align-items: stretch; }
 #phone-orders .ph-ticket-quick-actions button { height: auto; min-height: 18px; max-width: 100%; flex: 0 1 auto; padding: 0 6px; white-space: normal; overflow-wrap: anywhere; font-size: 9px; line-height: 16px; border-radius: 4px; color: #4a6380; border-color: #dce5ef; background: #f8fafc; }
 #phone-orders .ph-ticket-quick-actions button:first-child { color: #925110; border-color: #f2dbc1; background: #fff8ef; }
-#phone-orders .ph-board-preparing .ph-ticket-quick-actions button:last-child:not(:first-child) { background: #ed790d; border-color: #dc6c09; color: #fff; font-weight: 700; }
+#phone-orders .ph-board-preparing .ph-ticket-quick-actions button.is-orange:not(:first-child) { background: #ed790d; border-color: #dc6c09; color: #fff; font-weight: 700; }
+#phone-orders .ph-board-preparing .ph-ticket-quick-actions button.is-danger { background: #fff1f0; border-color: #efc8c5; color: #b42318; }
 #phone-orders .ph-board-courier .ph-ticket-quick-actions button:last-child:not(:first-child) { background: #eaf6ee; border-color: #bfdfca; color: #21643e; font-weight: 700; }
 #phone-orders .ph-ticket-quick-actions button:hover:not(:disabled) { filter: brightness(.97); box-shadow: 0 1px 3px #17324d16; }
 #phone-orders .ph-ticket-quick-actions button:focus-visible { outline: 2px solid #4186d0; outline-offset: 2px; }

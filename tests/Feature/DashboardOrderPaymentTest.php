@@ -222,6 +222,9 @@ class DashboardOrderPaymentTest extends TestCase
         foreach (['online', 'v_cash'] as $method) {
             $this->order(['payment_type' => $method]);
             $this->assertFalse($this->card()['payment_failed']);
+            $this->assertSame('new', $this->card()['group']);
+            $this->assertSame('بانتظار تأكيد الدفع', $this->card()['status_label']);
+            $this->assertSame([], $this->card()['actions']);
             foreach ([null, '', '0', 'false', 'pending', 'creating'] as $status) {
                 DB::table('payments')->delete();
                 $this->attempt(['status' => $status]);
@@ -239,7 +242,7 @@ class DashboardOrderPaymentTest extends TestCase
             $paymentBefore = DB::table('payments')->first();
             $card = $this->card();
             $this->assertTrue($card['payment_failed']);
-            $this->assertSame('completed', $card['group']);
+            $this->assertSame('new', $card['group']);
             $this->assertSame('125.00', $card['total']);
             $this->assertEquals($orderBefore, DB::table('orders')->find(101));
             $this->assertEquals($paymentBefore, DB::table('payments')->first());
@@ -316,7 +319,29 @@ class DashboardOrderPaymentTest extends TestCase
         Schema::drop('payments');
         Schema::drop('go_service_payments');
         $data = (new OrderBoardService())->data(Request::create('/admin/order-review'), $this->actor());
-        $this->assertSame(1, $data['counts']['completed']);
-        $this->assertFalse($data['groups']['completed'][0]['payment_failed']);
+        $this->assertSame(0, $data['counts']['completed']);
+        $this->assertSame(1, $data['counts']['new']);
+        $this->assertFalse($data['groups']['new'][0]['payment_failed']);
+    }
+
+    public function test_electronic_payment_and_fulfilment_are_separate_board_states(): void
+    {
+        foreach (['online', 'v_cash'] as $method) {
+            DB::table('payments')->delete();
+            $this->order(['payment_type' => $method]);
+            $this->attempt(['status' => '1', 'transaction_id' => '991002']);
+            foreach ([null => 'new', 'pending' => 'new', 'accepted' => 'preparing', 'shipped' => 'courier', 'completed' => 'completed', 'cancelled' => 'completed'] as $status => $group) {
+                // A gateway result alone never completes or accepts a restaurant order.
+                $this->order(['status' => $status === '' ? null : $status, 'payment_type' => $method]);
+                $before = DB::table('orders')->find(101);
+                $board = new OrderBoardService();
+                $data = $board->data(Request::create('/admin/order-review'), $this->actor());
+                foreach (OrderBoardService::GROUPS as $column) $this->assertSame($column === $group ? 1 : 0, $data['counts'][$column], $method.':'.$status.':'.$column);
+                $this->assertSame($group, $this->card()['group']);
+                $this->assertEquals($before, DB::table('orders')->find(101));
+                if ($status === '') $this->assertSame([], $this->card()['actions']);
+                if ($status === 'pending') $this->assertSame(['accept', 'reject'], $this->card()['actions']);
+            }
+        }
     }
 }
