@@ -42,8 +42,8 @@ jobs:
         run: git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin a0178ead801e8d39185cd0830171804141767995
       - name: Verify the reviewed seed lineage as the checkout owner
         run: python3 -B -m unittest discover -s tests -p test_go_erp_media_capacity_seed.py
-      - name: Load the exact reviewed private import diagnostic core
-        run: git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin d3cef0a0f823d1f10814ff74ce0f4badf5c29670
+      - name: Load the exact reviewed fullscreen core
+        run: git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin 83b7cb1f6ccd230a2a1c29b173619358a8de5e21
       - name: Verify the reviewed import diagnostic seed and immutable candidate code
         run: python3 -B -m unittest discover -s tests -p test_go_erp_preview31_seed.py
       - name: Verify bounded capacity seed upgrade and rollback

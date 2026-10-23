@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind a live candidate to the exact reviewed import diagnostic core.
+"""Bind a live candidate to the exact reviewed fullscreen core.
 
 The policy seed may change only this verifier, its tests and the update workflow.
 The candidate must then be a single child of that seed, changing only captured
@@ -17,14 +17,14 @@ import subprocess
 import tempfile
 import types
 
-CORE = 'd3cef0a0f823d1f10814ff74ce0f4badf5c29670'
+CORE = '83b7cb1f6ccd230a2a1c29b173619358a8de5e21'
 LEGACY_BASES = frozenset((
     '75c3fe50b3609ef5822904a23d7c4ed0afd07eff',
     '7523ff6888a6e3d0a6f5b7712c553909f12c043b',
     '52f7f5d22e5a2026e5bd5732bbb7893125b6ef9d',
 ))
 REMOTE = 'https://github.com/omarmakramelbaz-hub/F-Backend.git'
-POLICY = 'native-program-center-seed-v1'
+POLICY = 'native-fullscreen-f12-seed-v1'
 POLICY_FILES = frozenset((
     '.github/workflows/go-erp-update-tests.yml',
     'deployment/verify_go_erp_preview31_seed.py',
