@@ -16,13 +16,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: probe
-          persist-credentials: false
       - name: Read the exact failed Preview 37 code
         uses: actions/checkout@v4
         with:
           ref: 5f2b0fecafec1c3803499284b0abcca4ecfed7e4
           path: actual37
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
