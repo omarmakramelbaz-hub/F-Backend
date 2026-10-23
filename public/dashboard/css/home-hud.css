@@ -111,9 +111,9 @@ html.go-hud-open,html.go-hud-open body{overflow:hidden!important}
 @media (prefers-reduced-motion:reduce){#go-hud,#go-hud *{transition:none!important;animation:none!important}}
 
 /* Keep the GO mark inside the smallest solar circle throughout its heartbeat. */
-#go-hud .hud-logo-pulse{transform-box:view-box;transform-origin:0 0;filter:drop-shadow(0 0 12px #bdefff88)}
+#go-hud .hud-logo-pulse{transform-box:view-box;transform-origin:0 0}
 @media(prefers-reduced-motion:no-preference){#go-hud .hud-logo-pulse{animation:hud-logo-pulse 3.2s ease-in-out infinite}}
-@keyframes hud-logo-pulse{0%,38%,100%{transform:scale(1)}12%{transform:scale(1.07)}22%{transform:scale(1)}28%{transform:scale(1.04)}}
+@keyframes hud-logo-pulse{0%,38%,100%{transform:scale(1)}12%{transform:scale(1.025)}22%{transform:scale(1)}28%{transform:scale(1.015)}}
 
 #go-hud .hud-solar-far{z-index:0}
 #go-hud .hud-core .hud-sun{z-index:1}

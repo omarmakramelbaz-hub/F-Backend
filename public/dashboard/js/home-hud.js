@@ -185,11 +185,11 @@
         g.fillStyle = bar; g.fillRect(c - R * .42, by - 1, R * .84, 2);
         g.fillStyle = 'rgba(240,235,110,' + (.25 * heat).toFixed(3) + ')'; g.fillRect(c - R * .3, by - 4, R * .6, 8);
         g.fillStyle = 'rgba(255,250,200,' + (.9 * heat).toFixed(3) + ')'; g.fillRect(c - 1, by - 5, 2, 10);
-        // the disc hides whatever passes behind the sun
+        // A translucent solar disc keeps the planets visible throughout their rear orbit.
         g.globalCompositeOperation = 'source-over';
         var disc = g.createRadialGradient(c, c, 0, c, c, R);
-        disc.addColorStop(0, 'rgba(0,146,216,' + (.98 * fade).toFixed(3) + ')'); disc.addColorStop(.45, 'rgba(12,140,200,' + (.98 * fade).toFixed(3) + ')');
-        disc.addColorStop(.8, 'rgba(12,136,186,' + (.98 * fade).toFixed(3) + ')'); disc.addColorStop(1, 'rgba(12,132,180,' + (.98 * fade).toFixed(3) + ')');
+        disc.addColorStop(0, 'rgba(0,146,216,' + (.22 * fade).toFixed(3) + ')'); disc.addColorStop(.45, 'rgba(12,140,200,' + (.22 * fade).toFixed(3) + ')');
+        disc.addColorStop(.8, 'rgba(12,136,186,' + (.22 * fade).toFixed(3) + ')'); disc.addColorStop(1, 'rgba(12,132,180,' + (.22 * fade).toFixed(3) + ')');
         g.fillStyle = disc; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.fill();
         g.globalCompositeOperation = 'lighter';
         // two faint inner circles
