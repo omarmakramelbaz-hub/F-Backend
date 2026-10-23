@@ -19,6 +19,65 @@ const sourceCode = require(path.join(codeRoot, 'dashboard-source.cjs'));
 const coverageCode = require(path.join(codeRoot, 'dashboard-coverage.cjs'));
 const readSnapshot = require(path.join(codeRoot, 'dashboard-download.cjs'));
 
+async function importMemoryProbe(bundle, snapshot) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-native-import-memory-'));
+  const application = path.join(root, 'application'), phpIni = path.join(root, 'php/php.ini');
+  const observations = path.join(root, 'stage-limits.jsonl');
+  const allocationBytes = 272 * 1024 * 1024;
+  const fixture = { snapshot_id: snapshot.snapshot_id, device_id: snapshot.device_id, actor_id: snapshot.actor_id,
+    schema_hash: snapshot.schema_hash, branches: snapshot.branches, coverage: snapshot.coverage, source: snapshot.source, media: [] };
+  const receipt = { ...fixture, verified: true };
+  const context = { bundle: root, application, phpIni, php: path.join(bundle, 'php/php.exe'),
+    manifest: { sourceRevision: 'a'.repeat(40) }, sourceFingerprint: snapshot.source };
+  const limitRecord = "$record=['step'=>basename(__FILE__,'.php'),'memory'=>ini_get('memory_limit')];"
+    + "file_put_contents(getenv('DESKTOP_IMPORT_MEMORY_LOG'),json_encode($record).PHP_EOL,FILE_APPEND);";
+  try {
+    await fs.mkdir(path.join(application, 'desktop'), { recursive: true });
+    await fs.mkdir(path.join(root, 'php/conf.d'), { recursive: true });
+    const ini = 'memory_limit=256M\ndisplay_errors=stderr\nlog_errors=0\n';
+    await fs.writeFile(phpIni, ini);
+    await fs.writeFile(path.join(application, 'desktop/receipt.json'), JSON.stringify(receipt));
+    await fs.writeFile(path.join(application, 'desktop/database.php'), '<?php stream_get_contents(STDIN);' + limitRecord);
+    await fs.writeFile(path.join(application, 'desktop/import.php'), '<?php stream_get_contents(STDIN);' + limitRecord
+      + '$allocation=str_repeat("x",' + allocationBytes + ');'
+      + '$receipt=json_decode(file_get_contents(__DIR__."/receipt.json"),true,512,JSON_THROW_ON_ERROR);'
+      + '$receipt["allocation_bytes"]=strlen($allocation);echo json_encode($receipt,JSON_THROW_ON_ERROR);');
+    await fs.writeFile(path.join(application, 'desktop/verify.php'), '<?php $input=stream_get_contents(STDIN);' + limitRecord + 'echo $input;');
+    const baselineLog = path.join(root, 'baseline-limits.jsonl');
+    const baseline = spawn(context.php, [...LocalRuntime.phpArguments(context), path.join(application, 'desktop/import.php')],
+      { cwd: application, env: { ...process.env, PHP_INI_SCAN_DIR: path.join(root, 'php/conf.d'), DESKTOP_IMPORT_MEMORY_LOG: baselineLog },
+        windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    let output = '', error = '', timedOut = false, overflow = false;
+    baseline.stdout.setEncoding('utf8'); baseline.stderr.setEncoding('utf8');
+    const collect = (kind, part) => {
+      if (kind === 'output') output += part; else error += part;
+      if (output.length + error.length > 65536) { overflow = true; baseline.kill(); }
+    };
+    baseline.stdout.on('data', part => collect('output', part)); baseline.stderr.on('data', part => collect('error', part));
+    baseline.stdin.on('error', () => {}); baseline.stdin.end(readSnapshot.input(fixture));
+    const deadline = setTimeout(() => { timedOut = true; baseline.kill(); }, 30000);
+    let exit;
+    try { exit = await new Promise((resolve, reject) => { baseline.once('error', reject); baseline.once('close', resolve); }); }
+    finally { clearTimeout(deadline); if (baseline.exitCode === null && baseline.signalCode === null) baseline.kill(); }
+    assert.equal(timedOut, false, 'The bounded native memory probe must finish.');
+    assert.equal(overflow, false, 'The native memory failure must have bounded output.');
+    assert.notEqual(exit, 0, 'The same allocation must exceed the old 256 MiB import limit.');
+    assert.match(error + output, /Allowed memory size of [0-9]+ bytes exhausted/);
+    assert.deepEqual(JSON.parse((await fs.readFile(baselineLog, 'utf8')).trim()), { step: 'import', memory: '256M' });
+    const runtime = Object.create(LocalRuntime.prototype);
+    Object.assign(runtime, { stopping: false, environment: { ...process.env, DESKTOP_IMPORT_MEMORY_LOG: observations },
+      profile: path.join(root, 'profile'), stagedContexts: new Map(), candidate: async () => context,
+      settings: async () => ({ deviceId: fixture.device_id, rootPassword: 'synthetic-only', appPassword: 'synthetic-only' }) });
+    const staged = await runtime.stage(fixture, '0123456789abcdef');
+    assert.equal(staged.receipt.allocation_bytes, allocationBytes);
+    assert.equal(staged.mediaVerified, true);
+    const limits = (await fs.readFile(observations, 'utf8')).trim().split(/\r?\n/).map(line => JSON.parse(line));
+    assert.deepEqual(limits, [{ step: 'database', memory: '256M' }, { step: 'import', memory: '-1' }, { step: 'verify', memory: '256M' }]);
+    assert.equal(await fs.readFile(phpIni, 'utf8'), ini, 'The one-shot import override must not rewrite the shared PHP configuration.');
+    console.log('PASS actual Windows LocalRuntime.stage imports a 272 MiB allocation that fails at 256 MiB; database-stage and verification remain at 256 MiB');
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+}
+
 async function main() {
   if (process.platform !== 'win32') throw Error('This native supervisor fixture requires Windows.');
   const [bundle, sourceFile] = process.argv.slice(2);
@@ -28,6 +87,7 @@ async function main() {
   const downloadSnapshot = (wire = snapshotWire) => readSnapshot(new Response(wire, { headers: { 'content-type': 'application/json' } }));
   let snapshot = await downloadSnapshot();
   assert.equal(snapshot.coverage.full_dashboard, false, 'The original scoped bootstrap must not be promoted to full dashboard coverage.');
+  await importMemoryProbe(bundle, snapshot);
   const rewriteProgram = String.raw`
 use App\Services\Dashboard\DesktopDashboardBootstrap as Bootstrap;
 $raw=stream_get_contents(STDIN,32*1024*1024+1);

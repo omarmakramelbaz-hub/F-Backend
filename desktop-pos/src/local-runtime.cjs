@@ -30,6 +30,21 @@ function startChild(file, args, options, capture = false) {
   child.completed = new Promise(resolve => { child.once('error', resolve); child.once('close', resolve); });
   return child;
 }
+// A short, data-free reason shown with the failure so a support report names the real step and cause.
+function failureReason(args, cause, text) {
+  const scripts = ['database.php', 'import.php', 'verify.php', 'verify-media.php', 'archive.php'];
+  const script = args.filter(value => typeof value === 'string').map(value => value.split(/[\\/]/).pop()).reverse()
+    .find(value => scripts.includes(value));
+  const step = script ? ' [' + script + ']' : '';
+  if (/Allowed memory size of \d+ bytes exhausted|(?:PHP )?Fatal error:\s*Out of memory/i.test(text))
+    return step + ' السبب: الذاكرة المتاحة للخطوة غير كافية.';
+  if (cause.timedOut) return step + ' السبب: الخطوة أخذت وقتًا أطول من المسموح.';
+  if (cause.overflow) return step + ' السبب: ناتج الخطوة أكبر من المسموح.';
+  if (cause.import) return step + ' السبب: ' + cause.import.phase + ' ' + cause.import.type + ' ' + cause.import.file + ':' + cause.import.line
+    + (cause.import.status ? ' (' + cause.import.status + ')' : '');
+  if (/(?:PHP )?(?:Fatal|Parse) error:/i.test(text)) return step + ' السبب: توقفت خطوة PHP بسبب خطأ داخلي.';
+  return step + ' (رمز الخروج ' + cause.exitCode + ')';
+}
 async function run(file, args, options, input = '', timeout = 90000) {
   const child = startChild(file, args, options, true);
   let output = ''; let overflow = false;
@@ -58,7 +73,8 @@ async function run(file, args, options, input = '', timeout = 90000) {
           }
         } catch {}
       }
-      throw Error('تعذر تنفيذ خطوة تجهيز الخدمة المحلية؛ بيانات الجهاز محفوظة.', { cause });
+      throw Error('تعذر تنفيذ خطوة تجهيز الخدمة المحلية؛ بيانات الجهاز محفوظة.'
+        + failureReason(args, cause, child.stderrTail() + '\n' + output.slice(-8000)), { cause });
     }
     return output;
   } finally { clearTimeout(timer); }
@@ -353,7 +369,9 @@ class LocalRuntime {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     await run(context.php, [...phpArgs, path.join(context.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
-    const receipt = JSON.parse(await run(context.php, [...phpArgs, path.join(context.application, 'desktop/import.php')], options, readSnapshot.input(snapshot), 300000));
+    // The import decodes the whole server snapshot in one PHP process. A large account
+    // needs more than the 256 MiB web limit, so only this one-shot step is uncapped.
+    const receipt = JSON.parse(await run(context.php, [...phpArgs, '-d', 'memory_limit=-1', path.join(context.application, 'desktop/import.php')], options, readSnapshot.input(snapshot), 300000));
     const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
       path.join(this.storageFor(value), 'app'));
     if (archive) await run(context.php, [...phpArgs, path.join(context.application, 'desktop/archive.php')], options,
