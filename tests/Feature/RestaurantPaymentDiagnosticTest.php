@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\Payments\PaymobTransactionInquiry;
 use App\Services\Payments\RestaurantOrderPayment;
 use Fasakhansta\Deployment\RestaurantPaymentReadOnlyDiagnostic;
+use Fasakhansta\Deployment\RestaurantPaymentDiagnosticInquiry;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -32,6 +33,20 @@ class RestaurantPaymentDiagnosticSettlementGuard extends RestaurantOrderPayment
     public function settle(int $paymentId, ?string $transactionId = null): array
     {
         throw new \LogicException('A diagnostic must never call settlement');
+    }
+}
+
+class RestaurantPaymentDiagnosticWireInquiry extends RestaurantPaymentDiagnosticInquiry
+{
+    public array $responses = [];
+    public array $wireCalls = [];
+
+    protected function exchange(string $method, string $path, array $payload, ?string $token, int $remaining): array
+    {
+        if (DB::transactionLevel() !== 0) throw new \LogicException('Inquiry held a database transaction');
+        $this->wireCalls[] = [$method, $path, $payload, $token, $remaining];
+        if (!$this->responses) throw new \LogicException('Unexpected diagnostic request');
+        return array_replace(['success' => true, 'status' => 200, 'errno' => 0, 'too_large' => false, 'body' => '{}'], array_shift($this->responses));
     }
 }
 
@@ -255,6 +270,115 @@ class RestaurantPaymentDiagnosticTest extends TestCase
         $this->assertSame('nonzero_or_invalid', $result['gateway_flags']['refunded_amount']);
         $this->assertSame('RESTAURANT_PAYMENT_PAYMENT_NOT_SETTLED', $result['reason_code']);
         $this->assertStringNotContainsString('private-value', json_encode($result));
+    }
+
+    private function wireDiagnostic(array $responses): RestaurantPaymentDiagnosticWireInquiry
+    {
+        $wire = new RestaurantPaymentDiagnosticWireInquiry();
+        $wire->responses = $responses;
+        $this->diagnostic = new RestaurantPaymentReadOnlyDiagnostic(new RestaurantPaymentDiagnosticSettlementGuard($wire), $wire);
+        return $wire;
+    }
+
+    private function authResponse(): array { return ['body' => json_encode(['token' => 'private-auth-token'])]; }
+
+    public function test_http_status_and_no_transaction_category_are_reported_without_error_body_or_credentials(): void
+    {
+        $wire = $this->wireDiagnostic([$this->authResponse(), ['status' => 400, 'body' => json_encode([
+            'message' => 'No Transaction found', 'private_phone' => 'private-user-phone', 'token' => 'private-error-token'])]]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('WALLET_TOPUP_GATEWAY_HTTP_FAILED', $result['reason_code']);
+        $this->assertSame('order_inquiry', $result['inquiry_stage']);
+        $this->assertSame(['stage' => 'order_inquiry', 'http_status' => 400, 'curl_errno' => 0,
+            'response_kind' => 'json_object', 'response_category' => 'NO_TRANSACTION_REPORTED',
+            'error_fields' => ['message' => 'string']], $result['transport'][1]);
+        $this->assertCount(2, $wire->wireCalls);
+        $this->assertSame('POST', $wire->wireCalls[1][0]);
+        $this->assertSame('/api/ecommerce/orders/transaction_inquiry', $wire->wireCalls[1][1]);
+        $this->assertSame('7700', $wire->wireCalls[1][2]['order_id']);
+        foreach (['No Transaction found', 'private-auth-token', 'private-user-phone', 'private-error-token', 'diagnostic-test-api-key'] as $secret) $this->assertStringNotContainsString($secret, json_encode($result));
+    }
+
+    public function test_unknown_error_fields_are_reduced_to_fixed_key_type_hints(): void
+    {
+        $this->wireDiagnostic([$this->authResponse(), ['status' => 400, 'body' => json_encode([
+            'errors' => ['order_id' => ['private-value'], 'private_custom_field' => 'private-data'],
+            'detail' => 'private-error-detail', 'code' => 'private-error-code'])]]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('REQUEST_INVALID', $result['transport'][1]['response_category']);
+        $this->assertSame(['detail' => 'string', 'errors' => 'object', 'errors.order_id' => 'array', 'code' => 'string'], $result['transport'][1]['error_fields']);
+        foreach (['private-value', 'private-data', 'private_custom_field', 'private-error-detail', 'private-error-code'] as $secret) $this->assertStringNotContainsString($secret, json_encode($result));
+    }
+
+    public function test_auth_access_limit_and_server_failures_have_fixed_categories(): void
+    {
+        foreach ([401 => 'AUTHENTICATION_REJECTED', 403 => 'ACCESS_DENIED', 404 => 'RESOURCE_NOT_FOUND',
+            429 => 'RATE_LIMITED', 500 => 'GATEWAY_SERVER_ERROR'] as $status => $category) {
+            $this->wireDiagnostic([$this->authResponse(), ['status' => $status, 'body' => 'private-html-response']]);
+            $result = $this->inspectReadOnly();
+            $this->assertSame($status, $result['transport'][1]['http_status']);
+            $this->assertSame('non_json', $result['transport'][1]['response_kind']);
+            $this->assertSame($category, $result['transport'][1]['response_category']);
+            $this->assertStringNotContainsString('private-html-response', json_encode($result));
+        }
+    }
+
+    public function test_transport_failure_and_oversize_response_do_not_expose_any_received_data(): void
+    {
+        $this->wireDiagnostic([$this->authResponse(), ['success' => false, 'status' => 0, 'errno' => 28, 'body' => 'private-incomplete-body']]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('WALLET_TOPUP_GATEWAY_FAILED', $result['reason_code']);
+        $this->assertSame(28, $result['transport'][1]['curl_errno']);
+        $this->assertSame('TRANSPORT_FAILURE', $result['transport'][1]['response_category']);
+        $this->assertStringNotContainsString('private-incomplete-body', json_encode($result));
+        $this->wireDiagnostic([$this->authResponse(), ['body' => str_repeat('x', 1048577)]]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('WALLET_TOPUP_GATEWAY_RESPONSE_TOO_LARGE', $result['reason_code']);
+        $this->assertSame('oversize', $result['transport'][1]['response_kind']);
+        $this->assertSame('RESPONSE_TOO_LARGE', $result['transport'][1]['response_category']);
+    }
+
+    public function test_an_exact_saved_failed_transaction_is_a_separate_fully_verified_read_only_probe(): void
+    {
+        DB::table('payments')->where('id', 1)->update(['status' => 'failed', 'transaction_id' => '991001']);
+        $wire = $this->wireDiagnostic([$this->authResponse(), ['status' => 400, 'body' => '{"message":"No Transaction found"}'],
+            $this->authResponse(), ['body' => json_encode($this->gateway->receipt)]]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('not_verified', $result['verification']);
+        $this->assertSame('WALLET_TOPUP_GATEWAY_HTTP_FAILED', $result['reason_code']);
+        $this->assertSame('order_inquiry', $result['inquiry_stage']);
+        $this->assertSame('verified', $result['saved_transaction_probe']['verification']);
+        $this->assertSame('exact_saved_transaction_id', $result['saved_transaction_probe']['inquiry_scope']);
+        $this->assertSame('transaction', $result['saved_transaction_probe']['inquiry_stage']);
+        $this->assertSame('GET', $wire->wireCalls[3][0]);
+        $this->assertSame('/api/acceptance/transactions/991001', $wire->wireCalls[3][1]);
+        $this->assertSame([], $wire->wireCalls[3][2]);
+        $this->assertCount(4, $wire->wireCalls);$this->assertCount(2, $result['transport']);
+        $this->assertCount(2, $result['saved_transaction_probe']['transport']);
+        $this->assertSame('ELIGIBLE_FOR_NORMAL_RECONCILIATION', $result['saved_transaction_probe']['eligibility']);
+    }
+
+    public function test_saved_transaction_probe_still_rejects_other_orders_and_does_not_invent_references(): void
+    {
+        DB::table('payments')->where('id', 1)->update(['status' => 'failed', 'transaction_id' => '991001']);
+        $receipt = $this->gateway->receipt;$receipt['order']['id'] = '7701';
+        $wire = $this->wireDiagnostic([$this->authResponse(), ['status' => 404, 'body' => '{}'],
+            $this->authResponse(), ['body' => json_encode($receipt)]]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('not_verified', $result['saved_transaction_probe']['verification']);
+        $this->assertSame('RESTAURANT_PAYMENT_GATEWAY_ATTRIBUTES_MISMATCH', $result['saved_transaction_probe']['reason_code']);
+        $this->assertFalse($result['saved_transaction_probe']['gateway_matches']['order']);
+        foreach ($wire->wireCalls as $call) $this->assertArrayNotHasKey('merchant_order_id', $call[2]);
+    }
+
+    public function test_an_auth_failure_never_triggers_an_extra_saved_transaction_probe(): void
+    {
+        DB::table('payments')->where('id', 1)->update(['status' => 'failed', 'transaction_id' => '991001']);
+        $wire = $this->wireDiagnostic([['status' => 401, 'body' => '{"detail":"private-auth-error"}']]);
+        $result = $this->inspectReadOnly();
+        $this->assertSame('auth', $result['inquiry_stage']);
+        $this->assertCount(1, $wire->wireCalls);$this->assertArrayNotHasKey('saved_transaction_probe', $result);
+        $this->assertStringNotContainsString('private-auth-error', json_encode($result));
     }
 
     public function test_candidate_scope_matches_reconciliation_and_uses_only_latest_attempt_per_order(): void

@@ -42,12 +42,142 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
 class RestaurantPaymentDiagnosticInquiry extends PaymobTransactionInquiry
 {
     public $stage = 'not_requested';
+    private $transport = [];
+    private const MAX_BYTES = 1048576;
+
+    public function resetDiagnostic(): void { $this->stage = 'not_requested';$this->transport = []; }
+    public function safeTransport(): array { return $this->transport; }
 
     protected function request(string $method, string $path, array $payload = [], ?string $token = null): array
     {
         $this->stage = $path === '/api/auth/tokens' ? 'auth'
             : ($path === '/api/ecommerce/orders/transaction_inquiry' ? 'order_inquiry' : 'transaction');
-        return parent::request($method, $path, $payload, $token);
+        if (!(($method === 'POST' && in_array($path, ['/api/auth/tokens', '/api/ecommerce/orders/transaction_inquiry'], true))
+            || ($method === 'GET' && preg_match('/\A\/api\/acceptance\/transactions\/[1-9][0-9]{0,29}\z/', $path)))) {
+            throw new \RuntimeException('WALLET_TOPUP_INVALID_IDENTIFIER');
+        }
+        $remaining = (int) floor((($this->deadline ?? 0) - microtime(true)) * 1000);
+        if ($remaining < 1) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_TIMEOUT');
+        $wire = $this->exchange($method, $path, $payload, $token, $remaining);
+        $body = is_string($wire['body'] ?? null) ? $wire['body'] : '';
+        $status = (int) ($wire['status'] ?? 0);$status = $status >= 100 && $status <= 599 ? $status : 0;
+        $errno = (int) ($wire['errno'] ?? 0);$errno = $errno >= 0 && $errno <= 999 ? $errno : 0;
+        $tooLarge = ($wire['too_large'] ?? false) === true || strlen($body) > self::MAX_BYTES;
+        $decoded = null;$kind = $body === '' ? 'empty' : 'non_json';
+        if (!$tooLarge && $body !== '') {
+            try {
+                $decoded = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
+                $kind = is_array($decoded) ? (str_starts_with(ltrim($body), '{') ? 'json_object' : 'json_array') : 'json_scalar';
+            } catch (\JsonException $error) { /* No response text is exposed. */ }
+        }
+        $this->transport[] = ['stage' => $this->stage, 'http_status' => $status, 'curl_errno' => $errno,
+            'response_kind' => $tooLarge ? 'oversize' : $kind,
+            'response_category' => $this->category($status, $errno, $tooLarge, $decoded),
+            'error_fields' => $this->errorFields($decoded)];
+        if ($tooLarge) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_RESPONSE_TOO_LARGE');
+        if (($wire['success'] ?? false) !== true) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_FAILED');
+        if ($status < 200 || $status >= 300) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_HTTP_FAILED');
+        if (!is_array($decoded) || array_is_list($decoded)) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_INVALID_RESPONSE');
+        return $decoded;
+    }
+
+    /** Only this bounded read-only HTTP exchange is overridable for fixture tests. */
+    protected function exchange(string $method, string $path, array $payload, ?string $token, int $remaining): array
+    {
+        if (!function_exists('curl_init')) throw new \RuntimeException('WALLET_TOPUP_CURL_REQUIRED');
+        $handle = curl_init('https://accept.paymob.com'.$path);
+        if ($handle === false) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_FAILED');
+        $body = '';$tooLarge = false;
+        $headers = ['Accept: application/json', 'Content-Type: application/json'];
+        if ($token !== null) $headers[] = 'Authorization: Bearer '.$token;
+        try {
+            $options = [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_FOLLOWLOCATION => false, CURLOPT_MAXREDIRS => 0,
+                CURLOPT_CONNECTTIMEOUT_MS => min(3000, $remaining), CURLOPT_TIMEOUT_MS => $remaining,
+                CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2, CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$body, &$tooLarge): int {
+                    if (strlen($body) + strlen($chunk) > self::MAX_BYTES) { $tooLarge = true;return 0; }
+                    $body .= $chunk;return strlen($chunk);
+                }];
+            if ($method === 'POST') $options[CURLOPT_POSTFIELDS] = json_encode($payload, JSON_THROW_ON_ERROR);
+            if (!curl_setopt_array($handle, $options)) throw new \RuntimeException('WALLET_TOPUP_GATEWAY_FAILED');
+            $success = curl_exec($handle);
+            return ['success' => $success !== false, 'status' => (int) curl_getinfo($handle, CURLINFO_HTTP_CODE),
+                'errno' => curl_errno($handle), 'too_large' => $tooLarge, 'body' => $body];
+        } finally { curl_close($handle); }
+    }
+
+    private function category(int $status, int $errno, bool $tooLarge, $decoded): string
+    {
+        if ($tooLarge) return 'RESPONSE_TOO_LARGE';
+        if ($errno !== 0 || $status === 0) return 'TRANSPORT_FAILURE';
+        if ($status >= 200 && $status < 300) return 'HTTP_SUCCESS';
+        // Match only fixed known messages/codes internally. Never forward unknown content.
+        $known = [
+            'no transaction found' => 'NO_TRANSACTION_REPORTED', 'no transactions found' => 'NO_TRANSACTION_REPORTED',
+            'no transaction found for this order' => 'NO_TRANSACTION_REPORTED', 'no transactions found for this order' => 'NO_TRANSACTION_REPORTED',
+            'no transaction found against this order' => 'NO_TRANSACTION_REPORTED', 'no transactions found against this order' => 'NO_TRANSACTION_REPORTED',
+            'no transaction exists for this order' => 'NO_TRANSACTION_REPORTED', 'no transactions exist for this order' => 'NO_TRANSACTION_REPORTED',
+            'transaction not found' => 'TRANSACTION_NOT_FOUND', 'transaction_not_found' => 'TRANSACTION_NOT_FOUND',
+            'order not found' => 'ORDER_NOT_FOUND', 'order_not_found' => 'ORDER_NOT_FOUND',
+            'not found' => 'RESOURCE_NOT_FOUND', 'not_found' => 'RESOURCE_NOT_FOUND',
+            'authentication_failed' => 'AUTHENTICATION_REJECTED', 'not_authenticated' => 'AUTHENTICATION_REJECTED',
+            'permission_denied' => 'ACCESS_DENIED', 'throttled' => 'RATE_LIMITED',
+            'required' => 'REQUEST_FIELD_VALIDATION', 'invalid' => 'REQUEST_FIELD_VALIDATION',
+        ];
+        foreach ($this->knownErrorValues($decoded) as $value) {
+            $normalized = strtolower(trim($value, " \t\n\r\0\x0B."));
+            if (isset($known[$normalized])) return $known[$normalized];
+        }
+        if ($status === 401) return 'AUTHENTICATION_REJECTED';
+        if ($status === 403) return 'ACCESS_DENIED';
+        if ($status === 404) return 'RESOURCE_NOT_FOUND';
+        if ($status === 429) return 'RATE_LIMITED';
+        if ($status >= 500) return 'GATEWAY_SERVER_ERROR';
+        if ($status >= 300 && $status < 400) return 'UNEXPECTED_REDIRECT';
+        if ($status === 400 || $status === 422) return 'REQUEST_INVALID';
+        return 'HTTP_ERROR';
+    }
+
+    private function knownErrorValues($decoded): array
+    {
+        if (!is_array($decoded) || array_is_list($decoded)) return [];
+        $values = [];
+        foreach (['detail', 'message', 'error', 'errors', 'code', 'non_field_errors'] as $key) {
+            $field = $decoded[$key] ?? null;
+            if (is_string($field) && strlen($field) <= 1024) $values[] = $field;
+            if (is_array($field)) foreach (['detail', 'message', 'code', 'order_id', 'merchant_order_id', 'non_field_errors', 0] as $nested) {
+                $value = $field[$nested] ?? null;
+                if (is_string($value) && strlen($value) <= 1024) $values[] = $value;
+                if (is_array($value) && is_string($value[0] ?? null) && strlen($value[0]) <= 1024) $values[] = $value[0];
+            }
+        }
+        return $values;
+    }
+
+    private function errorFields($decoded): array
+    {
+        if (!is_array($decoded) || array_is_list($decoded)) return [];
+        $fields = [];
+        foreach (['detail', 'message', 'error', 'errors', 'code', 'status', 'non_field_errors', 'order_id', 'merchant_order_id'] as $key) {
+            if (!array_key_exists($key, $decoded)) continue;
+            $fields[$key] = $this->typeHint($decoded[$key]);
+            if (is_array($decoded[$key]) && !array_is_list($decoded[$key])) {
+                foreach (['detail', 'message', 'code', 'order_id', 'merchant_order_id', 'auth_token', 'non_field_errors'] as $nested) {
+                    if (array_key_exists($nested, $decoded[$key])) $fields[$key.'.'.$nested] = $this->typeHint($decoded[$key][$nested]);
+                }
+            }
+        }
+        return $fields;
+    }
+
+    private function typeHint($value): string
+    {
+        if (is_array($value)) return array_is_list($value) ? 'array' : 'object';
+        if (is_string($value)) return 'string';
+        if (is_int($value) || is_float($value)) return 'number';
+        if (is_bool($value)) return 'boolean';
+        return 'null';
     }
 }
 
@@ -103,8 +233,14 @@ final class RestaurantPaymentReadOnlyDiagnostic
 
     public function inspect(int $paymentId): array
     {
+        return $this->inspectOnce($paymentId, null, true);
+    }
+
+    private function inspectOnce(int $paymentId, ?string $savedTransaction, bool $allowSavedProbe): array
+    {
         $result = ['payment_id' => $paymentId, 'verification' => 'not_verified'];
-        if ($this->gateway instanceof RestaurantPaymentDiagnosticInquiry) $this->gateway->stage = 'not_requested';
+        if ($savedTransaction !== null) $result['inquiry_scope'] = 'exact_saved_transaction_id';
+        if ($this->gateway instanceof RestaurantPaymentDiagnosticInquiry) $this->gateway->resetDiagnostic();
         try {
             if (config('desktop_dashboard.local', false)) throw new \RuntimeException('RESTAURANT_PAYMENT_CENTRAL_SERVER_REQUIRED');
             if (DB::transactionLevel() !== 0) throw new \RuntimeException('RESTAURANT_PAYMENT_TRANSACTION_NOT_ALLOWED');
@@ -121,6 +257,11 @@ final class RestaurantPaymentReadOnlyDiagnostic
             $this->readHelper('uniqueGatewayOrder', $facts['gateway_order_id'], $paymentId);
             $requested = $this->readHelper('succeeded', $payment->status ?? null)
                 && $this->readHelper('identifier', $payment->transaction_id ?? null) ? (string) $payment->transaction_id : null;
+            if ($savedTransaction !== null) {
+                if (!$this->readHelper('identifier', $payment->transaction_id ?? null)
+                    || (string) $payment->transaction_id !== $savedTransaction) throw new \RuntimeException('RESTAURANT_PAYMENT_ATTEMPT_CHANGED');
+                $requested = $savedTransaction;
+            }
             $transaction = $this->gateway->transactionForOrder($facts['gateway_order_id'], $requested);
             $result['gateway_matches'] = [
                 'order' => is_array($transaction['order'] ?? null) && $this->sameScalar($transaction['order']['id'] ?? null, $facts['gateway_order_id']),
@@ -152,6 +293,15 @@ final class RestaurantPaymentReadOnlyDiagnostic
         }
         $stage = $this->gateway instanceof RestaurantPaymentDiagnosticInquiry ? $this->gateway->stage : 'not_reported';
         $result['inquiry_stage'] = in_array($stage, ['not_requested', 'auth', 'order_inquiry', 'transaction', 'not_reported'], true) ? $stage : 'not_reported';
+        if ($this->gateway instanceof RestaurantPaymentDiagnosticInquiry) $result['transport'] = $this->gateway->safeTransport();
+        // An old failed callback may still have saved its exact numeric transaction.
+        // Investigate that ID separately after a failed order lookup; never invent a
+        // merchant reference, promote the primary result, settle, or update a receipt.
+        if ($allowSavedProbe && ($result['reason_code'] ?? '') === 'WALLET_TOPUP_GATEWAY_HTTP_FAILED'
+            && $stage === 'order_inquiry' && isset($payment) && ($requested ?? null) === null
+            && $this->readHelper('identifier', $payment->transaction_id ?? null)) {
+            $result['saved_transaction_probe'] = $this->inspectOnce($paymentId, (string) $payment->transaction_id, false);
+        }
         return $result;
     }
 
