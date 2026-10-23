@@ -103,3 +103,10 @@
 .op-regulation-field .op-check input{margin-top:4px;width:auto;min-height:0}
 .op-regulation-field small{display:block;color:#b77506;margin-top:4px}
 @media(max-width:650px){.op-identity-grid{grid-template-columns:1fr}}
+.op-form .op-identity-field,.op-form .op-regulation-field{grid-column:1/-1;border:1px solid #e2e6ed;border-radius:6px;padding:12px;background:#fbfcff}
+.op-identity-field>strong{display:block;margin-bottom:10px;font-size:13px}
+.op-identity-field .op-entry-context{margin:8px 0 0}
+.op-identity-preview{min-height:90px;display:flex;flex-direction:column;gap:4px;align-items:stretch}
+.op-identity-preview img{width:100%;max-height:200px;object-fit:contain;background:#fff;border-radius:4px}
+.op-identity-pending{color:#2861c1;font-size:11px}
+.op-regulation-field .op-regulation{background:#fff}
