@@ -73,7 +73,7 @@ class BranchOperationsController extends Controller
         $this->actor($r);$file=$s->image($r->only('branch','employee_id','side'),auth('admin')->user());
         return response()->file($file['path'],['Content-Type'=>$file['mime'],'Content-Disposition'=>'inline','Cache-Control'=>'private, no-store, max-age=0','X-Content-Type-Options'=>'nosniff']);
     }
-    public function regulation(Request $r){$this->actor($r);return view('admin.branch_operations.regulation');}
+    public function regulation(Request $r){$this->actor($r);return view('admin.employees.regulation');}
     public function attendance(Request $r,BranchPayroll $s){return response()->json($s->attendance($r->all(),$this->actor($r)));}
     public function attendanceRules(Request $r,BranchPayroll $s){return response()->json($s->saveAttendanceRules($r->all(),$this->actor($r)));}
     public function entry(Request $r,BranchPayroll $s){return response()->json($s->entry($r->all(),$this->actor($r)));}
