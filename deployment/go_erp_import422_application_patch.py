@@ -118,6 +118,50 @@ def pinned_scanner(package):
     return result
 
 
+def optional_manifest(root, web_uid):
+    """Read existing deployment metadata only; preserve missing file/directory."""
+    root = Path(root).absolute()
+    for parent in (root, *root.parents):
+        item = parent.lstat()
+        need(stat.S_ISDIR(item.st_mode) and not stat.S_ISLNK(item.st_mode)
+             and item.st_uid in (0, web_uid)
+             and (not item.st_mode & 0o022 or parent != root and bool(item.st_mode & stat.S_ISVTX)),
+             'MANIFEST_ANCESTRY_UNSAFE')
+    directory = root / 'deployment'
+    try:
+        named = directory.lstat()
+    except FileNotFoundError:
+        return None, None
+    need(stat.S_ISDIR(named.st_mode) and not stat.S_ISLNK(named.st_mode)
+         and named.st_uid in (0, web_uid) and not named.st_mode & 0o022, 'MANIFEST_DIRECTORY_UNSAFE')
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        need(directory_identity(named) == directory_identity(os.fstat(directory_fd)), 'MANIFEST_DIRECTORY_CHANGED')
+        try:
+            fd = os.open(Path(MANIFEST).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+        except FileNotFoundError:
+            need(directory_identity(named) == directory_identity(directory.lstat()), 'MANIFEST_DIRECTORY_CHANGED')
+            return None, None
+        try:
+            before = os.fstat(fd)
+            need(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_uid in (0, web_uid)
+                 and not before.st_mode & 0o022 and 0 < before.st_size <= MAX_FILE, 'MANIFEST_FILE_UNSAFE')
+            data = bytearray()
+            while len(data) <= MAX_FILE:
+                part = os.read(fd, min(65536, MAX_FILE + 1 - len(data)))
+                if not part:
+                    break
+                data.extend(part)
+            need(len(data) == before.st_size and identity(before) == identity(os.fstat(fd))
+                 == identity(os.stat(Path(MANIFEST).name, dir_fd=directory_fd, follow_symlinks=False))
+                 and directory_identity(named) == directory_identity(directory.lstat()), 'MANIFEST_FILE_CHANGED')
+            return bytes(data), before
+        finally:
+            os.close(fd)
+    finally:
+        os.close(directory_fd)
+
+
 class ApplicationPatch:
     def __init__(self, root, package, audit_directory, web_uid, web_gid, lock_fd):
         self.root, self.package, self.audit = map(lambda p: Path(p).absolute(), (root, package, audit_directory))
@@ -237,15 +281,19 @@ class ApplicationPatch:
             payloads[name] = wanted_data
             after_map[name] = {'blob': wanted, 'sha256': hashlib.sha256(wanted_data.replace(b'\r\n', b'\n')).hexdigest()}
         need(self.scanner.digest(after_map) == AFTER_SOURCE, 'AFTER_SOURCE_UNREVIEWED')
-        manifest, _ = self._read(MANIFEST)
-        need(manifest is not None, 'MANIFEST_MISSING')
-        payloads[MANIFEST] = refreshed_manifest(manifest, self.before_map, after_map)
+        manifest, manifest_info = optional_manifest(self.root, self.uid)
+        self.manifest_present = manifest is not None
+        if self.manifest_present:
+            payloads[MANIFEST] = refreshed_manifest(manifest, self.before_map, after_map)
         self.after_map = after_map
         self.stage = Path(tempfile.mkdtemp(prefix='.go-erp-import422-patch-', dir=self.root.parent))
         os.chmod(self.stage, 0o700)
         self.stage_fd = os.open(self.stage, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         for number, (name, wanted_data) in enumerate(payloads.items()):
             original, info = self._read(name)
+            if name == MANIFEST:
+                need(original == manifest and info is not None and identity(info) == identity(manifest_info),
+                     'MANIFEST_CHANGED_BEFORE_STAGING')
             slot = str(number)
             if original is not None:
                 self._write(self.audit, slot + '.before', original)
@@ -256,16 +304,19 @@ class ApplicationPatch:
             self.slots.append({'name': name, 'slot': slot, 'before': original, 'before_info': info,
                                'wanted': wanted_data, 'published': identity(published), 'moved': False})
         self._audit('application-intent.json', {'before_source': BEFORE_SOURCE, 'after_source': AFTER_SOURCE,
+            'manifest_refreshed': self.manifest_present, 'manifest_preserved_absent': not self.manifest_present,
             'files': [{'path': item['name'], 'before_blob': blob(item['before']) if item['before'] else None,
                        'after_blob': blob(item['wanted'])} for item in self.slots], 'stage': str(self.stage)})
         self.prepared = True
-        return {'application_files': 4, 'manifest_refreshed': True, 'before_source': BEFORE_SOURCE,
+        return {'application_files': 4, 'manifest_refreshed': self.manifest_present,
+                'manifest_preserved_absent': not self.manifest_present, 'before_source': BEFORE_SOURCE,
                 'after_source': AFTER_SOURCE, 'database_changed': False}
 
     def apply(self):
         need(self.prepared and not self.applied and not self.committed, 'NOT_PREPARED')
         self._check_lock()
         need(self.scanner.scan(self.root) == self.before_map, 'SOURCE_CHANGED_BEFORE_APPLY')
+        self._verify_manifest_absence()
         try:
             for item in self.slots:
                 name, slot = item['name'], item['slot']
@@ -290,8 +341,13 @@ class ApplicationPatch:
             self.rollback()
             raise
 
+    def _verify_manifest_absence(self):
+        if not self.manifest_present:
+            need(optional_manifest(self.root, self.uid)[0] is None, 'MANIFEST_APPEARED')
+
     def verify(self):
         self._check_lock()
+        self._verify_manifest_absence()
         need(self.applied and self.scanner.scan(self.root) == self.after_map, 'AFTER_SOURCE_CHANGED')
         for item in self.slots:
             data, info = self._read(item['name'])
@@ -307,10 +363,14 @@ class ApplicationPatch:
         if self.rolled_back:
             if hasattr(self, 'before_map'):
                 need(self.scanner.scan(self.root) == self.before_map, 'ROLLBACK_SOURCE_DIFFERS')
+            if hasattr(self, 'manifest_present'):
+                self._verify_manifest_absence()
             return True
         if not self.prepared and not any(item['moved'] for item in self.slots):
             self._cleanup()
             self.rolled_back = True
+            if hasattr(self, 'manifest_present'):
+                self._verify_manifest_absence()
             return True
         # Classify every target and retained original before the first rollback
         # mutation. An unexpected writer never has its replacement overwritten.
@@ -335,19 +395,22 @@ class ApplicationPatch:
         need(self.scanner.scan(self.root) == self.before_map, 'ROLLBACK_SOURCE_DIFFERS')
         for item in self.slots:
             need(self._read(item['name'])[0] == item['before'], 'ROLLBACK_FILE_DIFFERS')
-        self._audit('application-rolled-back.json', {'restored': True, 'database_changed': False})
+        self._verify_manifest_absence()
+        self._audit('application-rolled-back.json', {'restored': True, 'database_changed': False,
+            'manifest_preserved_absent': not self.manifest_present})
         self.rolled_back = True
         self._cleanup()
         return True
 
     def commit(self):
         self.verify()
-        self._audit('application-committed.json', {'source': AFTER_SOURCE, 'database_changed': False})
+        self._audit('application-committed.json', {'source': AFTER_SOURCE, 'database_changed': False,
+            'manifest_refreshed': self.manifest_present, 'manifest_preserved_absent': not self.manifest_present})
         self.committed = True
         self._cleanup()
 
     def _cleanup(self):
-        # Remove only our five named private slots, never a recursive tree.
+        # Remove only our four/five named private slots, never a recursive tree.
         if self.stage_fd is not None:
             for item in self.slots:
                 try:
@@ -374,14 +437,13 @@ def verify_current(root, package, web_uid, web_gid, lock_fd):
     need(scanner.digest(files) == AFTER_SOURCE, 'AFTER_SOURCE_UNREVIEWED')
     for name, (_, wanted) in PINS.items():
         need(files.get(name, {}).get('blob') == wanted, 'AFTER_FILE_PIN_INVALID')
-    path = root / MANIFEST
-    need(not path.is_symlink() and path.is_file() and path.stat().st_nlink == 1
-         and path.stat().st_uid in (0, web_uid) and not path.stat().st_mode & 0o022
-         and 0 < path.stat().st_size <= MAX_FILE, 'MANIFEST_FILE_UNSAFE')
-    manifest = unique_json(path.read_bytes())
-    need(manifest.get('after_source') == AFTER_SOURCE and isinstance(manifest.get('sources'), list), 'MANIFEST_UNREVIEWED')
-    for name, (_, wanted) in PINS.items():
-        need([row.get('after_blob') for row in manifest['sources'] if row.get('path') == name] == [wanted], 'MANIFEST_TARGET_DIFFERS')
+    data, _ = optional_manifest(root, web_uid)
+    present = data is not None
+    if present:
+        manifest = unique_json(data)
+        need(manifest.get('after_source') == AFTER_SOURCE and isinstance(manifest.get('sources'), list), 'MANIFEST_UNREVIEWED')
+        for name, (_, wanted) in PINS.items():
+            need([row.get('after_blob') for row in manifest['sources'] if row.get('path') == name] == [wanted], 'MANIFEST_TARGET_DIFFERS')
     need(identity(os.fstat(lock_fd)) == identity(lock), 'LOCK_CHANGED')
-    return {'already_current': True, 'application_files': 4, 'manifest_refreshed': True,
-            'after_source': AFTER_SOURCE, 'database_changed': False}
+    return {'already_current': True, 'application_files': 4, 'manifest_refreshed': present,
+            'manifest_preserved_absent': not present, 'after_source': AFTER_SOURCE, 'database_changed': False}

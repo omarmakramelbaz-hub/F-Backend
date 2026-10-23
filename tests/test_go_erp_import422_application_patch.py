@@ -160,6 +160,157 @@ class ExchangeTests(unittest.TestCase):
         self.assertTrue(self.patch.rollback())
         self.assertEqual((self.root / PATCH.MANIFEST).read_bytes(), self.manifest)
 
+    def remove_manifest(self, directory=False):
+        (self.root / PATCH.MANIFEST).unlink()
+        if directory:
+            (self.root / 'deployment').rmdir()
+
+    def assert_manifest_absent(self, directory=False):
+        self.assertFalse((self.root / PATCH.MANIFEST).exists())
+        if directory:
+            self.assertFalse((self.root / 'deployment').exists())
+
+    def test_missing_manifest_file_commit_and_idempotent_verification_preserve_absence(self):
+        self.remove_manifest()
+        summary = self.patch.prepare()
+        self.assertFalse(summary['manifest_refreshed'])
+        self.assertTrue(summary['manifest_preserved_absent'])
+        self.assertEqual(len(self.patch.slots), 4)
+        self.patch.apply()
+        self.patch.commit()
+        self.assert_manifest_absent()
+        current = PATCH.verify_current(self.root, self.package, 0, 0, self.lock_fd)
+        self.assertTrue(current['already_current'])
+        self.assertFalse(current['manifest_refreshed'])
+        self.assertTrue(current['manifest_preserved_absent'])
+        receipt = json.loads((self.audit / 'application-committed.json').read_bytes())
+        self.assertTrue(receipt['manifest_preserved_absent'])
+
+    def test_missing_deployment_directory_commit_creates_no_directory_or_history(self):
+        self.remove_manifest(directory=True)
+        self.patch.prepare()
+        self.patch.apply()
+        self.patch.commit()
+        self.assert_manifest_absent(directory=True)
+        current = PATCH.verify_current(self.root, self.package, 0, 0, self.lock_fd)
+        self.assertTrue(current['manifest_preserved_absent'])
+        self.assert_manifest_absent(directory=True)
+
+    def test_missing_manifest_file_rollback_restores_source_and_absence(self):
+        self.remove_manifest()
+        self.patch.prepare()
+        self.patch.apply()
+        self.patch.rollback()
+        self.assertTrue(self.patch.rollback())
+        self.assert_manifest_absent()
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+            self.assertEqual((self.root / name).stat().st_ino, self.original_inodes[name])
+        intent = json.loads((self.audit / 'application-intent.json').read_bytes())
+        self.assertEqual(len(intent['files']), 4)
+        self.assertTrue(intent['manifest_preserved_absent'])
+
+    def test_missing_deployment_directory_rollback_preserves_absence(self):
+        self.remove_manifest(directory=True)
+        self.patch.prepare()
+        self.patch.apply()
+        self.patch.rollback()
+        self.assert_manifest_absent(directory=True)
+        self.assertFalse((self.root / 'desktop/import-diagnostic.php').exists())
+
+    def test_manifest_appearing_before_apply_is_left_untouched(self):
+        self.remove_manifest()
+        self.patch.prepare()
+        path = self.root / PATCH.MANIFEST
+        external = b'{"external_metadata":true}'
+        path.write_bytes(external)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_APPEARED'):
+            self.patch.apply()
+        self.assertEqual(path.read_bytes(), external)
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+        self.assertTrue(all(not row['moved'] for row in self.patch.slots))
+
+    def test_manifest_appearing_after_apply_is_not_overwritten_by_commit_or_rollback(self):
+        self.remove_manifest(directory=True)
+        self.patch.prepare()
+        self.patch.apply()
+        (self.root / 'deployment').mkdir()
+        path = self.root / PATCH.MANIFEST
+        external = b'{"external_metadata":true}'
+        path.write_bytes(external)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_APPEARED'):
+            self.patch.commit()
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_APPEARED'):
+            self.patch.rollback()
+        self.assertEqual(path.read_bytes(), external)
+        for name, data in self.originals.items():
+            self.assertEqual((self.root / name).read_bytes(), data)
+        # Only this fixture owns this new file; the production patch left it intact.
+        path.unlink()
+        (self.root / 'deployment').rmdir()
+        self.assertTrue(self.patch.rollback())
+        self.assert_manifest_absent(directory=True)
+
+    def test_symlink_manifest_is_refused_and_is_not_treated_as_absent(self):
+        path = self.root / PATCH.MANIFEST
+        path.unlink()
+        target = self.base / 'external-metadata'
+        target.write_text('{}')
+        path.symlink_to(target)
+        with self.assertRaises(OSError):
+            self.patch.prepare()
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(target.read_text(), '{}')
+
+    def test_symlink_deployment_directory_is_refused(self):
+        self.remove_manifest(directory=True)
+        target = self.base / 'external-deployment'
+        target.mkdir()
+        (self.root / 'deployment').symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_DIRECTORY_UNSAFE'):
+            self.patch.prepare()
+        self.assertTrue((self.root / 'deployment').is_symlink())
+        self.assertFalse(list(target.iterdir()))
+
+    def test_world_writable_manifest_is_refused_instead_of_ignored(self):
+        path = self.root / PATCH.MANIFEST
+        path.chmod(0o666)
+        with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_FILE_UNSAFE'):
+            self.patch.prepare()
+        self.assertEqual(path.read_bytes(), self.manifest)
+
+    def test_present_manifest_change_between_first_read_and_staging_is_not_overwritten(self):
+        original_read = PATCH.optional_manifest
+        path = self.root / PATCH.MANIFEST
+        changed = self.manifest + b'\n'
+        def concurrent_change(*args):
+            data, info = original_read(*args)
+            path.write_bytes(changed)
+            return data, info
+        with mock.patch.object(PATCH, 'optional_manifest', side_effect=concurrent_change):
+            with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_CHANGED_BEFORE_STAGING'):
+                self.patch.prepare()
+        self.assertEqual(path.read_bytes(), changed)
+        self.assertTrue(all(not row['moved'] for row in self.patch.slots))
+        self.assertTrue(self.patch.rollback())
+        self.assertEqual(path.read_bytes(), changed)
+
+    def test_present_manifest_deletion_between_first_read_and_staging_is_not_recreated(self):
+        original_read = PATCH.optional_manifest
+        path = self.root / PATCH.MANIFEST
+        def concurrent_deletion(*args):
+            data, info = original_read(*args)
+            path.unlink()
+            return data, info
+        with mock.patch.object(PATCH, 'optional_manifest', side_effect=concurrent_deletion):
+            with self.assertRaisesRegex(PATCH.Stop, 'MANIFEST_CHANGED_BEFORE_STAGING'):
+                self.patch.prepare()
+        self.assertFalse(path.exists())
+        self.assertTrue(all(not row['moved'] for row in self.patch.slots))
+        self.assertTrue(self.patch.rollback())
+        self.assertFalse(path.exists())
+
     def test_unreviewed_manifest_stops_before_exchanges(self):
         value = json.loads(self.manifest)
         value['after_source']['sha256'] = '0' * 64

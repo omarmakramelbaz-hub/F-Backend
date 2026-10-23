@@ -36,7 +36,7 @@ POLICY = 'historical-baseline-v2-native-import422-diagnostic-seed-v1'
 BASE_MODULE = 'upgrade_go_erp_preview31_watcher_root.py'
 BASE_BLOB = 'ede9af30ea42ba53a5376d5e1cf634d9b3032f2a'
 APPLICATION_MODULE = 'go_erp_import422_application_patch.py'
-APPLICATION_BLOB = 'c86095dab717aad2d47d31274691e7e41b1ef6c2'
+APPLICATION_BLOB = '18884e836bf9f17281912cebf81aa3aba89ed95e'
 OLD_PINS = {
     'desktop_dashboard_server_preflight.py': '4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4',
     'diagnose_desktop_dashboard_current_source.py': 'e7a7a8271481013a1c16167d6f7a6ff429687ef5',

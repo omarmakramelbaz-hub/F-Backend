@@ -117,6 +117,31 @@ class PayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(M.Stop, '^PAYLOAD_PIN_INVALID$'):
             M.adapt_payloads(changed)
 
+    def test_actual_pinned_publisher_reads_source_without_live_deployment_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            readers = root / 'readers'; readers.mkdir()
+            for name in ('publish_go_erp_update.py', 'desktop_dashboard_server_preflight.py',
+                         'diagnose_desktop_dashboard_current_source.py'):
+                path = readers / name; path.write_bytes(prior(name)); path.chmod(0o644)
+            application = root / 'application'; application.mkdir()
+            (application / 'app').mkdir(); (application / 'desktop').mkdir()
+            (application / 'app/Example.php').write_text('<?php // synthetic source only\n')
+            (application / 'desktop/source-contract.json').write_text(json.dumps({'format': 1,
+                'framework': '8.83.29', 'supportedRuntimeFrameworks': ['8.83.29']}))
+            (application / 'composer.lock').write_text(json.dumps({'packages': [
+                {'name': 'laravel/framework', 'version': 'v8.83.29'}]}))
+            path = readers / 'publish_go_erp_update.py'
+            publisher = types.ModuleType('fixture_pinned_publisher'); publisher.__file__ = str(path)
+            sys.modules[publisher.__name__] = publisher
+            exec(compile(path.read_bytes(), str(path), 'exec'), publisher.__dict__)
+            absent = application / 'deployment/desktop_dashboard_server_manifest.json'
+            self.assertFalse(absent.exists())
+            result = publisher.source_snapshot(application)
+            self.assertEqual(result['fingerprint']['framework'], '8.83.29')
+            self.assertEqual(result['fingerprint']['files'], 2)
+            self.assertFalse(absent.exists())
+
 
 class FakeGitBase:
     REMOTE = 'https://github.com/omarmakramelbaz-hub/F-Backend.git'
