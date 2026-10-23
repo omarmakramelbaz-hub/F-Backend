@@ -224,7 +224,7 @@ class DashboardOrderPaymentTest extends TestCase
             $this->assertFalse($this->card()['payment_failed']);
             $this->assertSame('new', $this->card()['group']);
             $this->assertSame('بانتظار تأكيد الدفع', $this->card()['status_label']);
-            $this->assertSame([], $this->card()['actions']);
+            $this->assertSame(['cancel'], $this->card()['actions']);
             foreach ([null, '', '0', 'false', 'pending', 'creating'] as $status) {
                 DB::table('payments')->delete();
                 $this->attempt(['status' => $status]);
@@ -242,13 +242,62 @@ class DashboardOrderPaymentTest extends TestCase
             $paymentBefore = DB::table('payments')->first();
             $card = $this->card();
             $this->assertTrue($card['payment_failed']);
-            $this->assertSame('new', $card['group']);
+            $this->assertSame('completed', $card['group']);
+            $this->assertSame('فشل الدفع', $card['status_label']);
+            $this->assertSame([], $card['actions']);
             $this->assertSame('125.00', $card['total']);
             $this->assertEquals($orderBefore, DB::table('orders')->find(101));
             $this->assertEquals($paymentBefore, DB::table('payments')->first());
         }
         $this->order(['payment_type' => 'v_cash']);
         $this->assertSame('فودافون كاش', $this->card()['payment_label']);
+    }
+
+    public function test_signed_failure_moves_only_the_unaccepted_checkout_to_completed_counts_and_stops_alerts(): void
+    {
+        $this->order(['payment_type'=>'v_cash']); $this->attempt();
+        $before=DB::table('orders')->find(101);
+        $this->deliverFailure(['integration_id'=>'766'])->assertRedirect(route('payFailed'));
+        $service=new OrderBoardService(); $data=$service->data(Request::create('/admin/order-review'),$this->actor());
+        $this->assertSame(0,$data['counts']['new']); $this->assertSame(1,$data['counts']['completed']);
+        $this->assertSame('completed',$data['groups']['completed'][0]['group']);
+        $this->assertSame('فشل الدفع',$data['groups']['completed'][0]['status_label']);
+        $this->assertSame([], $service->pendingAlertKeys($this->actor()));
+        $this->assertEquals($before,DB::table('orders')->find(101));
+        $this->attempt(['intention_order_id'=>'7701','status'=>'pending']);
+        $service=new OrderBoardService(); $data=$service->data(Request::create('/admin/order-review'),$this->actor());
+        $this->assertSame(1,$data['counts']['new']); $this->assertSame(0,$data['counts']['completed']);
+        $this->assertFalse($data['groups']['new'][0]['payment_failed']);
+        $this->assertSame('بانتظار تأكيد الدفع',$data['groups']['new'][0]['status_label']);
+    }
+
+    public function test_other_customer_failure_does_not_move_this_checkout_and_zero_delegate_is_unassigned(): void
+    {
+        $id=$this->attempt(['user_id'=>21,'status'=>'failed','transaction_id'=>'991001']);
+        $service=new OrderBoardService(); $data=$service->data(Request::create('/admin/order-review'),$this->actor());
+        $this->assertSame(1,$data['counts']['new']); $this->assertSame(0,$data['counts']['completed']);
+        $this->assertSame('new',$this->card()['group']);
+        Schema::table('orders', function (Blueprint $table) { $table->unsignedBigInteger('delegate_id')->nullable(); });
+        DB::table('payments')->where('id',$id)->update(['user_id'=>20]);
+        DB::table('orders')->where('id',101)->update(['delegate_id'=>0]);
+        $service=new OrderBoardService(); $data=$service->data(Request::create('/admin/order-review'),$this->actor());
+        $this->assertSame(0,$data['counts']['new']); $this->assertSame(1,$data['counts']['completed']);
+        $this->assertSame('completed',$this->card()['group']);
+    }
+
+    public function test_failed_checkout_projection_does_not_move_staff_accepted_orders_or_any_paid_attempt(): void
+    {
+        $this->attempt(['status'=>'failed','transaction_id'=>'991001']);
+        $this->order(['status'=>'accepted']);
+        $service=new OrderBoardService(); $data=$service->data(Request::create('/admin/order-review'),$this->actor());
+        $this->assertSame(1,$data['counts']['preparing']); $this->assertSame(0,$data['counts']['completed']);
+        $this->order(['status'=>null]);
+        $this->attempt(['status'=>'1','transaction_id'=>'991002','intention_order_id'=>'7701']);
+        $this->attempt(['status'=>'failed','transaction_id'=>'991003','intention_order_id'=>'7702']);
+        $service=new OrderBoardService(); $data=$service->data(Request::create('/admin/order-review'),$this->actor());
+        $this->assertSame(1,$data['counts']['new']); $this->assertSame(0,$data['counts']['completed']);
+        $this->assertFalse($data['groups']['new'][0]['payment_failed']);
+        $this->assertSame([], $data['groups']['new'][0]['actions']);
     }
 
     public function test_successful_retry_and_new_unresolved_attempt_remove_stale_failure_flag(): void
@@ -298,6 +347,7 @@ class DashboardOrderPaymentTest extends TestCase
 
     public function test_failure_text_is_localized_in_compact_card_detail_and_print(): void
     {
+        $this->actingAs($this->actor(), 'admin');
         $this->attempt(['status' => '0', 'transaction_id' => '991001']);
         foreach (['ar' => 'فشل الدفع', 'en' => 'Payment failed'] as $locale => $label) {
             app()->setLocale($locale);

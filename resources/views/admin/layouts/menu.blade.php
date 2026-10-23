@@ -14,13 +14,13 @@
             <div class="d-flex align-items-center gap-2">
                 <div class="">
                     @if(auth('admin')->user()->id == 1)
-                        <a style="line-height: 45px;"
+                        <a
                             href="{{ url('/admin/users/' . Auth::guard('admin')->user()->id . '/edit?account_type=admin') }}"
-                            class="d-block welcome">@lang('main.hello') / {{ Auth::guard('admin')->user()->name }}</a>
+                            class="d-block welcome dashboard-account-name" title="{{ Auth::guard('admin')->user()->name }}"><bdi dir="auto">{{ Auth::guard('admin')->user()->name }}</bdi></a>
                     @else
-                        <a style="line-height: 45px;"
+                        <a
                             href="{{ url('/admin/users/' . Auth::guard('admin')->user()->id . '/edit/?account_type=' . auth('admin')->user()->account_type) }}"
-                            class="d-block welcome">@lang('main.hello') / {{ Auth::guard('admin')->user()->name }}</a>
+                            class="d-block welcome dashboard-account-name" title="{{ Auth::guard('admin')->user()->name }}"><bdi dir="auto">{{ Auth::guard('admin')->user()->name }}</bdi></a>
                     @endif
                 </div>
             </div>

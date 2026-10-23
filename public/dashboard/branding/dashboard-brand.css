@@ -865,6 +865,30 @@ html:has(.app-order-board-page) {
     font-weight: 400;
     color: #c3cedb !important;
 }
+/* Keep the account name readable within the existing 36px sidebar header. */
+.dashboard-theme #dashboard-sidebar .user-panel {
+    border-color: #ff8a0033;
+    background: linear-gradient(110deg, #ff8a000c, #ffffff04);
+}
+.dashboard-theme #dashboard-sidebar .welcome.dashboard-account-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f4f8fc !important;
+    text-align: center;
+    letter-spacing: .01em;
+}
+.dashboard-theme #dashboard-sidebar .dashboard-account-name bdi {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dashboard-theme #dashboard-sidebar .dashboard-account-name:focus-visible {
+    outline: 2px solid #ff8a00;
+    outline-offset: 2px;
+    border-radius: 3px;
+}
 .dashboard-theme #dashboard-sidebar .sidebar > hr { display: none; }
 .dashboard-theme #dashboard-sidebar .sidebar > nav {
     flex: 0 0 auto;

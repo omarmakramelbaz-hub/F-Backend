@@ -1,0 +1,27 @@
+const fs=require('node:fs'),assert=require('node:assert/strict'),path=require('node:path');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+(async()=>{const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});try{
+ const page=await browser.newPage();await page.route('**/*',r=>r.fulfill({body:'<!doctype html><div data-column="new"><article data-order-key="legacy:1" data-order-alert-eligible="0"></article><article data-order-key="legacy:2" data-order-alert-eligible="1"></article></div>'}));await page.goto('https://order-alerts.test/');
+ await page.evaluate(()=>{window.Audio=class{play(){return Promise.resolve()}pause(){}}});
+ await page.addScriptTag({content:fs.readFileSync(path.join(__dirname,'../../public/dashboard/js/dashboard-order-alerts.js'),'utf8')});
+ await page.evaluate(()=>{DashboardOrderAlerts.notify('legacy:1');DashboardOrderAlerts.observeApp(document)});
+ assert.deepEqual(await page.evaluate(()=>DashboardOrderAlerts.state().pending),['legacy:2']);
+ await page.evaluate(()=>{document.querySelector('[data-order-key="legacy:1"]').dataset.orderAlertEligible='1';DashboardOrderAlerts.observeApp(document)});
+ assert.deepEqual((await page.evaluate(()=>DashboardOrderAlerts.state().pending)).sort(),['legacy:1','legacy:2']);
+ await page.evaluate(()=>{document.querySelector('[data-column]').dataset.column='completed';DashboardOrderAlerts.observeApp(document)});
+ assert.deepEqual(await page.evaluate(()=>DashboardOrderAlerts.state().pending),[]);
+ const push=await browser.newPage();await push.route('**/*',r=>r.fulfill({body:'<!doctype html><div></div>'}));await push.goto('https://order-alerts.test/');
+ await push.evaluate(()=>{window.Audio=class{play(){return Promise.resolve()}pause(){}};window.serverKeys=[];window.fetch=async()=>({ok:true,json:async()=>({pending_alert_keys:window.serverKeys})})});
+ await push.evaluate(code=>{const tag=document.createElement('script');tag.dataset.soundFeed='https://order-alerts.test/feed';tag.textContent=code;document.body.appendChild(tag)},fs.readFileSync(path.join(__dirname,'../../public/dashboard/js/dashboard-order-alerts.js'),'utf8'));
+ await push.evaluate(()=>DashboardOrderAlerts.notify('legacy:1'));await push.waitForTimeout(30);
+ assert.deepEqual(await push.evaluate(()=>DashboardOrderAlerts.state().pending),[],'An unpaid push cannot ring before authoritative eligibility');
+ await push.evaluate(()=>{window.oldPollCheckpoint=DashboardOrderAlerts.checkpoint();window.serverKeys=['legacy:2'];DashboardOrderAlerts.notify('legacy:2')});await push.waitForFunction(()=>DashboardOrderAlerts.state().pending.includes('legacy:2'));
+ await push.evaluate(()=>DashboardOrderAlerts.reconcileApp([],window.oldPollCheckpoint));
+ assert.deepEqual(await push.evaluate(()=>DashboardOrderAlerts.state().pending),['legacy:2'],'An older poll must not remove a newly confirmed push arrival');
+ await push.evaluate(()=>DashboardOrderAlerts.notify('phone:3'));
+ assert.deepEqual((await push.evaluate(()=>DashboardOrderAlerts.state().pending)).sort(),['legacy:2','phone:3'],'Phone receiver keeps its independent immediate alert');
+ await push.evaluate(()=>{window.fetch=async()=>{throw Error('network unavailable')};DashboardOrderAlerts.notify('legacy:4')});await push.waitForTimeout(30);
+ assert.deepEqual((await push.evaluate(()=>DashboardOrderAlerts.state().pending)).sort(),['legacy:2','phone:3'],'A failed verification request cannot invent a ready order');
+ await push.close();
+ console.log('Actual browser: unpaid checkout excluded, cash and confirmed arrivals retained, closed cards stop alerts.');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});

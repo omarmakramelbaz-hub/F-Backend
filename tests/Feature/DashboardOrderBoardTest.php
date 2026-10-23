@@ -867,6 +867,65 @@ class DashboardOrderBoardTest extends TestCase
         }
     }
 
+    private function unpaidCheckoutSchema(): void
+    {
+        Schema::table('wallets', function (Blueprint $t) { $t->unsignedBigInteger('order_id')->nullable(); });
+        Schema::create('payments', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('order_id'); $t->unsignedBigInteger('user_id');
+            $t->string('status')->nullable(); $t->string('transaction_id')->nullable(); $t->string('intention_order_id')->nullable();
+            $t->decimal('total_price',14,2); $t->timestamps();
+        });
+    }
+
+    public function test_unpaid_checkout_can_be_cancelled_without_receipt_or_money_and_is_silent(): void
+    {
+        $this->unpaidCheckoutSchema();
+        $this->legacy(1, ['status'=>null, 'payment_type'=>'v_cash']);
+        $this->legacy(2, ['status'=>null, 'payment_type'=>'online', 'resturant_id'=>101]);
+        $this->legacy(3, ['payment_type'=>'cash']);
+        DB::table('payments')->insert(['id'=>1,'order_id'=>1,'user_id'=>20,'status'=>null,'total_price'=>'180.00','intention_order_id'=>'7700']);
+        $this->actingAs($this->actor(10), 'admin');
+        $service=new OrderBoardService();
+        $card=$service->detail('legacy',1,$this->actor(10));
+        $this->assertSame('awaiting_payment',$card['status']); $this->assertSame(['cancel'],$card['actions']);
+        $this->assertSame(['legacy:3'],$service->pendingAlertKeys($this->actor(10)));
+        $html=view('admin.orders.board_card',compact('card'))->render();
+        $this->assertStringContainsString('data-order-alert-eligible="0"',$html);
+        $this->assertStringContainsString('إلغاء طلب غير مدفوع',$html);
+        $this->assertStringNotContainsString('value="accept"',$html);
+        $before=DB::table('payments')->get()->toArray(); $balances=DB::table('users')->pluck('balance','id')->all();
+        $payload=['action'=>'cancel','expected_status'=>'awaiting_payment','expected_accepted_notify'=>''];
+        $this->postJson(route('order-board.action',['legacy',2]),$payload)->assertNotFound();
+        $this->postJson(route('order-board.action',['legacy',1]),$payload)->assertOk()->assertJsonPath('success',true);
+        $this->assertSame('cancelled',DB::table('orders')->where('id',1)->value('status'));
+        $this->assertEquals($before,DB::table('payments')->get()->toArray());
+        $this->assertSame($balances,DB::table('users')->pluck('balance','id')->all()); $this->assertSame(0,DB::table('wallets')->count());
+        $this->assertSame('completed',(new OrderBoardService())->detail('legacy',1,$this->actor(10))['group']);
+    }
+
+    public function test_unpaid_cancellation_refuses_paid_unknown_attempt_or_wallet_and_stale_activation(): void
+    {
+        $this->unpaidCheckoutSchema(); $this->legacy(1,['status'=>null,'payment_type'=>'online']);
+        $this->actingAs($this->actor(10),'admin');
+        DB::table('payments')->insert(['id'=>1,'order_id'=>1,'user_id'=>20,'status'=>'1','transaction_id'=>'99001','total_price'=>'180.00','intention_order_id'=>'7700']);
+        $payload=['action'=>'cancel','expected_status'=>'awaiting_payment','expected_accepted_notify'=>''];
+        foreach (['1','paid','refunded','unknown'] as $state) {
+            DB::table('payments')->where('id',1)->update(['status'=>$state]);
+            $this->postJson(route('order-board.action',['legacy',1]),$payload)->assertStatus(409);
+            $this->assertNull(DB::table('orders')->where('id',1)->value('status'));
+        }
+        DB::table('payments')->where('id',1)->update(['status'=>null]);
+        DB::table('wallets')->insert(['order_id'=>1,'from_user'=>20,'amount'=>'180.00','status'=>'completed','payment'=>'wallet','type'=>'transfer']);
+        $this->postJson(route('order-board.action',['legacy',1]),$payload)->assertStatus(409);
+        DB::table('wallets')->delete();
+        DB::table('payments')->where('id',1)->update(['user_id'=>21]);
+        $this->postJson(route('order-board.action',['legacy',1]),$payload)->assertStatus(409);
+        DB::table('payments')->where('id',1)->update(['user_id'=>20]);
+        DB::table('orders')->where('id',1)->update(['status'=>'pending']);
+        $this->postJson(route('order-board.action',['legacy',1]),$payload)->assertStatus(409);
+        $this->assertSame('pending',DB::table('orders')->where('id',1)->value('status'));
+    }
+
     /** Optional export uses the real page and existing dashboard chrome for visual QA. */
     private function exportQaView(?string $path = null): string
     {

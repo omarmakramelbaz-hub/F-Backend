@@ -31,7 +31,15 @@ class RestaurantPaymentController extends Controller
         }
         // A signed pending, failed or reversal event must not start an activation/retry loop.
         // A success event is still independently checked against Paymob before any write.
-        if (!PaymobHmac::truth($object['success'] ?? null)) return response()->json(['accepted' => true, 'state' => 'unpaid']);
+        if (!PaymobHmac::truth($object['success'] ?? null)) {
+            try {
+                $failed = app(LegacyPaymentFailure::class)->recordNotification($request);
+                return response()->json(['accepted' => true, 'state' => $failed ? 'failed' : 'unpaid']);
+            } catch (\Throwable $error) {
+                // Retry a signed terminal event if its receipt could not be saved.
+                return response()->json(['accepted' => false, 'retryable' => true], 503);
+            }
+        }
         foreach (['pending', 'is_auth', 'is_capture', 'is_voided', 'is_refunded', 'has_parent_transaction', 'error_occured'] as $flag) {
             if (PaymobHmac::truth($object[$flag] ?? null)) return response()->json(['accepted' => true, 'state' => 'ignored']);
         }

@@ -6,7 +6,7 @@
     $items = $card['items'] ?? [];
     $remainingItems = max(0, count($items) - 2);
 @endphp
-<article class="ob-order" data-order-key="{{ $card['key'] }}" data-order-status="{{ $card['status'] }}" aria-label="#{{ ltrim((string)$card['number'], '#') }}">
+<article class="ob-order" data-order-key="{{ $card['key'] }}" data-order-status="{{ $card['status'] }}" data-order-alert-eligible="{{ $card['status'] === 'awaiting_payment' ? '0' : '1' }}" aria-label="#{{ ltrim((string)$card['number'], '#') }}">
     <div class="ob-order-top">
         <div class="ob-order-identity"><strong class="ob-order-number" title="#{{ ltrim((string)$card['number'], '#') }}"><bdi>#{{ ltrim((string)$card['number'], '#') }}</bdi></strong><span class="ob-app-badge ob-app-{{ $app }}">{{ $card['app_label'] ?? $app }}</span></div>
         <span class="ob-elapsed" title="{{ $card['elapsed'] ?? '' }}">{{ $card['elapsed'] ?? '' }}</span>

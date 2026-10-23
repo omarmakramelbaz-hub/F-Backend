@@ -65,6 +65,75 @@ class RestaurantPaymentCallbackTest extends TestCase
         $this->app->instance(RestaurantPaymentEffects::class, $this->effects);
     }
 
+    private function failureFixture(): void
+    {
+        Schema::table('payments', function (Blueprint $t) {
+            $t->unsignedBigInteger('user_id')->default(20); $t->decimal('total_price', 14, 2)->default(265);
+        });
+        config(['dashboard_payments.integrations.online' => '765', 'dashboard_payments.integrations.v_cash' => '766']);
+    }
+
+    public function test_processed_terminal_failure_is_saved_without_browser_return_or_activation(): void
+    {
+        $this->failureFixture();
+        foreach (['online' => 765, 'v_cash' => 766] as $method => $integration) {
+            DB::table('orders')->where('id', 101)->update(['payment_type' => $method]);
+            DB::table('payments')->where('id', 7)->update(['status' => null, 'transaction_id' => null]);
+            $object = $this->object(['success' => false, 'error_occured' => true, 'integration_id' => $integration]);
+            foreach ([1, 2] as $delivery) {
+                $response = $this->notification($object);
+                $this->assertSame(['accepted' => true, 'state' => 'failed'], $this->body($response));
+                $this->assertSame('0', DB::table('payments')->where('id', 7)->value('status'));
+                $this->assertSame('991001', DB::table('payments')->where('id', 7)->value('transaction_id'));
+                $this->assertNull(DB::table('orders')->where('id', 101)->value('status'));
+            }
+        }
+        $this->assertSame([], $this->settlement->calls);
+        $this->assertSame([], $this->effects->calls);
+    }
+
+    public function test_pending_mismatched_and_reversal_notifications_never_create_failure_evidence(): void
+    {
+        $this->failureFixture();
+        foreach ([['pending' => true], ['amount_cents' => '48000'], ['integration_id' => 999],
+            ['order' => ['id' => 123]], ['is_capture' => true], ['is_voided' => true],
+            ['is_refunded' => true], ['is_auth' => true], ['has_parent_transaction' => true]] as $change) {
+            $response = $this->notification($this->object(array_replace_recursive(['success' => false], $change)));
+            $this->assertSame(['accepted' => true, 'state' => 'unpaid'], $this->body($response));
+            $this->assertNull(DB::table('payments')->where('id', 7)->value('status'));
+        }
+        $this->assertSame(403, $this->notification($this->object(['success' => false]), str_repeat('a', 128))->getStatusCode());
+        $this->assertSame([], $this->settlement->calls);
+    }
+
+    public function test_late_failure_cannot_override_a_success_newer_attempt_or_active_order(): void
+    {
+        $this->failureFixture();
+        $object = $this->object(['success' => false]);
+        DB::table('payments')->where('id', 7)->update(['status' => '1', 'transaction_id' => '1234']);
+        $this->assertSame('unpaid', $this->body($this->notification($object))['state']);
+        $this->assertSame('1', DB::table('payments')->where('id', 7)->value('status'));
+        DB::table('payments')->where('id', 7)->update(['status' => null, 'transaction_id' => null]);
+        DB::table('payments')->insert(['id' => 8, 'order_id' => 101, 'intention_order_id' => '8800', 'user_id' => 20, 'total_price' => 265]);
+        $this->assertSame('unpaid', $this->body($this->notification($object))['state']);
+        $this->assertNull(DB::table('payments')->where('id', 7)->value('status'));
+        DB::table('payments')->where('id', 8)->delete();
+        DB::table('orders')->where('id', 101)->update(['status' => 'pending']);
+        $this->assertSame('unpaid', $this->body($this->notification($object))['state']);
+        $this->assertNull(DB::table('payments')->where('id', 7)->value('status'));
+    }
+
+    public function test_failure_receipt_write_error_remains_retryable_and_private(): void
+    {
+        $this->app->instance(\App\Services\Payments\LegacyPaymentFailure::class, new class {
+            public function recordNotification($request): bool { throw new \RuntimeException('private database details'); }
+        });
+        $response = $this->notification($this->object(['success' => false]));
+        $this->assertSame(503, $response->getStatusCode());
+        $this->assertSame(['accepted' => false, 'retryable' => true], $this->body($response));
+        $this->assertStringNotContainsString('private', $response->getContent());
+    }
+
     private function object(array $extra = []): array
     {
         return array_replace_recursive(['amount_cents' => '26500', 'created_at' => '2026-10-23T20:10:00',
