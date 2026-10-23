@@ -5,11 +5,15 @@ on:
     branches: ['codex/go-erp-program-deploy-*']
     paths:
       - deployment/*program*
+      - deployment/*nav*
+      - deployment/nav-successor-prior/**
+      - deployment/program-navigation/**
       - deployment/go_erp_employee_migration.py
       - deployment/verify_go_erp_employee_schema.php
       - database/migrations/2026_10_23_200000_add_employee_identity_and_regulation.php
       - deployment/wire-hash-prior/**
       - tests/test_go_erp_program_*.py
+      - tests/test_go_erp_nav_successor.py
       - app/**
       - desktop/**
       - resources/**
@@ -19,7 +23,11 @@ on:
   pull_request:
     paths:
       - deployment/*program*
+      - deployment/*nav*
+      - deployment/nav-successor-prior/**
+      - deployment/program-navigation/**
       - tests/test_go_erp_program_*.py
+      - tests/test_go_erp_nav_successor.py
       - .github/workflows/go-erp-program-deploy-tests.yml
   workflow_dispatch:
 
@@ -40,6 +48,8 @@ jobs:
       - name: Verify the application and two-cohort watcher transaction
         run: |
           bash -n deployment/run_go_erp_program_root.sh
+          bash -n deployment/run_go_erp_nav_successor_root.sh
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_nav_successor.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_wrapper.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_application_patch.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_watcher_upgrade.py
