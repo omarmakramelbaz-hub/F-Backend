@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the reviewed native seed and navigation successor; keep publication held.
+# Apply the reviewed home screen and native successor; keep publication held.
 set -euo pipefail
 umask 077
 test "$#" -eq 2
@@ -53,6 +53,8 @@ go_export() {
 }
 go_export "$go_revision" deployment/upgrade_go_erp_fullscreen_watcher_root.py upgrade_go_erp_fullscreen_watcher_root.py
 go_export "$go_revision" public/dashboard/js/dashboard-navigation.js application/public/dashboard/js/dashboard-navigation.js
+go_git show "$go_revision:deployment/apply_home_hud_root.py" > "$go_stage/home-hud.py"
+chmod 0644 "$go_stage/home-hud.py"
 go_export "$go_prior" deployment/nav-successor-prior/upgrade_go_erp_program_watcher_root.py upgrade_go_erp_program_watcher_root.py
 for go_file in upgrade_go_erp_preview31_watcher_root.py upgrade_go_erp_capacity_watcher_root.py; do
     go_export "$go_prior" "deployment/import422-prior/$go_file" "$go_file"
@@ -79,6 +81,10 @@ for ((go_elapsed=0; go_elapsed<=60; go_elapsed+=5)); do
         *) printf '%s\n' GO_ERP_FULLSCREEN_SERVICE_STATE_UNREVIEWED >&2; exit 1 ;;
     esac
 done
+# Publish the authorised server screen under its original guarded transaction.
+# The native capture follows only after these exact same release bytes are live.
+/usr/bin/python3 -I -B "$go_stage/home-hud.py" --git-dir "$go_stage/release.git" \
+    --release "$go_revision" --apply
 if ! /usr/bin/python3 -I -B "$go_stage/package/upgrade_go_erp_fullscreen_watcher_root.py" \
     --package "$go_stage/package" --apply > "$go_stage/result.json"; then
     cat "$go_stage/result.json"

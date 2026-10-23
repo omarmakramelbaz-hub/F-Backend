@@ -56,8 +56,10 @@ class FilesystemUtility:
 
 
 class TransactionFixture:
-    def __init__(self, folder, outcome='success', nav_applied=False, race=None, advanced=False, advanced_hold=False):
+    def __init__(self, folder, outcome='success', nav_applied=False, race=None, advanced=False, advanced_hold=False,
+            hr_navigation=False):
         self.advanced = advanced
+        self.hr_navigation = hr_navigation
         self.root, self.work = folder / 'live', folder / 'work'
         self.root.mkdir(); self.work.mkdir(mode=0o700)
         self.nav = self.root / subject.NAV
@@ -65,9 +67,23 @@ class TransactionFixture:
         self.nav.write_bytes(b'new-navigation' if nav_applied or advanced else b'old-navigation')
         self.paymob = self.root / 'paymob-source.php'
         self.paymob.write_bytes(b'preserve the independently reviewed Paymob source')
+        self.hr_files = {}; self.hud_files = {}
+        protected = {'public/dashboard/js/branch-operations.js': self.hr_files,
+            'public/dashboard/css/branch-operations.css': self.hr_files}
+        for name in ('app/Services/Dashboard/HomeHudLinks.php', 'public/dashboard/css/home-hud.css',
+                'public/dashboard/js/home-hud.js', 'resources/views/admin/home_hud_solar.blade.php',
+                'resources/views/admin/home_hud.blade.php', 'public/dashboard/js/branch-home.js',
+                'public/dashboard/js/home-overview.js', 'resources/views/admin/home.blade.php',
+                'resources/views/admin/home_branch.blade.php', 'app/Http/Controllers/Dashboard/HomeController.php'):
+            protected[name] = self.hud_files
+        for name, cohort in protected.items():
+            path = self.root / name; data = ('approved frozen source ' + name).encode()
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+            path.chmod(0o640)
+            cohort[path] = (data, FilesystemUtility.exact_key(path.stat()))
         self.hold = self.work / 'program-rollout-hold.json'
         self.expected_old = subject.hold_value(subject.OLD_CORE, subject.OLD_SOURCE, subject.OLD_INVENTORY)
-        self.expected_new = subject.hold_value(subject.CORE, subject.AFTER_SOURCE, subject.AFTER_INVENTORY)
+        self.expected_new = subject.hold_value(subject.CORE, subject.HUD_AFTER_SOURCE, subject.HUD_AFTER_INVENTORY)
         initial_hold = subject.hold_value(subject.OLD_CORE, subject.ADVANCED_SOURCE, subject.ADVANCED_INVENTORY) \
             if advanced and advanced_hold else self.expected_old
         self.hold.write_bytes(subject.canonical(initial_hold)); self.hold.chmod(0o600)
@@ -155,10 +171,13 @@ class TransactionFixture:
 
     def scan(self, root, checkout, owner, previous):
         changed = self.nav.read_bytes() == b'new-navigation'
-        inventory = subject.ADVANCED_INVENTORY if self.advanced else subject.AFTER_INVENTORY if changed else subject.BEFORE_INVENTORY
-        source = subject.ADVANCED_SOURCE if self.advanced else subject.AFTER_SOURCE if changed else subject.BEFORE_SOURCE
+        inventory = subject.HUD_ADVANCED_INVENTORY if self.advanced else subject.HUD_AFTER_INVENTORY if changed else subject.HUD_BEFORE_INVENTORY
+        source = subject.HUD_ADVANCED_SOURCE if self.advanced else subject.HUD_AFTER_SOURCE if changed else subject.HUD_BEFORE_SOURCE
         if self.live_cohort is not None:
             inventory, source = self.live_cohort
+        if self.hr_navigation:
+            inventory, source = (subject.HUD_AFTER_INVENTORY, subject.HUD_AFTER_SOURCE) if changed \
+                else (subject.HUD_BEFORE_INVENTORY, subject.HUD_BEFORE_SOURCE)
         return {'metadata': {'seedRevision': self.control_paths['checkout'].read_text(),
             'inventorySha256': inventory}, '_files': {'fixture_source': source}}
 
@@ -199,6 +218,7 @@ class TransactionFixture:
             committed = False
             def prepare(self):
                 self.before = fixture.nav.read_bytes(); self.rollbacks = 0
+                self.navigation_sources = ctx.navigation_sources
                 (audit / 'navigation-before.bin').write_bytes(self.before)
                 fixture.events.append('nav-prepare')
             def apply(self):
@@ -230,6 +250,9 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
 
     def assert_paymob_preserved(self, fixture):
         self.assertEqual(b'preserve the independently reviewed Paymob source', fixture.paymob.read_bytes())
+        for path, (data, key) in {**fixture.hr_files, **fixture.hud_files}.items():
+            self.assertEqual(data, path.read_bytes())
+            self.assertEqual(key, FilesystemUtility.exact_key(path.stat()))
 
     def test_success_holds_publication_and_commits_nav_after_four_slot_success(self):
         fixture = self.fixture()
@@ -316,7 +339,7 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
         state.update(counter=37, version_floor='0.4.4-preview.37', sequence_floor=301,
             last_remote_sha='b' * 40,
             desired={'commit': 'b' * 40, 'version': '0.4.4-preview.37',
-                'inventorySha256': subject.AFTER_INVENTORY, 'pushed': True, 'status': 'waiting-ci'})
+                'inventorySha256': subject.HUD_AFTER_INVENTORY, 'pushed': True, 'status': 'waiting-ci'})
         fixture.hold.write_bytes(subject.canonical(fixture.expected_new))
         fixture.control_paths['config'].write_bytes(subject.canonical({'base_revision': subject.NEW_SEED}))
         fixture.control_paths['state'].write_bytes(subject.canonical(state))
@@ -356,9 +379,9 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
         self.assertFalse(result['application_contents_changed']); self.assertFalse(result['database_changed'])
         self.assertEqual(37, result['counter']); self.assertEqual('0.4.4-preview.38', result['next_version'])
         self.assertEqual(subject.ADVANCED_CANDIDATE, fixture.remote_revision)
-        self.assertEqual(subject.ADVANCED_SOURCE, fixture.base.EXPECTED_SOURCE)
-        self.assertEqual(subject.ADVANCED_INVENTORY, fixture.base.EXPECTED_INVENTORY)
-        self.assertEqual(subject.hold_value(subject.CORE, subject.ADVANCED_SOURCE, subject.ADVANCED_INVENTORY),
+        self.assertEqual(subject.HUD_ADVANCED_SOURCE, fixture.base.EXPECTED_SOURCE)
+        self.assertEqual(subject.HUD_ADVANCED_INVENTORY, fixture.base.EXPECTED_INVENTORY)
+        self.assertEqual(subject.hold_value(subject.CORE, subject.HUD_ADVANCED_SOURCE, subject.HUD_ADVANCED_INVENTORY),
             json.loads(fixture.hold.read_bytes()))
         migrated = json.loads(fixture.control_paths['state'].read_bytes())
         self.assertEqual(subject.NEW_SEED, migrated['base_revision'])
@@ -401,11 +424,7 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
 
     def test_generic_counter_38_content_proof_preserves_hr_and_targets_preview_39(self):
         fixture = self.fixture(nav_applied=True)
-        fixture.live_cohort = (subject.HR_INVENTORY, subject.HR_SOURCE)
-        hr_files = {fixture.root / 'public/dashboard/js/branch-operations.js': b'approved HR JavaScript',
-            fixture.root / 'public/dashboard/css/branch-operations.css': b'approved HR stylesheet'}
-        for path, data in hr_files.items():
-            path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+        fixture.live_cohort = (subject.HUD_ADVANCED_INVENTORY, subject.HUD_ADVANCED_SOURCE)
         state = json.loads(fixture.control_paths['state'].read_bytes())
         state.update(counter=38, version_floor='0.4.4-preview.38', last_remote_sha='c' * 40,
             desired={'commit': 'c' * 40, 'version': '0.4.4-preview.38',
@@ -418,9 +437,9 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
         result = self.run_apply(fixture)
         self.assertTrue(result['ok']); self.assertEqual(38, result['counter'])
         self.assertEqual('0.4.4-preview.39', result['next_version'])
-        self.assertEqual(subject.HR_SOURCE, fixture.base.EXPECTED_SOURCE)
-        self.assertEqual(subject.HR_INVENTORY, fixture.base.EXPECTED_INVENTORY)
-        self.assertEqual(subject.hold_value(subject.CORE, subject.HR_SOURCE, subject.HR_INVENTORY),
+        self.assertEqual(subject.HUD_ADVANCED_SOURCE, fixture.base.EXPECTED_SOURCE)
+        self.assertEqual(subject.HUD_ADVANCED_INVENTORY, fixture.base.EXPECTED_INVENTORY)
+        self.assertEqual(subject.hold_value(subject.CORE, subject.HUD_ADVANCED_SOURCE, subject.HUD_ADVANCED_INVENTORY),
             json.loads(fixture.hold.read_bytes()))
         migrated = json.loads(fixture.control_paths['state'].read_bytes())
         self.assertEqual(38, migrated['counter']); self.assertEqual('0.4.4-preview.38', migrated['version_floor'])
@@ -428,8 +447,70 @@ class FullscreenOuterTransactionTests(unittest.TestCase):
         self.assertFalse(result['application_contents_changed']); self.assertFalse(result['database_changed'])
         self.assertTrue(result['publication_held']); self.assertFalse(result['published'])
         self.assertIsNone(fixture.nav_patch); self.assertEqual(b'new-navigation', fixture.nav.read_bytes())
-        for path, data in hr_files.items(): self.assertEqual(data, path.read_bytes())
         self.assert_paymob_preserved(fixture)
+
+    def test_hr_original_navigation_patches_one_file_and_verified_rollback_preserves_hr(self):
+        for outcome in ('success', 'rollback'):
+            with self.subTest(outcome=outcome):
+                fixture = self.fixture(hr_navigation=True, outcome=outcome)
+                old_hold = fixture.hold.read_bytes()
+                if outcome == 'success':
+                    result = self.run_apply(fixture)
+                    self.assertTrue(result['ok']); self.assertTrue(result['application_contents_changed'])
+                    self.assertFalse(result['database_changed']); self.assertTrue(result['publication_held'])
+                    self.assertEqual(b'new-navigation', fixture.nav.read_bytes())
+                    self.assertEqual(subject.hold_value(subject.CORE, subject.HUD_AFTER_SOURCE, subject.HUD_AFTER_INVENTORY),
+                        json.loads(fixture.hold.read_bytes()))
+                    self.assertTrue(fixture.nav_patch.committed); self.assertEqual(0, fixture.nav_patch.rollbacks)
+                else:
+                    with self.assertRaisesRegex(subject.Stop, '^ROLLED_BACK_TIMER_PAUSED$'): self.run_apply(fixture)
+                    self.assertEqual(fixture.original_controls, fixture.controls())
+                    self.assertEqual(old_hold, fixture.hold.read_bytes())
+                    self.assertEqual(b'old-navigation', fixture.nav.read_bytes())
+                    self.assertEqual(1, fixture.nav_patch.rollbacks)
+                    restored = fixture.events.index('four-slot-rollback-complete')
+                    confirmed = fixture.events.index('confirm-four-old-slots', restored)
+                    self.assertLess(confirmed, fixture.events.index('nav-rollback'))
+                self.assertEqual((subject.HUD_BEFORE_SOURCE, subject.HUD_AFTER_SOURCE),
+                    fixture.nav_patch.navigation_sources)
+                self.assertEqual(subject.HUD_AFTER_SOURCE, fixture.base.EXPECTED_SOURCE)
+                self.assertEqual(subject.HUD_AFTER_INVENTORY, fixture.base.EXPECTED_INVENTORY)
+                self.assertEqual(1, fixture.upgrade_calls)
+                for path, (data, key) in fixture.hr_files.items():
+                    self.assertEqual(data, path.read_bytes())
+                    self.assertEqual(key, FilesystemUtility.exact_key(path.stat()))
+                self.assert_paymob_preserved(fixture)
+
+    def test_hr_with_our_navigation_is_preserved_without_application_patch(self):
+        fixture = self.fixture(hr_navigation=True, nav_applied=True)
+        nav_before = FilesystemUtility.exact_key(fixture.nav.stat())
+        result = self.run_apply(fixture)
+        self.assertTrue(result['ok']); self.assertFalse(result['application_contents_changed'])
+        self.assertFalse(result['database_changed']); self.assertTrue(result['publication_held'])
+        self.assertEqual(subject.HUD_AFTER_SOURCE, fixture.base.EXPECTED_SOURCE)
+        self.assertEqual(subject.HUD_AFTER_INVENTORY, fixture.base.EXPECTED_INVENTORY)
+        self.assertEqual(subject.hold_value(subject.CORE, subject.HUD_AFTER_SOURCE, subject.HUD_AFTER_INVENTORY),
+            json.loads(fixture.hold.read_bytes()))
+        self.assertIsNone(fixture.nav_patch); self.assertNotIn('nav-apply', fixture.events)
+        self.assertEqual(nav_before, FilesystemUtility.exact_key(fixture.nav.stat()))
+        for path, (data, key) in fixture.hr_files.items():
+            self.assertEqual(data, path.read_bytes())
+            self.assertEqual(key, FilesystemUtility.exact_key(path.stat()))
+        self.assert_paymob_preserved(fixture)
+
+    def test_native_upgrade_refuses_every_approved_historical_live_cohort_without_the_hud(self):
+        for inventory, source in subject.CANDIDATE_SOURCES.items():
+            if inventory in subject.LIVE_SOURCES:
+                continue
+            with self.subTest(inventory=inventory):
+                fixture = self.fixture(nav_applied=True)
+                fixture.live_cohort = (inventory, source)
+                controls, hold, nav = fixture.controls(), fixture.hold.read_bytes(), fixture.nav.read_bytes()
+                with self.assertRaisesRegex(subject.Stop, '^APPLICATION_COHORT_UNREVIEWED$'): self.run_apply(fixture)
+                self.assertEqual(controls, fixture.controls()); self.assertEqual(hold, fixture.hold.read_bytes())
+                self.assertEqual(nav, fixture.nav.read_bytes()); self.assertIsNone(fixture.nav_patch)
+                self.assertEqual(0, fixture.upgrade_calls)
+                self.assert_paymob_preserved(fixture)
 
     def test_forged_candidate_proof_refuses_before_any_application_or_control_mutation(self):
         for change in ({'revision': 'f' * 40}, {'base_revision': 'f' * 40},

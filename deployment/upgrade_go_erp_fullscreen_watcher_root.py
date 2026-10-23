@@ -18,8 +18,8 @@ import uuid
 ROOT = Path('/home/fasakha/public_html')
 WORK = Path('/var/lib/go-erp-live-updates')
 OLD_SEED = 'cd35ee36d77bc35593cac3627a33307b71309325'
-CORE = 'b3b1f9631a13247787fb2f2bf3ba17fbd14bdfb5'
-NEW_SEED = 'ee7d3138d51339dd068e2f2583995b34cc863700'
+CORE = '53266b0596533b2752480d148608886404f307db'
+NEW_SEED = '6c261f7928a2d82e2906d7e59c1d6144ecf40296'
 OLD_CORE = 'd3cef0a0f823d1f10814ff74ce0f4badf5c29670'
 OLD_CANDIDATE = 'dceb59ad489bbba6b6534a4da784f6d26c82b2ff'
 ADVANCED_CANDIDATE = '5f2b0fecafec1c3803499284b0abcca4ecfed7e4'
@@ -33,10 +33,25 @@ BEFORE_SOURCE = {'format':1,'files':1346,'framework':'8.83.29','sha256':'5825ec0
 AFTER_SOURCE = {'format':1,'files':1346,'framework':'8.83.29','sha256':'78766b080df9e152ef1111c6ac8d83a93eebb41a05344b67c8338ad9c1826c0b'}
 HR_INVENTORY = '11826400c8b3d7ee203ba0ab40433ab5a5cfc769e3f4bc315fe3d4d01980020e'
 HR_SOURCE = {'format':1,'files':1346,'framework':'8.83.29','sha256':'9ab3e06ee816ecc9525e1abb08602644c561d1659d944254ecb6d299cfb9e271'}
+HR_BEFORE_INVENTORY = 'b1152d57f3ffe2072af9ed0b002ad185d2f630f3708eb26cba620f568ae058e2'
+HR_BEFORE_SOURCE = {'format':1,'files':1346,'framework':'8.83.29','sha256':'fc965914186bbb30fbcf4d96dc2a3e465af439b91c6dd1121f4ec8ebdbfed267'}
+HR_AFTER_INVENTORY = 'c3d17d27d6159d0060bd5366c9deb33309aab6d569d4894770f2ca0f197c0480'
+HR_AFTER_SOURCE = {'format':1,'files':1346,'framework':'8.83.29','sha256':'85d8106a12395de58561b71003e4140070ca3026963cdfd70923561ead54289d'}
+HUD_BEFORE_INVENTORY = '5d422e95d391beaeffde93d5a7a142346a5584bbf22219174eb74a6d19365037'
+HUD_BEFORE_SOURCE = {'format':1,'files':1351,'framework':'8.83.29','sha256':'77fba8441ca0d455b17567a491a2cbd33352fc8b2d9552657b86ddeee3882234'}
+HUD_AFTER_INVENTORY = 'b825fee261d11e310bb21bce8829fb23ca16526d080e0e1ed4699fbd845f9879'
+HUD_AFTER_SOURCE = {'format':1,'files':1351,'framework':'8.83.29','sha256':'b459f29cab22ba168b502bd3392e4c72941dfdeaa827e5b8554becec2e1061d2'}
+HUD_ADVANCED_INVENTORY = '7088d7bd171802f7129c990255d1e059dd214dbc02c73adc8efa89f01735a77e'
+HUD_ADVANCED_SOURCE = {'format':1,'files':1351,'framework':'8.83.29','sha256':'cf9da626f6c32004bcf4ed7bf86589b7a71a41a621453738b4a10ad7d5327671'}
 CANDIDATE_SOURCES = {OLD_INVENTORY:OLD_SOURCE,BEFORE_INVENTORY:BEFORE_SOURCE,
-                     AFTER_INVENTORY:AFTER_SOURCE,ADVANCED_INVENTORY:ADVANCED_SOURCE,HR_INVENTORY:HR_SOURCE}
-LIVE_SOURCES = {BEFORE_INVENTORY:BEFORE_SOURCE,AFTER_INVENTORY:AFTER_SOURCE,ADVANCED_INVENTORY:ADVANCED_SOURCE,HR_INVENTORY:HR_SOURCE}
-PREPARED_SOURCES = {AFTER_INVENTORY:AFTER_SOURCE,ADVANCED_INVENTORY:ADVANCED_SOURCE,HR_INVENTORY:HR_SOURCE}
+                     AFTER_INVENTORY:AFTER_SOURCE,ADVANCED_INVENTORY:ADVANCED_SOURCE,HR_INVENTORY:HR_SOURCE,
+                     HR_BEFORE_INVENTORY:HR_BEFORE_SOURCE,HR_AFTER_INVENTORY:HR_AFTER_SOURCE,
+                     HUD_BEFORE_INVENTORY:HUD_BEFORE_SOURCE,HUD_AFTER_INVENTORY:HUD_AFTER_SOURCE,
+                     HUD_ADVANCED_INVENTORY:HUD_ADVANCED_SOURCE}
+LIVE_SOURCES = {HUD_BEFORE_INVENTORY:HUD_BEFORE_SOURCE,HUD_AFTER_INVENTORY:HUD_AFTER_SOURCE,
+                HUD_ADVANCED_INVENTORY:HUD_ADVANCED_SOURCE}
+NAV_TARGETS = {HUD_BEFORE_INVENTORY:HUD_AFTER_INVENTORY}
+PREPARED_SOURCES = {key:value for key,value in LIVE_SOURCES.items() if key not in NAV_TARGETS}
 OLD_RUNTIME = 'policy-bc51ded70f74442617201c92c641a9663ee5eab6488ca8a8f4ecb2083f337ab0'
 OLD_PINS = {'desktop_dashboard_server_preflight.py':'4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4',
     'diagnose_desktop_dashboard_current_source.py':'e7a7a8271481013a1c16167d6f7a6ff429687ef5',
@@ -180,7 +195,6 @@ class Context:
         self.expected_old=hold_value(OLD_CORE,OLD_SOURCE,OLD_INVENTORY)
         self.expected_new=hold_value(CORE,AFTER_SOURCE,AFTER_INVENTORY)
         self.remote_revision=OLD_CANDIDATE
-        self.application.configure(BEFORE_SOURCE,AFTER_SOURCE,{NAV:(BEFORE_NAV,AFTER_NAV)})
 
     def slots(self):
         b,u=self.base,self.utility
@@ -261,12 +275,14 @@ class Context:
 def navigation_patch(ctx,audit,lock_fd):
     """Use reviewed inode-bound exchanges for one JS file; legacy manifests are outside this patch."""
     a=ctx.application
+    before_source,after_source=ctx.navigation_sources
+    a.configure(before_source,after_source,{NAV:(BEFORE_NAV,AFTER_NAV)})
     class NavigationPatch(a.ApplicationPatch):
         def prepare(self):
             need(not self.prepared,'NAV_ALREADY_PREPARED');self._check_lock()
             self.scanner=a.pinned_scanner(self.package)
             self.before_map=self.scanner.scan(self.root)
-            need(self.scanner.digest(self.before_map)==BEFORE_SOURCE,'NAV_BEFORE_COHORT_UNREVIEWED')
+            need(self.scanner.digest(self.before_map)==before_source,'NAV_BEFORE_COHORT_UNREVIEWED')
             data,info=self._read(NAV)
             need(data is not None and blob(data)==BEFORE_NAV and info is not None,'NAV_BEFORE_PIN_INVALID')
             with a.PinnedSourceReader(self.package/'application',0) as reader:
@@ -274,7 +290,7 @@ def navigation_patch(ctx,audit,lock_fd):
             need(wanted is not None and blob(wanted)==AFTER_NAV,'NAV_AFTER_PIN_INVALID')
             self.after_map=copy.deepcopy(self.before_map)
             self.after_map[NAV]={'blob':AFTER_NAV,'sha256':hashlib.sha256(wanted.replace(b'\r\n',b'\n')).hexdigest()}
-            need(self.scanner.digest(self.after_map)==AFTER_SOURCE,'NAV_AFTER_COHORT_UNREVIEWED')
+            need(self.scanner.digest(self.after_map)==after_source,'NAV_AFTER_COHORT_UNREVIEWED')
             self.stage=Path(tempfile.mkdtemp(prefix='.go-erp-fullscreen-nav-',dir=self.root.parent));os.chmod(self.stage,0o700)
             self.stage_fd=os.open(self.stage,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
             self._write(self.audit,'0.before',data)
@@ -285,7 +301,7 @@ def navigation_patch(ctx,audit,lock_fd):
                          'published':a.identity(staged),'moved':False}]
             # No legacy deployment manifest is read, rewritten, or represented as current.
             self.manifest_present=True
-            self._audit('application-intent.json',{'before_source':BEFORE_SOURCE,'after_source':AFTER_SOURCE,
+            self._audit('application-intent.json',{'before_source':before_source,'after_source':after_source,
                 'path':NAV,'before_blob':BEFORE_NAV,'after_blob':AFTER_NAV,'before_identity':a.identity(info),
                 'stage':str(self.stage),'legacy_manifest_managed':False})
             self.prepared=True
@@ -293,7 +309,7 @@ def navigation_patch(ctx,audit,lock_fd):
             pass
         def commit(self):
             self.verify()
-            self._audit('application-committed.json',{'source':AFTER_SOURCE,'database_changed':False,'legacy_manifest_managed':False})
+            self._audit('application-committed.json',{'source':after_source,'database_changed':False,'legacy_manifest_managed':False})
             self.committed=True;self._cleanup()
     path=audit/'application';os.mkdir(path,0o700)
     return NavigationPatch(ROOT,ctx.package,path,ctx.owner.pw_uid,ctx.owner.pw_gid,lock_fd)
@@ -334,7 +350,9 @@ def apply(ctx):
         captured=ctx.source.scan_snapshot(ROOT,WORK/'checkout',ctx.owner.pw_uid,None)
         actual=(captured['metadata']['inventorySha256'],b.normalized_source(captured['_files']))
         need(actual[0] in LIVE_SOURCES and actual[1]==LIVE_SOURCES[actual[0]],'APPLICATION_COHORT_UNREVIEWED')
-        target_source,target_inventory=(AFTER_SOURCE,AFTER_INVENTORY) if actual[0]==BEFORE_INVENTORY else (actual[1],actual[0])
+        target_inventory=NAV_TARGETS.get(actual[0],actual[0])
+        target_source=PREPARED_SOURCES[target_inventory]
+        ctx.navigation_sources=(actual[1],target_source)
         b.EXPECTED_SOURCE,b.EXPECTED_INVENTORY=target_source,target_inventory
         ctx.expected_new=hold_value(CORE,target_source,target_inventory)
         audit_path=WORK/(PREFIX+uuid.uuid4().hex);os.mkdir(audit_path,0o700)
@@ -350,8 +368,8 @@ def apply(ctx):
             u.write_at(audit,'exchange-hold.json',canonical(ctx.expected_new))
             u.json_at(audit,'intent.json',{'format':1,'old_seed':OLD_SEED,'new_seed':NEW_SEED,'native_core':CORE,
                 'old_hold':ctx.expected_old,'new_hold':ctx.expected_new,'controls_sha256':{key:hashlib.sha256(value).hexdigest() for key,value in before.items()},
-                'old_candidate':state['desired']['commit'],'navigation_already_applied':actual[0]!=BEFORE_INVENTORY})
-            if actual[0]==BEFORE_INVENTORY:
+                'old_candidate':state['desired']['commit'],'navigation_already_applied':actual[0] not in NAV_TARGETS})
+            if actual[0] in NAV_TARGETS:
                 patch=navigation_patch(ctx,audit_path,lock_fd);patch.prepare();verify();patch.apply();patch.verify()
             ctx.snapshot(target_inventory,target_source)
             verify();ctx.confirm_old(before)

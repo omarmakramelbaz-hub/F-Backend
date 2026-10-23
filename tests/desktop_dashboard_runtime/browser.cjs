@@ -80,6 +80,15 @@ const watchdog = setTimeout(() => {
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');
     await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
+    stage='current GO home screen';
+    const hud=page.locator('#go-hud');
+    await hud.waitFor({state:'visible'});
+    await page.locator('#go-hud.ready').waitFor({state:'visible'});
+    await hud.getByRole('button',{name:'GO — الدخول على الرئيسية',exact:true}).click();
+    await hud.waitFor({state:'hidden'});
+    const originalHome=page.locator('#home-overview, #branch-home');
+    assert.equal(await originalHome.count(),1,'GO reveals exactly one original home page.');
+    await originalHome.waitFor({state:'visible'});
     stage='current dashboard order sound control';
     await verifyDashboardSoundControl(page);
     assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.sortable), 'function', 'The current dashboard must load its local jQuery UI widgets.');

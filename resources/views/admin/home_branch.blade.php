@@ -1,9 +1,11 @@
 @extends('admin.index')
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-overview.css') }}?v={{ filemtime(public_path('dashboard/css/home-overview.css')) }}">
+<link rel="stylesheet" href="{{ asset('dashboard/css/home-hud.css') }}?v={{ filemtime(public_path('dashboard/css/home-hud.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper ho-wrapper">
+@include('admin.home_hud')
 <div id="branch-home" dir="{{ app()->getLocale()==='ar'?'rtl':'ltr' }}">
     <header class="ho-heading">
         <h1>{{ __('home_overview.title') }}</h1>
@@ -34,4 +36,5 @@
 @push('custom-js')
 <script type="application/json" id="branch-home-bootstrap">@json($boot)</script>
 <script src="{{ asset('dashboard/js/branch-home.js') }}?v={{ filemtime(public_path('dashboard/js/branch-home.js')) }}"></script>
+<script src="{{ asset('dashboard/js/home-hud.js') }}?v={{ filemtime(public_path('dashboard/js/home-hud.js')) }}"></script>
 @endpush

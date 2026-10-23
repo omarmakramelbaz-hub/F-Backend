@@ -355,6 +355,130 @@ class FullscreenHeldStateTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.migrate(value, reviewed=reviewed)
 
+    def test_each_reviewed_hr_navigation_variant_preserves_later_candidate_state(self):
+        variants = (
+            (upgrade.HR_BEFORE_INVENTORY, upgrade.HR_BEFORE_SOURCE),
+            (upgrade.HR_AFTER_INVENTORY, upgrade.HR_AFTER_SOURCE),
+            (upgrade.HR_INVENTORY, upgrade.HR_SOURCE),
+        )
+        for inventory, source in variants:
+            with self.subTest(inventory=inventory):
+                value, reviewed = self.reviewed_preview38()
+                value['counter'] = 40
+                value['version_floor'] = '0.4.4-preview.39'
+                value['desired'].update(version='0.4.4-preview.40', inventorySha256=inventory)
+                value['observed']['inventorySha256'] = inventory
+                reviewed.update(version='0.4.4-preview.40', inventory_sha256=inventory,
+                                source=copy.deepcopy(source))
+                before = copy.deepcopy(value)
+                result = self.migrate(value, reviewed=reviewed)
+                self.assertEqual(value, before)
+                self.assertEqual(result['counter'], 40)
+                self.assertEqual(result['version_floor'], '0.4.4-preview.40')
+                self.assertEqual(result['sequence_floor'], before['sequence_floor'])
+                self.assertEqual(result['published_history'], before['published_history'])
+                self.assertEqual(result['last_remote_sha'], before['last_remote_sha'])
+                self.assertEqual(result['base_revision'], NEW_SEED)
+                for name in ('observed', 'desired', 'published'):
+                    self.assertIsNone(result[name])
+
+    def test_hr_navigation_proof_cannot_mix_another_reviewed_variants_source(self):
+        variants = (
+            (upgrade.HR_BEFORE_INVENTORY, upgrade.HR_AFTER_SOURCE),
+            (upgrade.HR_AFTER_INVENTORY, upgrade.HR_SOURCE),
+            (upgrade.HR_INVENTORY, upgrade.HR_BEFORE_SOURCE),
+        )
+        for inventory, wrong_source in variants:
+            with self.subTest(inventory=inventory):
+                value, reviewed = self.reviewed_preview38()
+                value['desired']['inventorySha256'] = inventory
+                value['observed']['inventorySha256'] = inventory
+                reviewed.update(inventory_sha256=inventory, source=copy.deepcopy(wrong_source))
+                before = copy.deepcopy(value)
+                with self.assertRaises(Exception):
+                    self.migrate(value, reviewed=reviewed)
+                self.assertEqual(value, before)
+
+    def test_only_reviewed_before_navigation_cohorts_require_a_replacement(self):
+        routes = (
+            (upgrade.HUD_BEFORE_INVENTORY, upgrade.HUD_AFTER_INVENTORY),
+        )
+        self.assertEqual(set(upgrade.NAV_TARGETS), {before for before, _ in routes})
+        for before, after in routes:
+            with self.subTest(before=before):
+                self.assertIn(before, upgrade.CANDIDATE_SOURCES)
+                self.assertIn(before, upgrade.LIVE_SOURCES)
+                self.assertNotIn(before, upgrade.PREPARED_SOURCES)
+                self.assertEqual(upgrade.NAV_TARGETS[before], after)
+                self.assertIn(after, upgrade.PREPARED_SOURCES)
+                self.assertEqual(upgrade.PREPARED_SOURCES[after], upgrade.CANDIDATE_SOURCES[after])
+        for inventory in (upgrade.HUD_AFTER_INVENTORY, upgrade.HUD_ADVANCED_INVENTORY):
+            with self.subTest(already_prepared=inventory):
+                self.assertIn(inventory, upgrade.CANDIDATE_SOURCES)
+                self.assertIn(inventory, upgrade.LIVE_SOURCES)
+                self.assertIn(inventory, upgrade.PREPARED_SOURCES)
+                self.assertNotIn(inventory, upgrade.NAV_TARGETS)
+        # Historical candidates may still bind a held counter, but they cannot
+        # make a new executable omit the newly approved HUD/application bytes.
+        for inventory in (upgrade.OLD_INVENTORY, upgrade.BEFORE_INVENTORY,
+                          upgrade.AFTER_INVENTORY, upgrade.ADVANCED_INVENTORY,
+                          upgrade.HR_BEFORE_INVENTORY, upgrade.HR_AFTER_INVENTORY,
+                          upgrade.HR_INVENTORY):
+            with self.subTest(historical_candidate=inventory):
+                self.assertIn(inventory, upgrade.CANDIDATE_SOURCES)
+                self.assertNotIn(inventory, upgrade.LIVE_SOURCES)
+                self.assertNotIn(inventory, upgrade.PREPARED_SOURCES)
+                self.assertNotIn(inventory, upgrade.NAV_TARGETS)
+        self.assertNotIn('9' * 64, upgrade.CANDIDATE_SOURCES)
+        self.assertNotIn('9' * 64, upgrade.LIVE_SOURCES)
+        self.assertNotIn('9' * 64, upgrade.PREPARED_SOURCES)
+
+    def test_final_hud_navigation_variants_accept_only_their_bound_later_counter_proof(self):
+        variants = (
+            (upgrade.HUD_BEFORE_INVENTORY, upgrade.HUD_BEFORE_SOURCE),
+            (upgrade.HUD_AFTER_INVENTORY, upgrade.HUD_AFTER_SOURCE),
+            (upgrade.HUD_ADVANCED_INVENTORY, upgrade.HUD_ADVANCED_SOURCE),
+        )
+        for inventory, source in variants:
+            with self.subTest(inventory=inventory):
+                value, reviewed = self.reviewed_preview38()
+                value['counter'] = 41
+                value['version_floor'] = '0.4.4-preview.40'
+                value['desired'].update(version='0.4.4-preview.41', inventorySha256=inventory)
+                value['observed']['inventorySha256'] = inventory
+                reviewed.update(version='0.4.4-preview.41', inventory_sha256=inventory,
+                                source=copy.deepcopy(source))
+                before = copy.deepcopy(value)
+                result = self.migrate(value, reviewed=reviewed)
+                self.assertEqual(value, before)
+                self.assertEqual(result['base_revision'], NEW_SEED)
+                self.assertEqual(result['counter'], 41)
+                self.assertEqual(result['version_floor'], '0.4.4-preview.41')
+                self.assertEqual(result['sequence_floor'], before['sequence_floor'])
+                self.assertEqual(result['published_history'], before['published_history'])
+                for name in ('observed', 'desired', 'published'):
+                    self.assertIsNone(result[name])
+                self.assertIn(inventory, upgrade.LIVE_SOURCES)
+                wrong = copy.deepcopy(reviewed)
+                wrong['source'] = upgrade.HR_SOURCE
+                with self.assertRaises(Exception):
+                    self.migrate(value, reviewed=wrong)
+
+    def test_hud_inventory_and_another_hud_navigation_source_cannot_be_mixed(self):
+        variants = (
+            (upgrade.HUD_BEFORE_INVENTORY, upgrade.HUD_AFTER_SOURCE),
+            (upgrade.HUD_AFTER_INVENTORY, upgrade.HUD_ADVANCED_SOURCE),
+            (upgrade.HUD_ADVANCED_INVENTORY, upgrade.HUD_BEFORE_SOURCE),
+        )
+        for inventory, wrong_source in variants:
+            with self.subTest(inventory=inventory):
+                value, reviewed = self.reviewed_preview38()
+                value['desired']['inventorySha256'] = inventory
+                value['observed']['inventorySha256'] = inventory
+                reviewed.update(inventory_sha256=inventory, source=copy.deepcopy(wrong_source))
+                with self.assertRaises(Exception):
+                    self.migrate(value, reviewed=reviewed)
+
 
 if __name__ == '__main__':
     unittest.main()
