@@ -60,18 +60,18 @@ echo json_encode(['result'=>'GO_ERP_DESKTOP_IMPORT_PHP_SETTINGS','sapi'=>PHP_SAP
         $goResult.expected_ini_loaded -isnot [bool] -or
         $goResult.expected_ini_loaded -ne $true -or $goResult.sapi -ne 'cli' -or
         $goResult.php_version -isnot [string] -or
-        $goResult.php_version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9.]{0,24}$' -or
+        $goResult.php_version -notmatch '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}[-A-Za-z0-9.]{0,24}\z' -or
         ($goResult.php_int_size -isnot [int] -and $goResult.php_int_size -isnot [long]) -or
         $goResult.php_int_size -notin @(4, 8) -or
         $goResult.serialize_precision -isnot [string] -or
-        $goResult.serialize_precision -notmatch '^(?:-1|[0-9]{1,4})$' -or
+        $goResult.serialize_precision -notmatch '^(?:-1|[0-9]{1,4})\z' -or
         $goResult.precision -isnot [string] -or
-        $goResult.precision -notmatch '^(?:-1|[0-9]{1,4})$' -or
+        $goResult.precision -notmatch '^(?:-1|[0-9]{1,4})\z' -or
         $goResult.memory_limit -ne '-1' -or
         $goResult.additional_ini_files -isnot [bool] -or
         $goResult.float_encoding_control -isnot [string] -or
         $goResult.float_encoding_control.Length -gt 128 -or
-        $goResult.float_encoding_control -notmatch '^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$') {
+        $goResult.float_encoding_control -notmatch '^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\z') {
         throw 'GO_ERP_PHP_SETTINGS_OUTPUT_UNVERIFIED'
     }
     [ordered]@{

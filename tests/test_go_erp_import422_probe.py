@@ -1,5 +1,6 @@
 """Protocol/privacy/SQL guard tests; no server, database or application boot."""
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -7,6 +8,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,9 +112,9 @@ class ReportTests(unittest.TestCase):
 
 @unittest.skipUnless(PHP, 'set GO_ERP_TEST_PHP or install PHP for pure helper checks')
 class PhpGuardTests(unittest.TestCase):
-    def run_php(self, body):
+    def run_php(self, body, options=()):
         source = '<?php require ' + json.dumps(str(ROOT / 'deployment/diagnose_go_erp_import422.php')) + ';\n' + body
-        result = subprocess.run([PHP, '-n'], input=source, text=True, stdout=subprocess.PIPE,
+        result = subprocess.run([PHP, '-n', *options], input=source, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, check=True)
         self.assertEqual(result.stderr, '')
         return json.loads(result.stdout)
@@ -142,6 +144,43 @@ class PhpGuardTests(unittest.TestCase):
                   "CREATE TABLE `users` (`id` int) ENGINE=InnoDB"]
         result = self.run_php('$items=' + json.dumps(accepted + denied) + '; echo json_encode(array_map(fn($ddl)=>goErp422DdlSafe("orders",$ddl),$items));')
         self.assertEqual(result, [True] * len(accepted) + [False] * len(denied))
+
+    def test_standalone_source_check_does_not_execute_application(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            (base / 'app').mkdir()
+            (base / 'bootstrap/cache').mkdir(parents=True)
+            (base / 'config').mkdir()
+            marker = base / 'must-not-exist'
+            content = '<?php file_put_contents(' + json.dumps(str(marker)) + ', "executed");\r\n'
+            (base / 'app/Example.php').write_bytes(content.encode())
+            (base / 'bootstrap/cache/config.php').write_text('ignored cache')
+            (base / 'config/.env').write_text('ignored confidential content')
+            file_hash = hashlib.sha256(content.replace('\r\n', '\n').encode()).hexdigest()
+            expected = hashlib.sha256(('desktop-dashboard-source:1\napp/Example.php\0' + file_hash + '\n').encode()).hexdigest()
+            actual = self.run_php('echo json_encode(goErp422SourceDigest(' + json.dumps(str(base)) + '));')
+            self.assertEqual(actual, expected)
+            self.assertFalse(marker.exists())
+            (base / 'app/Example.php').write_text('<?php // source changed')
+            changed = self.run_php('echo json_encode(goErp422SourceDigest(' + json.dumps(str(base)) + '));')
+            self.assertNotEqual(changed, expected)
+
+    @unittest.skipUnless(os.environ.get('GO_ERP_TEST_FRAMEWORK') and os.environ.get('GO_ERP_TEST_PDO'),
+                         'set framework and PDO paths to exercise the real Laravel connection')
+    def test_real_laravel_connection_blocks_before_resolving_pdo_and_reconnect(self):
+        framework = str(Path(os.environ['GO_ERP_TEST_FRAMEWORK']) / 'local-autoload.php')
+        result = self.run_php('require ' + json.dumps(framework) + ''';
+            $queries=0; $pdoCalls=0; $unsafeReconnect=0;
+            $connection=goErp422GuardedConnection(function()use(&$pdoCalls){$pdoCalls++;throw new RuntimeException('NO_DATABASE');},'probe','',[],$queries);
+            $errors=[];
+            foreach(['UPDATE users SET name=?','SELECT * FROM users FOR UPDATE','DROP TABLE orders'] as $sql){
+                try{$connection->statement($sql,['private']);}catch(GoErpImport422ProbeStopped $e){$errors[]=$e->getMessage();}
+            }
+            $connection->setReconnector(function()use(&$unsafeReconnect){$unsafeReconnect++;});
+            try{$connection->reconnect();}catch(GoErpImport422ProbeStopped $e){$errors[]=$e->getMessage();}
+            echo json_encode([$errors,$queries,$pdoCalls,$unsafeReconnect]);''',
+            ['-d', 'extension=' + os.environ['GO_ERP_TEST_PDO']])
+        self.assertEqual(result, [['SQL_WRITE_OR_LOCK_BLOCKED'] * 3 + ['SQL_RECONNECT_BLOCKED'], 0, 0, 0])
 
 
 if __name__ == '__main__':

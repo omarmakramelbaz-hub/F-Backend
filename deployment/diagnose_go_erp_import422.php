@@ -53,6 +53,73 @@ function goErp422FloatCount($value, int $depth = 0): int
     return $count;
 }
 
+function goErp422SourceDigest(string $base): string
+{
+    // Independent of Laravel/autoload: reject an unreviewed application before
+    // bootstrap.php, provider registration or application source is executed.
+    goErp422Need(realpath($base) === $base && is_dir($base), 'APPLICATION_DIRECTORY_UNSAFE');
+    $roots = ['app','bootstrap','config','database','desktop','resources','routes',
+        'public/dashboard/js','public/dashboard/css','public/dashboard/vendor/desktop-external'];
+    $files = []; $cases = []; $bytes = 0; $visited = 0;
+    $add = static function(string $path, string $name) use (&$files, &$cases, &$bytes): void {
+        goErp422Need(is_file($path) && !is_link($path) && preg_match('#^[a-zA-Z0-9_.@/-]+$#D', $name)
+            && !isset($cases[strtolower($name)]), 'APPLICATION_SOURCE_FILE_UNSAFE');
+        $cases[strtolower($name)] = true;
+        $content = file_get_contents($path);
+        goErp422Need(is_string($content), 'APPLICATION_SOURCE_UNREADABLE');
+        $bytes += strlen($content);
+        goErp422Need($bytes <= 64 * 1024 * 1024 && count($files) < 20000, 'APPLICATION_SOURCE_LIMIT');
+        $files[$name] = hash('sha256', str_replace("\r\n", "\n", $content));
+    };
+    foreach ($roots as $root) {
+        $directory = $base.'/'.$root;
+        if (!is_dir($directory)) continue;
+        goErp422Need(!is_link($directory), 'APPLICATION_SOURCE_LINK');
+        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $file) {
+            goErp422Need(++$visited <= 100000, 'APPLICATION_SOURCE_ENTRY_LIMIT');
+            $name = str_replace('\\', '/', substr($file->getPathname(), strlen($base) + 1));
+            if (str_starts_with($name, 'bootstrap/cache/')
+                || preg_match('#(?:^|/)(?:\.env(?:\..*)?|firebase(?:_credentials)?\.json|service[-_]account[^/]*\.json|[^/]+\.(?:key|pem)|error_log)$#i', $name)) continue;
+            goErp422Need(!$file->isLink(), 'APPLICATION_SOURCE_LINK');
+            if (preg_match('/\.(?:php|js|css|json|html|scss|vue)$/i', $name)) $add($file->getPathname(), $name);
+        }
+    }
+    if (is_file($base.'/artisan')) $add($base.'/artisan', 'artisan');
+    goErp422Need(count($files) > 0, 'APPLICATION_SOURCE_EMPTY');
+    ksort($files, SORT_STRING);
+    $digest = hash_init('sha256'); hash_update($digest, "desktop-dashboard-source:1\n");
+    foreach ($files as $name => $hash) hash_update($digest, $name."\0".$hash."\n");
+    return hash_final($digest);
+}
+
+function goErp422GuardedConnection($pdo, $database, $prefix, array $config, int &$guardedQueries)
+{
+    $connection = new class($pdo, $database, $prefix, $config) extends \Illuminate\Database\MySqlConnection {
+        public function reconnect() { throw new GoErpImport422ProbeStopped('SQL_RECONNECT_BLOCKED'); }
+    };
+    goErp422Need(method_exists($connection, 'beforeExecuting'), 'SQL_GUARD_UNAVAILABLE');
+    $connection->beforeExecuting(static function($query) use (&$guardedQueries) {
+        goErp422Need(is_string($query) && goErp422ReadSql($query), 'SQL_WRITE_OR_LOCK_BLOCKED');
+        $guardedQueries++;
+    });
+    return $connection;
+}
+
+function goErp422InstallConnectionGuards(int &$guardedQueries): void
+{
+    \Illuminate\Database\Connection::resolverFor('mysql', static function($pdo, $database, $prefix, $config) use (&$guardedQueries) {
+        goErp422Need(($config['options'][PDO::MYSQL_ATTR_INIT_COMMAND] ?? null) === 'SET SESSION TRANSACTION READ ONLY',
+            'DATABASE_READ_ONLY_INIT_MISSING');
+        return goErp422GuardedConnection($pdo, $database, $prefix, $config, $guardedQueries);
+    });
+    foreach (['sqlite', 'pgsql', 'sqlsrv'] as $driver) {
+        \Illuminate\Database\Connection::resolverFor($driver, static function() {
+            throw new GoErpImport422ProbeStopped('DATABASE_DRIVER_BLOCKED');
+        });
+    }
+}
+
 function goErp422Run(): array
 {
     goErp422Need(PHP_SAPI === 'cli', 'CLI_REQUIRED');
@@ -67,34 +134,32 @@ function goErp422Run(): array
     $before = ['sapi' => PHP_SAPI, 'php_version' => PHP_VERSION,
         'precision' => ini_get('precision'), 'serialize_precision' => ini_get('serialize_precision')];
     $root = '/home/fasakha/public_html';
+    goErp422Need(goErp422SourceDigest($root) === '08e84b198c6bbbd4d917226f96b73b6762f1d3a9d2a34d56446defab2f7ab44b',
+        'APPLICATION_SOURCE_UNREVIEWED');
     require $root.'/vendor/autoload.php';
-    $app = require $root.'/bootstrap/app.php';
     $guardedQueries = 0;
-    // PDO's init command makes the database session READ ONLY before provider
-    // boot can query it. The pre-execution callback additionally refuses locks,
-    // SQL writes and reconnects; no response discloses SQL or its bindings.
+    goErp422InstallConnectionGuards($guardedQueries);
+    $app = require $root.'/bootstrap/app.php';
+    // Every MySQL connection is guarded from its creation, before providers are
+    // registered. PDO's init command also makes each session READ ONLY before
+    // provider registration/boot can query it. Non-MySQL drivers are blocked.
     $app->afterBootstrapping(\Illuminate\Foundation\Bootstrap\LoadConfiguration::class, function($app) {
         $default = $app['config']->get('database.default');
-        $connection = $app['config']->get('database.connections.'.$default);
-        goErp422Need(is_array($connection) && ($connection['driver'] ?? '') === 'mysql'
+        $connections = $app['config']->get('database.connections');
+        goErp422Need(is_array($connections) && ($connections[$default]['driver'] ?? '') === 'mysql'
             && extension_loaded('pdo_mysql') && defined('PDO::MYSQL_ATTR_INIT_COMMAND'), 'MYSQL_REQUIRED');
-        $connection['options'][PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET SESSION TRANSACTION READ ONLY';
-        $app['config']->set('database.connections.'.$default, $connection);
-    });
-    $app->afterBootstrapping(\Illuminate\Foundation\Bootstrap\RegisterProviders::class, function($app) use (&$guardedQueries) {
-        $connection = $app['db']->connection();
-        goErp422Need($connection instanceof \Illuminate\Database\MySqlConnection
-            && method_exists($connection, 'beforeExecuting'), 'SQL_GUARD_UNAVAILABLE');
-        $connection->beforeExecuting(function($query) use (&$guardedQueries) {
-            goErp422Need(is_string($query) && goErp422ReadSql($query), 'SQL_WRITE_OR_LOCK_BLOCKED');
-            $guardedQueries++;
-        });
-        $connection->setReconnector(function() { throw new GoErpImport422ProbeStopped('SQL_RECONNECT_BLOCKED'); });
+        foreach ($connections as $name => $connection) {
+            if (($connection['driver'] ?? '') !== 'mysql') continue;
+            goErp422Need(empty($connection['read']) && empty($connection['write']) && empty($connection['url']),
+                'DATABASE_CONFIGURATION_UNREVIEWED');
+            $connection['options'][PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET SESSION TRANSACTION READ ONLY';
+            $app['config']->set('database.connections.'.$name, $connection);
+        }
     });
     $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
     goErp422Need($app->version() === '8.83.29', 'FRAMEWORK_UNREVIEWED');
-    $source = app(\App\Services\Dashboard\DesktopDashboardSource::class)->fingerprint();
-    goErp422Need(($source['sha256'] ?? '') === '08e84b198c6bbbd4d917226f96b73b6762f1d3a9d2a34d56446defab2f7ab44b', 'APPLICATION_SOURCE_UNREVIEWED');
+    goErp422Need(goErp422SourceDigest($root) === '08e84b198c6bbbd4d917226f96b73b6762f1d3a9d2a34d56446defab2f7ab44b',
+        'APPLICATION_SOURCE_CHANGED');
     $connection = \Illuminate\Support\Facades\DB::connection();
     goErp422Need($connection->transactionLevel() === 0, 'TRANSACTION_ALREADY_ACTIVE');
     $readonly = $connection->select("SHOW SESSION VARIABLES WHERE Variable_name IN ('tx_read_only','transaction_read_only')");

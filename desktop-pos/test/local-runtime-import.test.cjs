@@ -179,6 +179,7 @@ test('the native import boundary rejects malformed PHP settings without forwardi
   const server = { capture_scope: 'snapshot_export', php_sapi: 'fpm-fcgi', php_version: '8.2.30', serialize_precision: '17', precision: '14' };
   const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.4.15', serialize_precision: '-1', precision: '14' };
   for (const changed of [{ php_version: '8.2.30 PRIVATE_ACCOUNT_VALUE' }, { serialize_precision: '17\nPRIVATE_ACCOUNT_VALUE' },
+    { php_version: '8.2.30\n' }, { php_version: '1234.2.30' }, { serialize_precision: '17\n' },
     { precision: 14 }, { capture_scope: 'pool-private-script' }, { php_sapi: ['fpm-fcgi'] }]) {
     const report = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422,
       php_comparison: { server: { ...server, ...changed }, desktop } };

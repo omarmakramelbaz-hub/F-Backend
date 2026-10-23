@@ -132,6 +132,10 @@ test('actual import.php reports its Dashboard abort caller and only reviewed fix
     [422, 'مخطط قاعدة التجهيز غير مقبول.'],
     [422, 'بيانات التجهيز غير مكتملة.'],
     [422, 'بصمة مخطط التجهيز مختلفة.'],
+    [422, 'وصف تغطية نطاقات الكتالوج غير صالح.'],
+    [422, 'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.'],
+    [422, 'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.'],
+    [422, 'بيانات حساب مستخدم الجهاز مفقودة أو مكررة.'],
     [409, 'نسخة برنامج الجهاز لا تطابق بيانات السيرفر؛ النسخة الحالية وسجلاتها محفوظة.'],
     [409, 'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.'],
     [409, 'جدول مرتبط غير موجود في نسخة الحساب.'],
@@ -208,7 +212,8 @@ test('malformed export metadata is omitted and a CLI export is never presented a
   assert.equal(valid.report.php_comparison.server_web_request, false);
   assert.equal(valid.report.php_comparison.same_serialize_precision, true);
   for (const changed of [ { capture_scope: 'pool-private-script' }, { php_sapi: 'PRIVATE_ACCOUNT_VALUE' },
-    { php_version: '8.2.30 PRIVATE_ACCOUNT_VALUE' }, { serialize_precision: 17 }, { precision: '14\nPRIVATE_ACCOUNT_VALUE' } ]) {
+    { php_version: '8.2.30 PRIVATE_ACCOUNT_VALUE' }, { php_version: '8.2.30\n' }, { php_version: '1234.2.30' },
+    { serialize_precision: 17 }, { serialize_precision: '17\n' }, { precision: '14\nPRIVATE_ACCOUNT_VALUE' } ]) {
     const { report, stderr } = runImport(command, fixture, { transport_php: { ...server, ...changed } });
     assert.equal(Object.hasOwn(report, 'php_comparison'), false);
     assert.equal(stderr.includes('PRIVATE_ACCOUNT_VALUE'), false);

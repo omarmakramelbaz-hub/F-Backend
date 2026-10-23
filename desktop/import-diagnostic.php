@@ -17,6 +17,10 @@ final class DesktopImportDiagnostic
                 'مخطط قاعدة التجهيز غير مقبول.',
                 'بيانات التجهيز غير مكتملة.',
                 'بصمة مخطط التجهيز مختلفة.',
+                'وصف تغطية نطاقات الكتالوج غير صالح.',
+                'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.',
+                'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.',
+                'بيانات حساب مستخدم الجهاز مفقودة أو مكررة.',
             ],
         ],
     ];
@@ -60,7 +64,7 @@ final class DesktopImportDiagnostic
         if(!is_array($value)||($value['capture_scope']??null)!==$scope
             ||!in_array($value['php_sapi']??null,$sapis,true)
             ||!is_string($value['php_version']??null)
-            ||!preg_match('/^[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9.]{0,24}$/D',$value['php_version']))return null;
+            ||!preg_match('/^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}[-A-Za-z0-9.]{0,24}$/D',$value['php_version']))return null;
         foreach(['serialize_precision','precision'] as $name)
             if(!is_string($value[$name]??null)||!preg_match('/^(?:-1|[0-9]|[12][0-9]|30)$/D',$value[$name]))return null;
         return ['capture_scope'=>$scope,'php_sapi'=>$value['php_sapi'],'php_version'=>$value['php_version'],

@@ -19,7 +19,7 @@ class DesktopDashboardImport
         abort_unless($snapshot['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($snapshot['source']??null),409,'نسخة برنامج الجهاز لا تطابق بيانات السيرفر؛ النسخة الحالية وسجلاتها محفوظة.');
         abort_unless(DB::select('SHOW TABLES')===[],409,'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.');
-        abort_unless(!array_key_exists('catalog_scopes',$snapshot['coverage'])||in_array($snapshot['coverage']['catalog_scopes'],[0,1],true),422);
+        abort_unless(!array_key_exists('catalog_scopes',$snapshot['coverage'])||in_array($snapshot['coverage']['catalog_scopes'],[0,1],true),422,'وصف تغطية نطاقات الكتالوج غير صالح.');
         $catalog=($snapshot['coverage']['catalog_scopes']??null)===1;
         $base=$snapshot['enrollment']['base_branches']??$snapshot['branches'];
         Validator::make(['base'=>$base],['base'=>'required|array|min:1','base.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D']])->validate();
@@ -27,8 +27,8 @@ class DesktopDashboardImport
             abort_unless(($snapshot['coverage']['print_protocol']??null)===1&&isset($snapshot['enrollment']['base_branches'])&&is_array($snapshot['created_scopes']??null)
                 &&hash_equals($snapshot['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['created_scopes'])))
                 &&hash_equals($snapshot['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($base)))
-                &&hash_equals($snapshot['coverage']['catalog_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['branches']))),422);
-        }else abort_unless($base===$snapshot['branches']&&empty($snapshot['created_scopes']),422);
+                &&hash_equals($snapshot['coverage']['catalog_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['branches']))),422,'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.');
+        }else abort_unless($base===$snapshot['branches']&&empty($snapshot['created_scopes']),422,'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.');
         $media=DesktopDashboardMedia::receipt($snapshot['media']??[]);
         $allowed=DesktopDashboardSchema::TABLES;
         $schema=[];$rowCount=0;
@@ -48,7 +48,7 @@ class DesktopDashboardImport
         }
         ksort($schema);abort_unless(hash_equals($snapshot['schema_hash'],hash('sha256',DesktopDashboardBootstrap::json($schema))),422,'بصمة مخطط التجهيز مختلفة.');
         $users=$snapshot['tables']['users']['rows']??[];
-        abort_unless(count(array_filter($users,fn($row)=>(int)($row['id']??0)===(int)$snapshot['actor_id']))===1,422);
+        abort_unless(count(array_filter($users,fn($row)=>(int)($row['id']??0)===(int)$snapshot['actor_id']))===1,422,'بيانات حساب مستخدم الجهاز مفقودة أو مكررة.');
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         try{
             foreach($snapshot['tables'] as $part)DB::unprepared($part['ddl']);

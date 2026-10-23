@@ -20,15 +20,17 @@ const importMessages = {
       'جدول مرتبط غير موجود في نسخة الحساب.',
       'نسخة الحساب تحتوي على مرجع ناقص؛ لم تُفعّل قاعدة التجهيز.'
     ],
-    422: ['مخطط قاعدة التجهيز غير مقبول.', 'بيانات التجهيز غير مكتملة.', 'بصمة مخطط التجهيز مختلفة.']
+    422: ['مخطط قاعدة التجهيز غير مقبول.', 'بيانات التجهيز غير مكتملة.', 'بصمة مخطط التجهيز مختلفة.',
+      'وصف تغطية نطاقات الكتالوج غير صالح.', 'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.',
+      'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.', 'بيانات حساب مستخدم الجهاز مفقودة أو مكررة.']
   }
 };
 
 function importPhpComparison(value) {
   const profile = (item, scope, sapis) => item && item.capture_scope === scope
     && sapis.includes(item.php_sapi) && typeof item.php_version === 'string'
-    && /^[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9.]{0,24}$/.test(item.php_version)
-    && ['serialize_precision', 'precision'].every(key => typeof item[key] === 'string' && /^(?:-1|[0-9]|[12][0-9]|30)$/.test(item[key]))
+    && /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}[-A-Za-z0-9.]{0,24}(?![\s\S])/.test(item.php_version)
+    && ['serialize_precision', 'precision'].every(key => typeof item[key] === 'string' && /^(?:-1|[0-9]|[12][0-9]|30)(?![\s\S])/.test(item[key]))
       ? { capture_scope: scope, php_sapi: item.php_sapi, php_version: item.php_version,
         serialize_precision: item.serialize_precision, precision: item.precision } : null;
   const server = profile(value?.server, 'snapshot_export', ['fpm-fcgi', 'cgi-fcgi', 'apache2handler', 'litespeed', 'cli']);
