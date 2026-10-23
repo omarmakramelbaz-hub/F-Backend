@@ -14,6 +14,7 @@ on:
       - deployment/wire-hash-prior/**
       - tests/test_go_erp_program_*.py
       - tests/test_go_erp_nav_successor.py
+      - tests/test_go_erp_payment_nav_*.py
       - app/**
       - desktop/**
       - resources/**
@@ -28,6 +29,7 @@ on:
       - deployment/program-navigation/**
       - tests/test_go_erp_program_*.py
       - tests/test_go_erp_nav_successor.py
+      - tests/test_go_erp_payment_nav_*.py
       - .github/workflows/go-erp-program-deploy-tests.yml
   workflow_dispatch:
 
@@ -45,11 +47,14 @@ jobs:
           git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin aaeaebe9e9cfb67a038f9b408800189ccdb96631 feb46c4c1e1ece981ce7600935fd43e69e6f308a
           mapfile -t program_revisions < <(python3 -c "import runpy; release=runpy.run_path('deployment/upgrade_go_erp_program_watcher_root.py'); print(release['CORE']); print(release['NEW_SEED'])")
           git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin "${program_revisions[@]}"
+          git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 59d4fd2466137ee5c31a9f4701d3f5bc024a6ea3
       - name: Verify the application and two-cohort watcher transaction
         run: |
           bash -n deployment/run_go_erp_program_root.sh
           bash -n deployment/run_go_erp_nav_successor_root.sh
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_nav_successor.py
+          bash -n deployment/run_go_erp_payment_nav_successor_root.sh
+          sudo -n -- python3 -B -m unittest discover -s tests -p 'test_go_erp_payment_nav_*.py'
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_wrapper.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_application_patch.py
           sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_watcher_upgrade.py
