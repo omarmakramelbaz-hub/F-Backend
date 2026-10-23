@@ -6,6 +6,7 @@ assertion waiver, a workflow change in the core, or a different seed policy.
 """
 from pathlib import Path
 import subprocess
+import tempfile
 import types
 import unittest
 
@@ -109,12 +110,23 @@ class WindowsMediaSeedIdentityTests(unittest.TestCase):
         self.assertEqual(validator.CORE, CORE)
         self.assertEqual(validator.POLICY, 'native-program-center-seed-v1')
         self.assertEqual(set(validator.POLICY_FILES), POLICY_FILES)
-        self.assertEqual(validator.validate_seed(ROOT, SEED),
-                         {'core': CORE, 'seed': SEED, 'policy_files': sorted(POLICY_FILES)})
-        with self.assertRaisesRegex(validator.SeedError, 'POLICY_PARENT_INVALID'):
-            validator.validate_seed(ROOT, OLD_SEED)
-        with self.assertRaisesRegex(validator.SeedError, 'POLICY_SEED_REQUIRED'):
-            validator.validate_seed(ROOT, CORE)
+        # Match the server's private staged checkout ownership. CI invokes this
+        # proof as root over a runner-owned source checkout; the real validator
+        # deliberately drops SUDO_UID and must retain Git's ownership refusal.
+        with tempfile.TemporaryDirectory(prefix='windows-media-seed-policy-') as temporary:
+            repository = Path(temporary) / 'seed.git'
+            subprocess.check_call(['git', '-c', 'core.hooksPath=/dev/null',
+                                   'init', '--quiet', '--bare', str(repository)])
+            common = Path(git('rev-parse', '--git-common-dir').decode().strip())
+            if not common.is_absolute():
+                common = (ROOT / common).resolve()
+            (repository / 'objects/info/alternates').write_text(str(common / 'objects') + '\n')
+            self.assertEqual(validator.validate_seed(repository, SEED),
+                             {'core': CORE, 'seed': SEED, 'policy_files': sorted(POLICY_FILES)})
+            with self.assertRaisesRegex(validator.SeedError, 'POLICY_PARENT_INVALID'):
+                validator.validate_seed(repository, OLD_SEED)
+            with self.assertRaisesRegex(validator.SeedError, 'POLICY_SEED_REQUIRED'):
+                validator.validate_seed(repository, CORE)
 
 
 if __name__ == '__main__':

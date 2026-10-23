@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import types
 import unittest
@@ -278,6 +279,59 @@ class FixtureSeedTransactionTests(unittest.TestCase):
         self.assertFalse(self.m.controls_equal(actual, sealed, False))
         changed['payment'][0]['identity'][-1] += 1
         self.assertFalse(self.m.controls_equal({name: self.m.canonical(value) for name, value in changed.items()}, sealed, True))
+
+    def test_real_2558_row_metadata_intent_exceeds_gate_budget_and_replays_with_bounded_reader(self):
+        raw = subprocess.check_output(['/usr/bin/git', '-C', str(ROOT), 'show',
+            '5f2b0fecafec1c3803499284b0abcca4ecfed7e4:deployment/go_erp_live_source_candidate.json'])
+        self.assertEqual(len(raw), 1128198)
+        self.assertEqual(self.b.blob(raw), '072014bf37391223fd7f700a1a59c3178a57901d')
+        metadata = json.loads(raw)
+        self.inventory = copy.deepcopy(metadata['inventory'])
+        self.assertEqual(len(self.inventory), 2558)
+        exporter = module('fixture_seed_real_scale_metadata_exporter',
+            ROOT / 'deployment/wire-hash-prior/payload/go_erp_live_source.py')
+        old_snapshot = exporter._metadata(self.m.OLD_SEED, self.inventory)
+        new_snapshot = exporter._metadata(self.m.SEED, self.inventory)
+        self.m.INVENTORY = metadata['inventorySha256']
+        self.assertEqual(old_snapshot['inventorySha256'], self.m.INVENTORY)
+        self.state['observed'] = old_snapshot
+        self.state['desired']['inventorySha256'] = self.m.INVENTORY
+        self.write(self.state_path, self.m.canonical(self.state))
+        self.expected = self.g.program_gate_expected(self.m.CORE, self.m.SOURCE, self.m.INVENTORY)
+        self.ctx.expected = self.expected
+        self.ctx.old.expected = self.g.program_gate_expected(self.m.OLD_CORE, self.m.SOURCE, self.m.INVENTORY)
+        original_capture, original_prepare = self.capture_old, self.prepare_target
+        def capture(lock_fd):
+            observation = original_capture(lock_fd)
+            observation['snapshot'] = copy.deepcopy(old_snapshot)
+            return observation
+        def prepare(audit, state):
+            original_prepare(audit, state)
+            return copy.deepcopy(new_snapshot)
+        self.capture_old = capture
+        self.ctx.capture_old, self.ctx.prepare_target = capture, prepare
+        self.observation = capture(self.lock_fd)
+        protected = self.protected_snapshot()
+        result = self.transaction()
+        self.assertTrue(result['ok'])
+        audit = self.audits()[0]
+        intent_path = audit / 'intent.json'
+        self.assertGreater(intent_path.stat().st_size, 2 * 1024 * 1024)
+        self.assertLessEqual(intent_path.stat().st_size, self.m.MAX_INTENT)
+        with self.assertRaisesRegex(self.g.ProgramGateError, 'FILE_UNSAFE'):
+            self.g.program_gate_json(intent_path)
+        before = (intent_path.read_bytes(), self.u.exact_key(intent_path.stat()))
+        intent = self.m.validate_intent(self.ctx, audit)
+        self.assertEqual(len(intent['observation']['state']['observed']['inventory']), 2558)
+        self.assertEqual(intent['observation']['snapshot'], old_snapshot)
+        self.assertEqual(intent['new_snapshot'], new_snapshot)
+        replay_path, replay_intent, state = self.m.completed_upgrade(self.ctx, self.lock_fd, lambda: None)
+        self.assertEqual(replay_path, audit)
+        self.assertEqual(replay_intent, intent)
+        self.assertEqual(state['counter'], 37)
+        self.assertIsNone(state['observed'])
+        self.assertEqual((intent_path.read_bytes(), self.u.exact_key(intent_path.stat())), before)
+        self.assertEqual(self.protected_snapshot(), protected)
 
 
 def interruption_case(slot):
