@@ -353,7 +353,9 @@ class LocalRuntime {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     await run(context.php, [...phpArgs, path.join(context.application, 'desktop/database.php'), 'stage'], options,
       JSON.stringify({ password: settings.rootPassword, appPassword: settings.appPassword }));
-    const receipt = JSON.parse(await run(context.php, [...phpArgs, path.join(context.application, 'desktop/import.php')], options, readSnapshot.input(snapshot), 300000));
+    // The import decodes the whole server snapshot in one PHP process. A large account
+    // needs more than the 256 MiB web limit, so only this one-shot step is uncapped.
+    const receipt = JSON.parse(await run(context.php, [...phpArgs, '-d', 'memory_limit=-1', path.join(context.application, 'desktop/import.php')], options, readSnapshot.input(snapshot), 300000));
     const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
       path.join(this.storageFor(value), 'app'));
     if (archive) await run(context.php, [...phpArgs, path.join(context.application, 'desktop/archive.php')], options,
