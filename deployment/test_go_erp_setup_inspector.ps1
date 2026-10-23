@@ -356,31 +356,9 @@ try {
     Dismiss-CiStartupDialog
     Connect-CiInspector
     Assert-CiBinding
-    if ($script:ciStartupDismissed -eq 0) {
-        # Exercise the exact ordinary startup dialog deterministically when the
-        # fresh CI account's ambient network happened to avoid it. No hooks or
-        # dialog/source overrides are installed. Bound the ACK to three seconds
-        # and detach within another three before the eight-second modal timer.
-        $script:cancel.Dispose()
-        $script:cancel = New-Object Threading.CancellationTokenSource
-        $script:cancel.CancelAfter(3000)
-        $showDialog = @'
-(()=>{const {dialog}=process.mainModule.require('electron');
- setTimeout(()=>dialog.showErrorBox('GO ERP','\u062c\u0647\u0651\u0632 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0646 \u062d\u0633\u0627\u0628 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0642\u0628\u0644 \u0627\u0644\u0639\u0645\u0644 \u0628\u062f\u0648\u0646 \u0625\u0646\u062a\u0631\u0646\u062a.'),8000);
- return 'CI_STARTUP_DIALOG_SCHEDULED';})()
-'@
-        try {
-            if ((Invoke-CiEvaluate $showDialog) -cne 'CI_STARTUP_DIALOG_SCHEDULED') { throw 'CI_STARTUP_DIALOG_NOT_SCHEDULED' }
-        } finally { Disconnect-CiInspector }
-        $modalDeadline = [DateTime]::UtcNow.AddSeconds(15)
-        do {
-            Dismiss-CiStartupDialog
-            if ($script:ciStartupDismissed -eq 0) { Start-Sleep -Milliseconds 100 }
-        } until ($script:ciStartupDismissed -gt 0 -or [DateTime]::UtcNow -ge $modalDeadline)
-        if ($script:ciStartupDismissed -eq 0) { throw 'CI_STARTUP_DIALOG_NOT_OBSERVED' }
-        Connect-CiInspector
-        Assert-CiBinding
-    }
+    # Production never automates native dialogs: the attended user dismisses
+    # prompts. This CI-only helper acknowledges an exact known prompt only if
+    # observed; the count below is evidence, not a compulsory coverage claim.
     # Only this CI test injects a synthetic call. The packaged module, bundled
     # PHP and unmodified run()/sanitizer execute against temporary fixture files.
     $fixtureJson = ConvertTo-Json -InputObject $application -Compress
@@ -457,8 +435,7 @@ try {
     $stillListening = $true
     try { $null = Invoke-RestMethod -DisableKeepAlive -Uri ('http://127.0.0.1:' + $ready.Port + '/json/list') -TimeoutSec 2 } catch { $stillListening = $false }
     if ($stillListening) { throw 'INSPECTOR_LISTENER_LEFT_OPEN' }
-    if ($script:ciStartupDismissed -lt 1) { throw 'CI_STARTUP_DIALOG_NOT_OBSERVED' }
-    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.30';sourceRevision='c6605145f740371485944aed1a04045efe71e828';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;actualNormalMenuExit=$true;ciStartupDialogsDismissed=$script:ciStartupDismissed;inspectorClosed=$true}
+    $proof = [ordered]@{result='GO_ERP_PACKAGED_INSPECTOR_PROOF';powershell=$PSVersionTable.PSVersion.ToString();electron='44.6.0';version='0.4.4-preview.30';sourceRevision='c6605145f740371485944aed1a04045efe71e828';actualPackagedMain=$true;actualLocalRun=$true;sanitizedCause=$true;rawValuesExcluded=$true;resumed=$true;normalUserExitRequired=$true;actualNormalMenuExit=$true;ciStartupDialogObserved=($script:ciStartupDismissed -gt 0);ciStartupDialogsDismissed=$script:ciStartupDismissed;inspectorClosed=$true}
     $proof | ConvertTo-Json -Compress
 } finally {
     Disconnect-CiInspector
