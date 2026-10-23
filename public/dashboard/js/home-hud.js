@@ -62,6 +62,7 @@
         return list;
     }
 
+    function stackedLayout() { return W < 900 || H < 560; }
     function nodes() {
         var d = data, list = [], m = d.modules || {}, finance = d.can_view_financials && d.sales;
         if (LINKS.employees) list.push(['employees', 'متابعة الموظفين', 'الحضور والرواتب', '']);
@@ -82,12 +83,13 @@
             if (p.pending_total) list.push(['pending', 'طلبات الانضمام', num(p.pending_total), 'warn']);
         }
         // A phone shows the eight most important sections; a wide screen up to twelve.
-        return list.slice(0, W && W < 760 ? 8 : 12);
+        return list.slice(0, W && stackedLayout() ? 8 : 12);
     }
 
 
     // ---- drawing ----
     function size() {
+        root.classList.add('reflow');
         var ratio = Math.min(2, window.devicePixelRatio || 1); W = root.clientWidth; H = root.clientHeight;
         canvas.width = W * ratio; canvas.height = H * ratio; canvas.style.height = H + 'px'; ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         stars = []; for (var i = 0; i < Math.round(W * H / 5200); i++) stars.push({x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.3 + .2, t: Math.random() * 6});
@@ -98,12 +100,12 @@
             p2: Math.random() * 6.3, tilt: (Math.random() - .5) * .22, hue: 186 + Math.random() * 28, alpha: .07 + Math.random() * .12,
             width: .8 + Math.random() * 1.2, run: Math.random(), speed: .035 + Math.random() * .05, left: w % 2 === 0});
         if (!booting && nodesBox.children.length && nodesBox.children.length !== nodes().length) fillNodes(false);
-        layout();
+        layout(); root.getBoundingClientRect(); root.classList.remove('reflow');
     }
     // The solar system is drawn in units: the box is 360 wide, the GO mark 300, the halo 240 in radius, Neptune's orbit 660 by 264.
     function layout() {
-        var next = W < 760 ? 'compact' : W < 1180 ? 'mid' : 'wide', els = nodesBox.children, n = els.length, i, box = checksBox.parentNode;
-        if (next !== mode) { root.classList.remove('compact', 'mid', 'wide'); root.classList.add(next); mode = next; }
+        var next = stackedLayout() ? 'compact' : W < 1280 ? 'mid' : 'wide', els = nodesBox.children, n = els.length, i, box = checksBox.parentNode;
+        if (next !== mode) { root.classList.remove('compact', 'mid', 'wide'); root.classList.add(next); mode = next; root.scrollTop = 0; }
         links = [];
         if (mode === 'compact') {
             // Phones: the sections are tiles under the system, so nothing is placed by hand.
@@ -118,7 +120,9 @@
         var ringH = mode === 'mid' ? Math.max(440, H - box.offsetHeight - 110) : H;
         box.style.marginTop = mode === 'mid' ? ringH + 'px' : '';
         var panel = mode === 'wide' ? box.offsetWidth + 40 : 0, cx = (W - panel) / 2, cy = ringH / 2 + 12;
-        var rx = Math.min(cx - 150, 520), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .8 / 660, ry * .76 / 264));
+        var labelSpace = 0;
+        for (i = 0; i < n; i++) labelSpace = Math.max(labelSpace, els[i].querySelector('.hud-tag').offsetWidth + 34);
+        var rx = Math.min(cx - Math.max(150, labelSpace), 520), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .8 / 660, ry * .76 / 264));
         // Wide screens keep the system in the space beside the check panel, so no section runs under it.
         core.style.left = cx + 'px'; core.style.top = cy + 'px'; core.style.width = Math.round(360 * scale) + 'px';
         root.style.setProperty('--hud-cx', cx + 'px'); root.style.setProperty('--hud-cy', cy + 'px');
