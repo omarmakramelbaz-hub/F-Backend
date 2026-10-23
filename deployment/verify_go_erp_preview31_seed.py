@@ -17,14 +17,14 @@ import subprocess
 import tempfile
 import types
 
-CORE = 'd3cef0a0f823d1f10814ff74ce0f4badf5c29670'
+CORE = '53266b0596533b2752480d148608886404f307db'
 LEGACY_BASES = frozenset((
     '75c3fe50b3609ef5822904a23d7c4ed0afd07eff',
     '7523ff6888a6e3d0a6f5b7712c553909f12c043b',
     '52f7f5d22e5a2026e5bd5732bbb7893125b6ef9d',
 ))
 REMOTE = 'https://github.com/omarmakramelbaz-hub/F-Backend.git'
-POLICY = 'native-program-center-seed-v1'
+POLICY = 'native-fullscreen-f12-seed-v1'
 POLICY_FILES = frozenset((
     '.github/workflows/go-erp-update-tests.yml',
     'deployment/verify_go_erp_preview31_seed.py',
