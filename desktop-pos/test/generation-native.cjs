@@ -166,7 +166,9 @@ echo $wire;
   });
   await new Promise(resolve => mediaServer.listen(0, '127.0.0.1', resolve));
   const mediaOrigin = 'http://127.0.0.1:' + mediaServer.address().port;
-  const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-native-generation-'));
+  // Resolve Windows 8.3 aliases on this own fresh fixture root before the
+  // unmodified media guard checks its descendants for redirected paths.
+  const profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-native-generation-')));
   const key = crypto.randomBytes(32), failures = [];
   // Test adapter for Electron safeStorage. This is not shipped or a DPAPI integration claim.
   const safeStorage = { isEncryptionAvailable: () => true,

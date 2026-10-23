@@ -11,7 +11,8 @@ function item(relative = 'products/10/رنجة.png') {
   return { path: relative, mime: 'image/png', bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), ticket: 'opaque-server-ticket' };
 }
 async function root(t) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-media-'));
+  // A fresh fixture may be created through the Windows TEMP 8.3 alias.
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-media-')));
   t.after(() => fs.rm(directory, { recursive: true, force: true })); return directory;
 }
 function response(value = bytes, headers = {}) { return new Response(value, { headers: { 'content-type': 'image/png', ...headers } }); }

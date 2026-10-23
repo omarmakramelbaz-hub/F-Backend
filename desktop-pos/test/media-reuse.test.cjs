@@ -13,7 +13,8 @@ function item(relative = 'products/10/رنجة.png', value = bytes, area = 'publ
     sha256: crypto.createHash('sha256').update(value).digest('hex'), ticket: 'opaque-current-authorized-ticket', ...(area === 'private' ? { area } : {}) };
 }
 async function fixture(t) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-media-reuse-'));
+  // Canonicalize only this own fresh fixture root; production checks stay strict.
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-media-reuse-')));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const old = path.join(directory, 'old', 'app'), target = path.join(directory, 'candidate', 'app'), cache = path.join(directory, 'media-cache');
   for (const root of [old, target]) await fs.mkdir(path.join(root, 'public'), { recursive: true });
