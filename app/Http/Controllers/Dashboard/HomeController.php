@@ -72,6 +72,8 @@ class HomeController extends Controller
     {
         $boot=['initial'=>$overview->data($request->query(),auth('admin')->user()),
             'url'=>route('dashboard.overview'),'locale'=>app()->getLocale(),'labels'=>__('home_overview')];
+        // The GO control room plays its start-up sequence once per sign-in (sign-out clears the session).
+        $boot['intro']=!$request->session()->has('go_hud_intro');$request->session()->put('go_hud_intro',true);
         return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
     }
 
