@@ -1,0 +1,40 @@
+name: Isolated Windows media path diagnosis
+
+on:
+  push:
+    branches: ['codex/go-erp-windows-media-path-probe-20261023']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: probe
+          persist-credentials: false
+      - name: Read the exact failed Preview 37 code
+        uses: actions/checkout@v4
+        with:
+          ref: 5f2b0fecafec1c3803499284b0abcca4ecfed7e4
+          path: actual37
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Diagnose original media guard with disposable Windows aliases
+        shell: pwsh
+        run: |
+          node probe/tests/windows-media-path-probe.cjs actual37/desktop-pos/src/dashboard-media.cjs probe-result.json
+          if ($LASTEXITCODE -ne 0) { throw 'The isolated media path probe did not complete; see its bounded JSON report.' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-media-path-probe
+          path: probe-result.json
+          if-no-files-found: error
+          retention-days: 7
