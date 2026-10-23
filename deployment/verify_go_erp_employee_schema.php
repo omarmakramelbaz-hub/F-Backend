@@ -15,9 +15,19 @@ function go_erp_employee_schema_report(array $records, int $ledger): array
         if (!is_string($name) || !isset($wanted[$name]) || isset($present[$name]))
             throw new RuntimeException('GO_ERP_EMPLOYEE_SCHEMA_COLUMNS_INVALID');
         [$type,$length] = $wanted[$name];
+        $columnType=$row['COLUMN_TYPE']??null;
+        $expectedType=$type.($length===null?'':'('.$length.')');
+        // MySQL reports SQL NULL as null; MariaDB can report the unquoted SQL
+        // token "NULL". A quoted literal such as "'NULL'" is a different default.
+        $nullDefault=array_key_exists('COLUMN_DEFAULT',$row)&&($row['COLUMN_DEFAULT']===null
+            ||(is_string($row['COLUMN_DEFAULT'])&&strcasecmp($row['COLUMN_DEFAULT'],'NULL')===0));
         if (($row['DATA_TYPE'] ?? null) !== $type || ($row['IS_NULLABLE'] ?? null) !== 'YES'
             || ($length !== null && (string)($row['CHARACTER_MAXIMUM_LENGTH'] ?? '') !== (string)$length)
-            || ($type === 'bigint' && !preg_match('/^bigint(?:\([0-9]+\))? unsigned$/D', $row['COLUMN_TYPE'] ?? '')))
+            || !is_string($columnType)
+            || ($type==='bigint'?!preg_match('/^bigint(?:\([0-9]+\))? unsigned$/D',$columnType):$columnType!==$expectedType)
+            || !$nullDefault || ($row['EXTRA']??null)!==''
+            || !array_key_exists('GENERATION_EXPRESSION',$row)
+            || !in_array($row['GENERATION_EXPRESSION'],[null,''],true))
             throw new RuntimeException('GO_ERP_EMPLOYEE_SCHEMA_COLUMN_UNREVIEWED');
         $present[$name] = true;
     }
@@ -36,7 +46,7 @@ try {
     $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
     Illuminate\Support\Facades\DB::statement('SET SESSION TRANSACTION READ ONLY');
     $columns = Illuminate\Support\Facades\DB::select(
-        "SELECT COLUMN_NAME,DATA_TYPE,IS_NULLABLE,CHARACTER_MAXIMUM_LENGTH,COLUMN_TYPE
+        "SELECT COLUMN_NAME,DATA_TYPE,IS_NULLABLE,CHARACTER_MAXIMUM_LENGTH,COLUMN_TYPE,COLUMN_DEFAULT,EXTRA,GENERATION_EXPRESSION
          FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='branch_employees'
          AND COLUMN_NAME IN ('id_front_path','id_front_hash','id_front_mime','id_back_path','id_back_hash','id_back_mime',
                             'regulation_version','regulation_accepted_at','regulation_accepted_by')"

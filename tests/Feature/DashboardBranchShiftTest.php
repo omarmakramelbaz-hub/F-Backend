@@ -94,10 +94,14 @@ class DashboardBranchShiftTest extends TestCase
         // Historical bank expenses still reconcile without debiting the cash drawer.
         $legacy=$this->create(202,['amount'=>'50.00'],1);DB::table('branch_expenses')->where('id',$legacy['id'])->update(['payment_method'=>'bank','status'=>'approved']);
         DB::table('branch_expense_commands')->where('expense_id',$legacy['id'])->update(['snapshot'=>json_encode(DB::table('branch_expenses')->where('id',$legacy['id'])->first())]);
-        $this->create(203,['amount'=>'99.00']);
+        $pending=$this->create(203,['amount'=>'99.00']);
         $before=(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents');$preview=$this->shifts()->data(['branch'=>'f:100'],$this->actor(1));
         $this->assertSame(1,$preview['report']['pending_expenses']);
         foreach(['channels','sales_total','delivery_total','expenses_total','net_sales','expected_cash','opening_cash','variance','counted_cash','till_balance'] as $key)$this->assertArrayNotHasKey($key,$preview['report']);
+        $this->denied(fn()=>$this->shifts()->close($this->closing(900,'1685.00'),$this->actor(1)));
+        $this->assertSame(0,DB::table('branch_shift_closings')->count());
+        $this->review($pending,'reject',204,1);
+        $this->assertSame('rejected',DB::table('branch_expenses')->where('id',$pending['id'])->value('status'));
         $closeValues=$this->closing(900,'1685.00');$result=$this->shifts()->close($closeValues,$this->actor(1));$id=$result['closing']['id'];$paper=$this->shifts()->receipt($id,$this->actor(1));
         $this->assertSame('3920.00',$paper['sales_total']);$this->assertSame('220.00',$paper['delivery_total']);$this->assertSame('150.00',$paper['expenses_total']);$this->assertSame('3550.00',$paper['net_sales']);$this->assertSame('1700.00',$paper['expected_cash']);$this->assertSame('1685.00',$paper['counted_cash']);$this->assertSame('-15.00',$paper['variance']);$this->assertSame('عجز',$paper['variance_label']);$this->assertSame('400.00',$paper['app_branch_cash']);$this->assertSame('100.00',$paper['opening_cash']);$this->assertSame('730.00',$paper['noncash_sales']);
         $this->assertSame($before,(int)DB::table('takeaway_tills')->where('branch','f:100')->value('balance_cents'));$this->assertTrue($paper['drawer_preserved']);$this->assertSame('1700.00',$paper['next_shift_opening_cash']);$this->assertSame(0,DB::table('takeaway_till_entries')->where('kind','shift_close')->count());$this->assertArrayNotHasKey('expected_cash',$result['closing']);$this->assertArrayNotHasKey('snapshot',$result['closing']);

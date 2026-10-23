@@ -61,6 +61,9 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
   await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/adminlte.js')});
   assert.equal(await arrival().evaluate(el=>el.classList.contains('select2-hidden-accessible')),false,'attendance stays a native select after AdminLTE loads');
+  assert.equal(await departure().evaluate(el=>el.classList.contains('select2-hidden-accessible')),false,'departure stays a native select after AdminLTE loads');
+  assert.equal(await page.locator('[data-op-filter=branch]').evaluate(el=>el.classList.contains('select2-hidden-accessible')),true,'AdminLTE still enhances the branch filter');
+  assert.equal(await page.locator('[data-op-filter=job_title]').evaluate(el=>el.classList.contains('select2-hidden-accessible')),true,'AdminLTE still enhances the job filter');
 
   await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
   assert.equal(await arrival().count(),1);assert.equal(await departure().count(),1);
@@ -120,6 +123,12 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   for(const size of [{width:1920,height:950},{width:1440,height:820},{width:1366,height:768}]){
    await page.setViewportSize(size);await refresh();await enhanceAttendance();await page.evaluate(()=>window.scrollTo(0,0));
    const rows=page.locator('[data-op-table] tbody tr');assert.equal(await rows.count(),6);
+   assert.equal(await rows.locator('.op-identity-badge').count(),6,'Every employee keeps the identity status control');
+   for(const row of await rows.all()){
+    const badge=row.locator('.op-identity-badge'),badgeBox=await badge.boundingBox(),cellBox=await row.locator('td').nth(1).boundingBox();
+    assert.ok(await badge.isVisible());assert.ok(badgeBox.width>30&&badgeBox.height>=14,'The identity status remains readable and clickable');
+    assert.ok(badgeBox.x>=cellBox.x&&badgeBox.x+badgeBox.width<=cellBox.x+cellBox.width&&badgeBox.y>=cellBox.y&&badgeBox.y+badgeBox.height<=cellBox.y+cellBox.height,'Identity status stays inside its employee cell');
+   }
    const sixth=await rows.nth(5).boundingBox();assert.ok(sixth.y+sixth.height<=size.height-12,'Sixth employee is outside the initial viewport: '+JSON.stringify({size,sixth}));
    const clipped=await page.locator('.op-attendance-cell .select2-selection__rendered').first().evaluate(el=>el.scrollWidth>el.clientWidth);assert.equal(clipped,false,'Recorded attendance time must fit in the control');
    const add=await page.locator('[data-op-add]').boundingBox(),settings=await page.locator('[data-op-attendance-rules]').boundingBox();assert.ok(Math.abs(add.y-settings.y)<2,'Header actions must share a row');

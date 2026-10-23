@@ -41,7 +41,7 @@
                     </a>
                 </li>
                 @if((config('desktop_dashboard.enabled') || config('desktop_dashboard.local')) && app(\App\Services\Dashboard\TakeawayAccess::class)->canAccess(auth('admin')->user()))
-                <li class="nav-item"><a href="{{ route('desktop-dashboard.index') }}" data-spa-off class="nav-link {{ request()->is('admin/desktop-dashboard*') ? 'active' : '' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
+                <li class="nav-item"><a href="{{ route('desktop-dashboard.index') }}" data-spa-off class="nav-link {{ request()->is('admin/desktop-dashboard*') ? 'active' : '' }}"><i class="nav-icon fas fa-desktop" aria-hidden="true"></i><p>برنامج الكمبيوتر</p></a></li>
                 @endif
                 @if(app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()))
                     <li class="nav-item">

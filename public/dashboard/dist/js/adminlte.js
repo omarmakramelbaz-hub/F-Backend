@@ -1537,7 +1537,7 @@
   Object.defineProperty(exports, '__esModule', { value: true });
 
 }));
-$('.content-wrapper select').not('select[name="type"], .modal select').select2();
+$('.content-wrapper select').not('select[name="type"], .modal select, [data-op-attendance], [data-op-checkout]').select2();
 // $('.areas').selectize();
 
 //# sourceMappingURL=adminlte.js.map

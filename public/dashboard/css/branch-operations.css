@@ -88,6 +88,14 @@
 .op-workspace .op-identity-badge{margin-inline-start:auto;min-height:22px;padding:1px 8px;font-size:10px;font-weight:700;border-radius:10px;white-space:nowrap}
 .op-workspace .op-identity-badge.is-complete{color:#197845;background:#f0faf4;border-color:#cfe6d8}
 .op-workspace .op-identity-badge.is-missing{color:#b77506;background:#fffaf1;border-color:#efdfb5}
+@media(min-width:1200px){
+ #branch-operations.op-employees .op-employee{display:grid;grid-template-columns:28px minmax(0,1fr);column-gap:6px;row-gap:1px}
+ #branch-operations.op-employees .op-employee>.op-avatar{grid-row:1/span 2}
+ #branch-operations.op-employees .op-employee>div{min-width:0}
+ #branch-operations.op-employees .op-employee strong{line-height:1.2}
+ #branch-operations.op-employees .op-employee small{margin-top:1px;line-height:1.2}
+ #branch-operations.op-employees .op-identity-badge{grid-column:2;justify-self:start;margin-inline-start:0;min-height:18px;padding:0 6px;font-size:9px;line-height:1.2}
+}
 .op-identity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .op-identity-side{margin:0;display:flex;flex-direction:column;gap:8px;border:1px solid #e2e6ed;border-radius:6px;padding:10px;background:#fbfcff}
 .op-identity-side figcaption{font-weight:700;font-size:13px}
