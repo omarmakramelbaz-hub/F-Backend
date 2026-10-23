@@ -80,6 +80,15 @@ const watchdog = setTimeout(() => {
     await page.locator('#dashboard-login-email').fill('owner@test.invalid');
     await page.locator('#dashboard-login-password').fill('Fixture123');
     await Promise.all([page.waitForURL('**/admin/dashboard'), page.locator('.dashboard-login-submit').click()]);
+    stage='current GO home screen';
+    const hud=page.locator('#go-hud');
+    await hud.waitFor({state:'visible'});
+    await page.locator('#go-hud.ready').waitFor({state:'visible'});
+    await hud.getByRole('button',{name:'GO — الدخول على الرئيسية',exact:true}).click();
+    await hud.waitFor({state:'hidden'});
+    const originalHome=page.locator('#home-overview, #branch-home');
+    assert.equal(await originalHome.count(),1,'GO reveals exactly one original home page.');
+    await originalHome.waitFor({state:'visible'});
     stage='current dashboard order sound control';
     await verifyDashboardSoundControl(page);
     assert.equal(await page.evaluate(() => typeof window.jQuery?.fn.sortable), 'function', 'The current dashboard must load its local jQuery UI widgets.');
@@ -317,7 +326,14 @@ const watchdog = setTimeout(() => {
     await page.unroute('**/admin/categorysDeleteAll');
     process.stdout.write('PASS original bulk-delete button retains rows and its UUID after a lost reply, including reordered selections\n');
     // UI contract only: the real native preparation/supervisor is tested separately on Windows.
-    await page.getByRole('link', { name: 'برنامج الكمبيوتر', exact: true }).click();
+    stage = 'original desktop program navigation';
+    const programLink = page.getByRole('link', { name: 'برنامج الكمبيوتر', exact: true });
+    await programLink.waitFor({ state: 'visible' });
+    assert.equal(await programLink.evaluate(link => link.parentElement.parentElement.matches('[data-dashboard-navigation]')), true,
+      'The modern program shortcut remains visible at the sidebar root when other links are grouped.');
+    assert.equal(await programLink.evaluate(link => new URL(link.parentElement.previousElementSibling.querySelector('a[href]').href).pathname), '/admin/print-settings',
+      'The program shortcut follows direct printing settings.');
+    await programLink.click();
     await page.waitForURL(input.origin + '/admin/desktop-dashboard');
     await page.locator('[data-desktop-program]').waitFor();
     assert.equal(await page.locator('[data-desktop-controls]').isVisible(), false, 'Normal browser has no native device actions.');

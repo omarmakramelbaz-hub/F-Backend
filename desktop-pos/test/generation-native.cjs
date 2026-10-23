@@ -20,7 +20,8 @@ const coverageCode = require(path.join(codeRoot, 'dashboard-coverage.cjs'));
 const readSnapshot = require(path.join(codeRoot, 'dashboard-download.cjs'));
 
 async function importMemoryProbe(bundle, snapshot) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-native-import-memory-'));
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'dashboard-native-import-memory-'));
+  assert.equal((await fs.realpath(root)).toLowerCase(), root.toLowerCase(), 'The private memory fixture uses a canonical Windows directory.');
   const application = path.join(root, 'application'), phpIni = path.join(root, 'php/php.ini');
   const observations = path.join(root, 'stage-limits.jsonl');
   const allocationBytes = 272 * 1024 * 1024;
@@ -166,7 +167,10 @@ echo $wire;
   });
   await new Promise(resolve => mediaServer.listen(0, '127.0.0.1', resolve));
   const mediaOrigin = 'http://127.0.0.1:' + mediaServer.address().port;
-  const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-native-generation-'));
+  // Windows runners can expose a short-name TEMP alias. Resolve only this
+  // test-owned temporary base; production media path checks stay unchanged.
+  const profile = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'dashboard-native-generation-'));
+  assert.equal((await fs.realpath(profile)).toLowerCase(), profile.toLowerCase(), 'The private generation fixture uses a canonical Windows profile.');
   const key = crypto.randomBytes(32), failures = [];
   // Test adapter for Electron safeStorage. This is not shipped or a DPAPI integration claim.
   const safeStorage = { isEncryptionAvailable: () => true,
