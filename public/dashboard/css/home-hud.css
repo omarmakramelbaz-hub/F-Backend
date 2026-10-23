@@ -40,7 +40,7 @@ html.go-hud-open,html.go-hud-open body{overflow:hidden!important}
 #go-hud .hud-go{pointer-events:auto;cursor:pointer;outline:none}
 #go-hud .hud-go .hud-hit{fill:transparent;stroke:transparent;stroke-width:4px}
 #go-hud .hud-go:focus-visible .hud-hit{stroke:var(--hud-cyan)}
-#go-hud .hud-go .hud-logo{transition:opacity .2s}
+#go-hud .hud-go .hud-logo{filter:drop-shadow(0 1px 1px #021322cc);transition:opacity .2s}
 #go-hud .hud-go:hover .hud-logo{opacity:.86}
 
 #go-hud .hud-node{position:absolute;z-index:4;transform:translate(-50%,-50%) scale(.2);opacity:0;color:inherit;text-decoration:none;

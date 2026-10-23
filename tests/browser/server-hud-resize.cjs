@@ -15,11 +15,11 @@ const links={'active':'/admin/branch-orders','branches':'/admin/branch-orders','
  for(const reducedMotion of ['no-preference','reduce']){
  const page=await browser.newPage({viewport:{width:1440,height:900},reducedMotion}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.setContent('<style>'+css+'</style><div class="content-wrapper ho-wrapper"><main id="original"><input value="unchanged"></main>'+hud+'<script id="home-overview-bootstrap" type="application/json">'+JSON.stringify({initial,hud_links:links})+'</script></div>');await page.addScriptTag({content:js});await page.addScriptTag({content:fit});await page.locator('#go-hud.ready').waitFor();
- assert.equal(await page.locator('.hud-solar-far [data-solar-planet]').count(),8);assert.equal(await page.locator('.hud-solar-near [data-solar-planet]').count(),0);assert.deepEqual(await page.evaluate(()=>['.hud-solar-far','.hud-sun','.hud-solar-near'].map(s=>getComputedStyle(document.querySelector(s)).zIndex)),['0','1','2']);assert.equal(await page.locator('.hud-logo').getAttribute('fill'),'url(#go-hud-mark-light)');
+ assert.equal(await page.locator('.hud-solar-far [data-solar-planet]').count(),8);assert.equal(await page.locator('.hud-solar-near [data-solar-planet]').count(),0);assert.deepEqual(await page.evaluate(()=>['.hud-solar-far','.hud-sun','.hud-solar-near'].map(s=>getComputedStyle(document.querySelector(s)).zIndex)),['0','1','2']);assert.equal(await page.locator('.hud-logo').getAttribute('fill'),'url(#go-hud-mark-light)');assert.equal(await page.locator('.hud-logo-backing').count(),0,'No opaque badge over the solar centre');
  await page.waitForTimeout(50);
  const opacity=await page.locator('.hud-sun').evaluate(c=>{const x=c.width/2,y=c.height/2,r=c.width/3.4,a=[];for(let i=0;i<32;i++){const t=i*Math.PI/16;a.push(c.getContext('2d').getImageData(Math.round(x+Math.cos(t)*r*.75),Math.round(y+Math.sin(t)*r*.75),1,1).data[3]);}return a.sort((a,b)=>a-b)[16]});assert.ok(opacity<165,'The solar disc must remain translucent over the rear planets');
  await page.locator('.hud-logo-pulse').evaluate(n=>{const a=n.getAnimations()[0];if(a){a.pause();a.currentTime=384}});
- assert.ok(await page.evaluate(()=>{const mark=document.querySelector('.hud-logo').getBoundingClientRect(),c=document.querySelector('.hud-logo-backing').getBoundingClientRect(),cx=(c.left+c.right)/2,cy=(c.top+c.bottom)/2,R=c.width/2*81.6/77;return [[mark.left,mark.top],[mark.right,mark.top],[mark.left,mark.bottom],[mark.right,mark.bottom]].every(([x,y])=>Math.hypot(x-cx,y-cy)<R)}),'GO stays inside the smallest circle at peak pulse');
+ assert.ok(await page.evaluate(()=>{const mark=document.querySelector('.hud-logo').getBoundingClientRect(),svg=document.querySelector('.hud-solar-near'),c=svg.getBoundingClientRect(),cx=(c.left+c.right)/2,cy=(c.top+c.bottom)/2,R=c.width/svg.viewBox.baseVal.width*81.6;return [[mark.left,mark.top],[mark.right,mark.top],[mark.left,mark.bottom],[mark.right,mark.bottom]].every(([x,y])=>Math.hypot(x-cx,y-cy)<R)}),'GO stays inside the smallest circle at peak pulse');
  for(const [width,height] of [[1440,900],[500,998],[320,600],[375,667],[759,600],[899,700],[900,700],[1024,768],[1279,720],[1280,720],[1366,600],[1366,500],[500,400],[1920,1080],[500,998],[1440,900]]){
  await page.setViewportSize({width,height});await page.waitForTimeout(reducedMotion==='reduce'?30:100);
  const result=await page.evaluate(()=>{
@@ -33,6 +33,7 @@ const links={'active':'/admin/branch-orders','branches':'/admin/branch-orders','
  if(root.scrollWidth>root.clientWidth+1)bad.push('horizontal overflow');
  return {bad,mode:root.className,nodes:nodes.length,rects};});
  assert.deepEqual(result.bad,[],JSON.stringify({width,height,reducedMotion,...result}));
+ if(process.env.HUD_WIDE_SCREENSHOT&&width===1920&&height===1080&&reducedMotion==='no-preference')await page.screenshot({path:process.env.HUD_WIDE_SCREENSHOT});
  if(process.env.HUD_SCREENSHOT&&width===500&&height===998&&reducedMotion==='no-preference')await page.screenshot({path:process.env.HUD_SCREENSHOT});
  }
  await page.locator('#go-hud').getByRole('button',{name:'GO — الدخول على الرئيسية',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#go-hud').hidden);assert.equal(await page.locator('#original input').inputValue(),'unchanged');assert.deepEqual(errors,[]);await page.close();
