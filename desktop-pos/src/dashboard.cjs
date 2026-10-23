@@ -163,11 +163,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     loading = true;
     try {
       if (!window || window.isDestroyed()) {
-        window = new BrowserWindow({ width: 1440, height: 950, minWidth: 1000, minHeight: 650, show: false,
+        window = new BrowserWindow({ width: 1440, height: 950, minWidth: 1000, minHeight: 650, show: false, fullscreen: true,
           title: 'GO ERP — الداشبورد', icon: path.join(__dirname, 'assets', 'app.ico'), backgroundColor: '#f4f5f8',
           webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true,
             nodeIntegration: false, webSecurity: true } });
-        window.maximize();
         const contents = window.webContents;
         contents.on('page-title-updated',event=>event.preventDefault());
         owned.add(contents.id);
@@ -345,7 +344,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       { label: 'قص', role: 'cut' }, { label: 'نسخ', role: 'copy' }, { label: 'لصق', role: 'paste' }, { label: 'تحديد الكل', role: 'selectAll' }] },
     { label: 'عرض', submenu: [{ label: 'تحديث الصفحة', accelerator: 'CmdOrCtrl+R', click: () => { if (!refreshing && !quitting()) focused()?.reload(); } },
       { label: 'تكبير', role: 'zoomIn' }, { label: 'تصغير', role: 'zoomOut' }, { label: 'الحجم الطبيعي', role: 'resetZoom' },
-      { label: 'ملء الشاشة', role: 'togglefullscreen' }] },
+      { label: 'ملء الشاشة', role: 'togglefullscreen', accelerator: 'F12' }] },
     { label: 'طباعة', submenu: [{ label: 'طباعة الصفحة الحالية', accelerator: 'CmdOrCtrl+P', click: () => {
       if (refreshing || quitting()) return;
       if(localToken){dialog.showMessageBox(window,{type:'info',title:'GO ERP',message:'استخدم زر طباعة الفاتورة داخل الداشبورد لحفظ نتيجة الطباعة ومنع تكرارها.'});return;}

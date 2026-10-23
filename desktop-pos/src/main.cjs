@@ -238,7 +238,7 @@ app.whenReady().then(async()=>{
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js']);
   protocol.handle('fasakhansta',r=>{const u=new URL(r.url),name=u.pathname.slice(1);if(u.hostname!=='pos'||!allowed.has(name))return new Response('',{status:404});return net.fetch(pathToFileURL(path.join(__dirname,name)).toString());});
-  win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,show:false,title:'GO ERP — الطلبات المحلية',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,show:false,fullscreen:true,title:'GO ERP — الطلبات المحلية',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
   win.webContents.on('page-title-updated',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();app.quit();}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',(e,url)=>{if(!url.startsWith('fasakhansta://pos/'))e.preventDefault();});

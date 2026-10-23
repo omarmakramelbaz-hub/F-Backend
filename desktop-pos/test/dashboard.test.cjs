@@ -25,12 +25,23 @@ test('installed app opens the original complete dashboard and keeps a persistent
   const f=fixture(t);const opening=f.dashboard.open();const w=f.windows[0];assert.ok(w.visible,'dashboard frame and offline menu remain available during loading');await opening;
   assert.equal(w.url,'https://fasakhaninja.com/admin/dashboard');assert.ok(w.visible);
   assert.equal(w.options.title,'GO ERP — الداشبورد');
+  assert.equal(w.options.fullscreen,true,'the dashboard starts in native full screen');
   let titlePrevented=false;w.webContents.emit('page-title-updated',{preventDefault(){titlePrevented=true;}},'Original business page');
   assert.equal(titlePrevented,true,'A dashboard page must not replace the native GO ERP title');
   assert.equal(w.options.webPreferences.partition,'persist:fasakhansta-dashboard');
   assert.equal(w.options.webPreferences.nodeIntegration,false);assert.equal(w.options.webPreferences.contextIsolation,true);
   assert.match(w.options.webPreferences.preload,/dashboard-preload/);
   await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/branch-expenses');assert.equal(f.windows.length,1);assert.match(w.url,/branch-expenses$/);
+});
+test('F12 toggles the focused native app window without changing dashboard navigation',async t=>{
+  const f=fixture(t);await f.dashboard.open();const w=f.windows[0];
+  const view=f.electron.menu.find(item=>item.label==='عرض');
+  const fullscreen=view.submenu.find(item=>item.role==='togglefullscreen');
+  assert.equal(fullscreen.accelerator,'F12');
+  assert.equal(fullscreen.click,undefined,'Electron handles this local menu role for the focused app window');
+  await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/branch-expenses');
+  assert.equal(f.windows.length,1,'navigation retains the same window and its chosen presentation');
+  assert.equal(w.url,policy.DEFAULT_ORIGIN+'/admin/branch-expenses');
 });
 test('same-site dashboard pages/popups retain access; external links cannot become privileged app pages',async t=>{
   const f=fixture(t);await f.dashboard.open();const c=f.windows[0].webContents;
