@@ -147,6 +147,16 @@ class DesktopDashboardMedia
             $add($row['attachment_path'],['kind'=>'expense','id'=>(int)$row['id']],'private',
                 ['sha256'=>$row['attachment_hash']??null,'mime'=>$row['attachment_mime']??null]);
         }
+        foreach($dataset['branch_employees']??[] as $row){
+            if(!isset($queries['branch_employees']))break;
+            foreach(EmployeeIdentity::SIDES as $side){
+                $path=$row['id_'.$side.'_path']??null;if(empty($path))continue;
+                if(!EmployeeIdentity::validPath($path)){$issues[]=['path'=>$path,'area'=>'private','reason'=>'unavailable-or-unsupported'];continue;}
+                abort_unless((clone $queries['branch_employees'])->where('id',$row['id'])->exists(),403);
+                $add($path,['kind'=>'employee-id','id'=>(int)$row['id'],'side'=>$side],'private',
+                    ['sha256'=>$row['id_'.$side.'_hash']??null,'mime'=>$row['id_'.$side.'_mime']??null]);
+            }
+        }
         foreach($dataset['settings']??[] as $row){
             if(($row['group']??'')!=='general'||!in_array($row['name'],self::SETTINGS,true))continue;
             try{$value=json_decode($row['payload'],true,512,JSON_THROW_ON_ERROR);}catch(\JsonException $error){$value=null;}
@@ -175,7 +185,7 @@ class DesktopDashboardMedia
             &&is_string($value['enrollment_binding']??null)&&hash_equals($this->devices->enrollmentFingerprint($device),$value['enrollment_binding'])
             &&($value['actor_id']??null)===(int)$actor->id&&($value['expires_at']??0)>=time(),403);
         $proof=$value['proof']??[];$path=$value['path']??'';$area=$value['area']??'public';
-        abort_unless($area===(($proof['kind']??'')==='expense'?'private':'public'),403);
+        abort_unless($area===(in_array($proof['kind']??'',['expense','employee-id'],true)?'private':'public'),403);
         switch($proof['kind']??''){
             case 'media':
                 $row=(array)DB::table('media')->where('id',$proof['id'])->first();abort_unless($row&&$this->owner($row,$queries),403);
@@ -195,6 +205,10 @@ class DesktopDashboardMedia
             case 'expense':
                 $row=isset($queries['branch_expenses'])?(clone $queries['branch_expenses'])->where('id',$proof['id'])->first():null;
                 abort_unless($row&&$row->attachment_path===$path&&$row->attachment_hash===$value['sha256']&&$row->attachment_mime===$value['mime'],403);break;
+            case 'employee-id':
+                $side=$proof['side']??'';abort_unless(in_array($side,EmployeeIdentity::SIDES,true)&&EmployeeIdentity::validPath($path),403);
+                $row=isset($queries['branch_employees'])?(clone $queries['branch_employees'])->where('id',$proof['id'])->first():null;
+                abort_unless($row&&$row->{'id_'.$side.'_path'}===$path&&$row->{'id_'.$side.'_hash'}===$value['sha256']&&$row->{'id_'.$side.'_mime'}===$value['mime'],403);break;
             default:abort(403);
         }
         // Hash the exact bytes returned; changed/deleted files force a fresh coherent bootstrap.
