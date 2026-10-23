@@ -14,7 +14,6 @@ import subprocess
 import tempfile
 import types
 import unittest
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -245,17 +244,14 @@ class ConfirmationNavigationModeIdentityTests(unittest.TestCase):
         m, b, p = self.entry, self.base, self.prior
         with tempfile.TemporaryDirectory(prefix='confirmation-nav-identity-') as temporary:
             root = Path(temporary)
-            remote, work = root / 'remote.git', root / 'work'
-            work.mkdir()
+            remote = root / 'remote.git'
             subprocess.check_call(['/usr/bin/git', 'init', '--quiet', '--bare', str(remote)])
-            subprocess.check_call(['/usr/bin/git', 'init', '--quiet', '--bare', str(work / 'checkout')])
             # The fixture is a private writable object store with read-only
             # access to the exact seed/canonical objects. No external fetches.
             object_dir = Path(git('rev-parse', '--git-common-dir').decode().strip())
             if not object_dir.is_absolute():
                 object_dir = (ROOT / object_dir).resolve()
             (remote / 'objects/info/alternates').write_text(str(object_dir / 'objects') + '\n')
-            b.git(work / 'checkout', 'fetch', '--quiet', '--depth=1', str(remote), SEED)
             snapshot = self.exporter._metadata(SEED, self.after_inventory)
             metadata = self.exporter._candidate_metadata(snapshot, '0.4.4-preview.37', 37)
             self.assertNotIn('candidatePolicy', metadata)
@@ -295,43 +291,41 @@ class ConfirmationNavigationModeIdentityTests(unittest.TestCase):
                 parent = CANONICAL if fault == 'parent' else SEED
                 return git('commit-tree', tree, '-p', parent, cwd=remote,
                            input=b'private candidate fixture\n', env=env).decode().strip()
-            context = types.SimpleNamespace(base=b, prior=p)
-            with mock.patch.object(m, 'WORK', work), mock.patch.object(b, 'REMOTE', str(remote)):
-                def inspect(revision):
-                    # The bounded reconciler never fetches. Populate its
-                    # already prepared private checkout explicitly, then run
-                    # the production read-only proof on those real Git objects.
-                    b.git(work / 'checkout', 'fetch', '--quiet', '--depth=1', str(remote), revision)
-                    return m.Context.candidate(context, revision, m.TARGET_INVENTORY, 37)
-                valid = candidate()
-                self.assertEqual(inspect(ACTUAL_37), 37)
-                self.assertEqual(inspect(valid), 37)
-                faults = [(('payload', path), 'CANDIDATE_APPROVED_FILE_INVALID')
-                          for path in (*LATER, *EARLIER_ONLY, NAV)]
-                faults += [
-                    (('mode', 'app/Http/Controllers/CheckoutController.php'), 'CANDIDATE_APPROVED_FILE_INVALID'),
-                    (('mode', 'app/Http/Controllers/Payment/PaymobController.php'), 'CANDIDATE_APPROVED_FILE_INVALID'),
-                    (('mode', NAV), 'CANDIDATE_APPROVED_FILE_INVALID'),
-                    (('version-mode', VERSIONS[0]), 'CANDIDATE_PACKAGE_INVALID'),
-                    (('version-mode', VERSIONS[1]), 'CANDIDATE_PACKAGE_INVALID'),
-                    (('version-mode', VERSIONS[2]), 'CANDIDATE_PACKAGE_INVALID'),
-                    (('extra', 'app/Services/Unreviewed.php'), 'CANDIDATE_CODE_INVALID'),
-                    (('extra', '.github/workflows/desktop-dashboard-tests.yml'), 'CANDIDATE_CODE_INVALID'),
-                    (('extra', 'desktop-pos/src/local-runtime.cjs'), 'CANDIDATE_CODE_INVALID'),
-                    ('metadata', 'CANDIDATE_METADATA_INVALID'),
-                    ('metadata-policy', 'CANDIDATE_METADATA_INVALID'),
-                    ('package', 'CANDIDATE_PACKAGE_INVALID'),
-                    ('version', 'CANDIDATE_VERSION_INVALID|CANDIDATE_METADATA_INVALID'),
-                    ('parent', 'CANDIDATE_PARENT_INVALID'),
-                ]
-                for fault, reason in faults:
-                    with self.subTest(fault=fault):
-                        revision = candidate(fault)
-                        with self.assertRaisesRegex(m.Stop, reason):
-                            inspect(revision)
-                # Building rejected candidates cannot mutate either original identity.
-                self.assertEqual(git('rev-parse', CANONICAL).decode().strip(), CANONICAL)
-                self.assertEqual(immutable(CANONICAL, VERSIONS[2]), canonical(self.original_metadata) + b'\n')
+            context = types.SimpleNamespace(base=b, prior=p, candidate_root=remote)
+            def inspect(revision):
+                # The production proof reads its private candidate cache directly.
+                # All generated objects and immutable seed objects are already
+                # available here; an extra Git transfer tests a different boundary.
+                return m.Context.candidate(context, revision, m.TARGET_INVENTORY, 37)
+            valid = candidate()
+            self.assertEqual(inspect(ACTUAL_37), 37)
+            self.assertEqual(inspect(valid), 37)
+            faults = [(('payload', path), 'CANDIDATE_APPROVED_FILE_INVALID')
+                      for path in (*LATER, *EARLIER_ONLY, NAV)]
+            faults += [
+                (('mode', 'app/Http/Controllers/CheckoutController.php'), 'CANDIDATE_APPROVED_FILE_INVALID'),
+                (('mode', 'app/Http/Controllers/Payment/PaymobController.php'), 'CANDIDATE_APPROVED_FILE_INVALID'),
+                (('mode', NAV), 'CANDIDATE_APPROVED_FILE_INVALID'),
+                (('version-mode', VERSIONS[0]), 'CANDIDATE_PACKAGE_INVALID'),
+                (('version-mode', VERSIONS[1]), 'CANDIDATE_PACKAGE_INVALID'),
+                (('version-mode', VERSIONS[2]), 'CANDIDATE_PACKAGE_INVALID'),
+                (('extra', 'app/Services/Unreviewed.php'), 'CANDIDATE_CODE_INVALID'),
+                (('extra', '.github/workflows/desktop-dashboard-tests.yml'), 'CANDIDATE_CODE_INVALID'),
+                (('extra', 'desktop-pos/src/local-runtime.cjs'), 'CANDIDATE_CODE_INVALID'),
+                ('metadata', 'CANDIDATE_METADATA_INVALID'),
+                ('metadata-policy', 'CANDIDATE_METADATA_INVALID'),
+                ('package', 'CANDIDATE_PACKAGE_INVALID'),
+                ('version', 'CANDIDATE_VERSION_INVALID|CANDIDATE_METADATA_INVALID'),
+                ('parent', 'CANDIDATE_PARENT_INVALID'),
+            ]
+            for fault, reason in faults:
+                with self.subTest(fault=fault):
+                    revision = candidate(fault)
+                    with self.assertRaisesRegex(m.Stop, reason):
+                        inspect(revision)
+            # Building rejected candidates cannot mutate either original identity.
+            self.assertEqual(git('rev-parse', CANONICAL).decode().strip(), CANONICAL)
+            self.assertEqual(immutable(CANONICAL, VERSIONS[2]), canonical(self.original_metadata) + b'\n')
 
 
 if __name__ == '__main__':
