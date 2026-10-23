@@ -425,15 +425,16 @@ class OrderBoardService
             'status'=>$status, 'status_label'=>$this->statusLabel($status), 'group'=>$this->group($source, $row),
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
-            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'total'=>null,
+            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'payment_paid'=>false, 'total'=>null,
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
                 'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
         if ($source === 'legacy') {
+            $card['payment_paid'] = $this->legacyPaymentPaid($row);
             if ($this->awaitingLegacyPayment($row)) {
-                $card['status_label'] = 'بانتظار تأكيد الدفع';
-                $card['action_note'] = 'بانتظار تأكيد الدفع قبل قبول الطلب.';
+                $card['status_label'] = $card['payment_paid'] ? 'طلب جديد' : 'بانتظار تأكيد الدفع';
+                $card['action_note'] = $card['payment_paid'] ? 'تم الدفع؛ بانتظار قبول الطلب.' : 'بانتظار تأكيد الدفع قبل قبول الطلب.';
             }
             if ($status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') $card['status_label'] = 'مع المندوب';
             elseif (in_array($status, ['pending','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') $card['status_label'] = 'قيد التجهيز';
@@ -576,6 +577,20 @@ class OrderBoardService
         return ['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'بطاقة بنكية','credit_card'=>'بطاقة بنكية',
             'mobile_wallet'=>'محفظة إلكترونية','v_cash'=>'فودافون كاش','paymob'=>'دفع إلكتروني','online'=>'بطاقة بنكية',
             'paymob_card_payment'=>'بطاقة بنكية','paymob_mobile_wallet_payment'=>'محفظة إلكترونية'][$method] ?? ($method ?: 'غير محدد');
+    }
+
+    private function legacyPaymentPaid(object $row): bool
+    {
+        if (($row->type ?? '') !== 'current' || !in_array($row->payment_type ?? '', ['online', 'v_cash'], true)
+            || in_array($row->status ?? '', ['cancelled', 'declined', 'rejected'], true)) return false;
+        foreach ($this->related['payments'][$row->id] ?? [] as $payment) {
+            if ((int) ($payment->user_id ?? 0) !== (int) ($row->user_id ?? 0)
+                || !preg_match('/^[1-9][0-9]{0,29}$/D', (string) ($payment->transaction_id ?? ''))
+                || !in_array(strtolower(trim((string) ($payment->status ?? ''))), ['1', 'true', 'paid', 'succeeded', 'success'], true)) continue;
+            try { if (\App\Services\GoServices\Money::minor($payment->total_price ?? null) > 0) return true; }
+            catch (\InvalidArgumentException $error) { /* Unknown historical amounts are not paid evidence. */ }
+        }
+        return false;
     }
 
     private function paymentFailed(string $source, object $row): bool

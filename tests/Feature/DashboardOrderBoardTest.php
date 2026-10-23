@@ -827,6 +827,46 @@ class DashboardOrderBoardTest extends TestCase
         app(OrderBoardService::class)->actionState('legacy', 1, $this->actor(11), $stores);
     }
 
+    public function test_verified_paymob_activation_unlocks_the_real_branch_accept_action(): void
+    {
+        config(['wallet_topups.api_key' => 'fixture-key', 'wallet_topups.live' => true,
+            'dashboard_payments.integrations.online' => '765', 'dashboard_payments.integrations.v_cash' => '766']);
+        Schema::create('payments', function (Blueprint $t) {
+            $t->id();$t->unsignedBigInteger('order_id');$t->unsignedBigInteger('user_id');
+            $t->string('intention_order_id');$t->string('transaction_id')->nullable();$t->string('status')->nullable();
+            $t->decimal('total_price', 14, 2);$t->timestamps();
+        });
+        $this->actingAs($this->actor(10), 'admin');
+        foreach (['online' => '765', 'v_cash' => '766'] as $method => $integration) {
+            $id = $method === 'online' ? 901 : 902;
+            $this->legacy($id, ['status' => null, 'payment_type' => $method]);
+            $payment = DB::table('payments')->insertGetId(['order_id' => $id, 'user_id' => 20,
+                'intention_order_id' => (string) $id, 'status' => null, 'transaction_id' => null, 'total_price' => '180.00']);
+            $before = app(OrderBoardService::class)->detail('legacy', $id, $this->actor(10));
+            $this->assertSame([], $before['actions']);$this->assertFalse($before['payment_paid']);
+            $gateway = new class extends \App\Services\Payments\PaymobTransactionInquiry {
+                public array $receipt;
+                public function transactionForOrder(string $order, ?string $transaction = null): array { return $this->receipt; }
+            };
+            $gateway->receipt = ['id' => (string) (990000 + $id), 'order' => ['id' => (string) $id], 'amount_cents' => '18000',
+                'currency' => 'EGP', 'integration_id' => $integration, 'is_live' => true, 'success' => true,
+                'is_standalone_payment' => true, 'pending' => false, 'is_auth' => false, 'is_capture' => false,
+                'is_voided' => false, 'is_refunded' => false, 'has_parent_transaction' => false, 'error_occured' => false];
+            $result = (new \App\Services\Payments\RestaurantOrderPayment($gateway))->settle($payment);
+            $this->assertSame('activated', $result['state']);
+            $card = (new OrderBoardService())->detail('legacy', $id, $this->actor(10));
+            $this->assertTrue($card['payment_paid']);$this->assertSame(['accept', 'reject'], $card['actions']);
+            $this->assertSame('new', $card['group']);
+            $this->postJson(route('order-board.action', ['legacy', $id]), [
+                'action' => 'accept', 'expected_status' => 'pending', 'expected_accepted_notify' => '',
+            ])->assertOk();
+            $this->assertSame('yes', DB::table('orders')->where('id', $id)->value('accepted_notify'));
+            $after = (new OrderBoardService())->detail('legacy', $id, $this->actor(10));
+            $this->assertSame('preparing', $after['group']);$this->assertTrue($after['payment_paid']);
+            $this->assertSame(0, DB::table('wallets')->count());
+        }
+    }
+
     /** Optional export uses the real page and existing dashboard chrome for visual QA. */
     private function exportQaView(?string $path = null): string
     {

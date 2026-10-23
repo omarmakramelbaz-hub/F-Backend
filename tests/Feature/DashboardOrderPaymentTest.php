@@ -344,4 +344,47 @@ class DashboardOrderPaymentTest extends TestCase
             }
         }
     }
+
+    public function test_paid_badge_and_normal_pending_actions_are_visible_in_card_and_details(): void
+    {
+        $this->actingAs($this->actor(), 'admin');
+        foreach (['online', 'v_cash'] as $method) {
+            DB::table('payments')->delete();
+            $this->order(['payment_type' => $method, 'status' => 'pending']);
+            $this->attempt(['status' => '1', 'transaction_id' => '991001']);
+            $card = $this->card();
+            $this->assertTrue($card['payment_paid']);
+            $this->assertSame(['accept', 'reject'], $card['actions']);
+            $this->assertFalse($card['payment_failed']);
+            $this->assertSame('new', $card['group']);
+            foreach (['ar' => 'مدفوع', 'en' => 'Paid'] as $locale => $label) {
+                app()->setLocale($locale);
+                $html = view('admin.orders.board_card', compact('card'))->render();
+                $this->assertStringContainsString($label, $html);
+                $this->assertStringContainsString('value="accept"', $html);
+                $this->assertStringContainsString('value="reject"', $html);
+                $this->assertStringContainsString($card['urls']['details'], $html);
+                $this->assertStringNotContainsString('بانتظار تأكيد الدفع', $html);
+                $this->assertStringContainsString($label, view('admin.orders.board_detail', ['card' => $card, 'printing' => false])->render());
+                if ($locale === 'ar' && $method === 'v_cash' && getenv('PAYMOB_CARD_QA_PATH')) {
+                    $css = file_get_contents(public_path('dashboard/css/order-board.css'));
+                    file_put_contents(getenv('PAYMOB_CARD_QA_PATH'), '<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><style>body{margin:0;padding:16px;background:#eef1f6;font-family:Arial}*{box-sizing:border-box}button,a{font:inherit}.ob-stage-new{--ob-stage:#7d2bb6;max-width:390px;margin:auto}</style><style>'.$css.'</style><section class="ob-stage-new">'.$html.'</section></html>');
+                }
+            }
+        }
+    }
+
+    public function test_paid_display_does_not_invent_a_receipt_or_override_a_terminal_cancellation(): void
+    {
+        $id = $this->attempt(['status' => '1', 'transaction_id' => '991001']);
+        foreach ([['status' => null], ['transaction_id' => null], ['user_id' => 21], ['total_price' => '0.00']] as $changes) {
+            DB::table('payments')->where('id', $id)->update(array_replace(['status' => '1', 'transaction_id' => '991001', 'user_id' => 20, 'total_price' => '125.00'], $changes));
+            $this->assertFalse($this->card()['payment_paid']);
+        }
+        DB::table('payments')->where('id', $id)->update(['status' => '1', 'transaction_id' => '991001', 'user_id' => 20, 'total_price' => '125.00']);
+        $this->assertSame('طلب جديد', $this->card()['status_label']);
+        $this->order(['status' => 'cancelled']);
+        $this->assertFalse($this->card()['payment_paid']);
+        $this->assertSame([], $this->card()['actions']);
+    }
 }

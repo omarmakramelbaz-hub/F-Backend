@@ -1,0 +1,86 @@
+{
+  "base_revision": "59d4fd2466137ee5c31a9f4701d3f5bc024a6ea3",
+  "source_baselines": [
+    "59d4fd2466137ee5c31a9f4701d3f5bc024a6ea3",
+    "dceb59ad489bbba6b6534a4da784f6d26c82b2ff"
+  ],
+  "files": {
+    "app/Http/Controllers/CheckoutController.php": {
+      "before": [
+        "078651b261687498182f0ff996856c2bcb351cdd8a404644f2d85ac81f28cf4d"
+      ],
+      "after": "5fe3aadd1fff0976a0775dcbb7ed21b568144e53fcc9638da2c94adc28cf099c"
+    },
+    "app/Http/Controllers/Payment/PaymobController.php": {
+      "before": [
+        "2755fa979f6701f6a63feeef5f2813553bb36c8386676c0ac64231d19e5e3e92"
+      ],
+      "after": "7ebc0f5eb5d66da7804a3678cddc9fc7cd9af600020d234569b5bd5ade07e266"
+    },
+    "app/Http/Controllers/Payment/RestaurantPaymentController.php": {
+      "before": [],
+      "after": "0810327324eed83eee58b57de028efebf9b95ce771a99359495c9ea9b89b2846"
+    },
+    "app/Services/Payments/RestaurantOrderPayment.php": {
+      "before": [],
+      "after": "e841b9b25468dec4fcd9e2ba945c81b64c26686f3cb985742bee40534bb6b86a"
+    },
+    "app/Services/Payments/RestaurantPaymentEffects.php": {
+      "before": [],
+      "after": "7e9ee79b729cec4b0f1918a55defaaee5e485262de21dfa4a82896dfa214fb1d"
+    },
+    "app/Console/Commands/ReconcileRestaurantPayments.php": {
+      "before": [],
+      "after": "2267d945828dc600f7f14383a27d93dd8b468db6917a5f9ad5f8fbc4197a773a"
+    },
+    "app/Console/Kernel.php": {
+      "before": [
+        "8fb0eafbd1da789d7bbdeef46d4ed5825e53c7ebf1926b3dda7424a0622a024d"
+      ],
+      "after": "1fdb8226b76de21967bfe60ab29105925b8b7cc079726c47e6886a276011148d"
+    },
+    "app/Services/Dashboard/OrderBoardService.php": {
+      "before": [
+        "2017c1aaf7456e8b28a32de4c25619cf27fcea3cbf44467c6be814a8d280a23d",
+        "7c71d13981256de96873edced8143613cd1c00454e16552d132ae6ced424b3ef"
+      ],
+      "after": "0f55a52febe52a190fe94de85a5b9de5331f0c712c5939fd7f6f864292eb562f"
+    },
+    "routes/api.php": {
+      "before": [
+        "d23a57e8263159e34d07153b0b877be20b77e566d16d6e8cd7d938220b80e6eb"
+      ],
+      "after": "4f857145372aa64a268a3b1f17eef5a65bf0ccf303cefb313fad7a64fc0b28fd"
+    },
+    "resources/views/admin/orders/board_card.blade.php": {
+      "before": [
+        "e96d2153898b6644fabaff3b944a2b4b57db1e70f69255a255c667186b66a811"
+      ],
+      "after": "4b9645a0104b27da44bfe27d7a3f449d056d8124dcf576cf4b9fd2da453c0f5b"
+    },
+    "resources/views/admin/orders/board_detail.blade.php": {
+      "before": [
+        "07ae6692aac29cf3e3fb12daf4e045a0821766e55707ab7e75e9dd7e5b586bcc"
+      ],
+      "after": "ea75936637421cc14e73823e3c746bda5b45d2642aed8ca24babe74f18041f82"
+    },
+    "resources/lang/ar/order_board.php": {
+      "before": [
+        "d36d8ab3de02b4a1a6353b7f94b2314813ae6816cee505566cbcbda622b95a16"
+      ],
+      "after": "e06264d6ce07b931c5937f4f9dc9399b0203f8121bc12b8a51346fc4d02fe2d4"
+    },
+    "resources/lang/en/order_board.php": {
+      "before": [
+        "6cf88da57608da855f99e8b9acd9f461ebbca2a947e1d6ea1393062bd8f1f941"
+      ],
+      "after": "f3d8010f5876bc6a5049a920285fa2a5e81a788dc51a43c69e7e8aa1232ce394"
+    },
+    "public/dashboard/css/order-board.css": {
+      "before": [
+        "75d033c79ebedb1692b5e0c0e4fcddb0bba25bd702a3af5496ae33b717a19868"
+      ],
+      "after": "564c41551a14a417dde7679dcd736339f3f7b009084c1c9dcf10ede5915bd061"
+    }
+  }
+}
