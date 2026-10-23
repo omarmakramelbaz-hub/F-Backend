@@ -129,7 +129,12 @@ try {
     try { $digest = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($source))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
     if ($digest -cne $goExpectedSource) { throw 'GO_ERP_INSPECTOR_SOURCE_MISMATCH' }
     $goPhase = 'breakpoint'
-    $breakpoint = Go-Command 'Debugger.setBreakpointByUrl' @{ lineNumber = 60; url = $scripts[0].url }
+    # Boot retries database-ready failures. Capture only the stage/import steps
+    # implicated by this device's freshly created, empty staging database.
+    $goFailureCondition = @'
+(()=>{const script=typeof args[2]==='string'?args[2].split(/[\\/]/).pop():'';return script==='import.php'||script==='database.php'&&args[3]==='stage';})()
+'@
+    $breakpoint = Go-Command 'Debugger.setBreakpointByUrl' @{ lineNumber = 60; url = $scripts[0].url; condition = $goFailureCondition }
     $goBreakpoint = $breakpoint.breakpointId
     if (@($breakpoint.locations).Count -ne 1 -or $breakpoint.locations[0].lineNumber -ne 60 -or $breakpoint.locations[0].scriptId -cne $scripts[0].scriptId) { throw 'GO_ERP_INSPECTOR_BREAKPOINT_MISMATCH' }
     Write-Output ('GO_ERP_INSPECTOR_READY ' + (@{ Port = $goPort; Pid = $goTarget.Id } | ConvertTo-Json -Compress))
