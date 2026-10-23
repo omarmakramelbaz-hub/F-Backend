@@ -1,0 +1,48 @@
+name: GO ERP program center deployment
+
+on:
+  push:
+    branches: ['codex/go-erp-program-deploy-*']
+    paths:
+      - deployment/*program*
+      - deployment/go_erp_employee_migration.py
+      - deployment/verify_go_erp_employee_schema.php
+      - database/migrations/2026_10_23_200000_add_employee_identity_and_regulation.php
+      - deployment/wire-hash-prior/**
+      - tests/test_go_erp_program_*.py
+      - app/**
+      - desktop/**
+      - resources/**
+      - routes/**
+      - public/dashboard/js/desktop-*.js
+      - .github/workflows/go-erp-program-deploy-tests.yml
+  pull_request:
+    paths:
+      - deployment/*program*
+      - tests/test_go_erp_program_*.py
+      - .github/workflows/go-erp-program-deploy-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-transaction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the exact reviewed predecessor objects for identity and inode tests
+        run: |
+          git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin aaeaebe9e9cfb67a038f9b408800189ccdb96631 feb46c4c1e1ece981ce7600935fd43e69e6f308a
+          mapfile -t program_revisions < <(python3 -c "import runpy; release=runpy.run_path('deployment/upgrade_go_erp_program_watcher_root.py'); print(release['CORE']); print(release['NEW_SEED'])")
+          git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin "${program_revisions[@]}"
+      - name: Verify the application and two-cohort watcher transaction
+        run: |
+          bash -n deployment/run_go_erp_program_root.sh
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_wrapper.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_application_patch.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_watcher_upgrade.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_rollout_gate.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_employee_migration.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_program_release_identity.py
