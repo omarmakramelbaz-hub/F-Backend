@@ -66,9 +66,29 @@ final class DesktopImportDiagnostic
             ||!is_string($value['php_version']??null)
             ||!preg_match('/^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}[-A-Za-z0-9.]{0,24}$/D',$value['php_version']))return null;
         foreach(['serialize_precision','precision'] as $name)
-            if(!is_string($value[$name]??null)||!preg_match('/^(?:-1|[0-9]|[12][0-9]|30)$/D',$value[$name]))return null;
+            if(!is_string($value[$name]??null)||!preg_match('/^(?:-1|0|[1-9][0-9]{0,3})$/D',$value[$name]))return null;
         return ['capture_scope'=>$scope,'php_sapi'=>$value['php_sapi'],'php_version'=>$value['php_version'],
             'serialize_precision'=>$value['serialize_precision'],'precision'=>$value['precision']];
+    }
+
+    /** Safe request/import settings shared by successful and failed imports. */
+    public static function profiles($snapshot=null): array
+    {
+        // Server settings originate in the real snapshot export request. Never
+        // infer the website's settings from a separate CLI or private FPM probe.
+        $server=self::phpProfile(is_array($snapshot)?($snapshot['transport_php']??null):null,'snapshot_export',
+            ['fpm-fcgi','cgi-fcgi','apache2handler','litespeed','cli']);
+        $desktop=self::phpProfile(['capture_scope'=>'desktop_import','php_sapi'=>PHP_SAPI,'php_version'=>PHP_VERSION,
+            'serialize_precision'=>ini_get('serialize_precision'),'precision'=>ini_get('precision')],'desktop_import',['cli']);
+        // A missing or rejected server profile must not hide the actual desktop
+        // settings. Statuses are fixed codes; rejected values remain private.
+        $profiles=[
+            'server_profile_status'=>$server!==null?'valid':(is_array($snapshot)&&array_key_exists('transport_php',$snapshot)?'invalid':'missing'),
+            'desktop_profile_status'=>$desktop!==null?'valid':'invalid',
+        ];
+        if($server!==null)$profiles['server']=$server;
+        if($desktop!==null)$profiles['desktop']=$desktop;
+        return $profiles;
     }
 
     public static function report(Throwable $error,string $phase,string $applicationRoot,$snapshot=null): array
@@ -83,12 +103,9 @@ final class DesktopImportDiagnostic
             'type'=>$type,'file'=>$location['file'],'line'=>$location['line'],'status'=>$status];
         if($status!==null&&in_array($error->getMessage(),self::MESSAGES[$location['file']][$status]??[],true))
             $report['message']=$error->getMessage();
-        // Server settings originate in the real snapshot export request. Never
-        // infer the website's settings from a separate CLI or private FPM probe.
-        $server=self::phpProfile(is_array($snapshot)?($snapshot['transport_php']??null):null,'snapshot_export',
-            ['fpm-fcgi','cgi-fcgi','apache2handler','litespeed','cli']);
-        $desktop=self::phpProfile(['capture_scope'=>'desktop_import','php_sapi'=>PHP_SAPI,'php_version'=>PHP_VERSION,
-            'serialize_precision'=>ini_get('serialize_precision'),'precision'=>ini_get('precision')],'desktop_import',['cli']);
+        $report['php_profiles']=self::profiles($snapshot);
+        $server=$report['php_profiles']['server']??null;$desktop=$report['php_profiles']['desktop']??null;
+        // Preserve the previous diagnostic contract for paired valid profiles.
         if($server!==null&&$desktop!==null)$report['php_comparison']=[
             'server'=>$server,'desktop'=>$desktop,
             'server_web_request'=>$server['php_sapi']!=='cli',

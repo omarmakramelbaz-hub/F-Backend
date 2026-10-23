@@ -12,10 +12,14 @@ try{
     }
     $phase='json';
     $snapshot=json_decode($input,true,512,JSON_THROW_ON_ERROR);
+    require_once __DIR__.'/snapshot-row-hashes.php';
+    $rowHashes=DesktopSnapshotRowHashes::fromJson($input);
     unset($input);$phase='bootstrap';
     $app=require __DIR__.'/bootstrap.php';
     $phase='import';
-    $result=$app->make(\App\Services\Dashboard\DesktopDashboardImport::class)->import($snapshot);
+    $result=$app->make(\App\Services\Dashboard\DesktopDashboardImport::class)->import($snapshot,$rowHashes);
+    require_once __DIR__.'/import-diagnostic.php';
+    $result['php_profiles']=DesktopImportDiagnostic::profiles($snapshot);
     echo json_encode($result,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
 }catch(Throwable $error){
     fwrite(STDERR,"تعذر تجهيز قاعدة البيانات المحلية؛ لم تُغيّر بيانات الجهاز الحالية.\n");

@@ -81,6 +81,7 @@ async function importFixture(t, serviceFile = 'DesktopDashboardImport.php') {
   await fs.mkdir(path.join(root, 'app/Services/Dashboard'), { recursive: true });
   await fs.copyFile(path.join(desktop, 'import.php'), path.join(root, 'desktop/import.php'));
   await fs.copyFile(helper, path.join(root, 'desktop/import-diagnostic.php'));
+  await fs.copyFile(path.join(desktop, 'snapshot-row-hashes.php'), path.join(root, 'desktop/snapshot-row-hashes.php'));
   // Real PHP exceptions and real vendor-to-service frames, without Laravel or a database.
   await fs.writeFile(path.join(root, 'vendor/Illuminate/Foundation/Application.php'), String.raw`<?php
 namespace Symfony\Component\HttpKernel\Exception {
@@ -99,6 +100,7 @@ namespace {
 namespace App\Services\Dashboard;
 final class DesktopDashboardImport {
     public function import(array $snapshot): array {
+        if(($snapshot['kind']??'')==='success')return ['synthetic_success'=>true];
         if(($snapshot['kind']??'')==='runtime')throw new \RuntimeException($snapshot['message']??'');
         abort_unless(false,(int)($snapshot['status']??422),$snapshot['message']??'');
         return [];
@@ -116,7 +118,7 @@ return new class {public function make($class){return new $class;}};
 }
 
 function runImport(command, fixture, snapshot, runtimeArgs = []) {
-  const result = spawnSync(command, ['-n', ...runtimeArgs, fixture.importFile], { ...options, input: JSON.stringify(snapshot) });
+  const result = spawnSync(command, ['-n', ...runtimeArgs, fixture.importFile], { ...options, input: JSON.stringify({ tables: {}, ...snapshot }) });
   assert.ifError(result.error);
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '');
@@ -142,7 +144,11 @@ test('actual import.php reports its Dashboard abort caller and only reviewed fix
     [409, 'نسخة الحساب تحتوي على مرجع ناقص؛ لم تُفعّل قاعدة التجهيز.']
   ]) {
     const { report, stderr } = runImport(command, fixture, { status, message, private: 'PRIVATE_TRACE_ARGUMENT' });
-    assert.deepEqual(report, { phase: 'import', type: 'Symfony\\Component\\HttpKernel\\Exception\\HttpException',
+    const { php_profiles: profiles, ...cause } = report;
+    assert.equal(profiles.server_profile_status, 'missing');
+    assert.equal(profiles.desktop_profile_status, 'valid');
+    assert.equal(profiles.desktop.php_sapi, 'cli');
+    assert.deepEqual(cause, { phase: 'import', type: 'Symfony\\Component\\HttpKernel\\Exception\\HttpException',
       file: 'DesktopDashboardImport.php', line: fixture.line, status, message });
     assert.equal(stderr.includes('Application.php'), false);
     assert.equal(stderr.includes(fixture.root), false);
@@ -193,6 +199,8 @@ test('import diagnostics compare actual export metadata with the running import 
     transport_php: { ...server, private: 'PRIVATE_ACCOUNT_VALUE' }, rows: [{ secret: 'PRIVATE_ACCOUNT_VALUE' }] },
   ['-d', 'serialize_precision=-1', '-d', 'precision=14']);
   assert.deepEqual(report.php_comparison.server, server);
+  assert.deepEqual(report.php_profiles, { server_profile_status: 'valid', desktop_profile_status: 'valid',
+    server, desktop: report.php_comparison.desktop });
   assert.equal(report.php_comparison.desktop.capture_scope, 'desktop_import');
   assert.equal(report.php_comparison.desktop.php_sapi, 'cli');
   assert.equal(report.php_comparison.desktop.serialize_precision, '-1');
@@ -213,9 +221,82 @@ test('malformed export metadata is omitted and a CLI export is never presented a
   assert.equal(valid.report.php_comparison.same_serialize_precision, true);
   for (const changed of [ { capture_scope: 'pool-private-script' }, { php_sapi: 'PRIVATE_ACCOUNT_VALUE' },
     { php_version: '8.2.30 PRIVATE_ACCOUNT_VALUE' }, { php_version: '8.2.30\n' }, { php_version: '1234.2.30' },
-    { serialize_precision: 17 }, { serialize_precision: '17\n' }, { precision: '14\nPRIVATE_ACCOUNT_VALUE' } ]) {
+    { serialize_precision: 17 }, { serialize_precision: '17\n' }, { precision: '14\nPRIVATE_ACCOUNT_VALUE' },
+    { serialize_precision: '-2' }, { serialize_precision: '10000' }, { serialize_precision: '01' } ]) {
     const { report, stderr } = runImport(command, fixture, { transport_php: { ...server, ...changed } });
     assert.equal(Object.hasOwn(report, 'php_comparison'), false);
+    assert.equal(report.php_profiles.server_profile_status, 'invalid');
+    assert.equal(Object.hasOwn(report.php_profiles, 'server'), false);
+    assert.equal(report.php_profiles.desktop_profile_status, 'valid');
+    assert.equal(report.php_profiles.desktop.php_sapi, 'cli');
     assert.equal(stderr.includes('PRIVATE_ACCOUNT_VALUE'), false);
+  }
+});
+
+test('missing or rejected server metadata keeps the running desktop PHP profile visible', async t => {
+  const command = php(t); if (!command) return;
+  const fixture = await importFixture(t);
+  for (const [snapshot, status] of [[{}, 'missing'], [{ transport_php: null }, 'invalid'],
+    [{ transport_php: { private: 'PRIVATE_ACCOUNT_VALUE' } }, 'invalid']]) {
+    const { report, stderr } = runImport(command, fixture, snapshot,
+      ['-d', 'serialize_precision=100', '-d', 'precision=100']);
+    assert.equal(report.php_profiles.server_profile_status, status);
+    assert.equal(report.php_profiles.desktop_profile_status, 'valid');
+    assert.deepEqual(Object.keys(report.php_profiles.desktop).sort(),
+      ['capture_scope', 'php_sapi', 'php_version', 'precision', 'serialize_precision']);
+    assert.equal(report.php_profiles.desktop.capture_scope, 'desktop_import');
+    assert.equal(report.php_profiles.desktop.serialize_precision, '100');
+    assert.equal(report.php_profiles.desktop.precision, '100');
+    assert.equal(Object.hasOwn(report.php_profiles, 'server'), false);
+    assert.equal(Object.hasOwn(report, 'php_comparison'), false);
+    assert.equal(stderr.includes('PRIVATE_ACCOUNT_VALUE'), false);
+  }
+});
+
+test('precision 100 is reported from the real PHP process and valid export profiles without changing INI settings', t => {
+  const command = php(t); if (!command) return;
+  const result = spawnSync(command, ['-n', '-d', 'serialize_precision=100', '-d', 'precision=100', '-r', String.raw`
+    require $argv[1];
+    $before=[ini_get('serialize_precision'),ini_get('precision')];
+    $server=['capture_scope'=>'snapshot_export','php_sapi'=>'fpm-fcgi','php_version'=>'8.2.30',
+      'serialize_precision'=>'100','precision'=>'100','private'=>'PRIVATE_ACCOUNT_VALUE'];
+    $report=DesktopImportDiagnostic::report(new RuntimeException('PRIVATE_ACCOUNT_VALUE'),'import','/application',['transport_php'=>$server]);
+    $profiles=DesktopImportDiagnostic::profiles(['transport_php'=>$server]);
+    echo json_encode(['before'=>$before,'after'=>[ini_get('serialize_precision'),ini_get('precision')],'report'=>$report,'profiles'=>$profiles],JSON_THROW_ON_ERROR);
+  `, helper], options);
+  assert.ifError(result.error); assert.equal(result.status, 0, result.stderr);
+  const value = JSON.parse(result.stdout);
+  assert.deepEqual(value.before, ['100', '100']);
+  assert.deepEqual(value.after, value.before);
+  assert.deepEqual(value.profiles, value.report.php_profiles);
+  assert.equal(value.report.php_profiles.server_profile_status, 'valid');
+  assert.equal(value.report.php_profiles.desktop_profile_status, 'valid');
+  assert.equal(value.report.php_profiles.server.serialize_precision, '100');
+  assert.equal(value.report.php_comparison.same_serialize_precision, true);
+  assert.equal(value.report.php_comparison.server_web_request, true);
+  assert.equal(result.stdout.includes('PRIVATE_ACCOUNT_VALUE'), false);
+});
+
+test('a successful actual import retains only safe settings from its export request and running PHP', async t => {
+  const command = php(t); if (!command) return;
+  const fixture = await importFixture(t);
+  const server = { capture_scope: 'snapshot_export', php_sapi: 'litespeed', php_version: '8.2.30',
+    serialize_precision: '17', precision: '100' };
+  for (const [metadata, serverStatus] of [[{ transport_php: { ...server, private: 'PRIVATE_ACCOUNT_VALUE' } }, 'valid'],
+    [{}, 'missing'], [{ transport_php: { private: 'PRIVATE_ACCOUNT_VALUE' } }, 'invalid']]) {
+    const result = spawnSync(command, ['-n', '-d', 'serialize_precision=100', '-d', 'precision=14', fixture.importFile],
+      { ...options, input: JSON.stringify({ tables: {}, kind: 'success', private: 'PRIVATE_ACCOUNT_VALUE', ...metadata }) });
+    assert.ifError(result.error); assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+    const receipt = JSON.parse(result.stdout);
+    assert.equal(receipt.synthetic_success, true);
+    assert.equal(receipt.php_profiles.server_profile_status, serverStatus);
+    assert.equal(receipt.php_profiles.desktop_profile_status, 'valid');
+    assert.equal(receipt.php_profiles.desktop.capture_scope, 'desktop_import');
+    assert.equal(receipt.php_profiles.desktop.serialize_precision, '100');
+    assert.equal(receipt.php_profiles.desktop.precision, '14');
+    if (serverStatus === 'valid') assert.deepEqual(receipt.php_profiles.server, server);
+    else assert.equal(Object.hasOwn(receipt.php_profiles, 'server'), false);
+    assert.equal(result.stdout.includes('PRIVATE_ACCOUNT_VALUE'), false);
+    assert.equal(result.stdout.includes(fixture.root), false);
   }
 });

@@ -26,23 +26,42 @@ const importMessages = {
   }
 };
 
-function importPhpComparison(value) {
-  const profile = (item, scope, sapis) => item && item.capture_scope === scope
+function importPhpProfile(item, scope, sapis) {
+  return item && item.capture_scope === scope
     && sapis.includes(item.php_sapi) && typeof item.php_version === 'string'
     && /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}[-A-Za-z0-9.]{0,24}(?![\s\S])/.test(item.php_version)
-    && ['serialize_precision', 'precision'].every(key => typeof item[key] === 'string' && /^(?:-1|[0-9]|[12][0-9]|30)(?![\s\S])/.test(item[key]))
+    && ['serialize_precision', 'precision'].every(key => typeof item[key] === 'string' && /^(?:-1|0|[1-9][0-9]{0,3})(?![\s\S])/.test(item[key]))
       ? { capture_scope: scope, php_sapi: item.php_sapi, php_version: item.php_version,
         serialize_precision: item.serialize_precision, precision: item.precision } : null;
-  const server = profile(value?.server, 'snapshot_export', ['fpm-fcgi', 'cgi-fcgi', 'apache2handler', 'litespeed', 'cli']);
-  const desktop = profile(value?.desktop, 'desktop_import', ['cli']);
+}
+
+function importPhpComparison(value) {
+  const server = importPhpProfile(value?.server, 'snapshot_export', ['fpm-fcgi', 'cgi-fcgi', 'apache2handler', 'litespeed', 'cli']);
+  const desktop = importPhpProfile(value?.desktop, 'desktop_import', ['cli']);
   return server && desktop ? { server, desktop, server_web_request: server.php_sapi !== 'cli',
     same_serialize_precision: server.serialize_precision === desktop.serialize_precision } : null;
 }
 
-function importPhpReason(comparison) {
-  if (!comparison) return '';
+function importPhpProfiles(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const server = importPhpProfile(value.server, 'snapshot_export', ['fpm-fcgi', 'cgi-fcgi', 'apache2handler', 'litespeed', 'cli']);
+  const desktop = importPhpProfile(value.desktop, 'desktop_import', ['cli']);
+  // Recompute validity; only the fixed missing/invalid distinction is retained
+  // when PHP deliberately omitted rejected server values.
+  const serverStatus = server ? 'valid' : !Object.hasOwn(value, 'server') && value.server_profile_status === 'missing' ? 'missing' : 'invalid';
+  return { server_profile_status: serverStatus, desktop_profile_status: desktop ? 'valid' : 'invalid',
+    ...(server ? { server } : {}), ...(desktop ? { desktop } : {}) };
+}
+
+function importPhpReason(comparison, profiles) {
   const description = item => item.php_sapi + '/' + item.php_version
     + ' serialize_precision=' + item.serialize_precision + ' precision=' + item.precision;
+  if (profiles) {
+    const server = profiles.server ? (profiles.server.php_sapi !== 'cli' ? 'الموقع=' : 'مصدر البيانات=') + description(profiles.server)
+      : profiles.server_profile_status === 'missing' ? 'المصدر=لم تصل إعدادات PHP مع بيانات التجهيز.' : 'المصدر=إعدادات PHP غير صالحة للتشخيص.';
+    return ' PHP: ' + server + '؛ الجهاز=' + (profiles.desktop ? description(profiles.desktop) : 'إعدادات PHP غير صالحة للتشخيص.');
+  }
+  if (!comparison) return '';
   return ' PHP: ' + (comparison.server_web_request ? 'الموقع=' : 'مصدر البيانات=')
     + description(comparison.server) + '؛ الجهاز=' + description(comparison.desktop);
 }
@@ -80,7 +99,7 @@ function failureReason(args, cause, text) {
   if (cause.import) return step + ' السبب: ' + cause.import.phase + ' ' + cause.import.type + ' ' + cause.import.file + ':' + cause.import.line
     + (cause.import.status ? ' (' + cause.import.status + ')' : '')
     + (cause.import.message ? ': ' + cause.import.message : '')
-    + importPhpReason(cause.import.php_comparison);
+    + importPhpReason(cause.import.php_comparison, cause.import.php_profiles);
   if (/(?:PHP )?(?:Fatal|Parse) error:/i.test(text)) return step + ' السبب: توقفت خطوة PHP بسبب خطأ داخلي.';
   return step + ' (رمز الخروج ' + cause.exitCode + ')';
 }
@@ -110,7 +129,9 @@ async function run(file, args, options, input = '', timeout = 90000) {
               && (value.status === null || Number.isInteger(value.status) && value.status >= 400 && value.status <= 599)) {
             cause.import = { phase: value.phase, type: value.type, file: value.file, line: value.line, status: value.status };
             if (importMessages[value.file]?.[value.status]?.includes(value.message)) cause.import.message = value.message;
-            const comparison = importPhpComparison(value.php_comparison);
+            const profiles = importPhpProfiles(value.php_profiles);
+            if (profiles) cause.import.php_profiles = profiles;
+            const comparison = Object.hasOwn(value, 'php_profiles') ? profiles && importPhpComparison(profiles) : importPhpComparison(value.php_comparison);
             if (comparison) cause.import.php_comparison = comparison;
           }
         } catch {}
@@ -414,6 +435,14 @@ class LocalRuntime {
     // The import decodes the whole server snapshot in one PHP process. A large account
     // needs more than the 256 MiB web limit, so only this one-shot step is uncapped.
     const receipt = JSON.parse(await run(context.php, [...phpArgs, '-d', 'memory_limit=-1', path.join(context.application, 'desktop/import.php')], options, readSnapshot.input(snapshot), 300000));
+    const profiles = importPhpProfiles(receipt?.php_profiles);
+    if (profiles) {
+      // Keep only safe settings from this successful import, inside its fresh
+      // private generation. Never persist the account snapshot or full receipt.
+      try {
+        await fs.writeFile(path.join(root, 'import-php-profiles.json'), JSON.stringify(profiles) + '\n', { flag: 'wx', mode: 0o600 });
+      } catch { throw Error('تعذر حفظ مقارنة إعدادات PHP؛ بيانات الجهاز محفوظة.'); }
+    }
     const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
       path.join(this.storageFor(value), 'app'));
     if (archive) await run(context.php, [...phpArgs, path.join(context.application, 'desktop/archive.php')], options,

@@ -70,6 +70,7 @@ test('actual staging uncaps only import while database, archive, verify and web 
   f = await fixture(t, ({ args }) => ({ stdout: ['import.php', 'verify.php'].includes(scriptName(args)) ? JSON.stringify(f.checked) : '', hold: args.includes('-S') }));
   const staged = await f.runtime.stage(f.snapshot, '1'.repeat(16), { previous: { database: 'active', snapshotId: 'old', schemaHash: 'old-schema' }, id: 'refresh', token: 'SYNTHETIC_ARCHIVE_TOKEN' });
   assert.equal(staged.receipt.verified, true);
+  await assert.rejects(fs.access(path.join(f.runtime.profile, 'generations', '1'.repeat(16), 'import-php-profiles.json')), { code: 'ENOENT' });
   await f.runtime.startWeb();
   assert.deepEqual(f.calls.map(call => scriptName(call.args)), ['database.php', 'import.php', 'archive.php', 'verify.php', 'router.php']);
   for (const call of f.calls) {
@@ -192,6 +193,130 @@ test('the native import boundary rejects malformed PHP settings without forwardi
       return true;
     });
   }
+});
+
+test('the native import error keeps a validated desktop profile when server settings are missing or invalid', async t => {
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.2.34', serialize_precision: '-1', precision: '14' };
+  for (const [serverStatus, changed] of [['missing', {}], ['invalid', {}], ['invalid', {
+    server: { capture_scope: 'snapshot_export', php_sapi: 'fpm-fcgi', php_version: 'PRIVATE_ACCOUNT_VALUE' },
+    server_profile_status: 'valid'
+  }]]) {
+    const report = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422,
+      php_profiles: { server_profile_status: serverStatus, desktop_profile_status: 'invalid',
+        desktop: { ...desktop, private: 'PRIVATE_ACCOUNT_VALUE' }, private: 'PRIVATE_ACCOUNT_VALUE', ...changed } };
+    const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+      stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) } : {});
+    await assert.rejects(f.runtime.stage(f.snapshot, '9'.repeat(16)), error => {
+      assert.ok(error.message.includes('الجهاز=cli/8.2.34 serialize_precision=-1 precision=14'));
+      assert.ok(error.message.includes(serverStatus === 'missing' ? 'لم تصل إعدادات PHP مع بيانات التجهيز.' : 'إعدادات PHP غير صالحة للتشخيص.'));
+      assert.deepEqual(JSON.parse(JSON.stringify(error.cause.import.php_profiles)), {
+        server_profile_status: serverStatus, desktop_profile_status: 'valid', desktop });
+      assert.equal(Object.hasOwn(error.cause.import, 'php_comparison'), false);
+      assert.equal(error.message.includes('PRIVATE_ACCOUNT_VALUE'), false);
+      return true;
+    });
+  }
+});
+
+test('the native import parser accepts precision 100 and recomputes validity and comparison flags', async t => {
+  const server = { capture_scope: 'snapshot_export', php_sapi: 'litespeed', php_version: '8.2.30', serialize_precision: '100', precision: '100' };
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.2.34', serialize_precision: '100', precision: '100' };
+  const report = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422,
+    php_profiles: { server_profile_status: 'missing', desktop_profile_status: 'invalid',
+      server: { ...server, private: 'PRIVATE_ACCOUNT_VALUE' }, desktop, private: 'PRIVATE_ACCOUNT_VALUE' },
+    php_comparison: { server, desktop, server_web_request: false, same_serialize_precision: false } };
+  const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+    stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) } : {});
+  await assert.rejects(f.runtime.stage(f.snapshot, 'a'.repeat(16)), error => {
+    assert.ok(error.message.includes('الموقع=litespeed/8.2.30 serialize_precision=100 precision=100'));
+    assert.ok(error.message.includes('الجهاز=cli/8.2.34 serialize_precision=100 precision=100'));
+    assert.deepEqual(JSON.parse(JSON.stringify(error.cause.import.php_profiles)), {
+      server_profile_status: 'valid', desktop_profile_status: 'valid', server, desktop });
+    assert.deepEqual(JSON.parse(JSON.stringify(error.cause.import.php_comparison)), {
+      server, desktop, server_web_request: true, same_serialize_precision: true });
+    assert.equal(error.message.includes('PRIVATE_ACCOUNT_VALUE'), false);
+    return true;
+  });
+});
+
+test('invalid new profile fields never borrow a valid legacy comparison or expose rejected values', async t => {
+  const server = { capture_scope: 'snapshot_export', php_sapi: 'fpm-fcgi', php_version: '8.2.30', serialize_precision: '17', precision: '14' };
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.2.34', serialize_precision: '-1', precision: '14' };
+  for (const invalid of ['10000', '-2', '01', '17\nPRIVATE_ACCOUNT_VALUE']) {
+    const report = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422,
+      php_profiles: { server_profile_status: 'valid', server: { ...server, serialize_precision: invalid }, desktop },
+      php_comparison: { server, desktop } };
+    const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? { code: 1,
+      stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) } : {});
+    await assert.rejects(f.runtime.stage(f.snapshot, 'b'.repeat(16)), error => {
+      assert.equal(error.cause.import.php_profiles.server_profile_status, 'invalid');
+      assert.equal(error.cause.import.php_profiles.desktop_profile_status, 'valid');
+      assert.equal(Object.hasOwn(error.cause.import.php_profiles, 'server'), false);
+      assert.equal(Object.hasOwn(error.cause.import, 'php_comparison'), false);
+      assert.equal(error.message.includes('PRIVATE_ACCOUNT_VALUE'), false);
+      assert.equal(error.message.includes('الموقع='), false);
+      return true;
+    });
+  }
+});
+
+test('successful imports save only sanitized PHP settings inside their own private generation', async t => {
+  const server = { capture_scope: 'snapshot_export', php_sapi: 'fpm-fcgi', php_version: '8.2.30', serialize_precision: '17', precision: '14' };
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.2.34', serialize_precision: '-1', precision: '14' };
+  for (const [status, source] of [['valid', { server: { ...server, private: 'PRIVATE_ACCOUNT_VALUE' } }],
+    ['missing', {}], ['invalid', { server: { ...server, serialize_precision: 'PRIVATE_ACCOUNT_VALUE' } }]]) {
+    const id = 'c'.repeat(16); let f;
+    const profiles = { server_profile_status: status, desktop_profile_status: 'invalid',
+      desktop: { ...desktop, private: 'PRIVATE_ACCOUNT_VALUE' }, private: 'PRIVATE_ACCOUNT_VALUE', ...source };
+    f = await fixture(t, ({ args }) => ({ stdout: scriptName(args) === 'import.php'
+      ? JSON.stringify({ ...f.checked, private: 'PRIVATE_ACCOUNT_VALUE', php_profiles: profiles })
+      : scriptName(args) === 'verify.php' ? JSON.stringify(f.checked) : '' }));
+    const staged = await f.runtime.stage(f.snapshot, id);
+    assert.equal(staged.receipt.verified, true);
+    const saved = path.join(f.runtime.profile, 'generations', id, 'import-php-profiles.json');
+    const info = await fs.lstat(saved), text = await fs.readFile(saved, 'utf8');
+    assert.equal(info.isFile(), true); assert.equal(info.isSymbolicLink(), false);
+    if (process.platform !== 'win32') assert.equal(info.mode & 0o777, 0o600);
+    assert.ok(Buffer.byteLength(text) < 2048);
+    assert.deepEqual(JSON.parse(text), { server_profile_status: status, desktop_profile_status: 'valid',
+      ...(status === 'valid' ? { server } : {}), desktop });
+    for (const privateValue of ['PRIVATE_ACCOUNT_VALUE', 'fixture-snapshot', 'fixture-device', 'schema_hash', 'actor_id'])
+      assert.equal(text.includes(privateValue), false);
+    await assert.rejects(fs.access(path.join(f.runtime.profile, 'import-php-profiles.json')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
+  }
+});
+
+test('failed imports do not fabricate a successful-import PHP settings record', async t => {
+  const desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.2.34', serialize_precision: '-1', precision: '14' };
+  const report = { phase: 'import', type: 'RuntimeException', file: 'DesktopDashboardImport.php', line: 46, status: 422,
+    php_profiles: { server_profile_status: 'missing', desktop } };
+  for (const result of [{ code: 1, stderr: 'DESKTOP_IMPORT_DIAGNOSTIC ' + JSON.stringify(report) }, { stdout: '{' }]) {
+    const f = await fixture(t, ({ args }) => scriptName(args) === 'import.php' ? result : {});
+    await assert.rejects(f.runtime.stage(f.snapshot, 'd'.repeat(16)));
+    await assert.rejects(fs.access(path.join(f.runtime.profile, 'generations', 'd'.repeat(16), 'import-php-profiles.json')), { code: 'ENOENT' });
+    assert.equal(f.runtime.stagedContexts.size, 0);
+    assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
+  }
+});
+
+test('the PHP settings record is created exclusively and write failures expose no private path', async t => {
+  const id = 'e'.repeat(16), desktop = { capture_scope: 'desktop_import', php_sapi: 'cli', php_version: '8.2.34', serialize_precision: '-1', precision: '14' };
+  let f, saved;
+  f = await fixture(t, ({ args }) => {
+    if (scriptName(args) !== 'import.php') return {};
+    saved = path.join(f.runtime.profile, 'generations', id, 'import-php-profiles.json');
+    syncFs.writeFileSync(saved, 'EXISTING_SETTINGS_RECORD');
+    return { stdout: JSON.stringify({ ...f.checked, php_profiles: { server_profile_status: 'missing', desktop } }) };
+  });
+  await assert.rejects(f.runtime.stage(f.snapshot, id), error => {
+    assert.equal(error.message, 'تعذر حفظ مقارنة إعدادات PHP؛ بيانات الجهاز محفوظة.');
+    assert.equal(error.message.includes(f.runtime.profile), false);
+    return true;
+  });
+  assert.equal(await fs.readFile(saved, 'utf8'), 'EXISTING_SETTINGS_RECORD');
+  assert.equal(f.runtime.stagedContexts.size, 0);
+  assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
 });
 
 test('only known portable script basenames can label a failure', () => {
