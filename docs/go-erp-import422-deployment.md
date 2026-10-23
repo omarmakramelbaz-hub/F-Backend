@@ -1,0 +1,13 @@
+# Coordinated import diagnostic deployment
+
+Run `deployment/run_go_erp_import422_root.sh <immutable-package-commit>` as root on `srv1836524` only. The entry fetches that exact public Git commit into a private directory and exports a fixed, pinned package roster. It stops the update timer, waits up to 60 seconds for the existing worker without killing it, then invokes the combined migration.
+
+The migration verifies the old deployed source (`08e84b…`, 1326 files), reviewed runtime, current remote candidate, dependency guard and counters before changing anything. One retained named watcher lock covers four source-file exchanges, the source manifest, and the watcher checkout/configuration/state/unit migration. The resulting source is `39ea59e8027d71cb5282c7b7e0fffa23c30361f56f359688777cee1458742b48`, 1327 files; the immutable policy seed is `02dedf4d1f07a33349b66501806778cb330874cb`.
+
+Only the two pinned watcher payload constants change. The consumed counter, version and sequence floors and publication history are preserved. The next version advances past the current counter, so its number must be read from the actual result rather than assumed to be Preview35. The migration does not edit the public installer feed. The next normal worker tick retires an incompatible old feed while building; it publishes the replacement only after the matching build passes acceptance.
+
+On success the original active timer is restored and a worker run is requested without blocking the console. `GO_ERP_DIAGNOSTIC_BUILD_REQUESTED` means a build was requested; it does not certify an accepted installer, successful account import, or offline readiness. The actual server-captured candidate must finish the existing Windows and contract checks before sharing the new installer.
+
+Recognized clean failures restore the original active timer. Unknown child exits, lost lock identity, pending transactions or incomplete rollback leave it paused and retain the private package/audit for recovery. Do not delete or overwrite those retained files to bypass a refusal. Re-running after a completed migration verifies the already-current source and runtime without resetting state.
+
+No business database, local device profile, encrypted journal, media or business storage is changed by this migration. Configuration credentials are retained privately and never printed. Console reports contain fixed reason codes and release metadata only.

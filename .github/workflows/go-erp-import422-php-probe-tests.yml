@@ -14,6 +14,9 @@ on:
       - deployment/diagnose_go_erp_*422*
       - deployment/diagnose_go_erp_numeric_transport.php
       - tests/test_go_erp_import422_probe.py
+      - deployment/*import422*
+      - deployment/import422-prior/**
+      - tests/test_go_erp_import422_*.py
   pull_request:
     paths:
       - deployment/diagnose_go_erp_desktop_import_php.ps1
@@ -26,12 +29,29 @@ on:
       - deployment/diagnose_go_erp_*422*
       - deployment/diagnose_go_erp_numeric_transport.php
       - tests/test_go_erp_import422_probe.py
+      - deployment/*import422*
+      - deployment/import422-prior/**
+      - tests/test_go_erp_import422_*.py
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  deployment-transaction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the pinned original source for real inode rollback tests
+        run: git -c credential.helper= -c core.hooksPath=/dev/null fetch --quiet --no-tags --depth=1 origin 27eae737be190a9900fed67810393a0b68627119
+      - name: Verify seed lineage and immutable code boundaries
+        run: python3 -B -m unittest discover -s tests -p test_go_erp_preview31_seed.py
+      - name: Verify the combined application and watcher transaction
+        run: |
+          bash -n deployment/run_go_erp_import422_root.sh
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_import422_application_patch.py
+          sudo -n -- python3 -B -m unittest discover -s tests -p test_go_erp_import422_watcher_upgrade.py
   php-diagnostics:
     runs-on: ubuntu-latest
     timeout-minutes: 5
