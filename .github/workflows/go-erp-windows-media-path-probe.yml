@@ -13,6 +13,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
+      - name: Preserve exact immutable source bytes
+        shell: pwsh
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           path: probe
