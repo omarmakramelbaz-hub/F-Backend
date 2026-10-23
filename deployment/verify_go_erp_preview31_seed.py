@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind a live candidate to the exact reviewed native import memory core.
+"""Bind a live candidate to the exact reviewed import diagnostic core.
 
 The policy seed may change only this verifier, its tests and the update workflow.
 The candidate must then be a single child of that seed, changing only captured
@@ -17,14 +17,14 @@ import subprocess
 import tempfile
 import types
 
-CORE = '85c61fcc4cbb7539ec7f17ea99c746522676ae16'
+CORE = '04950fe07bbbb69a759bb6eace79bf32c7a1a500'
 LEGACY_BASES = frozenset((
     '75c3fe50b3609ef5822904a23d7c4ed0afd07eff',
     '7523ff6888a6e3d0a6f5b7712c553909f12c043b',
     '52f7f5d22e5a2026e5bd5732bbb7893125b6ef9d',
 ))
 REMOTE = 'https://github.com/omarmakramelbaz-hub/F-Backend.git'
-POLICY = 'native-import-memory-seed-v1'
+POLICY = 'native-import422-diagnostic-seed-v1'
 POLICY_FILES = frozenset((
     '.github/workflows/go-erp-update-tests.yml',
     'deployment/verify_go_erp_preview31_seed.py',
