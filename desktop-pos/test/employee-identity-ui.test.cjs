@@ -19,9 +19,11 @@ function declaration(name){
 class Element{
   constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.listeners=new Map();this.dataset={};this.value='';this.disabled=false;this.hidden=false;this.textContent='';this.classList={add(){},toggle(){}};}
   appendChild(child){this.children.push(child);child.parentElement=this;return child;}
+  replaceChildren(...children){this.children=[];for(const child of children)this.appendChild(child);}
   replaceWith(child){const parent=this.parentElement;if(parent){const index=parent.children.indexOf(this);parent.children.splice(index,1,child);child.parentElement=parent;}}
   addEventListener(name,fn){this.listeners.set(name,[...(this.listeners.get(name)||[]),fn]);}
   dispatch(name,event={preventDefault(){}}){for(const fn of this.listeners.get(name)||[])fn(event);}
+  click(){this.dispatch('click');}
   setAttribute(name,value){this[name]=String(value);}
   querySelector(selector){return this.all().find(el=>selector==='[data-op-identity-status]'&&Object.hasOwn(el.dataset,'opIdentityStatus'))||null;}
   all(){return this.children.flatMap(child=>[child,...child.all()]);}
@@ -39,13 +41,14 @@ function fixture(options={}){
     data:{can_manage_employees:true},busy:false,pending:null,body,filters:{branch:{value:'f:1'},month:{value:'2026-10'}},
     document:{createElement:tag=>new Element(tag),querySelector:()=>({content:'fixture-csrf'})},FormData:FormDataFixture,
     employeeScheduleFields:()=>()=>{},open:()=>true,close(){},fixedDisabled:(field,value)=>{field.disabled=value;return field;},
-    write:(url,payload)=>posted.push({url,payload}),url:value=>value,read:async response=>response,identityView(){},message:(text,ok)=>messages.push({text,ok}),refresh(){},
+    write:(url,payload,done)=>posted.push({url,payload,done}),lock(){},AbortController,setTimeout,clearTimeout,
+    FileReader:class{readAsDataURL(){this.result='data:image/png;base64,c3ludGhldGlj';this.onload();}},url:value=>value,read:async response=>response,identityView(){},message:(text,ok)=>messages.push({text,ok}),refresh(){},
     fetch:async(url,request)=>{requests.push({url,request});if(options.networkError)throw Error('Offline fixture');return {identity:{front:true,back:false}};}});
-  vm.runInContext(['n','btn','form','field','footer','fields','branchField','edit','regulationField','regulationDetails','identityView','uploadIdentity'].map(declaration).join('\n'),context);
+  vm.runInContext(['n','btn','form','field','footer','fields','branchField','edit','regulationField','regulationDetails','identityView','identityImage','identityField','pendingIdentity','uploadIdentityFile','finishIdentity'].map(declaration).join('\n'),context);
   return {context,body,boot,posted,requests,messages,
     edit(item={}){context.edit(Object.assign({id:7,branch:'f:1',revision:4,name:'Fixture employee',job_title:'Fixture role',regulation:{current:false}},item));
       const form=body.children.at(-1),check=form.all().find(field=>field.type==='checkbox');return {form,check,submit(){form.dispatch('submit');}};},
-    async upload(file,side='front'){const cell=new Element('figure');await context.uploadIdentity({id:7,branch:'f:1'},side,file,cell);return cell;}};
+    async upload(file,side='front'){const edit=this.edit(),input=edit.form.all().filter(field=>field.type==='file')[side==='front'?0:1];input.files=[file];input.dispatch('change');if(input.value!==''||!messages.length){edit.submit();if(posted.at(-1)?.done)await posted.at(-1).done({employee:{id:7}});}return input.parentElement;}};
 }
 const payloadOf=f=>JSON.parse(JSON.stringify(f.posted.at(-1).payload));
 
@@ -85,7 +88,7 @@ test('busy or unresolved employee saves do not submit a second operation',()=>{
 
 test('ID upload rejects unsupported media and oversized images before any request',async()=>{
   for(const file of [{type:'image/svg+xml',size:15},{type:'application/pdf',size:15},{type:'image/jpeg',size:5*1024*1024+1}]){
-    const f=fixture(),cell=await f.upload(file);assert.equal(f.requests.length,0);assert.equal(f.context.busy,false);assert.ok(cell.children.at(-1).textContent);
+    const f=fixture(),cell=await f.upload(file);assert.equal(f.requests.length,0);assert.equal(f.context.busy,false);assert.ok(f.messages.at(-1).text);
   }
 });
 
@@ -97,7 +100,7 @@ test('an allowed ID upload sends one scoped multipart request with a CSRF token'
 
 test('an uncertain photo upload displays the failure and never retries automatically',async()=>{
   const f=fixture({networkError:true}),cell=await f.upload({type:'image/jpeg',size:10});await Promise.resolve();
-  assert.equal(f.requests.length,1);assert.equal(f.context.busy,false);assert.equal(cell.children.at(-1).textContent,'Offline fixture');
+  assert.equal(f.requests.length,1);assert.equal(f.context.busy,false);assert.match(f.messages.at(-1).text,/Offline fixture/);assert.match(f.messages.at(-1).text,/اتحفظت بيانات الموظف/);
 });
 
 test('branch readers and the offline employee page offer no upload control',()=>{
@@ -105,7 +108,7 @@ test('branch readers and the offline employee page offer no upload control',()=>
     const f=fixture();if(online)f.context.data.can_manage_employees=false;else delete f.context.urls.identity;
     f.context.identityView({id:7,branch:'f:1',name:'Fixture employee',identity:{front:false,back:false}});
     assert.equal(f.body.all().filter(el=>el.type==='file').length,0);assert.equal(f.requests.length,0);
-    if(!online)assert.ok(f.body.all().some(el=>el.textContent.includes('من المتصفح')));
+    if(!online){f.edit();assert.ok(f.body.all().some(el=>el.textContent.includes('من المتصفح')));assert.equal(f.body.all().filter(el=>el.type==='file').length,0);}
   }
 });
 
