@@ -13,7 +13,8 @@
     var tally = root.querySelector('[data-hud-tally]'), statusText = root.querySelector('[data-hud-status]'), skip = root.querySelector('[data-hud-skip]');
     var W = 0, H = 0, stars = [], links = [], particles = [], pulses = [], timers = [], start = performance.now(), revealAt = reduce ? -10 : Infinity;
     var frame = 0, booting = false, desktopMode = '', orbit = null, lastBeat = -1, mode = '', waves = [], leaving = false;
-    var enterButton = root.querySelector('[data-hud-enter]'), corona = core.querySelector('.hud-corona'), LINKS = boot.hud_links || {};
+    var enterButton = root.querySelector('[data-hud-enter]'), LINKS = boot.hud_links || {};
+    var sun = core.querySelector('canvas.hud-sun'), sctx = sun ? sun.getContext('2d') : null, sunR = 0, sunS = 0, motes = [];
     var BEAT = 3.2; // seconds between two heartbeats of the GO sun
     var numbers = new Intl.NumberFormat('ar-EG-u-nu-latn', {maximumFractionDigits: 0});
     var CHANNELS = {takeaway: 'تيك أواي', dine: 'الصالة', phone: 'الدليفري', app: 'التطبيق'};
@@ -98,7 +99,7 @@
             // Phones: the sections are tiles under the system, so nothing is placed by hand.
             core.style.left = core.style.top = core.style.width = pill.style.left = box.style.marginTop = ''; root.style.removeProperty('--hud-cx');
             for (i = 0; i < n; i++) { els[i].style.left = els[i].style.top = ''; els[i].classList.remove('right', 'left'); }
-            var unit = core.offsetWidth / 1380;
+            var unit = core.offsetWidth / 1380; setSun(200 * unit);
             orbit = {x: core.offsetLeft + core.offsetWidth / 2, y: core.offsetTop + core.offsetHeight / 2, logo: 180 * unit, rx: 640 * unit, ry: 256 * unit};
             root.style.setProperty('--hud-cy', orbit.y + 'px');
             return;
@@ -111,7 +112,7 @@
         // Wide screens keep the system in the space beside the check panel, so no section runs under it.
         core.style.left = cx + 'px'; core.style.top = cy + 'px'; core.style.width = Math.round(360 * scale) + 'px';
         pill.style.left = cx + 'px'; root.style.setProperty('--hud-cx', cx + 'px'); root.style.setProperty('--hud-cy', cy + 'px');
-        orbit = {x: cx, y: cy, logo: 180 * scale, rx: 650 * scale, ry: 262 * scale};
+        orbit = {x: cx, y: cy, logo: 180 * scale, rx: 650 * scale, ry: 262 * scale}; setSun(200 * scale);
         for (i = 0; i < n; i++) {
             var a = -Math.PI / 2 + i * 2 * Math.PI / n, cos = Math.cos(a), sin = Math.sin(a), x = cx + cos * rx, y = cy + sin * ry, item = els[i];
             item.style.left = x + 'px'; item.style.top = y + 'px';
@@ -134,6 +135,65 @@
         var g = ctx.createRadialGradient(x, y, 0, x, y, r); stops.forEach(function (s) { g.addColorStop(s[0], s[1]); });
         ctx.fillStyle = g; ctx.save(); ctx.translate(x, y); ctx.scale(1, flat); ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.restore(); ctx.fill();
     }
+    // ---- the solar halo around GO: a golden ring of light over a deep blue disc full of sparks ----
+    function setSun(radius) {
+        if (!sun || Math.abs(radius - sunR) < .5) return;
+        var ratio = Math.min(2, window.devicePixelRatio || 1), size = Math.ceil(radius * 4.4);
+        sunR = radius; sunS = size; sun.width = size * ratio; sun.height = size * ratio; sun.style.width = sun.style.height = size + 'px'; sctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        motes = []; for (var i = 0, n = W < 760 ? 150 : 280; i < n; i++) {
+            var r = Math.sqrt(Math.random()) * .94;
+            motes.push({r: r, a: Math.random() * 6.283, w: (.03 + Math.random() * .09) * (Math.random() < .5 ? -1 : 1) * (1.3 - r), z: .5 + Math.random() * 1.1, tw: Math.random() * 6.283, gold: Math.random() < .14});
+        }
+    }
+    function drawSun(t, beat, fade) {
+        if (!sctx || !sunR) return;
+        var g = sctx, c = sunS / 2, R = sunR, i, heat = (.78 + .32 * beat + .04 * Math.sin(t * 11.3) + .03 * Math.sin(t * 17.9)) * fade;
+        g.clearRect(0, 0, sunS, sunS); g.globalCompositeOperation = 'lighter';
+        // the bright aura right around the sun, swelling on every beat
+        var aura = g.createRadialGradient(c, c, R * .9, c, c, R * (2.05 + .12 * beat));
+        aura.addColorStop(0, 'rgba(70,180,255,' + ((.26 + .22 * beat) * fade).toFixed(3) + ')'); aura.addColorStop(.35, 'rgba(50,150,255,' + ((.1 + .1 * beat) * fade).toFixed(3) + ')'); aura.addColorStop(1, 'rgba(40,120,255,0)');
+        g.fillStyle = aura; g.beginPath(); g.arc(c, c, R * 2.2, 0, 6.283); g.fill();
+        // thin rings around the halo, and ripples that leave it on every beat
+        [1.13, 1.25].forEach(function (k, n) { g.strokeStyle = 'rgba(120,220,255,' + ((.2 - n * .07 + .1 * beat) * fade).toFixed(3) + ')'; g.lineWidth = 1; g.beginPath(); g.arc(c, c, R * k, 0, 6.283); g.stroke(); });
+        for (i = pulses.length - 1; i >= 0; i--) {
+            var age = (t - pulses[i]) / 2.6; if (age >= 1 || age < 0) { if (age >= 1) pulses.splice(i, 1); continue; }
+            var reach = R * (1.04 + .95 * (1 - Math.pow(1 - age, 2.4)));
+            g.lineWidth = 2; g.strokeStyle = 'rgba(120,225,255,' + (.5 * (1 - age) * fade).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, reach, 0, 6.283); g.stroke();
+            g.lineWidth = 1; g.strokeStyle = 'rgba(255,214,110,' + (.35 * (1 - age) * fade).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, reach * .94, 0, 6.283); g.stroke();
+        }
+        // the disc hides whatever passes behind the sun
+        g.globalCompositeOperation = 'source-over';
+        var disc = g.createRadialGradient(c, c, 0, c, c, R);
+        disc.addColorStop(0, 'rgba(26,96,170,' + (.96 * fade).toFixed(3) + ')'); disc.addColorStop(.62, 'rgba(10,52,110,' + (.96 * fade).toFixed(3) + ')'); disc.addColorStop(1, 'rgba(12,44,88,' + (.97 * fade).toFixed(3) + ')');
+        g.fillStyle = disc; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.fill();
+        g.globalCompositeOperation = 'lighter';
+        // faint rays from the centre and a dotted inner ring, slowly turning
+        g.lineWidth = 1;
+        for (i = 0; i < 18; i++) {
+            var ang = i * 6.283 / 18 + t * .04, len = R * (.55 + .35 * ((i * 7) % 5) / 4), ray = g.createLinearGradient(c, c, c + Math.cos(ang) * len, c + Math.sin(ang) * len);
+            ray.addColorStop(0, 'rgba(140,230,255,' + ((.16 + .1 * beat) * fade).toFixed(3) + ')'); ray.addColorStop(1, 'rgba(140,230,255,0)');
+            g.strokeStyle = ray; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(ang) * len, c + Math.sin(ang) * len); g.stroke();
+        }
+        g.setLineDash([2, 6]); g.strokeStyle = 'rgba(140,230,255,' + (.28 * fade).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, R * .56, t * .08, t * .08 + 6.283); g.stroke(); g.setLineDash([]);
+        // the sparks inside the halo
+        for (i = 0; i < motes.length; i++) {
+            var m = motes[i], a = m.a + t * m.w, mx = c + Math.cos(a) * m.r * R, my = c + Math.sin(a) * m.r * R, glint = (.3 + .5 * (.5 + .5 * Math.sin(t * 2.3 + m.tw))) * (1 - m.r * .25) * fade;
+            g.fillStyle = m.gold ? 'rgba(255,214,120,' + glint.toFixed(3) + ')' : 'rgba(150,235,255,' + glint.toFixed(3) + ')';
+            g.fillRect(mx - m.z / 2, my - m.z / 2, m.z, m.z);
+        }
+        var heart = g.createRadialGradient(c, c, 0, c, c, R * .5);
+        heart.addColorStop(0, 'rgba(150,235,255,' + ((.22 + .2 * beat) * fade).toFixed(3) + ')'); heart.addColorStop(1, 'rgba(150,235,255,0)');
+        g.fillStyle = heart; g.beginPath(); g.arc(c, c, R * .5, 0, 6.283); g.fill();
+        // golden light spilling inwards from the ring
+        var rim = g.createRadialGradient(c, c, R * .62, c, c, R);
+        rim.addColorStop(0, 'rgba(255,200,60,0)'); rim.addColorStop(.75, 'rgba(255,200,60,' + (.08 * heat).toFixed(3) + ')'); rim.addColorStop(1, 'rgba(255,210,80,' + (.36 * heat).toFixed(3) + ')');
+        g.fillStyle = rim; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.fill();
+        // the golden ring: wide soft glow, then brighter and thinner, then a white-hot line
+        [[.5, 'rgba(255,150,20,', .08], [.3, 'rgba(255,165,30,', .16], [.17, 'rgba(255,185,45,', .3], [.09, 'rgba(255,208,75,', .55], [.045, 'rgba(255,232,130,', .85], [.016, 'rgba(255,252,225,', 1]].forEach(function (l) {
+            g.lineWidth = R * l[0]; g.strokeStyle = l[1] + Math.min(1, l[2] * heat).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.stroke();
+        });
+        g.globalCompositeOperation = 'source-over';
+    }
     function draw(now) {
         frame = 0;
         if (!root.isConnected) { dispose(); return; }
@@ -145,8 +205,8 @@
         if (orbit) {
             var cx = orbit.x, cy = orbit.y - scroll;
             ctx.globalCompositeOperation = 'lighter';
-            // the blue cosmic halo breathes with the sun
-            glow(cx, cy, orbit.rx * (1.32 + .05 * beat), .62, [[0, 'rgba(40,135,255,' + ((.07 + .09 * beat) * fade).toFixed(3) + ')'], [.55, 'rgba(30,110,230,' + ((.035 + .04 * beat) * fade).toFixed(3) + ')'], [1, 'rgba(20,90,200,0)']]);
+            // the wide blue aura breathes with the sun
+            glow(cx, cy, Math.max(orbit.rx * 1.3, sunR * 4.2) * (1 + .05 * beat), .7, [[0, 'rgba(45,150,255,' + ((.14 + .14 * beat) * fade).toFixed(3) + ')'], [.45, 'rgba(30,115,235,' + ((.06 + .06 * beat) * fade).toFixed(3) + ')'], [1, 'rgba(20,90,200,0)']]);
             // cosmic waves, brighter on every beat, with sparks of energy running into the sun
             var spread = Math.max(H * .62, orbit.ry * 2.6);
             for (i = 0; i < waves.length; i++) {
@@ -160,21 +220,9 @@
                     ctx.beginPath(); ctx.arc(sx, waveY(v, sx, t, cx, cy, spread), 1.9 - j * .2, 0, 6.283); ctx.fill();
                 }
             }
-            // the solar pulse: the GO sun swells and throws rings outward on every beat
-            glow(cx, cy, orbit.logo * (1.75 + .45 * beat), .74, [[0, 'rgba(255,205,120,' + ((.22 + .26 * beat) * fade).toFixed(3) + ')'], [.42, 'rgba(253,125,15,' + ((.12 + .14 * beat) * fade).toFixed(3) + ')'], [1, 'rgba(253,114,1,0)']]);
             ctx.globalCompositeOperation = 'source-over';
-            if (!reduce) {
-                var cycle = Math.floor(t / BEAT); if (cycle !== lastBeat && !booting) { lastBeat = cycle; pulse(); }
-                for (var k = pulses.length - 1; k >= 0; k--) {
-                    var age = (t - pulses[k]) / 3.2; if (age >= 1 || age < 0) { pulses.splice(k, 1); continue; }
-                    var reach = orbit.logo + (orbit.rx * 1.12 - orbit.logo) * (1 - Math.pow(1 - age, 3));
-                    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,160,60,' + (.4 * (1 - age)).toFixed(3) + ')';
-                    ctx.beginPath(); ctx.ellipse(cx, cy, reach, reach * .4, 0, 0, 6.283); ctx.stroke();
-                    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(80,200,255,' + (.22 * (1 - age)).toFixed(3) + ')';
-                    ctx.beginPath(); ctx.ellipse(cx, cy, reach * .86, reach * .86 * .4, 0, 0, 6.283); ctx.stroke();
-                }
-            }
-            if (corona) corona.style.opacity = (.6 + .4 * Math.min(1, beat)).toFixed(3);
+            if (!reduce) { var cycle = Math.floor(t / BEAT); if (cycle !== lastBeat && !booting) { lastBeat = cycle; pulse(); } }
+            drawSun(t, beat, fade);
         }
         ctx.save(); ctx.translate(0, -scroll);
         var grown = Math.min(1, Math.max(0, (t - revealAt) / 1.1));
