@@ -15,7 +15,7 @@
     var frame = 0, booting = false, desktopMode = '', orbit = null, lastBeat = -1, mode = '', waves = [], leaving = false;
     var enterButton = root.querySelector('[data-hud-enter]'), LINKS = boot.hud_links || {};
     var sun = core.querySelector('canvas.hud-sun'), sctx = sun ? sun.getContext('2d') : null, sunR = 0, sunS = 0, motes = [];
-    var BEAT = 3.2; // seconds between two heartbeats of the GO sun
+    var BEAT = 3.2, HALO = 240; // seconds between two heartbeats of the GO sun; the halo's radius in solar-system units
     var numbers = new Intl.NumberFormat('ar-EG-u-nu-latn', {maximumFractionDigits: 0});
     var CHANNELS = {takeaway: 'تيك أواي', dine: 'الصالة', phone: 'الدليفري', app: 'التطبيق'};
     var PERIODS = {today: 'اليوم', week: 'آخر 7 أيام', month: 'هذا الشهر'};
@@ -90,7 +90,7 @@
         if (!booting && nodesBox.children.length && nodesBox.children.length !== nodes().length) fillNodes(false);
         layout();
     }
-    // The solar system is drawn in units: the GO mark is 360 wide, Neptune's orbit 640 by 256 around it.
+    // The solar system is drawn in units: the box is 360 wide, the GO mark 300, the halo 240 in radius, Neptune's orbit 660 by 264.
     function layout() {
         var next = W < 760 ? 'compact' : W < 1180 ? 'mid' : 'wide', els = nodesBox.children, n = els.length, i, box = checksBox.parentNode;
         if (next !== mode) { root.classList.remove('compact', 'mid', 'wide'); root.classList.add(next); mode = next; }
@@ -99,8 +99,8 @@
             // Phones: the sections are tiles under the system, so nothing is placed by hand.
             core.style.left = core.style.top = core.style.width = pill.style.left = box.style.marginTop = ''; root.style.removeProperty('--hud-cx');
             for (i = 0; i < n; i++) { els[i].style.left = els[i].style.top = ''; els[i].classList.remove('right', 'left'); }
-            var unit = core.offsetWidth / 1380; setSun(200 * unit);
-            orbit = {x: core.offsetLeft + core.offsetWidth / 2, y: core.offsetTop + core.offsetHeight / 2, logo: 180 * unit, rx: 640 * unit, ry: 256 * unit};
+            var unit = core.offsetWidth / 1380; setSun(HALO * unit);
+            orbit = {x: core.offsetLeft + core.offsetWidth / 2, y: core.offsetTop + core.offsetHeight / 2, logo: 150 * unit, rx: 676 * unit, ry: 270 * unit};
             root.style.setProperty('--hud-cy', orbit.y + 'px');
             return;
         }
@@ -108,11 +108,11 @@
         var ringH = mode === 'mid' ? Math.max(440, H - box.offsetHeight - 110) : H;
         box.style.marginTop = mode === 'mid' ? ringH + 'px' : '';
         var panel = mode === 'wide' ? box.offsetWidth + 40 : 0, cx = (W - panel) / 2, cy = ringH / 2 + 12;
-        var rx = Math.min(cx - 150, 520), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .76 / 640, ry * .74 / 256));
+        var rx = Math.min(cx - 150, 520), ry = ringH * .35, scale = Math.max(.3, Math.min(rx * .8 / 660, ry * .76 / 264));
         // Wide screens keep the system in the space beside the check panel, so no section runs under it.
         core.style.left = cx + 'px'; core.style.top = cy + 'px'; core.style.width = Math.round(360 * scale) + 'px';
         pill.style.left = cx + 'px'; root.style.setProperty('--hud-cx', cx + 'px'); root.style.setProperty('--hud-cy', cy + 'px');
-        orbit = {x: cx, y: cy, logo: 180 * scale, rx: 650 * scale, ry: 262 * scale}; setSun(200 * scale);
+        orbit = {x: cx, y: cy, logo: 150 * scale, rx: 676 * scale, ry: 270 * scale}; setSun(HALO * scale);
         for (i = 0; i < n; i++) {
             var a = -Math.PI / 2 + i * 2 * Math.PI / n, cos = Math.cos(a), sin = Math.sin(a), x = cx + cos * rx, y = cy + sin * ry, item = els[i];
             item.style.left = x + 'px'; item.style.top = y + 'px';
@@ -138,60 +138,84 @@
     // ---- the solar halo around GO: a golden ring of light over a deep blue disc full of sparks ----
     function setSun(radius) {
         if (!sun || Math.abs(radius - sunR) < .5) return;
-        var ratio = Math.min(2, window.devicePixelRatio || 1), size = Math.ceil(radius * 4.4);
+        var ratio = Math.min(2, window.devicePixelRatio || 1), size = Math.ceil(radius * 3.4);
         sunR = radius; sunS = size; sun.width = size * ratio; sun.height = size * ratio; sun.style.width = sun.style.height = size + 'px'; sctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-        motes = []; for (var i = 0, n = W < 760 ? 150 : 280; i < n; i++) {
-            var r = Math.sqrt(Math.random()) * .94;
-            motes.push({r: r, a: Math.random() * 6.283, w: (.03 + Math.random() * .09) * (Math.random() < .5 ? -1 : 1) * (1.3 - r), z: .5 + Math.random() * 1.1, tw: Math.random() * 6.283, gold: Math.random() < .14});
+        motes = []; for (var i = 0, n = W < 760 ? 420 : 950; i < n; i++) {
+            var r = Math.sqrt(Math.random()) * .9;
+            motes.push({r: r, a: Math.random() * 6.283, w: (.02 + Math.random() * .07) * (Math.random() < .5 ? -1 : 1) * (1.2 - r), z: .45 + Math.random() * (Math.random() < .08 ? 1.3 : .6), tw: Math.random() * 6.283});
         }
     }
+    // The halo matches the reference: a lemon-yellow ring of light with a yellow-green glow, a bright sky-blue disc
+    // full of fine sparks with a burst at its centre and two faint inner circles, thin cyan rings outside, a light bar under it.
+    function ring(g, c, R, width, colour) { g.lineWidth = width; g.strokeStyle = colour; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.stroke(); }
     function drawSun(t, beat, fade) {
         if (!sctx || !sunR) return;
-        var g = sctx, c = sunS / 2, R = sunR, i, heat = (.78 + .32 * beat + .04 * Math.sin(t * 11.3) + .03 * Math.sin(t * 17.9)) * fade;
+        var g = sctx, c = sunS / 2, R = sunR, i, heat = Math.min(1.1, .84 + .22 * beat) * fade, a; // steady light that swells gently on the beat: no fast flicker, easy on the eyes
         g.clearRect(0, 0, sunS, sunS); g.globalCompositeOperation = 'lighter';
-        // the bright aura right around the sun, swelling on every beat
-        var aura = g.createRadialGradient(c, c, R * .9, c, c, R * (2.05 + .12 * beat));
-        aura.addColorStop(0, 'rgba(70,180,255,' + ((.26 + .22 * beat) * fade).toFixed(3) + ')'); aura.addColorStop(.35, 'rgba(50,150,255,' + ((.1 + .1 * beat) * fade).toFixed(3) + ')'); aura.addColorStop(1, 'rgba(40,120,255,0)');
-        g.fillStyle = aura; g.beginPath(); g.arc(c, c, R * 2.2, 0, 6.283); g.fill();
-        // thin rings around the halo, and ripples that leave it on every beat
-        [1.13, 1.25].forEach(function (k, n) { g.strokeStyle = 'rgba(120,220,255,' + ((.2 - n * .07 + .1 * beat) * fade).toFixed(3) + ')'; g.lineWidth = 1; g.beginPath(); g.arc(c, c, R * k, 0, 6.283); g.stroke(); });
+        // light just outside the ring, and the thin cyan rings around it
+        var out = g.createRadialGradient(c, c, R, c, c, R * 1.3);
+        out.addColorStop(0, 'rgba(120,200,150,' + (.16 * heat).toFixed(3) + ')'); out.addColorStop(1, 'rgba(120,200,150,0)');
+        g.fillStyle = out; g.beginPath(); g.arc(c, c, R * 1.3, 0, 6.283); g.fill();
+        ring(g, c, R * 1.13, 1, 'rgba(150,230,255,' + ((.42 + .15 * beat) * fade).toFixed(3) + ')');
+        ring(g, c, R * 1.2, 1, 'rgba(150,230,255,' + ((.26 + .12 * beat) * fade).toFixed(3) + ')');
+        ring(g, c, R * 1.46, 1, 'rgba(150,230,255,' + ((.14 + .1 * beat) * fade).toFixed(3) + ')');
         for (i = pulses.length - 1; i >= 0; i--) {
             var age = (t - pulses[i]) / 2.6; if (age >= 1 || age < 0) { if (age >= 1) pulses.splice(i, 1); continue; }
-            var reach = R * (1.04 + .95 * (1 - Math.pow(1 - age, 2.4)));
-            g.lineWidth = 2; g.strokeStyle = 'rgba(120,225,255,' + (.5 * (1 - age) * fade).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, reach, 0, 6.283); g.stroke();
-            g.lineWidth = 1; g.strokeStyle = 'rgba(255,214,110,' + (.35 * (1 - age) * fade).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, reach * .94, 0, 6.283); g.stroke();
+            var reach = R * (1.05 + .6 * (1 - Math.pow(1 - age, 2.2)));
+            ring(g, c, reach, 1.6, 'rgba(170,240,255,' + (.6 * (1 - age) * fade).toFixed(3) + ')');
+            ring(g, c, reach * .965, 1, 'rgba(170,240,255,' + (.3 * (1 - age) * fade).toFixed(3) + ')');
         }
+        // the light bar under the halo
+        var by = c + R * 1.33, bar = g.createLinearGradient(c - R * .42, 0, c + R * .42, 0);
+        bar.addColorStop(0, 'rgba(240,235,110,0)'); bar.addColorStop(.5, 'rgba(240,235,110,' + (.85 * heat).toFixed(3) + ')'); bar.addColorStop(1, 'rgba(240,235,110,0)');
+        g.fillStyle = bar; g.fillRect(c - R * .42, by - 1, R * .84, 2);
+        g.fillStyle = 'rgba(240,235,110,' + (.25 * heat).toFixed(3) + ')'; g.fillRect(c - R * .3, by - 4, R * .6, 8);
+        g.fillStyle = 'rgba(255,250,200,' + (.9 * heat).toFixed(3) + ')'; g.fillRect(c - 1, by - 5, 2, 10);
         // the disc hides whatever passes behind the sun
         g.globalCompositeOperation = 'source-over';
         var disc = g.createRadialGradient(c, c, 0, c, c, R);
-        disc.addColorStop(0, 'rgba(26,96,170,' + (.96 * fade).toFixed(3) + ')'); disc.addColorStop(.62, 'rgba(10,52,110,' + (.96 * fade).toFixed(3) + ')'); disc.addColorStop(1, 'rgba(12,44,88,' + (.97 * fade).toFixed(3) + ')');
+        disc.addColorStop(0, 'rgba(0,146,216,' + (.98 * fade).toFixed(3) + ')'); disc.addColorStop(.45, 'rgba(12,140,200,' + (.98 * fade).toFixed(3) + ')');
+        disc.addColorStop(.8, 'rgba(12,136,186,' + (.98 * fade).toFixed(3) + ')'); disc.addColorStop(1, 'rgba(12,132,180,' + (.98 * fade).toFixed(3) + ')');
         g.fillStyle = disc; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.fill();
         g.globalCompositeOperation = 'lighter';
-        // faint rays from the centre and a dotted inner ring, slowly turning
-        g.lineWidth = 1;
-        for (i = 0; i < 18; i++) {
-            var ang = i * 6.283 / 18 + t * .04, len = R * (.55 + .35 * ((i * 7) % 5) / 4), ray = g.createLinearGradient(c, c, c + Math.cos(ang) * len, c + Math.sin(ang) * len);
-            ray.addColorStop(0, 'rgba(140,230,255,' + ((.16 + .1 * beat) * fade).toFixed(3) + ')'); ray.addColorStop(1, 'rgba(140,230,255,0)');
-            g.strokeStyle = ray; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(ang) * len, c + Math.sin(ang) * len); g.stroke();
-        }
-        g.setLineDash([2, 6]); g.strokeStyle = 'rgba(140,230,255,' + (.28 * fade).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, R * .56, t * .08, t * .08 + 6.283); g.stroke(); g.setLineDash([]);
-        // the sparks inside the halo
+        // two faint inner circles
+        ring(g, c, R * .56, 1, 'rgba(170,240,255,' + (.3 * fade).toFixed(3) + ')');
+        ring(g, c, R * .34, 1, 'rgba(170,240,255,' + (.2 * fade).toFixed(3) + ')');
+        // fine sparks, slowly turning
         for (i = 0; i < motes.length; i++) {
-            var m = motes[i], a = m.a + t * m.w, mx = c + Math.cos(a) * m.r * R, my = c + Math.sin(a) * m.r * R, glint = (.3 + .5 * (.5 + .5 * Math.sin(t * 2.3 + m.tw))) * (1 - m.r * .25) * fade;
-            g.fillStyle = m.gold ? 'rgba(255,214,120,' + glint.toFixed(3) + ')' : 'rgba(150,235,255,' + glint.toFixed(3) + ')';
-            g.fillRect(mx - m.z / 2, my - m.z / 2, m.z, m.z);
+            var m = motes[i]; a = m.a + t * m.w;
+            var glint = (.18 + .5 * (.5 + .5 * Math.sin(t * 2.1 + m.tw))) * fade;
+            g.fillStyle = 'rgba(190,245,255,' + glint.toFixed(3) + ')';
+            g.fillRect(c + Math.cos(a) * m.r * R - m.z / 2, c + Math.sin(a) * m.r * R - m.z / 2, m.z, m.z);
         }
-        var heart = g.createRadialGradient(c, c, 0, c, c, R * .5);
-        heart.addColorStop(0, 'rgba(150,235,255,' + ((.22 + .2 * beat) * fade).toFixed(3) + ')'); heart.addColorStop(1, 'rgba(150,235,255,0)');
-        g.fillStyle = heart; g.beginPath(); g.arc(c, c, R * .5, 0, 6.283); g.fill();
-        // golden light spilling inwards from the ring
-        var rim = g.createRadialGradient(c, c, R * .62, c, c, R);
-        rim.addColorStop(0, 'rgba(255,200,60,0)'); rim.addColorStop(.75, 'rgba(255,200,60,' + (.08 * heat).toFixed(3) + ')'); rim.addColorStop(1, 'rgba(255,210,80,' + (.36 * heat).toFixed(3) + ')');
+        // the burst at the centre
+        for (i = 0; i < 24; i++) {
+            a = i * 6.283 / 24 + t * .05 + (i % 2) * .09; var len = R * (.16 + .3 * (((i * 37) % 11) / 10)) * (1 + .15 * beat);
+            var ray = g.createLinearGradient(c, c, c + Math.cos(a) * len, c + Math.sin(a) * len);
+            ray.addColorStop(0, 'rgba(210,250,255,' + ((.35 + .2 * beat) * fade).toFixed(3) + ')'); ray.addColorStop(1, 'rgba(210,250,255,0)');
+            g.lineWidth = 1; g.strokeStyle = ray; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * len, c + Math.sin(a) * len); g.stroke();
+        }
+        var heart = g.createRadialGradient(c, c, 0, c, c, R * .3);
+        heart.addColorStop(0, 'rgba(200,250,255,' + ((.3 + .25 * beat) * fade).toFixed(3) + ')'); heart.addColorStop(1, 'rgba(200,250,255,0)');
+        g.fillStyle = heart; g.beginPath(); g.arc(c, c, R * .3, 0, 6.283); g.fill();
+        // yellow-green light spilling inwards from the ring (painted, not added, so it stays yellow on the blue)
+        g.globalCompositeOperation = 'source-over';
+        var rim = g.createRadialGradient(c, c, R * .7, c, c, R);
+        rim.addColorStop(0, 'rgba(200,230,100,0)'); rim.addColorStop(.6, 'rgba(200,230,100,' + (.04 * heat).toFixed(3) + ')'); rim.addColorStop(.85, 'rgba(208,230,98,' + (.16 * heat).toFixed(3) + ')'); rim.addColorStop(1, 'rgba(218,234,96,' + (.45 * Math.min(1, heat)).toFixed(3) + ')');
         g.fillStyle = rim; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.fill();
-        // the golden ring: wide soft glow, then brighter and thinner, then a white-hot line
-        [[.5, 'rgba(255,150,20,', .08], [.3, 'rgba(255,165,30,', .16], [.17, 'rgba(255,185,45,', .3], [.09, 'rgba(255,208,75,', .55], [.045, 'rgba(255,232,130,', .85], [.016, 'rgba(255,252,225,', 1]].forEach(function (l) {
-            g.lineWidth = R * l[0]; g.strokeStyle = l[1] + Math.min(1, l[2] * heat).toFixed(3) + ')'; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.stroke();
+        // a soft yellow glow on both sides of the ring
+        g.globalCompositeOperation = 'lighter';
+        [[.42, 'rgba(120,120,20,', .14], [.26, 'rgba(140,140,30,', .22], [.15, 'rgba(160,160,40,', .3]].forEach(function (l) {
+            ring(g, c, R, R * l[0], l[1] + Math.min(1, l[2] * heat).toFixed(3) + ')');
         });
+        // the lemon-yellow band itself, soft-edged like the reference, with a brighter line in its middle
+        g.globalCompositeOperation = 'source-over';
+        g.filter = 'blur(' + Math.max(1, R * .025).toFixed(1) + 'px)';
+        ring(g, c, R, R * .1, 'rgba(218,228,92,' + (.78 * Math.min(1, heat)).toFixed(3) + ')');
+        g.filter = 'blur(' + Math.max(.5, R * .01).toFixed(1) + 'px)';
+        ring(g, c, R, R * .045, 'rgba(236,240,104,' + Math.min(1, .95 * heat).toFixed(3) + ')');
+        g.filter = 'none';
+        ring(g, c, R, R * .014, 'rgba(248,248,170,' + Math.min(1, .7 * heat).toFixed(3) + ')');
         g.globalCompositeOperation = 'source-over';
     }
     function draw(now) {
@@ -205,8 +229,11 @@
         if (orbit) {
             var cx = orbit.x, cy = orbit.y - scroll;
             ctx.globalCompositeOperation = 'lighter';
-            // the wide blue aura breathes with the sun
-            glow(cx, cy, Math.max(orbit.rx * 1.3, sunR * 4.2) * (1 + .05 * beat), .7, [[0, 'rgba(45,150,255,' + ((.14 + .14 * beat) * fade).toFixed(3) + ')'], [.45, 'rgba(30,115,235,' + ((.06 + .06 * beat) * fade).toFixed(3) + ')'], [1, 'rgba(20,90,200,0)']]);
+            // the bright blue light around the halo, as in the reference, breathing with the beat
+            ctx.globalCompositeOperation = 'source-over';
+            glow(cx, cy, sunR * (4.1 + .2 * beat), 1, [[0, 'rgba(12,106,176,' + (.8 * fade).toFixed(3) + ')'], [.38, 'rgba(10,98,168,' + (.66 * fade).toFixed(3) + ')'],
+                [.62, 'rgba(10,84,148,' + (.36 * fade).toFixed(3) + ')'], [.85, 'rgba(9,68,126,' + (.12 * fade).toFixed(3) + ')'], [1, 'rgba(9,60,120,0)']]);
+            ctx.globalCompositeOperation = 'lighter';
             // cosmic waves, brighter on every beat, with sparks of energy running into the sun
             var spread = Math.max(H * .62, orbit.ry * 2.6);
             for (i = 0; i < waves.length; i++) {
@@ -253,7 +280,7 @@
         var go = document.createElementNS('http://www.w3.org/2000/svg', 'a');
         go.setAttribute('class', 'hud-go'); go.setAttribute('href', '#home'); go.setAttribute('role', 'button'); go.setAttribute('aria-label', 'GO — الدخول على الرئيسية');
         var hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        [['class', 'hud-hit'], ['x', -200], ['y', -100], ['width', 400], ['height', 200], ['rx', 100]].forEach(function (a) { hit.setAttribute(a[0], a[1]); });
+        [['class', 'hud-hit'], ['x', -HALO], ['y', -HALO], ['width', 2 * HALO], ['height', 2 * HALO], ['rx', HALO]].forEach(function (a) { hit.setAttribute(a[0], a[1]); });
         logo.parentNode.insertBefore(go, logo); go.appendChild(hit); go.appendChild(logo);
     }
     // Leaves the live screen and shows the usual home page underneath, untouched, with its sidebar and data.
