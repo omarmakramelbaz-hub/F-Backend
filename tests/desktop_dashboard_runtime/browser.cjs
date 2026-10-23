@@ -317,7 +317,14 @@ const watchdog = setTimeout(() => {
     await page.unroute('**/admin/categorysDeleteAll');
     process.stdout.write('PASS original bulk-delete button retains rows and its UUID after a lost reply, including reordered selections\n');
     // UI contract only: the real native preparation/supervisor is tested separately on Windows.
-    await page.getByRole('link', { name: 'برنامج الكمبيوتر', exact: true }).click();
+    stage = 'original desktop program navigation';
+    const programLink = page.getByRole('link', { name: 'برنامج الكمبيوتر', exact: true });
+    await programLink.waitFor({ state: 'visible' });
+    assert.equal(await programLink.evaluate(link => link.parentElement.parentElement.matches('[data-dashboard-navigation]')), true,
+      'The modern program shortcut remains visible at the sidebar root when other links are grouped.');
+    assert.equal(await programLink.evaluate(link => new URL(link.parentElement.previousElementSibling.querySelector('a[href]').href).pathname), '/admin/print-settings',
+      'The program shortcut follows direct printing settings.');
+    await programLink.click();
     await page.waitForURL(input.origin + '/admin/desktop-dashboard');
     await page.locator('[data-desktop-program]').waitFor();
     assert.equal(await page.locator('[data-desktop-controls]').isVisible(), false, 'Normal browser has no native device actions.');
