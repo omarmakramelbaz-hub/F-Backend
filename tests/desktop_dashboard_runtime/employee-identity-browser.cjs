@@ -48,10 +48,12 @@ const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
       baselineCounts.set(message+'\n'+input.origin+pathname,message==='firebase is not defined'?2:1);
     assert.ok(initialOriginalPageErrors.every(error=>baselineCounts.has(signature(error))&&!error.stack.includes('/dashboard/js/branch-operations.js')));
     for(const item of boot.initial.items)for(const key of ['id_front_path','id_back_path','id_front_hash','id_back_hash','id_front_mime','id_back_mime','regulation_accepted_by'])assert.equal(Object.hasOwn(item,key),false);
-    const row=()=>root.locator('[data-op-employee="7"]'),writes=[];
+    const row=()=>root.locator('[data-op-employee="7"]'),writes=[],photoWrites=[];
     const savePath=new URL(boot.urls.save,input.origin).pathname;
     page.on('request',request=>{if(request.method()==='POST'&&new URL(request.url()).pathname===savePath)
       writes.push({payload:request.postDataJSON(),csrf:!!request.headers()['x-csrf-token']});});
+    page.on('request',request=>{if(request.method()==='POST'&&boot.urls.identity&&new URL(request.url()).pathname===new URL(boot.urls.identity,input.origin).pathname)
+      photoWrites.push({csrf:!!request.headers()['x-csrf-token']});});
     const csrf=await page.locator('meta[name="csrf-token"]').getAttribute('content');
     const headers={'Accept':'application/json','X-CSRF-TOKEN':csrf,'X-Requested-With':'XMLHttpRequest'};
     const readEmployee=async()=>{
@@ -99,18 +101,26 @@ const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
       assert.equal((await readEmployee()).regulation.accepted_at,firstDate);
       await page.reload();await editConsent(false);const cleared=await readEmployee();assert.equal(cleared.regulation.accepted,false);assert.equal(cleared.regulation.accepted_at,null);
       await editConsent(true);
-      await row().locator('.op-identity-badge').click();await dialog.waitFor({state:'visible'});
       const upload=async(side,file)=>{
-        const response=page.waitForResponse(r=>new URL(r.url()).pathname===new URL(boot.urls.identity).pathname&&r.request().method()==='POST');
+        await row().locator('.op-identity-badge').click();await dialog.waitFor({state:'visible'});
+        assert.equal(await dialog.locator('.op-form .op-identity-field').count(),1);
+        assert.equal(await dialog.locator('.op-form .op-regulation-field').count(),1);
+        const uploadsBefore=photoWrites.length;
         await dialog.locator('.op-identity-side').nth(side==='front'?0:1).locator('input[type="file"]').setInputFiles(file);
-        assert.equal((await response).status(),200);await dialog.locator('.op-identity-side').nth(side==='front'?0:1).locator('img').waitFor();
+        await dialog.locator('.op-identity-side').nth(side==='front'?0:1).locator('img[src^="data:"]').waitFor();
+        assert.equal(photoWrites.length,uploadsBefore,'Choosing a photograph previews it until the employee form is saved.');
+        const response=page.waitForResponse(r=>new URL(r.url()).pathname===new URL(boot.urls.identity).pathname&&r.request().method()==='POST');
+        const save=page.waitForResponse(r=>new URL(r.url()).pathname===savePath&&r.request().method()==='POST');
+        await dialog.locator('button[type="submit"]').click();
+        assert.equal((await save).status(),200);assert.equal((await response).status(),200);
+        await dialog.waitFor({state:'hidden'});await page.reload();await row().waitFor({state:'visible'});
       };
       await upload('front',input.png);await verifyImage('front',png,'image/png');
       await upload('front',input.jpg);await verifyImage('front',jpg,'image/jpeg');
       await upload('front',input.png);await verifyImage('front',png,'image/png');
       await upload('back',input.jpg);await verifyImage('back',jpg,'image/jpeg');
-      await dialog.locator('.op-detail-close').click();await page.reload();await row().waitFor({state:'visible'});
       assert.equal(await row().locator('.op-identity-badge').innerText(),'الملف كامل');
+      assert.equal(photoWrites.length,4);assert.ok(photoWrites.every(x=>x.csrf));
       Object.assign(proof,{staleConsentRejected:true,firstAcceptanceDatePreserved:true,withdrawal:true,realUpload:true,immutableABA:true});
       // Separate original branch login; read access never grants profile/upload authority.
       const branch=await browser.newContext({serviceWorkers:'block'});
@@ -131,6 +141,7 @@ const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
     }else{
       assert.equal(Object.hasOwn(boot.urls,'identity'),false);
       await row().locator('.op-identity-badge').click();await dialog.waitFor({state:'visible'});
+      assert.equal(await dialog.locator('.op-form .op-identity-field').count(),1);
       assert.equal(await dialog.locator('input[type="file"]').count(),0);
       assert.match(await dialog.innerText(),/من المتصفح/);
       assert.equal(await dialog.locator('.op-identity-side img').count(),2);
@@ -141,7 +152,7 @@ const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
         assert.equal(shown.origin,input.origin);assert.equal(shown.pathname,'/admin/employees/identity-image');
         assert.equal(shown.searchParams.get('branch'),'f:100');assert.equal(shown.searchParams.get('employee_id'),'7');assert.equal(shown.searchParams.get('side'),side);
       }
-      await dialog.locator('.op-detail-close').click();
+      await dialog.getByRole('button',{name:'إغلاق',exact:true}).click();
       await editConsent(false);await editConsent(true);
       assert.equal(writes.length,2);assert.equal(writes[0].payload.regulation_accepted,false);assert.equal(writes[1].payload.regulation_accepted,true);
       assert.equal(writes[1].payload.regulation_version,input.regulation.version);assert.equal(writes[1].payload.regulation_hash,input.regulation.sha256);
