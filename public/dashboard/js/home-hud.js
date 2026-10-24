@@ -149,7 +149,7 @@
         var g = ctx.createRadialGradient(x, y, 0, x, y, r); stops.forEach(function (s) { g.addColorStop(s[0], s[1]); });
         ctx.fillStyle = g; ctx.save(); ctx.translate(x, y); ctx.scale(1, flat); ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.restore(); ctx.fill();
     }
-    // ---- the solar halo around GO: a golden ring of light over a deep blue disc full of sparks ----
+    // ---- the translucent blue solar field around GO ----
     function setSun(radius) {
         if (!sun || Math.abs(radius - sunR) < .5) return;
         var ratio = Math.min(2, window.devicePixelRatio || 1), size = Math.ceil(radius * 3.4);
@@ -159,17 +159,13 @@
             motes.push({r: r, a: Math.random() * 6.283, w: (.02 + Math.random() * .07) * (Math.random() < .5 ? -1 : 1) * (1.2 - r), z: .45 + Math.random() * (Math.random() < .08 ? 1.3 : .6), tw: Math.random() * 6.283});
         }
     }
-    // The halo matches the reference: a lemon-yellow ring of light with a yellow-green glow, a bright sky-blue disc
-    // full of fine sparks with a burst at its centre and two faint inner circles, thin cyan rings outside, a light bar under it.
+    // Blue sparks, a central burst and fine cyan circles leave the rear planets visible.
     function ring(g, c, R, width, colour) { g.lineWidth = width; g.strokeStyle = colour; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.stroke(); }
     function drawSun(t, beat, fade, surge) {
         if (!sctx || !sunR) return;
-        var g = sctx, c = sunS / 2, R = sunR, i, heat = Math.min(1.1, .84 + .22 * beat + .28 * surge) * fade, a; // steady light that swells gently on the beat: no fast flicker, easy on the eyes
+        var g = sctx, c = sunS / 2, R = sunR, i, flare = 1 + .25 * surge, a;
         g.clearRect(0, 0, sunS, sunS); g.globalCompositeOperation = 'lighter';
-        // light just outside the ring, and the thin cyan rings around it
-        var out = g.createRadialGradient(c, c, R, c, c, R * 1.3);
-        out.addColorStop(0, 'rgba(120,200,150,' + (.16 * heat).toFixed(3) + ')'); out.addColorStop(1, 'rgba(120,200,150,0)');
-        g.fillStyle = out; g.beginPath(); g.arc(c, c, R * 1.3, 0, 6.283); g.fill();
+        // Fine cyan circles and outward-moving order alert waves.
         ring(g, c, R * 1.13, 1, 'rgba(150,230,255,' + ((.42 + .15 * beat) * fade).toFixed(3) + ')');
         ring(g, c, R * 1.2, 1, 'rgba(150,230,255,' + ((.26 + .12 * beat) * fade).toFixed(3) + ')');
         ring(g, c, R * 1.46, 1, 'rgba(150,230,255,' + ((.14 + .1 * beat) * fade).toFixed(3) + ')');
@@ -179,12 +175,6 @@
             ring(g, c, reach, 1.6, 'rgba(170,240,255,' + (.6 * (1 - age) * fade).toFixed(3) + ')');
             ring(g, c, reach * .965, 1, 'rgba(170,240,255,' + (.3 * (1 - age) * fade).toFixed(3) + ')');
         }
-        // the light bar under the halo
-        var by = c + R * 1.33, bar = g.createLinearGradient(c - R * .42, 0, c + R * .42, 0);
-        bar.addColorStop(0, 'rgba(240,235,110,0)'); bar.addColorStop(.5, 'rgba(240,235,110,' + (.85 * heat).toFixed(3) + ')'); bar.addColorStop(1, 'rgba(240,235,110,0)');
-        g.fillStyle = bar; g.fillRect(c - R * .42, by - 1, R * .84, 2);
-        g.fillStyle = 'rgba(240,235,110,' + (.25 * heat).toFixed(3) + ')'; g.fillRect(c - R * .3, by - 4, R * .6, 8);
-        g.fillStyle = 'rgba(255,250,200,' + (.9 * heat).toFixed(3) + ')'; g.fillRect(c - 1, by - 5, 2, 10);
         // A translucent solar disc keeps the planets visible throughout their rear orbit.
         g.globalCompositeOperation = 'source-over';
         var disc = g.createRadialGradient(c, c, 0, c, c, R);
@@ -198,7 +188,7 @@
         // fine sparks, slowly turning
         for (i = 0; i < motes.length; i++) {
             var m = motes[i]; a = m.a + motionTime * m.w;
-            var glint = (.18 + .5 * (.5 + .5 * Math.sin(motionTime * 2.1 + m.tw))) * fade;
+            var glint = Math.min(1, (.18 + .5 * (.5 + .5 * Math.sin(motionTime * 2.1 + m.tw))) * flare) * fade;
             g.fillStyle = 'rgba(190,245,255,' + glint.toFixed(3) + ')';
             g.fillRect(c + Math.cos(a) * m.r * R - m.z / 2, c + Math.sin(a) * m.r * R - m.z / 2, m.z, m.z);
         }
@@ -210,26 +200,8 @@
             g.lineWidth = 1; g.strokeStyle = ray; g.beginPath(); g.moveTo(c, c); g.lineTo(c + Math.cos(a) * len, c + Math.sin(a) * len); g.stroke();
         }
         var heart = g.createRadialGradient(c, c, 0, c, c, R * .3);
-        heart.addColorStop(0, 'rgba(200,250,255,' + ((.3 + .25 * beat) * fade).toFixed(3) + ')'); heart.addColorStop(1, 'rgba(200,250,255,0)');
+        heart.addColorStop(0, 'rgba(200,250,255,' + (Math.min(1, (.3 + .25 * beat) * flare) * fade).toFixed(3) + ')'); heart.addColorStop(1, 'rgba(200,250,255,0)');
         g.fillStyle = heart; g.beginPath(); g.arc(c, c, R * .3, 0, 6.283); g.fill();
-        // yellow-green light spilling inwards from the ring (painted, not added, so it stays yellow on the blue)
-        g.globalCompositeOperation = 'source-over';
-        var rim = g.createRadialGradient(c, c, R * .7, c, c, R);
-        rim.addColorStop(0, 'rgba(200,230,100,0)'); rim.addColorStop(.6, 'rgba(200,230,100,' + (.04 * heat).toFixed(3) + ')'); rim.addColorStop(.85, 'rgba(208,230,98,' + (.16 * heat).toFixed(3) + ')'); rim.addColorStop(1, 'rgba(218,234,96,' + (.45 * Math.min(1, heat)).toFixed(3) + ')');
-        g.fillStyle = rim; g.beginPath(); g.arc(c, c, R, 0, 6.283); g.fill();
-        // a soft yellow glow on both sides of the ring
-        g.globalCompositeOperation = 'lighter';
-        [[.42, 'rgba(120,120,20,', .14], [.26, 'rgba(140,140,30,', .22], [.15, 'rgba(160,160,40,', .3]].forEach(function (l) {
-            ring(g, c, R, R * l[0], l[1] + Math.min(1, l[2] * heat).toFixed(3) + ')');
-        });
-        // the lemon-yellow band itself, soft-edged like the reference, with a brighter line in its middle
-        g.globalCompositeOperation = 'source-over';
-        g.filter = 'blur(' + Math.max(1, R * .025).toFixed(1) + 'px)';
-        ring(g, c, R, R * .1, 'rgba(218,228,92,' + (.78 * Math.min(1, heat)).toFixed(3) + ')');
-        g.filter = 'blur(' + Math.max(.5, R * .01).toFixed(1) + 'px)';
-        ring(g, c, R, R * .045, 'rgba(236,240,104,' + Math.min(1, .95 * heat).toFixed(3) + ')');
-        g.filter = 'none';
-        ring(g, c, R, R * .014, 'rgba(248,248,170,' + Math.min(1, .7 * heat).toFixed(3) + ')');
         g.globalCompositeOperation = 'source-over';
     }
     function draw(now) {
