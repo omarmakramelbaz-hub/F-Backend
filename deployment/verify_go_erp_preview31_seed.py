@@ -17,14 +17,14 @@ import subprocess
 import tempfile
 import types
 
-CORE = 'bfde969e1fb83197b9dad76ac66831b07b34a7c3'
+CORE = '329241f8d38ad15e0bb2629504ed020a2875bcd9'
 LEGACY_BASES = frozenset((
     '75c3fe50b3609ef5822904a23d7c4ed0afd07eff',
     '7523ff6888a6e3d0a6f5b7712c553909f12c043b',
     '52f7f5d22e5a2026e5bd5732bbb7893125b6ef9d',
 ))
 REMOTE = 'https://github.com/omarmakramelbaz-hub/F-Backend.git'
-POLICY = 'native-employee-dialog-fixture-v1'
+POLICY = 'native-browser-sound-entry-v1'
 POLICY_FILES = frozenset((
     '.github/workflows/go-erp-update-tests.yml',
     'deployment/verify_go_erp_preview31_seed.py',
