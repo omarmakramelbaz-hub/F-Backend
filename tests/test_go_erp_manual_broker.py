@@ -86,7 +86,8 @@ class BrokerTests(unittest.TestCase):
 
     def broker(self, tick=None):
         return subject.Broker(self.base, web_uid=os.getuid(), web_gid=os.getgid(),
-            clock=lambda:self.now, sleep=self.advance, tick=tick or self.tick, snapshot=self.snapshot)
+            clock=lambda:self.now, sleep=self.advance, tick=tick or self.tick, snapshot=self.snapshot,
+            archive=lambda *_: None)
 
     def stored_status(self):
         return json.loads((self.base / 'shared/status.json').read_bytes())
@@ -105,6 +106,38 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual((info.st_uid, stat.S_IMODE(info.st_mode)), (0,0o600))
         info = broker.status_path.stat()
         self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)), (0,os.getgid(),0o640))
+
+    def test_successful_download_is_retained_before_scan_then_advanced_after_publication(self):
+        self.queue();broker=self.broker();retained=[]
+        def archive(base,gid):
+            self.assertEqual((base,gid),(self.base,os.getgid()))
+            retained.append(json.loads(self.native.read_bytes())['published']['release']['version'])
+        broker.archive=archive
+        broker.run()
+        self.assertEqual(retained,['0.4.4-preview.42','0.4.4-preview.44'])
+        self.assertEqual(self.stored_status()['state'],'ready')
+
+    def test_failed_ci_does_not_advance_the_retained_download(self):
+        self.queue();retained=[]
+        def failed(job):
+            self.ticks.append(job)
+            return 1,'GO_ERP_LIVE_CI_FAILED'
+        broker=self.broker(failed)
+        broker.archive=lambda *_:retained.append('old42')
+        broker.run()
+        self.assertEqual(retained,['old42'])
+        self.assertEqual(self.stored_status()['state'],'failed')
+        self.assertEqual(self.stored_status()['code'],'GO_ERP_LIVE_CI_FAILED')
+
+    def test_archive_failure_prevents_allocation_and_never_reports_ready(self):
+        self.queue();broker=self.broker()
+        def refused(*_):
+            raise subject.Stop('GO_ERP_MANUAL_DOWNLOAD_ARCHIVE_FAILED')
+        broker.archive=refused
+        broker.run()
+        self.assertEqual(self.ticks,[])
+        self.assertEqual(self.stored_status()['state'],'failed')
+        self.assertEqual(json.loads(self.native.read_bytes())['counter'],43)
 
     def test_completed_nonce_replay_is_deduped_without_tick_or_new_counter(self):
         self.queue();broker=self.broker();broker.run()

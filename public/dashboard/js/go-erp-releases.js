@@ -6,7 +6,11 @@
     const button = root.querySelector('[data-go-erp-release-request]');
     const status = root.querySelector('[data-go-erp-release-status]');
     const error = root.querySelector('[data-go-erp-release-error]');
-    const download = document.querySelector('[data-go-erp-release-download]');
+    const downloadLinks = { current: root.querySelector('[data-go-erp-published-current]'),
+        previous: root.querySelector('[data-go-erp-published-previous]') };
+    const downloadVersions = { current: root.querySelector('[data-go-erp-current-version]'),
+        previous: root.querySelector('[data-go-erp-previous-version]') };
+    const downloadEmpty = root.querySelector('[data-go-erp-published-empty]');
     const activeStates = new Set(['queued', 'running', 'waiting-ci', 'publishing']);
     const labels = { idle: 'اضغط تحديث التطبيق عندما تريد تجهيز نسخة من آخر تعديلات السيرفر.',
         queued: 'تم استلام طلب التحديث وينتظر بدء التجهيز.', running: 'جارٍ تجهيز نسخة التطبيق.',
@@ -35,21 +39,26 @@
     function later() {
         if (!closed && (building || pending) && timer === null) timer = setTimeout(() => { timer = null; refresh(); }, 15000);
     }
-    function renderDownload(value) {
-        if (!download || !value || typeof value !== 'object') return;
-        if (value.ready !== true) {
-            const message = document.createElement('p'); message.className = 'text-muted mb-0'; message.setAttribute('role', 'status');
-            message.textContent = 'ملف التنزيل يظهر بعد اكتمال تجهيز النسخة المتوافقة وفحصها.';
-            download.replaceChildren(message); return;
+    function renderDownloads(value) {
+        if (!value || typeof value !== 'object') throw new Error('downloads');
+        const next = {};
+        for (const slot of ['current', 'previous']) {
+            const item = value[slot];
+            if (!item || typeof item !== 'object' || typeof item.ready !== 'boolean') throw new Error('downloads');
+            if (!item.ready) { next[slot] = null; continue; }
+            if (!versionPattern.test(item.version) || typeof item.url !== 'string') throw new Error('download');
+            const url = new URL(item.url, location.href);
+            if (url.origin !== location.origin || !/^\/admin\/desktop-dashboard\/published\/[a-f0-9]{64}$/.test(url.pathname)
+                    || url.search || url.hash) throw new Error('download');
+            next[slot] = { url: url.href, version: item.version };
         }
-        if (!versionPattern.test(value.version) || typeof value.url !== 'string') throw new Error('download');
-        const url = new URL(value.url, location.href);
-        if (url.origin !== location.origin || url.pathname !== '/admin/desktop-dashboard/download' || url.search || url.hash) throw new Error('download');
-        const text = document.createElement('p'), version = document.createElement('bdi');
-        text.textContent = 'نسخة التثبيت للأجهزة الجديدة: '; version.textContent = value.version; text.appendChild(version);
-        const link = document.createElement('a'); link.className = 'btn btn-warning'; link.href = url.href;
-        link.setAttribute('data-spa-off', ''); link.setAttribute('download', ''); link.textContent = 'تحميل GO ERP لجهاز جديد';
-        download.replaceChildren(text, link);
+        for (const slot of ['current', 'previous']) {
+            const link = downloadLinks[slot], version = downloadVersions[slot];
+            if (!link || !version) throw new Error('download-controls');
+            link.hidden = next[slot] === null;
+            if (next[slot]) { link.href = next[slot].url; version.textContent = next[slot].version; }
+        }
+        if (downloadEmpty) downloadEmpty.hidden = next.current !== null;
     }
     function render(value) {
         if (closed) return;
@@ -66,7 +75,7 @@
         }
         status.textContent = pending && !building ? labels.queued : labels[current.state];
         button.disabled = busy || building || Boolean(pending);
-        renderDownload(value.download); later();
+        renderDownloads(value.published_downloads); later();
     }
     async function request(url, options = {}) {
         const controller = new AbortController(); controllers.add(controller);

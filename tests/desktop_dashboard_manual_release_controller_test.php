@@ -14,16 +14,24 @@ namespace {
         if($guard!=='admin')throw new \RuntimeException('wrong authentication guard');
         return new class {public function user(){return $GLOBALS['manual_controller_actor'];}};
     }
-    function route($name){
-        if($name!=='desktop-dashboard.download')throw new \RuntimeException('unexpected route');
-        return '/admin/desktop-dashboard/download';
+    function config($key){return $GLOBALS['manual_controller_config'][$key]??null;}
+    function route($name,array $parameters=[]){
+        if($name==='desktop-dashboard.download')return '/admin/desktop-dashboard/download';
+        if($name==='desktop-dashboard.published.download'&&isset($parameters['sha'])
+            &&preg_match('/^[a-f0-9]{64}$/D',$parameters['sha']))
+            return '/admin/desktop-dashboard/published/'.$parameters['sha'];
+        throw new \RuntimeException('unexpected route');
     }
     function response(){return new ManualControllerResponseFactory;}
     class ManualControllerResponseFactory {
         public function json($value,$status=200){return new ManualControllerResponse($value,$status);}
+        public function stream($callback,$status,$headers){
+            $response=new ManualControllerResponse([],$status);$response->callback=$callback;$response->headers=$headers;return $response;
+        }
     }
     class ManualControllerResponse {
         public array $headers=[];
+        public $callback=null;
         public function __construct(public array $data,public int $status){}
         public function header($key,$value){$this->headers[$key]=$value;return $this;}
     }
@@ -57,19 +65,36 @@ namespace App\Services\Dashboard {
     }
     class DesktopDashboardUpdates {
         public int $calls=0;
+        public int $publishedCalls=0;
+        public array $installerCalls=[];
         public ?\Throwable $error=null;
+        public ?\Throwable $publishedError=null;
         public array $value=['state'=>'unavailable','release'=>null];
+        public array $published=['current'=>null,'previous'=>null];
+        public array $files=[];
         public function status(): array {
             $this->calls++;if($this->error!==null)throw $this->error;return $this->value;
         }
+        public function publishedDownloads(): array {
+            $this->publishedCalls++;if($this->publishedError!==null)throw $this->publishedError;return $this->published;
+        }
+        public function publishedInstaller(string $sha): array {
+            $this->installerCalls[]=$sha;\abort_unless(isset($this->files[$sha]),404);
+            $file=$this->files[$sha];$stream=tmpfile();fwrite($stream,$file['bytes']);rewind($stream);
+            return ['stream'=>$stream,'bytes'=>strlen($file['bytes']),'sha256'=>$sha,'version'=>$file['version']];
+        }
     }
     class DesktopDashboardDevices {}
-    class TakeawayAccess {}
+    class TakeawayAccess {
+        public bool $allowed=true;
+        public array $calls=[];
+        public function canAccess($actor): bool {$this->calls[]=$actor;return $this->allowed;}
+    }
 }
 namespace {
     require __DIR__.'/../app/Http/Controllers/Dashboard/DesktopDashboardController.php';
     use App\Http\Controllers\Dashboard\DesktopDashboardController;
-    use App\Services\Dashboard\{DesktopDashboardManualRelease,DesktopDashboardUpdates};
+    use App\Services\Dashboard\{DesktopDashboardManualRelease,DesktopDashboardUpdates,TakeawayAccess};
     use Illuminate\Http\Request;
     use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -83,6 +108,7 @@ namespace {
     }
     $controller=new DesktopDashboardController;
     $actor=(object)['id'=>1];$GLOBALS['manual_controller_actor']=$actor;
+    $GLOBALS['manual_controller_config']=['desktop_dashboard.enabled'=>true,'desktop_dashboard.local'=>false];
     $manual=new DesktopDashboardManualRelease;$updates=new DesktopDashboardUpdates;
 
     $response=$controller->releaseStatus($manual,$updates);
@@ -92,6 +118,8 @@ namespace {
     check($response->data['download']===['ready'=>false,'version'=>null,'url'=>null],
         'root ready alone never grants a download');
     check($updates->calls===1,'real publication compatibility guard checked for every response');
+    check($response->data['published_downloads']===['current'=>['ready'=>false,'version'=>null,'url'=>null],
+        'previous'=>['ready'=>false,'version'=>null,'url'=>null]],'absent history cannot fabricate current or previous download');
 
     $updates->value=['state'=>'ready','release'=>['version'=>'0.4.4-preview.42','installer'=>['sha256'=>'private-not-returned']]];
     $response=$controller->releaseStatus($manual,$updates);
@@ -110,12 +138,37 @@ namespace {
     blocked(fn()=>$controller->releaseStatus($manual,$updates),409,'non503 guard failures are not hidden');
     $updates->error=null;
 
-    $manual->owner=false;$before=$updates->calls;
+    $publishedCurrent=['version'=>'0.4.4-preview.42','installer'=>['sha256'=>str_repeat('a',64)]];
+    $publishedPrevious=['version'=>'0.4.4-preview.41','installer'=>['sha256'=>str_repeat('b',64)]];
+    $updates->published=['current'=>$publishedCurrent,'previous'=>$publishedPrevious];
+    $updates->value=['state'=>'unavailable','release'=>null];$manual->value['state']='failed';
+    $response=$controller->releaseStatus($manual,$updates);
+    check($response->data['download']['ready']===false,'changed source still withholds original canonical download');
+    check($response->data['published_downloads']===['current'=>['ready'=>true,'version'=>'0.4.4-preview.42',
+        'url'=>'/admin/desktop-dashboard/published/'.str_repeat('a',64)],
+        'previous'=>['ready'=>true,'version'=>'0.4.4-preview.41','url'=>'/admin/desktop-dashboard/published/'.str_repeat('b',64)]],
+        'failed later build retains both root-approved SHA-pinned historical downloads');
+    $updates->error=new HttpException(503,'private current-source guard details');
+    $response=$controller->releaseStatus($manual,$updates);
+    check($response->data['published_downloads']['current']['ready']===true
+        &&$response->data['published_downloads']['previous']['ready']===true,
+        '503 current-source transition does not remove approved historical installers');
+    $updates->error=null;$updates->publishedError=new HttpException(503,'private history metadata failure');
+    $response=$controller->releaseStatus($manual,$updates);
+    check(!$response->data['published_downloads']['current']['ready']&&!$response->data['published_downloads']['previous']['ready'],
+        'unverified history never grants either download');
+    check(!str_contains(json_encode($response->data),'private history metadata failure'),'history diagnostics remain private');
+    $updates->publishedError=new HttpException(409,'history conflict');
+    blocked(fn()=>$controller->releaseStatus($manual,$updates),409,'non503 history failures propagate');
+    $updates->publishedError=null;$manual->value['state']='ready';
+
+    $manual->owner=false;$before=$updates->calls;$publishedBefore=$updates->publishedCalls;
     blocked(fn()=>$controller->releaseStatus($manual,$updates),403,'nonowner cannot read root release status');
     check($updates->calls===$before,'nonowner status denial precedes publication read');
     $nonce=str_repeat('d',32);$request=new Request(['nonce'=>$nonce]);
     blocked(fn()=>$controller->requestRelease($request,$manual,$updates),403,'nonowner cannot request release');
     check($updates->calls===$before,'nonowner request denial precedes publication read');
+    check($updates->publishedCalls===$publishedBefore,'nonowner status and request denial precede history read');
     $manual->owner=true;$manual->calls=[];
     foreach([false,true] as $idempotent){
         $manual->idempotent=$idempotent;
@@ -141,6 +194,31 @@ namespace {
     check($response->data['download']['ready']===false&&$response->status===202,
         'queue acceptance does not imply publication or download readiness');
 
+    $access=new TakeawayAccess;$sha=$publishedCurrent['installer']['sha256'];
+    $updates->files[$sha]=['bytes'=>"MZ\0approved current42",'version'=>'0.4.4-preview.42'];
+    $access->allowed=false;$before=count($updates->installerCalls);
+    blocked(fn()=>$controller->publishedDownload($sha,$access,$updates),403,'published binary requires existing program access');
+    check(count($updates->installerCalls)===$before,'branch access denial precedes historical binary read');
+    $access->allowed=true;$GLOBALS['manual_controller_config']['desktop_dashboard.local']=true;
+    blocked(fn()=>$controller->publishedDownload($sha,$access,$updates),404,'local runtime cannot use central historical download endpoint');
+    check(count($updates->installerCalls)===$before,'local refusal precedes historical binary read');
+    $GLOBALS['manual_controller_config']['desktop_dashboard.local']=false;
+    $GLOBALS['manual_controller_config']['desktop_dashboard.enabled']=false;
+    blocked(fn()=>$controller->publishedDownload($sha,$access,$updates),404,'disabled server cannot serve historical installer');
+    $GLOBALS['manual_controller_config']['desktop_dashboard.enabled']=true;
+    $response=$controller->publishedDownload($sha,$access,$updates);
+    check($access->calls[count($access->calls)-1]===$actor&&$updates->installerCalls[count($updates->installerCalls)-1]===$sha,
+        'historical stream retains authenticated actor and selected SHA');
+    check($response->status===200&&$response->headers['Content-Disposition']==='attachment; filename="GO-ERP-0.4.4-preview.42-Setup.exe"',
+        'historical filename is bound to actual selected version42');
+    check($response->headers['Content-Type']==='application/octet-stream'
+        &&$response->headers['Content-Length']===(string)strlen($updates->files[$sha]['bytes'])
+        &&$response->headers['Cache-Control']==='private, no-store'&&$response->headers['X-Content-Type-Options']==='nosniff',
+        'historical stream uses exact size and private binary response headers');
+    ob_start();($response->callback)();$bytes=ob_get_clean();
+    check($bytes===$updates->files[$sha]['bytes'],'historical descriptor streams exact selected installer bytes');
+    blocked(fn()=>$controller->publishedDownload(str_repeat('e',64),$access,$updates),404,'unknown SHA remains unavailable through authenticated endpoint');
+
     $routes=file_get_contents(__DIR__.'/../routes/desktop_dashboard.php');
     check(str_contains($routes,"Route::middleware(['lang','IsAdmin'])->get('admin/desktop-dashboard/release/status'")
         &&str_contains($routes,"'releaseStatus'])->name('desktop-dashboard.release.status')"),
@@ -149,6 +227,9 @@ namespace {
         &&str_contains($routes,"'requestRelease'])->name('desktop-dashboard.release.request')"),
         'request is authenticated existing web POST route');
     check(!str_contains($routes,'withoutMiddleware'),'new routes do not disable middleware');
+    check(str_contains($routes,"Route::middleware(['lang','IsAdmin'])->get('admin/desktop-dashboard/published/{sha}'")
+        &&str_contains($routes,"'publishedDownload'])->where('sha','[a-f0-9]{64}')->name('desktop-dashboard.published.download')"),
+        'historical download is authenticated and SHA-constrained');
     $provider=file_get_contents(__DIR__.'/../app/Providers/RouteServiceProvider.php');
     check(str_contains($provider,"Route::middleware('web')->group(base_path('routes/desktop_dashboard.php'))"),
         'desktop release endpoints retain web and CSRF middleware');

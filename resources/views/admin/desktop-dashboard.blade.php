@@ -11,21 +11,35 @@
                     data-status-url="{{ route('desktop-dashboard.release.status') }}"
                     data-request-url="{{ route('desktop-dashboard.release.request') }}">
                     <p class="mb-2">تجهيز نسخة جديدة من تعديلات السيرفر يبدأ بطلبك. بعد اكتمال الفحص والنشر يظهر ملف التنزيل هنا.</p>
-                    <button type="button" class="btn btn-primary" data-go-erp-release-request>تحديث التطبيق</button>
+                    <div class="d-flex flex-wrap align-items-center" style="gap:8px">
+                        <a class="btn btn-success" data-go-erp-published-current data-spa-off download
+                            @if(!($publishedDownloads['current']['ready'] ?? false)) hidden @endif
+                            href="{{ $publishedDownloads['current']['url'] ?? '#' }}">تحميل التطبيق <bdi data-go-erp-current-version>{{ $publishedDownloads['current']['version'] ?? '' }}</bdi></a>
+                        <a class="btn btn-outline-secondary" data-go-erp-published-previous data-spa-off download
+                            @if(!($publishedDownloads['previous']['ready'] ?? false)) hidden @endif
+                            href="{{ $publishedDownloads['previous']['url'] ?? '#' }}">تحميل النسخة السابقة <bdi data-go-erp-previous-version>{{ $publishedDownloads['previous']['version'] ?? '' }}</bdi></a>
+                        <button type="button" class="btn btn-primary" data-go-erp-release-request>تحديث التطبيق</button>
+                    </div>
+                    <p class="text-muted mt-2 mb-0" data-go-erp-published-empty @if($publishedDownloads['current']['ready'] ?? false) hidden @endif>ملف التطبيق يظهر هنا بعد أول نشر ناجح.</p>
                     <p class="text-muted mt-2 mb-0" data-go-erp-release-status role="status" aria-live="polite"></p>
                     <p class="text-danger mt-2 mb-0" data-go-erp-release-error role="alert" hidden></p>
                 </div>
             @endif
-            <div data-go-erp-release-download>
-            @if(!$local && $release)
+            @if(!$local && !($manualOwner ?? false))
+            <div>
+            @if($publishedDownloads['current']['ready'] ?? false)
+                <a class="btn btn-success" data-spa-off download href="{{ $publishedDownloads['current']['url'] }}">تحميل التطبيق <bdi>{{ $publishedDownloads['current']['version'] }}</bdi></a>
+                @if($publishedDownloads['previous']['ready'] ?? false)
+                    <a class="btn btn-outline-secondary" data-spa-off download href="{{ $publishedDownloads['previous']['url'] }}">تحميل النسخة السابقة <bdi>{{ $publishedDownloads['previous']['version'] }}</bdi></a>
+                @endif
+            @elseif($release)
                 <p>نسخة التثبيت للأجهزة الجديدة: <bdi>{{ $release['version'] }}</bdi></p>
                 <a class="btn btn-warning" data-spa-off download href="{{ route('desktop-dashboard.download') }}"><i class="fas fa-download ml-1" aria-hidden="true"></i>تحميل GO ERP لجهاز جديد</a>
-            @elseif(!$local && ($manualOwner ?? false))
-                <p class="text-muted mb-0" role="status">اضغط «تحديث التطبيق» لتجهيز نسخة متوافقة، وسيظهر ملف التنزيل بعد اكتمال الفحص والنشر.</p>
-            @elseif(!$local)
+            @else
                 <p class="text-muted mb-0" role="status">ملف التنزيل غير متاح حاليًا. يظهر هنا بعد نشر نسخة متوافقة وفحصها.</p>
             @endif
             </div>
+            @endif
         </div></div>
         <div class="card"><div class="card-body">
             <h2 class="h5">إعداد العمل على الجهاز بدون إنترنت</h2>

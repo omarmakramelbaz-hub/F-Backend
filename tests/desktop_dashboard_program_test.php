@@ -29,6 +29,7 @@ namespace App\Services\Dashboard {
         public array $status=['state'=>'ready','release'=>['version'=>'0.4.4-preview.99','installer'=>['sha256'=>'fixed-sha']]];
         public $stream;
         function status(){ $this->statusCalls++;if($this->failing)throw new \Symfony\Component\HttpKernel\Exception\HttpException(503,'PRIVATE unavailable diagnostics');return $this->status;}
+        function publishedDownloads(){return ['current'=>null,'previous'=>null];}
         function installer($sha){$this->installerCalls++;if($sha!=='fixed-sha')throw new \RuntimeException('Wrong installer pin');$this->stream=fopen('php://memory','w+b');fwrite($this->stream,"MZ\0verified bytes");rewind($this->stream);return ['bytes'=>17,'stream'=>$this->stream];}
     }
 }

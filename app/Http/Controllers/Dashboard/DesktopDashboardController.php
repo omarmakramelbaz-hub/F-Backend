@@ -21,7 +21,9 @@ class DesktopDashboardController extends Controller
             }
         }
         $manualOwner=!$local&&$manual->canRequest(auth('admin')->user());
-        return response()->view('admin.desktop-dashboard',compact('local','release','manualOwner'))
+        $data=compact('local','release','manualOwner');
+        if(!$local)$data['publishedDownloads']=$this->publishedDownloadPayload($updates);
+        return response()->view('admin.desktop-dashboard',$data)
             ->header('Cache-Control','private, no-store');
     }
     public function releaseStatus(DesktopDashboardManualRelease $manual,DesktopDashboardUpdates $updates)
@@ -43,7 +45,39 @@ class DesktopDashboardController extends Controller
         try{$current=$updates->status();if($current['state']==='ready')$release=$current['release'];}
         catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){if($error->getStatusCode()!==503)throw $error;}
         return ['status'=>$status,'download'=>['ready'=>$release!==null,
-            'version'=>$release['version']??null,'url'=>$release!==null?route('desktop-dashboard.download'):null]];
+            'version'=>$release['version']??null,'url'=>$release!==null?route('desktop-dashboard.download'):null],
+            'published_downloads'=>$this->publishedDownloadPayload($updates)];
+    }
+    private function publishedDownloadPayload(DesktopDashboardUpdates $updates): array
+    {
+        $releases=['current'=>null,'previous'=>null];
+        try{$releases=$updates->publishedDownloads();}
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){if($error->getStatusCode()!==503)throw $error;}
+        $result=[];
+        foreach(['current','previous'] as $slot){
+            $release=$releases[$slot];
+            $result[$slot]=['ready'=>$release!==null,'version'=>$release['version']??null,
+                'url'=>$release!==null?route('desktop-dashboard.published.download',['sha'=>$release['installer']['sha256']]):null];
+        }
+        return $result;
+    }
+    public function publishedDownload(string $sha,TakeawayAccess $access,DesktopDashboardUpdates $updates)
+    {
+        $this->programAccess($access);
+        abort_unless(config('desktop_dashboard.local')!==true,404);
+        $file=$updates->publishedInstaller($sha);
+        return response()->stream(function()use($file){
+            try{
+                $remaining=$file['bytes'];
+                while($remaining>0){
+                    $chunk=fread($file['stream'],min(65536,$remaining));
+                    if($chunk===false||$chunk==='')break;
+                    echo $chunk;$remaining-=strlen($chunk);if(connection_aborted())break;
+                }
+            }finally{fclose($file['stream']);}
+        },200,['Content-Type'=>'application/octet-stream','Content-Length'=>(string)$file['bytes'],
+            'Content-Disposition'=>'attachment; filename="GO-ERP-'.$file['version'].'-Setup.exe"',
+            'Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);
     }
     public function download(TakeawayAccess $access,DesktopDashboardUpdates $updates)
     {

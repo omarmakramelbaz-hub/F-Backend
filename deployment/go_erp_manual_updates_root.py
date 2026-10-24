@@ -18,12 +18,14 @@ import socket
 import stat
 import subprocess
 import time
+import types
 import uuid
 
 BASE = Path('/var/lib/go-erp-manual-updates')
 NATIVE = Path('/var/lib/go-erp-live-updates/state/current.json')
 FEED = Path('/home/fasakha/public_html/storage/app/desktop-updates/current.json')
 TICK_SHA256 = '753baf72d9171adc0d084350fa319ef71c0fa6843c684b42fed5dbef76c588f8'
+DOWNLOAD_ARCHIVE_SHA256 = '8bf3622a19bfe99baf9bce0fb52b5b2a58ae39f17e0dff7f8e193078521b28c7'
 SAFE = 9007199254740991
 ACTIVE = frozenset(('queued', 'running', 'waiting-ci', 'publishing'))
 STATES = ACTIVE | {'idle', 'ready', 'failed'}
@@ -197,13 +199,33 @@ def invoke_tick(job):
     return result.returncode, codes[-1]
 
 
+def archive_published(base=BASE, web_gid=None):
+    """Keep successful installers independently of the changing live source."""
+    helper = Path(__file__).absolute().with_name('go_erp_published_download_root.py')
+    for parent in helper.parents:
+        info = parent.lstat()
+        need(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022,
+            'RUNTIME_UNSAFE')
+    raw = read(helper, maximum=256 * 1024, modes=(0o444,))
+    need(hashlib.sha256(raw).hexdigest() == DOWNLOAD_ARCHIVE_SHA256, 'DOWNLOAD_ARCHIVE_PIN_INVALID')
+    module = types.ModuleType('go_erp_published_download_archive')
+    module.__file__ = str(helper)
+    exec(compile(raw, str(helper), 'exec'), module.__dict__)
+    try:
+        return module.archive_current(FEED.parents[3], NATIVE, Path(base) / 'shared', web_gid)
+    except Exception as error:
+        code = str(error)
+        raise Stop(code if CODE.fullmatch(code) else 'GO_ERP_MANUAL_DOWNLOAD_ARCHIVE_FAILED') from None
+
+
 class Broker:
     def __init__(self, base=BASE, web_uid=None, web_gid=None, clock=time.time,
-            sleep=time.sleep, tick=invoke_tick, snapshot=native_snapshot):
+            sleep=time.sleep, tick=invoke_tick, snapshot=native_snapshot, archive=archive_published):
         owner = pwd.getpwnam('fasakha') if web_uid is None or web_gid is None else None
         self.uid = owner.pw_uid if web_uid is None else web_uid
         self.gid = owner.pw_gid if web_gid is None else web_gid
         self.base, self.clock, self.sleep, self.tick, self.snapshot = Path(base), clock, sleep, tick, snapshot
+        self.archive = archive
         self.private, self.shared, self.requests = (self.base / name for name in ('private', 'shared', 'requests'))
         self.jobs = self.private / 'jobs'
         self.active = self.private / 'active.json'
@@ -332,6 +354,9 @@ class Broker:
 
     def process(self, job):
         try:
+            # Archive the last successful publication before a scan can remove
+            # its current-feed pointer. This never allocates another build.
+            self.archive(self.base, self.gid)
             while True:
                 need(int(self.clock()) < job['deadline'], 'JOB_TIMED_OUT')
                 self.check_directories()
@@ -388,6 +413,9 @@ class Broker:
                     raise Stop(code)
                 if current['ready'] and code in ('GO_ERP_LIVE_UPDATE_CURRENT', 'GO_ERP_LIVE_UPDATE_PUBLISHED',
                         'GO_ERP_LIVE_UPDATE_PUBLISHED_STORAGE_REVIEW_REQUIRED'):
+                    # Only a verified native publication advances the visible
+                    # current/previous download pair; failed CI leaves it intact.
+                    self.archive(self.base, self.gid)
                     self.finish(job, 'ready', 'GO_ERP_MANUAL_RELEASE_READY')
                     return
                 need(current['status'] not in ('blocked', 'retry-build'), 'CI_REVIEW_REQUIRED')
