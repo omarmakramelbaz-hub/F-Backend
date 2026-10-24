@@ -14,7 +14,7 @@ function run(t, mode) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'go-erp-identity-'));
   try {
     const actual = spawnSync(php, ['-n', path.join(__dirname, 'employee-identity-service-fixture.php'), root, mode, temp], options);
-    assert.ifError(actual.error); assert.equal(actual.status, 0, actual.stderr); assert.equal(actual.stderr, '');
+    assert.ifError(actual.error); assert.equal(actual.status, 0, actual.stdout + actual.stderr); assert.equal(actual.stderr, '');
     return JSON.parse(actual.stdout);
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }

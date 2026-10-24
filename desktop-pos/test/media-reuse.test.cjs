@@ -12,8 +12,8 @@ function item(relative = 'products/10/رنجة.png', value = bytes, area = 'publ
   return { path: relative, mime: relative.endsWith('.pdf') ? 'application/pdf' : 'image/png', bytes: value.length,
     sha256: crypto.createHash('sha256').update(value).digest('hex'), ticket: 'opaque-current-authorized-ticket', ...(area === 'private' ? { area } : {}) };
 }
-async function fixture(t) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-media-reuse-'));
+async function fixture(t, temporary = os.tmpdir()) {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(temporary, 'dashboard-media-reuse-')));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const old = path.join(directory, 'old', 'app'), target = path.join(directory, 'candidate', 'app'), cache = path.join(directory, 'media-cache');
   for (const root of [old, target]) await fs.mkdir(path.join(root, 'public'), { recursive: true });
@@ -144,4 +144,21 @@ test('closing during reuse prevents a completed candidate and performs no networ
   const f = await fixture(t), image = item(); await put(f.old, image); let checks = 0;
   await assert.rejects(download(f, [image], async () => { throw Error('must not fetch'); }, f.reuse, () => ++checks > 1));
   await assert.rejects(fs.access(path.join(f.target, 'public', image.path)));
+});
+
+
+test('reuse fixtures canonicalize an aliased temporary parent before building public, private and cache roots', async t => {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-reuse-alias-')));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const physical = path.join(directory, 'physical-temp'), alias = path.join(directory, 'temporary-alias');
+  await fs.mkdir(physical); await fs.symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const f = await fixture(t, alias), image = item(); await put(f.old, image); let requested = 0;
+  assert.equal(f.directory, await fs.realpath(f.directory)); assert.equal(path.dirname(f.directory), physical);
+  const unsafePublic = path.join(alias, path.basename(f.directory), 'candidate', 'app', 'public');
+  await assert.rejects(media.download(unsafePublic, [image], async () => { requested++; return response(image); }), /يحتاج التحقق/);
+  assert.equal(requested, 0);
+  const result = await download(f, [image], async () => { requested++; throw Error('canonical unchanged media must not fetch'); });
+  assert.equal(requested, 0); assert.equal(result.verified, true);
+  assert.deepEqual(result.transfer, { reusedFiles: 1, downloadedFiles: 0, downloadedBytes: 0 });
+  assert.deepEqual(await fs.readFile(path.join(f.target, 'public', image.path)), bytes);
 });

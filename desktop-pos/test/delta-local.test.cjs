@@ -52,13 +52,13 @@ test('database stage-status only reads exact fresh staging existence before app 
     `);
     for(const exists of [false,true]){
       const database='fasakhansta_dashboard_stage_0123456789abcdef';
-      const result=spawnSync(command,['-n','-d','auto_prepend_file='+dependency,fixture,'stage-status'],{...options,
+      const result=spawnSync(command,['-n','-d','auto_prepend_file=pdo.php',fixture,'stage-status'],{...options,cwd:temporary,
         input:JSON.stringify({password:'PRIVATE ROOT PASSWORD'}),env:{...process.env,DESKTOP_DASHBOARD_LOCAL:'true',DB_PORT:'13376',DB_DATABASE:database,DESKTOP_TEST_DB_EXISTS:String(exists)}});
       assert.ifError(result.error);assert.equal(result.status,0,result.stderr);
       assert.deepEqual(JSON.parse(result.stdout),{format:1,database,exists});
       assert.equal(result.stderr,'');assert.doesNotMatch(result.stdout,/PRIVATE ROOT PASSWORD/);
     }
-    const invalid=spawnSync(command,['-n','-d','auto_prepend_file='+dependency,fixture,'stage-status'],{...options,
+    const invalid=spawnSync(command,['-n','-d','auto_prepend_file=pdo.php',fixture,'stage-status'],{...options,cwd:temporary,
       input:JSON.stringify({password:'PRIVATE ROOT PASSWORD'}),env:{...process.env,DESKTOP_DASHBOARD_LOCAL:'true',DB_PORT:'13376',DB_DATABASE:'fasakhansta_dashboard'}});
     assert.equal(invalid.status,1);assert.equal(invalid.stdout,'');assert.doesNotMatch(invalid.stderr,/PRIVATE ROOT PASSWORD/);
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}

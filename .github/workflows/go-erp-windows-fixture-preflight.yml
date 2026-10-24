@@ -1,0 +1,116 @@
+name: GO ERP Windows fixture preflight
+
+on:
+  push:
+    branches: ['codex/go-erp-windows-fixture-preflight-20261024']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-erp-windows-fixture-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-unit-preflight:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Preserve exact source bytes before checkout
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact source checkout configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact source line-ending configuration failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Initialize private runner test logs
+        shell: pwsh
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head.Trim() -cne $env:GITHUB_SHA) { throw 'Checkout differs from the exact workflow source.' }
+          $logs = Join-Path $env:RUNNER_TEMP 'go-erp-windows-fixture-preflight'
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
+          "PREFLIGHT_LOG_DIR=$logs" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          @{ sourceRevision = $env:GITHUB_SHA; scope = 'original-runtime-node-unit-step'; platform = 'Windows'; installerPublished = $false; liveDatabaseAccessed = $false } |
+            ConvertTo-Json | Set-Content (Join-Path $logs 'scope.json') -Encoding utf8NoBOM
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.35'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-file: production
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          tools: none
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Record the actual PHP runtime without environment or credentials
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:PREFLIGHT_LOG_DIR 'php-runtime-probe.php'
+          @'
+          <?php
+          $extensions = ['pdo_mysql','pdo_sqlite','sqlite3','mbstring','exif','gd','fileinfo','intl','curl','openssl','sodium'];
+          $loaded = []; foreach ($extensions as $name) { $loaded[$name] = extension_loaded($name); }
+          echo json_encode(['version'=>PHP_VERSION,'os'=>PHP_OS_FAMILY,'sapi'=>PHP_SAPI,'binary'=>PHP_BINARY,
+            'iniFile'=>php_ini_loaded_file(),'scannedIniFiles'=>php_ini_scanned_files(),'extensionDir'=>ini_get('extension_dir'),
+            'extensions'=>$loaded,'fileinfoClass'=>class_exists('finfo'),'tempDirectory'=>sys_get_temp_dir(),
+            'ini'=>['precision'=>ini_get('precision'),'serialize_precision'=>ini_get('serialize_precision'),
+              'opcache.jit'=>ini_get('opcache.jit'),'opcache.jit_buffer_size'=>ini_get('opcache.jit_buffer_size')]],
+            JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), PHP_EOL;
+          '@ | Set-Content $probe -Encoding utf8NoBOM
+          $php = (Get-Command php -ErrorAction Stop).Source
+          & $php $probe 2>&1 | Tee-Object -FilePath (Join-Path $env:PREFLIGHT_LOG_DIR 'php-runtime.json')
+          if ($LASTEXITCODE -ne 0) { throw 'Actual PHP runtime probe failed.' }
+          $runtime = Get-Content (Join-Path $env:PREFLIGHT_LOG_DIR 'php-runtime.json') -Raw | ConvertFrom-Json
+          if ($runtime.version -cne '8.2.35' -or $runtime.os -cne 'Windows' -or !$runtime.fileinfoClass) { throw 'PHP version, platform or fileinfo differs from the native test environment.' }
+          foreach ($extension in $runtime.extensions.PSObject.Properties) {
+            if ($extension.Value -ne $true) { throw "Required PHP extension is missing: $($extension.Name)" }
+          }
+          node --version | Set-Content (Join-Path $env:PREFLIGHT_LOG_DIR 'node-version.txt') -Encoding utf8NoBOM
+          if ($LASTEXITCODE -ne 0) { throw 'Node runtime probe failed.' }
+      - name: Prepare the same pinned official Windows PDF runtime
+        shell: pwsh
+        run: |
+          $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+          $env:DESKTOP_7ZIP = if ($sevenZip) { $sevenZip.Source } else { Join-Path $env:ProgramFiles '7-Zip/7z.exe' }
+          if (!(Test-Path $env:DESKTOP_7ZIP)) { throw 'The Windows archive extractor is unavailable.' }
+          node .github/scripts/desktop-wkhtmltox.cjs "$env:RUNNER_TEMP/wkhtmltox-official" 2>&1 |
+            Tee-Object -FilePath (Join-Path $env:PREFLIGHT_LOG_DIR 'wkhtmltox-setup.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned official Windows PDF payload verification failed.' }
+          "DESKTOP_TEST_WKHTMLTOX=$env:RUNNER_TEMP/wkhtmltox-official/wkhtmltox" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run the exact native reconciliation and POS unit step
+        working-directory: desktop-pos
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs 2>&1 |
+            Tee-Object -FilePath (Join-Path $env:PREFLIGHT_LOG_DIR 'node-unit-tests.log')
+          $testExit = $LASTEXITCODE
+          @{ sourceRevision = $env:GITHUB_SHA; exitCode = $testExit } | ConvertTo-Json |
+            Set-Content (Join-Path $env:PREFLIGHT_LOG_DIR 'node-exit.json') -Encoding utf8NoBOM
+          if ($testExit -ne 0) { exit $testExit }
+          $text = Get-Content (Join-Path $env:PREFLIGHT_LOG_DIR 'node-unit-tests.log') -Raw
+          $text = [regex]::Replace($text, '\x1b\[[0-9;]*m', '')
+          $summary = @{}
+          foreach ($field in @('tests','pass','fail','cancelled','skipped','todo')) {
+            $matches = [regex]::Matches($text, "(?m)^\s*(?:#|ℹ)\s+$field\s+([0-9]+)\s*$")
+            if ($matches.Count -lt 1) { throw "The Node summary is missing: $field" }
+            $summary[$field] = [int]$matches[$matches.Count - 1].Groups[1].Value
+          }
+          $summary | ConvertTo-Json | Set-Content (Join-Path $env:PREFLIGHT_LOG_DIR 'node-summary.json') -Encoding utf8NoBOM
+          if ($summary.tests -lt 715 -or $summary.pass -ne $summary.tests -or $summary.fail -ne 0 -or $summary.cancelled -ne 0 -or $summary.skipped -ne 0 -or $summary.todo -ne 0) {
+            throw 'The complete Windows unit suite must pass without skipped, cancelled or todo tests.'
+          }
+      - name: Retain actual Windows runtime details and full unit output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-erp-windows-fixture-preflight
+          path: ${{ runner.temp }}/go-erp-windows-fixture-preflight
+          if-no-files-found: warn
+          retention-days: 14
