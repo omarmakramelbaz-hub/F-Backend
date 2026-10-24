@@ -1,9 +1,11 @@
 @extends('admin.index')
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-overview.css') }}?v={{ filemtime(public_path('dashboard/css/home-overview.css')) }}">
+<link rel="stylesheet" href="{{ asset('dashboard/css/home-hud.css') }}?v={{ filemtime(public_path('dashboard/css/home-hud.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper ho-wrapper{{ isset($boot['initial']['owner_platform'])?' ho-compact':'' }}">
+@include('admin.home_hud')
 <section id="home-overview" dir="{{ app()->getLocale()==='ar'?'rtl':'ltr' }}" aria-labelledby="ho-title">
     <header class="ho-heading">
         <div><span class="ho-eyebrow">{{ __('home_overview.eyebrow') }}</span><h1 id="ho-title">{{ __('home_overview.title') }}</h1><p>{{ __('home_overview.subtitle') }}</p></div>
@@ -49,4 +51,5 @@
 @push('custom-js')
 <script type="application/json" id="home-overview-bootstrap">@json($boot)</script>
 <script src="{{ asset('dashboard/js/home-overview.js') }}?v={{ filemtime(public_path('dashboard/js/home-overview.js')) }}"></script>
+<script src="{{ asset('dashboard/js/home-hud.js') }}?v={{ filemtime(public_path('dashboard/js/home-hud.js')) }}"></script>
 @endpush

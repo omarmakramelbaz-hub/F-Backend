@@ -1,0 +1,123 @@
+/* GO live home screen. Scoped to #go-hud. It covers the whole window over the usual home page until GO is pressed.
+   Three layouts, picked by the script from the screen's own width: wide (checks beside the solar system),
+   mid (checks under it) and compact (everything stacked, sections as tiles). */
+html.go-hud-open,html.go-hud-open body{overflow:hidden!important}
+#go-hud{--hud-void:#020914;--hud-line:#1d4d6e;--hud-cyan:#33e1ff;--hud-core:#ff9a2e;--hud-amber:#ffc24a;--hud-ink:#e8f6ff;--hud-mute:#7fa3bd;--hud-cx:50%;--hud-cy:50%;
+  position:fixed;inset:0;z-index:1100;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;margin:0;color:var(--hud-ink);
+  background:radial-gradient(ellipse 75% 85% at var(--hud-cx) var(--hud-cy),#0c2846 0%,#071a30 42%,var(--hud-void) 82%) fixed;
+  font-family:inherit;font-variant-numeric:tabular-nums;isolation:isolate;transition:opacity .6s ease,transform .7s cubic-bezier(.5,0,.2,1)}
+#go-hud[hidden]{display:none}
+#go-hud.leaving{opacity:0;transform:scale(1.06);pointer-events:none}
+#go-hud *{box-sizing:border-box}
+#go-hud canvas{position:absolute;top:0;left:0;width:100%;display:block;z-index:0;pointer-events:none}
+
+#go-hud .hud-status{position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:5;display:inline-flex;align-items:center;gap:8px;
+  padding:5px 14px;border:1px solid #2a8fb0;border-radius:999px;background:#04223acc;font-size:12px;font-weight:600;color:var(--hud-cyan);white-space:nowrap;
+  transition:left .6s cubic-bezier(.2,.8,.2,1)}
+#go-hud .hud-status i{width:7px;height:7px;border-radius:50%;background:var(--hud-cyan);box-shadow:0 0 10px var(--hud-cyan);animation:hud-blink 1s infinite}
+#go-hud.ready .hud-status{border-color:#b85d0f;color:var(--hud-core)}
+#go-hud.ready .hud-status i{background:var(--hud-core);box-shadow:0 0 10px var(--hud-core);animation:hud-blink 2.4s infinite}
+
+#go-hud .hud-title{position:absolute;top:18px;inset-inline-end:24px;z-index:5;display:grid;gap:2px;text-align:end;max-width:34%}
+#go-hud .hud-title strong{font-size:16px;font-weight:700;color:var(--hud-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#go-hud .hud-title span{font-size:12px;color:var(--hud-mute)}
+
+/* The GO mark with the Solar System around it. The box is the mark; the system overflows it. */
+#go-hud .hud-core{position:absolute;left:50%;top:50%;width:170px;aspect-ratio:360/165;z-index:2;pointer-events:none;
+  transform:translate(-50%,-50%) scale(.72);opacity:0;transition:transform 1.4s cubic-bezier(.2,.8,.2,1),opacity 1s}
+#go-hud .hud-core.lit{transform:translate(-50%,-50%) scale(1);opacity:1}
+#go-hud.leaving .hud-core{transform:translate(-50%,-50%) scale(1.5);opacity:0}
+#go-hud .hud-solar{position:absolute;left:50%;top:50%;width:383.33%;height:auto;display:block;overflow:visible;transform:translate(-50%,-50%)}
+/* the solar halo sits between the far and near halves of the system */
+#go-hud .hud-sun{position:absolute;left:50%;top:50%;display:block;transform:translate(-50%,-50%);pointer-events:none}
+@media (prefers-reduced-motion:no-preference){
+  #go-hud .hud-rotor,#go-hud .hud-counter{transform-box:view-box;transform-origin:0 0;animation-duration:var(--orbit-period);animation-timing-function:linear;
+    animation-iteration-count:infinite;animation-fill-mode:both}
+  #go-hud .hud-rotor{animation-name:hud-orbit}
+  #go-hud .hud-counter{animation-name:hud-counter}
+}
+/* GO is the way into the usual home page */
+#go-hud .hud-go{pointer-events:auto;cursor:pointer;outline:none}
+#go-hud .hud-go .hud-hit{fill:transparent;stroke:transparent;stroke-width:4px}
+#go-hud .hud-go:focus-visible .hud-hit{stroke:var(--hud-cyan)}
+#go-hud .hud-go .hud-logo{filter:drop-shadow(0 1px 1px #021322cc);transition:opacity .2s}
+#go-hud .hud-go:hover .hud-logo{opacity:.86}
+
+#go-hud .hud-node{position:absolute;z-index:4;transform:translate(-50%,-50%) scale(.2);opacity:0;color:inherit;text-decoration:none;
+  transition:transform .7s cubic-bezier(.2,.9,.2,1.2),opacity .5s}
+#go-hud .hud-node.out{transform:translate(-50%,-50%) scale(1);opacity:1}
+#go-hud a.hud-node{cursor:pointer;outline:none}
+#go-hud a.hud-node.out:hover,#go-hud a.hud-node.out:focus-visible{transform:translate(-50%,-50%) scale(1.08)}
+#go-hud a.hud-node:hover .hud-dot,#go-hud a.hud-node:focus-visible .hud-dot{background:var(--hud-cyan)}
+#go-hud a.hud-node:hover .hud-tag small,#go-hud a.hud-node:focus-visible .hud-tag small{color:var(--hud-cyan);text-decoration:underline}
+#go-hud .hud-dot{display:block;flex:none;width:14px;height:14px;border-radius:50%;border:2px solid var(--hud-cyan);background:#062a40;box-shadow:0 0 12px var(--hud-cyan);transition:background .2s}
+#go-hud .hud-node.warn .hud-dot{border-color:var(--hud-amber);box-shadow:0 0 12px var(--hud-amber)}
+#go-hud .hud-node.money .hud-dot{border-color:var(--hud-core);box-shadow:0 0 12px var(--hud-core)}
+#go-hud .hud-tag{position:absolute;top:50%;transform:translateY(-50%);white-space:normal;width:max-content;max-width:180px;overflow-wrap:anywhere;display:grid;gap:1px}
+#go-hud .hud-node.right .hud-tag{left:22px;text-align:left}
+#go-hud .hud-node.left .hud-tag{right:22px;text-align:right}
+#go-hud .hud-tag b{font-size:clamp(14px,1.5vw,19px);font-weight:700;color:var(--hud-ink);unicode-bidi:plaintext;transition:color .3s,text-shadow .3s}
+#go-hud .hud-node.warn .hud-tag b{color:var(--hud-amber)}
+#go-hud .hud-node.money .hud-tag b{color:var(--hud-core)}
+#go-hud .hud-tag b.flash{text-shadow:0 0 14px var(--hud-cyan)}
+#go-hud .hud-tag small{font-size:12px;color:#bfe3f5}
+
+#go-hud .hud-checks{position:absolute;top:58px;inset-inline-start:20px;z-index:5;width:min(280px,30%);padding:12px 12px 10px;
+  border:1px solid var(--hud-line);border-radius:10px;background:linear-gradient(180deg,#071f37e6,#04132599);backdrop-filter:blur(4px)}
+#go-hud .hud-checks h2{margin:0 0 8px;font-size:14px;font-weight:700;color:var(--hud-ink)}
+#go-hud .hud-checks ol{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+#go-hud .hud-checks li{display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:8px;font-size:12px;color:var(--hud-mute);opacity:.25;transition:opacity .25s,color .25s}
+#go-hud .hud-checks li.on{opacity:1;color:var(--hud-ink)}
+#go-hud .hud-checks li b{font-weight:600;color:var(--hud-cyan);unicode-bidi:plaintext;white-space:nowrap}
+#go-hud .hud-checks li.warn b{color:var(--hud-amber)}
+#go-hud .hud-box{width:16px;height:16px;border:1px solid #2d6a8c;border-radius:3px;display:grid;place-items:center;font-size:11px;font-weight:700;line-height:1}
+#go-hud li.on .hud-box{border-color:var(--hud-cyan);background:#0a3550}
+#go-hud li.on .hud-box::after{content:"\2713";color:var(--hud-cyan)}
+#go-hud li.on.warn .hud-box{border-color:var(--hud-amber);background:#3a2a07}
+#go-hud li.on.warn .hud-box::after{content:"!";color:var(--hud-amber)}
+#go-hud .hud-tally{margin-top:8px;padding-top:8px;border-top:1px solid var(--hud-line);font-size:12px;color:var(--hud-mute)}
+#go-hud .hud-tally strong{color:var(--hud-ink)}
+#go-hud .hud-skip,#go-hud .hud-enter{position:absolute;bottom:18px;left:var(--hud-cx);transform:translateX(-50%);z-index:5;font:inherit;font-size:12px;color:var(--hud-mute);
+  background:#06223bcc;border:1px solid var(--hud-line);border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap}
+#go-hud .hud-enter{color:#ffd8b0;border-color:#b85d0f;animation:hud-hint 3.2s ease-in-out infinite}
+#go-hud .hud-enter b{color:var(--hud-core);margin-inline-end:4px}
+#go-hud .hud-skip:focus-visible,#go-hud .hud-enter:focus-visible{outline:2px solid var(--hud-cyan);outline-offset:2px}
+
+/* mid: the solar system takes the full width, the checks sit underneath in two columns */
+#go-hud.mid .hud-checks{position:relative;top:auto;inset-inline-start:auto;width:auto;margin:452px 20px 70px}
+#go-hud.mid .hud-checks ol{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px}
+
+/* compact (phones): title, solar system, section tiles, checks */
+#go-hud.compact{padding:24px 12px 28px}
+#go-hud.compact .hud-title{position:static;max-width:none;text-align:center;margin-bottom:12px}
+#go-hud.compact .hud-core{position:relative;left:auto;top:auto;width:min(100%,560px);aspect-ratio:1380/900;margin:0 auto 12px;transform:scale(.88)}
+#go-hud.compact .hud-core.lit{transform:none}
+#go-hud.compact.leaving .hud-core{transform:scale(1.4)}
+#go-hud.compact .hud-solar{left:50%;top:50%;width:100%;transform:translate(-50%,-50%)}
+#go-hud.compact .hud-nodes{position:relative;z-index:4;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:8px;margin:10px 0 12px}
+#go-hud.compact .hud-node{position:relative;left:auto;top:auto;min-width:0;display:flex;align-items:center;gap:10px;padding:9px 11px;
+  border:1px solid var(--hud-line);border-radius:9px;background:#06192ecc;transform:translateY(8px)}
+#go-hud.compact .hud-node.out,#go-hud.compact a.hud-node.out:hover{transform:none}
+#go-hud.compact a.hud-node:hover,#go-hud.compact a.hud-node:focus-visible{border-color:var(--hud-cyan)}
+#go-hud.compact .hud-tag{position:static;transform:none;min-width:0;width:auto;max-width:none;flex:1;white-space:normal;overflow-wrap:anywhere;text-align:start;line-height:1.45}
+#go-hud.compact .hud-tag b{font-size:15px}
+#go-hud.compact .hud-checks{position:relative;top:auto;inset-inline-start:auto;width:auto;margin:0}
+#go-hud.compact .hud-skip,#go-hud.compact .hud-enter{position:fixed;left:50%}
+
+@keyframes hud-blink{50%{opacity:.25}}
+@keyframes hud-hint{0%,100%{box-shadow:0 0 0 #ff9a2e00}50%{box-shadow:0 0 18px #ff9a2e55}}
+@keyframes hud-orbit{from{transform:rotate(var(--orbit-start))}to{transform:rotate(var(--orbit-end))}}
+@keyframes hud-counter{from{transform:rotate(var(--counter-start))}to{transform:rotate(var(--counter-end))}}
+@media (prefers-reduced-motion:reduce){#go-hud,#go-hud *{transition:none!important;animation:none!important}}
+
+/* Keep the GO mark inside the smallest solar circle throughout its heartbeat. */
+#go-hud .hud-logo-pulse{transform-box:view-box;transform-origin:0 0}
+@media(prefers-reduced-motion:no-preference){#go-hud .hud-logo-pulse{animation:hud-logo-pulse 3.2s ease-in-out infinite}}
+@keyframes hud-logo-pulse{0%,38%,100%{transform:scale(1)}12%{transform:scale(1.025)}22%{transform:scale(1)}28%{transform:scale(1.015)}}
+
+#go-hud .hud-solar-far{z-index:0}
+#go-hud .hud-core .hud-sun{z-index:1}
+#go-hud .hud-solar-near{z-index:2}
+
+/* Switching between orbit and tile layouts must finish in the same frame. */
+#go-hud.reflow .hud-core,#go-hud.reflow .hud-node{transition:none!important}

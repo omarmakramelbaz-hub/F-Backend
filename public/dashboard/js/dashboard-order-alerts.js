@@ -6,7 +6,7 @@
     var leaseKey = 'dashboardOrderSound:' + actor, ackKey = leaseKey + ':ack', tab = Date.now() + ':' + Math.random();
     var pendingKey = leaseKey + ':pending', feedUrl = script && script.dataset.soundFeed;
     var enabled = read(preference) !== 'false', playing = false, starting = false, unlocked = false, blocked = false;
-    var generation = 0, testTimer = null, audio = null, stopped = false, feedTimer = null, feedController = null;
+    var generation = 0, testTimer = null, audio = null, stopped = false, feedTimer = null, feedController = null, signalController = null;
     try { JSON.parse(sessionStorage.getItem(pendingKey) || '[]').forEach(function (key) { pending.set(String(key), new Set(['restored'])); }); } catch (_) {}
     try { audio = new window.Audio(script && script.dataset.soundUrl || '/sounds/mixkit-correct-answer-reward-952.wav'); audio.preload = 'auto'; } catch (_) {}
     function read(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
@@ -78,6 +78,10 @@
     function notify(key, scope) {
         if (!key) return;
         key = String(key); scope = scope || 'live';
+        if (/^(legacy|store|service|partner_service):[1-9][0-9]*$/.test(key) && feedUrl) {
+            arrivals.set(key, ++sequence); acknowledgements.delete(key);
+            confirmAppSignal(); return;
+        }
         arrivals.set(key, ++sequence); acknowledgements.delete(key);
         if (!pending.has(key)) pending.set(key, new Set()); pending.get(key).add(scope);
         blocked = false; reconcile();
@@ -101,8 +105,8 @@
         if (typeof source === 'string') {
             var snapshot = document.createElement('template'); snapshot.innerHTML = source; source = snapshot.content;
         }
-        var keys = Array.from(source.querySelectorAll('[data-column="new"] [data-order-key]')).map(function (card) { return card.dataset.orderKey; });
-        source.querySelectorAll('[data-column]:not([data-column="new"]) [data-order-key]').forEach(function (card) { acknowledge(card.dataset.orderKey); });
+        var keys = Array.from(source.querySelectorAll('[data-column="new"] [data-order-key]:not([data-order-alert-eligible="0"])')).map(function (card) { return card.dataset.orderKey; });
+        source.querySelectorAll('[data-order-alert-eligible="0"], [data-column]:not([data-column="new"]) [data-order-key]').forEach(function (card) { acknowledge(card.dataset.orderKey); });
         sync('app-board', keys);
     }
     function reconcileApp(keys, beforeRequest) {
@@ -114,6 +118,20 @@
         });
         // A response started before a confirmed local action must not resurrect that order.
         sync('app-authoritative', Array.from(complete).filter(function (key) { return (acknowledgements.get(key) || 0) <= before; }));
+    }
+    async function confirmAppSignal() {
+        if (stopped || !feedUrl || typeof window.fetch !== 'function') return;
+        if (signalController) signalController.abort();
+        var controller = new AbortController(); signalController = controller;
+        var before = sequence, timeout = setTimeout(function () { controller.abort(); }, 15000);
+        try {
+            var response = await window.fetch(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!response.ok) return;
+            var payload = await response.json();
+            if (!stopped && signalController === controller && Array.isArray(payload.pending_alert_keys)) reconcileApp(payload.pending_alert_keys, before);
+        } catch (_) { /* A push signal cannot prove an unpaid order is ready for staff. Polling will retry. */ }
+        finally { clearTimeout(timeout); if (signalController === controller) signalController = null; }
     }
     async function pollOrders() {
         if (stopped || !feedUrl || typeof window.fetch !== 'function') return;
@@ -174,6 +192,7 @@
     window.addEventListener('pagehide', function () {
         stopped = true; pause(); clearInterval(heartbeat); clearTimeout(feedTimer);
         if (feedController) feedController.abort();
+        if (signalController) signalController.abort();
     });
     window.addEventListener('pageshow', function (event) {
         if (event.persisted && stopped) { stopped = false; heartbeat = setInterval(tick, 2000); reconcile(); pollOrders(); }

@@ -9,6 +9,7 @@ use App\Events\OrderFinishedUpdated;
 use App\Notifications\NotifyUserOrderStatusUpdatedNotification;
 use App\Services\Dashboard\GoStoreBoardActions;
 use App\Services\Dashboard\LegacyOrderCancellation;
+use App\Services\Dashboard\UnpaidOrderCancellation;
 use App\Services\Dashboard\OrderBoardService;
 use App\Services\Dashboard\OrderBoardItems;
 use App\Services\Dashboard\OrderBoardPrinting;
@@ -97,7 +98,8 @@ class OrderBoardController extends Controller
             DB::transaction(function () use ($request, $source, $id, $service, $values, $actor, &$shippingRejected) {
                 if ($source === 'legacy') {
                     $order = $service->scopedLegacy($id, $actor, true);
-                    abort_unless($order->status === $values['expected_status'], 409, 'تغيرت حالة الطلب. حدّث الصفحة.');
+                    abort_unless(($order->status === null && $order->type === 'current' && in_array($order->payment_type, ['online','v_cash'], true)
+                        ? 'awaiting_payment' : $order->status) === $values['expected_status'], 409, 'تغيرت حالة الطلب. حدّث الصفحة.');
                     $expectedAccepted = $values['expected_accepted_notify'] ?? '';
                     abort_unless(($order->accepted_notify ?? '') === $expectedAccepted, 409, 'تم التعامل مع هذا الطلب. حدّث الصفحة.');
                     if ($order->type === 'shipping') {
@@ -130,7 +132,8 @@ class OrderBoardController extends Controller
                         $vendorRequest->merge(['status'=>'declined']);
                         $vendor->updateOrderStatus($vendorRequest, $order);
                     } elseif ($values['action'] === 'cancel') {
-                        app(LegacyOrderCancellation::class)->cancel($order, $values['reason'] ?? 'إلغاء بناءً على طلب العميل');
+                        if ($order->status === null) app(UnpaidOrderCancellation::class)->cancel($order, $values['reason'] ?? 'إلغاء طلب لم يكتمل دفعه');
+                        else app(LegacyOrderCancellation::class)->cancel($order, $values['reason'] ?? 'إلغاء بناءً على طلب العميل');
                     } elseif ($values['action'] === 'complete') {
                         $request->merge(['status'=>'completed']);
                         $vendorRequest->merge(['status'=>'completed']);

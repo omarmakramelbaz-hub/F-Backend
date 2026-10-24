@@ -174,8 +174,18 @@ class DesktopDashboardUpdates
             $this->unchanged($path,$stream,$before);
         }finally{fclose($stream);}
         try{$object=json_decode($bytes,false,32,JSON_THROW_ON_ERROR);$release=json_decode($bytes,true,32,JSON_THROW_ON_ERROR);}catch(\Throwable $error){abort(503,self::ERROR);}
-        abort_unless(is_object($object)&&is_object($object->gui??null)
-            &&$this->exact($release,['version','sequence','source_revision','source','installer','gui'])
+        $release=$this->manifest($release,is_object($object)&&is_object($object->gui??null));
+        $installer=$release['installer'];
+        // The publisher verifies the SHA before atomically installing these root-only
+        // bytes. Checking stat here avoids rereading a large installer every minute.
+        $file=$this->checkedStat($directory.'/'.$installer['sha256'].'.exe');
+        abort_unless($file['size']===$installer['bytes'],503,self::ERROR);
+        return $release;
+    }
+
+    private function manifest($release,bool $guiObject): array
+    {
+        abort_unless($guiObject&&$this->exact($release,['version','sequence','source_revision','source','installer','gui'])
             &&$this->validVersion($release['version'])
             &&is_int($release['sequence'])&&$release['sequence']>0&&$release['sequence']<=9007199254740991
             &&is_string($release['source_revision'])&&preg_match('/^[a-f0-9]{40}$/D',$release['source_revision'])
@@ -185,11 +195,88 @@ class DesktopDashboardUpdates
         abort_unless(is_string($installer['sha256'])&&preg_match('/^[a-f0-9]{64}$/D',$installer['sha256'])
             &&is_int($installer['bytes'])&&$installer['bytes']>0&&$installer['bytes']<=self::MAX_BYTES
             &&$installer['path']==='/api/desktop-dashboard/update/installer/'.$installer['sha256'],503,self::ERROR);
-        // The publisher verifies the SHA before atomically installing these root-only
-        // bytes. Checking stat here avoids rereading a large installer every minute.
-        $file=$this->checkedStat($directory.'/'.$installer['sha256'].'.exe');
-        abort_unless($file['size']===$installer['bytes'],503,self::ERROR);
         return $release;
+    }
+
+    protected function publishedRoot(): string { return '/var/lib/go-erp-manual-updates/shared'; }
+
+    private function publishedDirectory(string $path): void
+    {
+        abort_unless(str_starts_with($path,'/')&&!str_contains($path,'..'),503,self::ERROR);
+        $cursor='';
+        foreach(explode('/',$path) as $part){
+            if($part==='')continue;$cursor.='/'.$part;clearstatcache(true,$cursor);$info=@lstat($cursor);
+            $sticky=$cursor!==$path&&is_array($info)&&($info['mode']&01000)!==0;
+            abort_unless(is_array($info)&&($info['mode']&0170000)===0040000&&$info['uid']===0
+                &&(($info['mode']&0022)===0||$sticky),503,self::ERROR);
+        }
+        $info=$this->checkedStat($path,true);
+        abort_unless(($info['mode']&0777)===0750,503,self::ERROR);
+    }
+
+    private function publishedRecords(): array
+    {
+        $root=$this->publishedRoot();$this->publishedDirectory($root);
+        $path=$root.'/downloads.json';clearstatcache(true,$path);
+        if(@lstat($path)===false)return ['current'=>null,'previous'=>null];
+        [$stream,$before]=$this->open($path,1048576);
+        try{
+            abort_unless(($before['mode']&0777)===0640,503,self::ERROR);
+            $raw=stream_get_contents($stream,1048577);
+            abort_unless(is_string($raw)&&strlen($raw)===$before['size'],503,self::ERROR);
+            $this->unchanged($path,$stream,$before);
+        }finally{fclose($stream);}
+        try{$object=json_decode($raw,false,32,JSON_THROW_ON_ERROR);$value=json_decode($raw,true,32,JSON_THROW_ON_ERROR);}
+        catch(\Throwable $error){abort(503,self::ERROR);}
+        abort_unless(is_object($object)&&$this->exact($value,['format','kind','current','previous'])
+            &&$value['format']===1&&$value['kind']==='go-erp-published-downloads',503,self::ERROR);
+        $records=[];
+        foreach(['current','previous'] as $slot){
+            if($slot==='previous'&&$value[$slot]===null){$records[$slot]=null;continue;}
+            $item=$object->{$slot}??null;
+            $records[$slot]=$this->manifest($value[$slot],is_object($item)&&is_object($item->gui??null));
+        }
+        if($records['previous']!==null){
+            $current=$records['current'];$previous=$records['previous'];
+            abort_unless($previous['sequence']<$current['sequence']&&$previous['version']!==$current['version']
+                &&$previous['source_revision']!==$current['source_revision']
+                &&$previous['installer']['sha256']!==$current['installer']['sha256'],503,self::ERROR);
+        }
+        $this->publishedDirectory($root.'/installers');
+        foreach($records as $release){
+            if($release===null)continue;
+            $file=$this->checkedStat($root.'/installers/'.$release['installer']['sha256'].'.exe');
+            abort_unless(($file['mode']&0777)===0640&&$file['size']===$release['installer']['bytes'],503,self::ERROR);
+        }
+        return $records;
+    }
+
+    /** Explicit downloads retain the last two successful publications during a new build. */
+    public function publishedDownloads(): array
+    {
+        $this->requireServer();$result=$this->publishedRecords();
+        foreach($result as &$release){if($release!==null)unset($release['gui']);}unset($release);
+        return $result;
+    }
+
+    /** A SHA-pinned historical download never substitutes a newer version mid-click. */
+    public function publishedInstaller(string $sha): array
+    {
+        $this->requireServer();abort_unless(preg_match('/^[a-f0-9]{64}$/D',$sha),404);
+        $matches=array_values(array_filter($this->publishedRecords(),fn($release)=>$release!==null
+            &&hash_equals($release['installer']['sha256'],$sha)));
+        abort_unless(count($matches)===1,404);$release=$matches[0];
+        $path=$this->publishedRoot().'/installers/'.$sha.'.exe';[$stream,$before]=$this->open($path,self::MAX_BYTES);
+        try{
+            abort_unless(($before['mode']&0777)===0640&&$before['size']===$release['installer']['bytes'],503,self::ERROR);
+            $digest=hash_init('sha256');$read=hash_update_stream($digest,$stream,self::MAX_BYTES+1);
+            abort_unless($read===$before['size']&&hash_equals($sha,hash_final($digest)),503,self::ERROR);
+            $this->unchanged($path,$stream,$before);
+            // Pointer rotation may promote this already-approved file to previous.
+            // Its open descriptor and digest remain bound to the selected version.
+            abort_unless(rewind($stream),503,self::ERROR);
+            return ['stream'=>$stream,'bytes'=>$before['size'],'sha256'=>$sha,'version'=>$release['version']];
+        }catch(\Throwable $error){fclose($stream);throw $error;}
     }
 
     public function status(): array

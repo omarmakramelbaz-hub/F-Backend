@@ -54,6 +54,8 @@ Route::prefix('desktop-pos')->withoutMiddleware('throttle:api')->group(function 
 });
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
+    Route::post('/order-payments/paymob/notify', [\App\Http\Controllers\Payment\RestaurantPaymentController::class, 'notify'])->withoutMiddleware('throttle:api')->middleware('throttle:300,1')->name('order-payments.notify');
+    Route::get('/order-payments/paymob/return', [\App\Http\Controllers\Payment\RestaurantPaymentController::class, 'returnFromGateway'])->name('order-payments.return');
 
     // Wallet callbacks verify payment through authenticated gateway inquiry.
     Route::post('/wallet-topup/paymob/notify', [\App\Http\Controllers\Payment\WalletTopupController::class, 'notify'])->withoutMiddleware('throttle:api')->middleware('throttle:300,1')->name('wallet-topups.notify');

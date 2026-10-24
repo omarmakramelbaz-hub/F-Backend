@@ -21,10 +21,34 @@ final class LegacyPaymentFailure
         $hmac = $request->query('hmac');
         if (!is_string($hmac)) return false;
         $object = $this->object($request->query());
+        return $this->recordEvidence($object, $hmac);
+    }
+
+    /** Processed callbacks record the same signed terminal evidence without a browser return. */
+    public function recordNotification(Request $request): bool
+    {
+        if (!$request->isMethod('post') || $request->input('type') !== 'TRANSACTION') return false;
+        $payload = $request->input('obj');
+        $hmac = $request->query('hmac', $request->input('hmac'));
+        if (!is_array($payload) || !is_string($hmac) || !is_array($payload['order'] ?? null)
+            || !is_array($payload['source_data'] ?? null)) return false;
+        $query = $payload;
+        $query['order'] = $payload['order']['id'] ?? null;
+        foreach (['pan', 'sub_type', 'type'] as $field) {
+            if (!array_key_exists($field, $payload['source_data'])) return false;
+            $query['source_data.'.$field] = $payload['source_data'][$field];
+        }
+        // Capture/reversal notifications must never be treated as an unpaid checkout.
+        if (!$this->isFalse($payload['is_capture'] ?? null)) return false;
+        return $this->recordEvidence($this->object($query), $hmac);
+    }
+
+    private function recordEvidence(?array $object, string $hmac): bool
+    {
         if (!$object || !PaymobHmac::valid($object, $hmac,
             (string) config('dashboard_payments.hmac_secret'))) return false;
         if (!$this->isFalse($object['success']) || !$this->isFalse($object['pending'])) return false;
-        foreach (['is_auth', 'is_voided', 'is_refunded', 'has_parent_transaction'] as $flag) {
+        foreach (['is_auth', 'is_capture', 'is_voided', 'is_refunded', 'has_parent_transaction'] as $flag) {
             if (!$this->isFalse($object[$flag])) return false;
         }
         if ($object['currency'] !== 'EGP' || !$this->identifier($object['id'])

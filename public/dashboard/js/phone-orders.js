@@ -441,6 +441,7 @@
         if(stage==='preparing'){
             if(!ticket.bill_locked)container.appendChild(button('edit_order',function(){editTicket(ticket.id);}));
             container.appendChild(button('assign_company',function(){dispatchModal(ticket.id);},'is-orange'));
+            if(!ticket.bill_locked)container.appendChild(button('cancel',function(){cancelModal(ticket.id);},'is-danger'));
         }else{
             if(ticket.bill_print_url)container.appendChild(button('print_order',function(){if(ticket.bill_locked)print(ticket.receipt_url||ticket.bill_print_url,true);else action(ticket,'request_bill');},'is-bill'));
             container.appendChild(button('finish_collect',function(){settlement(ticket.id);},'is-warning'));
@@ -459,6 +460,20 @@
         if (locked()) return; var content = openModal(text('details')), generation = modalGeneration, controller = begin('modal');
         try { var ticket = await fetchTicket(id, controller.signal); if (disposed || modal.hidden || generation !== modalGeneration) return; detailContent(ticket, content); }
         catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
+    }
+    async function cancelModal(id) {
+        if(locked()||!canWrite())return;
+        var content=openModal(text('cancel')),generation=modalGeneration,controller=begin('modal');
+        try{
+            var ticket=await fetchTicket(id,controller.signal);if(disposed||modal.hidden||generation!==modalGeneration)return;
+            if(ticket.payment_status!=='unpaid'||ticket.bill_locked||!['new','preparing'].includes(ticket.status)){detailContent(ticket,content);notify(text('stale'));return;}
+            var form=element('form','ph-settle-form'),reason=element('textarea');reason.required=true;reason.maxLength=500;reason.dataset.phoneCancelReason='';
+            var label=element('label','ph-field');label.appendChild(element('span','',text('cancel_reason')));label.appendChild(reason);
+            form.appendChild(element('p','ph-detail-note',text('cancel_warning')));form.appendChild(label);
+            var submit=element('button','is-danger',text('cancel'));submit.type='submit';submit.dataset.phoneCancelSubmit='';form.appendChild(submit);
+            form.addEventListener('submit',function(event){event.preventDefault();if(locked())return;if(!reason.value.trim()){reason.setCustomValidity(text('cancel_prompt'));reason.reportValidity();return;}action(ticket,'cancel',false,reason.value.trim());});
+            reason.addEventListener('input',function(){reason.setCustomValidity('');});content.replaceChildren(form);reason.focus();lock();
+        }catch(error){if(disposed||generation!==modalGeneration||error.name==='AbortError')return;content.replaceChildren(element('p','ph-empty',error.message||text('list_error')));}
     }
     function dispatchControl(ticket, container) {
         if (!canWrite() || ticket.payment_status === 'paid' || ['new','preparing'].indexOf(ticket.status) < 0) return;
@@ -650,6 +665,7 @@
         if (!validTicket(result.ticket, operation.ticketId, false, operation.payload.branch) || operation.payload.expected_revision !== undefined && Number(result.ticket.revision) <= Number(operation.payload.expected_revision) || operation.type === 'save' && !recovered && result.ticket.payment_status !== 'unpaid' || operation.type === 'settle' && result.ticket.payment_status !== 'paid') throw new Error(text('uncertain'));
         if (!result.operation || result.operation.idempotency_key !== operation.payload.idempotency_key || Number(result.operation.ticket_id) !== Number(result.ticket.id)) throw new Error(text('uncertain'));
         if (operation.type === 'action' && operation.payload.action === 'request_bill' && !result.ticket.bill_locked) throw new Error(text('uncertain'));
+        if (operation.type === 'action' && operation.payload.action === 'cancel' && (result.ticket.status !== 'cancelled' || result.ticket.payment_status !== 'unpaid')) throw new Error(text('uncertain'));
         if (operation.type === 'save' && !recovered && !result.replayed && result.ticket.quote_hash !== operation.payload.quote_hash) throw new Error(text('uncertain'));
         if (operation.type === 'save' && ticketDeliveryOrigin(result.ticket)!==(operation.payload.delivery_origin_branch||'')) throw new Error(text('uncertain'));
         if ((operation.type === 'save' && operation.payload.send_to_kitchen || operation.type === 'action' && operation.payload.action === 'send_kitchen') && !result.ticket.kitchen_sent) throw new Error(text('uncertain'));
