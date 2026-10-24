@@ -1,0 +1,100 @@
+/* The dashboard's lists fit any screen by themselves (labels, scroll boxes and the card switch come from dashboard-fit.js).
+   Phones: every table row becomes a card. Tablets and small laptops: a table too wide for its box becomes cards too,
+   two or more side by side. Laptops: a wide table scrolls inside its own box. Big screens: inner pages grow with the screen. */
+
+/* every screen: a wide table scrolls inside its box, never the whole page */
+.fit-scroll{width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+.dashboard-theme .table-responsive{max-width:100%}
+/* a table that carries the scroll class itself never filled its width; inside its own scroll box it can be a normal full-width table */
+@media (min-width:768px){.fit-scroll > table.table-responsive:not(.fit-stack){display:table;width:100%}}
+
+/* laptops and small desktops: a little tighter so more columns fit before scrolling */
+@media (min-width:768px) and (max-width:1399.98px){
+  .dashboard-theme .fit-table:not(.fit-stack) th,.dashboard-theme .fit-table:not(.fit-stack) :is(td,th){padding:10px 11px}
+}
+
+/* cards: each row is a card with every value next to its column name */
+.dashboard-theme .table-responsive:has(> .fit-stack),.fit-scroll:has(> .fit-stack){overflow:visible;border:0!important;border-radius:0}
+/* a list's own short scroll box is released: the cards flow with the page instead of scrolling inside a small window */
+.dashboard-theme .content-wrapper :has(> table.fit-stack),.dashboard-theme .content-wrapper :has(> .fit-scroll > table.fit-stack){max-height:none!important;height:auto!important;overflow:visible!important;background:transparent;border:0;box-shadow:none}
+.dashboard-theme table.fit-stack,.dashboard-theme table.fit-stack > tbody,.dashboard-theme table.fit-stack > tbody > tr,
+.dashboard-theme table.fit-stack > tbody > tr > :is(td,th),.dashboard-theme table.fit-stack > tr,.dashboard-theme table.fit-stack > tr > :is(td,th){display:block;width:100%!important;min-width:0!important;max-width:none!important}
+.dashboard-theme table.fit-stack{background:transparent!important;border:0!important;margin:0}
+.dashboard-theme table.fit-stack > tbody{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:12px;align-items:start}
+.dashboard-theme table.fit-stack > thead,.dashboard-theme table.fit-stack .fit-head{display:none}
+/* Keep the real master checkbox and its existing event handlers available above the cards. */
+.dashboard-theme table.fit-stack.fit-has-selection > thead{display:block;margin-bottom:8px}
+.dashboard-theme table.fit-stack.fit-has-selection > thead > tr{display:none}
+.dashboard-theme table.fit-stack .fit-select-head{display:block!important;grid-column:1/-1;padding:8px 14px!important}
+.dashboard-theme table.fit-stack .fit-select-head > :not(.fit-master){display:none}
+.dashboard-theme table.fit-stack .fit-select-head > .fit-master{display:inline-flex;width:auto!important;min-height:0;padding:0!important;border:0!important}
+.dashboard-theme table.fit-stack .fit-select-head > .fit-master::before{display:none}
+.dashboard-theme table.fit-stack > tbody > tr,.dashboard-theme table.fit-stack > tr{position:relative;margin:0;padding:8px 14px 10px;background:#fff!important;color:#2d3f51;
+  border:1px solid #e1e7ef!important;border-radius:12px;box-shadow:0 3px 12px #10203a12}
+.dashboard-theme table.fit-stack > tr{margin-bottom:12px}
+.dashboard-theme table.fit-stack > tbody > tr:hover{background:#fff!important}
+.dashboard-theme table.fit-stack > tbody > tr > :is(td,th),.dashboard-theme table.fit-stack > tr > :is(td,th){position:relative;display:block;min-height:calc(var(--fit-lines,1) * 19px + 17px);border:0!important;
+  border-bottom:1px dashed #e8edf3!important;padding:8px 0 8px 0!important;padding-inline-start:calc(36% + 12px)!important;text-align:start!important;
+  white-space:normal!important;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
+.dashboard-theme table.fit-stack :is(td,th)::before{content:attr(data-label);position:absolute;inset-inline-start:0;top:8px;width:36%;color:#6b7b8f;font-size:12px;font-weight:700;
+  line-height:19px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.dashboard-theme table.fit-stack :is(td,th)[data-label=""]{padding-inline-start:0!important}
+.dashboard-theme table.fit-stack :is(td,th)[data-label=""]::before{display:none}
+.dashboard-theme table.fit-stack > tbody > tr > :is(td,th):last-child{border-bottom:0!important}
+/* the select box sits in the card's corner, the row number as a small badge */
+.dashboard-theme table.fit-stack :is(td,th).fit-check{position:absolute;top:10px;inset-inline-end:12px;width:auto!important;min-height:0;padding:0!important;border:0!important;z-index:1}
+.dashboard-theme table.fit-stack :is(td,th).fit-check::before{display:none}
+.dashboard-theme table.fit-stack :is(td,th).fit-index{display:inline-block;width:auto!important;min-height:0;padding:2px 10px!important;margin:2px 0 4px;border:0!important;
+  border-radius:999px;background:#fff1e2;color:#a94f00;font-weight:700;font-size:12px}
+.dashboard-theme table.fit-stack :is(td,th).fit-index::before{display:none}
+/* actions become a row of easy-to-tap buttons at the bottom of the card */
+.dashboard-theme table.fit-stack :is(td,th).fit-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0 2px!important;border-bottom:0!important;border-top:1px solid #edf1f6!important;margin-top:4px}
+.dashboard-theme table.fit-stack :is(td,th).fit-actions::before{display:none}
+.dashboard-theme table.fit-stack :is(td,th).fit-actions .btn,.dashboard-theme table.fit-stack :is(td,th).fit-actions a.btn,.dashboard-theme table.fit-stack :is(td,th).fit-actions button{margin:0!important;min-height:38px;padding:8px 14px;font-size:13px;flex:1 1 auto}
+.dashboard-theme table.fit-stack :is(td,th).fit-actions form{display:flex;flex:1 1 auto}
+.dashboard-theme table.fit-stack :is(td,th).fit-actions form .btn{width:100%}
+/* a menu opened from the card's buttons opens towards the screen, not off its edge */
+.dashboard-theme table.fit-stack :is(td,th).fit-actions details > :not(summary){inset-inline-start:0;inset-inline-end:auto}
+/* a totals row under the cards becomes one summary card */
+.dashboard-theme table.fit-stack > tfoot{display:block;margin-top:12px}
+.dashboard-theme table.fit-stack > tfoot > tr{display:flex;flex-wrap:wrap;gap:6px 14px;padding:12px 14px;background:#f4f7fb;border:1px solid #e1e7ef;border-radius:12px}
+.dashboard-theme table.fit-stack > tfoot > tr > :is(td,th){display:block;flex:1 1 140px;border:0!important;padding:4px 0!important;min-height:0}
+.dashboard-theme table.fit-stack > tfoot :is(td,th)::before{display:none}
+.dashboard-theme table.fit-stack :is(td,th).fit-full{grid-column:1/-1;padding:10px 0!important;text-align:center!important}
+.dashboard-theme table.fit-stack > tbody > tr:has(> :is(td,th).fit-full){grid-column:1/-1}
+.dashboard-theme table.fit-stack :is(td,th).fit-full::before{display:none}
+.dashboard-theme table.fit-stack img{max-width:100%;height:auto}
+/* inside a card, a row of tags and buttons wraps onto the next line instead of squeezing or running off the card */
+.dashboard-theme table.fit-stack :is(td,th) :is(div,span,p,nav):not(.fit-keep){flex-wrap:wrap!important;max-width:100%}
+.dashboard-theme table.fit-stack :is(td,th) :is(.badge,[class*="tag"],[class*="badge"],[class*="pill"]){white-space:nowrap;flex:0 0 auto}
+
+/* phones: page tools stack too */
+@media (max-width:767.98px){
+  .dashboard-theme .content-wrapper .card-body .float-left,
+  .dashboard-theme .content-wrapper .card-body .float-right,
+  .dashboard-theme .content-wrapper .card-body .float-start,
+  .dashboard-theme .content-wrapper .card-body .float-end{float:none!important;width:100%}
+  .dashboard-theme .content-wrapper .card-body .btn-group.flex-wrap{display:flex;width:100%}
+  .dashboard-theme .pagination{flex-wrap:wrap;justify-content:center;gap:4px}
+  /* shift closing is locked to the screen's height on big screens; on a phone it scrolls like a normal page,
+     so the previous closings get the room they need */
+  .dashboard-theme .content-wrapper.branch-shifts-wrapper{height:auto!important;overflow:visible!important}
+  .dashboard-theme #branch-shifts,.dashboard-theme #branch-shifts .sh-layout,.dashboard-theme #branch-shifts .sh-history{height:auto!important;max-height:none!important;overflow:visible!important;flex:0 0 auto}
+}
+
+/* big screens: inner pages grow with the screen. Pages that size themselves to the screen (cashier, dining, phone orders,
+   the order board, inboxes, the live home, shift closing) keep their own sizes. */
+:root{--fit-zoom:1}
+@media (min-width:1800px){:root{--fit-zoom:1.1}}
+@media (min-width:2100px){:root{--fit-zoom:1.2}}
+@media (min-width:2400px){:root{--fit-zoom:1.3}}
+@media (min-width:3000px){:root{--fit-zoom:1.5}}
+@media (min-width:1800px){
+  .dashboard-theme .content-wrapper:not(.takeaway-wrapper):not(.dining-wrapper):not(.phone-orders-wrapper):not(.order-board-wrapper):not(.ho-wrapper):not(.wa-inbox-wrapper):not(.meta-comments-wrapper):not(.meta-connection-wrapper):not(.branch-shifts-wrapper) > :not(#go-hud):not(script):not(style):not(.modal):not(dialog){zoom:var(--fit-zoom)}
+  /* Only nested pop-ups inherit the ordinary content zoom. Direct pop-ups keep their native size. */
+  .dashboard-theme .content-wrapper:not(.takeaway-wrapper):not(.dining-wrapper):not(.phone-orders-wrapper):not(.order-board-wrapper):not(.ho-wrapper):not(.wa-inbox-wrapper):not(.meta-comments-wrapper):not(.meta-connection-wrapper):not(.branch-shifts-wrapper) > :not(#go-hud):not(script):not(style):not(.modal):not(dialog) :is(.modal,dialog){zoom:calc(1 / var(--fit-zoom))}
+  /* Sidebar sizing stays with dashboard-navigation.js, which fits physical viewport pixels. */
+  .dashboard-theme .main-header .navbar-nav,.dashboard-theme .main-header .nav-link{font-size:calc(14px * var(--fit-zoom))}
+  .dashboard-theme .main-footer{font-size:calc(12px * var(--fit-zoom))}
+}
+

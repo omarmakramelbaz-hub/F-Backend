@@ -98,11 +98,14 @@ $token = $json['token'];
             "expiration"=> 36000,
             "amount"=>$amount_cents,
             "payment_methods" =>[(int)$integration_id],
-            // Wallet completion must reach the server even if the WebView closes.
+            // Server notification confirms payment even if the customer closes checkout.
             ...($order->type === 'wallet' ? [
                 'notification_url' => rtrim((string) config('app.url'), '/') . '/api/wallet-topup/paymob/notify',
                 'redirection_url' => rtrim((string) config('app.url'), '/') . '/api/wallet-topup/paymob/return',
-            ] : []),
+            ] : ($order->type === 'current' ? [
+                'notification_url' => rtrim((string) config('app.url'), '/') . '/api/order-payments/paymob/notify',
+                'redirection_url' => rtrim((string) config('app.url'), '/') . '/api/order-payments/paymob/return',
+            ] : [])),
             "metadata"=>[
                 "merchant_order_id"=> $order->id,  // Your custom order ID
             ],

@@ -41,15 +41,16 @@ class CheckoutController extends Controller
             }
         }
         if ($order->type === 'current') {
-            // Serialize activation with dashboard cancellation. A replayed gateway
-            // callback must not resurrect a cancelled order or reset its delivery phase.
-            return \Illuminate\Support\Facades\DB::transaction(function () use ($order_id, $payment, $order) {
-                $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
-                if ($locked->status !== null || $locked->accepted_notify === 'yes' || $locked->transfer_price_by !== null) {
-                    return redirect()->route('paySuccess');
-                }
-                return $this->checkoutDoneRetained($order_id, $payment);
-            }, 3);
+            // Old intentions retain this return URL; use the same independent
+            // gateway verification as the server notification and new checkout.
+            try {
+                $details = json_decode($payment, true);
+                $result = app(\App\Http\Controllers\Payment\RestaurantPaymentController::class)
+                    ->confirm($pay->intention_order_id, is_array($details) ? ($details['id'] ?? null) : null);
+                return redirect()->route(in_array($result['state'], ['activated', 'unchanged'], true) ? 'paySuccess' : 'payFailed');
+            } catch (\Throwable $error) {
+                return redirect()->route('payFailed');
+            }
         }
         return $this->checkoutDoneRetained($order_id, $payment);
     }
