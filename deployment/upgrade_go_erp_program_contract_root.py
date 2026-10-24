@@ -358,11 +358,35 @@ class Context:
         if current==original:self.e.atomic_write(self.prior_job_path,self.e.canonical(changed),0,0,0o600)
         self.verify_predecessor()
 
+    def preserve_pending_acceptance(self):
+        # This pointer is retained after publication by the original worker.
+        # Treat it as opaque data, never as authority for this successor. The
+        # fresh CI collector alone may replace it after verifying new evidence.
+        existing=self.e.read_file(WORK/'pending-program-acceptance.json',2*1024**2,
+            uid=0,modes=(0o600,),optional=True)
+        need(existing is None or existing[1].st_gid==0,'PREVIOUS_ACCEPTANCE_UNSAFE')
+        raw=existing[0] if existing is not None else None
+        baseline={'present':raw is not None,'bytes':len(raw) if raw is not None else 0,
+            'sha256':sha(raw) if raw is not None else None}
+        path=Path(self.job['audit'])/'previous-pending-acceptance.json'
+        retained=self.e.read_file(path,2*1024**2,uid=0,modes=(0o600,),optional=True)
+        if 'previous_pending_acceptance' in self.job:
+            saved=self.job['previous_pending_acceptance']
+            need(isinstance(saved,dict) and set(saved)=={'present','bytes','sha256'}
+                and type(saved['present']) is bool and type(saved['bytes']) is int
+                and saved==baseline,'PREVIOUS_ACCEPTANCE_CHANGED')
+            need((raw is None and retained is None) or (raw is not None and retained is not None
+                and retained[1].st_gid==0 and retained[0]==raw),'PREVIOUS_ACCEPTANCE_AUDIT_CHANGED')
+        else:
+            need(retained is None or raw is not None and retained[1].st_gid==0 and retained[0]==raw,
+                'PREVIOUS_ACCEPTANCE_AUDIT_CHANGED')
+            if raw is not None and retained is None:self.e.atomic_write(path,raw,0,0,0o600)
+            self.job['previous_pending_acceptance']=baseline
+
     def verify_failed(self,state):
         original,prior,current=self.verify_predecessor()
         checked_failed_state(state,self.job)
-        need(self.e.read_file(WORK/'pending-program-acceptance.json',1024*1024,uid=0,modes=(0o600,),optional=True)
-            is None,'PREVIOUS_ACCEPTANCE_PRESENT')
+        self.preserve_pending_acceptance()
         old_expected=self.old_worker.program_gate_expected(OLD_CORE,self.job['before_source'],self.job['before_inventory_sha256'])
         raw,held=self.prior_hold()
         need(held=={'format':1,'kind':'go-erp-program-rollout-hold',**old_expected,'authorization':None},

@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -355,6 +355,88 @@ class CoordinatorOrderTests(unittest.TestCase):
         engine=types.SimpleNamespace(run=run,read_file=lambda *a,**k:None)
         subject.quiet(engine)
         self.assertFalse(any('stop' in args or 'start' in args for args in events))
+
+
+class PendingAcceptancePreservationTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory(prefix='program-contract-old-receipt-');self.addCleanup(temporary.cleanup)
+        self.folder=Path(temporary.name);self.work=self.folder/'work';self.work.mkdir(mode=0o700)
+        self.audit=self.folder/'audit';self.audit.mkdir(mode=0o700)
+        self.pending=self.work/'pending-program-acceptance.json'
+        self.backup=self.audit/'previous-pending-acceptance.json'
+        self.engine=load('program_contract_receipt_actual_file_engine',ROOT/'deployment/apply_go_erp_manual_updates_root.py')
+        self.engine.Stop=subject.Stop
+        self.ctx=object.__new__(subject.Context);self.ctx.e=self.engine;self.ctx.job={'audit':str(self.audit),'ui_phase':'pending'}
+        scope=patch.object(subject,'WORK',self.work);scope.start();self.addCleanup(scope.stop)
+    def write(self,raw):self.engine.atomic_write(self.pending,raw,0,0,0o600)
+    def test_absent_receipt_is_recorded_without_creating_a_pointer_or_audit_file(self):
+        self.ctx.preserve_pending_acceptance()
+        self.assertEqual(self.ctx.job['previous_pending_acceptance'],{'present':False,'bytes':0,'sha256':None})
+        self.assertFalse(self.pending.exists());self.assertFalse(self.backup.exists())
+        self.ctx.preserve_pending_acceptance()
+    def test_unknown_opaque_old_bytes_are_preserved_exactly_and_never_parsed_or_authorized(self):
+        raw=b'opaque retained receipt\x00not JSON\n'
+        self.write(raw);before=self.pending.stat()
+        with patch.object(subject.json,'loads',side_effect=AssertionError('must not interpret the retained pointer')):
+            self.ctx.preserve_pending_acceptance();self.ctx.preserve_pending_acceptance()
+        self.assertEqual(self.pending.read_bytes(),raw);self.assertEqual(self.backup.read_bytes(),raw)
+        self.assertEqual(self.engine.identity(self.pending.stat()),self.engine.identity(before))
+        self.assertEqual(self.ctx.job['previous_pending_acceptance'],{'present':True,'bytes':len(raw),'sha256':subject.sha(raw)})
+        info=self.backup.stat();self.assertEqual((info.st_uid,info.st_gid,info.st_mode&0o777,info.st_nlink),(0,0,0o600,1))
+    def test_changed_pending_bytes_before_ui_are_refused_without_overwriting_either_receipt(self):
+        self.write(b'original');self.ctx.preserve_pending_acceptance()
+        self.write(b'changed before source capture')
+        with self.assertRaisesRegex(subject.Stop,'PREVIOUS_ACCEPTANCE_CHANGED'):self.ctx.preserve_pending_acceptance()
+        self.assertEqual(self.pending.read_bytes(),b'changed before source capture')
+        self.assertEqual(self.backup.read_bytes(),b'original')
+    def test_absent_to_present_and_present_to_absent_changes_are_refused_before_ui(self):
+        self.ctx.preserve_pending_acceptance();self.write(b'newly appeared')
+        with self.assertRaisesRegex(subject.Stop,'PREVIOUS_ACCEPTANCE_CHANGED'):self.ctx.preserve_pending_acceptance()
+        self.ctx.job.pop('previous_pending_acceptance');self.ctx.preserve_pending_acceptance();self.pending.unlink()
+        with self.assertRaisesRegex(subject.Stop,'PREVIOUS_ACCEPTANCE_CHANGED'):self.ctx.preserve_pending_acceptance()
+    def test_tampered_or_missing_private_audit_does_not_get_recreated_over_the_baseline(self):
+        self.write(b'original');self.ctx.preserve_pending_acceptance()
+        self.engine.atomic_write(self.backup,b'tampered',0,0,0o600)
+        with self.assertRaisesRegex(subject.Stop,'PREVIOUS_ACCEPTANCE_AUDIT_CHANGED'):self.ctx.preserve_pending_acceptance()
+        self.assertEqual(self.backup.read_bytes(),b'tampered')
+        self.backup.unlink()
+        with self.assertRaisesRegex(subject.Stop,'PREVIOUS_ACCEPTANCE_AUDIT_CHANGED'):self.ctx.preserve_pending_acceptance()
+        self.assertFalse(self.backup.exists())
+    def test_pending_permissions_hardlinks_and_size_limit_remain_enforced(self):
+        self.write(b'original');self.pending.chmod(0o644)
+        with self.assertRaisesRegex(subject.Stop,'FILE_UNSAFE'):self.ctx.preserve_pending_acceptance()
+        self.pending.chmod(0o600);os.link(self.pending,self.folder/'linked')
+        with self.assertRaisesRegex(subject.Stop,'FILE_UNSAFE'):self.ctx.preserve_pending_acceptance()
+        (self.folder/'linked').unlink();self.write(b'x'*(2*1024**2+1))
+        with self.assertRaisesRegex(subject.Stop,'FILE_UNSAFE'):self.ctx.preserve_pending_acceptance()
+    def authorization_context(self):
+        desired={'commit':'f'*40,'version':'0.4.4-preview.47'}
+        self.ctx.state=lambda:{'desired':desired};self.ctx.live=lambda state:None
+        self.ctx.candidate=lambda state:desired
+        self.ctx.expected=new_worker.program_gate_expected(subject.CORE,
+            {'format':1,'files':1355,'framework':'8.83.29','sha256':'a'*64},'b'*64)
+        self.ctx.worker=types.SimpleNamespace(program_gate_json=new_worker.program_gate_json,
+            program_gate_authorize=Mock(),verify_proof=Mock())
+        self.ctx.publication=lambda:None;self.ctx.publisher=object()
+        return desired
+    def test_old_or_malformed_pointer_never_reaches_the_original_authorization_gate(self):
+        desired=self.authorization_context()
+        for raw in (b'unknown non-JSON bytes',json.dumps({'candidate_revision':subject.FAILED_CANDIDATE,
+                'version':subject.FAILED_VERSION,**self.ctx.expected}).encode()):
+            self.write(raw)
+            with self.assertRaises((ValueError,subject.Stop)):self.ctx.authorized()
+            self.ctx.worker.program_gate_authorize.assert_not_called()
+    def test_only_fresh_collector_bound_candidate_can_dispatch_to_the_unchanged_full_gate(self):
+        desired=self.authorization_context();self.write(b'old opaque pointer');self.ctx.preserve_pending_acceptance()
+        receipt={'candidate_revision':desired['commit'],'version':desired['version'],**self.ctx.expected}
+        # Exercise the original collector's atomic writer, which runs only
+        # after the existing complete CI and employee-evidence checks.
+        new_worker.program_gate_write(self.pending,receipt)
+        self.ctx.authorized();self.ctx.worker.program_gate_authorize.assert_called_once()
+        args=self.ctx.worker.program_gate_authorize.call_args.args
+        self.assertEqual(args[1],self.pending);self.assertEqual(args[2],self.ctx.expected)
+        self.assertEqual(args[3]['desired'],desired)
+        self.assertEqual(self.backup.read_bytes(),b'old opaque pointer')
 
 
 if __name__=='__main__':unittest.main()
