@@ -23,7 +23,10 @@ namespace Illuminate\Http {class Request {}}
 namespace App\Services\Dashboard {
     class TakeawayAccess {public bool $allowed=true;public int $calls=0;function canAccess($actor){$this->calls++;return $this->allowed&&$actor->id===42;}}
     class DesktopDashboardDevices {}
-    class DesktopDashboardManualRelease {public bool $owner=false;function canRequest($actor){return $this->owner;}}
+    class DesktopDashboardManualRelease {
+        public bool $owner=false;public int $calls=0;
+        function canRequest($actor){$this->calls++;return $this->owner&&$actor->id===42;}
+    }
     class DesktopDashboardUpdates {
         public const ERROR='Fixed publication error';public int $statusCalls=0;public int $installerCalls=0;public bool $failing=false;
         public array $status=['state'=>'ready','release'=>['version'=>'0.4.4-preview.99','installer'=>['sha256'=>'fixed-sha']]];
@@ -39,13 +42,19 @@ namespace {
     $controller=new \App\Http\Controllers\Dashboard\DesktopDashboardController;
     $access=new \App\Services\Dashboard\TakeawayAccess;$updates=new \App\Services\Dashboard\DesktopDashboardUpdates;
     $manual=new \App\Services\Dashboard\DesktopDashboardManualRelease;$checks=0;
+    $indexParameters=(new \ReflectionMethod($controller,'index'))->getNumberOfRequiredParameters();
+    if(!in_array($indexParameters,[2,3],true))throw new \RuntimeException('Unreviewed program page dependency contract');
+    $manualPage=$indexParameters===3;
     function check($value,$label){global $checks;if(!$value)throw new \RuntimeException($label);$checks++;}
     function blocked($call,$status,$label){try{$call();throw new \RuntimeException('Expected refusal '.$label);}catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){check($error->getStatusCode()===$status,$label);}}
     $page=$controller->index($access,$updates,$manual);
     check($page->view==='admin.desktop-dashboard'&&$page->data['release']['version']==='0.4.4-preview.99','Modern page advertises compatible service release');
     check($page->headers['Cache-Control']==='private, no-store','Page is private and uncached');
-    check($page->data['manualOwner']===false,'Regular program users do not receive owner release controls');
-    $manual->owner=true;check($controller->index($access,$updates,$manual)->data['manualOwner']===true,'Persisted owner may see manual release controls');
+    check($manualPage?$page->data['manualOwner']===false:!array_key_exists('manualOwner',$page->data)&&$manual->calls===0,
+        'Regular program users do not receive owner release controls');
+    $manual->owner=true;$ownerPage=$controller->index($access,$updates,$manual);
+    check($manualPage?$ownerPage->data['manualOwner']===true:!array_key_exists('manualOwner',$ownerPage->data)&&$manual->calls===0,
+        'Manual release controls follow the reviewed controller owner contract');
     $response=$controller->download($access,$updates);ob_start();($response->callback)();$bytes=ob_get_clean();
     check($bytes==="MZ\0verified bytes"&&!is_resource($updates->stream),'Download streams verified descriptor exactly and closes it');
     check($response->headers['Content-Length']==='17'&&$response->headers['Content-Disposition']==='attachment; filename="GO-ERP-Setup.exe"','Modern installer name and bounded size');
@@ -57,7 +66,7 @@ namespace {
     check($controller->index($access,$updates,$manual)->data['release']===null,'Changing or invalid publication safely hides download without raw error');
     blocked(fn()=>$controller->download($access,$updates),503,'Invalid publication refuses download');
     $GLOBALS['program_config']['desktop_dashboard.local']=true;$GLOBALS['program_config']['desktop_dashboard.enabled']=false;$before=$updates->statusCalls;
-    $page=$controller->index($access,$updates,$manual);check($page->data===['local'=>true,'release'=>null,'manualOwner'=>false]&&$updates->statusCalls===$before,'Local page needs no server publication or filesystem');
+    $page=$controller->index($access,$updates,$manual);check($page->data===($manualPage?['local'=>true,'release'=>null,'manualOwner'=>false]:['local'=>true,'release'=>null])&&$updates->statusCalls===$before,'Local page needs no server publication or filesystem');
     blocked(fn()=>$controller->download($access,$updates),404,'Local page cannot invoke installer download');check($updates->statusCalls===$before,'Local download refusal does not consult publication');
     $access->allowed=false;blocked(fn()=>$controller->index($access,$updates,$manual),403,'Account without branch access cannot view device setup');
     blocked(fn()=>$controller->download($access,$updates),403,'Account without branch access cannot download installer');
