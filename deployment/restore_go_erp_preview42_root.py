@@ -160,7 +160,7 @@ def cancel_ci(ctx, config):
         code = error.code
         error.close()
         return 'write_forbidden' if code in (401, 403) else 'already_finished' if code == 409 else 'request_failed'
-    except BaseException:
+    except Exception:
         return 'request_failed'
 
 

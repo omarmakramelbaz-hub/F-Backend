@@ -260,6 +260,13 @@ class RestorationTests(unittest.TestCase):
         self.assertEqual(CANCEL_CI(self.f, {'token': 'PRIVATE_TOKEN'}), 'request_failed')
         self.assertEqual(len(requests), 1)
 
+    def test_operator_interrupt_stops_restoration_instead_of_becoming_network_retry(self):
+        def interrupted(path):
+            raise KeyboardInterrupt()
+        self.f.worker.GitHub = lambda token: types.SimpleNamespace(json=interrupted)
+        with self.assertRaises(KeyboardInterrupt):
+            CANCEL_CI(self.f, {'token': 'PRIVATE_TOKEN'})
+
 
 if __name__ == '__main__':
     unittest.main()
