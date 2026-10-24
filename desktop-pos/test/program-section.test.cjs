@@ -85,5 +85,5 @@ test('browser history restores section status exactly once after pagehide', asyn
 test('authenticated server controller offers only the validated GO ERP publication and refuses local/unauthorized downloads', t => {
   const php = process.env.DESKTOP_TEST_PHP || 'php'; const check = spawnSync(php, ['-n', path.join(root, 'tests/desktop_dashboard_program_test.php')], { encoding: 'utf8' });
   if (check.error?.code === 'ENOENT' && !process.env.DESKTOP_TEST_PHP) { t.skip('PHP not installed'); return; }
-  assert.equal(check.status, 0, check.stdout + check.stderr); assert.match(check.stdout, /PASS 16 modern program controller checks/);
+  assert.equal(check.status, 0, check.stdout + check.stderr); assert.match(check.stdout, /PASS 18 modern program controller checks/);
 });
