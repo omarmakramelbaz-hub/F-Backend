@@ -2,6 +2,12 @@
 const assert=require('node:assert/strict');
 
 module.exports=async function verifyDashboardSoundControl(page){
+  const hud=page.locator('#go-hud');
+  if(await hud.isVisible()){
+    await page.locator('#go-hud.ready').waitFor({state:'visible'});
+    await hud.getByRole('button',{name:'GO — الدخول على الرئيسية',exact:true}).click();
+    await hud.waitFor({state:'hidden'});
+  }
   const button=page.locator('#toggle-sound');
   await button.waitFor({state:'visible'});
   await page.waitForFunction(()=>typeof window.DashboardOrderAlerts?.isReady==='function');
