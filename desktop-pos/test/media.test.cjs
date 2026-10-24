@@ -10,8 +10,8 @@ const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQ
 function item(relative = 'products/10/رنجة.png') {
   return { path: relative, mime: 'image/png', bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), ticket: 'opaque-server-ticket' };
 }
-async function root(t) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-media-'));
+async function root(t, temporary = os.tmpdir()) {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(temporary, 'dashboard-media-')));
   t.after(() => fs.rm(directory, { recursive: true, force: true })); return directory;
 }
 function response(value = bytes, headers = {}) { return new Response(value, { headers: { 'content-type': 'image/png', ...headers } }); }
@@ -133,4 +133,19 @@ test('a damaged private PDF leaves no completed attachment and cannot return a v
     { headers: { 'content-type': attachment.mime } }), () => false, privateRoot));
   assert.deepEqual(await fs.readdir(path.join(privateRoot, 'branch-expenses')), []);
   await assert.rejects(fs.access(path.join(publicRoot, attachment.path)));
+});
+
+
+test('temporary aliases stay rejected by media guards while canonical fixture roots download safely', async t => {
+  const directory = await root(t), physical = path.join(directory, 'physical-temp'), alias = path.join(directory, 'temporary-alias');
+  await fs.mkdir(physical);
+  await fs.symlink(physical, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const raw = await fs.mkdtemp(path.join(alias, 'raw-')), image = item('checked.png'); let fetched = 0;
+  await assert.rejects(media.download(raw, [image], async () => { fetched++; return response(); }), /يحتاج التحقق/);
+  assert.equal(fetched, 0); assert.deepEqual(await fs.readdir(raw), []);
+  const canonical = await root(t, alias);
+  assert.equal(canonical, await fs.realpath(canonical)); assert.equal(path.dirname(canonical), physical);
+  const result = await media.download(canonical, [image], async () => { fetched++; return response(); });
+  assert.equal(result.verified, true); assert.equal(fetched, 1);
+  assert.deepEqual(await fs.readFile(path.join(canonical, image.path)), bytes);
 });

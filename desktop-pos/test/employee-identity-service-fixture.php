@@ -132,7 +132,13 @@ namespace {
         })(),
         'storage'=>(function()use($upload,$photoA,$identity,$actor){
             $GLOBALS['diskRoot']=storage_path('app/public');$badDisk=result(fn()=>$upload($photoA));unset($GLOBALS['diskRoot']);
-            symlink(storage_path('app/public'),storage_path('app/branch-expenses'));$publicLink=result(fn()=>$upload($photoA));unlink(storage_path('app/branch-expenses'));
+            $directoryLink=storage_path('app/branch-expenses');
+            check(symlink(storage_path('app/public'),$directoryLink),'Create the real public-directory symlink fixture.');
+            $publicLink=result(fn()=>$upload($photoA));
+            // Windows directory symlinks are removed by rmdir; unlink removes file symlinks.
+            check(PHP_OS_FAMILY==='Windows'?rmdir($directoryLink):unlink($directoryLink),'Remove only the directory symlink fixture.');
+            clearstatcache(true);
+            check(!is_link($directoryLink)&&is_dir(storage_path('app/public')),'The public target survives link cleanup.');
             $upload($photoA);$row=DB::$rows['branch_employees'][7];$file=storage_path('app/'.$row['id_front_path']);unlink($file);symlink($photoA,$file);
             $linkedFile=result(fn()=>$identity->image(['branch'=>'f:1','employee_id'=>7,'side'=>'front'],$actor));unlink($file);
             file_put_contents($file,'corrupt');$corrupt=result(fn()=>$identity->image(['branch'=>'f:1','employee_id'=>7,'side'=>'front'],$actor));
