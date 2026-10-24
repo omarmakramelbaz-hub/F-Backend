@@ -215,6 +215,36 @@ def copy_installer(publisher, source, folder, release, gid):
         if temporary.exists():temporary.unlink()
 
 
+def bootstrap_previous(publisher, state, current, native_folder, archive_folder, gid):
+    """Recover a real older success when the archive is first introduced."""
+    eligible = []
+    seen = {}
+    for value in state['published_history']:
+        release = valid_release(publisher, value)
+        number = release['sequence']
+        need(number not in seen or seen[number] == release, 'HISTORY_SEQUENCE_CONFLICT')
+        seen[number] = release
+        need(number <= current['sequence'] and publisher.compare_versions(release['version'], current['version']) <= 0,
+            'HISTORY_ORDER_INVALID')
+        if (number < current['sequence'] and publisher.compare_versions(release['version'], current['version']) < 0
+                and release['source_revision'] != current['source_revision']
+                and release['installer']['sha256'] != current['installer']['sha256']):
+            eligible.append(release)
+    for release in sorted(eligible, key=lambda value: value['sequence'], reverse=True):
+        name = release['installer']['sha256'] + '.exe'
+        source, archived = native_folder / name, archive_folder / name
+        def present(path):
+            try:path.lstat();return True
+            except FileNotFoundError:return False
+        # Absence after native retention pruning is normal. A present unsafe or
+        # corrupt entry must fail validation, never silently become a download.
+        if not present(source) and not present(archived):
+            continue
+        copy_installer(publisher, source, archive_folder, release, gid)
+        return release
+    return None
+
+
 def summary(value, changed, source):
     return {'format': 1, 'kind': KIND + '-result', 'available': value is not None,
         'changed': changed, 'current_version': value['current']['version'] if value else None,
@@ -257,11 +287,17 @@ def archive_current(application_root, state_path, shared_path, web_gid):
             need(release['sequence'] > retained['current']['sequence']
                 and publisher.compare_versions(release['version'], retained['current']['version']) > 0,
                 'OLDER_OR_CONFLICTING_PUBLICATION')
-        source = application_root / 'storage/app/desktop-updates' / (release['installer']['sha256'] + '.exe')
+        native_folder = application_root / 'storage/app/desktop-updates'
+        if retained and retained['current'] != release:
+            previous = retained['current']
+        elif retained and retained['previous'] is not None:
+            previous = retained['previous']
+        else:
+            previous = bootstrap_previous(publisher, state, release, native_folder, folder, web_gid)
+        source = native_folder / (release['installer']['sha256'] + '.exe')
         copy_installer(publisher, source, folder, release, web_gid)
         wanted = {'format': 1, 'kind': KIND, 'current': release,
-            'previous': retained['previous'] if retained and retained['current'] == release
-                else retained['current'] if retained else None}
+            'previous': previous}
         payload = canonical(wanted)
         need(len(payload) <= MAX_MANIFEST, 'MANIFEST_LIMIT')
         # Bind the native state and feed throughout the possibly large copy.

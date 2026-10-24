@@ -107,6 +107,49 @@ class PublishedDownloadTests(unittest.TestCase):
         # and pointer rotation because the archive has a distinct durable inode.
         self.assertTrue((self.shared/'installers'/(old['installer']['sha256']+'.exe')).is_file())
 
+    def test_initial44_bootstraps_previous42_from_genuine_native_history(self):
+        original42=self.published;current44=self.publish(44)
+        self.archive()
+        self.assertEqual(self.current()['current'],current44)
+        self.assertEqual(self.current()['previous'],original42)
+        for release in (original42,current44):
+            archived=self.shared/'installers'/(release['installer']['sha256']+'.exe')
+            native=self.native/archived.name
+            self.assertNotEqual(archived.stat().st_ino,native.stat().st_ino)
+            self.assertEqual(archived.read_bytes(),native.read_bytes())
+        # A prior incomplete bootstrap can be repaired from genuine history
+        # and an already verified archive even after native pruning removed42.
+        repaired=self.current();repaired['previous']=None
+        self.write(self.manifest,repaired,0o640)
+        (self.native/(original42['installer']['sha256']+'.exe')).unlink()
+        self.assertTrue(self.archive()['changed'])
+        self.assertEqual(self.current()['previous'],original42)
+
+    def test_missing_history_binary_skips_to_next_eligible_or_no_previous(self):
+        original42=self.published;older41=self.publish(41)
+        # The root updater normally stores history in ascending order; this
+        # fixture verifies selection by sequence rather than incidental order.
+        current44=self.publish(44)
+        self.state['published_history']=[older41,original42,current44]
+        self.write(self.state_path,self.state)
+        (self.native/(original42['installer']['sha256']+'.exe')).unlink()
+        self.archive()
+        self.assertEqual(self.current()['previous'],older41)
+        self.manifest.unlink()
+        (self.native/(older41['installer']['sha256']+'.exe')).unlink()
+        (self.shared/'installers'/(older41['installer']['sha256']+'.exe')).unlink()
+        self.archive()
+        self.assertIsNone(self.current()['previous'])
+
+    def test_corrupt_historical_binary_fails_without_writing_initial_manifest(self):
+        old42=self.published;self.publish(44)
+        (self.native/(old42['installer']['sha256']+'.exe')).write_bytes(b'MZcorrupt')
+        before_state=self.state_path.read_bytes();before_feed=(self.native/'current.json').read_bytes()
+        with self.assertRaises(subject.Stop):self.archive()
+        self.assertFalse(self.manifest.exists())
+        self.assertEqual(self.state_path.read_bytes(),before_state)
+        self.assertEqual((self.native/'current.json').read_bytes(),before_feed)
+
     def test_older_or_mismatched_canonical_publication_cannot_replace_pointers(self):
         self.archive();self.publish(44);self.archive();before=self.manifest.read_bytes()
         self.publish(42)

@@ -34,9 +34,9 @@ APP_PINS = {
     'routes/desktop_dashboard.php': ('5334c2b73b7345e71b7c166b60eb11a9d963ec14de68c5280b814f52da74cc9b', '9a96d3942c02b714ae771336a0876241f93807f1f8b8b595fbc656281b06cc9b'),
 }
 PROGRAM_PINS = {
-    'go_erp_manual_updates_root.py': '89cf35082bffb2f71c4687b69872700462b0c533c710b730c467794a6c5fb212',
+    'go_erp_manual_updates_root.py': '214978522787f36aee22112e3837e63f113e0f5600eb8cee31b2a35e8223b753',
     'go_erp_manual_tick_root.py': OLD_PROGRAM_PINS['go_erp_manual_tick_root.py'],
-    'go_erp_published_download_root.py': '8bf3622a19bfe99baf9bce0fb52b5b2a58ae39f17e0dff7f8e193078521b28c7',
+    'go_erp_published_download_root.py': '2b5f5adf102e7d0e149b1f05c52ae4207e298d26daa3140c409bddddbf60e17b',
 }
 SERVICE = 'go-erp-manual-updates.service'
 WATCH = 'go-erp-manual-updates.path'
