@@ -17,8 +17,8 @@ spec.loader.exec_module(policy)
 
 class Preview31SeedTests(unittest.TestCase):
     def test_release_pins_the_reviewed_private_diagnostic_core(self):
-        self.assertEqual(policy.CORE, '42846d6715edef9c9de926fd010aae52cf410e92')
-        self.assertEqual(policy.POLICY, 'native-windows-fixture-paths-v1')
+        self.assertEqual(policy.CORE, '6f5133af48ae03d626f0ac6ee02ff3a724c72407')
+        self.assertEqual(policy.POLICY, 'native-close-reopen-v1')
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='go-erp-preview31-policy-')
