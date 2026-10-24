@@ -2,12 +2,12 @@
 namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
-use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardUpdates,TakeawayAccess};
+use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardUpdates,DesktopDashboardManualRelease,TakeawayAccess};
 use Illuminate\Http\Request;
 
 class DesktopDashboardController extends Controller
 {
-    public function index(TakeawayAccess $access,DesktopDashboardUpdates $updates)
+    public function index(TakeawayAccess $access,DesktopDashboardUpdates $updates,DesktopDashboardManualRelease $manual)
     {
         $this->programAccess($access);
         $local=config('desktop_dashboard.local')===true;$release=null;
@@ -20,8 +20,30 @@ class DesktopDashboardController extends Controller
                 // A publication being replaced cannot advertise an old installer.
             }
         }
-        return response()->view('admin.desktop-dashboard',compact('local','release'))
+        $manualOwner=!$local&&$manual->canRequest(auth('admin')->user());
+        return response()->view('admin.desktop-dashboard',compact('local','release','manualOwner'))
             ->header('Cache-Control','private, no-store');
+    }
+    public function releaseStatus(DesktopDashboardManualRelease $manual,DesktopDashboardUpdates $updates)
+    {
+        $status=$manual->status(auth('admin')->user());
+        return response()->json($this->releaseStatusPayload($status,$updates))->header('Cache-Control','private, no-store');
+    }
+    public function requestRelease(Request $request,DesktopDashboardManualRelease $manual,DesktopDashboardUpdates $updates)
+    {
+        $value=$request->validate(['nonce'=>['required','string','regex:/^[a-f0-9]{32}$/D']]);
+        $accepted=$manual->request(auth('admin')->user(),$value['nonce']);
+        return response()->json(['accepted'=>true,'idempotent'=>$accepted['idempotent'],
+            'nonce'=>$value['nonce'],...$this->releaseStatusPayload($accepted['status'],$updates)],202)
+            ->header('Cache-Control','private, no-store');
+    }
+    private function releaseStatusPayload(array $status,DesktopDashboardUpdates $updates): array
+    {
+        $release=null;
+        try{$current=$updates->status();if($current['state']==='ready')$release=$current['release'];}
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){if($error->getStatusCode()!==503)throw $error;}
+        return ['status'=>$status,'download'=>['ready'=>$release!==null,
+            'version'=>$release['version']??null,'url'=>$release!==null?route('desktop-dashboard.download'):null]];
     }
     public function download(TakeawayAccess $access,DesktopDashboardUpdates $updates)
     {

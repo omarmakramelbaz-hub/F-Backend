@@ -23,6 +23,7 @@ namespace Illuminate\Http {class Request {}}
 namespace App\Services\Dashboard {
     class TakeawayAccess {public bool $allowed=true;public int $calls=0;function canAccess($actor){$this->calls++;return $this->allowed&&$actor->id===42;}}
     class DesktopDashboardDevices {}
+    class DesktopDashboardManualRelease {public bool $owner=false;function canRequest($actor){return $this->owner;}}
     class DesktopDashboardUpdates {
         public const ERROR='Fixed publication error';public int $statusCalls=0;public int $installerCalls=0;public bool $failing=false;
         public array $status=['state'=>'ready','release'=>['version'=>'0.4.4-preview.99','installer'=>['sha256'=>'fixed-sha']]];
@@ -35,27 +36,30 @@ namespace {
     require __DIR__.'/../app/Http/Controllers/Dashboard/DesktopDashboardController.php';
     $GLOBALS['program_config']=['desktop_dashboard.enabled'=>true,'desktop_dashboard.local'=>false];
     $controller=new \App\Http\Controllers\Dashboard\DesktopDashboardController;
-    $access=new \App\Services\Dashboard\TakeawayAccess;$updates=new \App\Services\Dashboard\DesktopDashboardUpdates;$checks=0;
+    $access=new \App\Services\Dashboard\TakeawayAccess;$updates=new \App\Services\Dashboard\DesktopDashboardUpdates;
+    $manual=new \App\Services\Dashboard\DesktopDashboardManualRelease;$checks=0;
     function check($value,$label){global $checks;if(!$value)throw new \RuntimeException($label);$checks++;}
     function blocked($call,$status,$label){try{$call();throw new \RuntimeException('Expected refusal '.$label);}catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){check($error->getStatusCode()===$status,$label);}}
-    $page=$controller->index($access,$updates);
+    $page=$controller->index($access,$updates,$manual);
     check($page->view==='admin.desktop-dashboard'&&$page->data['release']['version']==='0.4.4-preview.99','Modern page advertises compatible service release');
     check($page->headers['Cache-Control']==='private, no-store','Page is private and uncached');
+    check($page->data['manualOwner']===false,'Regular program users do not receive owner release controls');
+    $manual->owner=true;check($controller->index($access,$updates,$manual)->data['manualOwner']===true,'Persisted owner may see manual release controls');
     $response=$controller->download($access,$updates);ob_start();($response->callback)();$bytes=ob_get_clean();
     check($bytes==="MZ\0verified bytes"&&!is_resource($updates->stream),'Download streams verified descriptor exactly and closes it');
     check($response->headers['Content-Length']==='17'&&$response->headers['Content-Disposition']==='attachment; filename="GO-ERP-Setup.exe"','Modern installer name and bounded size');
     check($response->headers['Cache-Control']==='private, no-store'&&$response->headers['X-Content-Type-Options']==='nosniff','Download cannot be cached or MIME sniffed');
     $updates->status=['state'=>'unavailable','release'=>null];
-    check($controller->index($access,$updates)->data['release']===null,'Unpublished or incompatible release never advertises installer');
+    check($controller->index($access,$updates,$manual)->data['release']===null,'Unpublished or incompatible release never advertises installer');
     $before=$updates->installerCalls;blocked(fn()=>$controller->download($access,$updates),503,'Unavailable release refuses download');check($updates->installerCalls===$before,'Unavailable release does not open bytes');
     $updates->failing=true;
-    check($controller->index($access,$updates)->data['release']===null,'Changing or invalid publication safely hides download without raw error');
+    check($controller->index($access,$updates,$manual)->data['release']===null,'Changing or invalid publication safely hides download without raw error');
     blocked(fn()=>$controller->download($access,$updates),503,'Invalid publication refuses download');
     $GLOBALS['program_config']['desktop_dashboard.local']=true;$GLOBALS['program_config']['desktop_dashboard.enabled']=false;$before=$updates->statusCalls;
-    $page=$controller->index($access,$updates);check($page->data===['local'=>true,'release'=>null]&&$updates->statusCalls===$before,'Local page needs no server publication or filesystem');
+    $page=$controller->index($access,$updates,$manual);check($page->data===['local'=>true,'release'=>null,'manualOwner'=>false]&&$updates->statusCalls===$before,'Local page needs no server publication or filesystem');
     blocked(fn()=>$controller->download($access,$updates),404,'Local page cannot invoke installer download');check($updates->statusCalls===$before,'Local download refusal does not consult publication');
-    $access->allowed=false;blocked(fn()=>$controller->index($access,$updates),403,'Account without branch access cannot view device setup');
+    $access->allowed=false;blocked(fn()=>$controller->index($access,$updates,$manual),403,'Account without branch access cannot view device setup');
     blocked(fn()=>$controller->download($access,$updates),403,'Account without branch access cannot download installer');
-    $GLOBALS['program_config']['desktop_dashboard.local']=false;blocked(fn()=>$controller->index($access,$updates),404,'Disabled feature is not exposed');
+    $GLOBALS['program_config']['desktop_dashboard.local']=false;blocked(fn()=>$controller->index($access,$updates,$manual),404,'Disabled feature is not exposed');
     echo 'PASS '.$checks.' modern program controller checks'.PHP_EOL;
 }

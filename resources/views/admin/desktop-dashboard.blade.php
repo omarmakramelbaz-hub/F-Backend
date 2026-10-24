@@ -5,13 +5,27 @@
     <section class="content">
         <div class="card"><div class="card-body">
             <h2 class="h5">تحميل وتحديث GO ERP</h2>
-            <p>بعد التثبيت الأول يتلقى البرنامج تحديثاته من السيرفر تلقائيًا عند الاتصال بالإنترنت. يُفحص التحديث كل دقيقة، ويُثبت بعد انتهاء العمليات الجارية والمزامنة، ثم يُفتح البرنامج تلقائيًا.</p>
+            <p>تجهيز نسخة جديدة على السيرفر يبدأ عند الضغط على «تحديث التطبيق». بعد نشرها، يتلقى البرنامج المثبّت النسخة عند الاتصال بالإنترنت ويثبتها بعد انتهاء العمليات والمزامنة.</p>
+            @if(!$local && ($manualOwner ?? false))
+                <div class="border rounded p-3 mb-3" data-go-erp-release
+                    data-status-url="{{ route('desktop-dashboard.release.status') }}"
+                    data-request-url="{{ route('desktop-dashboard.release.request') }}">
+                    <p class="mb-2">تجهيز نسخة جديدة من تعديلات السيرفر يبدأ بطلبك. بعد اكتمال الفحص والنشر يظهر ملف التنزيل هنا.</p>
+                    <button type="button" class="btn btn-primary" data-go-erp-release-request>تحديث التطبيق</button>
+                    <p class="text-muted mt-2 mb-0" data-go-erp-release-status role="status" aria-live="polite"></p>
+                    <p class="text-danger mt-2 mb-0" data-go-erp-release-error role="alert" hidden></p>
+                </div>
+            @endif
+            <div data-go-erp-release-download>
             @if(!$local && $release)
                 <p>نسخة التثبيت للأجهزة الجديدة: <bdi>{{ $release['version'] }}</bdi></p>
                 <a class="btn btn-warning" data-spa-off download href="{{ route('desktop-dashboard.download') }}"><i class="fas fa-download ml-1" aria-hidden="true"></i>تحميل GO ERP لجهاز جديد</a>
+            @elseif(!$local && ($manualOwner ?? false))
+                <p class="text-muted mb-0" role="status">اضغط «تحديث التطبيق» لتجهيز نسخة متوافقة، وسيظهر ملف التنزيل بعد اكتمال الفحص والنشر.</p>
             @elseif(!$local)
-                <p class="text-muted mb-0" role="status">يجري تجهيز نسخة GO ERP المتوافقة مع تحديث الداشبورد. سيظهر ملف التنزيل هنا بعد اكتمال النشر والفحص.</p>
+                <p class="text-muted mb-0" role="status">ملف التنزيل غير متاح حاليًا. يظهر هنا بعد نشر نسخة متوافقة وفحصها.</p>
             @endif
+            </div>
         </div></div>
         <div class="card"><div class="card-body">
             <h2 class="h5">إعداد العمل على الجهاز بدون إنترنت</h2>
@@ -36,4 +50,7 @@
         </div></div>
     </section>
 </div>
+@if(!$local && ($manualOwner ?? false))
+<script src="{{ asset('dashboard/js/go-erp-releases.js') }}?v={{ filemtime(public_path('dashboard/js/go-erp-releases.js')) }}"></script>
+@endif
 @endsection
