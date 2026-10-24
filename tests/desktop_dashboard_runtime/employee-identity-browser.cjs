@@ -152,7 +152,9 @@ const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
         assert.equal(shown.origin,input.origin);assert.equal(shown.pathname,'/admin/employees/identity-image');
         assert.equal(shown.searchParams.get('branch'),'f:100');assert.equal(shown.searchParams.get('employee_id'),'7');assert.equal(shown.searchParams.get('side'),side);
       }
-      await dialog.getByRole('button',{name:'إغلاق',exact:true}).click();
+      const identityClose=dialog.locator('[data-op-close]');
+      assert.equal(await identityClose.count(),1,'the employee dialog has one header close control');
+      await identityClose.click();await dialog.waitFor({state:'hidden'});
       await editConsent(false);await editConsent(true);
       assert.equal(writes.length,2);assert.equal(writes[0].payload.regulation_accepted,false);assert.equal(writes[1].payload.regulation_accepted,true);
       assert.equal(writes[1].payload.regulation_version,input.regulation.version);assert.equal(writes[1].payload.regulation_hash,input.regulation.sha256);
