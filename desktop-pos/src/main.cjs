@@ -19,6 +19,7 @@ const {DashboardLiveSocial}=require('./dashboard-live-social.cjs');
 const {DashboardUpdater}=require('./dashboard-updater.cjs');
 const createUpdateInstall=require('./update-install.cjs');
 const RuntimeArchive=require('./runtime-archive.cjs');
+const RuntimeHandover=require('./runtime-handover.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 app.setName('GO ERP');
@@ -117,6 +118,63 @@ async function updateReady(insideTransition=false) {
   const local=await localRuntime.control({action:'pending'});
   return local.counts.pending===0&&local.counts.conflicts===0;
 }
+// When an installed release could not be promoted automatically, offer to move the
+// device to it once every local operation is confirmed by the server.
+const HANDOVER_GRACE_MS=10*60000;
+let handoverSince=0,handoverBusy=false,handoverDeclined=false,runtimeHandover=null;
+async function installedRevision() {
+  return (await new RuntimeArchive(localRuntime.profile,localRuntime.metadata).manifest(localRuntime.installedBundle)).sourceRevision;
+}
+async function runtimeHandoverDue() {
+  if(quitting||installingUpdate||handoverDeclined||!localRuntime||!(await localRuntime.isPrepared()))return null;
+  const from=(await localRuntime.connection()).sourceRevision,to=await installedRevision();
+  if(!RuntimeHandover.mismatch(to,from)){handoverSince=0;return null;}
+  handoverSince||=Date.now();
+  if(incomingDelta?.running||generations?.running)return null;
+  // Give the normal background promotion its chance first.
+  if(incomingDelta?.state.phase!=='failed'&&Date.now()-handoverSince<HANDOVER_GRACE_MS)return null;
+  return await updateReady()?{from,to}:null;
+}
+async function offerRuntimeHandover(handover,{from,to}) {
+  const answer=await dialog.showMessageBox({type:'question',title:'GO ERP — نقل الجهاز للنسخة الجديدة',
+    message:'تم تثبيت نسخة البرنامج '+app.getVersion()+' لكن بيانات الجهاز ما زالت تعمل على نسخة سابقة ولم تنتقل تلقائيًا.',
+    detail:'كل عمليات الجهاز متزامنة مع السيرفر. عند النقل سيُعاد فتح البرنامج على النسخة الجديدة، ثم اختر «تجهيز للعمل بدون إنترنت» لتجهيز الجهاز من جديد.\n\nبيانات النسخة السابقة لن تُحذف؛ ستُحفظ في مجلد احتياطي داخل بيانات البرنامج.',
+    buttons:['نقل الآن','لاحقًا'],defaultId:0,cancelId:1,noLink:true});
+  if(answer.response!==0){handoverDeclined=true;return;}
+  const result=await shutdown.run(()=>dashboardMode.serialize('runtime-handover',async()=>{
+    if(!(await updateReady(true)))return {deferred:true};
+    const wasLocal=dashboard.current().local;
+    return dashboard.withUpdateIdle(async()=>{
+      if(quitting||liveSocial?.busy()||incomingDelta?.running||syncSchedule.running||generations?.running||shutdown.pending.size>1)return {deferred:true};
+      syncSchedule.stop();
+      try{
+        const remote=await remoteState.read(),local=await localRuntime.control({action:'pending'}),old=store.counts();
+        if(remote.pending.length||local.counts.pending||local.counts.conflicts||old.pending||old.conflicts||store.openOrders().length){
+          syncSchedule.start();return {deferred:true};
+        }
+        await dashboardMode.hold();
+        await handover.request({from,to,version:app.getVersion()});
+        // The old profile is renamed on the next start, after MariaDB has stopped.
+        shutdown.relaunchRequested=true;app.quit();return {handover:true};
+      }catch(error){
+        if(wasLocal)await dashboardMode.cancelHold().catch(()=>{});
+        if(!quitting)syncSchedule.start();
+        throw error;
+      }
+    });
+  }));
+  if(result?.deferred)dialog.showErrorBox('GO ERP','توجد عمليات لم تُزامن بعد أو شاشة مفتوحة. سيُعرض النقل مرة أخرى بعد اكتمال المزامنة.');
+}
+// Checked after each background cycle, so no extra timer runs.
+async function checkRuntimeHandover() {
+  if(quitting||handoverBusy||!runtimeHandover)return;
+  handoverBusy=true;
+  try{
+    let due=null;try{due=await runtimeHandoverDue();}catch{}
+    if(due&&!quitting)await offerRuntimeHandover(runtimeHandover,due);
+  }catch(error){if(!quitting)dialog.showErrorBox('GO ERP',error.message);}
+  finally{handoverBusy=false;}
+}
 function connectUpdater(profile) {
   if(updater||!app.isPackaged||process.platform!=='win32'||!localRuntime)return;
   const install=createUpdateInstall({profile});
@@ -206,6 +264,8 @@ function writable() {
 }
 async function syncCycle({refresh=false}={}) {
   if(!primaryInstance||quitting)return;
+  const cycle=syncSchedule.running;
+  if(runtimeHandover&&cycle)cycle.then(checkRuntimeHandover,checkRuntimeHandover);
   try{await shutdown.run(async()=>{
     if(localSync){
       if(store.get('connection'))await sync.run();if(quitting)return;
@@ -235,6 +295,8 @@ async function printEvent(id) {
 app.whenReady().then(async()=>{
   if(!primaryInstance||quitting)return;
   const profile=process.env.POS_TEST_PROFILE&&!app.isPackaged?process.env.POS_TEST_PROFILE:app.getPath('userData');fs.mkdirSync(profile,{recursive:true});
+  const handover=app.isPackaged?new RuntimeHandover({profile}):null;
+  const handedOver=handover?handover.apply():{applied:false};
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js']);
   protocol.handle('fasakhansta',r=>{const u=new URL(r.url),name=u.pathname.slice(1);if(u.hostname!=='pos'||!allowed.has(name))return new Response('',{status:404});return net.fetch(pathToFileURL(path.join(__dirname,name)).toString());});
@@ -337,5 +399,10 @@ app.whenReady().then(async()=>{
       if(localToken)await dashboardMode.recover();else await dashboardMode.hold();});
   }
   syncSchedule.start();await dashboard.open();connectUpdater(profile);
+  if(handedOver.applied)dialog.showMessageBox({type:'info',title:'GO ERP',
+    message:'تم نقل الجهاز إلى نسخة البرنامج '+app.getVersion()+'.',
+    detail:'من القائمة اختر «تجهيز للعمل بدون إنترنت» لتجهيز الجهاز من جديد.'+(handedOver.retired?'\n\nبيانات النسخة السابقة محفوظة في:\n'+handedOver.retired:'')}).catch(()=>{});
+  else if(handedOver.error)dialog.showErrorBox('GO ERP','تعذر نقل الجهاز للنسخة الجديدة الآن؛ ستُعاد المحاولة عند فتح البرنامج مرة أخرى. بيانات الجهاز محفوظة.');
+  runtimeHandover=handover;
 }).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
 app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});

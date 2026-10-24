@@ -32,6 +32,24 @@ version and source. An unapproved manually installed bundle cannot replace the
 active same-source runtime. Normal snapshot fencing and database compatibility
 checks still apply to the promotion.
 
+## Moving a device left on an older runtime
+
+A device keeps running its retained runtime when the installed release cannot be
+promoted, for example when a manually downloaded installer is not the server's
+current authorized release or the background promotion keeps failing. GO ERP
+then checks after each background cycle. Once the installed revision differs
+from the active one, and the background promotion has failed or ten minutes
+have passed, and the same idle gate used for installing updates passes (no
+pending, conflicting or uncertain operations and no open orders), it offers
+**نقل الآن**.
+
+Accepting holds the view, writes a small `runtime-handover.json` request and
+restarts. Before the local runtime opens any file, startup renames the
+`dashboard` profile to `dashboard-retired-<revision>-<time>`. Nothing is
+deleted. The device then opens the server dashboard on the new version and is
+prepared again with «تجهيز للعمل بدون إنترنت». If the rename fails, the request
+is kept and retried at the next start.
+
 ## Build and publish one source
 
 The full Windows workflow builds and tests a fresh runtime for the current Git
