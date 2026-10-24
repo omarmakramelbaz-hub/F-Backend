@@ -7,36 +7,38 @@ const readSnapshot=require('../src/dashboard-download.cjs');
 const {randomUUID}=require('node:crypto');
 const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();await new Promise(setImmediate);};
 
-async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,deltaBridge=false,deltaRun,runtimeControl}={}){
+async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,deltaBridge=false,deltaRun,runtimeControl,beforeUnload=false,holdRuntimeStop=false}={}){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'pos-shutdown-')),file=path.join(profile,'fasakhansta-pos.sqlite');
   const seed=new Store(file),snapshot={id:randomUUID(),generated_at:new Date().toISOString(),branch:{value:'f:100',name:'اختبار'},actor:{id:10,name:'كاشير'},tax_bps:0,service_bps:0,can_discount:false,categories:[],products:[{id:1,name:'رنجة',unit:'piece',variants:[{option_id:'',label:'أساسي',unit_price_cents:10000,quantity_mode:'piece'}]}]};
   seed.saveSnapshot(snapshot);const order=seed.newOrder();seed.update(order.id,{...order.data,items:[{product_id:1,option_id:'',quantity_mode:'piece',quantity:'1'}],cash_received:'100.00'});const sale=seed.dispatch(order.id,'sale');
   if(paired)seed.set('connection',{origin:'https://fasakhaninja.com',device_id:1,token_cipher:Buffer.from('test-token').toString('base64')});seed.close();
   if(packaged){fs.mkdirSync(path.join(profile,'dashboard-runtime'));fs.writeFileSync(path.join(profile,'dashboard-runtime','manifest.json'),'{}');}
-  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
+  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,finishRuntimeStop,runtimeStops=0,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
   class ScheduledClock extends SyncSchedule{constructor(options){super({...options,now:()=>scheduleNow});}}
   class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
-    constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;}
+    constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;this.relaunchCalls=0;}
     getVersion(){return '0.3.0-preview.1';}setName(value){this.displayName=value;}setPath(name,value){(this.paths||=new Map()).set(name,value);}
     whenReady(){return Promise.resolve();}getPath(){return profile;}requestSingleInstanceLock(){return true;}
+    relaunch(){assert.equal(store.db.isOpen,false,'Relaunch is scheduled only after SQLite closes.');this.relaunchCalls++;}
     quit(){if(this.exited)return;if(++this.quitCalls>10)throw Error('recursive quit');const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('before-quit',event);if(event.prevented)return;
-      for(const window of [...windows])if(!window.destroyed)window.close();this.emit('will-quit',{});this.exited=true;}
+      for(const window of [...windows])if(!window.destroyed)window.close();if(windows.some(window=>!window.destroyed))return;this.emit('will-quit',{});this.exited=true;}
   }
   const app=new App();
   class Window extends EventEmitter{
     constructor(){super();windows.push(this);this.destroyed=false;this.webContents=new EventEmitter();this.webContents.session={setPermissionRequestHandler(){}};this.webContents.setWindowOpenHandler=()=>{};
       this.webContents.send=()=>{};this.webContents.getPrintersAsync=async()=>[{name:'Printer'}];this.webContents.executeJavaScript=async()=>true;
-      this.webContents.print=(_options,callback)=>{printCallback=callback;if(!holdPrint)callback(true);};}
+      this.webContents.print=(_options,callback)=>{printCallback=callback;if(!holdPrint)callback(true);};app.emit('web-contents-created',{},this.webContents);}
     async loadURL(url){this.url=url;if(holdLoad&&url.startsWith('fasakhansta:'))await new Promise(resolve=>{finishLoad=resolve;});}show(){}focus(){}isMinimized(){return false;}isDestroyed(){return this.destroyed;}
-    close(){const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('close',event);if(!event.prevented)this.destroy();}
+    close(){const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('close',event);if(event.prevented)return;
+      if(beforeUnload){const unload={prevented:false,preventDefault(){this.prevented=true;}};this.webContents.emit('will-prevent-unload',unload);if(!unload.prevented)return;}this.destroy();}
     destroy(){if(this.destroyed)return;this.destroyed=true;this.emit('closed');if(windows.every(w=>w.destroyed))app.emit('window-all-closed');}
   }
   const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},protocol:{registerSchemesAsPrivileged(){},handle(){}},net:{fetch:fetch||(async()=>new Response('{}'))},safeStorage:{decryptString:buffer=>buffer.toString(),isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value)},dialog:{showErrorBox(){},showSaveDialog:async()=>({canceled:true})}};
   class UnpreparedRuntime{
     constructor(){this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async()=>null,write:async()=>{}};}
     async isPrepared(){return runtimeReady;}async start(){return {origin:this.origin,token:this.token};}
-    async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:randomUUID(),actorId:10};}async stop(){}
+    async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:randomUUID(),actorId:10};}async stop(){runtimeStops++;if(holdRuntimeStop)await new Promise(resolve=>{finishRuntimeStop=resolve;});}
     async control(input){return runtimeControl?runtimeControl(input):{commands:[],counts:{pending:0,conflicts:0}};}
   }
   class Preparation{
@@ -47,10 +49,10 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
     constructor(options){deltaOptions=options;this.state={phase:'idle'};this.running=null;}
     run(){this.running=Promise.resolve().then(()=>deltaRun?deltaRun():{unchanged:true}).finally(()=>{this.running=null;});return this.running;}stop(){deltaStops++;}
   }
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8'),{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
-  return {app,store,file,sale,order,windows,timers,async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
+  return {app,store,file,sale,order,windows,timers,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStops(){return runtimeStops;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
 }
 
 test('closing the last app window does not re-enter quit or close SQLite twice, and the ledger reopens intact',async t=>{
@@ -62,6 +64,52 @@ test('closing the last app window does not re-enter quit or close SQLite twice, 
 test('repeated quit and last-window notifications close the database only once',async t=>{
   const f=await fixture(t);f.app.quit();f.app.quit();f.app.emit('window-all-closed');f.app.emit('window-all-closed');await settle();
   assert.ok(f.app.exited);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+});
+
+test('a renderer unload veto protects normal navigation but cannot strand the final drained quit',async t=>{
+  const f=await fixture(t,{beforeUnload:true});
+  const navigation={prevented:false,preventDefault(){this.prevented=true;}};
+  f.windows[0].webContents.emit('will-prevent-unload',navigation);
+  assert.equal(navigation.prevented,false,'Normal page navigation retains its unsaved-change guard.');
+  f.app.emit('second-instance');
+  f.windows[0].close();await settle();
+  assert.equal(f.app.exited,true);assert.equal(f.windows[0].destroyed,true);
+  assert.equal(f.store.closeCalls,1);assert.equal(f.app.relaunchCalls,0);
+  const reopened=new Store(f.file);try{assert.equal(reopened.pending()[0].id,f.sale.id);}finally{reopened.close();}
+});
+
+test('X drains an accepted SQLite acknowledgement and local runtime before one queued reopen survives the unload veto',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,beforeUnload:true,holdPrint:true,holdRuntimeStop:true});
+  const printing=f.invoke('print',f.sale.id);await settle();
+  f.windows[0].close();f.app.emit('second-instance');f.app.emit('second-instance');await settle();
+  assert.equal(f.app.exited,false);assert.equal(f.app.relaunchCalls,0);
+  assert.equal(f.store.db.isOpen,true);assert.equal(f.runtimeStops,0);
+  const whileDraining={prevented:false,preventDefault(){this.prevented=true;}};
+  f.windows[0].webContents.emit('will-prevent-unload',whileDraining);
+  assert.equal(whileDraining.prevented,false,'No renderer is discarded before accepted work finishes.');
+  assert.equal((await f.invoke('printer','RejectedDuringQuit')).ok,false);
+  f.printCallback(true);assert.equal((await printing).ok,true);await settle();
+  assert.equal(f.runtimeStops,1);assert.equal(f.app.exited,false);
+  assert.equal(f.store.db.isOpen,true);assert.equal(f.app.relaunchCalls,0);
+  f.app.emit('second-instance');f.finishRuntimeStop();await settle();
+  assert.equal(f.app.exited,true);assert.equal(f.app.relaunchCalls,1);
+  assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+  const reopened=new Store(f.file);try{
+    assert.equal(reopened.history()[0].printed,1);assert.equal(reopened.pending()[0].id,f.sale.id);
+    assert.equal(reopened.order(f.order.id).status,'paid');assert.equal(reopened.get('printer'),null);
+  }finally{reopened.close();}
+});
+
+test('an installer handoff suppresses queued reopen both at request time and at final clean quit',async t=>{
+  for(const installerStartsAfterRequest of [false,true])await t.test(String(installerStartsAfterRequest),async t=>{
+    const f=await fixture(t,{packaged:true,prepared:true,beforeUnload:true,holdRuntimeStop:true});
+    if(!installerStartsAfterRequest)f.markInstallingUpdate();
+    f.windows[0].close();await settle();assert.equal(f.runtimeStops,1);
+    f.app.emit('second-instance');f.app.emit('second-instance');
+    if(installerStartsAfterRequest)f.markInstallingUpdate();
+    f.finishRuntimeStop();await settle();
+    assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.app.relaunchCalls,0);
+  });
 });
 
 test('the actual native sync button queues one 30-second cycle and returns without blocking local work',async t=>{

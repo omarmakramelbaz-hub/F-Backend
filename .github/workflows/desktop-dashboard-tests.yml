@@ -2,7 +2,7 @@ name: Original local dashboard on Windows
 
 on:
   push:
-    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021', 'codex/go-erp-media-capacity-20261022', 'codex/go-erp-snapshot-transport-20261022']
+    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021', 'codex/go-erp-media-capacity-20261022', 'codex/go-erp-snapshot-transport-20261022', 'codex/go-erp-close-reopen-20261024']
   workflow_dispatch:
   pull_request:
     paths:
@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -73,12 +73,32 @@ jobs:
             if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
           }
           if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 6 -or $connectedProof.reauthOriginalSignins -ne 5 -or $connectedProof.reauthSuccesses -ne 3 -or $connectedProof.localReauthentications -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+      - name: Verify actual Windows native close and same-profile reopen
+        shell: pwsh
+        run: |
+          node desktop-pos/test/shutdown-native-runner.cjs desktop-pos/dist/shutdown-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows native shutdown and reopen did not complete naturally.' }
+          $shutdownProof = Get-Content desktop-pos/dist/shutdown-native.json -Raw | ConvertFrom-Json
+          $lockedShutdownElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($shutdownProof.format -ne 1 -or $shutdownProof.kind -cne 'go-erp-native-shutdown' -or $shutdownProof.sourceRevision -cne $env:GITHUB_SHA -or $shutdownProof.platform -cne 'win32' -or $shutdownProof.electronVersion -cne $lockedShutdownElectron -or $shutdownProof.processes -ne 2) { throw 'Native shutdown proof differs from this exact Windows source and Electron lock.' }
+          foreach ($field in @('actualElectron','actualDashboardWindow','actualBeforeUnloadVeto','acceptedWriteBeforeClose','retainedBeforeCommit','drainedBeforeUnload','naturalPrimaryExit','singleInstanceReleased','actualFreshReopen','sameProfile','savedRowVerified','completed')) {
+            if ($shutdownProof.$field -isnot [bool] -or $shutdownProof.$field -ne $true) { throw "Native shutdown proof is missing $field." }
+          }
+          foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
+            if ($shutdownProof.$field -isnot [bool] -or $shutdownProof.$field -ne $false) { throw "Native shutdown scope differs: $field." }
+          }
+          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/shutdown-native.cjs' }.GetEnumerator()) {
+            if ($shutdownProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Native shutdown source binding differs: $($binding.Key)." }
+          }
+          if ($shutdownProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/shutdown-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Native shutdown parent runner binding differs.' }
       - name: Retain the exact connected native acceptance receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: connected-request-native-windows
-          path: desktop-pos/dist/connected-request-native.json
+          path: |
+            desktop-pos/dist/connected-request-native.json
+            desktop-pos/dist/shutdown-native.json
           if-no-files-found: error
           retention-days: 14
   original-runtime:
@@ -87,7 +107,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -541,7 +561,7 @@ jobs:
       actions: read
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -596,6 +616,22 @@ jobs:
             if ($connectedProof.$field -isnot [bool] -or $connectedProof.$field -ne $true) { throw "Native connected proof is missing $field." }
           }
           if ($connectedProof.printedSources -ne 4 -or $connectedProof.originalWrites -ne 1 -or $connectedProof.invocations -ne 4 -or $connectedProof.lostPrintRequests -ne 1 -or $connectedProof.reauthentications -ne 6 -or $connectedProof.reauthOriginalSignins -ne 5 -or $connectedProof.reauthSuccesses -ne 3 -or $connectedProof.localReauthentications -ne 1) { throw 'Native connected proof did not complete every original request and print lifecycle.' }
+      - name: Require the exact natural shutdown proof before packaging
+        shell: pwsh
+        run: |
+          $shutdownProof = Get-Content desktop-pos/dist/shutdown-native.json -Raw | ConvertFrom-Json
+          $lockedShutdownElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($shutdownProof.sourceRevision -cne $env:GITHUB_SHA -or $shutdownProof.platform -cne 'win32' -or $shutdownProof.electronVersion -cne $lockedShutdownElectron -or $shutdownProof.processes -ne 2 -or $shutdownProof.completed -isnot [bool] -or $shutdownProof.completed -ne $true) { throw 'Packaging requires this exact source natural shutdown and fresh reopen proof.' }
+          foreach ($field in @('actualBeforeUnloadVeto','acceptedWriteBeforeClose','drainedBeforeUnload','naturalPrimaryExit','singleInstanceReleased','actualFreshReopen','sameProfile','savedRowVerified')) {
+            if ($shutdownProof.$field -isnot [bool] -or $shutdownProof.$field -ne $true) { throw "Packaging requires native shutdown boundary $field." }
+          }
+          foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
+            if ($shutdownProof.$field -isnot [bool] -or $shutdownProof.$field -ne $false) { throw "Native shutdown scope differs before packaging: $field." }
+          }
+          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/shutdown-native.cjs' }.GetEnumerator()) {
+            if ($shutdownProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Native shutdown source changed before packaging: $($binding.Key)." }
+          }
+          if ($shutdownProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/shutdown-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Native shutdown parent runner changed before packaging.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |

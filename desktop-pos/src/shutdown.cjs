@@ -3,10 +3,21 @@
 // Electron can emit before-quit more than once. Keep SQLite open until accepted
 // work finishes, and close it only after the final window-closing phase.
 module.exports = class Shutdown {
-  constructor(app, stop, close, drain = async () => {}) {
+  constructor(app, stop, close, drain = async () => {}, { canRelaunch = () => true } = {}) {
     this.stopping = false;
     this.ready = false;
     this.pending = new Set();
+    this.relaunchRequested = false;
+    app.on('web-contents-created', (_event, contents) => {
+      contents.on('will-prevent-unload', event => {
+        // A page may protect drafts during navigation. After accepted work and
+        // runtime shutdown finish, it must not strand the app halfway through quit.
+        if (this.ready) event.preventDefault();
+      });
+    });
+    app.on('second-instance', () => {
+      if (this.stopping && canRelaunch()) this.relaunchRequested = true;
+    });
     app.on('before-quit', event => {
       if (this.ready) return;
       event.preventDefault();
@@ -18,7 +29,10 @@ module.exports = class Shutdown {
       });
     });
     app.on('window-all-closed', () => { if (!this.stopping) app.quit(); });
-    app.once('will-quit', close);
+    app.once('will-quit', () => {
+      close();
+      if (this.relaunchRequested && canRelaunch()) app.relaunch();
+    });
   }
   async run(fn) {
     if (this.stopping) throw Error('البرنامج يُغلق الآن. الطلبات المحفوظة متاحة عند إعادة فتحه.');
