@@ -39,32 +39,54 @@
     function later() {
         if (!closed && (building || pending) && timer === null) timer = setTimeout(() => { timer = null; refresh(); }, 15000);
     }
-    function renderDownloads(value) {
+    function checkedDownloads(value) {
         if (!value || typeof value !== 'object') throw new Error('downloads');
         const next = {};
         for (const slot of ['current', 'previous']) {
             const item = value[slot];
             if (!item || typeof item !== 'object' || typeof item.ready !== 'boolean') throw new Error('downloads');
             if (!item.ready) { next[slot] = null; continue; }
-            if (!versionPattern.test(item.version) || typeof item.url !== 'string') throw new Error('download');
+            if (typeof item.version !== 'string' || !versionPattern.test(item.version) || typeof item.url !== 'string') throw new Error('download');
             const url = new URL(item.url, location.href);
-            if (url.origin !== location.origin || !/^\/admin\/desktop-dashboard\/published\/[a-f0-9]{64}$/.test(url.pathname)
+            if (url.origin !== location.origin || url.username || url.password
+                    || !/^\/admin\/desktop-dashboard\/published\/[a-f0-9]{64}$/.test(url.pathname)
                     || url.search || url.hash) throw new Error('download');
             next[slot] = { url: url.href, version: item.version };
         }
+        return next;
+    }
+    function renderDownloads(published, current) {
+        const updating = activeStates.has(current.state)
+            && (current.version === null || published.current?.version !== current.version);
+        const next = updating ? { current: null, previous: published.current || published.previous } : published;
         for (const slot of ['current', 'previous']) {
             const link = downloadLinks[slot], version = downloadVersions[slot];
             if (!link || !version) throw new Error('download-controls');
-            link.hidden = next[slot] === null;
-            if (next[slot]) { link.href = next[slot].url; version.textContent = next[slot].version; }
+            const disabled = slot === 'current' && updating;
+            link.hidden = !disabled && next[slot] === null;
+            link.classList.toggle('disabled', disabled);
+            if (disabled) {
+                link.removeAttribute('href'); link.setAttribute('aria-disabled', 'true');
+                link.setAttribute('aria-busy', 'true'); link.setAttribute('tabindex', '-1');
+                version.textContent = 'جارٍ التحديث';
+            } else {
+                link.removeAttribute('aria-disabled'); link.removeAttribute('aria-busy'); link.removeAttribute('tabindex');
+                if (next[slot]) { link.href = next[slot].url; version.textContent = next[slot].version; }
+                else { link.removeAttribute('href'); version.textContent = ''; }
+            }
         }
-        if (downloadEmpty) downloadEmpty.hidden = next.current !== null;
+        if (downloadEmpty) downloadEmpty.hidden = updating || next.current !== null;
     }
     function render(value) {
         if (closed) return;
         const current = value && value.status;
         if (!current || current.format !== 1 || current.kind !== 'go-erp-manual-release-status'
-                || !Object.hasOwn(labels, current.state) || !(current.nonce === null || noncePattern.test(current.nonce))) throw new Error('status');
+                || !Object.hasOwn(labels, current.state)
+                || !(current.nonce === null || typeof current.nonce === 'string' && noncePattern.test(current.nonce))
+                || !(current.version === null || typeof current.version === 'string' && versionPattern.test(current.version))
+                || (activeStates.has(current.state) && current.nonce === null)) throw new Error('status');
+        const published = checkedDownloads(value.published_downloads);
+        showError('');
         building = activeStates.has(current.state);
         if (pending && current.nonce === pending) {
             if (!building) { pending = null; stored(null); }
@@ -73,9 +95,11 @@
             waiting++;
             if (waiting > 20) { pending = null; stored(null); showError('لم يتأكد بدء طلب التحديث. اضغط الزر لإعادة المحاولة.'); }
         }
-        status.textContent = pending && !building ? labels.queued : labels[current.state];
+        const message = current.state === 'failed' && published.current
+            ? 'تعذر إتمام التحديث. النسخة ' + published.current.version + ' ما زالت متاحة للتنزيل.' : labels[current.state];
+        status.textContent = pending && !building ? labels.queued : message;
         button.disabled = busy || building || Boolean(pending);
-        renderDownloads(value.published_downloads); later();
+        renderDownloads(published, current); later();
     }
     async function request(url, options = {}) {
         const controller = new AbortController(); controllers.add(controller);

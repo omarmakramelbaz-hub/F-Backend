@@ -32,6 +32,8 @@ PRIOR='2d9e23a5157782882382c797a44ad15c317ae845'
 BOOTSTRAP_INSTALL_SHA='72f082a6fd3a00cfa1aa4cf3d7e1cefbbf76dd1036507002d046c0534a21053e'
 ENGINE_SHA='0a6da17799e88b45061442f81c730e32cdb1822ae68b2bd2f659b14d9f0610d9'
 OLD_TICK_SHA='753baf72d9171adc0d084350fa319ef71c0fa6843c684b42fed5dbef76c588f8'
+BUTTON_JS='public/dashboard/js/go-erp-releases.js'
+BUTTON_JS_SHA='4281eac90700dad9fedb27d14209745f186481f607be27923605b9f2de6c7b02'
 BASE_BLOB='ede9af30ea42ba53a5376d5e1cf634d9b3032f2a'
 UTILITY_BLOB='60df7ec876f9634e0a7dcb4c5a420d0d5ecd9ae9'
 OLD_SEED='1ce9bb30034e300e3ed693e28a4dcbd608fb66c4'
@@ -137,6 +139,46 @@ class Release:
     def file(self,path,revision=None):return self.git('show',(revision or self.revision)+':'+path)
 
 
+def button_archive_installed(engine,installer):
+    """Recognize the one reviewed UI successor without reinstalling its preimage."""
+    owner=pwd.getpwnam('fasakha')
+    javascript=engine.read_file(ROOT/BUTTON_JS,uid=owner.pw_uid,modes=(0o644,),optional=True)
+    if javascript is None or sha(javascript[0])!=BUTTON_JS_SHA:return False
+    archive_install=module(installer,'close_button_archive_install',BOOTSTRAP_INSTALL_SHA)
+    archive_install.Stop=Stop
+    receipt,_=archive_install.installed(engine,owner,CONTROL,MANUAL_RELEASES,SYSTEMD)
+    installed=json.loads(receipt[0])
+    runtime_id=engine.sha(engine.canonical(dict(sorted(OLD_MANUAL_PINS.items()))))
+    need(installed['release']==BOOTSTRAP and installed['runtime']==runtime_id,
+        'BUTTON_ARCHIVE_RECEIPT_UNREVIEWED')
+    app_before={}
+    for name,(_,expected) in archive_install.APP_PINS.items():
+        actual=engine.read_file(ROOT/name,uid=owner.pw_uid,modes=(0o644,))
+        need(sha(actual[0])==(BUTTON_JS_SHA if name==BUTTON_JS else expected),
+            'BUTTON_APP_BASELINE_MISMATCH')
+        app_before[name]=actual
+    helper_raw=engine.read_file(MANUAL_RELEASES/runtime_id/'go_erp_published_download_root.py',
+        uid=0,modes=(0o444,))[0]
+    archive=module(helper_raw,'close_button_archive',OLD_MANUAL_PINS['go_erp_published_download_root.py'])
+    archive.Stop=Stop;publisher=archive.load_publisher()
+    shared=CONTROL/'shared';folder=shared/'installers'
+    archive.directory(shared,owner.pw_gid);archive.directory(folder,owner.pw_gid)
+    manifest=shared/'downloads.json'
+    before=archive.read(manifest,archive.MAX_MANIFEST,(0o640,),gid=owner.pw_gid)
+    value=archive.manifest(publisher,archive.parse(before[0]))
+    for item in (value['current'],value['previous']):
+        if item is not None:archive.verified_archive_binary(publisher,folder,item,owner.pw_gid)
+    need(archive.read(manifest,archive.MAX_MANIFEST,(0o640,),gid=owner.pw_gid)==before,
+        'BUTTON_ARCHIVE_CHANGED')
+    for name,previous in app_before.items():
+        actual=engine.read_file(ROOT/name,uid=owner.pw_uid,modes=(0o644,))
+        need(actual[0]==previous[0] and engine.identity(actual[1])==engine.identity(previous[1]),
+            'BUTTON_APP_CHANGED')
+    need(engine.read_file(CONTROL/'private/installation.json',8192,uid=0,modes=(0o600,))==receipt,
+        'BUTTON_ARCHIVE_RECEIPT_CHANGED')
+    return True
+
+
 def bootstrap(release,engine):
     raw=engine.read_file(CONFIG,16384,uid=0,modes=(0o600,))[0]
     config=json.loads(raw);base=config.get('base_revision')
@@ -149,6 +191,7 @@ def bootstrap(release,engine):
     if base==SEED:return
     installer=release.file('deployment/apply_go_erp_published_downloads_root.py',BOOTSTRAP)
     need(sha(installer)==BOOTSTRAP_INSTALL_SHA,'BOOTSTRAP_PIN_INVALID')
+    if button_archive_installed(engine,installer):return
     directory=Path(tempfile.mkdtemp(prefix='go-close-bootstrap-',dir='/var/tmp'))
     try:
         target=directory/'apply.py';engine.atomic_write(target,installer,0,0,0o600)
@@ -231,6 +274,33 @@ class Context:
         raw=self.e.read_file(ROOT/'storage/app/desktop-updates/current.json',512*1024,uid=0,modes=(0o600,0o644),optional=True)
         return self.publisher.validate_release(self.base.parse(raw[0])) if raw else None
     def save(self):self.e.atomic_write(self.job_path,self.e.canonical(self.job),0,0,0o600)
+    def public_status(self,state,code=None,claim=False):
+        """Expose only this explicit rollout's public progress, never its proof."""
+        states=('queued','running','waiting-ci','publishing','ready','failed')
+        nonce=self.job.get('public_nonce');version=self.job.get('version')
+        need(state in states and isinstance(nonce,str) and re.fullmatch('[a-f0-9]{32}',nonce)
+            and (version is None or isinstance(version,str) and re.fullmatch(r'0\.4\.4-preview\.[1-9][0-9]{0,14}',version))
+            and (code is None or isinstance(code,str) and re.fullmatch('GO_ERP_[A-Z0-9_]{1,100}',code)),
+            'PUBLIC_STATUS_INVALID')
+        shared=CONTROL/'shared';self.e.directory(shared,0,self.owner.pw_gid,0o750,False)
+        path=shared/'status.json';before=self.e.read_file(path,8192,uid=0,modes=(0o640,))
+        previous=self.base.parse(before[0])
+        need(before[1].st_gid==self.owner.pw_gid and set(previous)=={'format','kind','state','nonce','updated_at','version','code'}
+            and type(previous['format']) is int and previous['format']==1
+            and previous['kind']=='go-erp-manual-release-status'
+            and previous['state'] in ('idle',*states)
+            and (previous['nonce'] is None or isinstance(previous['nonce'],str) and re.fullmatch('[a-f0-9]{32}',previous['nonce']))
+            and type(previous['updated_at']) is int and 1<=previous['updated_at']<=SAFE
+            and (previous['version'] is None or isinstance(previous['version'],str)
+                and re.fullmatch(r'0\.4\.4-preview\.[1-9][0-9]{0,14}',previous['version']))
+            and (previous['code'] is None or isinstance(previous['code'],str)
+                and re.fullmatch('GO_ERP_[A-Z0-9_]{1,100}',previous['code'])),
+            'PUBLIC_STATUS_BASELINE_INVALID')
+        if not claim and previous['nonce']!=nonce:return False
+        self.e.atomic_write(path,self.e.canonical({'format':1,'kind':'go-erp-manual-release-status',
+            'state':state,'nonce':nonce,'updated_at':int(time.time()),'version':version,'code':code}),
+            0,self.owner.pw_gid,0o640)
+        return True
     def snapshot(self,state,seed_path,source):
         dependencies=self.worker.dependency_snapshot(ROOT,self.owner.pw_uid)
         need(state.get('dependency_guard') in (None,dependencies),'DEPENDENCIES_CHANGED')
@@ -275,6 +345,10 @@ class Context:
                 'baseline_counter':None,'baseline_remote':None,
                 'candidate':None,'version':None,'transient_failures':0}
             need(REV.fullmatch(self.job['remote_lease'] or ''),'REMOTE_LEASE_UNREVIEWED');self.save()
+        if 'public_nonce' not in self.job:
+            self.job['public_nonce']=uuid.uuid4().hex;self.save()
+        need(isinstance(self.job['public_nonce'],str) and re.fullmatch('[a-f0-9]{32}',self.job['public_nonce']),
+            'ROLLOUT_PUBLIC_NONCE_INVALID')
         self.base.EXPECTED_SOURCE,self.base.EXPECTED_INVENTORY=self.job['source'],self.job['inventory']
         self.expected=self.worker.program_gate_expected(CORE,self.job['source'],self.job['inventory'])
 
@@ -435,6 +509,7 @@ class Context:
                     desired=self.candidate(state);self.job.update(candidate=desired['commit'],version=desired['version'])
                     archive=self.archive();self.job['phase']='ready';self.save();return archive
                 desired=state.get('desired') or {};allow=False
+                self.public_status('waiting-ci' if self.job['candidate'] is not None else 'running')
                 retry=desired.get('retry_at',0)
                 need(type(retry) in (int,float) and math.isfinite(retry) and 0<=retry<=SAFE,'BACKOFF_INVALID')
                 delay=max(0,min(60,math.ceil(retry-time.time())))
@@ -475,16 +550,29 @@ class Context:
                     else:raise Stop('ALLOCATION_REVIEW_REQUIRED')
                 need(desired.get('commit')==self.job['candidate'] and desired.get('version')==self.job['version'],
                     'LATCHED_CANDIDATE_CHANGED')
+                self.public_status('waiting-ci')
                 if rc:
                     if code=='GO_ERP_LIVE_TICK_FAILED_WITHOUT_PRIVATE_OUTPUT' and self.job['transient_failures']<3 \
                             and desired.get('status') in ('waiting-ci','prepared'):
                         self.job['transient_failures']+=1;self.save()
                     else:raise Stop(code)
-                elif code=='GO_ERP_PROGRAM_ACCEPTANCE_REQUIRED':self.authorized()
+                elif code=='GO_ERP_PROGRAM_ACCEPTANCE_REQUIRED':
+                    self.public_status('publishing');self.authorized()
                 elif code in ('GO_ERP_PROGRAM_PUBLICATION_REQUIRES_REVIEW','GO_ERP_LIVE_UPDATE_CI_REVIEW_REQUIRED'):
                     raise Stop(code)
             time.sleep(30)
         raise Stop('COMPLETION_TIMED_OUT_RETRY_SAME_COMMAND')
+
+
+def public_status_after_unlock(ctx,state,code=None):
+    """A queued web job may acquire this lock as soon as the path is active."""
+    try:
+        with ExitStack() as status_lock:
+            ctx.e.acquire(status_lock,CONTROL/'private/worker.lock')
+            return ctx.public_status(state,code)
+    except Stop as error:
+        if str(error)=='INSTALLATION_BUSY':return False
+        raise
 
 
 def execute(release,engine,complete):
@@ -498,17 +586,29 @@ def execute(release,engine,complete):
         with ExitStack() as workers:
             engine.acquire(workers,CONTROL/'private/worker.lock')
             ctx=Context(release,engine)
-            with ctx.utility.watcher_lock(WORK) as verify:
-                ctx.job_record();ctx.manual()
-                ctx.prepare(LockedUtility(ctx.utility,verify))
-            if not complete:
-                return {'ok':True,'published':False,'prepared':True,'manual_path_paused':True,'version':ctx.job['version']}
-            archive=ctx.complete()
+            try:
+                with ctx.utility.watcher_lock(WORK) as verify:
+                    ctx.job_record();ctx.manual();ctx.public_status('running',claim=True)
+                    ctx.prepare(LockedUtility(ctx.utility,verify))
+                if not complete:
+                    return {'ok':True,'published':False,'prepared':True,'manual_path_paused':True,'version':ctx.job['version']}
+                archive=ctx.complete()
+            except BaseException:
+                if ctx.job is not None and 'public_nonce' in ctx.job:
+                    try:ctx.public_status('failed','GO_ERP_CLOSE_REOPEN_UPDATE_FAILED')
+                    except BaseException:pass
+                raise
         # Release the broker lock before path activation so a pending explicit
         # owner request can start without a failed flock/rate-limit cycle.
-        engine.run(['/usr/bin/systemctl','start',WATCH])
-        need(engine.run(['/usr/bin/systemctl','show',WATCH,'-p','ActiveState','--value'])=='active',
-            'PUBLISHED_PATH_ACTIVATION_REQUIRED')
+        try:
+            engine.run(['/usr/bin/systemctl','start',WATCH])
+            need(engine.run(['/usr/bin/systemctl','show',WATCH,'-p','ActiveState','--value'])=='active',
+                'PUBLISHED_PATH_ACTIVATION_REQUIRED')
+            public_status_after_unlock(ctx,'ready')
+        except BaseException:
+            try:public_status_after_unlock(ctx,'failed','GO_ERP_CLOSE_REOPEN_UPDATE_FAILED')
+            except BaseException:pass
+            raise
         return {'ok':True,'published':True,'prepared':True,'manual_path_paused':False,
             'version':ctx.job['version'],'candidate_revision':ctx.job['candidate'],'archive':archive}
 

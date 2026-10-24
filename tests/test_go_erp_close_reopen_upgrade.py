@@ -198,10 +198,12 @@ class CoordinatorTests(unittest.TestCase):
             events=[];active=False
             class FakeContext:
                 def __init__(self,*args):
+                    self.e=engine
                     self.utility=types.SimpleNamespace(watcher_lock=self_watcher)
-                    self.job={'candidate':'a'*40,'version':'0.4.4-preview.45'}
+                    self.job={'candidate':'a'*40,'version':'0.4.4-preview.45','public_nonce':'b'*32}
                 def job_record(self):pass
                 def manual(self):pass
+                def public_status(self,state,code=None,claim=False):events.append('public-'+state)
                 def prepare(self,*args):events.append('prepared')
                 def complete(self):events.append('archive-committed');return {'available':True,'current_version':self.job['version']}
             self_watcher=self.watcher
@@ -219,7 +221,10 @@ class CoordinatorTests(unittest.TestCase):
             with patch.object(subject,'CONTROL',control),patch.object(subject,'quiet'),\
                     patch.object(subject,'bootstrap'),patch.object(subject,'Context',FakeContext):
                 result=subject.execute(object(),engine,True)
-            self.assertTrue(result['published']);self.assertEqual(events[-1],'owner-request-can-lock')
+            self.assertTrue(result['published']);self.assertEqual(events[-1],'public-ready')
+            self.assertLess(events.index('public-running'),events.index('prepared'))
+            self.assertLess(events.index('archive-committed'),events.index('owner-request-can-lock'))
+            self.assertLess(events.index('owner-request-can-lock'),events.index('public-ready'))
 
     def tick_context(self):
         ctx=object.__new__(subject.Context);ctx.manual_runtime=Path('/reviewed/manual/runtime')
@@ -269,6 +274,160 @@ class CoordinatorTests(unittest.TestCase):
     def test_runtime_variant_paths_have_final_pinned_bytes(self):
         for name,digest in subject.MANUAL_PINS.items():
             self.assertEqual(subject.sha((ROOT/subject.PACKAGE_PROGRAM_PATHS[name]).read_bytes()),digest,name)
+
+
+class PublicRolloutStatusTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory(prefix='close-public-status-');self.addCleanup(temporary.cleanup)
+        self.control=Path(temporary.name)/'control'
+        self.owner=types.SimpleNamespace(pw_uid=os.getuid(),pw_gid=os.getgid())
+        self.engine=load('close_status_actual_engine',ROOT/'deployment/apply_go_erp_manual_updates_root.py')
+        self.engine.Stop=subject.Stop;self.engine.provision(self.owner,self.control)
+        self.ctx=object.__new__(subject.Context);self.ctx.e=self.engine;self.ctx.owner=self.owner
+        self.ctx.base=types.SimpleNamespace(parse=json.loads)
+        self.ctx.job={'public_nonce':'b'*32,'version':None,'private_proof':'DO_NOT_EXPOSE',
+            'source':{'private':'DO_NOT_EXPOSE'},'candidate':'a'*40}
+        self.path=self.control/'shared/status.json'
+        scope=patch.object(subject,'CONTROL',self.control);scope.start();self.addCleanup(scope.stop)
+    def test_status_whitelist_nonce_stability_and_metadata_match_the_real_web_schema(self):
+        self.assertTrue(self.ctx.public_status('running',claim=True))
+        self.ctx.job['version']='0.4.4-preview.45'
+        self.assertTrue(self.ctx.public_status('waiting-ci'))
+        value=json.loads(self.path.read_bytes())
+        self.assertEqual(set(value),{'format','kind','state','nonce','updated_at','version','code'})
+        self.assertEqual((value['nonce'],value['version'],value['state']),('b'*32,'0.4.4-preview.45','waiting-ci'))
+        self.assertNotIn('DO_NOT_EXPOSE',self.path.read_text())
+        info=self.path.stat();self.assertEqual((info.st_uid,info.st_gid,info.st_mode&0o777),(0,self.owner.pw_gid,0o640))
+    def test_an_older_resume_journal_gains_one_persisted_public_nonce_only(self):
+        ctx=self.ctx;ctx.job_path=self.control/'private'/('close-reopen-'+subject.CORE+'.json')
+        ctx.runtime=Path('/reviewed/runtime')
+        original={'format':1,'kind':'go-erp-close-reopen-rollout','core':subject.CORE,'seed':subject.SEED,
+            'runtime':ctx.runtime.name,'source':{},'inventory':'a'*64,'phase':'prepared','prepare_started':False,
+            'candidate':None,'version':None}
+        self.engine.atomic_write(ctx.job_path,self.engine.canonical(original),0,0,0o600)
+        ctx.worker=types.SimpleNamespace(program_gate_expected=lambda *args:{})
+        ctx.job_record();nonce=ctx.job['public_nonce']
+        self.assertRegex(nonce,'^[a-f0-9]{32}$')
+        persisted=json.loads(ctx.job_path.read_bytes())
+        self.assertEqual({key:value for key,value in persisted.items() if key!='public_nonce'},original)
+        ctx.job_record();self.assertEqual(ctx.job['public_nonce'],nonce)
+        self.assertEqual(json.loads(ctx.job_path.read_bytes()),persisted)
+    def test_new_broker_nonce_and_its_lock_are_never_overwritten_after_path_activation(self):
+        self.ctx.public_status('running',claim=True)
+        value=json.loads(self.path.read_bytes());value['nonce']='c'*32;value['state']='queued'
+        self.engine.atomic_write(self.path,self.engine.canonical(value),0,self.owner.pw_gid,0o640)
+        before=self.path.read_bytes();self.assertFalse(subject.public_status_after_unlock(self.ctx,'ready'))
+        self.assertEqual(self.path.read_bytes(),before)
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            self.engine.acquire(stack,self.control/'private/worker.lock')
+            self.assertFalse(subject.public_status_after_unlock(self.ctx,'ready'))
+        self.assertEqual(self.path.read_bytes(),before)
+    def test_private_prepare_failure_is_publicly_failed_without_touching_queued_requests(self):
+        pending=self.control/'requests/pending.json';pending.write_bytes(b'owner request preserved')
+        ctx=self.ctx;ctx.utility=types.SimpleNamespace(watcher_lock=CoordinatorTests.watcher)
+        # Bound context manager supplying the actual original lock protocol.
+        @contextmanager
+        def watcher(*args):yield lambda:None
+        ctx.utility.watcher_lock=watcher
+        ctx.job_record=lambda:None;ctx.manual=lambda:None
+        ctx.prepare=lambda *args:(_ for _ in ()).throw(RuntimeError('DO_NOT_EXPOSE_PRIVATE_FAILURE'))
+        def run(args):return 'inactive'
+        self.engine.run=run
+        with patch.object(subject,'quiet'),patch.object(subject,'bootstrap'),\
+                patch.object(subject,'Context',return_value=ctx),self.assertRaisesRegex(RuntimeError,'DO_NOT_EXPOSE'):
+            subject.execute(object(),self.engine,True)
+        value=json.loads(self.path.read_bytes())
+        self.assertEqual((value['state'],value['code']),('failed','GO_ERP_CLOSE_REOPEN_UPDATE_FAILED'))
+        self.assertNotIn('DO_NOT_EXPOSE',self.path.read_text());self.assertEqual(pending.read_bytes(),b'owner request preserved')
+
+
+class ButtonBootstrapTests(unittest.TestCase):
+    def setUp(self):
+        temporary=tempfile.TemporaryDirectory(prefix='close-button-bootstrap-');self.addCleanup(temporary.cleanup)
+        self.path=Path(temporary.name);self.root=self.path/'app';self.root.mkdir(mode=0o755)
+        self.control=self.path/'control';self.releases=self.path/'manual/releases'
+        self.releases.mkdir(mode=0o755,parents=True)
+        self.systemd=self.path/'systemd';self.systemd.mkdir(mode=0o755)
+        self.owner=types.SimpleNamespace(pw_uid=os.getuid(),pw_gid=os.getgid(),pw_name='fixture-web')
+        self.engine=load('close_button_actual_engine',ROOT/'deployment/apply_go_erp_manual_updates_root.py')
+        self.engine.Stop=subject.Stop;self.engine.PROGRAM_PINS=subject.OLD_MANUAL_PINS;self.engine.RELEASES=self.releases
+        self.engine.provision(self.owner,self.control)
+        program={name:(ROOT/'deployment'/name).read_bytes() for name in subject.OLD_MANUAL_PINS}
+        runtime=self.engine.install_runtime(program,self.releases)
+        self.units=self.engine.units(runtime)
+        for name,raw in self.units.items():self.engine.atomic_write(self.systemd/name,raw,0,0,0o644)
+        self.receipt=self.control/'private/installation.json'
+        self.engine.atomic_write(self.receipt,self.engine.canonical({'format':1,'kind':'go-erp-manual-installation',
+            'release':subject.BOOTSTRAP,'runtime':runtime.name,
+            'units':{name:self.engine.sha(raw) for name,raw in self.units.items()}}),0,0,0o600)
+        self.installer=(ROOT/'deployment/apply_go_erp_published_downloads_root.py').read_bytes()
+        archive_install=load('close_button_actual_archive_install',ROOT/'deployment/apply_go_erp_published_downloads_root.py')
+        for name,(_,digest) in archive_install.APP_PINS.items():
+            raw=(ROOT/name).read_bytes();self.assertEqual(subject.sha(raw),subject.BUTTON_JS_SHA if name==subject.BUTTON_JS else digest)
+            target=self.root/name;target.parent.mkdir(mode=0o755,parents=True,exist_ok=True)
+            target.write_bytes(raw);target.chmod(0o644)
+        self.publisher_path=self.path/'publish_go_erp_update.py'
+        self.publisher_path.write_bytes(PAYLOADS['publish_go_erp_update.py']);self.publisher_path.chmod(0o644)
+        installer_bytes=b'MZgenuine-small-fixture42';digest=subject.sha(installer_bytes)
+        self.release42={'version':'0.4.4-preview.42','sequence':40054814945,'source_revision':'a'*40,
+            'source':{'format':1,'files':1355,'framework':'8.83.29','sha256':'b'*64},'gui':{},
+            'installer':{'bytes':len(installer_bytes),'sha256':digest,
+                'path':'/api/desktop-dashboard/update/installer/'+digest}}
+        shared=self.control/'shared';(shared/'installers').mkdir(mode=0o750)
+        self.engine.atomic_write(shared/'installers'/(digest+'.exe'),installer_bytes,0,self.owner.pw_gid,0o640)
+        self.engine.atomic_write(shared/'downloads.json',self.engine.canonical({'format':1,
+            'kind':'go-erp-published-downloads','current':self.release42,'previous':None}),0,self.owner.pw_gid,0o640)
+        self.config=self.path/'config.json';self.engine.atomic_write(self.config,
+            self.engine.canonical({'base_revision':subject.OLD_SEED}),0,0,0o600)
+        for name,value in {'ROOT':self.root,'CONTROL':self.control,'MANUAL_RELEASES':self.releases,
+                'SYSTEMD':self.systemd,'CONFIG':self.config}.items():
+            scope=patch.object(subject,name,value);scope.start();self.addCleanup(scope.stop)
+        scope=patch.object(subject.pwd,'getpwnam',return_value=self.owner);scope.start();self.addCleanup(scope.stop)
+        original=subject.module
+        def bound(raw,name,*args):
+            value=original(raw,name,*args)
+            if name=='close_button_archive':
+                loader=value.load_publisher
+                value.load_publisher=lambda:loader(self.publisher_path)
+            return value
+        scope=patch.object(subject,'module',side_effect=bound);scope.start();self.addCleanup(scope.stop)
+        self.release=types.SimpleNamespace(repository=self.path,file=lambda path,revision:self.installer)
+
+    def test_new_button_ui_skips_reinstall_only_with_real_archive_runtime_and_controls(self):
+        before={path:path.read_bytes() for path in (self.receipt,self.control/'shared/downloads.json')}
+        with patch.object(subject.subprocess,'run',side_effect=AssertionError('must not reinstall preimage')):
+            subject.bootstrap(self.release,self.engine)
+        for path,raw in before.items():self.assertEqual(path.read_bytes(),raw)
+
+    def test_unknown_other_app_file_receipt_unit_runtime_or_binary_never_skips(self):
+        cases=[self.root/'routes/desktop_dashboard.php',self.systemd/subject.SERVICE,
+            self.releases/json.loads(self.receipt.read_bytes())['runtime']/'go_erp_manual_updates_root.py',
+            self.control/'shared/installers'/(self.release42['installer']['sha256']+'.exe')]
+        for target in cases:
+            with self.subTest(target=target):
+                before=target.read_bytes();mode=target.stat().st_mode&0o777
+                target.chmod(0o644);target.write_bytes(b'changed but no valid archive binding');target.chmod(mode)
+                with patch.object(subject.subprocess,'run') as run:
+                    with self.assertRaises(Exception):subject.bootstrap(self.release,self.engine)
+                    run.assert_not_called()
+                target.chmod(0o644);target.write_bytes(before);target.chmod(mode)
+        receipt=json.loads(self.receipt.read_bytes());receipt['release']='f'*40
+        self.engine.atomic_write(self.receipt,self.engine.canonical(receipt),0,0,0o600)
+        with self.assertRaisesRegex(subject.Stop,'BUTTON_ARCHIVE_RECEIPT_UNREVIEWED'):
+            subject.bootstrap(self.release,self.engine)
+
+    def test_old_ui_still_runs_original_bootstrap_and_new_native_seed_skips_it(self):
+        (self.root/subject.BUTTON_JS).write_bytes(b'original UI preimage')
+        result=types.SimpleNamespace(returncode=0,stdout=(json.dumps({'ok':True,'path_active':True,
+            'database_changed':False,'automatic_updates_enabled':False})+'\n'
+            'GO_ERP_PUBLISHED_DOWNLOADS_READY_MANUAL_UPDATES_ONLY\n').encode())
+        with patch.object(subject.subprocess,'run',return_value=result) as run:
+            subject.bootstrap(self.release,self.engine)
+        self.assertEqual(run.call_count,1);self.assertIn(subject.BOOTSTRAP,run.call_args.args[0])
+        self.engine.atomic_write(self.config,self.engine.canonical({'base_revision':subject.SEED}),0,0,0o600)
+        with patch.object(subject.subprocess,'run',side_effect=AssertionError('new seed must resume')):
+            subject.bootstrap(self.release,self.engine)
 
 
 if __name__=='__main__':unittest.main()
