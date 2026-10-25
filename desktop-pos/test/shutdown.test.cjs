@@ -50,6 +50,21 @@ test('a failed final connection close returns to Electron quit and suppresses a 
   assert.equal(app.exited,true);assert.equal(closes,1);assert.equal(app.relaunchCalls,0);
   assert.deepEqual(shutdown.errors,[{phase:'close',error}]);
 });
+test('an explicit account relaunch waits for accepted work, native drain and final ledger close',async()=>{
+  const app=new LifecycleApp(),events=[];let release;
+  app.relaunch=()=>{events.push('relaunch');app.relaunchCalls++;};
+  const shutdown=new Shutdown(app,()=>events.push('stop'),()=>events.push('close'),async()=>events.push('drain'));
+  const accepted=shutdown.run(()=>new Promise(resolve=>release=resolve));await settle();
+  shutdown.requestRelaunch();app.quit();await settle();assert.equal(app.relaunchCalls,0);
+  assert.throws(()=>shutdown.requestRelaunch(),/إعادة تشغيل/);
+  release();await accepted;await settle();assert.deepEqual(events,['stop','drain','close','relaunch']);assert.equal(app.exited,true);
+});
+test('a failed native relaunch cannot strand the drained process after its ledger closes',async()=>{
+  const app=new LifecycleApp(),error=Error('native relaunch failed');let closed=false;
+  app.relaunch=()=>{assert.equal(closed,true);throw error;};
+  const shutdown=new Shutdown(app,()=>{},()=>{closed=true;});shutdown.requestRelaunch();app.quit();await settle();
+  assert.equal(app.exited,true);assert.deepEqual(shutdown.errors,[{phase:'relaunch',error}]);
+});
 
 async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,holdDashboardLoad=false,holdRuntimeStart=false,nativeClock=false,deltaBridge=false,deltaRun,runtimeControl,beforeUnload=false,holdRuntimeStop=false}={}){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'pos-shutdown-')),file=path.join(profile,'fasakhansta-pos.sqlite');
@@ -74,6 +89,7 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
       this.webContents.send=(...args)=>this.sent.push(args);this.webContents.getPrintersAsync=async()=>[{name:'Printer'}];this.webContents.executeJavaScript=async()=>true;
       this.webContents.print=(_options,callback)=>{printCallback=callback;if(!holdPrint)callback(true);};app.emit('web-contents-created',{},this.webContents);}
     async loadURL(url){this.url=url;this.loadURLs.push(url);events.push('load:'+url);if(holdLoad&&url.startsWith('fasakhansta:'))await new Promise(resolve=>{finishLoad=resolve;});}
+    removeMenu(){}
     show(){this.visible=true;this.showCalls++;events.push('window-show');}hide(){this.visible=false;this.hideCalls++;events.push('window-hide');}focus(){this.focusCalls++;}restore(){this.minimized=false;this.restoreCalls++;}isMinimized(){return Boolean(this.minimized);}isDestroyed(){return this.destroyed;}
     close(){const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('close',event);if(event.prevented)return;
       if(beforeUnload){const unload={prevented:false,preventDefault(){this.prevented=true;}};this.webContents.emit('will-prevent-unload',unload);if(!unload.prevented)return;}this.destroy();}
@@ -88,14 +104,19 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   }
   class Preparation{
     constructor(options){preparationOptions=options;}async status(){return {available:true,prepared:runtimeReady};}
-    async prepare(){runtimeReady=true;await preparationOptions.onPrepared();return {available:true,prepared:true};}
+    async prepare(){runtimeReady=true;await preparationOptions.onPrepared(await preparationOptions.runtime.connection());return {available:true,prepared:true};}
+  }
+  class Profiles{
+    constructor({root}){this.root=root;}
+    async selected(){return{id:'default',label:'Fixture account',profile:this.root,partition:'persist:fasakhansta-dashboard'};}
+    async bind(){}async assertBinding(){}
   }
   class DeltaBridge{
     constructor(options){deltaOptions=options;this.state={phase:'idle'};this.running=null;}
     run(){this.running=Promise.resolve().then(()=>deltaRun?deltaRun():{unchanged:true}).finally(()=>{this.running=null;});return this.running;}stop(){deltaStops++;}
   }
   const nativeDeadline=nativeClock?vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/native-deadline.cjs'),'utf8')+'\n;module.exports',{module:{exports:{}},setTimeout:(fn,delay)=>{nativeTimers.set(fn,delay);return fn;},clearTimeout:fn=>nativeTimers.delete(fn)}):require('../src/native-deadline.cjs');
-  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');options.onVisible?.();if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');options.onVisible?.();},isVisible:()=>true,reveal(){dashboardReveals++;options.onVisible?.();},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./account-profiles.cjs'?Profiles:name==='./account-picker.cjs'?async()=>null:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');options.onVisible?.();if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');options.onVisible?.();},isVisible:()=>true,reveal(){dashboardReveals++;options.onVisible?.();},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
   return {app,store,file,sale,order,windows,timers,nativeTimers,events,get trace(){return JSON.parse(fs.readFileSync(path.join(profile,'lifecycle-trace.json'),'utf8'));},openLocalOrders:mainState.localOrders,notify:mainState.notify,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStart(){return finishRuntimeStart;},get finishDashboardLoad(){return finishDashboardLoad;},get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStarts(){return runtimeStarts;},get runtimeStops(){return runtimeStops;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardReveals(){return dashboardReveals;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};

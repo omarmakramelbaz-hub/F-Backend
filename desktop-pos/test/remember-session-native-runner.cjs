@@ -7,7 +7,9 @@ assert.equal(fs.existsSync(executable),true);
 const sourceRevision=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8'}).trim();
 const electronVersion=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../package-lock.json'),'utf8')).packages['node_modules/electron'].version;
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const sourceHashes={dashboard:sha(path.join(__dirname,'../src/dashboard.cjs')),shutdown:sha(path.join(__dirname,'../src/shutdown.cjs')),fixture:sha(path.join(__dirname,'remember-session-native.cjs'))};
+const sourceHashes={dashboard:sha(path.join(__dirname,'../src/dashboard.cjs')),shutdown:sha(path.join(__dirname,'../src/shutdown.cjs')),
+  fixture:sha(path.join(__dirname,'remember-session-native.cjs')),spa:sha(path.join(__dirname,'../../public/dashboard/js/dashboard-spa.js')),
+  navbar:sha(path.join(__dirname,'../../resources/views/admin/layouts/navbar.blade.php'))};
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'go-erp-native-remember-')),receipts=[];
 try{
   for(const scenario of ['remember','plain','invalid']){
@@ -29,7 +31,12 @@ try{
       assert.equal(receipt.scenario,scenario);assert.equal(receipt.phase,phase);assert.equal(receipt.posts,0);
       for(const field of ['actualElectron','syntheticServer','primaryInstance','cookieFlagsChecked','scopedSessionEnded','naturalQuit','completed'])assert.equal(receipt[field],true,field);
       for(const field of ['hardware','productionProfile','forcedSuccessExit'])assert.equal(receipt[field],false,field);
-      if(phase==='close')assert.equal(receipt.logoutRequests,scenario==='plain'?1:0);
+      assert.equal(receipt.spaSourceLoaded,true);assert.equal(receipt.productionSpaReady,true);
+      if(phase==='close'){
+        assert.equal(receipt.logoutRequests,scenario==='plain'?1:0);assert.equal(receipt.originalNavbarLogout,true);assert.equal(receipt.ownedMainFrameFetch,true);
+        assert.equal(receipt.spaLogoutRequests,1);assert.equal(receipt.mainFrameLogoutRequests,0);
+        assert.equal(receipt.ordinaryLogoutResponse,scenario==='plain');
+      }
       else if(scenario==='remember')assert.equal(receipt.automaticSameAccount,true);
       else{assert.equal(receipt.anonymousAfterReopen,true);if(scenario==='invalid')assert.equal(receipt.invalidRejected,true);}
       if(scenario!=='plain')assert.equal(receipt.recallerPreserved,true);
@@ -41,7 +48,8 @@ try{
     actualElectron:true,syntheticServer:true,hardware:false,productionProfile:false,forcedSuccessExit:false,processes:6,
     sameProfileFreshReopen:true,httpOnlyCookieFlags:true,persistentRecallerPreserved:true,currentSessionEnded:true,
     normalLogoutWithoutRecaller:true,invalidRecallerRejected:true,noCredentialPost:true,naturalQuit:true,completed:true,
-    phases:receipts.map(({scenario,phase,pid,logoutRequests,automaticSameAccount,anonymousAfterReopen,invalidRejected})=>({scenario,phase,pid,logoutRequests,automaticSameAccount,anonymousAfterReopen,invalidRejected}))};
+    productionSpaSource:true,originalNavbarLogout:true,ownedMainFrameFetch:true,ordinaryLogoutResponse:true,
+    phases:receipts.map(({scenario,phase,pid,logoutRequests,spaLogoutRequests,mainFrameLogoutRequests,automaticSameAccount,anonymousAfterReopen,invalidRejected})=>({scenario,phase,pid,logoutRequests,spaLogoutRequests,mainFrameLogoutRequests,automaticSameAccount,anonymousAfterReopen,invalidRejected}))};
   fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(proof)+'\n');
   process.stdout.write('NATIVE_REMEMBER_SESSION_COMPLETE '+JSON.stringify({processes:6,sourceRevision,electronVersion})+'\n');
 }finally{fs.rmSync(root,{recursive:true,force:true,maxRetries:30,retryDelay:100});}

@@ -23,6 +23,24 @@ test('initial preparation verifies a coherent generation before activating and p
   assert.equal(JSON.stringify(f.states).includes(f.link.token), false);
   assert.equal((await f.setup.credential()).token, f.link.token);
 });
+test('the authenticated actor is bound before local work and only its display label reaches account selection',async()=>{
+  const f=fixture();f.snapshot.tables={users:{rows:[{id:11,name:'Other account',password:'never exposed'},
+    {id:10,name:'  حساب الفرع\nالرئيسي  ',password:'never exposed'}]}};
+  f.setup.onEnrolled=async value=>{
+    assert.equal(value.actorId,10);assert.equal(value.serverOrigin,'https://fixture.test');
+    assert.equal(f.saved.get('enrollment').token,value.token);f.calls.push('bound');
+  };
+  let details;
+  f.setup.onPrepared=async(next,value)=>{assert.equal(next.actorId,10);details=value;};
+  await f.setup.prepare('https://fixture.test','csrf');
+  assert.equal(f.calls[0],'bound');assert.deepEqual(details,{accountLabel:'حساب الفرع الرئيسي'});
+  assert.equal(JSON.stringify(details).includes('password'),false);
+});
+test('a rejected account binding keeps enrollment recoverable and cannot start or activate another account',async()=>{
+  const f=fixture();f.setup.onEnrolled=async()=>{throw Error('another enrolled actor');};
+  await assert.rejects(f.setup.prepare('https://fixture.test','csrf'),/another enrolled actor/);
+  assert.equal(f.saved.get('enrollment').actorId,10);assert.equal(f.saved.has('prepared'),false);assert.deepEqual(f.calls,[]);
+});
 test('a lost enrollment reply retries the persisted nonce without replacing a device identity', async () => {
   const f = fixture(), nonces = []; let failed = true;
   f.setup.enroll = async (_origin, input) => { nonces.push(input.nonce); assert.equal(f.saved.get('enrollment').nonce, input.nonce);

@@ -21,9 +21,10 @@ function enrollment(value, deviceId) {
 
 /** The original signed-in dashboard starts preparation. Credentials remain in native encrypted metadata. */
 class DashboardPreparation {
-  constructor({ runtime, enroll, download, allowPreview = false, beforePrepare = async () => {}, onState = () => {}, onPrepared = async () => {} }) {
+  constructor({ runtime, enroll, download, allowPreview = false, beforePrepare = async () => {}, onState = () => {}, onEnrolled = async () => {}, onPrepared = async () => {} }) {
     this.runtime = runtime; this.metadata = runtime.metadata; this.enroll = enroll; this.download = download;
     this.onState = onState; this.onPrepared = onPrepared; this.state = { phase: 'idle', progress: 0, error: '' };
+    this.onEnrolled = onEnrolled;
     this.beforePrepare = beforePrepare;
     this.allowPreview = allowPreview === true;
   }
@@ -72,6 +73,7 @@ class DashboardPreparation {
         throw Error('لم يؤكد السيرفر ربط حساب الجهاز.');
       value = { ...value, enrolled: true, actorId: linked.actor_id, token: linked.token, branches: linked.branches };
       await this.metadata.write('enrollment', value);
+      await this.onEnrolled(value);
       this.report({ phase: 'downloading', progress: 15 });
       const snapshot = await this.download(value);
       if (snapshot.format !== 1 || snapshot.kind !== 'initial-dashboard-data' || !uuid(snapshot.snapshot_id)
@@ -107,7 +109,10 @@ class DashboardPreparation {
       await this.metadata.write('generations/' + refreshId, { format: 1, initial: true, next, receipt: candidate.receipt });
       this.report({ phase: 'activating', progress: 95 });
       await this.runtime.activate(next, () => this.metadata.write('prepared', next));
-      await this.onPrepared(next);
+      const actor=snapshot.tables?.users?.rows?.find(row=>String(row.id)===String(next.actorId));
+      const rawLabel=typeof actor?.name==='string'?actor.name:typeof actor?.email==='string'?actor.email:'';
+      const accountLabel=rawLabel.replace(/[\x00-\x1f\x7f]/g,' ').trim().slice(0,80);
+      await this.onPrepared(next,{accountLabel});
       this.report({ phase: 'ready', progress: 100, error: '' });
       return { available: true, prepared: true, ...this.state };
     } catch (error) {

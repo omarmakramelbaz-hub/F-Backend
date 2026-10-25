@@ -22,6 +22,9 @@ const RuntimeArchive=require('./runtime-archive.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const {withDeadline,printOnce}=require('./native-deadline.cjs');
 const LifecycleTrace=require('./lifecycle-trace.cjs');
+const AccountProfiles=require('./account-profiles.cjs');
+const AccountSwitch=require('./account-switch.cjs');
+const chooseAccount=require('./account-picker.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 app.setName('GO ERP');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
@@ -29,12 +32,12 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,lifecycleTrace,quitting=false,installingUpdate=false,startupComplete=false,dashboardVisible=false,startupHidden=false,legacyLoading,legacyReady=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,lifecycleTrace,accountProfiles,activeAccount,accountSwitch,quitting=false,installingUpdate=false,profileSwitching=false,startupComplete=false,dashboardVisible=false,startupHidden=false,legacyLoading,legacyReady=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
 const shutdown=new Shutdown(app,()=>{
   lifecycleTrace?.mark('shutdown-requested');quitting=true;
-  localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();
+  accountSwitch?.cancel();localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();
   lifecycleTrace?.mark('shutdown-wait-accepted');
 },()=>{
   lifecycleTrace?.mark('shutdown-close-ledger');
@@ -178,6 +181,42 @@ function connectUpdater(profile) {
     })),onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
   updater.start();
 }
+async function accountSwitchReady(){
+  if(quitting||profileSwitching||installingUpdate||!dashboard||preparation?.running||liveSocial?.busy()
+    ||incomingDelta?.running||syncSchedule.running||syncSchedule.waiting||generations?.running
+    ||shutdown.pending.size>1||(dashboardMode&&dashboardMode.accepted.size>1))return false;
+  const old=store.counts();
+  if(old.pending||old.conflicts||store.openOrders().length)return false;
+  const remote=remoteState?await remoteState.read():{pending:[],dirty:false};
+  if(remote.dirty||remote.pending.length)return false;
+  if(localRuntime&&await localRuntime.isPrepared()){
+    const local=await localRuntime.control({action:'pending'});
+    if(local.counts.pending||local.counts.conflicts)return false;
+    if(localRuntime.supportsPrintEffects()){
+      const prints=await localRuntime.control({action:'print-outcomes'});
+      if(!prints||!Array.isArray(prints.outcomes)||!Number.isSafeInteger(prints.pending)||prints.pending<0
+        ||prints.outcomes.length||prints.pending)return false;
+    }
+  }
+  return !quitting&&!profileSwitching&&!syncSchedule.running&&!incomingDelta?.running;
+}
+function switchAccount(){
+  if(!accountSwitch){
+    accountSwitch=new AccountSwitch({profiles:accountProfiles,currentId:()=>activeAccount.id,available:accountSwitchReady,
+      hold:work=>dashboard.withAccountIdle(work),
+      serialize:work=>dashboardMode?dashboardMode.serialize('account-switch',work):work(),
+      choose:(profiles,signal)=>chooseAccount({parent:BrowserWindow.getFocusedWindow()||win,profiles,signal}),
+      pause:()=>syncSchedule.stop(),resume:()=>{if(!quitting&&!profileSwitching)syncSchedule.start();},
+      flush:()=>withDeadline(()=>dashboard.session().cookies.flushStore(),5000,'تعذر حفظ جلسة الحساب الحالية؛ أعد المحاولة.'),
+      restart:()=>{
+        profileSwitching=true;
+        // The next process is queued only after runtime drain and SQLite close.
+        try{shutdown.requestRelaunch();app.quit();}
+        catch(error){shutdown.cancelRelaunch();profileSwitching=false;throw error;}
+      }});
+  }
+  return accountSwitch.request();
+}
 async function dashboardSession(credential) {
   const controller=new AbortController();requests.add(controller);
   try {
@@ -267,12 +306,15 @@ async function printEvent(id) {
 }
 app.whenReady().then(async()=>{
   if(!primaryInstance||quitting)return;
-  const profile=process.env.POS_TEST_PROFILE&&!app.isPackaged?process.env.POS_TEST_PROFILE:app.getPath('userData');fs.mkdirSync(profile,{recursive:true});
-  lifecycleTrace=new LifecycleTrace(profile);startupPhase('startup-ready');startupPhase('ledger-open');
+  const baseProfile=process.env.POS_TEST_PROFILE&&!app.isPackaged?process.env.POS_TEST_PROFILE:app.getPath('userData');fs.mkdirSync(baseProfile,{recursive:true});
+  lifecycleTrace=new LifecycleTrace(baseProfile);startupPhase('startup-ready');
+  accountProfiles=new AccountProfiles({root:baseProfile,safeStorage});activeAccount=await accountProfiles.selected();
+  const profile=activeAccount.profile;fs.mkdirSync(profile,{recursive:true});startupPhase('ledger-open');
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js','startup.html']);
   protocol.handle('fasakhansta',r=>{const u=new URL(r.url),name=u.pathname.slice(1);if(u.hostname!=='pos'||!allowed.has(name))return new Response('',{status:404});return net.fetch(pathToFileURL(path.join(__dirname,name)).toString());});
   win=new BrowserWindow({width:1380,height:870,minWidth:1000,minHeight:650,show:false,fullscreen:true,title:'GO ERP',icon:path.join(__dirname,'assets','app.ico'),backgroundColor:'#f5f5f7',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+  win.removeMenu();
   win.webContents.on('page-title-updated',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();app.quit();}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',(e,url)=>{if(!url.startsWith('fasakhansta://pos/'))e.preventDefault();});
@@ -326,8 +368,14 @@ app.whenReady().then(async()=>{
     preparation=new DashboardPreparation({runtime:localRuntime,enroll:dashboardEnrollment,download:value=>dashboardRequest(null,true,value),
       allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
       beforePrepare:async()=>{if(store.get('connection'))await syncSchedule.request();const old=store.counts();if(old.pending||store.openOrders().length)throw Error('أكمل فواتير النسخة السابقة وأكد مزامنتها قبل تجهيز الداشبورد؛ جميعها محفوظة.');},
-      onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});},onPrepared:async()=>{connectDashboardSync();}});
+      onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});},
+      onEnrolled:value=>accountProfiles.bind(activeAccount.id,{actorId:value.actorId,serverOrigin:value.serverOrigin}),
+      onPrepared:async(value,details)=>{
+        await accountProfiles.bind(activeAccount.id,{actorId:value.actorId,serverOrigin:value.serverOrigin,...(details?.accountLabel?{label:details.accountLabel}:{})});
+        connectDashboardSync();
+      }});
     startupPhase('prepared-check');if(await localRuntime.isPrepared()) {
+      await accountProfiles.assertBinding(activeAccount.id,await localRuntime.connection());
       startupPhase('runtime-start');
       const local=await shutdown.run(()=>localRuntime.start());
       if(quitting)return;
@@ -341,7 +389,8 @@ app.whenReady().then(async()=>{
   }
   if(quitting)return;
   startupPhase('dashboard-create');
-  dashboard=createDashboard({origin:dashboardOrigin,localToken,serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
+  dashboard=createDashboard({origin:dashboardOrigin,localToken,partition:activeAccount.partition,switchAccount,
+    serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
     onVisible:dashboardShown,onNavigation:dashboardNavigation,
     prepare:preparation?async(serverOrigin,csrf)=>{
       const ready=await remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf));

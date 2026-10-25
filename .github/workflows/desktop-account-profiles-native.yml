@@ -1,0 +1,83 @@
+name: Verify native account profiles on Windows
+
+on:
+  push:
+    branches: ['codex/go-erp-warm-start-*']
+    paths:
+      - 'desktop-pos/src/**'
+      - 'desktop-pos/test/account-*.cjs'
+      - 'desktop-pos/package*.json'
+      - '.github/workflows/desktop-account-profiles-native.yml'
+  pull_request:
+    paths:
+      - 'desktop-pos/src/account-*'
+      - 'desktop-pos/src/main.cjs'
+      - 'desktop-pos/src/dashboard*'
+      - 'desktop-pos/test/account-*.cjs'
+      - '.github/workflows/desktop-account-profiles-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-account-profiles-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  account-profiles-native:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Preserve exact native acceptance source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact native source checkout configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact native source line endings failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify profile, picker and transition contracts
+        shell: pwsh
+        run: |
+          node --test desktop-pos/test/account-profiles.test.cjs desktop-pos/test/account-switch.test.cjs desktop-pos/test/account-picker.test.cjs desktop-pos/test/account-picker-renderer.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Native account contracts failed.' }
+      - name: Install pinned Electron acceptance dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned native acceptance dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+      - name: Verify ASAR main menu, picker and natural account relaunch
+        shell: pwsh
+        run: |
+          node desktop-pos/test/account-profiles-native-runner.cjs desktop-pos/dist/account-profiles-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual native account switching did not complete naturally.' }
+          $proof = Get-Content desktop-pos/dist/account-profiles-native.json -Raw | ConvertFrom-Json
+          $locked = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($proof.sourceRevision -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32' -or $proof.electronVersion -cne $locked -or $proof.processes -ne 3) { throw 'Native account acceptance belongs to another source or runtime.' }
+          foreach ($field in @('actualElectron','actualProductionMain','actualAsarCode','actualDpapi','actualNaturalRelaunch','actualNativeMenu','actualNativePicker','pickerActionsVisible','capacity64PickerActionsVisible','labelsRenderedAsText','transientFixtureSessionEnded','distinctDevicesAndSecrets','distinctPrivateAuthStorage','firstAuthenticationRequired','emptyNewCookiePartition','persistentCookiePartitionsIsolated','ownerRememberedWithoutCredentialPost','ownerDurableBytesUnchanged','otherDurableBytesUnchanged','selectedJournalsIsolated','originalJournalRestored','pendingJournalBlockedSwitch','actorBindingMismatchRejected','corruptEncryptedRegistryRejected','naturalQuit','completed')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "Native account acceptance is missing $field." }
+          }
+          foreach ($field in @('hardware','productionProfile','actualPhpAuthorization','actualInstalledApplication','forcedSuccessExit')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $false) { throw "Native account scope differs: $field." }
+          }
+          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
+            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'A native account source binding changed.' }
+          }
+      - name: Retain source-bound native receipts and picker captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-account-profiles-windows
+          path: |
+            desktop-pos/dist/account-profiles-native.json
+            desktop-pos/dist/account-profiles-picker-*.png
+          if-no-files-found: error
+          retention-days: 14

@@ -37,7 +37,7 @@ concurrency:
 jobs:
   connected-native:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Preserve exact live source bytes at checkout
         if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
@@ -99,16 +99,36 @@ jobs:
           $rememberProof = Get-Content desktop-pos/dist/remember-session-native.json -Raw | ConvertFrom-Json
           $lockedRememberElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($rememberProof.format -ne 1 -or $rememberProof.kind -cne 'go-erp-native-remember-session' -or $rememberProof.sourceRevision -cne $env:GITHUB_SHA -or $rememberProof.platform -cne 'win32' -or $rememberProof.electronVersion -cne $lockedRememberElectron -or $rememberProof.processes -ne 6) { throw 'Remembered-session proof belongs to another source or Electron lock.' }
-          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','completed')) {
+          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','productionSpaSource','originalNavbarLogout','ownedMainFrameFetch','ordinaryLogoutResponse','completed')) {
             if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $true) { throw "Remembered-session proof is missing $field." }
           }
           foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
             if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $false) { throw "Remembered-session scope differs: $field." }
           }
-          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/remember-session-native.cjs' }.GetEnumerator()) {
+          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/remember-session-native.cjs'; spa = 'public/dashboard/js/dashboard-spa.js'; navbar = 'resources/views/admin/layouts/navbar.blade.php' }.GetEnumerator()) {
             if ($rememberProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Remembered-session source binding differs: $($binding.Key)." }
           }
           if ($rememberProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/remember-session-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Remembered-session runner binding differs.' }
+      - name: Verify the full-hash worker inside actual Electron ASAR
+        shell: pwsh
+        run: |
+          node desktop-pos/test/runtime-inventory-electron-native-runner.cjs desktop-pos/dist/runtime-inventory-electron-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The actual ASAR runtime inventory worker failed.' }
+          $proof = Get-Content desktop-pos/dist/runtime-inventory-electron-native.json -Raw | ConvertFrom-Json
+          if ($proof.rootSha -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32' -or $proof.actualElectronMain -ne $true -or $proof.packagedAsar -ne $true -or $proof.completed -ne $true) { throw 'The ASAR inventory proof differs from this candidate.' }
+          foreach ($field in @('exactInventoryVerified','parentEventLoopProgressed','sameLengthAndMtimeTamperRejected','failedRecheckInvalidatesAuthority','extraFileRejected','missingFileRejected','cancellationRejected','workerSettledBeforeExit','originalBytesPreserved')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "ASAR inventory proof is missing $field." }
+          }
+          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
+            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'ASAR inventory source binding changed.' }
+          }
+      - name: Verify isolated accounts through actual main, ASAR picker and natural relaunch
+        shell: pwsh
+        run: |
+          node desktop-pos/test/account-profiles-native-runner.cjs desktop-pos/dist/account-profiles-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual main account switching did not finish naturally.' }
+          node .github/scripts/verify-account-profiles-native.cjs desktop-pos/dist/account-profiles-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native account source-bound receipt is incomplete.' }
       - name: Retain the exact connected native acceptance receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -118,6 +138,9 @@ jobs:
             desktop-pos/dist/connected-request-native.json
             desktop-pos/dist/shutdown-native.json
             desktop-pos/dist/remember-session-native.json
+            desktop-pos/dist/runtime-inventory-electron-native.json
+            desktop-pos/dist/account-profiles-native.json
+            desktop-pos/dist/account-profiles-picker-*.png
           if-no-files-found: error
           retention-days: 14
   original-runtime:
@@ -237,6 +260,25 @@ jobs:
               Start-Sleep -Milliseconds 250
             }
             if (!$ready) { throw 'Disposable database readiness timed out.' }
+            & php tests/desktop_dashboard_runtime/accountprofiles-role-http.php "$bundle/application" $port $env:GITHUB_SHA 2>&1 | Tee-Object -Variable accountRolesOutput
+            $accountRolesExit = $LASTEXITCODE
+            $accountRolesMatches = [regex]::Matches(($accountRolesOutput -join "`n"), '(?m)^DESKTOP_ACCOUNT_PROFILES_ROLE_HTTP_COMPLETE (\{[^\r\n]+\})$')
+            if ($accountRolesExit -ne 0 -or $accountRolesMatches.Count -ne 1) { throw 'The actual Owner/Admin/Branch login and scope checks did not complete exactly once.' }
+            $accountRoles = $accountRolesMatches[0].Groups[1].Value | ConvertFrom-Json
+            if ($accountRoles.format -ne 1 -or $accountRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $accountRoles.sourceRevision -cne $env:GITHUB_SHA -or $accountRoles.fixtureRevision -cne $env:GITHUB_SHA -or $accountRoles.helperBinding -cne 'exact-git-revision' -or $accountRoles.schemaInventory -ne 106 -or $accountRoles.distinctEnrollments -ne 3 -or $accountRoles.distinctDatabases -ne 4 -or $accountRoles.distinctStorageRoots -ne 3 -or $accountRoles.actors.Count -ne 3) { throw 'The real account/role scope differs from the exact captured application.' }
+            foreach ($field in @('actualPhpServer','originalRouter','originalAuthProvider','sourceVerifiedAfter','helpersVerifiedAfter','centralBusinessAndCredentialsUnchanged','httpServersStopped','privateDatabasesDropped','privateStorageRemoved','existingEffectsPreserved','completed')) {
+              if ($accountRoles.$field -isnot [bool] -or $accountRoles.$field -ne $true) { throw "Actual account/role proof is missing $field." }
+            }
+            foreach ($field in @('providersReplaced','permissionBypass','productionProfile','productionCredentialsCopied','fullDashboard')) {
+              if ($accountRoles.$field -isnot [bool] -or $accountRoles.$field -ne $false) { throw "Actual account/role proof scope differs: $field." }
+            }
+            if (($accountRoles.actors.actorId -join ',') -cne '1,30,10') { throw 'The expected actual Owner/Admin/Branch actors were not tested.' }
+            foreach ($actor in $accountRoles.actors) {
+              if ($actor.originalLogin -ne $true -or $actor.signinStatus -ne 302 -or $actor.wrongCsrfStatus -ne 419 -or $actor.foreignLoginsRejected -ne 3 -or $actor.otherPasswordsMasked -ne $true -or $actor.verifiedImport -ne $true -or $actor.credentialRowsUnchanged -ne $true -or $actor.journalCommands -ne 0) { throw 'An actual account did not retain original authentication and isolation.' }
+              $expectedBranches = if ($actor.actorId -eq 10) { 'f:100' } else { 'f:100,f:101' }
+              $expectedPermission = if ($actor.actorId -eq 10) { 403 } else { 200 }
+              if (($actor.branches -join ',') -cne $expectedBranches -or $actor.orderListHttpStatus -ne $expectedPermission) { throw 'An actual account crossed its branch or permission scope.' }
+            }
             $pdfProofDirectory = "$env:RUNNER_TEMP/contract-pdf-windows"
             New-Item -ItemType Directory -Path $pdfProofDirectory -Force | Out-Null
             & php tests/desktop_dashboard_runtime/contract-pdf-http.php "$bundle/application" $port $pdfProofDirectory windows $env:GITHUB_SHA 2>&1 | Tee-Object -Variable pdfProofOutput
@@ -657,16 +699,26 @@ jobs:
           $rememberProof = Get-Content desktop-pos/dist/remember-session-native.json -Raw | ConvertFrom-Json
           $lockedRememberElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($rememberProof.format -ne 1 -or $rememberProof.kind -cne 'go-erp-native-remember-session' -or $rememberProof.sourceRevision -cne $env:GITHUB_SHA -or $rememberProof.platform -cne 'win32' -or $rememberProof.electronVersion -cne $lockedRememberElectron -or $rememberProof.processes -ne 6) { throw 'Packaging requires this exact source remembered-session acceptance.' }
-          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','completed')) {
+          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','productionSpaSource','originalNavbarLogout','ownedMainFrameFetch','ordinaryLogoutResponse','completed')) {
             if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $true) { throw "Remembered-session packaging proof is missing $field." }
           }
           foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
             if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $false) { throw "Remembered-session packaging scope differs: $field." }
           }
-          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/remember-session-native.cjs' }.GetEnumerator()) {
+          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/remember-session-native.cjs'; spa = 'public/dashboard/js/dashboard-spa.js'; navbar = 'resources/views/admin/layouts/navbar.blade.php' }.GetEnumerator()) {
             if ($rememberProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Remembered-session source changed before packaging: $($binding.Key)." }
           }
           if ($rememberProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/remember-session-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Remembered-session runner changed before packaging.' }
+      - name: Require exact native account and worker proofs before packaging
+        shell: pwsh
+        run: |
+          node .github/scripts/verify-account-profiles-native.cjs desktop-pos/dist/account-profiles-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging requires exact-source isolated account acceptance.' }
+          $proof = Get-Content desktop-pos/dist/runtime-inventory-electron-native.json -Raw | ConvertFrom-Json
+          if ($proof.rootSha -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32' -or $proof.completed -ne $true -or $proof.packagedAsar -ne $true) { throw 'Packaging requires this exact ASAR inventory proof.' }
+          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
+            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Inventory worker source changed before packaging.' }
+          }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |

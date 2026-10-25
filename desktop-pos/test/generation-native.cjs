@@ -334,7 +334,26 @@ echo $wire;
     const upgraded = path.join(profile, 'synthetic-new-install');await fs.mkdir(upgraded);
     const installedManifest = JSON.parse(await fs.readFile(path.join(bundle, 'manifest.json'), 'utf8'));
     await fs.writeFile(path.join(upgraded, 'manifest.json'), JSON.stringify({ ...installedManifest, sourceRevision: 'f'.repeat(40) }));
-    runtime = create(upgraded); await runtime.start();
+    // Measure the actual retained PHP/vendor/PE/PDF files as well as the synthetic
+    // 50k benchmark. Never use a timing result to bypass a fresh verification.
+    const BaselineInventory=require('./runtime-inventory-baseline.cjs');
+    const retainedReceipt=await runtime.metadata.read('runtimes/'+next.sourceRevision);
+    const baselineStarted=performance.now();
+    const baselineFiles=await new BaselineInventory().inventory(runtime.bundle);
+    const baselineInventoryMs=performance.now()-baselineStarted;
+    assert.deepEqual(baselineFiles,retainedReceipt.files);
+    runtime = create(upgraded);
+    const warmStarted=performance.now(),warmPhases=[];
+    runtime.onPhase=phase=>warmPhases.push({phase,milliseconds:performance.now()-warmStarted});
+    await runtime.start();
+    const warmRuntimeMs=performance.now()-warmStarted;
+    const archiveStarted=warmPhases.find(value=>value.phase==='runtime-archive');
+    const archiveFinished=warmPhases.find(value=>value.phase==='runtime-source');
+    assert.ok(archiveStarted&&archiveFinished&&archiveFinished.milliseconds>=archiveStarted.milliseconds);
+    console.log('DESKTOP_WARM_START_MEASUREMENT '+JSON.stringify({format:1,sourceRevision:process.env.GITHUB_SHA||null,
+      actualWindows:true,realRetainedRuntime:true,syntheticSnapshot:true,fullDashboard:false,nativeSafeStorage:false,
+      packagedAsar:codeRoot.includes('.asar'),files:Object.keys(baselineFiles).length,baselineInventoryMs,
+      workerInventoryMs:archiveFinished.milliseconds-archiveStarted.milliseconds,warmRuntimeMs,phases:warmPhases}));
     assert.equal(await runtime.isPrepared(), true); assert.equal((await runtime.connection()).fullCoverage, false);
     assert.deepEqual((await runtime.connection()).coverage, snapshot.coverage);
     console.log('PASS real Windows restart verifies the retained preview source, route scope and imported media while preserving fullCoverage false');

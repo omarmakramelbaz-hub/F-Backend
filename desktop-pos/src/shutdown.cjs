@@ -8,6 +8,7 @@ module.exports = class Shutdown {
     this.ready = false;
     this.pending = new Set();
     this.relaunchRequested = false;
+    this.canRelaunch = canRelaunch;
     this.errors = [];
     app.on('web-contents-created', (_event, contents) => {
       contents.on('will-prevent-unload', event => {
@@ -44,9 +45,17 @@ module.exports = class Shutdown {
       let closed = false;
       try { close(); closed = true; }
       catch (error) { this.errors.push({ phase: 'close', error }); }
-      if (closed && this.relaunchRequested && canRelaunch()) app.relaunch();
+      if (closed && this.relaunchRequested && canRelaunch()) {
+        try { app.relaunch(); }
+        catch (error) { this.errors.push({ phase: 'relaunch', error }); }
+      }
     });
   }
+  requestRelaunch() {
+    if (this.stopping || this.ready || !this.canRelaunch()) throw Error('تعذر إعادة تشغيل البرنامج أثناء العملية الحالية.');
+    this.relaunchRequested = true;
+  }
+  cancelRelaunch() { if (!this.stopping) this.relaunchRequested = false; }
   async run(fn) {
     if (this.stopping) throw Error('البرنامج يُغلق الآن. الطلبات المحفوظة متاحة عند إعادة فتحه.');
     const task = Promise.resolve().then(fn);

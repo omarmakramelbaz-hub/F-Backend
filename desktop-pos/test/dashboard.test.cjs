@@ -12,6 +12,7 @@ function fixture(t, options = {}){
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
       contents.id=++next;contents.session=session;contents.setWindowOpenHandler=fn=>{contents.popup=fn;};
+      const owner=this;contents.mainFrame={get url(){return owner.url;}};
       contents.stop=()=>{contents.stopped=true;};contents.send=(name,value)=>{contents.lastMessage={name,value};};
       contents.getURL=()=>this.url;contents.getPrintersAsync=async()=>[{name:'BranchPrinter'}];
       contents.executeJavaScript=async()=>true;contents.print=(options,callback)=>{this.printOptions=options;callback?.(true);};windows.push(this);}
@@ -35,6 +36,38 @@ test('installed app opens the original complete dashboard and keeps a persistent
   assert.equal(w.options.webPreferences.nodeIntegration,false);assert.equal(w.options.webPreferences.contextIsolation,true);
   assert.match(w.options.webPreferences.preload,/dashboard-preload/);
   await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/branch-expenses');assert.equal(f.windows.length,1);assert.match(w.url,/branch-expenses$/);
+});
+test('a native account partition is validated and shared by dashboard, child, receipt and reauthentication windows',async t=>{
+  const partition='persist:fasakhansta-dashboard-01234567-89ab-4cde-8fab-0123456789ab';
+  for(const invalid of ['',null,'temporary','persist:other','persist:fasakhansta-dashboard-0123456789abcdef',partition.toUpperCase(),partition+'/other'])
+    assert.throws(()=>fixture(t,{partition:invalid}),/ملف جلسة/);
+  const f=fixture(t,{partition});await f.dashboard.open();const contents=f.windows[0].webContents;
+  assert.equal(f.windows[0].options.webPreferences.partition,partition);
+  assert.equal(contents.popup({url:policy.DEFAULT_ORIGIN+'/admin/employees'}).overrideBrowserWindowOptions.webPreferences.partition,partition);
+  const printed=await f.handlers.get('dashboard:print-receipt')({sender:contents,senderFrame:{url:contents.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/receipts/1/print');
+  assert.equal(printed.ok,true);assert.equal(f.windows[1].options.webPreferences.partition,partition);
+  const renewing=f.dashboard.reauthenticate(policy.DEFAULT_ORIGIN,async()=>{});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.windows[2].options.webPreferences.partition,partition);f.dashboard.cancelAuthentication();
+  await assert.rejects(renewing,/إلغاء/);
+});
+test('account switching exposes only an optional native menu and argument-free owned login-frame action',async t=>{
+  let switches=0,finish;const f=fixture(t,{switchAccount:()=>{switches++;return new Promise(resolve=>finish=resolve);}});await f.dashboard.open();
+  const contents=f.windows[0].webContents,available=f.handlers.get('dashboard:account-switch-available'),invoke=f.handlers.get('dashboard:switch-account');
+  const event={sender:contents,senderFrame:contents.mainFrame};
+  assert.equal(available(event).value,false);assert.equal((await invoke(event)).ok,false);
+  await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/login');assert.equal(available(event).value,true);
+  for(const [sender,value] of [[{sender:contents,senderFrame:{url:contents.mainFrame.url}},undefined],[event,{account:'forged'}]]){
+    assert.equal((await invoke(sender,value)).ok,false);
+  }
+  const switching=invoke(event);await Promise.resolve();assert.equal(switches,1);
+  assert.equal((await invoke(event)).ok,false,'one native account selection may run at a time');finish('selected');
+  assert.equal((await switching).value,'selected');
+  const menu=f.electron.menu[0].submenu.find(item=>item.label==='تبديل الحساب');assert.ok(menu);const selected=menu.click();await Promise.resolve();
+  assert.equal(switches,2);finish('selected again');await selected;
+  f.close();assert.equal((await invoke(event)).ok,false);assert.equal(switches,2);
+  const ordinary=fixture(t);await ordinary.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/login');
+  assert.equal(ordinary.electron.menu[0].submenu.some(item=>item.label==='تبديل الحساب'),false);
+  const sender=ordinary.windows[0].webContents;assert.equal(ordinary.handlers.get('dashboard:account-switch-available')({sender,senderFrame:sender.mainFrame}).value,false);
 });
 test('the dashboard reveals immediately and becomes ready at DOM readiness without waiting for fonts and images',async t=>{
   let finishLoad,visible=0;const events=[];
@@ -162,6 +195,66 @@ test('a quit arriving during remembered cookie inspection cancels logout transmi
     webContentsId:f.windows[0].webContents.id,requestHeaders:{}},value=>decision=value);
   await Promise.resolve();f.close();inspected([nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})]);
   await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.cancel,true);assert.equal(removed,0);assert.equal(quits,0);
+});
+test('the original SPA logout fetch from the owning main frame preserves remember cookies and quits before transmission',async t=>{
+  let quits=0,flushed=false,inspect;const removed=[];
+  const f=fixture(t,{quit:()=>{assert.equal(flushed,true);quits++;}});await f.dashboard.open();const contents=f.windows[0].webContents;
+  f.session.cookies.get=()=>new Promise(resolve=>inspect=resolve);
+  f.session.cookies.remove=async(...args)=>removed.push(args);f.session.cookies.flushStore=async()=>{flushed=true;};
+  let decision;f.session.webRequest.headers({id:520,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'xhr',
+    webContentsId:contents.id,frame:contents.mainFrame,requestHeaders:{Accept:'text/html','X-Dashboard-SPA':'1'}},value=>decision=value);
+  await Promise.resolve();contents.emit('did-navigate',{},policy.DEFAULT_ORIGIN+'/admin/dashboard',200,'OK');
+  assert.equal(quits,0);assert.equal(decision,undefined,'read-only cookie inspection must settle before native close');
+  inspect([nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})]);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.cancel,true);assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session']]);
+});
+test('ordinary SPA logout retains the native header and quits only for its successful original request completion',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let quits=0;const origin='http://127.0.0.1:43123';
+  const f=fixture(t,{origin,localToken:'private-runtime-token',serverOrigin:policy.DEFAULT_ORIGIN,quit:()=>quits++});await f.dashboard.open();
+  const contents=f.windows[0].webContents;
+  const request={id:521,url:origin+'/admin/adminLogout',method:'GET',resourceType:'xhr',webContentsId:contents.id,frame:contents.mainFrame,
+    requestHeaders:{'X-Dashboard-SPA':'1',Cookie:'laravel_session=original-session'}};
+  let decision;f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private-runtime-token');assert.equal(quits,0);
+  contents.emit('did-navigate',{},origin+'/admin/dashboard',200,'OK');assert.equal(quits,0);
+  for(const details of [{...request,id:522,statusCode:200},{...request,webContentsId:999,statusCode:200}])f.session.webRequest.completed(details);
+  assert.equal(quits,0);
+  f.session.webRequest.completed({...request,url:origin+'/admin/login',statusCode:200});assert.equal(quits,1);
+  t.mock.timers.tick(15000);assert.equal(quits,1);
+});
+test('SPA logout requires the native owning top frame, original SPA marker, exact GET route and current origin',async t=>{
+  let reads=0,quits=0;const f=fixture(t,{quit:()=>quits++,remoteState:{begin:async()=>{}}});await f.dashboard.open();const contents=f.windows[0].webContents;
+  f.session.cookies.get=async()=>{reads++;return [];};
+  const base={id:523,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'xhr',webContentsId:contents.id,
+    frame:contents.mainFrame,requestHeaders:{'X-Dashboard-SPA':'1'}};
+  for(const request of [{...base,frame:null},{...base,frame:{url:contents.mainFrame.url}},
+    {...base,requestHeaders:{}},{...base,requestHeaders:{'X-Dashboard-SPA':'true'}},{...base,resourceType:'subFrame'},
+    {...base,resourceType:'image'},{...base,webContentsId:999},{...base,url:'https://foreign.test/admin/adminLogout'},
+    {...base,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout/other'},{...base,method:'POST'}]){
+    let decision;f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));assert.ok(decision.requestHeaders);
+  }
+  f.windows[0].url='https://foreign.test/admin/dashboard';let decision;
+  f.session.webRequest.headers(base,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));assert.ok(decision.requestHeaders);
+  assert.equal(reads,0);assert.equal(quits,0);
+});
+test('failed or timed-out original SPA logout offers native close, never treats unrelated responses as logout and blocks a late sign-in race',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  for(const failure of ['timeout','network','server','foreign']){
+    let quits=0;const dialogs=[],f=fixture(t,{quit:()=>quits++});await f.dashboard.open();const contents=f.windows[0].webContents;
+    f.electron.dialog.showMessageBox=async(_window,details)=>{dialogs.push(details);return {response:1};};
+    const request={id:524,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'xhr',webContentsId:contents.id,
+      frame:contents.mainFrame,requestHeaders:{'x-dashboard-spa':'1'}};
+    let decision;f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));assert.ok(decision.requestHeaders);
+    if(failure==='timeout')t.mock.timers.tick(15000);
+    else if(failure==='network')f.session.webRequest.error({...request,error:'net::ERR_CONNECTION_RESET'});
+    else f.session.webRequest.completed({...request,url:failure==='foreign'?'https://foreign.test/admin/login':request.url,statusCode:failure==='server'?500:200});
+    await new Promise(resolve=>setImmediate(resolve));assert.equal(dialogs.length,1);assert.match(dialogs[0].message,/تأكيد تسجيل الخروج/);
+    assert.equal(quits,0);assert.equal(await f.dashboard.canRefresh(),false);
+    let signin;f.session.webRequest.headers({...request,id:525,url:policy.DEFAULT_ORIGIN+'/admin/signin',resourceType:'mainFrame',method:'POST'},value=>signin=value);
+    assert.equal(signin.cancel,true);
+    f.session.webRequest.completed({...request,url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});assert.equal(quits,0,'late responses cannot finish a failed intent');
+  }
 });
 test('a fresh original sign-in discards only the old recaller, preserves CSRF/session headers and retains the ordinary native reservation',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
@@ -357,7 +450,7 @@ test('native printing rejects foreign pages, unowned frames and non-receipts bef
 });
 test('remote dashboard exposes bounded preparation, status and receipt actions without the offline store or device token',()=>{
   let api,name;vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/dashboard-preload.cjs'),'utf8'),{require:()=>({contextBridge:{exposeInMainWorld:(n,a)=>{name=n;api=a;}},ipcRenderer:{invoke:async()=>({ok:true,value:true})}})});
-  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','printEffect','printPending','status','prepare','synchronize','reviewSync','openLive','onState']);
+  assert.equal(name,'FasakhanstaDesktop');assert.deepEqual(Object.keys(api),['printReceipt','printEffect','printPending','status','prepare','synchronize','reviewSync','openLive','switchAccount','onState']);
   assert.ok(policy.sameOrigin('https://fasakhaninja.com/admin/customers'));assert.equal(policy.sameOrigin('https://fasakhaninja.com.evil.test/admin'),false);
   assert.equal(policy.sameOrigin('https://user:password@fasakhaninja.com/admin'),false);assert.equal(policy.externalURL('file:///x'),false);
 });
@@ -533,13 +626,15 @@ test('prepared local receipts resolve to a typed durable effect and never fetch 
     if(value.action==='print-outcome'){const{action,...receipt}=value;return {effect_id:effect,invocation_id:value.invocation_id,state:value.state,receipt_sha256:receiptHash(receipt)};}
     throw Error('Unexpected control operation');
   };
-  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,localToken:'private',printControl:control,
+  const partition='persist:fasakhansta-dashboard-01234567-89ab-4cde-8fab-0123456789ab';
+  const origin='http://127.0.0.1:43123',f=fixture(t,{origin,partition,localToken:'private',printControl:control,
     printMetadata:{read:async key=>records.get(key)||null,write:async(key,value)=>records.set(key,value)}});
   await f.dashboard.open();f.session.fetch=()=>{throw Error('Legacy consuming GET must not be fetched.');};
   const sender=f.windows[0].webContents,event={sender,senderFrame:{url:sender.getURL()}},handler=f.handlers.get('dashboard:print-receipt');
   assert.equal((await handler(event,origin+'/admin/takeaway/receipts/1/print?initial_print=original-grant')).ok,true);
   assert.equal(calls[0].action,'print-resolve');assert.equal(calls[0].path,'/admin/takeaway/receipts/1/print');assert.equal(calls[0].query.initial_print,'original-grant');
   assert.equal(f.windows[1].printOptions.silent,true);assert.ok(f.windows[1].destroyed);
+  assert.equal(f.windows[1].options.webPreferences.partition,partition,'durable local printing stays in the selected account partition');
   const printed=await handler(event,origin+'/admin/takeaway/receipts/1/print?initial_print=original-grant');
   assert.equal(printed.ok,true);assert.equal(printed.value.already_recorded,true);assert.equal(f.windows.length,2);
   assert.equal(calls.filter(value=>value.action==='print-burn').length,1);
@@ -695,6 +790,12 @@ test('native server renewal shares only the login cookie partition and blocks ev
   assert.equal(auth.options.webPreferences.partition,'persist:fasakhansta-dashboard');assert.equal(auth.options.webPreferences.preload,undefined);
   assert.equal(auth.options.webPreferences.nodeIntegration,false);assert.equal(auth.options.webPreferences.contextIsolation,true);
   assert.deepEqual(removals,[[policy.DEFAULT_ORIGIN+'/','server-session']]);
+  for(const [owner,scope] of [[main,local],[auth,policy.DEFAULT_ORIGIN]]){
+    let decision;f.session.webRequest.headers({id:526,url:scope+'/admin/adminLogout',method:'GET',resourceType:'xhr',
+      webContentsId:owner.webContents.id,frame:owner.webContents.mainFrame,requestHeaders:{'X-Dashboard-SPA':'1'}},value=>decision=value);
+    assert.equal(decision.cancel,true,'neither the obscured dashboard nor the login modal may start a native SPA logout during renewal');
+  }
+  assert.equal(removals.length,1);
   const headers=(url,method='GET',id=auth.webContents.id)=>{let result;f.session.webRequest.headers({url,method,webContentsId:id,requestHeaders:{'X-Fasakhansta-Desktop':'stolen','X-Fasakhansta-Connected-Token':'stolen'}},value=>result=value);return result;};
   for(const pathname of ['/admin/login','/dashboard/dist/css/adminlte.min.css','/dashboard/branding/dashboard-brand.css?v=1','/dashboard/plugins/fontawesome-free/webfonts/fa-solid-900.woff2'])
     assert.deepEqual(Object.keys(headers(policy.DEFAULT_ORIGIN+pathname).requestHeaders),[]);

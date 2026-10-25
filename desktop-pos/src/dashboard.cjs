@@ -11,19 +11,37 @@ const { withDeadline, printOnce } = require('./native-deadline.cjs');
 const adminRecallerName='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
-module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial,
+module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '', partition = 'persist:fasakhansta-dashboard',
+  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial, switchAccount,
   onVisible = () => {}, onNavigation = () => {}, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  if(typeof partition!=='string'||!/^persist:fasakhansta-dashboard(?:-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$/.test(partition))throw Error('ملف جلسة الداشبورد غير صالح.');
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
   let firstRead = null, firstReadStarted = false, navigationStartedAt = Date.now(), lastResponse = null, sessionRecovery = false, pendingLogin = null;
-  let logoutDecision=null,signinCookieCleanupBlocked=false;
+  let logoutDecision=null,spaLogout=null,logoutNavigation=false,signinCookieCleanupBlocked=false,accountSwitchPending=false;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
   const nativeConnectedPrints = new Map();
   const activeRequests = new Set();
+  function ownedSpaLogout(details,contents) {
+    if(details.resourceType!=='xhr'||!Number.isInteger(details.id)
+      ||!Object.entries(details.requestHeaders).some(([name,value])=>name.toLowerCase()==='x-dashboard-spa'&&value==='1'))return false;
+    const owner=details.webContentsId===contents.id?contents:[...children].find(child=>!child.isDestroyed()&&child.webContents.id===details.webContentsId)?.webContents;
+    try{return Boolean(owner&&details.frame&&details.frame===owner.mainFrame&&policy.sameOrigin(details.frame.url,origin)
+      &&getPolicy.admin(new URL(details.frame.url).pathname));}catch{return false;}
+  }
+  function failSpaLogout(message) {
+    if(!spaLogout)return;
+    clearTimeout(spaLogout.timer);spaLogout=null;
+    // The original logout may still complete after a transport timeout. Keep a
+    // fresh sign-in from racing its eventual cookie/session invalidation.
+    signinCookieCleanupBlocked=true;loggingOut=false;logoutDecision=null;
+    if(!quitting())Promise.resolve(dialog.showMessageBox(window,{type:'error',title:'GO ERP',message,
+      buttons:['إغلاق البرنامج','البقاء في الصفحة'],defaultId:0,cancelId:1,noLink:true}))
+      .then(choice=>{if(choice.response===0&&!quitting())quit();}).catch(()=>{});
+  }
   function navigationTrace(phase, value, status) {
     if(!policy.sameOrigin(value,origin))return;
     const pathname=new URL(value).pathname;
@@ -136,7 +154,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     const html=prepared.html;
     const protection='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src data: '+origin+'; style-src \'unsafe-inline\' '+origin+'; font-src '+origin+'; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
     const printWindow=new BrowserWindow({show:false,width:480,height:800,
-      webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+      webPreferences:{partition,sandbox:true,contextIsolation:true,nodeIntegration:false}});
     const contents=printWindow.webContents;owned.add(contents.id);let closed=false;
     const close=()=>{if(closed)return;closed=true;owned.delete(contents.id);printWindow.destroy();};
     contents.on('will-navigate',event=>event.preventDefault());contents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -187,6 +205,23 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return !quitting() && !refreshing && !authentication && window && event.sender.id === window.webContents.id
       && policy.sameOrigin(event.senderFrame.url, origin) && new URL(event.senderFrame.url).pathname.startsWith('/admin/');
   }
+  function loginAccountRequest(event) {
+    try{return trusted(event)&&event.senderFrame===event.sender.mainFrame
+      &&new URL(event.senderFrame.url).pathname==='/admin/login'&&typeof switchAccount==='function';}catch{return false;}
+  }
+  async function requestAccountSwitch() {
+    if(typeof switchAccount!=='function'||accountSwitchPending||quitting()||refreshing||authentication||loggingOut||signinCookieCleanupBlocked)
+      throw Error('تبديل الحساب غير متاح الآن. أكمل العملية الحالية ثم أعد المحاولة.');
+    accountSwitchPending=true;
+    try{return await accepted(()=>switchAccount());}finally{accountSwitchPending=false;}
+  }
+  ipcMain.handle('dashboard:account-switch-available',(event,value)=>({ok:true,value:value===undefined&&loginAccountRequest(event)}));
+  ipcMain.handle('dashboard:switch-account',async(event,value)=>{
+    try{
+      if(value!==undefined||!loginAccountRequest(event))throw Error('مصدر تبديل الحساب غير مسموح.');
+      return {ok:true,value:await requestAccountSwitch()};
+    }catch(error){return {ok:false,error:error.message};}
+  });
   for (const [name, work] of Object.entries({
     status: () => status(),
     prepare: value => {
@@ -248,7 +283,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       const protection = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; img-src https: data:' + localSource + '; style-src \'unsafe-inline\' https:' + localSource + '; font-src https:' + localSource + '; connect-src \'none\'; frame-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">';
       if (!/<head\b/i.test(html)) throw Error('الصفحة غير صالحة لطباعة فاتورة.');
       const printWindow = new BrowserWindow({ show: false, width: 480, height: 800,
-        webPreferences: { partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true, nodeIntegration: false } });
+        webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       owned.add(printWindow.webContents.id);
       try {
         printWindow.webContents.on('will-navigate', event => event.preventDefault());
@@ -283,7 +318,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if (!window || window.isDestroyed()) {
         window = new BrowserWindow({ width: 1440, height: 950, minWidth: 1000, minHeight: 650, show: false, fullscreen: true,
           title: 'GO ERP — الداشبورد', icon: path.join(__dirname, 'assets', 'app.ico'), backgroundColor: '#f4f5f8',
-          webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true,
+          webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition, sandbox: true, contextIsolation: true,
             nodeIntegration: false, webSecurity: true } });
         const contents = window.webContents;
         contents.on('page-title-updated',event=>event.preventDefault());
@@ -324,7 +359,8 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               }
               callback({ requestHeaders: headers }); return;
             }
-            if(owned.has(details.webContentsId)&&details.resourceType==='mainFrame'
+            const spaLogoutRequest=ownedSpaLogout(details,contents);
+            if(owned.has(details.webContentsId)&&(details.resourceType==='mainFrame'||spaLogoutRequest)
               &&String(details.method).toUpperCase()==='GET'&&getPolicy.normalized(new URL(details.url).pathname)==='/admin/adminLogout'){
               if(logoutDecision||quitting()||refreshing||authentication){callback({cancel:true});return;}
               const scope=origin;loggingOut=true;
@@ -334,8 +370,12 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
                 if(result.remembered){callback({cancel:true});quit();return;}
                 // Without an explicit persistent recaller, keep the original
                 // server logout and its remember-token revocation unchanged.
+                if(spaLogoutRequest){
+                  spaLogout={id:details.id,contentsId:details.webContentsId,scope,
+                    timer:setTimeout(()=>failSpaLogout('لم يصل تأكيد تسجيل الخروج. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.'),15000)};
+                }else logoutNavigation=true;
                 authorizeRequest();
-                setTimeout(()=>{if(!quitting())quit();},15000);
+                if(!spaLogoutRequest)setTimeout(()=>{if(!quitting())quit();},15000);
               },error=>{
                 callback({cancel:true});
                 if(error.code==='NATIVE_OPERATION_TIMEOUT'){
@@ -395,6 +435,14 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         });
         contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, details => {
           activeRequests.delete(details.id);
+          if(spaLogout&&spaLogout.id===details.id&&spaLogout.contentsId===details.webContentsId){
+            const expected=spaLogout;
+            if(origin===expected.scope&&policy.sameOrigin(details.url,expected.scope)&&String(details.method).toUpperCase()==='GET'
+              &&['/admin/adminLogout','/admin/login'].includes(getPolicy.normalized(new URL(details.url).pathname))
+              &&details.statusCode>=200&&details.statusCode<400){
+              clearTimeout(expected.timer);spaLogout=null;if(!quitting())quit();
+            }else failSpaLogout('تعذر تأكيد تسجيل الخروج من السيرفر. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.');
+          }
           if (!remoteWrites.has(details.id)) return;
           const attempt=remoteWrites.get(details.id);
           const forget=()=>{if(remoteWrites.get(details.id)===attempt)remoteWrites.delete(details.id);};
@@ -409,7 +457,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           if (policy.sameOrigin(url, origin)) {
             return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 850, title: 'GO ERP — الداشبورد',
               icon: path.join(__dirname, 'assets', 'app.ico'),
-              webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition: 'persist:fasakhansta-dashboard', sandbox: true, contextIsolation: true,
+              webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition, sandbox: true, contextIsolation: true,
                 nodeIntegration: false, webSecurity: true } } };
           }
           if (policy.externalURL(url)) shell.openExternal(url);
@@ -432,7 +480,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         window.on('close', event => { if (!quitting()) { event.preventDefault(); quit(); } });
         // A normal nonremembered logout closes after its original response;
         // remembered close is cancelled before transmission by the native gate.
-        contents.on('did-navigate', () => { if (loggingOut && !quitting()) quit(); });
+        contents.on('did-navigate', () => { if (loggingOut && logoutNavigation && !quitting()) quit(); });
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
           if (!refreshing && mainFrame && policy.networkFailure(description)) {
             if (localToken) dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
@@ -442,6 +490,9 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         // Fetch failures during SPA navigation do not trigger did-fail-load.
         contents.session.webRequest.onErrorOccurred({ urls: ['<all_urls>'] }, details => {
           activeRequests.delete(details.id);
+          if(spaLogout&&spaLogout.id===details.id&&spaLogout.contentsId===details.webContentsId){
+            failSpaLogout('تعذر تأكيد تسجيل الخروج بسبب الاتصال. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.');return;
+          }
           if(remoteAttempts&&remoteWrites.has(details.id)){remoteAttempts.failed(remoteWrites.get(details.id));remoteWrites.delete(details.id);}
           if (!refreshing && !authentication && !localToken && (!details.url || policy.sameOrigin(details.url, origin)) && policy.networkFailure(details.error))
             offline('انقطع الاتصال بالداشبورد. الطلبات المحلية محفوظة على الجهاز.', failure(details));
@@ -493,6 +544,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'البرنامج', submenu: [
       { label: 'الداشبورد كاملة', accelerator: 'CmdOrCtrl+D', click: () => open().catch(() => {}) },
+      ...(switchAccount?[{label:'تبديل الحساب',click:()=>requestAccountSwitch().catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}]:[]),
       ...(liveSocial?[
         {label:'الرسائل المتصلة مباشرة',click:()=>accepted(()=>liveSocial('messages')).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))},
         {label:'تعليقات السوشيال المتصلة مباشرة',click:()=>accepted(()=>liveSocial('comments')).catch(error=>dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message}))}
@@ -539,22 +591,33 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       try { contents.print({ printBackground: true }, finish); } catch (error) { finish(); throw error; }
     } }] }
   ]));
-  async function canRefresh() {
+  async function canRefresh() {return canIdle(false);}
+  async function canSwitchAccount() {return canIdle(true);}
+  async function canIdle(allowLogin) {
     if (loading || refreshing || authentication || loggingOut || signinCookieCleanupBlocked || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
     if (!window || window.isDestroyed()) return true;
     const current = window.webContents.getURL();
-    if (!policy.sameOrigin(current, origin) || !idlePage(current)) return false;
+    if (!policy.sameOrigin(current, origin)) return false;
+    const login=allowLogin&&new URL(current).pathname==='/admin/login';
+    if (!idlePage(current)&&!login) return false;
     // Business pages provide pure, synchronous checks for drafts and pending
     // actions. Renderer failures always defer the short final handoff.
     try {
       return await window.webContents.executeJavaScript(`(() => {
         if (document.readyState !== 'complete') return false;
+        const form = ${login} ? document.querySelector('form[data-dashboard-login]') : null;
+        const originalLogin = ${login} && form && String(form.method).toUpperCase() === 'POST'
+          && new URL(form.action, window.location.href).href === new URL('/admin/signin', window.location.href).href;
+        if (${login} && !originalLogin) return false;
+        const loginField = field => originalLogin && field?.form === form && field.tagName === 'INPUT'
+          && ['email','password','remember','_token'].includes(field.name);
         if (${businessPage(current)} && window.DashboardSPA?.isIdle?.() !== true) return false;
         const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
-        if (document.activeElement?.matches(editable)) return false;
+        if (document.activeElement?.matches(editable) && !loginField(document.activeElement)) return false;
         if (Array.from(document.querySelectorAll('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"],dialog[open]'))
           .some(element => !element.closest('[hidden]') && element.getClientRects().length > 0)) return false;
         return !Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
+          if (loginField(field)) return false;
           if (field.disabled || field.readOnly) return false;
           if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
           if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
@@ -575,16 +638,19 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if(entered&&!refreshing&&window&&!window.isDestroyed()&&!quitting())await open(policy.sameOrigin(returnURL,origin)?returnURL:home);
     }
   }
-  async function withUpdateIdle(work,{retireCurrent=false}={}) {
+  async function withUpdateIdle(work,{retireCurrent=false}={}) {return withIdle(work,{retireCurrent});}
+  async function withAccountIdle(work) {return withIdle(work,{allowLogin:true});}
+  async function withIdle(work,{retireCurrent=false,allowLogin=false}={}) {
     if (typeof work !== 'function') throw Error('عملية تحديث البرنامج غير صالحة.');
-    if (!(await canRefresh())) return { deferred: true };
+    if (!(await canIdle(allowLogin))) return { deferred: true };
     const heldWindow = window, contents = heldWindow?.webContents;
     const currentURL = contents?.getURL();
-    const idle = () => !loading && !authentication && !quitting() && !printing && !effects?.active
+    const login=allowLogin&&currentURL&&new URL(currentURL).pathname==='/admin/login';
+    const idle = () => !loading && !authentication && !loggingOut && !signinCookieCleanupBlocked && !quitting() && !printing && !effects?.active
       && !children.size && !remoteWrites.size && !activeRequests.size
       && heldWindow && window === heldWindow && !heldWindow.isDestroyed()
       && contents.getURL() === currentURL && policy.sameOrigin(currentURL, origin)
-      && idlePage(currentURL);
+      && (idlePage(currentURL)||login);
     // Recheck native work after the first asynchronous renderer probe. No child
     // window is closed and no page is stopped, replaced, or reloaded by this gate.
     if (refreshing || !idle()) return { deferred: true };
@@ -611,14 +677,21 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         for (const name of events) window.addEventListener(name, block, {capture:true,passive:false});
         window[key] = {id,release};
         try {
+          const form = ${Boolean(login)} ? document.querySelector('form[data-dashboard-login]') : null;
+          const originalLogin = ${Boolean(login)} && form && String(form.method).toUpperCase() === 'POST'
+            && new URL(form.action, window.location.href).href === new URL('/admin/signin', window.location.href).href;
+          const loginField = field => originalLogin && field?.form === form && field.tagName === 'INPUT'
+            && ['email','password','remember','_token'].includes(field.name);
           const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
           if (window.location.href !== expectedURL || document.readyState !== 'complete'
+            || (${Boolean(login)} && !originalLogin)
             || (${businessPage(currentURL)} && window.DashboardSPA?.isIdle?.() !== true)
-            || document.activeElement?.matches(editable)
+            || (document.activeElement?.matches(editable) && !loginField(document.activeElement))
             || Array.from(document.querySelectorAll('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"],dialog[open]'))
               .some(element => !element.closest('[hidden]') && element.getClientRects().length > 0)
             || document.querySelector('[contenteditable]:not([contenteditable="false"])')
             || Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
+              if (loginField(field)) return false;
               if (field.disabled || field.readOnly) return false;
               if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
               if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
@@ -690,7 +763,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       throw Error('انتقل للصفحة الرئيسية وأكمل أي تعديل أو طباعة قبل تجديد تسجيل الدخول.');
     if(authentication||quitting())throw Error('نافذة تسجيل الدخول غير متاحة الآن.');
     const authWindow=new BrowserWindow({parent:window,modal:true,show:false,width:980,height:760,title:'GO ERP — تسجيل دخول السيرفر',icon:path.join(__dirname,'assets','app.ico'),
-      webPreferences:{partition:'persist:fasakhansta-dashboard',sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+      webPreferences:{partition,sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
     authWindow.webContents.on('page-title-updated',event=>event.preventDefault());
     const staticPaths=new Set(['/dashboard/plugins/fontawesome-free/css/all.min.css','/dashboard/dist/css/adminlte.min.css',
       '/dashboard/branding/dashboard-brand.css','/dashboard/branding/fasakhansta-logo-transparent.png']);
@@ -776,6 +849,6 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     if(!localToken || !effects)return {local:false};
     printing++;try{await effects.inspect();return {local:true};}finally{printing--;}
   }
-  return { open, refresh, canRefresh, withUpdateIdle, switchTo, reauthenticate:renewServerLogin, cancelAuthentication:()=>authentication?.cancel(), publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
+  return { open, refresh, canRefresh, canSwitchAccount, withUpdateIdle, withAccountIdle, switchTo, reauthenticate:renewServerLogin, cancelAuthentication:()=>authentication?.cancel(), publish, reveal, recoverPrintEffects, session: () => window?.webContents.session,
     current: () => ({ origin, local: Boolean(localToken) }), isVisible: () => Boolean(window && !window.isDestroyed() && window.isVisible()) };
 };
