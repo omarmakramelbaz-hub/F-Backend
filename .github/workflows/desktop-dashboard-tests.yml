@@ -91,6 +91,24 @@ jobs:
             if ($shutdownProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Native shutdown source binding differs: $($binding.Key)." }
           }
           if ($shutdownProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/shutdown-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Native shutdown parent runner binding differs.' }
+      - name: Verify remembered native close and fresh-process cookie authentication
+        shell: pwsh
+        run: |
+          node desktop-pos/test/remember-session-native-runner.cjs desktop-pos/dist/remember-session-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual Windows remembered-session close/reopen acceptance failed.' }
+          $rememberProof = Get-Content desktop-pos/dist/remember-session-native.json -Raw | ConvertFrom-Json
+          $lockedRememberElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($rememberProof.format -ne 1 -or $rememberProof.kind -cne 'go-erp-native-remember-session' -or $rememberProof.sourceRevision -cne $env:GITHUB_SHA -or $rememberProof.platform -cne 'win32' -or $rememberProof.electronVersion -cne $lockedRememberElectron -or $rememberProof.processes -ne 6) { throw 'Remembered-session proof belongs to another source or Electron lock.' }
+          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','completed')) {
+            if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $true) { throw "Remembered-session proof is missing $field." }
+          }
+          foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
+            if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $false) { throw "Remembered-session scope differs: $field." }
+          }
+          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/remember-session-native.cjs' }.GetEnumerator()) {
+            if ($rememberProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Remembered-session source binding differs: $($binding.Key)." }
+          }
+          if ($rememberProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/remember-session-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Remembered-session runner binding differs.' }
       - name: Retain the exact connected native acceptance receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,6 +117,7 @@ jobs:
           path: |
             desktop-pos/dist/connected-request-native.json
             desktop-pos/dist/shutdown-native.json
+            desktop-pos/dist/remember-session-native.json
           if-no-files-found: error
           retention-days: 14
   original-runtime:
@@ -632,6 +651,22 @@ jobs:
             if ($shutdownProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Native shutdown source changed before packaging: $($binding.Key)." }
           }
           if ($shutdownProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/shutdown-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Native shutdown parent runner changed before packaging.' }
+      - name: Require exact remembered-session proof before packaging
+        shell: pwsh
+        run: |
+          $rememberProof = Get-Content desktop-pos/dist/remember-session-native.json -Raw | ConvertFrom-Json
+          $lockedRememberElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
+          if ($rememberProof.format -ne 1 -or $rememberProof.kind -cne 'go-erp-native-remember-session' -or $rememberProof.sourceRevision -cne $env:GITHUB_SHA -or $rememberProof.platform -cne 'win32' -or $rememberProof.electronVersion -cne $lockedRememberElectron -or $rememberProof.processes -ne 6) { throw 'Packaging requires this exact source remembered-session acceptance.' }
+          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','completed')) {
+            if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $true) { throw "Remembered-session packaging proof is missing $field." }
+          }
+          foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
+            if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $false) { throw "Remembered-session packaging scope differs: $field." }
+          }
+          foreach ($binding in @{ shutdown = 'desktop-pos/src/shutdown.cjs'; dashboard = 'desktop-pos/src/dashboard.cjs'; fixture = 'desktop-pos/test/remember-session-native.cjs' }.GetEnumerator()) {
+            if ($rememberProof.sourceHashes.($binding.Key) -cne (Get-FileHash $binding.Value -Algorithm SHA256).Hash.ToLowerInvariant()) { throw "Remembered-session source changed before packaging: $($binding.Key)." }
+          }
+          if ($rememberProof.runnerSha256 -cne (Get-FileHash desktop-pos/test/remember-session-native-runner.cjs -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Remembered-session runner changed before packaging.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |

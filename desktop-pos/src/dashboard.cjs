@@ -6,6 +6,9 @@ const getPolicy=require('./dashboard-get-policy.cjs');
 const policy = require('./dashboard-policy.cjs');
 const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 const { withDeadline, printOnce } = require('./native-deadline.cjs');
+// config/auth.php uses the original Laravel session guard named admin. Its
+// recaller stays encrypted and is validated only by Laravel on the next GET.
+const adminRecallerName='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
@@ -15,6 +18,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
   let firstRead = null, firstReadStarted = false, navigationStartedAt = Date.now(), lastResponse = null, sessionRecovery = false, pendingLogin = null;
+  let logoutDecision=null,signinCookieCleanupBlocked=false;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
@@ -67,6 +71,62 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       buttons:['فتح صفحة دخول جديدة','البقاء في الصفحة'],defaultId:0,cancelId:1,noLink:true}))
       .then(choice=>{if(choice.response===0){pendingLogin={window:target,url,response};resumeFreshLogin();}})
       .catch(()=>{}).finally(()=>{sessionRecovery=false;});
+  }
+  async function rememberedCloseSession(cookieSession,scope) {
+    let active=true;
+    const current=()=>active&&!quitting()&&!refreshing&&!authentication&&origin===scope;
+    try{return await withDeadline(async()=>{
+      const cookies=await cookieSession.cookies.get({url:scope+'/admin/dashboard'});
+      if(!current())return {cancelled:true};
+      const host=new URL(scope).hostname.toLowerCase();
+      const scoped=cookie=>typeof cookie.domain==='string'&&typeof cookie.path==='string'&&cookie.path==='/'
+        &&(cookie.domain.replace(/^\./,'').toLowerCase()===host
+          ||cookie.hostOnly===false&&host.endsWith('.'+cookie.domain.replace(/^\./,'').toLowerCase()));
+      const remembered=cookies.some(cookie=>scoped(cookie)&&cookie.name===adminRecallerName&&cookie.httpOnly===true
+        &&cookie.session===false&&Number.isFinite(cookie.expirationDate)&&cookie.expirationDate>Date.now()/1000
+        &&typeof cookie.value==='string'&&cookie.value.length>0);
+      if(!remembered)return {remembered:false};
+      const sessions=cookies.filter(cookie=>scoped(cookie)&&cookie.session===true&&cookie.httpOnly===true
+        &&/^[a-zA-Z0-9_-]{1,120}_session$/.test(cookie.name));
+      if(sessions.length>16)throw Error('تعذر تحديد جلسة الحساب الحالية.');
+      for(const cookie of sessions){
+        if(!current())return {cancelled:true};
+        await cookieSession.cookies.remove(scope+cookie.path,cookie.name);
+      }
+      if(!current())return {cancelled:true};
+      // Never copy/restore the recaller or store a password. Flush the original
+      // protected browser cookie so a fresh process can validate it normally.
+      await cookieSession.cookies.flushStore();
+      return current()?{remembered:true}:{cancelled:true};
+    },5000,'تعذر حفظ حالة تذكرني. أغلق البرنامج ثم أعد فتحه.');}
+    finally{active=false;}
+  }
+  async function clearPreviousRecaller(cookieSession,scope) {
+    let active=true;
+    const current=()=>active&&!quitting()&&!refreshing&&!authentication&&origin===scope;
+    try{return await withDeadline(async()=>{
+      const cookies=await cookieSession.cookies.get({url:scope+'/admin/login'});
+      if(!current())return {cancelled:true};
+      const host=new URL(scope).hostname.toLowerCase();
+      const previous=cookies.filter(cookie=>cookie.name===adminRecallerName&&cookie.path==='/'&&typeof cookie.domain==='string'
+        &&(cookie.domain.replace(/^\./,'').toLowerCase()===host
+          ||cookie.hostOnly===false&&host.endsWith('.'+cookie.domain.replace(/^\./,'').toLowerCase())));
+      for(const cookie of previous){
+        if(!current())return {cancelled:true};
+        await cookieSession.cookies.remove(scope+cookie.path,cookie.name);
+      }
+      if(!current())return {cancelled:true};
+      if(previous.length)await cookieSession.cookies.flushStore();
+      return {cancelled:!current()};
+    },5000,'تعذر إكمال تجهيز جلسة الدخول. أغلق البرنامج ثم أعد فتحه.');}
+    finally{active=false;}
+  }
+  function withoutPreviousRecaller(headers) {
+    for(const name of Object.keys(headers))if(name.toLowerCase()==='cookie'){
+      if(typeof headers[name]!=='string')throw Error('تعذر التحقق من جلسة الدخول.');
+      const retained=headers[name].split(';').map(value=>value.trim()).filter(value=>value&&value.slice(0,value.indexOf('='))!==adminRecallerName);
+      if(retained.length)headers[name]=retained.join('; ');else delete headers[name];
+    }
   }
   const businessPage = url => ['/admin/takeaway','/admin/branch-expenses','/admin/branch-stock','/admin/branch-shifts'].includes(new URL(url).pathname);
   const idlePage = url => ['/admin/dashboard','/admin/desktop-dashboard'].includes(new URL(url).pathname) || businessPage(url);
@@ -216,7 +276,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     }
   }
   async function open(url = home) {
-    if (loading || refreshing || authentication || quitting()) return;
+    if (loading || refreshing || authentication || loggingOut || signinCookieCleanupBlocked || quitting()) return;
     if (!policy.sameOrigin(url, origin)) throw Error('رابط الداشبورد غير صحيح.');
     loading = true;
     try {
@@ -264,6 +324,30 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               }
               callback({ requestHeaders: headers }); return;
             }
+            if(owned.has(details.webContentsId)&&details.resourceType==='mainFrame'
+              &&String(details.method).toUpperCase()==='GET'&&getPolicy.normalized(new URL(details.url).pathname)==='/admin/adminLogout'){
+              if(logoutDecision||quitting()||refreshing||authentication){callback({cancel:true});return;}
+              const scope=origin;loggingOut=true;
+              logoutDecision=accepted(()=>rememberedCloseSession(contents.session,scope));
+              Promise.resolve(logoutDecision).then(result=>{
+                if(result.cancelled||quitting()||origin!==scope){callback({cancel:true});return;}
+                if(result.remembered){callback({cancel:true});quit();return;}
+                // Without an explicit persistent recaller, keep the original
+                // server logout and its remember-token revocation unchanged.
+                authorizeRequest();
+                setTimeout(()=>{if(!quitting())quit();},15000);
+              },error=>{
+                callback({cancel:true});
+                if(error.code==='NATIVE_OPERATION_TIMEOUT'){
+                  // Cookie removal has no native cancellation primitive. Do not
+                  // permit a newer sign-in to race an outstanding old removal.
+                  signinCookieCleanupBlocked=true;
+                }else{logoutDecision=null;loggingOut=false;}
+                if(!quitting())dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message});
+              });
+              return;
+            }
+            function authorizeRequest(){
             if (details.id != null && owned.has(details.webContentsId)) activeRequests.add(details.id);
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
@@ -291,6 +375,23 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             const native = (details.webContentsId == null || details.webContentsId <= 0) && supplied === localToken;
             if (quitting() || refreshing || (!owned.has(details.webContentsId) && !native)) { callback({ cancel: true }); return; }
             callback({ requestHeaders: { ...headers, 'X-Fasakhansta-Desktop': localToken } });
+            }
+            if(owned.has(details.webContentsId)&&details.resourceType==='mainFrame'&&String(details.method).toUpperCase()==='POST'
+              &&getPolicy.normalized(new URL(details.url).pathname)==='/admin/signin'){
+              if(signinCookieCleanupBlocked||quitting()||refreshing||authentication){callback({cancel:true});return;}
+              const scope=origin;
+              // A fresh original sign-in must not inherit another remembered
+              // account. The request body/password is never read or reconstructed.
+              accepted(()=>clearPreviousRecaller(contents.session,scope)).then(result=>{
+                if(result.cancelled||quitting()||origin!==scope){callback({cancel:true});return;}
+                try{withoutPreviousRecaller(headers);authorizeRequest();}
+                catch(error){callback({cancel:true});if(!quitting())dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message});}
+              },error=>{
+                if(error.code==='NATIVE_OPERATION_TIMEOUT')signinCookieCleanupBlocked=true;
+                callback({cancel:true});if(!quitting())dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message});
+              });return;
+            }
+            authorizeRequest();
         });
         contents.session.webRequest.onCompleted({ urls: ['<all_urls>'] }, details => {
           activeRequests.delete(details.id);
@@ -329,13 +430,8 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           });
         });
         window.on('close', event => { if (!quitting()) { event.preventDefault(); quit(); } });
-        // Logging out of the dashboard ends desktop work: after the logout page
-        // has completed, close GO ERP through the normal safe shutdown.
-        contents.on('will-navigate', (_event, url) => {
-          if (loggingOut || refreshing || authentication || !policy.sameOrigin(url, origin) || new URL(url).pathname !== '/admin/adminLogout') return;
-          loggingOut = true;
-          setTimeout(() => { if (!quitting()) quit(); }, 15000);
-        });
+        // A normal nonremembered logout closes after its original response;
+        // remembered close is cancelled before transmission by the native gate.
         contents.on('did-navigate', () => { if (loggingOut && !quitting()) quit(); });
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
           if (!refreshing && mainFrame && policy.networkFailure(description)) {
@@ -444,7 +540,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     } }] }
   ]));
   async function canRefresh() {
-    if (loading || refreshing || authentication || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
+    if (loading || refreshing || authentication || loggingOut || signinCookieCleanupBlocked || quitting() || printing || children.size || remoteWrites.size || activeRequests.size) return false;
     if (!window || window.isDestroyed()) return true;
     const current = window.webContents.getURL();
     if (!policy.sameOrigin(current, origin) || !idlePage(current)) return false;
