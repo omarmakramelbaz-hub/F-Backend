@@ -12,7 +12,7 @@ function fixture(t, options = {}){
       contents.stop=()=>{contents.stopped=true;};contents.send=(name,value)=>{contents.lastMessage={name,value};};
       contents.getURL=()=>this.url;contents.getPrintersAsync=async()=>[{name:'BranchPrinter'}];
       contents.executeJavaScript=async()=>true;contents.print=(options,callback)=>{this.printOptions=options;callback?.(true);};windows.push(this);}
-    maximize(){} async loadURL(url){this.url=url;if(this.failure)throw Error(this.failure);} show(){this.visible=true;} hide(){this.visible=false;} focus(){} isMinimized(){return false;} isDestroyed(){return this.destroyed;} isVisible(){return this.visible;} destroy(){this.destroyed=true;} reload(){}
+    maximize(){} async loadURL(url){this.url=url;(this.loads||=[]).push(url);if(this.failure)throw Error(this.failure);if(options.loadURL)await options.loadURL(this,url);} show(){this.visible=true;} hide(){this.visible=false;} focus(){} isMinimized(){return false;} isDestroyed(){return this.destroyed;} isVisible(){return this.visible;} destroy(){this.destroyed=true;} reload(){}
     static getFocusedWindow(){return windows.find(w=>w.visible);}
   }
   const electron={BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},Menu:{buildFromTemplate:template=>template,setApplicationMenu:menu=>{electron.menu=menu;}},shell:{openExternal:url=>external.push(url)},dialog:{showMessageBox:async()=>({response:1})}};
@@ -32,6 +32,73 @@ test('installed app opens the original complete dashboard and keeps a persistent
   assert.equal(w.options.webPreferences.nodeIntegration,false);assert.equal(w.options.webPreferences.contextIsolation,true);
   assert.match(w.options.webPreferences.preload,/dashboard-preload/);
   await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/branch-expenses');assert.equal(f.windows.length,1);assert.match(w.url,/branch-expenses$/);
+});
+test('the dashboard reveals immediately and becomes ready at DOM readiness without waiting for fonts and images',async t=>{
+  let finishLoad,visible=0;const events=[];
+  const f=fixture(t,{onVisible:()=>visible++,onNavigation:entry=>events.push(entry),loadURL:()=>new Promise(resolve=>finishLoad=resolve)});
+  let settled=false;const opening=f.dashboard.open().then(()=>{settled=true;});
+  assert.equal(visible,1);assert.equal(f.windows[0].visible,true);
+  await Promise.resolve();assert.equal(settled,false);
+  f.windows[0].webContents.emit('dom-ready');await opening;
+  assert.equal(settled,true);assert.ok(events.some(event=>event.phase==='interactive'));
+  finishLoad();await Promise.resolve();assert.equal(events.filter(event=>event.phase==='loaded').length,0);
+});
+test('an initial GET which never returns reaches a finite deadline and keeps its native window available',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});const events=[],dialogs=[];
+  const f=fixture(t,{onNavigation:entry=>events.push(entry),loadURL:()=>new Promise(()=>{})});
+  f.electron.dialog.showMessageBox=async(_window,details)=>{dialogs.push(details);return {response:1};};
+  const opening=f.dashboard.open();await Promise.resolve();t.mock.timers.tick(45000);await opening;
+  assert.equal(f.windows[0].webContents.stopped,true);assert.equal(f.windows[0].visible,true);
+  assert.ok(events.some(event=>event.phase==='timeout'));assert.equal(dialogs.length,1);
+});
+test('initial navigation supervision hands off before an original POST and never stops or replays that request',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let finishLoad;const events=[];
+  const f=fixture(t,{onNavigation:entry=>events.push(entry),remoteState:{begin:async()=>{}},loadURL:()=>new Promise(resolve=>finishLoad=resolve)});
+  const opening=f.dashboard.open();await Promise.resolve();const window=f.windows[0];let decision;
+  f.session.webRequest.headers({id:15,url:policy.DEFAULT_ORIGIN+'/admin/signin',method:'POST',resourceType:'mainFrame',
+    webContentsId:window.webContents.id,requestHeaders:{Cookie:'private-session','X-CSRF-TOKEN':'private-csrf'}},value=>decision=value);
+  await opening;await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.requestHeaders.Cookie,'private-session');assert.equal(decision.requestHeaders['X-CSRF-TOKEN'],'private-csrf');
+  t.mock.timers.tick(45000);assert.equal(window.webContents.stopped,undefined);
+  assert.deepEqual(window.loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);assert.ok(events.some(event=>event.phase==='user-navigation'));
+  finishLoad();
+});
+test('main-frame response traces contain only a mode, safe route class, elapsed time and HTTP status',async t=>{
+  const events=[],f=fixture(t,{onNavigation:entry=>events.push(entry)});await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/dashboard?token=secret-token');
+  const window=f.windows[0];window.url=policy.DEFAULT_ORIGIN+'/admin/reset/secret-token?password=private';
+  window.webContents.emit('did-navigate',{},window.url,403,'Forbidden');
+  const response=events.at(-1);assert.equal(response.phase,'response');assert.equal(response.mode,'server');assert.equal(response.path,'/admin/other');assert.equal(response.status,403);
+  assert.deepEqual(Object.keys(response).sort(),['elapsed_ms','mode','path','phase','status']);
+  assert.equal(/secret|password|private/.test(JSON.stringify(events)),false);
+});
+test('a main-frame 419 offers an explicit fresh GET login without clearing cookies or replaying the rejected POST',async t=>{
+  for(const accept of [false,true]){
+    const f=fixture(t);await f.dashboard.open();const window=f.windows[0],cookies=[];let prompts=0;
+    f.session.cookies.remove=async(...args)=>cookies.push(args);
+    f.electron.dialog.showMessageBox=async(_window,details)=>{prompts++;assert.match(details.message,/انتهت جلسة/);return {response:accept?0:1};};
+    window.url=policy.DEFAULT_ORIGIN+'/admin/signin';window.webContents.emit('did-navigate',{},window.url,419,'Page Expired');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(prompts,1);assert.deepEqual(cookies,[]);
+    assert.deepEqual(window.loads,accept?[policy.DEFAULT_ORIGIN+'/admin/dashboard',policy.DEFAULT_ORIGIN+'/admin/login']:[policy.DEFAULT_ORIGIN+'/admin/dashboard']);
+    assert.equal(window.loads.some(url=>url.endsWith('/admin/signin')),false);
+  }
+});
+test('a stale 419 dialog cannot replace a newer page or navigate after shutdown begins',async t=>{
+  for(const closing of [false,true]){
+    let choose;const f=fixture(t);await f.dashboard.open();const window=f.windows[0];
+    f.electron.dialog.showMessageBox=()=>new Promise(resolve=>choose=resolve);
+    window.url=policy.DEFAULT_ORIGIN+'/admin/signin';window.webContents.emit('did-navigate',{},window.url,419,'Page Expired');
+    await Promise.resolve();
+    if(closing)f.close();else{window.url=policy.DEFAULT_ORIGIN+'/admin/employees';window.webContents.emit('did-navigate',{},window.url,200,'OK');}
+    choose({response:0});await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(window.loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);
+  }
+});
+test('closing a still-loading dashboard releases readiness without reading a destroyed native view',async t=>{
+  const f=fixture(t,{loadURL:()=>new Promise(()=>{})});const opening=f.dashboard.open();await Promise.resolve();
+  const window=f.windows[0];f.close();window.destroy();
+  window.webContents.getURL=()=>{throw Error('Object has been destroyed');};
+  assert.doesNotThrow(()=>window.emit('closed'));await opening;
 });
 test('F12 toggles the focused native app window without changing dashboard navigation',async t=>{
   const f=fixture(t);await f.dashboard.open();const w=f.windows[0];

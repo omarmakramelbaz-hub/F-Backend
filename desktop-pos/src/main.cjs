@@ -21,6 +21,7 @@ const createUpdateInstall=require('./update-install.cjs');
 const RuntimeArchive=require('./runtime-archive.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const {withDeadline,printOnce}=require('./native-deadline.cjs');
+const LifecycleTrace=require('./lifecycle-trace.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
 app.setName('GO ERP');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
@@ -28,10 +29,32 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,quitting=false,installingUpdate=false,startupComplete=false,legacyLoading,legacyReady=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,lifecycleTrace,quitting=false,installingUpdate=false,startupComplete=false,dashboardVisible=false,startupHidden=false,legacyLoading,legacyReady=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
-const shutdown=new Shutdown(app,()=>{quitting=true;localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>{await updater?.running;await localRuntime?.stop();},{canRelaunch:()=>!installingUpdate});
+const shutdown=new Shutdown(app,()=>{
+  lifecycleTrace?.mark('shutdown-requested');quitting=true;
+  localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();
+  lifecycleTrace?.mark('shutdown-wait-accepted');
+},()=>{
+  lifecycleTrace?.mark('shutdown-close-ledger');
+  try{store?.close();lifecycleTrace?.mark('shutdown-complete');}
+  catch(error){lifecycleTrace?.mark('shutdown-ledger-failed');throw error;}
+},async()=>{
+  lifecycleTrace?.mark('shutdown-accepted-settled');lifecycleTrace?.mark('shutdown-drain-updater');await updater?.running;
+  lifecycleTrace?.mark('shutdown-stop-runtime');await localRuntime?.stop();lifecycleTrace?.mark('shutdown-runtime-stopped');
+},{canRelaunch:()=>!installingUpdate});
+function startupPhase(phase,details){if(!quitting&&!startupComplete)lifecycleTrace?.mark(phase,details);}
+function hideStartup(){if(!legacyLoading&&!startupHidden&&win&&!win.isDestroyed()){win.hide();startupHidden=true;}}
+function dashboardShown(){
+  if(quitting)return;
+  dashboardVisible=true;startupPhase('dashboard-visible');hideStartup();
+}
+function dashboardNavigation(event={}){
+  if(quitting)return;
+  lifecycleTrace?.mark({started:'dashboard-navigation',response:'dashboard-response',interactive:'dashboard-interactive',loaded:'dashboard-loaded',
+    failed:'dashboard-navigation-failed',timeout:'dashboard-navigation-timeout','user-navigation':'dashboard-user-navigation'}[event.phase],event);
+}
 function origin(value) {const u=new URL(String(value));if(u.protocol!=='https:'||u.username||u.password)throw Error('اكتب رابط الداشبورد الصحيح ويبدأ بـ https://');return u.origin;}
 async function request(method,endpoint,body,credential=store.get('connection')) {
   if(!credential)throw Error('الجهاز يحتاج ربطًا بالداشبورد.');
@@ -245,6 +268,7 @@ async function printEvent(id) {
 app.whenReady().then(async()=>{
   if(!primaryInstance||quitting)return;
   const profile=process.env.POS_TEST_PROFILE&&!app.isPackaged?process.env.POS_TEST_PROFILE:app.getPath('userData');fs.mkdirSync(profile,{recursive:true});
+  lifecycleTrace=new LifecycleTrace(profile);startupPhase('startup-ready');startupPhase('ledger-open');
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js','startup.html']);
   protocol.handle('fasakhansta',r=>{const u=new URL(r.url),name=u.pathname.slice(1);if(u.hostname!=='pos'||!allowed.has(name))return new Response('',{status:404});return net.fetch(pathToFileURL(path.join(__dirname,name)).toString());});
@@ -275,13 +299,14 @@ app.whenReady().then(async()=>{
     const r=await dialog.showSaveDialog(win,{title:'نسخة من سجل عمليات الجهاز',defaultPath:'GO-ERP-Backup.sqlite',filters:[{name:'SQLite',extensions:['sqlite']}]});
     if(r.canceled)return false;const {backup}=require('node:sqlite');await backup(store.db,r.filePath);return true;
   });
-  await win.loadURL('fasakhansta://pos/startup.html');
+  startupPhase('splash-loading');await win.loadURL('fasakhansta://pos/startup.html');
   if(quitting)return;
+  startupPhase('splash-loaded');
   let dashboardOrigin=!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN);
   let localToken='';
   const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
   if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
-    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,
+    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onPhase:startupPhase,
       authorizeInstalled:manifest=>updater?updater.authorizeInstalled(manifest):false,
       onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
     remoteState=new DashboardRemoteState(localRuntime.metadata);
@@ -302,16 +327,22 @@ app.whenReady().then(async()=>{
       allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
       beforePrepare:async()=>{if(store.get('connection'))await syncSchedule.request();const old=store.counts();if(old.pending||store.openOrders().length)throw Error('أكمل فواتير النسخة السابقة وأكد مزامنتها قبل تجهيز الداشبورد؛ جميعها محفوظة.');},
       onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});},onPrepared:async()=>{connectDashboardSync();}});
-    if(await localRuntime.isPrepared()) {
+    startupPhase('prepared-check');if(await localRuntime.isPrepared()) {
+      startupPhase('runtime-start');
       const local=await shutdown.run(()=>localRuntime.start());
+      if(quitting)return;
+      startupPhase('runtime-ready');startupPhase('remote-state');
       const remote=await remoteState.read();
+      startupPhase('central-selection');
       const centralSelected=await connectedAccess.selected({recover:true});
       if(remote.dirty||remote.pending.length||centralSelected)dashboardOrigin=(await localRuntime.connection()).serverOrigin;
       else {dashboardOrigin=local.origin;localToken=local.token;}
     }
   }
   if(quitting)return;
+  startupPhase('dashboard-create');
   dashboard=createDashboard({origin:dashboardOrigin,localToken,serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
+    onVisible:dashboardShown,onNavigation:dashboardNavigation,
     prepare:preparation?async(serverOrigin,csrf)=>{
       const ready=await remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf));
       // The encrypted snapshot gate is clean only after preparation returns.
@@ -345,13 +376,22 @@ app.whenReady().then(async()=>{
       if(result.response<cancel)store.set('printer',names[result.response]);
     },
     accepted:fn=>shutdown.run(fn),offline:dashboardOffline,offlineWindow:()=>win,quitting:()=>quitting,quit:()=>app.quit(),printer:()=>{if(quitting)throw Error('البرنامج يُغلق الآن.');return store.get('printer')||'';}});
-  if(localRuntime&&await localRuntime.isPrepared()){
-    connectDashboardSync();await shutdown.run(async()=>{await generations.recover();
-      if(localToken)await dashboardMode.recover();else await dashboardMode.hold();});
+  startupPhase('recovery-check');if(localRuntime&&await localRuntime.isPrepared()){
+    connectDashboardSync();await shutdown.run(async()=>{startupPhase('generation-recovery');await generations.recover();
+      if(localToken){startupPhase('local-fence-recovery');await dashboardMode.recover();}
+      else{startupPhase('central-fence-recovery');await dashboardMode.hold();}});
   }
+  startupPhase('dashboard-navigation');
   await dashboard.open();if(quitting)return;
-  if(!legacyLoading)win.hide();startupComplete=true;syncSchedule.start();connectUpdater(profile);
-}).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
+  startupPhase('dashboard-open-settled');hideStartup();startupPhase('startup-complete');startupComplete=true;syncSchedule.start();connectUpdater(profile);
+}).catch(error=>{if(!quitting){startupPhase('startup-failed');dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
 // Opening GO ERP again while it is still starting must wait for the dashboard,
 // never show the previous local orders screen in its place.
-app.on('second-instance',()=>{if(quitting)return;if(!startupComplete){if(win&&!win.isDestroyed()){win.show();if(win.isMinimized())win.restore();win.focus();}return;}if(dashboard)dashboard.reveal();else localOrders();});
+app.on('second-instance',()=>{
+  if(quitting)return;
+  // The actual dashboard is usable before its final subresource load settles.
+  // A second launch must reveal it instead of covering it with the splash.
+  if(dashboardVisible&&dashboard){dashboard.reveal();return;}
+  if(!startupComplete){if(win&&!win.isDestroyed()){win.show();startupHidden=false;if(win.isMinimized())win.restore();win.focus();}return;}
+  if(dashboard)dashboard.reveal();else localOrders();
+});

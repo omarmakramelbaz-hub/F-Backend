@@ -210,7 +210,7 @@ class LocalRuntime {
     if(Buffer.byteLength(input)>384*1024*1024)throw Error('بيانات تحديث الخلفية أكبر من الحد المسموح؛ العمل المحلي مستمر.');
     return input;
   }
-  constructor({ bundle, profile, safeStorage, downloadMedia, authorizeInstalled = async () => false, platform = process.platform, onFailure = () => {} }) {
+  constructor({ bundle, profile, safeStorage, downloadMedia, authorizeInstalled = async () => false, platform = process.platform, onFailure = () => {}, onPhase = () => {} }) {
     this.installedBundle = bundle; this.bundle = bundle; this.stagedContexts = new Map(); this.profile = path.join(profile, 'dashboard');
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
     this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
@@ -218,7 +218,9 @@ class LocalRuntime {
     this.metadata = new GenerationStore(this.profile, safeStorage);
     this.downloadMedia = downloadMedia;
     this.authorizeInstalled = authorizeInstalled;
+    this.onPhase = onPhase;
   }
+  phase(name) { try { this.onPhase(name); } catch {} }
   async settings() {
     await fs.mkdir(this.profile, { recursive: true, mode: 0o700 });
     const file = path.join(this.profile, 'credentials.enc');
@@ -301,6 +303,7 @@ class LocalRuntime {
     const active = await this.metadata.read('prepared');
     if (active && !prepared(active, settings.deviceId, await this.preparedManifest(active))) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
     const archive = new RuntimeArchive(this.profile, this.metadata, { stopped: () => this.stopping });
+    this.phase('runtime-archive');
     this.bundle = await archive.select(this.bundle, active);
     this.assertStarting();
     const manifest = JSON.parse(await fs.readFile(path.join(this.bundle, 'manifest.json'), 'utf8'));
@@ -310,6 +313,7 @@ class LocalRuntime {
     const application = path.join(this.bundle, 'application');
     for (const file of [php, path.join(maria, 'mariadbd.exe'), path.join(maria, 'mariadb-install-db.exe'), path.join(application, 'vendor', 'autoload.php')]) await fs.access(file);
     if (active?.format === 2 && active.sourceRevision !== manifest.sourceRevision) throw Error('نسخة التشغيل تختلف عن نسخة بيانات الجهاز؛ يلزم استرجاع التحديث قبل العمل.');
+    this.phase('runtime-source');
     this.sourceFingerprint = await archive.sourceFingerprint(this.bundle);
     if ((manifest.sourceFingerprint && !sourceCode.same(manifest.sourceFingerprint, this.sourceFingerprint))
         || (active?.sourceFingerprint && !sourceCode.same(active.sourceFingerprint, this.sourceFingerprint)))
@@ -326,6 +330,7 @@ class LocalRuntime {
     const config = path.join(this.profile, 'my.ini');
     const iniPath = value => '"' + value.replaceAll('\\', '/').replaceAll('"', '') + '"';
     await fs.writeFile(config, `[mysqld]\nbasedir=${iniPath(path.join(this.bundle, 'mariadb'))}\ndatadir=${iniPath(data)}\nbind-address=127.0.0.1\nport=${this.dbPort}\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_unicode_ci\nlocal-infile=0\nskip-name-resolve\nmax-allowed-packet=64M\ninnodb-flush-log-at-trx-commit=1\n`, { mode: 0o600 });
+    this.phase('runtime-database');
     try { await fs.access(path.join(data, 'mysql')); }
     catch (error) {
       if (error.code !== 'ENOENT') throw error;
@@ -350,10 +355,12 @@ class LocalRuntime {
       } catch (error) { if (Date.now() > deadline) throw error; await pause(150); }
     }
     if (active?.format === 2) {
+      this.phase('runtime-media');
       const verified = JSON.parse(await run(php, [...phpArgs, path.join(application, 'desktop/verify-media.php')],
         { env: runtimeEnvironment, cwd: application }, JSON.stringify(active)));
       if (verified.verified !== true) throw Error('صور نسخة الجهاز غير مكتملة؛ العمليات محفوظة.');
     }
+    this.phase('runtime-web');
     await this.startWeb();
     database.failure.then(error => { if (!this.stopping) this.onFailure(error); });
     return { origin: this.origin, token: this.token, sourceRevision: manifest.sourceRevision };
@@ -490,11 +497,13 @@ class LocalRuntime {
     if(!generation(stage.value.generation)||stage.value.database!=='fasakhansta_dashboard_stage_'+stage.value.generation)throw Error('اسم قاعدة تحديث الخلفية غير صالح.');
     const settings=await this.settings();
     const result=JSON.parse(await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/database.php'),'stage-status'],
-      {env:stage.options.env,cwd:stage.options.cwd},JSON.stringify({password:settings.rootPassword,appPassword:settings.appPassword}),15000));
+      {env:stage.options.env,cwd:stage.options.cwd,signal:this.deltaController?.signal},JSON.stringify({password:settings.rootPassword,appPassword:settings.appPassword}),15000));
     if(result?.format!==1||result.database!==stage.value.database||typeof result.exists!=='boolean')throw Error('تعذر تأكيد حالة قاعدة تحديث الخلفية.');
     return result.exists;
   }
   async recoverDeltaBackground() {
+    if(this.deltaStopped())throw Error('تم إيقاف تحديث الخلفية؛ بيانات الجهاز محفوظة.');
+    this.deltaController??=new AbortController();
     const record=await this.metadata.read('delta-background');if(!record)return;
     if(!this.deltaBackgroundValid(record)||(await this.settings()).deviceId!==record.device_id||await this.metadata.read('refresh'))
       throw Error('تعذر استرجاع تحديث الخلفية قبل تسوية انتقال قاعدة الجهاز.');
@@ -519,7 +528,7 @@ class LocalRuntime {
     if(await this.releaseDeltaCapture(capture,record.token)!==true)throw Error('تعذر تأكيد تسوية نسخة قراءة الخلفية؛ النسخة الحالية محفوظة.');
   }
   async createDeltaDatabase(context,id) {
-    if(this.stopping||!this.environment||!generation(id))throw Error('تعذر بدء تحديث الخلفية؛ بيانات الجهاز محفوظة.');
+    if(this.deltaStopped()||!this.environment||!generation(id))throw Error('تعذر بدء تحديث الخلفية؛ بيانات الجهاز محفوظة.');
     const value={generation:id,database:'fasakhansta_dashboard_stage_'+id},root=path.join(this.profile,'generations',id);
     await fs.mkdir(path.dirname(root),{recursive:true,mode:0o700});await fs.mkdir(root,{mode:0o700});
     for(const dir of ['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private'])
@@ -551,7 +560,7 @@ class LocalRuntime {
         stage.options,JSON.stringify(input),300000,72*1024*1024));
       if(capture?.capture_database!==stage.value.database||capture?.source_database!==previous.database)throw Error('تعذر تأكيد نسخة القراءة المحلية؛ البيانات الحالية محفوظة.');
       retained.capture=capture;return capture;
-    }catch(error){await this.releaseDeltaCapture({capture_database:stage.value.database,source_database:previous.database},token).catch(()=>{});throw error;}
+    }catch(error){if(!this.deltaStopped())await this.releaseDeltaCapture({capture_database:stage.value.database,source_database:previous.database},token).catch(()=>{});throw error;}
   }
   async stageDelta(context,capture,delta,id,token) {
     const retained=this.deltaCaptures?.get(capture.capture_database);
@@ -590,7 +599,7 @@ class LocalRuntime {
     Object.assign(candidate,{receipt:checked,mediaSeal,archiveHandoff,sourceRevision:context.manifest.sourceRevision,
       sourceFingerprint:checked.source,mediaVerified:images.verified});
     this.stagedContexts.set(id,context);return candidate;
-    }catch(error){await this.releaseDeltaStage(candidate,token).catch(()=>{});throw error;}
+    }catch(error){if(!this.deltaStopped())await this.releaseDeltaStage(candidate,token).catch(()=>{});throw error;}
   }
   async finalizeDelta(candidate,intent) {
     const stage=this.deltaStages?.get(candidate.generation);
@@ -604,16 +613,23 @@ class LocalRuntime {
         archive_handoff:candidate.archiveHandoff,handoff_token:stage.token}),90000);
   }
   async releaseDeltaCapture(capture,token) {
+    // A durable background capability already owns this inactive clone. Closing
+    // should not start another long PHP discard; the next supervisor rechecks
+    // its code, account and active pointer before finishing this cleanup.
+    if(this.deltaStopped())return false;
+    this.deltaController??=new AbortController();
     const stage=this.deltaCaptures?.get(capture.capture_database);
     if(!stage||stage.token!==token||stage.source_database!==capture.source_database||stage.capture&&stage.capture!==capture)return;
     const active=await this.connection();if(active.database===capture.capture_database)return false;
-    const options={cwd:stage.options.cwd,env:{...stage.options.env,DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database}};
+    const options={cwd:stage.options.cwd,env:{...stage.options.env,DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database},signal:this.deltaController.signal};
     if(await this.deltaDatabaseExists(stage)){
+      if(this.deltaStopped())return false;
       const result=JSON.parse(await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/delta.php')],options,
         JSON.stringify({action:'discard-capture',capture_database:capture.capture_database,source_database:capture.source_database,
           active_database:active.database,capture_token:token,...(stage.capture?{capture:stage.capture}:{})}),90000));
       if(result?.discarded!==true||result.database!==capture.capture_database)return false;
     }
+    if(this.deltaStopped())return false;
     this.deltaCaptures.delete(capture.capture_database);
     if(await this.removeDeltaDirectory(stage.value)!==true)return false;
     const background=await this.metadata.read('delta-background'),current=await this.connection();
@@ -622,18 +638,22 @@ class LocalRuntime {
     return true;
   }
   async releaseDeltaStage(candidate,token) {
+    if(this.deltaStopped())return false;
+    this.deltaController??=new AbortController();
     const stage=this.deltaStages?.get(candidate.generation);
     if(!stage||stage.candidate!==candidate||stage.token!==token)return;
     if(await this.metadata.read('refresh'))return false;
     const active=await this.connection();if(active.database===candidate.database)return false;
-    const options={cwd:stage.options.cwd,env:{...stage.options.env,DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database}};
+    const options={cwd:stage.options.cwd,env:{...stage.options.env,DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database},signal:this.deltaController.signal};
     if(await this.deltaDatabaseExists(stage)){
+      if(this.deltaStopped())return false;
       const result=JSON.parse(await run(stage.context.php,[...stage.args,path.join(stage.context.application,'desktop/delta.php')],options,
         JSON.stringify({action:'discard-stage',stage_database:candidate.database,source_database:stage.capture.source_database,
           active_database:active.database,capture_database:stage.capture.capture_database,capture_token:token,
           ...(stage.receipt?{receipt:stage.receipt}:{})}),90000));
       if(result?.discarded!==true||result.database!==candidate.database)return false;
     }
+    if(this.deltaStopped())return false;
     if((await this.connection()).database===candidate.database)return false;
     this.deltaStages.delete(candidate.generation);this.stagedContexts.delete(candidate.generation);
     if(await this.removeDeltaDirectory(stage.value)!==true)return false;
@@ -653,7 +673,8 @@ class LocalRuntime {
     // Only this supervisor's fresh, privately marked and positively discarded temporary stage is removed.
     await fs.rm(root,{recursive:true,force:false});return true;
   }
-  cancelDelta(){this.deltaController?.abort();}
+  deltaStopped(){return this.stopping||this.deltaController?.signal.aborted===true;}
+  cancelDelta(){this.deltaController??=new AbortController();this.deltaController.abort();}
   async stage(snapshot, id, archive, onMediaProgress) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
     const context = await this.candidate(snapshot);

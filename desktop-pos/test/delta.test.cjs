@@ -327,3 +327,40 @@ test('selected central work stays outside automatic local delta capture and cann
   assert.equal(result.deferred,true);assert.equal(f.calls.includes('context'),false);assert.equal(f.calls.includes('capture'),false);
   assert.equal(f.calls.includes('view'),false);assert.deepEqual(f.records.get('prepared'),f.previous);
 });
+
+test('closing during context verification cannot start a new capture after cancellation',async()=>{
+  const f=fixture();let ready;
+  f.runtime.deltaContext=async()=>{f.calls.push('context');await new Promise(resolve=>{ready=resolve;});return f.context;};
+  const coordinator=f.create(),work=coordinator.run();await settle();coordinator.stop();ready();
+  await assert.rejects(work);assert.equal(f.calls.includes('capture'),false);assert.equal(f.calls.includes('download'),false);
+  assert.equal(f.calls.includes('view'),false);assert.deepEqual(f.records.get('prepared'),f.previous);
+});
+
+test('closing during capture retains its durable background ownership without launching cleanup or network work',async()=>{
+  const f=fixture(),capture=f.runtime.captureDelta;let ready;
+  f.runtime.captureDelta=async(...args)=>{const value=await capture(...args);f.records.set('delta-background',{capture_database:value.capture_database});
+    await new Promise(resolve=>{ready=resolve;});return value;};
+  const coordinator=f.create(),work=coordinator.run();await settle();coordinator.stop();ready();
+  await assert.rejects(work);assert.equal(f.calls.includes('download'),false);assert.equal(f.calls.includes('release-capture'),false);
+  assert.ok(f.records.get('delta-background'));assert.equal(f.records.has('refresh'),false);assert.deepEqual(f.records.get('prepared'),f.previous);
+});
+
+test('closing during staging retains clone cleanup for restart without taking an active database fence',async()=>{
+  const f=fixture(),stage=f.runtime.stageDelta;let ready;
+  f.runtime.stageDelta=async(...args)=>{const value=await stage(...args);f.records.set('delta-background',{candidate_database:value.database});
+    await new Promise(resolve=>{ready=resolve;});return value;};
+  f.runtime.releaseDeltaStage=async()=>{f.calls.push('release-stage');throw Error('Closing must not launch another cleanup worker.');};
+  const coordinator=f.create(),work=coordinator.run();await settle();coordinator.stop();ready();
+  await assert.rejects(work);assert.equal(f.calls.includes('release-stage'),false);assert.equal(f.calls.includes('release-capture'),false);
+  assert.equal(f.calls.includes('refresh-begin'),false);assert.ok(f.records.get('delta-background'));assert.deepEqual(f.records.get('prepared'),f.previous);
+});
+
+test('closing during accepted finalization still drains its active fence recovery before settling',async()=>{
+  const f=fixture(),finalize=f.runtime.finalizeDelta;let ready;
+  f.runtime.finalizeDelta=async(...args)=>{await finalize(...args);await new Promise(resolve=>{ready=resolve;});};
+  const coordinator=f.create(),work=coordinator.run();await settle();assert.ok(f.held());assert.ok(f.records.get('refresh'));
+  coordinator.stop();assert.ok(f.held());ready();const result=await work;
+  assert.equal(result.deferred,true);assert.equal(f.held(),null);assert.equal(f.records.has('refresh'),false);
+  assert.equal(f.calls.includes('refresh-cancel'),true);assert.equal(f.calls.includes('activate'),false);
+  assert.equal(f.calls.includes('release-capture'),false);assert.deepEqual(f.records.get('prepared'),f.previous);
+});

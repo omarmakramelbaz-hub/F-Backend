@@ -72,7 +72,10 @@ return [
      * The package will look for settings in these paths and automatically
      * register them.
      */
-    'auto_discover_settings' => [
+    // The bundled application has an explicit GeneralSettings binding above.
+    // Discovering every App class on each private PHP request needlessly loads
+    // unrelated controllers, provider clients and console commands on Windows.
+    'auto_discover_settings' => env('DESKTOP_DASHBOARD_LOCAL', false) ? [] : [
         app()->path(),
     ],
 

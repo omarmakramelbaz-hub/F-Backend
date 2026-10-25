@@ -78,6 +78,7 @@ $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);$httpPort=
 $origin='http://127.0.0.1:'.$httpPort;$browserToken=bin2hex(random_bytes(32));
 $env=getenv();$env['DB_DATABASE']=$stage;$env['APP_URL']=$origin;$env['DESKTOP_DASHBOARD_DEVICE_ID']=$id;
 $env['DESKTOP_DASHBOARD_ORIGIN']=$origin;$env['DESKTOP_DASHBOARD_TOKEN']=$browserToken;$env['DESKTOP_DASHBOARD_CONTROL_TOKEN']=bin2hex(random_bytes(32));
+require __DIR__.'/bootstrap-http.php';
 $web=proc_open([PHP_BINARY,'-d','upload_max_filesize=5M','-d','post_max_size=12M','-d','memory_limit=256M',
     '-S','127.0.0.1:'.$httpPort,'-t',$application.'/public',$application.'/desktop/router.php'],[['pipe','r'],['file',$profile.'/web.log','a'],['file',$profile.'/web.log','a']],$pipes,$application,$env);
 $cookies=[];

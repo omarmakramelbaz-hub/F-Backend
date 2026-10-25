@@ -71,17 +71,22 @@ class DashboardDelta{
     let capture,token,candidate,intent;
     try{
       await this.recover();
+      if(this.stopped)throw Error(SAFE_ERROR);
       await this.runtime.recoverDeltaBackground?.();
+      if(this.stopped)throw Error(SAFE_ERROR);
       if(!this.view.current().local){this.report({phase:'deferred',deferred:true,error:''});return {deferred:true};}
       await this.remoteState?.assertClean();
+      if(this.stopped)throw Error(SAFE_ERROR);
       const previous=await this.runtime.connection(),binding=identity(previous);
       this.report({phase:'checking',deferred:false,error:''});
       // This verifies publication and the installed executable before creating any private capture.
       const context=await this.runtime.deltaContext(previous);
+      if(this.stopped)throw Error(SAFE_ERROR);
       token=crypto.randomBytes(32).toString('hex');
       const captureGeneration=crypto.randomBytes(8).toString('hex');
       this.report({phase:'capturing'});
       capture=await this.runtime.captureDelta(context,previous,captureGeneration,token);
+      if(this.stopped)throw Error(SAFE_ERROR);
       if(!this.captureValid(capture,previous,context))throw Error(SAFE_ERROR);
       this.report({phase:'downloading'});
       // A capture token and database receipt never cross the network boundary.
@@ -100,6 +105,7 @@ class DashboardDelta{
       const id=crypto.randomBytes(8).toString('hex');
       this.report({phase:'staging'});
       candidate=await this.runtime.stageDelta(context,capture,delta,id,token);
+      if(this.stopped)throw Error(SAFE_ERROR);
       const receipt=candidate?.receipt;
       const handoff=candidate?.archiveHandoff;
       if(candidate.database!=='fasakhansta_dashboard_stage_'+id||candidate.mediaVerified!==true||!candidate.mediaSeal
@@ -159,8 +165,13 @@ class DashboardDelta{
       if(restartRequired){this.report({phase:'failed',deferred:false,restartRequired:true,error:RESTART_ERROR});throw restartError();}
       this.report({phase:'failed',deferred:false,error:SAFE_ERROR});throw Error(SAFE_ERROR);
     }finally{
-      if(candidate&&token&&!intent)await this.runtime.releaseDeltaStage?.(candidate,token).catch(()=>{});
-      if(capture&&token)await this.runtime.releaseDeltaCapture?.(capture,token).catch(()=>{});
+      // Stop leaves the durable inactive-clone capability for verified recovery
+      // on the next launch. Accepted active-database fence recovery above still
+      // completes before this finally block and the native shutdown barrier.
+      if(!this.stopped){
+        if(candidate&&token&&!intent)await this.runtime.releaseDeltaStage?.(candidate,token).catch(()=>{});
+        if(capture&&token)await this.runtime.releaseDeltaCapture?.(capture,token).catch(()=>{});
+      }
     }
   }
 }

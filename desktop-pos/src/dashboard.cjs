@@ -9,15 +9,65 @@ const { withDeadline, printOnce } = require('./native-deadline.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
-  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial,
+  onVisible = () => {}, onNavigation = () => {}, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
+  let firstRead = null, firstReadStarted = false, navigationStartedAt = Date.now(), lastResponse = null, sessionRecovery = false, pendingLogin = null;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
   const nativeConnectedPrints = new Map();
   const activeRequests = new Set();
+  function navigationTrace(phase, value, status) {
+    if(!policy.sameOrigin(value,origin))return;
+    const pathname=new URL(value).pathname;
+    const path=['/admin/dashboard','/admin/login','/admin/signin'].includes(pathname)?pathname:'/admin/other';
+    const entry={phase,mode:localToken?'local':'server',path,elapsed_ms:Math.min(Number.MAX_SAFE_INTEGER,Math.max(0,Date.now()-navigationStartedAt))};
+    if(Number.isInteger(status)&&status>=100&&status<=599)entry.status=status;
+    try{Promise.resolve(onNavigation(entry)).catch(()=>{});}catch{}
+  }
+  async function loadFirstRead(target,url) {
+    // Readiness must not wait for remote fonts/images to finish. This deadline
+    // belongs only to the initial native GET, never to an original form POST.
+    const contents=target.webContents;
+    return new Promise((resolve,reject)=>{
+      let settled=false,timer;
+      const finish=(error,phase)=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        contents.removeListener('dom-ready',interactive);target.removeListener('closed',closed);
+        firstRead=null;navigationTrace(phase,target.isDestroyed()?url:(contents.getURL()||url));
+        error?reject(error):resolve();
+      };
+      const interactive=()=>finish(null,'interactive'),closed=()=>finish(null,'failed');
+      firstRead={handoff:()=>finish(null,'user-navigation')};
+      contents.once('dom-ready',interactive);target.once('closed',closed);
+      timer=setTimeout(()=>{
+        finish(Error('تحميل صفحة الداشبورد أخذ وقتًا أطول من المسموح. أعد فتح صفحة الدخول من قائمة البرنامج.'),'timeout');
+        if(!target.isDestroyed())contents.stop();
+      },45000);
+      Promise.resolve().then(()=>target.loadURL(url)).then(()=>finish(null,'loaded'),error=>finish(error,'failed'));
+    });
+  }
+  function resumeFreshLogin() {
+    if(!pendingLogin||loading)return;
+    const expected=pendingLogin;pendingLogin=null;
+    if(quitting()||refreshing||authentication||!window||window!==expected.window||window.isDestroyed()
+      ||lastResponse!==expected.response||window.webContents.getURL()!==expected.url)return;
+    // A new GET obtains the current CSRF token. Never reload/replay the rejected
+    // POST, clear a device profile, or weaken Laravel's CSRF/session checks.
+    open(origin+'/admin/login').catch(()=>{});
+  }
+  function expiredSession(target,url,response) {
+    if(sessionRecovery||quitting()||refreshing||authentication||loggingOut)return;
+    sessionRecovery=true;firstRead?.handoff();
+    Promise.resolve().then(()=>dialog.showMessageBox(target,{type:'warning',title:'GO ERP — جلسة الصفحة',
+      message:'انتهت جلسة الصفحة. افتح صفحة دخول جديدة ثم أدخل بياناتك مرة أخرى. البيانات المحفوظة على الجهاز لم تتغير.',
+      buttons:['فتح صفحة دخول جديدة','البقاء في الصفحة'],defaultId:0,cancelId:1,noLink:true}))
+      .then(choice=>{if(choice.response===0){pendingLogin={window:target,url,response};resumeFreshLogin();}})
+      .catch(()=>{}).finally(()=>{sessionRecovery=false;});
+  }
   const businessPage = url => ['/admin/takeaway','/admin/branch-expenses','/admin/branch-stock','/admin/branch-shifts'].includes(new URL(url).pathname);
   const idlePage = url => ['/admin/dashboard','/admin/desktop-dashboard'].includes(new URL(url).pathname) || businessPage(url);
   const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
@@ -160,7 +210,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     finally { printing--; }
   }); } catch (error) { return { ok: false, error: error.message }; } });
   function reveal() {
-    if (window && !window.isDestroyed()) { window.show(); if (window.isMinimized()) window.restore(); window.focus(); }
+    if (window && !window.isDestroyed()) {
+      window.show(); if (window.isMinimized()) window.restore(); window.focus();
+      try{Promise.resolve(onVisible()).catch(()=>{});}catch{}
+    }
   }
   async function open(url = home) {
     if (loading || refreshing || authentication || quitting()) return;
@@ -174,8 +227,21 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             nodeIntegration: false, webSecurity: true } });
         const contents = window.webContents;
         contents.on('page-title-updated',event=>event.preventDefault());
+        contents.on('did-start-navigation',(event,url,_sameDocument,isMainFrame)=>{
+          const target=event.url||url,main=event.isMainFrame??isMainFrame;
+          if(main===false||!policy.sameOrigin(target,origin))return;
+          lastResponse=null;navigationStartedAt=Date.now();navigationTrace('started',target);
+        });
+        contents.on('did-navigate',(_event,url,status)=>{
+          if(!policy.sameOrigin(url,origin))return;
+          lastResponse={url,status};navigationTrace('response',url,status);
+          if(status===419)expiredSession(window,url,lastResponse);
+        });
         owned.add(contents.id);
         contents.session.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
+            if(details.webContentsId===contents.id&&details.resourceType==='mainFrame'
+              &&(!['GET','HEAD'].includes(String(details.method||'GET').toUpperCase())
+                ||getPolicy.mutation(new URL(details.url).pathname)))firstRead?.handoff();
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
             const nativeMarker=Object.entries(headers).find(([name])=>name.toLowerCase()==='x-fasakhansta-connected-request')?.[1];
@@ -235,6 +301,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             .finally(() => { if (remoteAttempts) forget(); });
         });
         contents.on('will-navigate', navigate);
+        contents.on('will-navigate',(_event,url)=>{if(policy.sameOrigin(url,origin))firstRead?.handoff();});
         contents.on('will-redirect', navigate);
         contents.setWindowOpenHandler(({ url }) => {
           if (refreshing) return { action: 'deny' };
@@ -300,10 +367,14 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       }
       // Keep the app and its local-order menu usable while a slow/offline server is being contacted.
       reveal();
-      await window.loadURL(url);
+      navigationStartedAt=Date.now();navigationTrace('started',url);
+      if((!firstReadStarted&&new URL(url).pathname==='/admin/dashboard')||new URL(url).pathname==='/admin/login'){
+        firstReadStarted=true;await loadFirstRead(window,url);
+      }else await window.loadURL(url);
       if (quitting()) return;
       reveal();
     } catch (error) {
+      navigationTrace('failed',url);
       if (quitting()) return;
       if (localToken) {
         reveal(); await dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
@@ -314,7 +385,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         reveal();
         await dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: 'تعذر فتح الداشبورد. أعد المحاولة من قائمة البرنامج.' });
       }
-    } finally { loading = false; }
+    } finally { loading = false;resumeFreshLogin(); }
   }
   function navigate(event, url) {
     if (refreshing || authentication) { event.preventDefault(); return; }
