@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move the quiet published parallel media seed to the startup window core and publish one successor."""
+"""Move the quiet published parallel media seed to the startup window and logout core and publish one successor."""
 import argparse
 import copy
 from contextlib import ExitStack, contextmanager
@@ -39,13 +39,13 @@ OLD_CORE='da718620ebf2e23d8615b84b06127d6209f2f351'
 OLD_RUNTIME='policy-d3c6b70fbadacefbf2b7afafebd12f3d0d66e73c61b08e1bb81bf6845e348fe5'
 OLD_POLICY='historical-baseline-v2-native-close-reopen-program-contract-parallel-media-v1'
 OLD_SUFFIX=b'-native-close-reopen-program-contract-parallel-media-v1'
-CORE='9e0b3334d60ec359d65e930b0631eea7aaf2a2f3'
-SEED='2b5036b333aa63dba97944d736045dc8af9b5286'
+CORE='7d8806d615b91fc9f29454bc957f4fedabd6d6ba'
+SEED='d88f2fe7bef96054937059572e52667979d09be3'
 POLICY='historical-baseline-v2-native-close-reopen-program-contract-startup-window-v1'
 SUFFIX=b'-native-close-reopen-program-contract-startup-window-v1'
 PREVIOUS='6c02536bdfa1543056ec1312e1256ee79028fa0b'
-MANUAL_PINS={'go_erp_manual_updates_root.py':'7de00e76c2733890f392761e1df1f2498b1fcc1073b49f7dd0d3d86a92648a27',
-    'go_erp_manual_tick_root.py':'e709d397014ba2b379efdbc0e511bbec6bf746c8ec8cdbfde97e3c1715c20edc',
+MANUAL_PINS={'go_erp_manual_updates_root.py':'b13c56cd5f372af3940cbb7d4ce3135fc6ae4543e6defc49c06987b319a69ad9',
+    'go_erp_manual_tick_root.py':'ec4b82a8330431b5615803e948cadd32c0b66ffd458d0df23ac97ddc0dce945e',
     'go_erp_published_download_root.py':'2b5f5adf102e7d0e149b1f05c52ae4207e298d26daa3140c409bddddbf60e17b'}
 OLD_MANUAL_PINS={'go_erp_manual_updates_root.py':'0ccbf88225cbb3b6056fd16ab13948fa394bd5986479d7648b32598cc8915524',
     'go_erp_manual_tick_root.py':OLD_TICK_SHA,

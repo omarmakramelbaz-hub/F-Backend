@@ -248,7 +248,7 @@ class PinTests(unittest.TestCase):
         if self.git('cat-file','-e',subject.SEED+'^{commit}').returncode:
             self.skipTest('seed commit not fetched')
         self.assertEqual(self.git('rev-parse',subject.SEED+'^').stdout.strip(),subject.CORE)
-        self.assertEqual(self.git('rev-parse',subject.CORE+'^').stdout.strip(),subject.OLD_CORE)
+        self.assertEqual(self.git('merge-base','--is-ancestor',subject.OLD_CORE,subject.CORE).returncode,0)
         verifier=self.git('show',subject.SEED+':deployment/verify_go_erp_preview31_seed.py').stdout
         self.assertIn("CORE = '"+subject.CORE+"'",verifier)
         self.assertIn("POLICY = '"+subject.POLICY.replace('historical-baseline-v2-','')+"'",verifier)

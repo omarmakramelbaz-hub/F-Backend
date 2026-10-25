@@ -42,9 +42,9 @@ CONFIG = Path('/etc/go-erp/live-updates.json')
 UNIT = Path('/etc/systemd/system/go-erp-live-updates.service')
 OLD_COHORT = {'seed': SEED, 'policy': POLICY, 'runtime': RUNTIME,
     'pins': PINS, 'unit_sha256': '960199b8da00d900601cb22f150cf7ddc43995797f2a663697fa779e1cbc8aa3'}
-NEW_COHORT = {'seed': '2b5036b333aa63dba97944d736045dc8af9b5286',
+NEW_COHORT = {'seed': 'd88f2fe7bef96054937059572e52667979d09be3',
  'policy': 'historical-baseline-v2-native-close-reopen-program-contract-startup-window-v1',
- 'runtime': Path('/opt/go-erp-live-updates/releases/policy-32f4c4063a86830b6ef7842556a1cbc63cabea12e8e3099bece113654888eb0b'),
+ 'runtime': Path('/opt/go-erp-live-updates/releases/policy-072f2f32b7f10e8209b4d6136b51027991762db4dc25714b922fd42da6024080'),
  'pins': {'desktop_dashboard_server_preflight.py': ('4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4',
                                            10515,
                                            '21a8f2ffa16e47322853c33de07af855d8fcb4cc6759750dfda84ca5a0db33bb'),
@@ -54,19 +54,19 @@ NEW_COHORT = {'seed': '2b5036b333aa63dba97944d736045dc8af9b5286',
  'go_erp_current_candidate_ci.yml': ('af4d9bb97572c84e26cb6750d380adde2f7e9423',
                                      7231,
                                      '203ca21186223cacb7feb98dc8eb372bceb258c4e0f01e4c7a8b917b417271ea'),
- 'go_erp_live_source.py': ('91da79fcd6534a1b475fa8f959aef8a612a4c53a',
+ 'go_erp_live_source.py': ('1c788f0fd1eb3f75f56960a609e500d66ff370e9',
                            38822,
-                           'faf5d6a92f064ce26916c12c3816798480ab182546e0ba250843499bd92f4536'),
- 'go_erp_live_updates.py': ('c990164f7a8d3436f97f02af19244802e7a975fd',
+                           'fc3e751b27e15d98e8f8de9e5c21ca045ca70f7b27729f4af3e4e5c29d8d47be'),
+ 'go_erp_live_updates.py': ('95b09ea3cb5266efad75a34ab175a442f3190e5f',
                             70024,
-                            '75ef505503c26abe2a8288a549f03bc6f2e71c727b16aa5f88bc8cbdab4f27c1'),
+                            '4f50fdacf442a6adc11f1fc5efb7c023749a512de0c768e439039e4a38e554e7'),
  'publish_go_erp_update.py': ('f9a7353b0705383844a576ab6d0f5b1662912bfb',
                               18089,
                               '3a277fcbe44f3b58bc89be907928ed3f6dcb1bb43e21c30e2f83948ab8245490'),
  'verify_go_erp_current_candidate_ci.py': ('fb2c6ee364fae14062148846b654df8c96bba0de',
                                            10634,
                                            'e005df2cd2229188d79418754dedd1ea18cbfb5256727ee126a881dfa660461a')},
- 'unit_sha256': '1fd91659420bd516f06f9c3eb87668a328f323409c0f8ee1c5c4afe02cb227a0'}
+ 'unit_sha256': 'cd50fc0d6c6340be3f0e832e2796d1616e2d1efa88f109ca1935500b8f87c253'}
 
 
 class Stop(Exception):
