@@ -175,8 +175,10 @@ async function reuseOptions(value, root, privateRoot) {
   return result;
 }
 const cacheName = item => item.sha256 + '.' + path.posix.extname(item.path).slice(1).toLowerCase();
-/** Write verified files to their own inactive storage area; tickets never reach dashboard pages. */
-async function download(root, files, request, stopped = () => false, privateRoot, reuse) {
+const DOWNLOAD_CONCURRENCY = 8;
+/** Write verified files to their own inactive storage area; tickets never reach dashboard pages.
+ * Files are fetched by a small worker pool; the receipt keeps the manifest order. */
+async function download(root, files, request, stopped = () => false, privateRoot, reuse, options = {}) {
   manifest(files);
   root = path.resolve(root); if (privateRoot !== undefined) privateRoot = path.resolve(privateRoot);
   if (files.some(item => item.area === 'private')) {
@@ -188,9 +190,13 @@ async function download(root, files, request, stopped = () => false, privateRoot
   }
   const previous = reuse === undefined ? null : await reuseOptions(reuse, root, privateRoot);
   if (files.length && typeof request !== 'function') throw Error('تنزيل صور الحساب لم يُجهّز بعد.');
-  const receipt = []; let reusedFiles = 0, downloadedFiles = 0, downloadedBytes = 0;
-  for (const item of files) {
-    if (stopped()) throw Error('البرنامج يُغلق الآن.');
+  const onProgress = typeof options?.onProgress === 'function' ? options.onProgress : () => {};
+  const limit = Number.isSafeInteger(options?.concurrency) && options.concurrency > 0 ? Math.min(options.concurrency, 32) : DOWNLOAD_CONCURRENCY;
+  const receipt = new Array(files.length), caching = new Set();
+  let reusedFiles = 0, downloadedFiles = 0, downloadedBytes = 0, done = 0, next = 0, failure = null;
+  const halted = () => failure !== null || stopped();
+  const report = () => { try { onProgress({ done, total: files.length }); } catch { /* Progress display never fails a download. */ } };
+  async function one(item) {
     const area = item.area === 'private' ? 'private' : 'public';
     const target = await location(area === 'private' ? privateRoot : root, item.path, true);
     // A staging directory must be new; never silently replace an existing or linked image.
@@ -198,12 +204,9 @@ async function download(root, files, request, stopped = () => false, privateRoot
     const sources = [];
     if (previous?.cacheRoot) sources.push(await candidate(path.join(previous.cacheRoot, area), cacheName(item)));
     sources.push(await candidate(area === 'private' ? previous?.privateRoot : previous?.publicRoot, item.path));
-    let reused = false;
-    for (const source of sources) if (source && await materialize(source, target, item, stopped)) { reused = true; break; }
-    if (reused) {
+    for (const source of sources) if (source && await materialize(source, target, item, halted)) {
       reusedFiles++;
-      receipt.push({ path: item.path, bytes: item.bytes, mime: item.mime, sha256: item.sha256, ...(area === 'private' ? { area: 'private' } : {}) });
-      continue;
+      return { path: item.path, bytes: item.bytes, mime: item.mime, sha256: item.sha256, ...(area === 'private' ? { area: 'private' } : {}) };
     }
     const response = await request(item.ticket);
     if (!response.ok || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== item.mime
@@ -217,7 +220,7 @@ async function download(root, files, request, stopped = () => false, privateRoot
     try {
       file = await fs.open(temporary, 'wx', 0o600);
       while (true) {
-        if (stopped()) throw Error('البرنامج يُغلق الآن.');
+        if (halted()) throw Error('البرنامج يُغلق الآن.');
         const part = await reader.read(); if (part.done) break;
         bytes += part.value.byteLength;
         if (bytes > item.bytes) throw Error('حجم الصورة مختلف عن النسخة المصرح بها.');
@@ -227,24 +230,39 @@ async function download(root, files, request, stopped = () => false, privateRoot
       await file.sync(); await file.close(); file = null;
       await checkChain(target.chain);
       const staged = { path: temporary, chain: target.chain };
-      if (!(await materialize(staged, target, item, stopped))) throw unsafe();
+      if (!(await materialize(staged, target, item, halted))) throw unsafe();
       await fs.unlink(temporary); complete = true;
       downloadedFiles++; downloadedBytes += bytes;
-      if (previous?.cacheRoot) {
+      // Two manifest entries can share one image; only one worker writes its cache copy.
+      const name = area + '/' + cacheName(item);
+      if (previous?.cacheRoot && !caching.has(name)) {
+        caching.add(name);
         const cacheRoot = path.join(previous.cacheRoot, area), cached = await candidate(cacheRoot, cacheName(item));
         if (!cached) {
           const cacheTarget = await location(cacheRoot, cacheName(item), true);
-          try { await materialize(target, cacheTarget, item, stopped); }
+          try { await materialize(target, cacheTarget, item, halted); }
           catch (error) { if (error.code !== 'EEXIST') throw error; }
         }
       }
-      receipt.push({ path: item.path, bytes, mime: item.mime, sha256: item.sha256, ...(item.area === 'private' ? { area: 'private' } : {}) });
+      return { path: item.path, bytes, mime: item.mime, sha256: item.sha256, ...(item.area === 'private' ? { area: 'private' } : {}) };
     } finally {
       if (!complete) await reader.cancel().catch(() => {});
       reader.releaseLock(); await file?.close();
       if (!complete) await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
     }
   }
+  async function worker() {
+    while (failure === null && next < files.length) {
+      if (stopped()) { failure ??= Error('البرنامج يُغلق الآن.'); return; }
+      const index = next++;
+      try { receipt[index] = await one(files[index]); done++; report(); }
+      catch (error) { failure ??= error; return; }
+    }
+  }
+  report();
+  // Every worker settles before returning, so no file is still being written after a failure.
+  await Promise.all(Array.from({ length: Math.min(limit, files.length) }, worker));
+  if (failure) throw failure;
   return { verified: true, files: receipt, transfer: { reusedFiles, downloadedFiles, downloadedBytes } };
 }
-module.exports = { download, manifest, safePath, verifyReceipt, MAX_FILE, MAX_TOTAL };
+module.exports = { download, DOWNLOAD_CONCURRENCY, manifest, safePath, verifyReceipt, MAX_FILE, MAX_TOTAL };

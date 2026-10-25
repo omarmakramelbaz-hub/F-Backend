@@ -62,6 +62,7 @@ class DashboardPreparation {
         // Persist the same nonce BEFORE contacting the server, including a lost enrollment reply.
         await this.metadata.write('enrollment', value);
       }
+      delete this.state.media;
       this.report({ phase: 'enrolling', progress: 5, error: '' });
       // Retry through the current browser session even after an earlier enrollment succeeded.
       // The server rejects another account; a cached bearer must not prepare that account's window.
@@ -86,7 +87,14 @@ class DashboardPreparation {
       this.report({ phase: 'starting', progress: 30 });
       await this.runtime.start();
       this.report({ phase: 'verifying', progress: 45 });
-      const candidate = await this.runtime.stage(snapshot, id);
+      // Images are the longest step; move the bar from 45% to 90% as they arrive.
+      let shown = 0;
+      const candidate = await this.runtime.stage(snapshot, id, undefined, ({ done, total }) => {
+        const now = Date.now();
+        if (!total || (done < total && now - shown < 250)) return;
+        shown = now; this.report({ progress: 45 + Math.floor(45 * done / total), media: { done, total } });
+      });
+      delete this.state.media;
       if (!sourceCode.same(snapshot.source, candidate.sourceFingerprint)) throw Error('مصدر برنامج التجهيز لا يطابق نسخة السيرفر.');
       const scope = coverage.preparedCoverage(snapshot, candidate, manifest, this.allowPreview);
       const next = { format: 2, deviceId: value.deviceId, actorId: value.actorId, token: value.token, serverOrigin: origin,
@@ -104,6 +112,7 @@ class DashboardPreparation {
       return { available: true, prepared: true, ...this.state };
     } catch (error) {
       // Partial databases/images and enrollment capabilities are retained for recovery.
+      delete this.state.media;
       this.report({ phase: 'failed', error: error.message });
       throw error;
     }
