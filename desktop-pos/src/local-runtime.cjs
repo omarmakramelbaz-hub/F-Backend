@@ -149,10 +149,15 @@ async function run(file, args, options, input = '', timeout = 90000, outputLimit
   } finally { clearTimeout(timer); }
 }
 async function stopChild(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  child.kill();
+  if (!child) return;
+  if (child.exitCode === null && child.signalCode === null) child.kill();
   let timer;
-  await Promise.race([child.failure, new Promise(resolve => { timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 8000); })]);
+  // exit can precede close while redirected pipes still keep the Electron
+  // process alive. Wait for the child handle and its stdio to finish too.
+  await Promise.race([child.completed, new Promise(resolve => { timer = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    child.stdin?.destroy(); child.stdout?.destroy(); child.stderr?.destroy(); resolve();
+  }, 8000); })]);
   clearTimeout(timer);
 }
 
@@ -284,15 +289,20 @@ class LocalRuntime {
   }
   async start() {
     if (this.starting) return this.starting;
-    this.starting = this.boot().catch(async error => { await this.stop(); throw error; });
+    this.starting = this.boot().then(value => { this.started = true; return value; }).catch(async error => { await this.stop(); throw error; });
     return this.starting;
   }
+  cancelStartup() { if (!this.started) this.stopping = true; }
+  assertStarting() { if (this.stopping) throw Error('البرنامج يُغلق الآن.'); }
   async boot() {
+    this.assertStarting();
     if (this.platform !== 'win32') throw Error('حزمة التشغيل المحلية مخصصة لويندوز.');
     const settings = await this.settings();
     const active = await this.metadata.read('prepared');
     if (active && !prepared(active, settings.deviceId, await this.preparedManifest(active))) throw Error('بيانات تجهيز الداشبورد غير صالحة؛ سجلات الجهاز محفوظة.');
-    this.bundle = await new RuntimeArchive(this.profile, this.metadata).select(this.bundle, active);
+    const archive = new RuntimeArchive(this.profile, this.metadata, { stopped: () => this.stopping });
+    this.bundle = await archive.select(this.bundle, active);
+    this.assertStarting();
     const manifest = JSON.parse(await fs.readFile(path.join(this.bundle, 'manifest.json'), 'utf8'));
     if (manifest.format !== 1 || manifest.platform !== 'win32-x64') throw Error('حزمة الداشبورد المحلية غير متوافقة.');
     const php = path.join(this.bundle, 'php', 'php.exe');
@@ -300,11 +310,12 @@ class LocalRuntime {
     const application = path.join(this.bundle, 'application');
     for (const file of [php, path.join(maria, 'mariadbd.exe'), path.join(maria, 'mariadb-install-db.exe'), path.join(application, 'vendor', 'autoload.php')]) await fs.access(file);
     if (active?.format === 2 && active.sourceRevision !== manifest.sourceRevision) throw Error('نسخة التشغيل تختلف عن نسخة بيانات الجهاز؛ يلزم استرجاع التحديث قبل العمل.');
-    this.sourceFingerprint = await sourceCode.fingerprint(application);
+    this.sourceFingerprint = await archive.sourceFingerprint(this.bundle);
     if ((manifest.sourceFingerprint && !sourceCode.same(manifest.sourceFingerprint, this.sourceFingerprint))
         || (active?.sourceFingerprint && !sourceCode.same(active.sourceFingerprint, this.sourceFingerprint)))
       throw Error('مصدر البرنامج لا يطابق بيانات الجهاز؛ النسخة السابقة وسجلاتها محفوظة.');
     this.manifest = manifest;
+    this.assertStarting();
     this.dbPort = await freePort(); this.httpPort = await freePort();
     this.origin = `http://127.0.0.1:${this.httpPort}`;
     const data = path.join(this.profile, 'database');
@@ -319,6 +330,7 @@ class LocalRuntime {
     catch (error) {
       if (error.code !== 'ENOENT') throw error;
       if (active) throw Error('قاعدة بيانات الجهاز المجهّز غير موجودة؛ يلزم استرجاعها قبل التشغيل.');
+      this.assertStarting();
       // MariaDB's Windows initializer creates system tables; no Windows service or UAC is needed.
       await run(path.join(maria, 'mariadb-install-db.exe'), [`--datadir=${data}`, `--password=${settings.rootPassword}`, `--port=${this.dbPort}`, `--config=${config}`], { cwd: this.bundle });
     }
@@ -414,7 +426,7 @@ class LocalRuntime {
     if(!this.manifest||!this.installedBundle)throw mismatch();
     const archive=new RuntimeArchive(this.profile,this.metadata),bundle=await archive.retain(this.installedBundle);
     const manifest=await archive.manifest(bundle),application=path.join(bundle,'application');
-    const sourceFingerprint=await sourceCode.fingerprint(application);
+    const sourceFingerprint=await archive.sourceFingerprint(bundle);
     if(!sourceCode.same(snapshot.source,sourceFingerprint)||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint))throw mismatch();
     if(activeMatches){
       // Retaining/verifying may take time. A revoked publication, changed source
@@ -442,7 +454,7 @@ class LocalRuntime {
     await this.authorizeDeltaContext({manifest:installed});
     if(installed.sourceRevision===this.manifest.sourceRevision&&sourceCode.same(installed.sourceFingerprint,this.sourceFingerprint))return this.context();
     const bundle=await archive.retain(this.installedBundle),manifest=await archive.manifest(bundle),application=path.join(bundle,'application');
-    const sourceFingerprint=await sourceCode.fingerprint(application);
+    const sourceFingerprint=await archive.sourceFingerprint(bundle);
     if(manifest.sourceRevision!==installed.sourceRevision||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint)
       ||!sourceCode.same(installed.sourceFingerprint,sourceFingerprint))throw Error('لم تتأكد ملفات تحديث البرنامج؛ النسخة الحالية محفوظة.');
     RuntimeArchive.databaseCompatible(await this.metadata.read('runtimes/'+this.manifest.sourceRevision),await this.metadata.read('runtimes/'+manifest.sourceRevision));
@@ -467,7 +479,7 @@ class LocalRuntime {
     const archive=new RuntimeArchive(this.profile,this.metadata),bundle=path.join(this.profile,'runtimes',record.sourceRevision);
     const receipt=await this.metadata.read('runtimes/'+record.sourceRevision);
     await archive.verify(bundle,receipt);
-    const manifest=await archive.manifest(bundle),application=path.join(bundle,'application'),sourceFingerprint=await sourceCode.fingerprint(application);
+    const manifest=await archive.manifest(bundle),application=path.join(bundle,'application'),sourceFingerprint=await archive.sourceFingerprint(bundle);
     if(manifest.sourceRevision!==record.sourceRevision||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint)
       ||!sourceCode.same(record.sourceFingerprint,sourceFingerprint)||!/^[a-f0-9]{64}$/.test(manifest.sourceHashes?.['desktop/delta.php']||''))
       throw Error('مصدر سجل تحديث الخلفية غير متطابق؛ احتفظ ببيانات الجهاز.');

@@ -70,3 +70,46 @@ test('source corruption and symlinks cannot acquire an encrypted runtime receipt
     await assert.rejects(f.archive.retain(safe));assert.equal(f.records.size,0);
   }
 });
+
+test('warm launch reuses source fingerprint only after every retained byte matches the authenticated receipt',async t=>{
+  const sourceCode=require('../src/dashboard-source.cjs'),f=await fixture(t),id='d'.repeat(40),bundle=await f.make(id,'unchanged extra source');
+  await fs.mkdir(path.join(bundle,'application/app'),{recursive:true});
+  const order='<?php /* original durable order implementation */';
+  const lock=JSON.stringify({packages:[{name:'laravel/framework',version:'v8.83.29'}]});
+  await fs.writeFile(path.join(bundle,'application/app/Order.php'),order);await fs.writeFile(path.join(bundle,'application/composer.lock'),lock);
+  const manifest=JSON.parse(await fs.readFile(path.join(bundle,'manifest.json'),'utf8'));
+  for(const [name,bytes] of [['app/Order.php',order],['composer.lock',lock]])manifest.sourceHashes[name]=crypto.createHash('sha256').update(bytes).digest('hex');
+  manifest.sourceFingerprint=await sourceCode.fingerprint(path.join(bundle,'application'));
+  await fs.writeFile(path.join(bundle,'manifest.json'),JSON.stringify(manifest));
+  const fingerprint=sourceCode.fingerprint;let walks=0;
+  sourceCode.fingerprint=async(...args)=>{walks++;return fingerprint(...args);};
+  t.after(()=>{sourceCode.fingerprint=fingerprint;});
+  const directory=await f.archive.select(bundle,null);
+  assert.deepEqual(await f.archive.sourceFingerprint(directory),manifest.sourceFingerprint);assert.equal(walks,1);
+  assert.deepEqual(f.records.get('runtimes/'+id).sourceFingerprint,manifest.sourceFingerprint);
+  const restarted=new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata);
+  assert.equal(await restarted.select(bundle,{sourceRevision:id}),directory);
+  assert.deepEqual(await restarted.sourceFingerprint(directory),manifest.sourceFingerprint);
+  assert.equal(walks,1,'the second launch performs no duplicate application fingerprint walk');
+  // Metadata caching never becomes a stat-only integrity check. Replacing bytes
+  // at the same path/length/mtime must still fail, leaving business state alone.
+  f.records.set('prepared',{sourceRevision:id,database:'preserved-business-db'});
+  const executable=path.join(directory,'php.exe'),stat=await fs.stat(executable),original=await fs.readFile(executable);
+  await fs.writeFile(executable,Buffer.alloc(original.length,0x78));await fs.utimes(executable,stat.atime,stat.mtime);
+  const corrupted=new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata);
+  await assert.rejects(corrupted.select(bundle,{sourceRevision:id}),/غير مكتملة/);
+  await assert.rejects(corrupted.sourceFingerprint(directory),/يلزم التحقق/);
+  await assert.rejects(restarted.select(bundle,{sourceRevision:id}),/غير مكتملة/);
+  await assert.rejects(restarted.sourceFingerprint(directory),/يلزم التحقق/,'a failed recheck invalidates prior in-process authority too');
+  assert.equal(walks,1);assert.equal(f.records.get('prepared').database,'preserved-business-db');
+});
+
+test('a startup cancellation settles pending verification without writing an archive receipt or changing active data',async t=>{
+  const f=await fixture(t),id='e'.repeat(40),bundle=await f.make(id,'safe source');
+  for(let index=0;index<50;index++)await fs.writeFile(path.join(bundle,'application','extra-'+index+'.php'),'<?php '+index);
+  f.records.set('prepared',{sourceRevision:'a'.repeat(40),database:'existing-data'});
+  let checks=0;const cancelled=new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata,{stopped:()=>++checks>12});
+  await assert.rejects(cancelled.retain(bundle),/البرنامج يُغلق/);
+  assert.equal(f.records.size,1);assert.equal(f.records.get('prepared').database,'existing-data');
+  assert.equal((await fs.readdir(path.join(f.profile,'dashboard')).catch(error=>error.code==='ENOENT'?[]:Promise.reject(error))).length,0);
+});

@@ -133,6 +133,42 @@ test('native receipt printing is silent, reuses dashboard authentication and run
   assert.ok(result.ok);const print=f.windows[1];assert.ok(print.destroyed);assert.equal(print.printOptions.silent,true);assert.equal(print.printOptions.deviceName,'BranchPrinter');
   const html=decodeURIComponent(print.url.split(',').slice(1).join(','));assert.match(html,/script-src 'none'/);assert.match(html,/data-dashboard-receipt/);
 });
+test('a missing Windows print callback releases the accepted receipt and cannot report late success',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;
+  let callback,calls=0;
+  const Original=f.electron.BrowserWindow.prototype;
+  // The print window is created after fetch/preparation. Wait for its native
+  // callback stage while leaving the actual dashboard handler unchanged.
+  f.session.fetch=async()=>{
+    const originalLoad=Original.loadURL;
+    Original.loadURL=async function(url){
+      await originalLoad.call(this,url);
+      if(url.startsWith('data:'))this.webContents.print=(_options,complete)=>{calls++;callback=complete;};
+    };
+    return new Response('<html data-dashboard-receipt="takeaway"><head></head><body>saved receipt</body></html>',{headers:{'content-type':'text/html'}});
+  };
+  const printing=f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,1);
+  t.mock.timers.tick(45000);const result=await printing;
+  assert.equal(result.ok,false);assert.match(result.error,/لن تُعاد تلقائيًا/);assert.equal(f.windows[1].destroyed,true);
+  callback(true);await Promise.resolve();assert.equal(calls,1);assert.equal(result.ok,false);
+  assert.equal(await f.dashboard.canRefresh(),true,'a stalled callback no longer holds the dashboard idle gate');
+});
+test('a stalled receipt image or font cannot hold the accepted print forever',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents;
+  const originalLoad=f.electron.BrowserWindow.prototype.loadURL;
+  f.electron.BrowserWindow.prototype.loadURL=async function(url){
+    await originalLoad.call(this,url);
+    if(url.startsWith('data:'))this.webContents.executeJavaScript=()=>new Promise(()=>{});
+  };
+  const printing=f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
+  await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(25000);
+  const result=await printing;assert.equal(result.ok,false);assert.match(result.error,/تعذر تحميل مستند/);
+  assert.equal(f.windows[1].destroyed,true);assert.equal(f.windows[1].printOptions,undefined);
+  assert.equal(await f.dashboard.canRefresh(),true);
+});
 test('native printing rejects foreign pages, unowned frames and non-receipts before any printer runs',async t=>{
   const f=fixture(t);await f.dashboard.open();const sender=f.windows[0].webContents,handler=f.handlers.get('dashboard:print-receipt'),event={sender,senderFrame:{url:sender.getURL()}};
   assert.equal((await handler(event,'https://example.com/admin/receipt')).ok,false);
@@ -195,6 +231,20 @@ test('quitting blocks late dashboard navigation and printing before local printe
   f.close();await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/employees');assert.equal(f.windows[0].url,policy.DEFAULT_ORIGIN+'/admin/dashboard');
   const result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/1/print');
   assert.equal(result.ok,false);assert.match(result.error,/يُغلق/);assert.equal(f.windows.length,1);
+});
+test('the fallback printer menu waits for the lazily opened legacy page and cancels its settings action during quit',async t=>{
+  for(const quitting of [false,true]){
+    let loaded,executed=0;
+    const localWindow={webContents:{executeJavaScript:async script=>{
+      assert.equal(script,'document.getElementById("settings").click()');executed++;
+    }}};
+    const f=fixture(t,{offline:()=>new Promise(resolve=>loaded=resolve),offlineWindow:()=>localWindow});
+    await f.dashboard.open();
+    const opening=f.electron.menu[0].submenu.find(item=>item.label==='اختيار الطابعة').click();
+    await Promise.resolve();assert.equal(executed,0,'settings must not run against the startup screen');
+    if(quitting)f.close();loaded();await opening;
+    assert.equal(executed,quitting?0:1);
+  }
 });
 
 test('local dashboard credentials stay inside owned pages and native receipt requests',async t=>{
@@ -523,4 +573,24 @@ test('actual Shutdown drains an accepted native login cancellation before final 
   const rejected=assert.rejects(renewal,/إلغاء/);await new Promise(resolve=>setImmediate(resolve));assert.equal(shutdown.pending.size,1);
   app.quit();await rejected;await new Promise(resolve=>setImmediate(resolve));
   assert.equal(shutdown.pending.size,0);assert.equal(shutdown.ready,true);assert.equal(drained,true);assert.equal(quitCount,2);assert.equal(f.windows[1].destroyed,true);
+});
+test('shutdown login cancellation settles when Chromium never returns cookie cleanup',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const Shutdown=require('../src/shutdown.cjs'),f=fixture(t),app=new EventEmitter();let drained=false;
+  app.quit=()=>app.emit('before-quit',{preventDefault(){}});
+  const shutdown=new Shutdown(app,()=>{f.close();f.dashboard.cancelAuthentication();},()=>{},async()=>{drained=true;});
+  await f.dashboard.open();
+  const renewal=shutdown.run(()=>f.dashboard.reauthenticate(policy.DEFAULT_ORIGIN,async()=>{}));
+  const rejected=assert.rejects(renewal,/إلغاء/);
+  await new Promise(resolve=>setImmediate(resolve));
+  let lateCookies;const removed=[];
+  f.session.cookies.get=()=>new Promise(resolve=>lateCookies=resolve);
+  f.session.cookies.remove=async(...args)=>removed.push(args);
+  app.quit();await Promise.resolve();
+  assert.equal(drained,false);assert.equal(shutdown.pending.size,1);
+  t.mock.timers.tick(5000);await rejected;await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(shutdown.pending.size,0);assert.equal(drained,true);assert.equal(shutdown.ready,true);
+  assert.equal(f.windows[1].destroyed,true);
+  lateCookies([{name:'newer-session',path:'/'}]);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(removed.length,0,'a late cleanup read must not remove a later session after its deadline');
 });

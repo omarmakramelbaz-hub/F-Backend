@@ -1,21 +1,65 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),vm=require('node:vm');
 const {EventEmitter}=require('node:events');
 const Store=require('../src/store.cjs');
+const Shutdown=require('../src/shutdown.cjs');
 const Sync=require('../src/sync.cjs');
 const SyncSchedule=require('../src/sync-schedule.cjs');
 const readSnapshot=require('../src/dashboard-download.cjs');
 const {randomUUID}=require('node:crypto');
 const settle=async()=>{for(let i=0;i<20;i++)await Promise.resolve();await new Promise(setImmediate);};
 
-async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,deltaBridge=false,deltaRun,runtimeControl,beforeUnload=false,holdRuntimeStop=false}={}){
+class LifecycleApp extends EventEmitter{
+  constructor(){super();this.quitCalls=0;this.exited=false;this.relaunchCalls=0;}
+  quit(){
+    if(this.exited)return;
+    this.quitCalls++;
+    const event={prevented:false,preventDefault(){this.prevented=true;}};
+    this.emit('before-quit',event);
+    if(!event.prevented){this.emit('will-quit');this.exited=true;}
+  }
+  relaunch(){this.relaunchCalls++;}
+}
+
+test('a throwing cancellation hook still retains accepted work and reaches final cleanup after drain fails',async()=>{
+  const app=new LifecycleApp(),order=[];let release;
+  const stopError=Error('cancellation failed'),drainError=Error('native cleanup failed');
+  const shutdown=new Shutdown(app,()=>{order.push('stop');throw stopError;},()=>order.push('close'),async()=>{order.push('drain');throw drainError;});
+  const accepted=shutdown.run(async()=>{await new Promise(resolve=>release=resolve);order.push('accepted-write');});
+  await settle();assert.doesNotThrow(()=>app.quit());await settle();
+  assert.equal(app.exited,false);assert.deepEqual(order,['stop']);
+  await assert.rejects(shutdown.run(()=>order.push('rejected-write')),/يُغلق/);
+  release();await accepted;await settle();
+  assert.equal(app.exited,true);assert.deepEqual(order,['stop','accepted-write','drain','close']);
+  assert.deepEqual(shutdown.errors,[{phase:'stop',error:stopError},{phase:'drain',error:drainError}]);
+});
+
+test('asynchronous cancellation finishes before runtime drain and its rejection cannot strand quit',async()=>{
+  const app=new LifecycleApp(),order=[];let rejectCancellation;
+  const error=Error('async cancellation failed');
+  const shutdown=new Shutdown(app,()=>new Promise((_resolve,reject)=>rejectCancellation=reject),()=>order.push('close'),async()=>order.push('drain'));
+  app.quit();app.quit();await settle();assert.equal(app.exited,false);assert.deepEqual(order,[]);
+  rejectCancellation(error);await settle();
+  assert.equal(app.exited,true);assert.deepEqual(order,['drain','close']);
+  assert.deepEqual(shutdown.errors,[{phase:'stop',error}]);
+});
+
+test('a failed final connection close returns to Electron quit and suppresses a queued relaunch',async()=>{
+  const app=new LifecycleApp(),error=Error('connection close failed');let closes=0;
+  const shutdown=new Shutdown(app,()=>{},()=>{closes++;throw error;});
+  app.quit();app.emit('second-instance');await settle();
+  assert.equal(app.exited,true);assert.equal(closes,1);assert.equal(app.relaunchCalls,0);
+  assert.deepEqual(shutdown.errors,[{phase:'close',error}]);
+});
+
+async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,holdDashboardLoad=false,holdRuntimeStart=false,nativeClock=false,deltaBridge=false,deltaRun,runtimeControl,beforeUnload=false,holdRuntimeStop=false}={}){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'pos-shutdown-')),file=path.join(profile,'fasakhansta-pos.sqlite');
   const seed=new Store(file),snapshot={id:randomUUID(),generated_at:new Date().toISOString(),branch:{value:'f:100',name:'اختبار'},actor:{id:10,name:'كاشير'},tax_bps:0,service_bps:0,can_discount:false,categories:[],products:[{id:1,name:'رنجة',unit:'piece',variants:[{option_id:'',label:'أساسي',unit_price_cents:10000,quantity_mode:'piece'}]}]};
   seed.saveSnapshot(snapshot);const order=seed.newOrder();seed.update(order.id,{...order.data,items:[{product_id:1,option_id:'',quantity_mode:'piece',quantity:'1'}],cash_received:'100.00'});const sale=seed.dispatch(order.id,'sale');
   if(paired)seed.set('connection',{origin:'https://fasakhaninja.com',device_id:1,token_cipher:Buffer.from('test-token').toString('base64')});seed.close();
   if(packaged){fs.mkdirSync(path.join(profile,'dashboard-runtime'));fs.writeFileSync(path.join(profile,'dashboard-runtime','manifest.json'),'{}');}
-  const windows=[],handlers=new Map(),timers=new Map();let store,printCallback,finishLoad,finishRuntimeStop,runtimeStops=0,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
+  const windows=[],handlers=new Map(),timers=new Map(),nativeTimers=new Map(),events=[];let store,printCallback,finishLoad,finishRuntimeStart,finishDashboardLoad,finishRuntimeStop,runtimeStarts=0,runtimeStops=0,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardReveals=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
   class ScheduledClock extends SyncSchedule{constructor(options){super({...options,now:()=>scheduleNow});}}
-  class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;}close(){this.closeCalls++;super.close();}}
+  class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;this.historyReads=0;}history(){this.historyReads++;return super.history();}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
     constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;this.relaunchCalls=0;}
     getVersion(){return '0.3.0-preview.1';}setName(value){this.displayName=value;}setPath(name,value){(this.paths||=new Map()).set(name,value);}
@@ -26,10 +70,11 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   }
   const app=new App();
   class Window extends EventEmitter{
-    constructor(){super();windows.push(this);this.destroyed=false;this.webContents=new EventEmitter();this.webContents.session={setPermissionRequestHandler(){}};this.webContents.setWindowOpenHandler=()=>{};
-      this.webContents.send=()=>{};this.webContents.getPrintersAsync=async()=>[{name:'Printer'}];this.webContents.executeJavaScript=async()=>true;
+    constructor(options={}){super();windows.push(this);this.destroyed=false;this.visible=Boolean(options.show);this.loadURLs=[];this.sent=[];this.showCalls=0;this.hideCalls=0;this.focusCalls=0;this.restoreCalls=0;this.webContents=new EventEmitter();this.webContents.session={setPermissionRequestHandler(){}};this.webContents.setWindowOpenHandler=()=>{};
+      this.webContents.send=(...args)=>this.sent.push(args);this.webContents.getPrintersAsync=async()=>[{name:'Printer'}];this.webContents.executeJavaScript=async()=>true;
       this.webContents.print=(_options,callback)=>{printCallback=callback;if(!holdPrint)callback(true);};app.emit('web-contents-created',{},this.webContents);}
-    async loadURL(url){this.url=url;if(holdLoad&&url.startsWith('fasakhansta:'))await new Promise(resolve=>{finishLoad=resolve;});}show(){}focus(){}isMinimized(){return false;}isDestroyed(){return this.destroyed;}
+    async loadURL(url){this.url=url;this.loadURLs.push(url);events.push('load:'+url);if(holdLoad&&url.startsWith('fasakhansta:'))await new Promise(resolve=>{finishLoad=resolve;});}
+    show(){this.visible=true;this.showCalls++;events.push('window-show');}hide(){this.visible=false;this.hideCalls++;events.push('window-hide');}focus(){this.focusCalls++;}restore(){this.minimized=false;this.restoreCalls++;}isMinimized(){return Boolean(this.minimized);}isDestroyed(){return this.destroyed;}
     close(){const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('close',event);if(event.prevented)return;
       if(beforeUnload){const unload={prevented:false,preventDefault(){this.prevented=true;}};this.webContents.emit('will-prevent-unload',unload);if(!unload.prevented)return;}this.destroy();}
     destroy(){if(this.destroyed)return;this.destroyed=true;this.emit('closed');if(windows.every(w=>w.destroyed))app.emit('window-all-closed');}
@@ -37,7 +82,7 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},protocol:{registerSchemesAsPrivileged(){},handle(){}},net:{fetch:fetch||(async()=>new Response('{}'))},safeStorage:{decryptString:buffer=>buffer.toString(),isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value)},dialog:{showErrorBox(){},showSaveDialog:async()=>({canceled:true})}};
   class UnpreparedRuntime{
     constructor(){this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async()=>null,write:async()=>{}};}
-    async isPrepared(){return runtimeReady;}async start(){return {origin:this.origin,token:this.token};}
+    async isPrepared(){return runtimeReady;}async start(){runtimeStarts++;if(holdRuntimeStart)await new Promise(resolve=>{finishRuntimeStart=resolve;});return {origin:this.origin,token:this.token};}
     async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:randomUUID(),actorId:10};}async stop(){runtimeStops++;if(holdRuntimeStop)await new Promise(resolve=>{finishRuntimeStop=resolve;});}
     async control(input){return runtimeControl?runtimeControl(input):{commands:[],counts:{pending:0,conflicts:0}};}
   }
@@ -49,11 +94,103 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
     constructor(options){deltaOptions=options;this.state={phase:'idle'};this.running=null;}
     run(){this.running=Promise.resolve().then(()=>deltaRun?deltaRun():{unchanged:true}).finally(()=>{this.running=null;});return this.running;}stop(){deltaStops++;}
   }
-  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;},isVisible:()=>true,reveal(){},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  const nativeDeadline=nativeClock?vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/native-deadline.cjs'),'utf8')+'\n;module.exports',{module:{exports:{}},setTimeout:(fn,delay)=>{nativeTimers.set(fn,delay);return fn;},clearTimeout:fn=>nativeTimers.delete(fn)}):require('../src/native-deadline.cjs');
+  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');},isVisible:()=>true,reveal(){dashboardReveals++;},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
-  return {app,store,file,sale,order,windows,timers,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStops(){return runtimeStops;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
+  return {app,store,file,sale,order,windows,timers,nativeTimers,events,openLocalOrders:mainState.localOrders,notify:mainState.notify,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStart(){return finishRuntimeStart;},get finishDashboardLoad(){return finishDashboardLoad;},get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStarts(){return runtimeStarts;},get runtimeStops(){return runtimeStops;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardReveals(){return dashboardReveals;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
 }
+
+test('prepared startup displays a local splash while runtime starts without loading the legacy renderer or reading its history',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdRuntimeStart:true});
+  const splash=f.windows[0];
+  assert.equal(splash.visible,true);assert.equal(splash.showCalls,1);
+  assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);
+  assert.equal(f.runtimeStarts,1);assert.equal(f.dashboardOpens,0);assert.equal(f.timers.size,0);
+  f.notify();assert.equal(f.store.historyReads,0);assert.deepEqual(splash.sent,[]);
+  f.finishRuntimeStart();await settle();
+  assert.equal(f.dashboardOpens,1);assert.equal(splash.visible,false);assert.equal(splash.hideCalls,1);
+  assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);assert.equal(f.store.historyReads,0);
+  assert.equal(f.timers.size,1);f.app.quit();await settle();assert.equal(f.app.exited,true);
+});
+
+test('startup waits for the dashboard to load before hiding the splash or arming background synchronization',async t=>{
+  const f=await fixture(t,{holdDashboardLoad:true}),splash=f.windows[0];
+  assert.equal(f.dashboardOpens,1);assert.equal(splash.visible,true);assert.equal(splash.hideCalls,0);
+  assert.equal(f.timers.size,0);assert.equal(f.store.historyReads,0);
+  f.finishDashboardLoad();await settle();
+  assert.equal(splash.visible,false);assert.equal(splash.hideCalls,1);assert.equal(f.timers.size,1);
+  assert.ok(f.events.indexOf('dashboard-ready')<f.events.indexOf('window-hide'));
+  f.app.quit();await settle();assert.equal(f.app.exited,true);assert.equal(f.timers.size,0);
+});
+
+test('a second launch restores the existing startup splash and reveals the dashboard after startup without opening legacy orders',async t=>{
+  const f=await fixture(t,{holdDashboardLoad:true}),splash=f.windows[0];
+  splash.minimized=true;splash.visible=false;
+  f.app.emit('second-instance');await settle();
+  assert.equal(f.windows.length,1);assert.equal(splash.visible,true);assert.equal(splash.restoreCalls,1);assert.equal(splash.focusCalls,1);
+  assert.equal(f.dashboardReveals,0);assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);
+  f.finishDashboardLoad();await settle();f.app.emit('second-instance');await settle();
+  assert.equal(f.dashboardReveals,1);assert.equal(splash.visible,false);assert.equal(f.store.historyReads,0);
+  assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);f.app.quit();await settle();
+});
+
+test('closing the startup splash while dashboard navigation is pending cannot restart background work after navigation settles',async t=>{
+  const f=await fixture(t,{holdDashboardLoad:true}),splash=f.windows[0];
+  splash.close();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+  f.finishDashboardLoad();await settle();
+  assert.equal(splash.destroyed,true);assert.equal(splash.hideCalls,0);assert.equal(f.timers.size,0);
+  assert.equal(f.dashboardOpens,1);assert.equal(f.store.historyReads,0);
+});
+
+test('closing during accepted runtime startup drains that attempt and never opens a dashboard or background schedule afterward',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdRuntimeStart:true});
+  f.windows[0].close();await settle();
+  assert.equal(f.app.exited,false);assert.equal(f.store.db.isOpen,true);assert.equal(f.runtimeStops,0);
+  f.finishRuntimeStart();await settle();
+  assert.equal(f.app.exited,true);assert.equal(f.runtimeStops,1);assert.equal(f.store.closeCalls,1);
+  assert.equal(f.dashboardOpens,0);assert.equal(f.timers.size,0);assert.equal(f.store.historyReads,0);
+  const reopened=new Store(f.file);try{assert.equal(reopened.pending()[0].id,f.sale.id);}finally{reopened.close();}
+});
+
+test('legacy orders are loaded once on demand and history publication starts only after that renderer is ready',async t=>{
+  const f=await fixture(t),splash=f.windows[0];
+  assert.equal(f.store.historyReads,0);assert.equal(splash.visible,false);
+  await Promise.all([f.openLocalOrders(),f.openLocalOrders()]);
+  assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html','fasakhansta://pos/index.html']);
+  assert.equal(splash.visible,true);f.notify();assert.equal(f.store.historyReads,1);
+  assert.equal(splash.sent.filter(([name])=>name==='pos:state').length,1);
+  f.app.quit();await settle();assert.equal(f.app.exited,true);
+});
+
+test('opening the saved orders archive during dashboard navigation keeps that archive visible when startup completes',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdDashboardLoad:true}),archive=f.windows[0];
+  assert.equal(f.dashboardOpens,1);assert.equal(f.timers.size,0);
+  await f.dashboardOptions.archive();
+  assert.equal(archive.visible,true);assert.deepEqual(archive.loadURLs,['fasakhansta://pos/startup.html','fasakhansta://pos/index.html']);
+  f.finishDashboardLoad();await settle();
+  assert.equal(archive.visible,true);assert.equal(archive.hideCalls,0);assert.equal(f.timers.size,1);
+  assert.deepEqual(archive.loadURLs,['fasakhansta://pos/startup.html','fasakhansta://pos/index.html']);
+  archive.close();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+});
+
+test('a missing native print callback reaches its deadline, keeps the receipt unconfirmed and lets quit close the saved ledger',async t=>{
+  const f=await fixture(t,{holdPrint:true,nativeClock:true});
+  const printing=f.invoke('print',f.sale.id);await settle();
+  const lateCallback=f.printCallback;
+  assert.equal(typeof lateCallback,'function');assert.equal(f.nativeTimers.size,1);
+  const [expire,delay]=[...f.nativeTimers][0];assert.equal(delay,45000);
+  f.app.quit();await settle();assert.equal(f.app.exited,false);assert.equal(f.store.db.isOpen,true);
+  expire();const result=await printing;await settle();
+  assert.equal(result.ok,false);assert.match(result.error,/لم تصل نتيجة الطباعة/);
+  assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.nativeTimers.size,0);assert.equal(f.timers.size,0);
+  assert.equal(f.windows[1].destroyed,true);
+  lateCallback(true);lateCallback(false,'late spooler failure');await settle();
+  assert.equal(f.store.closeCalls,1,'Late native responses cannot reopen or use the closed store.');
+  const reopened=new Store(f.file);try{
+    assert.equal(reopened.history()[0].printed,0);assert.equal(reopened.pending()[0].id,f.sale.id);assert.equal(reopened.order(f.order.id).status,'paid');
+  }finally{reopened.close();}
+});
 
 test('closing the last app window does not re-enter quit or close SQLite twice, and the ledger reopens intact',async t=>{
   const f=await fixture(t);f.windows[0].close();await settle();

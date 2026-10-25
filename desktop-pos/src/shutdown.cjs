@@ -8,6 +8,7 @@ module.exports = class Shutdown {
     this.ready = false;
     this.pending = new Set();
     this.relaunchRequested = false;
+    this.errors = [];
     app.on('web-contents-created', (_event, contents) => {
       contents.on('will-prevent-unload', event => {
         // A page may protect drafts during navigation. After accepted work and
@@ -23,15 +24,27 @@ module.exports = class Shutdown {
       event.preventDefault();
       if (this.stopping) return;
       this.stopping = true;
-      stop();
-      Promise.allSettled([...this.pending]).then(async () => {
-        try { await drain(); } catch {} finally { this.ready = true; app.quit(); }
+      // A failed cancellation must not skip the accepted-work barrier or strand
+      // a hidden process. Cancellation hooks may also finish asynchronously.
+      let stopped;
+      try { stopped = stop(); } catch (error) { this.errors.push({ phase: 'stop', error }); }
+      Promise.allSettled([...this.pending, Promise.resolve(stopped).catch(error => {
+        this.errors.push({ phase: 'stop', error });
+      })]).then(async () => {
+        try { await drain(); }
+        catch (error) { this.errors.push({ phase: 'drain', error }); }
+        finally { this.ready = true; app.quit(); }
       });
     });
     app.on('window-all-closed', () => { if (!this.stopping) app.quit(); });
     app.once('will-quit', () => {
-      close();
-      if (this.relaunchRequested && canRelaunch()) app.relaunch();
+      // Electron's will-quit handler must return even if the final SQLite close
+      // reports an error. Outstanding work has already settled; process exit
+      // releases the connection without discarding an accepted operation.
+      let closed = false;
+      try { close(); closed = true; }
+      catch (error) { this.errors.push({ phase: 'close', error }); }
+      if (closed && this.relaunchRequested && canRelaunch()) app.relaunch();
     });
   }
   async run(fn) {

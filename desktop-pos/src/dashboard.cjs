@@ -5,6 +5,7 @@ const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const getPolicy=require('./dashboard-get-policy.cjs');
 const policy = require('./dashboard-policy.cjs');
 const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
+const { withDeadline, printOnce } = require('./native-deadline.cjs');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '',
@@ -29,19 +30,19 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     const contents=printWindow.webContents;owned.add(contents.id);let closed=false;
     const close=()=>{if(closed)return;closed=true;owned.delete(contents.id);printWindow.destroy();};
     contents.on('will-navigate',event=>event.preventDefault());contents.setWindowOpenHandler(()=>({action:'deny'}));
-    let timer;
     try {
-      await Promise.race([(async()=>{
+      const {deviceName}=await withDeadline(async()=>{
         await printWindow.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html.replace(/<head\b[^>]*>/i,match=>match+protection)));
         await contents.executeJavaScript('Promise.all([document.fonts.ready,...Array.from(document.images).map(i=>i.complete?(i.naturalWidth?Promise.resolve():Promise.reject(Error("Receipt image unavailable"))):new Promise((r,j)=>{i.onload=r;i.onerror=()=>j(Error("Receipt image unavailable"));}))]).then(()=>true)');
-      })(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('تعذر تحميل مستند الطباعة كاملًا.')),25000);})]);
-      const deviceName=printer()||'',printers=await window.webContents.getPrintersAsync();
-      if(!printers.length || deviceName && !printers.some(value=>value.name===deviceName))throw Error('الطابعة غير متاحة. اختر الطابعة من قائمة البرنامج.');
+        const deviceName=printer()||'',printers=await window.webContents.getPrintersAsync();
+        if(!printers.length || deviceName && !printers.some(value=>value.name===deviceName))throw Error('الطابعة غير متاحة. اختر الطابعة من قائمة البرنامج.');
+        return {deviceName};
+      },25000,'تعذر تحميل مستند الطباعة أو قراءة طابعات ويندوز.');
       return {close,invoke:callback=>{
         if(closed)throw Error('Print document closed.');
         contents.print({silent:true,printBackground:true,deviceName,margins:{marginType:'none'}},(ok)=>callback(ok));
       }};
-    }catch(error){close();throw error;}finally{clearTimeout(timer);}
+    }catch(error){close();throw error;}
   }
   function ownedPrint(event) {
     return !quitting() && !refreshing && !authentication && owned.has(event.sender.id) && policy.sameOrigin(event.senderFrame.url,origin)
@@ -142,13 +143,17 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       try {
         printWindow.webContents.on('will-navigate', event => event.preventDefault());
         printWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-        await printWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html.replace(/<head\b[^>]*>/i, match => match + protection)));
-        await printWindow.webContents.executeJavaScript('Promise.all([document.fonts.ready,...Array.from(document.images).map(i=>i.complete?Promise.resolve():new Promise((r,j)=>{i.onload=r;i.onerror=()=>j(Error("تعذر تحميل شعار الفاتورة"));}))]).then(()=>true)');
-        const deviceName = printer() || '';
-        const printers = await window.webContents.getPrintersAsync();
-        if (!printers.length || (deviceName && !printers.some(item => item.name === deviceName))) throw Error('الطابعة غير متاحة. اختر الطابعة من قائمة البرنامج.');
-        await new Promise((resolve, reject) => printWindow.webContents.print({ silent: true, printBackground: true, deviceName,
-          margins: { marginType: 'none' } }, (ok, error) => ok ? resolve() : reject(Error('فشلت الطباعة: ' + error))));
+        const {deviceName}=await withDeadline(async()=>{
+          await printWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html.replace(/<head\b[^>]*>/i, match => match + protection)));
+          await printWindow.webContents.executeJavaScript('Promise.all([document.fonts.ready,...Array.from(document.images).map(i=>i.complete?Promise.resolve():new Promise((r,j)=>{i.onload=r;i.onerror=()=>j(Error("تعذر تحميل شعار الفاتورة"));}))]).then(()=>true)');
+          const deviceName = printer() || '';
+          const printers = await window.webContents.getPrintersAsync();
+          if (!printers.length || (deviceName && !printers.some(item => item.name === deviceName))) throw Error('الطابعة غير متاحة. اختر الطابعة من قائمة البرنامج.');
+          return {deviceName};
+        },25000,'تعذر تحميل مستند الطباعة أو قراءة طابعات ويندوز.');
+        if(quitting())throw Error('البرنامج يُغلق الآن. مستند الفاتورة محفوظ.');
+        await printOnce(printWindow.webContents,{ silent: true, printBackground: true, deviceName,
+          margins: { marginType: 'none' } });
         return { ok: true, value: true };
       } finally { owned.delete(printWindow.webContents.id); printWindow.destroy(); }
     } catch (error) { return { ok: false, error: error.message }; }
@@ -343,8 +348,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       }}]:[]),
       { label: 'اختيار الطابعة', click: () => {
         if (selectPrinter) { accepted(() => selectPrinter(window)).catch(error => dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: error.message })); return; }
-        offline('');
-        offlineWindow().webContents.executeJavaScript('document.getElementById("settings").click()').catch(() => {});
+        // The previous POS renderer is loaded only when requested. Wait for it
+        // before opening settings, and never run page work after quit begins.
+        return Promise.resolve().then(()=>offline('')).then(()=>{
+          if(!quitting())return offlineWindow().webContents.executeJavaScript('document.getElementById("settings").click()');
+        }).catch(() => {});
       } },
       { type: 'separator' }, { label: 'إغلاق البرنامج', role: 'quit' }
     ] },
@@ -528,8 +536,16 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     return new Promise((resolve,reject)=>{
       const cookieSession=authWindow.webContents.session;
       const clearCookies=async()=>{
-        const cookies=await cookieSession.cookies.get({url:destination+'/admin/login'});
-        for(const cookie of cookies)await cookieSession.cookies.remove(destination+(cookie.path||'/'),cookie.name);
+        let active=true;
+        try{return await withDeadline(async()=>{
+          const cookies=await cookieSession.cookies.get({url:destination+'/admin/login'});
+          for(const cookie of cookies){
+            // A delayed cookie read must never remove a later login's session.
+            if(!active)return;
+            await cookieSession.cookies.remove(destination+(cookie.path||'/'),cookie.name);
+          }
+        },5000,'تعذر مسح جلسة السيرفر في الوقت المحدد.');}
+        finally{active=false;}
       };
       const record={window:authWindow,contentsId:authWindow.webContents.id,allowed,submitted:false,checking:false,finishing:false};authentication=record;
       const finish=async error=>{
@@ -539,9 +555,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           try{await clearCookies();}
           catch(cleanupError){
             if(!quitting()){
-              const choice=await dialog.showMessageBox(authWindow,{type:'error',title:'GO ERP',message:'تعذر مسح جلسة السيرفر. الداشبورد متوقفة لحين إعادة المحاولة أو إغلاق البرنامج.',buttons:['إعادة المحاولة','إغلاق البرنامج'],defaultId:0,cancelId:1});
-              record.finishing=false;
-              if(choice.response===0)return finish(error);
+              const timedOut=cleanupError.code==='NATIVE_OPERATION_TIMEOUT';
+              const choice=await dialog.showMessageBox(authWindow,{type:'error',title:'GO ERP',
+                message:timedOut?'تعذر إكمال مسح جلسة السيرفر. أغلق البرنامج ثم أعد فتحه.':'تعذر مسح جلسة السيرفر. الداشبورد متوقفة لحين إعادة المحاولة أو إغلاق البرنامج.',
+                buttons:timedOut?['إغلاق البرنامج']:['إعادة المحاولة','إغلاق البرنامج'],defaultId:0,cancelId:timedOut?0:1});
+              if(!timedOut&&choice.response===0){record.finishing=false;return finish(error);}
               reject(cleanupError);quit();return;
             }
           }
