@@ -1,0 +1,40 @@
+name: GO ERP startup and session rollout contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-startup-session-*']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_startup_session*'
+      - 'tests/*go_erp_startup_session*'
+      - '.github/workflows/go-erp-startup-session-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  startup-session-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load exact previous releases and original transaction fixtures
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+      - name: Load the core and seed lineage for the immutable release contract
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
+          138bc2773bf8de099b029a18550e49f0692e9806
+      - name: Verify wrapper syntax
+        run: bash -n deployment/run_go_erp_startup_session_root.sh
+      - name: Verify actual source exchange, worker, transaction, and publication guards
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1 GO_ERP_TEST_REQUIRE_REAL_CHOWN=1
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_startup_session_*.py'
