@@ -90,6 +90,7 @@ return [
     'address' => 'Address',
     'payment' => 'Payment',
     'payment_failed' => 'Payment failed',
+    'payment_paid' => 'Paid',
     'details' => 'View details',
     'print' => 'Print',
     'accept' => 'Accept order',

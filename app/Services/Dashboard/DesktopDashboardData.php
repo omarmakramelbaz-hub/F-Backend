@@ -69,11 +69,10 @@ class DesktopDashboardData
             $ids=[(int)$actor->id,...$storeIds];
             if(isset($queries['resturants']))$ids=array_merge($ids,(clone $queries['resturants'])->pluck('user_id')->all());
             $queries['users']=DB::table('users')->whereIn('id',array_unique($ids));
-            // pending_vendor_id has no deployed FK. Import only the existing
-            // enrolled delegate's Catalog eligibility, never application PII.
+            // users.pending_vendor_id has a live FK. Import the eligibility of
+            // every application referenced by an imported user, never application PII.
             if(isset($queries['pending_vendors'],$queries['go_stores']))$queries['pending_vendors']=DB::table('pending_vendors')
-                ->whereIn('id',DB::table('users')->whereIn('id',$storeIds)->where('account_type','delegate')->where('app_scope','go_partner')
-                    ->whereIn('id',(clone $queries['go_stores'])->select('user_id'))->select('pending_vendor_id'))
+                ->whereIn('id',(clone $queries['users'])->whereNotNull('pending_vendor_id')->select('pending_vendor_id'))
                 ->select(self::GO_ELIGIBILITY_FIELDS)->orderBy('id');
         }
         foreach(['model_has_roles','model_has_permissions'] as $table)if(isset($queries[$table])&&!$all)$queries[$table]=DB::table($table)->where('model_type',User::class)->where('model_id',$actor->id);
@@ -105,7 +104,16 @@ class DesktopDashboardData
                 $known=array_column($data[$ref->target_table],$ref->target_column);$requested=[];
                 foreach($data[$ref->source_table] as $row)if(isset($row[$ref->source_column]))$requested[]=$row[$ref->source_column];
                 $missing=array_values(array_diff(array_unique($requested),$known));if(!$missing)continue;
-                abort_if($eligibilityOnly&&$ref->target_table==='pending_vendors',409,'مرجع طلب شراكة خارج دليل أهلية المتجر؛ لم تُجهّز بيانات مراجعة الطلبات.');
+                if($eligibilityOnly&&$ref->target_table==='pending_vendors'){
+                    // Users added as parents (for example customers on branch orders) may
+                    // reference their own application. Import only its eligibility, never PII.
+                    foreach(array_chunk($missing,1000) as $ids){
+                        foreach(DB::table('pending_vendors')->whereIn('id',$ids)->select(self::GO_ELIGIBILITY_FIELDS)->orderBy('id')->cursor() as $row){
+                            abort_if($total>=500000,413);$data['pending_vendors'][]=(array)$row+['full_name'=>'','mobile'=>''];$changed=true;$total++;
+                        }
+                    }
+                    continue;
+                }
                 abort_unless(in_array($ref->target_table,self::REFERENCE_TABLES,true),409,'مرجع مالي خارج نسخة الفرع؛ لم تُفعّل قاعدة محلية ناقصة.');
                 foreach(array_chunk($missing,1000) as $ids){
                     foreach(DB::table($ref->target_table)->whereIn($ref->target_column,$ids)->cursor() as $row){abort_if($total>=500000,413);$data[$ref->target_table][]=(array)$row;$changed=true;$total++;}

@@ -113,6 +113,8 @@ class OrderBoardService
             $query = $this->query($source, $actor, []);
             if (!$query) continue;
             $this->forGroup($query, $source, 'new');
+            if ($source === 'legacy') $query->whereNotNull('status');
+            if ($source === 'store') $query->where('status', '!=', 'awaiting_payment');
             foreach ($query->orderBy('id')->pluck('id') as $id) $keys[] = $source.':'.$id;
         }
         return $keys;
@@ -294,6 +296,59 @@ class OrderBoardService
 
     private function forGroup($query, string $source, string $group): void
     {
+        if ($source === 'legacy' && $this->failedCheckoutSchema()) {
+            // Failed online payments never became orders; keep them off the board.
+            if ($group === 'completed') { $this->normalGroup($query, 'legacy', 'completed'); return; }
+            $this->normalGroup($query, $source, $group);
+            if ($group === 'new') $query->whereNotExists(function ($failed) { $this->failedCheckoutReceipt($failed); });
+            return;
+        }
+        $this->normalGroup($query, $source, $group);
+    }
+
+    private function failedCheckoutSchema(): bool
+    {
+        foreach (['id', 'order_id', 'user_id', 'status', 'transaction_id'] as $column) if (!$this->has('payments', $column)) return false;
+        return true;
+    }
+
+    private function failedCheckoutReceipt($query): void
+    {
+        $query->selectRaw('1')->from('payments as board_failed')
+            ->whereColumn('board_failed.order_id', 'orders.id')->whereColumn('board_failed.user_id', 'orders.user_id')->whereNull('orders.status')
+            ->where('orders.type', 'current')->whereIn('orders.payment_type', ['online', 'v_cash'])
+            ->where(function ($failed) {
+                $failed->whereRaw("LOWER(TRIM(COALESCE(board_failed.status, ''))) = ?", ['failed'])
+                    ->orWhere(function ($legacy) {
+                        $legacy->whereRaw("LOWER(TRIM(COALESCE(board_failed.status, ''))) IN (?, ?)", ['0', 'false'])
+                            ->whereNotNull('board_failed.transaction_id')->where('board_failed.transaction_id', '!=', '');
+                    });
+            })->whereNotExists(function ($newer) {
+                $newer->selectRaw('1')->from('payments as board_newer')->whereColumn('board_newer.order_id', 'board_failed.order_id')
+                    ->whereColumn('board_newer.id', '>', 'board_failed.id');
+            })->whereNotExists(function ($paid) {
+                $paid->selectRaw('1')->from('payments as board_paid')->whereColumn('board_paid.order_id', 'board_failed.order_id')
+                    ->whereRaw("LOWER(TRIM(COALESCE(board_paid.status, ''))) IN (?, ?, ?, ?, ?)", ['1','true','paid','succeeded','success']);
+            });
+        if ($this->has('orders', 'accepted_notify')) $query->where(function ($notAccepted) {
+            $notAccepted->whereNull('orders.accepted_notify')->orWhere('orders.accepted_notify', '!=', 'yes');
+        });
+        foreach (['delegate_id', 'delegate_from_out', 'transfer_price_by'] as $column) if ($this->has('orders', $column)) {
+            $query->where(function ($empty) use ($column) {
+                $empty->whereNull('orders.'.$column)->orWhere('orders.'.$column, '');
+                if ($column === 'delegate_id') $empty->orWhere('orders.'.$column, 0);
+            });
+        }
+    }
+
+    private function failedCheckout(object $row): bool
+    {
+        if (!$this->awaitingLegacyPayment($row) || !$this->failedCheckoutSchema()) return false;
+        return DB::table('orders')->where('orders.id', $row->id)->whereExists(function ($failed) { $this->failedCheckoutReceipt($failed); })->exists();
+    }
+
+    private function normalGroup($query, string $source, string $group): void
+    {
         $statuses = [
             'legacy'=>['new'=>['pending','another_delegate','new_order'], 'preparing'=>['accepted'], 'courier'=>['shipped'], 'completed'=>['completed','cancelled','declined']],
             'store'=>['new'=>['pending','awaiting_payment'], 'preparing'=>['preparing','ready'], 'courier'=>['out_for_delivery'], 'completed'=>['completed','cancelled','rejected']],
@@ -316,7 +371,21 @@ class OrderBoardService
                 if ($group === 'new') $q->where(function ($pending) { $pending->whereNull('accepted_notify')->orWhere('accepted_notify', '!=', 'yes'); });
                 if ($group === 'preparing') $q->orWhere(function ($accepted) { $accepted->whereIn('status', ['pending','another_delegate','new_order'])->where('accepted_notify', 'yes'); });
             }
-            if ($source === 'legacy' && $group === 'completed') $q->orWhereNull('status');
+            // Online checkouts reach the board only after the payment is confirmed.
+            if ($source === 'legacy' && $group === 'new' && $this->failedCheckoutSchema()) $q->orWhere(function ($checkout) {
+                $checkout->whereNull('status')->where('type', 'current')->whereIn('payment_type', ['online', 'v_cash'])
+                    ->whereExists(function ($paid) {
+                        $paid->selectRaw('1')->from('payments as board_confirmed')
+                            ->whereColumn('board_confirmed.order_id', 'orders.id')->whereColumn('board_confirmed.user_id', 'orders.user_id')
+                            ->whereRaw("LOWER(TRIM(COALESCE(board_confirmed.status, ''))) IN (?, ?, ?, ?, ?)", ['1','true','paid','succeeded','success']);
+                    });
+            });
+            if ($source === 'legacy' && $group === 'completed') $q->orWhere(function ($unknown) {
+                $unknown->whereNull('status')->where(function ($other) {
+                    $other->whereNull('type')->orWhere('type', '!=', 'current')
+                        ->orWhereNull('payment_type')->orWhereNotIn('payment_type', ['online', 'v_cash']);
+                });
+            });
         });
     }
 
@@ -417,12 +486,22 @@ class OrderBoardService
             'status'=>$status, 'status_label'=>$this->statusLabel($status), 'group'=>$this->group($source, $row),
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
-            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'total'=>null,
+            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'payment_paid'=>false, 'total'=>null,
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
                 'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
         if ($source === 'legacy') {
+            $card['payment_paid'] = $this->legacyPaymentPaid($row);
+            if ($this->awaitingLegacyPayment($row)) {
+                $card['status'] = 'awaiting_payment';
+                $card['status_label'] = $card['payment_paid'] ? 'طلب جديد' : 'بانتظار تأكيد الدفع';
+                $card['action_note'] = $card['payment_paid'] ? 'تم الدفع؛ بانتظار قبول الطلب.' : 'لم يكتمل الدفع؛ يمكنك إلغاء الطلب أو انتظار إتمام الدفع.';
+            }
+            if ($this->failedCheckout($row)) {
+                $card['status'] = 'payment_failed'; $card['status_label'] = 'فشل الدفع';
+                $card['action_note'] = 'فشلت عملية الدفع؛ لم يتم قبول الطلب أو تنفيذه.';
+            }
             if ($status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') $card['status_label'] = 'مع المندوب';
             elseif (in_array($status, ['pending','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') $card['status_label'] = 'قيد التجهيز';
             $restaurant = $this->related['resturants'][$row->resturant_id ?? null] ?? null;
@@ -460,6 +539,7 @@ class OrderBoardService
                 $card['total'] = number_format($subtotal + $delivery + $tax + $serviceFee, 2, '.', '');
                 $card['actions'] = $this->legacyActions($row, $restaurant !== null);
                 $card['action_labels'] = ['prepare'=>'مندوب الفرع', 'dispatch'=>'طلب مندوب'];
+                if ($this->awaitingLegacyPayment($row)) $card['action_labels']['cancel'] = 'إلغاء طلب غير مدفوع';
             }
             $card['payment_label'] = $this->payment($row->payment_type ?? '');
             $card['payment_failed'] = $this->paymentFailed($source, $row);
@@ -512,6 +592,8 @@ class OrderBoardService
     public function legacyActions(object $row, bool $hasRestaurant = true): array
     {
         if (!$hasRestaurant || ($row->type ?? '') !== 'current') return [];
+        if ($this->failedCheckout($row)) return [];
+        if ($this->awaitingLegacyPayment($row)) return app(UnpaidOrderCancellation::class)->available($row) ? ['cancel'] : [];
         $status = $row->status ?? '';
         if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') !== 'yes') return ['accept','reject'];
         $cancel = app(LegacyOrderCancellation::class)->available($row) ? ['cancel'] : [];
@@ -532,6 +614,8 @@ class OrderBoardService
 
     private function group(string $source, object $row): string
     {
+        if ($source === 'legacy' && $this->failedCheckout($row)) return 'completed';
+        if ($source === 'legacy' && $this->awaitingLegacyPayment($row)) return 'new';
         $status = $row->status ?? '';
         if (in_array($status, ['completed','cancelled','declined','rejected','expired',''], true)) return 'completed';
         if (in_array($status, ['shipped','out_for_delivery','in_progress','awaiting_confirmation'], true)) return 'courier';
@@ -539,6 +623,14 @@ class OrderBoardService
         if (in_array($status, ['accepted','preparing','ready','booked','disputed'], true)
             || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes')) return 'preparing';
         return 'new';
+    }
+
+    private function awaitingLegacyPayment(object $row): bool
+    {
+        // Checkout creates a null status until the payment callback activates it.
+        // Payment completion is separate from staff acceptance and delivery.
+        return ($row->status ?? null) === null && ($row->type ?? '') === 'current'
+            && in_array($row->payment_type ?? '', ['online', 'v_cash'], true);
     }
 
     private function statusLabel(string $status): string
@@ -555,6 +647,20 @@ class OrderBoardService
         return ['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'بطاقة بنكية','credit_card'=>'بطاقة بنكية',
             'mobile_wallet'=>'محفظة إلكترونية','v_cash'=>'فودافون كاش','paymob'=>'دفع إلكتروني','online'=>'بطاقة بنكية',
             'paymob_card_payment'=>'بطاقة بنكية','paymob_mobile_wallet_payment'=>'محفظة إلكترونية'][$method] ?? ($method ?: 'غير محدد');
+    }
+
+    private function legacyPaymentPaid(object $row): bool
+    {
+        if (($row->type ?? '') !== 'current' || !in_array($row->payment_type ?? '', ['online', 'v_cash'], true)
+            || in_array($row->status ?? '', ['cancelled', 'declined', 'rejected'], true)) return false;
+        foreach ($this->related['payments'][$row->id] ?? [] as $payment) {
+            if ((int) ($payment->user_id ?? 0) !== (int) ($row->user_id ?? 0)
+                || !preg_match('/^[1-9][0-9]{0,29}$/D', (string) ($payment->transaction_id ?? ''))
+                || !in_array(strtolower(trim((string) ($payment->status ?? ''))), ['1', 'true', 'paid', 'succeeded', 'success'], true)) continue;
+            try { if (\App\Services\GoServices\Money::minor($payment->total_price ?? null) > 0) return true; }
+            catch (\InvalidArgumentException $error) { /* Unknown historical amounts are not paid evidence. */ }
+        }
+        return false;
     }
 
     private function paymentFailed(string $source, object $row): bool

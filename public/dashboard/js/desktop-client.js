@@ -30,6 +30,7 @@
             if (controls.hidden) return;
             const waiting = count(state.pending), conflicts = count(state.conflicts);
             description.textContent = (Object.hasOwn(labels, state.phase) ? labels[state.phase] : labels.idle)
+                + (state.phase === 'verifying' && state.media && count(state.media.total) ? ' · تم تنزيل ' + count(state.media.done) + ' من ' + count(state.media.total) + ' صورة' : '')
                 + (state.prepared ? (state.mode === 'local' ? ' · العمل على الجهاز' : ' · الداشبورد المتصلة') + ' · المزامنة تلقائية كل ٣٠ ثانية' : '')
                 + (waiting ? ' · ' + waiting + ' عملية تنتظر المزامنة' : '')
                 + (conflicts ? ' · ' + conflicts + ' عملية تحتاج مراجعة' : '')

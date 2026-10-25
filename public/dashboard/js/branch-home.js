@@ -52,7 +52,7 @@
             var next = await response.json();
             if (disposed || current !== sequence) return;
             if (!next.success || !next.branch_home || !next.today_expenses) throw Error('payload');
-            data = next; render(); $('notice').hidden = true;
+            data = next; render(); $('notice').hidden = true; document.dispatchEvent(new CustomEvent('go:home-data', {detail: data}));
         } catch (error) {
             if (!disposed && current === sequence && error.name !== 'AbortError') { $('notice').textContent = labels.stale; $('notice').hidden = false; }
         } finally {

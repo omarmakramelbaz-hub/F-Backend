@@ -201,8 +201,10 @@ $(document).ready(function() {
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/adminlte.js?v={{ filemtime(public_path('dashboard/dist/js/adminlte.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-navigation.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-idle.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-idle.js')) }}" data-home-url="{{ url('/admin/dashboard') }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-operating-day.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-operating-day.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-expense-badge.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-expense-badge.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-fit.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-fit.js')) }}"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
 
 <!-- AdminLTE for demo purposes -->

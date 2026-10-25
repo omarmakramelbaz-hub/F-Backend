@@ -23,6 +23,7 @@
         .info-row{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px;min-width:0}.info-row dt{margin:0;color:#69768b;font-size:12px}.info-row dd{margin:0;min-width:0;overflow-wrap:anywhere}.info-address{grid-column:1/-1}
         .number{direction:ltr;unicode-bidi:isolate;display:inline-block;white-space:nowrap;font-variant-numeric:tabular-nums}
         .payment-failed{display:inline-block;color:#b51f34;background:#fff0f2;border:1px solid #f2c8d0;border-radius:4px;padding:1px 5px;margin-inline-start:5px;font-size:12px;font-weight:bold;white-space:nowrap}
+        .payment-paid{display:inline-block;color:#147443;background:#eefaf2;border:1px solid #bce1c8;border-radius:4px;padding:1px 5px;margin-inline-start:5px;font-size:12px;font-weight:bold;white-space:nowrap}
         .courier-phone{display:block}.items{width:100%;border-collapse:collapse;table-layout:fixed;margin:16px 0}.item-name-col{width:62%}.quantity-col{width:12%}.amount-col{width:26%}
         .items th,.items td{padding:9px 7px;text-align:right;border-bottom:1px solid #e8eaf1;vertical-align:top}.items th{color:#66758b;font-size:12px}.items .item-quantity{text-align:center}.items .item-amount{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums}
         .item-name{overflow-wrap:anywhere}.item-option{display:block;color:#69768b;font-size:12px;margin-top:2px}
@@ -62,7 +63,7 @@
         <div class="info-row"><dt>العميل</dt><dd>{{ $card['customer'] }}</dd></div>
         <div class="info-row"><dt>الموبايل</dt><dd><bdi class="number">{{ $card['phone'] ?: 'غير متاح' }}</bdi></dd></div>
         <div class="info-row info-address"><dt>العنوان</dt><dd>{{ $card['address'] ?: 'غير متاح' }}</dd></div>
-        <div class="info-row"><dt>طريقة الدفع</dt><dd>{{ $card['payment_label'] ?: 'غير محدد' }}@if(!empty($card['payment_failed']))<strong class="payment-failed">{{ __('order_board.payment_failed') }}</strong>@endif</dd></div>
+        <div class="info-row"><dt>طريقة الدفع</dt><dd>{{ $card['payment_label'] ?: 'غير محدد' }}@if(!empty($card['payment_paid']))<strong class="payment-paid">{{ __('order_board.payment_paid') }}</strong>@elseif(!empty($card['payment_failed']))<strong class="payment-failed">{{ __('order_board.payment_failed') }}</strong>@endif</dd></div>
         @if(!empty($card['courier']))
             <div class="info-row"><dt>المندوب</dt><dd>{{ $card['courier']['name'] }} <bdi class="number courier-phone">{{ $card['courier']['phone'] }}</bdi></dd></div>
         @endif

@@ -5,12 +5,40 @@
     <section class="content">
         <div class="card"><div class="card-body">
             <h2 class="h5">تحميل وتحديث GO ERP</h2>
-            <p>بعد التثبيت الأول يتلقى البرنامج تحديثاته من السيرفر تلقائيًا عند الاتصال بالإنترنت. يُفحص التحديث كل دقيقة، ويُثبت بعد انتهاء العمليات الجارية والمزامنة، ثم يُفتح البرنامج تلقائيًا.</p>
-            @if(!$local && $release)
+            <p>تجهيز نسخة جديدة على السيرفر يبدأ عند الضغط على «تحديث التطبيق». بعد نشرها، يتلقى البرنامج المثبّت النسخة عند الاتصال بالإنترنت ويثبتها بعد انتهاء العمليات والمزامنة.</p>
+            @if(!$local && ($manualOwner ?? false))
+                <div class="border rounded p-3 mb-3" data-go-erp-release
+                    data-status-url="{{ route('desktop-dashboard.release.status') }}"
+                    data-request-url="{{ route('desktop-dashboard.release.request') }}">
+                    <p class="mb-2">تجهيز نسخة جديدة من تعديلات السيرفر يبدأ بطلبك. بعد اكتمال الفحص والنشر يظهر ملف التنزيل هنا.</p>
+                    <div class="d-flex flex-wrap align-items-center" style="gap:8px">
+                        <a class="btn btn-success" data-go-erp-published-current data-spa-off download
+                            @if(!($publishedDownloads['current']['ready'] ?? false)) hidden @endif
+                            href="{{ $publishedDownloads['current']['url'] ?? '#' }}">تحميل التطبيق <bdi data-go-erp-current-version>{{ $publishedDownloads['current']['version'] ?? '' }}</bdi></a>
+                        <a class="btn btn-outline-secondary" data-go-erp-published-previous data-spa-off download
+                            @if(!($publishedDownloads['previous']['ready'] ?? false)) hidden @endif
+                            href="{{ $publishedDownloads['previous']['url'] ?? '#' }}">تحميل النسخة السابقة <bdi data-go-erp-previous-version>{{ $publishedDownloads['previous']['version'] ?? '' }}</bdi></a>
+                        <button type="button" class="btn btn-primary" data-go-erp-release-request>تحديث التطبيق</button>
+                    </div>
+                    <p class="text-muted mt-2 mb-0" data-go-erp-published-empty @if($publishedDownloads['current']['ready'] ?? false) hidden @endif>ملف التطبيق يظهر هنا بعد أول نشر ناجح.</p>
+                    <p class="text-muted mt-2 mb-0" data-go-erp-release-status role="status" aria-live="polite"></p>
+                    <p class="text-danger mt-2 mb-0" data-go-erp-release-error role="alert" hidden></p>
+                </div>
+            @endif
+            @if(!$local && !($manualOwner ?? false))
+            <div>
+            @if($publishedDownloads['current']['ready'] ?? false)
+                <a class="btn btn-success" data-spa-off download href="{{ $publishedDownloads['current']['url'] }}">تحميل التطبيق <bdi>{{ $publishedDownloads['current']['version'] }}</bdi></a>
+                @if($publishedDownloads['previous']['ready'] ?? false)
+                    <a class="btn btn-outline-secondary" data-spa-off download href="{{ $publishedDownloads['previous']['url'] }}">تحميل النسخة السابقة <bdi>{{ $publishedDownloads['previous']['version'] }}</bdi></a>
+                @endif
+            @elseif($release)
                 <p>نسخة التثبيت للأجهزة الجديدة: <bdi>{{ $release['version'] }}</bdi></p>
                 <a class="btn btn-warning" data-spa-off download href="{{ route('desktop-dashboard.download') }}"><i class="fas fa-download ml-1" aria-hidden="true"></i>تحميل GO ERP لجهاز جديد</a>
-            @elseif(!$local)
-                <p class="text-muted mb-0" role="status">يجري تجهيز نسخة GO ERP المتوافقة مع تحديث الداشبورد. سيظهر ملف التنزيل هنا بعد اكتمال النشر والفحص.</p>
+            @else
+                <p class="text-muted mb-0" role="status">ملف التنزيل غير متاح حاليًا. يظهر هنا بعد نشر نسخة متوافقة وفحصها.</p>
+            @endif
+            </div>
             @endif
         </div></div>
         <div class="card"><div class="card-body">
@@ -36,4 +64,7 @@
         </div></div>
     </section>
 </div>
+@if(!$local && ($manualOwner ?? false))
+<script src="{{ asset('dashboard/js/go-erp-releases.js') }}?v={{ filemtime(public_path('dashboard/js/go-erp-releases.js')) }}"></script>
+@endif
 @endsection
