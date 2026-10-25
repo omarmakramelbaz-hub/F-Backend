@@ -11,7 +11,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
-  let window, loading = false, refreshing = false, printing = 0, authentication = null;
+  let window, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
@@ -257,6 +257,14 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           });
         });
         window.on('close', event => { if (!quitting()) { event.preventDefault(); quit(); } });
+        // Logging out of the dashboard ends desktop work: after the logout page
+        // has completed, close GO ERP through the normal safe shutdown.
+        contents.on('will-navigate', (_event, url) => {
+          if (loggingOut || refreshing || authentication || !policy.sameOrigin(url, origin) || new URL(url).pathname !== '/admin/adminLogout') return;
+          loggingOut = true;
+          setTimeout(() => { if (!quitting()) quit(); }, 15000);
+        });
+        contents.on('did-navigate', () => { if (loggingOut && !quitting()) quit(); });
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
           if (!refreshing && mainFrame && policy.networkFailure(description)) {
             if (localToken) dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
