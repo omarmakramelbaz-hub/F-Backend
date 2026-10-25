@@ -140,6 +140,14 @@ def root_breakdown():
             for row in output.splitlines() if row.strip()}
 
 
+def home_breakdown():
+    measured = subprocess.run(['du', '-x', '-B1', '--max-depth=1', '/home/fasakha'],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              universal_newlines=True)
+    return {row.split(None, 1)[1]: int(row.split(None, 1)[0])
+            for row in measured.stdout.splitlines() if row.strip()}
+
+
 def upgrade_staging_inventory():
     result = []
     root = Path('/var/lib/go-erp-live-updates')
@@ -169,12 +177,17 @@ def main():
                        'c238946e36e95b8037c0a678f340ce6c9121de9f5259e1a11cbaac7fa0382293')
     retention.PUBLISHER = Path('/opt/go-erp-release-retention') / ('publisher-' + retention.PUBLISHER_SHA256 + '.py')
     print('CLEANUP_STAGE=latest_two_program_versions', flush=True)
-    with ExitStack() as stack:
-        publisher = retention.load_publisher(stack)
-        versions = retention.run(retention.Paths(), publisher, apply=True)
+    try:
+        with ExitStack() as stack:
+            publisher = retention.load_publisher(stack)
+            versions = retention.run(retention.Paths(), publisher, apply=True)
+    except BlockingIOError:
+        versions = {'status': 'deferred', 'reason': 'active_or_pending_update',
+                    'retention_timer_unchanged': True, 'removed_files': 0}
     print(json.dumps(versions, sort_keys=True), flush=True)
     full = module('cleanup_full_backup', PACKAGE / 'prune_previous_full_backup_root.py')
     points = module('cleanup_point_backups', PACKAGE / 'clean_archived_point_backups_root.py')
+    upgrades = module('cleanup_closed_upgrades', PACKAGE / 'clean_closed_upgrade_checkouts_root.py')
     before = shutil.disk_usage(str(BASE)).free
     with full.locked_backup() as verified, ExitStack() as stack:
         held = []
@@ -204,11 +217,24 @@ def main():
             point_result = points.clean(verified, split, apply=True)
         except (points.Stop, split.core.BackupError) as error:
             verified.check()
-            point_result = {'point_backup_status': 'preserved_for_review', 'reason': str(error)}
-            print('POINT_BACKUPS_PRESERVED_FOR_REVIEW=' + str(error), flush=True)
+            point_result = {'point_backup_status': 'review_required', 'reason': str(error)}
+            print('POINT_BACKUPS_REVIEW_REQUIRED=' + str(error), flush=True)
         retention.check_locks(held)
         publication.check()
         verified.check()
+        print('CLEANUP_STAGE=closed_historical_upgrade_checkouts', flush=True)
+        verified.progress.stage = 'verify_closed_historical_upgrade_checkouts'
+        def guard():
+            verified.check()
+            retention.check_locks(held)
+            publication.check()
+        try:
+            upgrade_result = upgrades.clean(verified, points, split, apply=True, guard=guard)
+        except (upgrades.Stop, points.Stop, split.core.BackupError) as error:
+            guard()
+            upgrade_result = {'closed_checkout_status': 'review_required', 'reason': str(error)}
+            print('CLOSED_UPGRADE_CHECKOUTS_REVIEW_REQUIRED=' + str(error), flush=True)
+        guard()
         print('CLEANUP_STAGE=regenerable_package_caches', flush=True)
         verified.progress.stage = 'regenerable_package_caches'
         cache_result = clean_caches(audit)
@@ -216,9 +242,11 @@ def main():
         verified.progress.stage = 'remaining_disk_inventory'
         report = {'status': 'completed', 'kept_full_backup': str(verified.latest_path),
                   'program_versions': versions, 'old_full_backup': old, 'point_backups': point_result,
+                  'closed_upgrade_checkouts': upgrade_result,
                   'package_caches': cache_result, 'free_bytes_before': before, 'free_bytes_after': after,
                   'free_bytes_increased': after - before, 'directory_allocated_bytes': sizes(),
                   'root_allocated_bytes_excluding_virtfs': root_breakdown(),
+                  'home_allocated_bytes': home_breakdown(),
                   'upgrade_staging_preserved_for_review': upgrade_staging_inventory(),
                   'finished_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()}
         target = audit / 'cleanup-result.json'

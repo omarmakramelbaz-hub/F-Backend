@@ -108,8 +108,9 @@ def snapshot(path):
                'mtime': info.st_mtime_ns // 1000000000, 'mtime_ns': info.st_mtime_ns,
                'identity': identity(info)}
         if stat.S_ISREG(info.st_mode):
-            need(info.st_nlink == 1, 'LINKED_REGULAR_FILE_REQUIRES_REVIEW')
-            row.update(type='file', size=info.st_size, sha256=file_hash(item, info))
+            need(info.st_nlink >= 1, 'REGULAR_FILE_LINK_COUNT_INVALID')
+            row.update(type='file', size=info.st_size, sha256=file_hash(item, info),
+                       allocated_bytes=info.st_blocks * 512)
         elif stat.S_ISLNK(info.st_mode):
             row.update(type='symlink', target=os.readlink(str(item)))
         elif stat.S_ISDIR(info.st_mode):
@@ -129,7 +130,7 @@ def snapshot(path):
 
 
 def semantic(row):
-    return {key: value for key, value in row.items() if key != 'identity'}
+    return {key: value for key, value in row.items() if key not in ('identity', 'allocated_bytes')}
 
 
 def assert_snapshot(path, initial):
@@ -142,49 +143,120 @@ def assert_snapshot(path, initial):
         need(before[:8] == after[:8] if name == '.' else before == after, 'TREE_IDENTITY_CHANGED')
 
 
+def archive_name(name):
+    while name.startswith('./'):
+        name = name[2:]
+    name = name.rstrip('/') or '.'
+    need(not name.startswith('/') and '..' not in Path(name).parts and '\x00' not in name,
+         'ARCHIVE_UNSAFE_PATH_OR_HARDLINK_TARGET')
+    return '/'.join(Path(name).parts) or '.'
+
+
 def archived_trees(archive_path, roots):
+    # Index only digests and metadata in memory. Never extract any archived
+    # customer content or expose unrelated paths/digests in the result.
     result = {name: {} for name in roots}
+    regulars, hardlinks, seen = {}, {}, set()
     info = archive_path.lstat()
     need(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
          and not info.st_mode & 0o022, 'HOME_ARCHIVE_UNSAFE')
+    def metadata(member):
+        extended = any(key.startswith(('SCHILY.xattr.', 'SCHILY.acl.')) for key in member.pax_headers)
+        mtime_ns = int(Decimal(member.pax_headers.get('mtime', str(member.mtime))) * 1000000000)
+        return member.mode, member.uid, member.gid, mtime_ns, extended
+    def row(meta):
+        need(not meta[4], 'ARCHIVED_EXTENDED_METADATA_REQUIRES_REVIEW')
+        return {'mode': meta[0], 'uid': meta[1], 'gid': meta[2],
+                'mtime': meta[3] // 1000000000, 'mtime_ns': meta[3]}
     with tarfile.open(str(archive_path), 'r|gz') as archive:
         for member in archive:
-            name = member.name
-            while name.startswith('./'):
-                name = name[2:]
-            name = name.rstrip('/')
+            name = archive_name(member.name)
+            need(name not in seen, 'ARCHIVE_DUPLICATE_OR_UNSAFE_PATH')
+            seen.add(name)
+            need(len(seen) <= 2000000, 'ARCHIVE_ENTRY_LIMIT')
+            meta = metadata(member)
+            if member.isfile():
+                digest, size = hashlib.sha256(), 0
+                stream = archive.extractfile(member)
+                need(stream is not None, 'ARCHIVE_FILE_UNREADABLE')
+                for chunk in iter(lambda: stream.read(1024**2), b''):
+                    digest.update(chunk)
+                    size += len(chunk)
+                need(size == member.size, 'ARCHIVE_FILE_TRUNCATED')
+                regulars[name] = (size, digest.hexdigest(), meta)
+            elif member.islnk():
+                hardlinks[name] = (archive_name(member.linkname), meta)
             for prefix in roots:
                 if name != prefix and not name.startswith(prefix + '/'):
                     continue
                 relative = name[len(prefix):].lstrip('/') or '.'
-                need(relative not in result[prefix] and '..' not in Path(relative).parts, 'ARCHIVE_DUPLICATE_OR_UNSAFE_PATH')
-                need(not any(key.startswith(('SCHILY.xattr.', 'SCHILY.acl.')) for key in member.pax_headers),
-                     'ARCHIVED_EXTENDED_METADATA_REQUIRES_REVIEW')
-                mtime_ns = int(Decimal(member.pax_headers.get('mtime', str(member.mtime))) * 1000000000)
-                row = {'mode': member.mode, 'uid': member.uid, 'gid': member.gid,
-                       'mtime': int(member.mtime), 'mtime_ns': mtime_ns}
+                need(relative not in result[prefix], 'ARCHIVE_DUPLICATE_OR_UNSAFE_PATH')
+                if member.islnk():
+                    result[prefix][relative] = {'hardlink_member': name}
+                    continue
+                value = row(meta)
                 if member.isfile():
-                    digest, size = hashlib.sha256(), 0
-                    stream = archive.extractfile(member)
-                    need(stream is not None, 'ARCHIVE_FILE_UNREADABLE')
-                    for chunk in iter(lambda: stream.read(1024**2), b''):
-                        digest.update(chunk)
-                        size += len(chunk)
-                    need(size == member.size, 'ARCHIVE_FILE_TRUNCATED')
-                    row.update(type='file', size=size, sha256=digest.hexdigest())
+                    size, digest, _ = regulars[name]
+                    value.update(type='file', size=size, sha256=digest)
                 elif member.issym():
-                    row.update(type='symlink', target=member.linkname)
+                    value.update(type='symlink', target=member.linkname)
                 elif member.isdir():
-                    row['type'] = 'directory'
+                    value['type'] = 'directory'
                 else:
-                    raise Stop('POINT_BACKUP_ARCHIVE_SPECIAL_OR_HARDLINK')
-                result[prefix][relative] = row
+                    raise Stop('POINT_BACKUP_ARCHIVE_SPECIAL_FILE')
+                result[prefix][relative] = value
+            # Streaming extraction of regular members needs no TarInfo cache;
+            # keeping it would duplicate the whole home inventory in memory.
+            archive.members.clear()
+    resolved = {}
+    def resolve(name):
+        trail, visiting = [], set()
+        current = name
+        while current not in regulars and current not in resolved:
+            need(current not in visiting, 'ARCHIVE_HARDLINK_CYCLE')
+            visiting.add(current)
+            need(current in hardlinks, 'ARCHIVE_HARDLINK_TARGET_NOT_REGULAR_OR_MISSING')
+            need(len(trail) < 4096, 'ARCHIVE_HARDLINK_CHAIN_LIMIT')
+            target, meta = hardlinks[current]
+            trail.append((current, meta))
+            current = target
+        payload = regulars[current] if current in regulars else resolved[current]
+        for linked_name, meta in reversed(trail):
+            need(meta == payload[2], 'ARCHIVE_HARDLINK_METADATA_CONFLICT')
+            resolved[linked_name] = payload
+        return payload
+    for tree in result.values():
+        for relative, value in list(tree.items()):
+            if 'hardlink_member' not in value:
+                continue
+            size, digest, meta = resolve(value['hardlink_member'])
+            value = row(meta)
+            value.update(type='file', size=size, sha256=digest)
+            tree[relative] = value
     need(identity(archive_path.lstat()) == identity(info), 'HOME_ARCHIVE_CHANGED')
     return result
 
 
 def path_inside(path, root):
     return path == root or root in path.parents
+
+
+def byte_counts(snapshots):
+    logical, inodes = 0, {}
+    for tree in snapshots.values():
+        for item in tree.values():
+            if item['type'] != 'file':
+                continue
+            logical += item['size']
+            key = tuple(item['identity'][:2])
+            if key not in inodes:
+                inodes[key] = {'selected': 0, 'links': item['identity'][5],
+                               'allocated': item['allocated_bytes']}
+            inodes[key]['selected'] += 1
+    # Shared outside aliases keep the inode allocated. XFS reflink sharing can
+    # reduce actual reclamation further, so this is explicitly an estimate.
+    estimate = sum(item['allocated'] for item in inodes.values() if item['selected'] == item['links'])
+    return logical, estimate
 
 
 def check_dependencies(candidates, split):
@@ -321,10 +393,11 @@ def clean(verified, split=None, apply=False):
         assert_snapshot(path, snapshots[str(path.relative_to(home))])
     if hasattr(verified, 'check'):
         verified.check()
-    total = sum(row.get('size', 0) for tree in snapshots.values() for row in tree.values())
+    total, reclaim_estimate = byte_counts(snapshots)
     if not apply:
         return {'point_backup_status': 'checked', 'point_backup_directories_planned': len(candidates),
-                'point_backup_bytes_planned': total, 'removed_files': 0}
+                'point_backup_bytes_planned': total, 'point_backup_byte_count_kind': 'logical_names',
+                'point_backup_reclaimable_allocated_bytes_estimate': reclaim_estimate, 'removed_files': 0}
     need(getattr(shutil.rmtree, 'avoids_symlink_attacks', False), 'SAFE_RMTREE_UNAVAILABLE')
     quarantine = Path(tempfile.mkdtemp(prefix='point-backup-prune-', dir=str(backup.parent)))
     need(quarantine.stat().st_uid == 0 and not quarantine.stat().st_mode & 0o077, 'QUARANTINE_NOT_PRIVATE')
@@ -353,4 +426,6 @@ def clean(verified, split=None, apply=False):
         raise
     return {'point_backup_status': 'applied', 'point_backup_directories_removed': len(moved),
             'point_backup_bytes_removed': total, 'removed_paths': [str(path) for path, _, _ in moved],
+            'point_backup_byte_count_kind': 'logical_names_unlinked',
+            'point_backup_reclaimable_allocated_bytes_estimate': reclaim_estimate,
             'latest_full_backup_preserved': True, 'runtime_directories_deleted': False}
