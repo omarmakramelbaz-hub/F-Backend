@@ -22,6 +22,9 @@ test('the actual native environment owns a profile-specific JWT secret across re
   assert.equal(restarted.nativeEnvironment(saved,restarted.storageFor(null)).JWT_SECRET,environment.JWT_SECRET);
   first.environment=environment;const generation=first.environmentFor({generation:'a'.repeat(16),database:'fasakhansta_dashboard_stage_'+'b'.repeat(16)});
   assert.equal(generation.JWT_SECRET,environment.JWT_SECRET);assert.equal(generation.APP_KEY,environment.APP_KEY);
+  assert.equal(environment.DESKTOP_DASHBOARD_AUTH_STORAGE,path.join(first.profile,'auth'));
+  assert.equal(generation.DESKTOP_DASHBOARD_AUTH_STORAGE,environment.DESKTOP_DASHBOARD_AUTH_STORAGE);
+  assert.notEqual(generation.DESKTOP_DASHBOARD_AUTH_STORAGE,generation.DESKTOP_DASHBOARD_STORAGE);
   first.bundle=path.join(temporary,'different-verified-retained-code');
   assert.equal(first.nativeEnvironment(settings,first.storageFor(null)).JWT_SECRET,environment.JWT_SECRET);
   const other=make('second-profile');assert.notEqual(other.nativeEnvironment(await other.settings(),other.storageFor(null)).JWT_SECRET,environment.JWT_SECRET);

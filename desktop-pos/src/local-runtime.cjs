@@ -382,6 +382,7 @@ class LocalRuntime {
       CACHE_DRIVER: 'file', SESSION_DRIVER: 'file', SESSION_DOMAIN: '', SESSION_SECURE_COOKIE: 'false',
       QUEUE_CONNECTION: 'database', MAIL_MAILER: 'log', BROADCAST_DRIVER: 'log',
       DESKTOP_DASHBOARD_LOCAL: 'true', DESKTOP_DASHBOARD_STORAGE: storage,
+      DESKTOP_DASHBOARD_AUTH_STORAGE: path.join(this.profile, 'auth'),
       DESKTOP_DASHBOARD_DEVICE_ID: settings.deviceId,
       DESKTOP_DASHBOARD_ORIGIN: this.origin, DESKTOP_DASHBOARD_TOKEN: this.token,
       DESKTOP_DASHBOARD_CONTROL_TOKEN: this.controlToken,

@@ -30,6 +30,7 @@ header('Content-Type: application/json');header('Cache-Control: no-store');
 echo json_encode([
     'sapi'=>PHP_SAPI,'boundPath'=>$boundPath,'discovery'=>config('settings.auto_discover_settings'),
     'settings'=>$settings->getSettingClasses()->values()->all(),'includedAppFiles'=>$includedAppFiles,
+    'privateProvider'=>get_class(auth('admin')->getProvider()),
     'consoleCommandLoaded'=>class_exists(\App\Console\Commands\CouponWheelCommand::class,false),
     'unrelatedWorkflowLoaded'=>class_exists(\App\Services\Dashboard\WhatsAppOrderWorkflow::class,false),
 ],JSON_THROW_ON_ERROR);
