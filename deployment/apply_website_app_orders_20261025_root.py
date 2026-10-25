@@ -392,6 +392,7 @@ def isolated_checks(php, root, entries, stage, gid):
     private_tree(root / 'app', stage / 'app', gid)
     (stage / 'database').mkdir(mode=0o750)
     os.chown(str(stage / 'database'), 0, gid)
+    os.chmod(str(stage / 'database'), 0o750)
     private_tree(root / 'database/migrations', stage / 'database/migrations', gid)
     for relative, entry in entries.items():
         path = stage / relative

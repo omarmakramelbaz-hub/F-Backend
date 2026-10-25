@@ -1,12 +1,16 @@
 """Filesystem and isolation safeguards; no production host, PHP or database required."""
 import base64
 from contextlib import ExitStack
+import errno
 import gzip
 import importlib.util
 import os
 from pathlib import Path
+import pwd
+import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -174,9 +178,13 @@ class SafeInstallTests(unittest.TestCase):
         entries = {'app/board.php': {'old': base64.b64encode(b'old').decode(),
                                      'new': base64.b64encode(b'<?php').decode()}}
         payload = base64.b64encode(gzip.compress(b'<?php /* isolated test */')).decode()
-        with mock.patch.object(installer, 'TEST_PAYLOAD', payload), \
-             mock.patch.object(installer, 'run_owner', side_effect=['READY', '', 'Website order board checks passed: 49\n']) as runner:
-            self.assertEqual(installer.isolated_checks(Path('/fake/php'), self.root, entries, stage, os.getegid()), 49)
+        previous_umask = os.umask(0o077)
+        try:
+            with mock.patch.object(installer, 'TEST_PAYLOAD', payload), \
+                 mock.patch.object(installer, 'run_owner', side_effect=['READY', '', 'Website order board checks passed: 49\n']) as runner:
+                self.assertEqual(installer.isolated_checks(Path('/fake/php'), self.root, entries, stage, os.getegid()), 49)
+        finally:
+            os.umask(previous_umask)
         arguments = runner.call_args.args[2]
         self.assertIn('allow_url_fopen=0', arguments)
         blocked = arguments[arguments.index('-d', 4) + 1]
@@ -185,7 +193,68 @@ class SafeInstallTests(unittest.TestCase):
         self.assertIn('curl_exec', blocked)
         self.assertEqual(runner.call_args.args[3]['WEBSITE_BOARD_TEST_AUTOLOAD'], str(self.root / 'vendor/autoload.php'))
         self.assertEqual(stat.S_IMODE((stage / 'app/board.php').stat().st_mode), 0o640)
+        for directory in ('app', 'database', 'database/migrations', 'tests'):
+            info = (stage / directory).stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                             (0, os.getegid(), 0o750), directory)
+        for relative in ('app/board.php', 'database/migrations/test.php',
+                         'tests/website_order_board_test.php'):
+            info = (stage / relative).stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                             (0, os.getegid(), 0o640), relative)
         self.assertEqual(self.file.read_bytes(), b'old')
+
+    @unittest.skipUnless(os.geteuid() == 0 and shutil.which('runuser'), 'requires root and runuser')
+    def test_isolated_migrations_are_readable_by_service_user_under_private_umask(self):
+        reader = pwd.getpwnam('nobody')
+        try:
+            os.chown(str(self.root), 0, reader.pw_gid)
+        except OSError as error:
+            if error.errno in (errno.EINVAL, errno.EPERM):
+                self.skipTest('nonroot service IDs are unavailable in this user namespace')
+            raise
+        os.chmod(str(self.root), 0o750)
+        (self.root / 'database/migrations').mkdir(parents=True)
+        migration = 'database/migrations/2026_10_03_150000_create_pos_service_tickets.php'
+        (self.root / migration).write_bytes(b'<?php /* migration fixture */')
+        stage = self.root / 'candidate'
+        stage.mkdir()
+        os.chown(str(stage), 0, reader.pw_gid)
+        os.chmod(str(stage), 0o750)
+        entries = {'app/board.php': {'old': base64.b64encode(b'old').decode(),
+                                     'new': base64.b64encode(b'<?php').decode()}}
+        payload = base64.b64encode(gzip.compress(b'<?php /* isolated test */')).decode()
+
+        def run_as_service(php, root, args, environment=None, timeout=180):
+            if args[0] == '-r':
+                return 'READY'
+            if args[0] == '-l':
+                return ''
+            script = ('from pathlib import Path; '
+                      'root=Path(__import__("sys").argv[1]); '
+                      'assert (root / "' + migration + '").read_bytes() == b"<?php /* migration fixture */"; '
+                      'assert (root / "app/board.php").read_bytes() == b"<?php"; '
+                      'assert (root / "tests/website_order_board_test.php").read_bytes(); '
+                      'print("Website order board checks passed: 49")')
+            result = subprocess.run(['runuser', '-u', reader.pw_name, '--', sys.executable,
+                                     '-c', script, str(stage)], cwd=str(root),
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    universal_newlines=True, timeout=timeout)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+
+        previous_umask = os.umask(0o077)
+        try:
+            with mock.patch.object(installer, 'TEST_PAYLOAD', payload), \
+                 mock.patch.object(installer, 'run_owner', side_effect=run_as_service):
+                self.assertEqual(installer.isolated_checks(Path('/fake/php'), self.root, entries,
+                                                            stage, reader.pw_gid), 49)
+        finally:
+            os.umask(previous_umask)
+        for directory in ('app', 'database', 'database/migrations', 'tests'):
+            info = (stage / directory).stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                             (0, reader.pw_gid, 0o750))
 
     def test_production_verifier_reads_membership_without_financial_actions(self):
         self.assertIn('website_query_verified', installer.VERIFY)

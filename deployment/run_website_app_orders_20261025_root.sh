@@ -23,7 +23,7 @@ do
 done
 
 printf '%s  %s\n' \
-  'bf857c9fd14ec4fd16c5b0a6250b1223983925f61541c7ee5c2d3d8d41109e76' "$website_fix_inputs/apply_website_app_orders_20261025_root.py" \
+  'efca4f0869e15169eaba5c53f34846d3a99478fae3563e63dd34e588da9da057' "$website_fix_inputs/apply_website_app_orders_20261025_root.py" \
   'c238946e36e95b8037c0a678f340ce6c9121de9f5259e1a11cbaac7fa0382293' "$website_fix_inputs/go_erp_release_retention_root.py" \
   | sha256sum --check --status
 
