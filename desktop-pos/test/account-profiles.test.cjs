@@ -2,7 +2,12 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const AccountProfiles=require('../src/account-profiles.cjs'),LocalRuntime=require('../src/local-runtime.cjs');
 async function fixture(t){
-  const root=await fs.mkdtemp(path.join(os.tmpdir(),'account-profiles-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  // Hosted Windows TEMP can use a RUNNER~1 short-name alias. The production
+  // registry intentionally rejects aliased roots; give ordinary fixtures the
+  // real directory spelling while testing deliberate junctions separately.
+  const temporary=await fs.realpath(os.tmpdir());
+  const root=await fs.mkdtemp(path.join(temporary,'account-profiles-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+  assert.equal(await fs.realpath(root),root);
   const key=crypto.randomBytes(32),safeStorage={isEncryptionAvailable:()=>true,
     encryptString(value){const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);return Buffer.concat([iv,cipher.update(value),cipher.final(),cipher.getAuthTag()]);},
     decryptString(value){const decipher=crypto.createDecipheriv('aes-256-gcm',key,value.subarray(0,12));decipher.setAuthTag(value.subarray(-16));return Buffer.concat([decipher.update(value.subarray(12,-16)),decipher.final()]).toString();}};
@@ -61,9 +66,11 @@ test('malformed, oversized or path-bearing indexes and unknown IDs fail closed w
 });
 
 test('profile and metadata symlinks are rejected and their external targets remain untouched',async t=>{
-  const f=await fixture(t),outside=await fs.mkdtemp(path.join(os.tmpdir(),'account-outside-'));t.after(()=>fs.rm(outside,{recursive:true,force:true}));
+  const f=await fixture(t),outside=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'account-outside-'));t.after(()=>fs.rm(outside,{recursive:true,force:true}));
   const created=await f.profiles.create(),marker=path.join(outside,'keep');await fs.writeFile(marker,'outside-retained');
+  assert.equal((await f.profiles.select(created.id)).id,created.id,'The ordinary profile must pass before introducing a malicious junction.');
   await fs.rmdir(created.profile);await fs.symlink(outside,created.profile,process.platform==='win32'?'junction':'dir');
+  assert.equal((await fs.lstat(created.profile)).isSymbolicLink(),true,'The rejection must exercise a real profile link/junction.');
   await assert.rejects(f.profiles.select(created.id));await assert.rejects(f.profiles.list());assert.equal(await fs.readFile(marker,'utf8'),'outside-retained');
   await fs.unlink(created.profile);
   await fs.mkdir(created.profile);await fs.rename(path.join(f.root,'account-profiles.enc'),path.join(outside,'index.enc'));

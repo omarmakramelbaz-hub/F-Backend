@@ -39,7 +39,30 @@ dialog.showMessageBox = async (...args) => {
   }
   return originalDialog(...args);
 };
-dialog.showErrorBox = (_title, _message) => fail(Error('Production main reported an unexpected startup error.'));
+dialog.showErrorBox = (_title, message) => {
+  // This interceptor runs only after the disposable-profile marker/source
+  // checks above. Keep the real fixed error useful without logging generated
+  // private settings, token-shaped values, arbitrary trace fields or URLs.
+  const knownPhases = new Set(['startup-ready', 'ledger-open', 'splash-loading', 'splash-loaded', 'prepared-check',
+    'runtime-start', 'runtime-archive', 'runtime-source', 'runtime-database', 'runtime-media', 'runtime-web',
+    'runtime-ready', 'remote-state', 'central-selection', 'dashboard-create', 'recovery-check', 'generation-recovery',
+    'local-fence-recovery', 'central-fence-recovery', 'dashboard-navigation', 'dashboard-open-settled', 'startup-complete', 'startup-failed']);
+  let phases = [];
+  try {
+    const trace = JSON.parse(fs.readFileSync(path.join(config.profile, 'lifecycle-trace.json'), 'utf8'));
+    if (Array.isArray(trace.events)) phases = trace.events.filter(value => knownPhases.has(value?.phase)).slice(-8).map(value => value.phase);
+  } catch {}
+  let nativeMessage = String(message ?? '').replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/base64:[A-Za-z0-9+/=]+/g, '[redacted-key]').replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]')
+    .replace(/https?:\/\/[^\s]+/gi, '[redacted-url]');
+  for (const account of [state?.owner, state?.other]) {
+    for (const secret of [account?.settings?.rootPassword, account?.settings?.appPassword, account?.settings?.appKey, account?.jwtSecret]) {
+      if (typeof secret === 'string' && secret) nativeMessage = nativeMessage.split(secret).join('[redacted-secret]');
+    }
+  }
+  process.stderr.write('NATIVE_ACCOUNT_STARTUP_ERROR ' + JSON.stringify({ nativeMessage: nativeMessage.slice(0, 400), phases }) + '\n');
+  fail(Error('Production main reported an unexpected startup error.'));
+};
 app.on('session-created', browser => browser.setCertificateVerifyProc((request, callback) => {
   let fingerprint;
   try { fingerprint = new crypto.X509Certificate(request.certificate.data).fingerprint256; } catch {}

@@ -35,7 +35,7 @@ const sourceFiles = [
 const sourceHashes = Object.fromEntries(sourceFiles.map(file => [file, sha(file)]));
 // GitHub Windows TEMP can contain a RUNNER~1 alias. The production registry
 // deliberately refuses aliased profile roots, so start with its canonical path.
-const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'go-erp-native-accounts-'));
+const root = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), 'go-erp-native-accounts-'));
 const profile = path.join(root, 'synthetic profile'), browserRoot = path.join(root, 'browser profile');
 const application = path.join(root, 'application'), archive = path.join(root, 'app.asar');
 fs.mkdirSync(profile); fs.mkdirSync(browserRoot); fs.mkdirSync(path.dirname(output), { recursive: true });
@@ -65,6 +65,7 @@ async function waitFor(predicate, message, timeout = 180000) {
 async function main() {
   let completed = false;
   try {
+    assert.equal(await fs.promises.realpath(root), root, 'The private fixture root must use the same canonical Windows path as the production registry.');
     fs.mkdirSync(path.join(application, 'desktop-pos'), { recursive: true });
     fs.cpSync(path.join(repository, 'desktop-pos/src'), path.join(application, 'desktop-pos/src'), { recursive: true });
     for (const file of sourceFiles) {
