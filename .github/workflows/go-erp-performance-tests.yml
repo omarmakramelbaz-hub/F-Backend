@@ -1,0 +1,39 @@
+name: GO ERP performance rollout contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-performance-20261025', 'codex/go-erp-performance-release-20261025']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_performance*'
+      - 'tests/*go_erp_performance*'
+      - '.github/workflows/go-erp-performance-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  performance-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load the exact previous release and original transaction fixtures
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+      - name: Load the core and seed lineage for the immutable release contract
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=3 --no-tags --no-recurse-submodules origin
+          339b2ec8cc02df919a29829b4d4ab4728fce1194
+      - name: Verify wrapper syntax
+        run: bash -n deployment/run_go_erp_performance_root.sh
+      - name: Verify actual frozen worker, transaction, and publication guards
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_performance_*.py'
