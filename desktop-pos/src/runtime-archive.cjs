@@ -23,19 +23,24 @@ class RuntimeArchive {
   async inventory(directory) {
     this.assertRunning();
     const cancel = new Int32Array(new SharedArrayBuffer(4));
-    // The worker belongs to the installed application, never to the runtime
-    // being checked. Synchronous native reads avoid tens of thousands of
-    // promise/stream jobs while every byte still receives a fresh SHA-256.
-    const worker = new Worker(path.join(__dirname, 'runtime-inventory-worker.cjs'), {
-      workerData: { format: 1, directory: path.resolve(directory), cancel: cancel.buffer }, execArgv: []
-    });
-    let message, failure, messages = 0, timer;
+    const quota = new BigInt64Array(new SharedArrayBuffer(8));
+    // Four fixed installed-application workers overlap native I/O without
+    // hashing on Electron's UI thread. Each owns a 1 MiB read buffer and a full
+    // roster, while every retained byte is freshly hashed by exactly one shard.
+    const workers = [], exits = []; let failure, timer;
     const invalid = () => Error('تعذر تأكيد فحص حزمة التشغيل؛ بيانات الجهاز محفوظة.');
     const stop = error => {
       failure ||= error; Atomics.store(cancel, 0, 1);
-      // A failed protocol cannot leave an untrusted or stalled worker alive.
-      // Settlement still waits for its exit event below.
-      worker.terminate().catch(() => {});
+      // A partial spawn or failed protocol must drain every worker already
+      // created. The caller cannot settle until all their exit events arrive.
+      for (const record of workers) if (!record.exited && !record.terminating) {
+        record.terminating = true; record.worker.terminate().catch(() => {});
+      }
+    };
+    const shardFor = name => {
+      let hash = 0x811c9dc5;
+      for (const byte of Buffer.from(name, 'utf8')) hash = Math.imul(hash ^ byte, 0x01000193) >>> 0;
+      return hash % 4;
     };
     const codes = {
       CANCELLED: 'البرنامج يُغلق الآن.', PATH_INVALID: 'حزمة التشغيل تحتوي مسارًا غير صالح.',
@@ -43,40 +48,72 @@ class RuntimeArchive {
       CHANGED: 'ملف التشغيل تغير أثناء الفحص.', READ_FAILED: 'تعذر قراءة حزمة التشغيل؛ بيانات الجهاز محفوظة.'
     };
     try {
-      const exit = await new Promise(resolve => {
-        worker.on('message', value => {
-          if (++messages !== 1 || !value || value.format !== 1) return stop(invalid());
-          if (value.kind === 'runtime-inventory-error') {
-            if (Object.keys(value).sort().join(',') !== 'code,format,kind' || !Object.hasOwn(codes, value.code)) return stop(invalid());
-            message = value; return;
-          }
-          if (value.kind !== 'runtime-inventory' || Object.keys(value).sort().join(',') !== 'bytes,files,format,kind'
-              || !Array.isArray(value.files) || value.files.length > 100000 || !Number.isSafeInteger(value.bytes)
-              || value.bytes < 0 || value.bytes > 4 * 1024 ** 3) return stop(invalid());
-          const cases = new Set(); let bytes = 0;
-          for (const row of value.files) {
-            if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || !row[0]
-                || row[0].split('/').some(part => !part || part === '.' || part === '..')
-                || /[\x00-\x1f:\\]/.test(row[0]) || cases.has(row[0].toLowerCase())
-                || typeof row[1] !== 'string' || !/^[a-f0-9]{64}$/.test(row[1])) return stop(invalid());
-            cases.add(row[0].toLowerCase()); bytes += Buffer.byteLength(row[0], 'utf8') + 80;
-            if (bytes > 32 * 1024 ** 2) return stop(invalid());
-          }
-          message = value;
-        });
-        worker.on('error', () => stop(invalid()));
-        worker.once('exit', resolve);
-        timer = setInterval(() => {
-          try { this.assertRunning(); }
-          catch (error) { failure ||= error; Atomics.store(cancel, 0, 1); }
-        }, 20);
-        timer.unref();
-      });
+      for (let shard = 0; shard < 4; shard++) {
+        let worker;
+        try {
+          worker = new Worker(path.join(__dirname, 'runtime-inventory-worker.cjs'), {
+            workerData: { format: 1, directory: path.resolve(directory), cancel: cancel.buffer,
+              quota: quota.buffer, shard, shards: 4 }, execArgv: []
+          });
+        } catch { stop(invalid()); break; }
+        const record = { worker, shard, messages: 0, exited: false, terminating: false };
+        workers.push(record);
+        exits.push(new Promise(resolve => {
+          worker.on('message', value => {
+            if (++record.messages !== 1 || !value || value.format !== 1) return stop(invalid());
+            if (value.kind === 'runtime-inventory-error') {
+              if (Object.keys(value).sort().join(',') !== 'code,format,kind'
+                  || typeof value.code !== 'string' || !Object.hasOwn(codes, value.code)) return stop(invalid());
+              record.message = value; stop(Error(codes[value.code])); return;
+            }
+            if (value.kind !== 'runtime-inventory' || Object.keys(value).sort().join(',') !== 'bytes,files,format,kind,rosterCount,rosterSha256'
+                || !Array.isArray(value.files) || value.files.length > 100000 || !Number.isSafeInteger(value.bytes)
+                || value.bytes < 0 || value.bytes > 4 * 1024 ** 3 || !Number.isSafeInteger(value.rosterCount)
+                || value.rosterCount < value.files.length || value.rosterCount > 100000
+                || typeof value.rosterSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.rosterSha256)) return stop(invalid());
+            const cases = new Set(); let bytes = 0;
+            for (const row of value.files) {
+              if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || !row[0]
+                  || row[0].split('/').some(part => !part || part === '.' || part === '..')
+                  || /[\x00-\x1f:\\]/.test(row[0]) || cases.has(row[0].toLowerCase()) || shardFor(row[0]) !== shard
+                  || typeof row[1] !== 'string' || !/^[a-f0-9]{64}$/.test(row[1])) return stop(invalid());
+              cases.add(row[0].toLowerCase()); bytes += Buffer.byteLength(row[0], 'utf8') + 80;
+              if (bytes > 32 * 1024 ** 2) return stop(invalid());
+            }
+            record.message = value;
+          });
+          worker.on('error', () => stop(invalid()));
+          worker.once('exit', code => {
+            record.exited = true; record.exit = code;
+            if (code !== 0 || record.messages !== 1 || !record.message) stop(invalid());
+            resolve();
+          });
+        }));
+      }
+      timer = setInterval(() => {
+        try { this.assertRunning(); } catch (error) { stop(error); }
+      }, 20);
+      timer.unref();
+      await Promise.all(exits);
       this.assertRunning();
       if (failure) throw failure;
-      if (exit !== 0 || messages !== 1 || !message) throw invalid();
-      if (message.kind === 'runtime-inventory-error') throw Error(codes[message.code]);
-      return Object.fromEntries(message.files);
+      if (workers.length !== 4) throw invalid();
+      const first = workers[0].message, cases = new Set(), files = []; let bytes = 0, resultBytes = 0;
+      for (const record of workers) {
+        const value = record.message;
+        if (record.exit !== 0 || record.messages !== 1 || value?.kind !== 'runtime-inventory'
+            || value.rosterCount !== first.rosterCount || value.rosterSha256 !== first.rosterSha256) throw invalid();
+        bytes += value.bytes;
+        if (bytes > 4 * 1024 ** 3) throw invalid();
+        for (const row of value.files) {
+          if (cases.has(row[0].toLowerCase())) throw invalid();
+          cases.add(row[0].toLowerCase()); files.push(row);
+          resultBytes += Buffer.byteLength(row[0], 'utf8') + 80;
+          if (files.length > 100000 || resultBytes > 32 * 1024 ** 2) throw invalid();
+        }
+      }
+      if (files.length !== first.rosterCount || BigInt(bytes) !== Atomics.load(quota, 0)) throw invalid();
+      return Object.fromEntries(files);
     } finally { clearInterval(timer); }
   }
   async manifest(directory) {
