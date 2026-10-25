@@ -27,7 +27,7 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,quitting=false,installingUpdate=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,quitting=false,installingUpdate=false,startupComplete=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
 const shutdown=new Shutdown(app,()=>{quitting=true;updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();},()=>store?.close(),async()=>{await updater?.running;await localRuntime?.stop();},{canRelaunch:()=>!installingUpdate});
@@ -336,6 +336,8 @@ app.whenReady().then(async()=>{
     connectDashboardSync();await shutdown.run(async()=>{await generations.recover();
       if(localToken)await dashboardMode.recover();else await dashboardMode.hold();});
   }
-  syncSchedule.start();await dashboard.open();connectUpdater(profile);
+  syncSchedule.start();await dashboard.open();startupComplete=true;connectUpdater(profile);
 }).catch(error=>{if(!quitting){dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
-app.on('second-instance',()=>{if(quitting)return;if(dashboard?.isVisible())dashboard.reveal();else localOrders();});
+// Opening GO ERP again while it is still starting must wait for the dashboard,
+// never show the previous local orders screen in its place.
+app.on('second-instance',()=>{if(quitting||!startupComplete)return;if(dashboard)dashboard.reveal();else localOrders();});
