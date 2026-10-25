@@ -1,0 +1,81 @@
+name: Measure retained runtime inventory on Windows
+
+on:
+  push:
+    branches: ['codex/go-erp-warm-start-*']
+    paths:
+      - 'desktop-pos/src/runtime-archive.cjs'
+      - 'desktop-pos/src/runtime-inventory-worker.cjs'
+      - 'desktop-pos/test/runtime-inventory*.cjs'
+      - '.github/workflows/desktop-runtime-inventory-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-inventory-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inventory-benchmark:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Preserve the frozen baseline's exact source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact benchmark checkout configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact benchmark line endings failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify worker integrity and cancellation contracts
+        shell: pwsh
+        run: |
+          node --test desktop-pos/test/runtime-archive.test.cjs desktop-pos/test/runtime-inventory-worker.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime inventory worker contracts failed.' }
+      - name: Install pinned Electron acceptance dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron test dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'Pinned Electron binary download did not complete.' }
+      - name: Verify the worker inside the actual Electron ASAR
+        shell: pwsh
+        run: |
+          node desktop-pos/test/runtime-inventory-electron-native-runner.cjs desktop-pos/dist/runtime-inventory-electron-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The actual Electron ASAR inventory worker did not complete.' }
+      - name: Compare frozen preview52 with the worker on 50000 files and 815 MiB
+        shell: pwsh
+        run: |
+          node desktop-pos/test/runtime-inventory-benchmark.cjs desktop-pos/dist/runtime-inventory-benchmark.json
+          if ($LASTEXITCODE -ne 0) { throw 'The Windows runtime inventory measurement did not complete.' }
+          $proof = Get-Content desktop-pos/dist/runtime-inventory-benchmark.json -Raw | ConvertFrom-Json
+          if ($proof.rootSha -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32' -or $proof.smoke -ne $false -or $proof.fixture.files -ne 50000 -or $proof.fixture.bytes -ne 854589440) { throw 'The benchmark belongs to another source, platform or fixture.' }
+          foreach ($field in @('exactInventoriesEqual','parentContentHashingAbsent','parentEventLoopProgressed','cancellationRejected','sameLengthAndMtimeTamperRejected','failedRecheckInvalidatesAuthority','alteredFilePreserved','completed')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "Benchmark acceptance is missing $field." }
+          }
+          if ($proof.measurements.Count -ne 4 -or ($proof.measurements.kind -join ',') -cne 'baseline,worker,worker,baseline') { throw 'The fair AB/BA comparison did not complete.' }
+          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
+            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'A measured source file changed.' }
+          }
+          Write-Host ('Baseline mean ms: ' + $proof.baselineMeanMs)
+          Write-Host ('Worker mean ms: ' + $proof.workerMeanMs)
+          Write-Host ('Worker/baseline ratio: ' + $proof.workerToBaselineRatio)
+      - name: Retain source-bound Windows measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-inventory-benchmark-windows
+          path: |
+            desktop-pos/dist/runtime-inventory-benchmark.json
+            desktop-pos/dist/runtime-inventory-electron-native.json
+          if-no-files-found: error
+          retention-days: 14

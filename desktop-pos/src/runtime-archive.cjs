@@ -1,8 +1,8 @@
 'use strict';
 const fs = require('node:fs/promises');
-const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { Worker } = require('node:worker_threads');
 const nativePdf = require('./native-pdf.cjs');
 const sourceCode = require('./dashboard-source.cjs');
 const revision = value => /^[a-f0-9]{40}$/.test(value || '');
@@ -21,42 +21,63 @@ class RuntimeArchive {
     if(JSON.stringify(oldFiles)!==JSON.stringify(newFiles))throw Error('ترقية ملفات قاعدة البيانات تحتاج تجهيزًا منفصلًا؛ النسخة الحالية وسجلاتها محفوظة.');
   }
   async inventory(directory) {
-    const files = {}, cases = new Set(), pending = new Set(); let total = 0, count = 0, failure;
-    const inspect = async name => {
-      this.assertRunning();
-      const file = path.join(directory, name), stat = await fs.lstat(file), hash = crypto.createHash('sha256');
-      if (!stat.isFile() || stat.isSymbolicLink()) throw Error('حزمة التشغيل تحتوي ملفًا غير صالح.');
-      total += stat.size;if (total > 4 * 1024 ** 3) throw Error('حزمة التشغيل أكبر من الحد المسموح.');
-      // Most of Laravel's retained dependencies are tiny files. A stream for
-      // each one opens extra handles/events and is particularly expensive on
-      // Windows with antivirus inspection. Bound memory by keeping large
-      // binaries streaming and only reading small files at the existing limit.
-      let read = 0;
-      if (stat.size <= 1024 * 1024) { const bytes = await fs.readFile(file); read = bytes.length; hash.update(bytes); }
-      else for await (const bytes of createReadStream(file)) { this.assertRunning(); read += bytes.length;hash.update(bytes); }
-      this.assertRunning();
-      if (read !== stat.size) throw Error('ملف التشغيل تغير أثناء الفحص.');
-      files[name] = hash.digest('hex');
+    this.assertRunning();
+    const cancel = new Int32Array(new SharedArrayBuffer(4));
+    // The worker belongs to the installed application, never to the runtime
+    // being checked. Synchronous native reads avoid tens of thousands of
+    // promise/stream jobs while every byte still receives a fresh SHA-256.
+    const worker = new Worker(path.join(__dirname, 'runtime-inventory-worker.cjs'), {
+      workerData: { format: 1, directory: path.resolve(directory), cancel: cancel.buffer }, execArgv: []
+    });
+    let message, failure, messages = 0, timer;
+    const invalid = () => Error('تعذر تأكيد فحص حزمة التشغيل؛ بيانات الجهاز محفوظة.');
+    const stop = error => {
+      failure ||= error; Atomics.store(cancel, 0, 1);
+      // A failed protocol cannot leave an untrusted or stalled worker alive.
+      // Settlement still waits for its exit event below.
+      worker.terminate().catch(() => {});
     };
-    const walk = async relative => {
-      this.assertRunning();
-      for (const entry of await fs.readdir(path.join(directory, relative), { withFileTypes: true })) {
-        this.assertRunning();
-        const name = relative ? relative + '/' + entry.name : entry.name;
-        if (entry.isSymbolicLink() || /[\x00-\x1f:]/.test(name) || cases.has(name.toLowerCase())) throw Error('حزمة التشغيل تحتوي مسارًا غير صالح: ' + name);
-        cases.add(name.toLowerCase());
-        if (entry.isDirectory()) await walk(name);
-        else if (entry.isFile()) {
-          if (++count > 100000) throw Error('حزمة التشغيل أكبر من الحد المسموح.');
-          const task = inspect(name).catch(error => { failure ||= error; }).finally(() => pending.delete(task));pending.add(task);
-          if (pending.size >= 16) await Promise.race(pending);
-        } else throw Error('حزمة التشغيل تحتوي ملفًا غير صالح.');
-      }
+    const codes = {
+      CANCELLED: 'البرنامج يُغلق الآن.', PATH_INVALID: 'حزمة التشغيل تحتوي مسارًا غير صالح.',
+      FILE_INVALID: 'حزمة التشغيل تحتوي ملفًا غير صالح.', LIMIT: 'حزمة التشغيل أكبر من الحد المسموح.',
+      CHANGED: 'ملف التشغيل تغير أثناء الفحص.', READ_FAILED: 'تعذر قراءة حزمة التشغيل؛ بيانات الجهاز محفوظة.'
     };
-    // In-flight reads must settle even when cancellation stops the directory
-    // walk, before startup's accepted-work barrier can complete.
-    try { await walk(''); } finally { await Promise.all(pending); }
-    if(failure)throw failure;return files;
+    try {
+      const exit = await new Promise(resolve => {
+        worker.on('message', value => {
+          if (++messages !== 1 || !value || value.format !== 1) return stop(invalid());
+          if (value.kind === 'runtime-inventory-error') {
+            if (Object.keys(value).sort().join(',') !== 'code,format,kind' || !Object.hasOwn(codes, value.code)) return stop(invalid());
+            message = value; return;
+          }
+          if (value.kind !== 'runtime-inventory' || Object.keys(value).sort().join(',') !== 'bytes,files,format,kind'
+              || !Array.isArray(value.files) || value.files.length > 100000 || !Number.isSafeInteger(value.bytes)
+              || value.bytes < 0 || value.bytes > 4 * 1024 ** 3) return stop(invalid());
+          const cases = new Set(); let bytes = 0;
+          for (const row of value.files) {
+            if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || !row[0]
+                || row[0].split('/').some(part => !part || part === '.' || part === '..')
+                || /[\x00-\x1f:\\]/.test(row[0]) || cases.has(row[0].toLowerCase())
+                || typeof row[1] !== 'string' || !/^[a-f0-9]{64}$/.test(row[1])) return stop(invalid());
+            cases.add(row[0].toLowerCase()); bytes += Buffer.byteLength(row[0], 'utf8') + 80;
+            if (bytes > 32 * 1024 ** 2) return stop(invalid());
+          }
+          message = value;
+        });
+        worker.on('error', () => stop(invalid()));
+        worker.once('exit', resolve);
+        timer = setInterval(() => {
+          try { this.assertRunning(); }
+          catch (error) { failure ||= error; Atomics.store(cancel, 0, 1); }
+        }, 20);
+        timer.unref();
+      });
+      this.assertRunning();
+      if (failure) throw failure;
+      if (exit !== 0 || messages !== 1 || !message) throw invalid();
+      if (message.kind === 'runtime-inventory-error') throw Error(codes[message.code]);
+      return Object.fromEntries(message.files);
+    } finally { clearInterval(timer); }
   }
   async manifest(directory) {
     const value = JSON.parse(await fs.readFile(path.join(directory, 'manifest.json'), 'utf8'));
@@ -72,6 +93,7 @@ class RuntimeArchive {
     if (JSON.stringify(names) !== JSON.stringify(expected) || names.some(name => actual[name] !== receipt.files[name])) throw Error('نسخة التشغيل المحفوظة غير مكتملة؛ احتفظ ببيانات الجهاز لاسترجاعها.');
     const manifest = await this.manifest(directory);
     if (manifest.sourceRevision !== receipt.revision) throw Error('نسخة التشغيل لا تطابق سجل الجهاز.');
+    this.assertRunning();
     // The authenticated receipt already binds every retained native byte, including
     // its original PDF policy. A future engine update must not invalidate old journals.
     this.verified.set(path.resolve(directory), { receipt, manifest });

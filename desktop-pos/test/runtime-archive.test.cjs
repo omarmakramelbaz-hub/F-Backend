@@ -106,10 +106,25 @@ test('warm launch reuses source fingerprint only after every retained byte match
 
 test('a startup cancellation settles pending verification without writing an archive receipt or changing active data',async t=>{
   const f=await fixture(t),id='e'.repeat(40),bundle=await f.make(id,'safe source');
-  for(let index=0;index<50;index++)await fs.writeFile(path.join(bundle,'application','extra-'+index+'.php'),'<?php '+index);
+  const binary=await fs.open(path.join(bundle,'application','large.bin'),'wx');
+  try { await binary.write(crypto.randomBytes(1024*1024));await binary.truncate(512*1024*1024); } finally { await binary.close(); }
   f.records.set('prepared',{sourceRevision:'a'.repeat(40),database:'existing-data'});
-  let checks=0;const cancelled=new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata,{stopped:()=>++checks>12});
-  await assert.rejects(cancelled.retain(bundle),/البرنامج يُغلق/);
+  let stopping=false;const cancelled=new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata,{stopped:()=>stopping});
+  const work=cancelled.retain(bundle),timer=setTimeout(()=>{stopping=true;},50);
+  try { await assert.rejects(work,/البرنامج يُغلق/); } finally { clearTimeout(timer); }
   assert.equal(f.records.size,1);assert.equal(f.records.get('prepared').database,'existing-data');
   assert.equal((await fs.readdir(path.join(f.profile,'dashboard')).catch(error=>error.code==='ENOENT'?[]:Promise.reject(error))).length,0);
+});
+
+test('a warm launch rejects both missing and extra retained files without replacing its receipt or active data',async t=>{
+  const f=await fixture(t),id='f'.repeat(40),bundle=await f.make(id,'preserved source'),retained=await f.archive.retain(bundle);
+  const receipt=structuredClone(f.records.get('runtimes/'+id));
+  f.records.set('prepared',{sourceRevision:id,database:'preserved-business-db'});
+  const executable=path.join(retained,'php.exe'),bytes=await fs.readFile(executable);
+  await fs.rm(executable);
+  await assert.rejects(new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata).select(bundle,{sourceRevision:id}),/غير مكتملة/);
+  await fs.writeFile(executable,bytes);await fs.writeFile(path.join(retained,'unexpected.php'),'<?php unexpected();');
+  await assert.rejects(new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata).select(bundle,{sourceRevision:id}),/غير مكتملة/);
+  assert.deepEqual(f.records.get('runtimes/'+id),receipt);
+  assert.equal(f.records.get('prepared').database,'preserved-business-db');
 });
