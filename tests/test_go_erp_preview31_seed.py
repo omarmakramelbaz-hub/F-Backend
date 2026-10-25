@@ -17,8 +17,8 @@ spec.loader.exec_module(policy)
 
 class Preview31SeedTests(unittest.TestCase):
     def test_release_pins_the_reviewed_private_diagnostic_core(self):
-        self.assertEqual(policy.CORE, '63a94e51bb6a120458623d74b46323f94438ae41')
-        self.assertEqual(policy.POLICY, 'native-close-reopen-program-contract-startup-session-v1')
+        self.assertEqual(policy.CORE, 'c4229ff357c2feda3352c62b0171e2a0b1cb0d78')
+        self.assertEqual(policy.POLICY, 'native-close-reopen-program-contract-warm-start-accounts-v1')
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='go-erp-preview31-policy-')
