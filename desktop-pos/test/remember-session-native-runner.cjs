@@ -35,7 +35,7 @@ try{
       if(phase==='close'){
         assert.equal(receipt.logoutRequests,scenario==='plain'?1:0);assert.equal(receipt.originalNavbarLogout,true);assert.equal(receipt.ownedMainFrameFetch,true);
         assert.equal(receipt.spaLogoutRequests,1);assert.equal(receipt.mainFrameLogoutRequests,0);
-        assert.equal(receipt.ordinaryLogoutResponse,scenario==='plain');
+        assert.equal(receipt.ordinaryLogoutResponse,scenario==='plain');assert.equal(receipt.logoutWindowHidden,true);
       }
       else if(scenario==='remember')assert.equal(receipt.automaticSameAccount,true);
       else{assert.equal(receipt.anonymousAfterReopen,true);if(scenario==='invalid')assert.equal(receipt.invalidRejected,true);}
@@ -48,7 +48,7 @@ try{
     actualElectron:true,syntheticServer:true,hardware:false,productionProfile:false,forcedSuccessExit:false,processes:6,
     sameProfileFreshReopen:true,httpOnlyCookieFlags:true,persistentRecallerPreserved:true,currentSessionEnded:true,
     normalLogoutWithoutRecaller:true,invalidRecallerRejected:true,noCredentialPost:true,naturalQuit:true,completed:true,
-    productionSpaSource:true,originalNavbarLogout:true,ownedMainFrameFetch:true,ordinaryLogoutResponse:true,
+    productionSpaSource:true,originalNavbarLogout:true,ownedMainFrameFetch:true,ordinaryLogoutResponse:true,logoutWindowHidden:true,
     phases:receipts.map(({scenario,phase,pid,logoutRequests,spaLogoutRequests,mainFrameLogoutRequests,automaticSameAccount,anonymousAfterReopen,invalidRejected})=>({scenario,phase,pid,logoutRequests,spaLogoutRequests,mainFrameLogoutRequests,automaticSameAccount,anonymousAfterReopen,invalidRejected}))};
   fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(proof)+'\n');
   process.stdout.write('NATIVE_REMEMBER_SESSION_COMPLETE '+JSON.stringify({processes:6,sourceRevision,electronVersion})+'\n');

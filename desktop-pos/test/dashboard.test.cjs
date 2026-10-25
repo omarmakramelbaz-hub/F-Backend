@@ -198,16 +198,22 @@ test('a quit arriving during remembered cookie inspection cancels logout transmi
 });
 test('the original SPA logout fetch from the owning main frame preserves remember cookies and quits before transmission',async t=>{
   let quits=0,flushed=false,inspect;const removed=[];
-  const f=fixture(t,{quit:()=>{assert.equal(flushed,true);quits++;}});await f.dashboard.open();const contents=f.windows[0].webContents;
+  const f=fixture(t,{quit:()=>{assert.equal(flushed,true);assert.equal(f.dashboard.isVisible(),false);quits++;}});await f.dashboard.open();const contents=f.windows[0].webContents;
+  const child=new f.windows[0].constructor(f.windows[0].options);child.show();contents.emit('did-create-window',child);
   f.session.cookies.get=()=>new Promise(resolve=>inspect=resolve);
   f.session.cookies.remove=async(...args)=>removed.push(args);f.session.cookies.flushStore=async()=>{flushed=true;};
   let decision;f.session.webRequest.headers({id:520,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'xhr',
-    webContentsId:contents.id,frame:contents.mainFrame,requestHeaders:{Accept:'text/html','X-Dashboard-SPA':'1'}},value=>decision=value);
+    webContentsId:contents.id,frame:contents.mainFrame,requestHeaders:{Accept:'text/html','X-Dashboard-SPA':'1'}},value=>{
+      assert.equal(f.dashboard.isVisible(),false,'hide the owned SPA before intentional cancellation can render a retry toast');decision=value;
+    });
   await Promise.resolve();contents.emit('did-navigate',{},policy.DEFAULT_ORIGIN+'/admin/dashboard',200,'OK');
   assert.equal(quits,0);assert.equal(decision,undefined,'read-only cookie inspection must settle before native close');
+  assert.equal(f.dashboard.isVisible(),true);assert.equal(child.isVisible(),true);
   inspect([nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})]);
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(decision.cancel,true);assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session']]);
+  assert.equal(child.isVisible(),false);assert.equal(child.isDestroyed(),false,'accepted work may still drain in the hidden windows');
+  assert.deepEqual(f.windows[0].loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard'],'a delayed quit never opens another login page');
 });
 test('ordinary SPA logout retains the native header and quits only for its successful original request completion',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});let quits=0;const origin='http://127.0.0.1:43123';
@@ -217,10 +223,12 @@ test('ordinary SPA logout retains the native header and quits only for its succe
     requestHeaders:{'X-Dashboard-SPA':'1',Cookie:'laravel_session=original-session'}};
   let decision;f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));
   assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private-runtime-token');assert.equal(quits,0);
+  assert.equal(f.dashboard.isVisible(),true,'ordinary logout stays visible until its original response succeeds');
   contents.emit('did-navigate',{},origin+'/admin/dashboard',200,'OK');assert.equal(quits,0);
   for(const details of [{...request,id:522,statusCode:200},{...request,webContentsId:999,statusCode:200}])f.session.webRequest.completed(details);
   assert.equal(quits,0);
   f.session.webRequest.completed({...request,url:origin+'/admin/login',statusCode:200});assert.equal(quits,1);
+  assert.equal(f.dashboard.isVisible(),false,'the successful response hides the SPA while native shutdown drains');
   t.mock.timers.tick(15000);assert.equal(quits,1);
 });
 test('SPA logout requires the native owning top frame, original SPA marker, exact GET route and current origin',async t=>{
@@ -250,6 +258,7 @@ test('failed or timed-out original SPA logout offers native close, never treats 
     else if(failure==='network')f.session.webRequest.error({...request,error:'net::ERR_CONNECTION_RESET'});
     else f.session.webRequest.completed({...request,url:failure==='foreign'?'https://foreign.test/admin/login':request.url,statusCode:failure==='server'?500:200});
     await new Promise(resolve=>setImmediate(resolve));assert.equal(dialogs.length,1);assert.match(dialogs[0].message,/تأكيد تسجيل الخروج/);
+    assert.equal(f.dashboard.isVisible(),true,'a failed or uncertain logout keeps its native error visible');
     assert.equal(quits,0);assert.equal(await f.dashboard.canRefresh(),false);
     let signin;f.session.webRequest.headers({...request,id:525,url:policy.DEFAULT_ORIGIN+'/admin/signin',resourceType:'mainFrame',method:'POST'},value=>signin=value);
     assert.equal(signin.cancel,true);

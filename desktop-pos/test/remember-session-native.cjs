@@ -30,7 +30,7 @@ app.setName('GO ERP remembered-session native fixture');app.setPath('userData',p
 assert.equal(app.requestSingleInstanceLock(),true);
 let server,dashboard,window,quitting=false,failed=false,validating=false,logoutRequests=0,posts=0,requests=0,drained=false;
 let scopedSessionEnded=false,recallerPreserved=false,cookieFlagsChecked=false,automaticSameAccount=false,invalidRejected=false,anonymousAfterReopen=false;
-let spaSourceLoaded=false,productionSpaReady=false,originalNavbarLogout=false,ownedMainFrameFetch=false,ordinaryLogoutResponse=false;
+let spaSourceLoaded=false,productionSpaReady=false,originalNavbarLogout=false,ownedMainFrameFetch=false,ordinaryLogoutResponse=false,logoutWindowHidden=false;
 let spaLogoutRequests=0,mainFrameLogoutRequests=0,originalLogoutId=null;
 const fail=error=>{
   failed=true;process.stderr.write(error.stack+'\n');
@@ -47,7 +47,7 @@ app.once('will-quit',()=>{
       electronVersion:process.versions.electron,platform:process.platform,pid:process.pid,actualElectron:true,
       hardware:false,productionProfile:false,syntheticServer:true,primaryInstance:true,requests,posts,logoutRequests,
       cookieFlagsChecked,scopedSessionEnded,recallerPreserved,automaticSameAccount,invalidRejected,anonymousAfterReopen,
-      spaSourceLoaded,productionSpaReady,originalNavbarLogout,ownedMainFrameFetch,ordinaryLogoutResponse,spaLogoutRequests,mainFrameLogoutRequests,
+      spaSourceLoaded,productionSpaReady,originalNavbarLogout,ownedMainFrameFetch,ordinaryLogoutResponse,logoutWindowHidden,spaLogoutRequests,mainFrameLogoutRequests,
       naturalQuit:true,forcedSuccessExit:false,completed:true})+'\n',{flag:'wx'});
   }catch(error){process.exitCode=1;process.stderr.write(error.stack+'\n');}
 });
@@ -55,6 +55,8 @@ async function requestQuit(){
   if(quitting||validating)return;validating=true;
   try{
     if(phase==='close'){
+      assert.equal(window.isVisible(),false,'Intentional SPA logout must disappear before accepted shutdown work drains.');
+      assert.equal(BrowserWindow.getAllWindows().every(target=>!target.isVisible()),true);logoutWindowHidden=true;
       assert.equal(productionSpaReady,true);assert.equal(originalNavbarLogout,true);assert.equal(ownedMainFrameFetch,true);
       assert.equal(spaLogoutRequests,1);assert.equal(mainFrameLogoutRequests,0);
       if(scenario==='plain')assert.equal(ordinaryLogoutResponse,true);

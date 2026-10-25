@@ -99,7 +99,7 @@ jobs:
           $rememberProof = Get-Content desktop-pos/dist/remember-session-native.json -Raw | ConvertFrom-Json
           $lockedRememberElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($rememberProof.format -ne 1 -or $rememberProof.kind -cne 'go-erp-native-remember-session' -or $rememberProof.sourceRevision -cne $env:GITHUB_SHA -or $rememberProof.platform -cne 'win32' -or $rememberProof.electronVersion -cne $lockedRememberElectron -or $rememberProof.processes -ne 6) { throw 'Remembered-session proof belongs to another source or Electron lock.' }
-          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','productionSpaSource','originalNavbarLogout','ownedMainFrameFetch','ordinaryLogoutResponse','completed')) {
+          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','productionSpaSource','originalNavbarLogout','ownedMainFrameFetch','ordinaryLogoutResponse','logoutWindowHidden','completed')) {
             if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $true) { throw "Remembered-session proof is missing $field." }
           }
           foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {
@@ -699,7 +699,7 @@ jobs:
           $rememberProof = Get-Content desktop-pos/dist/remember-session-native.json -Raw | ConvertFrom-Json
           $lockedRememberElectron = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($rememberProof.format -ne 1 -or $rememberProof.kind -cne 'go-erp-native-remember-session' -or $rememberProof.sourceRevision -cne $env:GITHUB_SHA -or $rememberProof.platform -cne 'win32' -or $rememberProof.electronVersion -cne $lockedRememberElectron -or $rememberProof.processes -ne 6) { throw 'Packaging requires this exact source remembered-session acceptance.' }
-          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','productionSpaSource','originalNavbarLogout','ownedMainFrameFetch','ordinaryLogoutResponse','completed')) {
+          foreach ($field in @('actualElectron','syntheticServer','sameProfileFreshReopen','httpOnlyCookieFlags','persistentRecallerPreserved','currentSessionEnded','normalLogoutWithoutRecaller','invalidRecallerRejected','noCredentialPost','naturalQuit','productionSpaSource','originalNavbarLogout','ownedMainFrameFetch','ordinaryLogoutResponse','logoutWindowHidden','completed')) {
             if ($rememberProof.$field -isnot [bool] -or $rememberProof.$field -ne $true) { throw "Remembered-session packaging proof is missing $field." }
           }
           foreach ($field in @('hardware','productionProfile','forcedSuccessExit')) {

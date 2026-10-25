@@ -25,6 +25,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   const remoteWrites = new Map();
   const nativeConnectedPrints = new Map();
   const activeRequests = new Set();
+  function hideLogoutWindows() {
+    // The SPA treats an intentionally cancelled fetch as a navigation failure.
+    // Once logout is confirmed, close its visible surface before shutdown drains.
+    for(const target of [window,...children])if(target&&!target.isDestroyed())target.hide();
+  }
   function ownedSpaLogout(details,contents) {
     if(details.resourceType!=='xhr'||!Number.isInteger(details.id)
       ||!Object.entries(details.requestHeaders).some(([name,value])=>name.toLowerCase()==='x-dashboard-spa'&&value==='1'))return false;
@@ -367,7 +372,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               logoutDecision=accepted(()=>rememberedCloseSession(contents.session,scope));
               Promise.resolve(logoutDecision).then(result=>{
                 if(result.cancelled||quitting()||origin!==scope){callback({cancel:true});return;}
-                if(result.remembered){callback({cancel:true});quit();return;}
+                if(result.remembered){hideLogoutWindows();callback({cancel:true});quit();return;}
                 // Without an explicit persistent recaller, keep the original
                 // server logout and its remember-token revocation unchanged.
                 if(spaLogoutRequest){
@@ -440,7 +445,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             if(origin===expected.scope&&policy.sameOrigin(details.url,expected.scope)&&String(details.method).toUpperCase()==='GET'
               &&['/admin/adminLogout','/admin/login'].includes(getPolicy.normalized(new URL(details.url).pathname))
               &&details.statusCode>=200&&details.statusCode<400){
-              clearTimeout(expected.timer);spaLogout=null;if(!quitting())quit();
+              clearTimeout(expected.timer);spaLogout=null;if(!quitting()){hideLogoutWindows();quit();}
             }else failSpaLogout('تعذر تأكيد تسجيل الخروج من السيرفر. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.');
           }
           if (!remoteWrites.has(details.id)) return;
