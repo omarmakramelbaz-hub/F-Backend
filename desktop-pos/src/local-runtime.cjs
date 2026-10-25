@@ -642,7 +642,7 @@ class LocalRuntime {
     await fs.rm(root,{recursive:true,force:false});return true;
   }
   cancelDelta(){this.deltaController?.abort();}
-  async stage(snapshot, id, archive) {
+  async stage(snapshot, id, archive, onMediaProgress) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
     const context = await this.candidate(snapshot);
     media.manifest(snapshot.media || []);
@@ -671,7 +671,7 @@ class LocalRuntime {
       } catch { throw Error('تعذر حفظ مقارنة إعدادات PHP؛ بيانات الجهاز محفوظة.'); }
     }
     const images = await media.download(path.join(this.storageFor(value), 'app/public'), snapshot.media || [], this.downloadMedia, () => this.stopping,
-      path.join(this.storageFor(value), 'app'));
+      path.join(this.storageFor(value), 'app'), undefined, { onProgress: onMediaProgress });
     if (archive) await run(context.php, [...phpArgs, path.join(context.application, 'desktop/archive.php')], options,
       JSON.stringify({ receipt, source: archive.previous.database || 'fasakhansta_dashboard', refresh_id: archive.id, token: archive.token,
         source_identity: {snapshot_id:archive.previous.snapshotId,schema_hash:archive.previous.schemaHash} }), 90000);
