@@ -1,0 +1,40 @@
+name: General dashboard navigation browser diagnostic
+
+on:
+  push:
+    branches: ['codex/go-erp-general-navigation-diagnostic-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  genuine-spa-navigation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated pinned browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/navigation-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          if command -v google-chrome >/dev/null 2>&1; then
+            browser_path=$(command -v google-chrome)
+          elif test -x /opt/google/chrome/chrome; then
+            browser_path=/opt/google/chrome/chrome
+          else
+            "$RUNNER_TEMP/navigation-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+            browser_path=
+          fi
+          if test -n "$browser_path"; then
+            "$browser_path" --version
+            printf 'DESKTOP_TEST_BROWSER_EXECUTABLE=%s\n' "$browser_path" >> "$GITHUB_ENV"
+          fi
+      - name: Measure actual SPA navigation with bounded synthetic transport
+        env:
+          NODE_PATH: ${{ runner.temp }}/navigation-browser/node_modules
+        run: node tests/browser/navigation-performance-diagnostic.cjs
