@@ -151,6 +151,12 @@ async function visit(page,selector,variant){
       }
       await context.close();
     }
+    if(process.env.GO_ERP_EXPECT_CSS_REUSE==='1')for(const measurement of roleMeasurements){
+      assert.equal(measurement.htmlRequests,5,'Every visit must still fetch fresh HTML.');
+      assert.equal(measurement.sameCssHttpRequests,1,'Unchanged loaded page CSS must remain attached across visits.');
+      assert.equal(measurement.pageScriptHttpRequests,5,'Page initializers must execute on every visit.');
+      assert.equal(measurement.dependencyHttpRequests,1,'Shared dependencies must retain their original lifecycle.');
+    }
     console.log('GO_ERP_GENERAL_NAVIGATION_DIAGNOSTIC '+JSON.stringify({sourceRevision:process.env.GITHUB_SHA||'local',genuineChromium:true,browserVersion:browser.version(),
       productionSpaSha256:crypto.createHash('sha256').update(spa).digest('hex'),productionCssSha256:crypto.createHash('sha256').update(actualCss).digest('hex'),
       syntheticTransport:true,syntheticRoleShells:true,syntheticPageInitializers:true,actualPhp:false,hardware:false,htmlCaching:false,

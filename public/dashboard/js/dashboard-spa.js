@@ -23,6 +23,7 @@
     var submitting = false;
     var loadedScripts = new Map();
     var pageStyles = [];
+    var pageStyleSources = new WeakMap();
     var historyKey = 0;
     var historyPosition = 0;
     var committedUrl = location.href;
@@ -435,30 +436,87 @@
         doc.querySelectorAll('[data-dashboard-page-scripts] link[rel="stylesheet"], [data-dashboard-page-scripts] style').forEach(function (node) { nodes.push(node); });
         return nodes;
     }
+    function pageStyleIdentity(node, href) {
+        if (node.tagName !== 'LINK' || !node.hasAttribute('href')) return null;
+        // Attribute order is immaterial; every actual attribute remains part of
+        // the identity, including CSP/SRI, media, type and request policy. Browsers
+        // conceal getAttribute('nonce'), so read its dedicated property instead.
+        return JSON.stringify(Array.from(node.attributes).filter(function (attribute) {
+            return attribute.name !== 'data-dashboard-page-style';
+        }).map(function (attribute) {
+            return [attribute.name, attribute.name === 'href' ? href
+                : attribute.name === 'nonce' ? node.nonce : attribute.value];
+        }).sort(function (left, right) { return left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0; }));
+    }
+    function rememberPageStyle(node, url) {
+        if (node.tagName !== 'LINK' || !node.hasAttribute('href')) return;
+        var href;
+        try { href = new URL(node.getAttribute('href'), url).href; } catch (_) { return; }
+        var source = { href: href, rawHref: node.getAttribute('href'), identity: pageStyleIdentity(node, href), loaded: !!node.sheet };
+        pageStyleSources.set(node, source);
+        if (!source.loaded) native.add.call(node, 'load', function () { source.loaded = !!node.sheet; }, { once: true });
+    }
+    function reusablePageStyle(node, identity) {
+        var source = pageStyleSources.get(node);
+        return node.parentNode === document.head && node.isConnected && !node.disabled && !!node.sheet
+            && source && source.loaded && node.getAttribute('href') === source.rawHref
+            && source.identity === identity && pageStyleIdentity(node, source.href) === identity;
+    }
     async function stageCss(doc, url) {
-        var incomingNodes = [];
-        var waits = pageCss(doc).map(function (node) {
-            var incoming = document.importNode(node, true);
-            incoming.setAttribute('data-dashboard-page-style', '');
-            incoming.dashboardOriginalMedia = incoming.getAttribute('media');
-            incoming.setAttribute('media', 'not all');
-            if (incoming.href) incoming.href = new URL(node.getAttribute('href'), url).href;
-            incomingNodes.push(incoming);
-            var wait = incoming.tagName === 'LINK' ? new Promise(function (resolve) {
-                native.add.call(incoming, 'load', resolve, { once: true });
-                native.add.call(incoming, 'error', resolve, { once: true });
-                native.timeout(resolve, 3000);
-            }) : Promise.resolve();
-            document.head.appendChild(incoming);
-            return wait;
-        });
-        await Promise.all(waits);
-        return incomingNodes;
+        var incomingNodes = [], entries = [], cursor = 0;
+        incomingNodes.reused = new Set();
+        var available = Array.from(document.head.children).filter(function (node) { return pageStyles.indexOf(node) >= 0; });
+        function discard() { incomingNodes.forEach(function (node) { if (!incomingNodes.reused.has(node)) node.remove(); }); }
+        try {
+            pageCss(doc).forEach(function (node) {
+                var href = node.tagName === 'LINK' && node.hasAttribute('href') ? new URL(node.getAttribute('href'), url).href : null;
+                var identity = pageStyleIdentity(node, href), reused = null;
+                if (identity) for (var index = cursor; index < available.length; index++) {
+                    if (reusablePageStyle(available[index], identity)) { reused = available[index]; cursor = index + 1; break; }
+                }
+                if (reused) {
+                    incomingNodes.push(reused); incomingNodes.reused.add(reused);
+                    entries.push({ node: reused, reused: true, identity: identity });
+                    return;
+                }
+                var incoming = document.importNode(node, true);
+                incoming.setAttribute('data-dashboard-page-style', '');
+                if (href !== null) incoming.href = href;
+                rememberPageStyle(incoming, url);
+                incoming.dashboardOriginalMedia = incoming.getAttribute('media');
+                incoming.setAttribute('media', 'not all');
+                incomingNodes.push(incoming); entries.push({ node: incoming, reused: false });
+            });
+            incomingNodes.valid = function () {
+                return entries.every(function (entry) { return !entry.reused || reusablePageStyle(entry.node, entry.identity); });
+            };
+            var waits = entries.map(function (entry, index) {
+                if (entry.reused) return Promise.resolve();
+                var incoming = entry.node;
+                var wait = incoming.tagName === 'LINK' ? new Promise(function (resolve) {
+                    var timer;
+                    function done() { native.clearTimeout(timer); resolve(); }
+                    native.add.call(incoming, 'load', done, { once: true });
+                    native.add.call(incoming, 'error', done, { once: true });
+                    timer = native.timeout(done, 3000);
+                }) : Promise.resolve();
+                // Reused links stay connected in their existing order; moving a
+                // link can reload it. Stage only new disabled nodes around those
+                // anchors, preserving the next page's exact CSS cascade order.
+                var next = entries.slice(index + 1).find(function (candidate) { return candidate.reused; });
+                document.head.insertBefore(incoming, next ? next.node : null);
+                return wait;
+            });
+            await Promise.all(waits);
+            if (!incomingNodes.valid()) throw new Error('Dashboard styles changed during navigation');
+            return incomingNodes;
+        } catch (error) { discard(); throw error; }
     }
     function commitCss(nodes) {
-        pageStyles.forEach(function (node) { node.remove(); });
+        pageStyles.forEach(function (node) { if (nodes.indexOf(node) < 0) node.remove(); });
         pageStyles = nodes;
         nodes.forEach(function (node) {
+            if (nodes.reused && nodes.reused.has(node)) return;
             if (node.dashboardOriginalMedia === null) node.removeAttribute('media');
             else node.setAttribute('media', node.dashboardOriginalMedia);
         });
@@ -612,10 +670,14 @@
         // Stage slow styles while the current page and its handlers stay alive.
         // A failed newer navigation must leave that page fully usable.
         var styles = await stageCss(doc, url);
-        if (current !== sequence) { styles.forEach(function (node) { node.remove(); }); return; }
+        if (current !== sequence) { styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); }); return; }
         try { await closeModals(outgoing); }
-        catch (error) { styles.forEach(function (node) { node.remove(); }); throw error; }
-        if (current !== sequence) { styles.forEach(function (node) { node.remove(); }); return; }
+        catch (error) { styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); }); throw error; }
+        if (current !== sequence) { styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); }); return; }
+        if (styles.valid && !styles.valid()) {
+            styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); });
+            throw new Error('Dashboard styles changed during navigation');
+        }
         if (!options.pop) {
             historyKey++;
             if (!options.replace) historyPosition++;
@@ -804,6 +866,7 @@
         });
         document.documentElement.setAttribute('data-dashboard-spa', 'ready');
         pageStyles = pageCss(document);
+        pageStyles.forEach(function (node) { rememberPageStyle(node, document.baseURI || location.href); });
         document.querySelectorAll('script[src]').forEach(function (script) {
             var key = assetKey(script.src);
             var mapsPending = script.src.indexOf('maps.googleapis.com/maps/api/js') >= 0 && (!window.google || !window.google.maps);

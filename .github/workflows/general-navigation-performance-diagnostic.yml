@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify stylesheet ownership and navigation lifecycle
+        run: node --test desktop-pos/test/dashboard-css-lifecycle.test.cjs
       - name: Install isolated pinned browser
         run: |
           npm install --prefix "$RUNNER_TEMP/navigation-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
@@ -37,4 +39,5 @@ jobs:
       - name: Measure actual SPA navigation with bounded synthetic transport
         env:
           NODE_PATH: ${{ runner.temp }}/navigation-browser/node_modules
+          GO_ERP_EXPECT_CSS_REUSE: '1'
         run: node tests/browser/navigation-performance-diagnostic.cjs
