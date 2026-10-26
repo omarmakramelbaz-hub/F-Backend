@@ -1,0 +1,44 @@
+name: GO ERP reserved allocation resume contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-reserved-resume-*']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_reserved_allocation*'
+      - 'tests/test_go_erp_reserved_allocation_*.py'
+      - '.github/workflows/go-erp-reserved-allocation-resume-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load pinned transactions and captured candidate
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          12d74b4f35737a2b1e271657b159137538c3edaf
+          baa2157fea6f943c55597c924447cc574d9fcef2
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+          0adf41c64aa587b495a55b7ec058bf5cc54d1e2a
+          5563faf5aa1e2e62157c4b3b9638592a02854c59
+      - name: Load repaired core and original seed lineage
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
+          1556e002f18d00b9e8f9ba81590843e0d8697318
+      - name: Verify root command syntax
+        run: bash -n deployment/run_go_erp_reserved_allocation_resume_root.sh
+      - name: Verify audit durability, single allocation and real candidate creation
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_reserved_allocation_*.py'
