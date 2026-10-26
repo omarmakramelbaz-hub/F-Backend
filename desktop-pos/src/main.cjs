@@ -322,7 +322,7 @@ app.whenReady().then(async()=>{
     const {AccountLogin}=require('./account-login.cjs');
     const createLoginWindow=require('./login-window.cjs');
     accountLogin=new AccountLogin({profiles:accountProfiles,createRuntime,createSession:partition=>session.fromPartition(partition),
-      serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,stopped:()=>quitting});
+      serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,stopped:()=>quitting,online:()=>net.isOnline()});
     // Show the normal one-form sign-in before reading or booting an account's
     // runtime. Only the verified account result can open its retained ledger.
     loginWindow=createLoginWindow({broker:accountLogin,quitting:()=>quitting,quit:()=>app.quit()});

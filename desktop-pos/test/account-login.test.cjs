@@ -76,7 +76,7 @@ test('cookie handoff is scoped to original protected auth cookies and rolls back
   const legacy=cookiesFor(remote);legacy[0].secure=false;source.cookies.seed(legacy);
   await installCookies(source,target,remote);assert.equal(target.cookies.all()[0].secure,true,'Native HTTPS handoff tightens legacy server cookie transport.');
 });
-function fixture({known=true,offline=false,rejected=false,actor=42,legacy=true}={}){
+function fixture({known=true,offline=false,rejected=false,actor=42,legacy=true,online=false,remoteHandler}={}){
   const old={id:'default',actorId:42,serverOrigin:remote,profile:'/synthetic/default',partition:'persist:fasakhansta-dashboard'};
   const rows=new Map([['default',old]]),aliases=new Map(known?[['owner@example.test','default']]:[]),events=[],saved=[];let selected='default',created=0;
   const profiles={async selected(){return rows.get(selected);},async account(id){return rows.get(id);},async findLogin(name){return rows.get(aliases.get(name))||null;},async forActor(id){return [...rows.values()].find(value=>value.actorId===id)||null;},
@@ -88,7 +88,8 @@ function fixture({known=true,offline=false,rejected=false,actor=42,legacy=true}=
     if(!browsers.has(name))browsers.set(name,session(name,async(browser,url,options)=>{
       requests.push({partition:name,url,method:options.method||'GET'});
       if(offline&&url.startsWith(remote))throw Object.assign(Error('net::ERR_INTERNET_DISCONNECTED'),{code:'ERR_INTERNET_DISCONNECTED'});
-      return originalHandler({actor:url.startsWith(remote)?actor:42,rejected})(browser,url,options);
+      const original=originalHandler({actor:url.startsWith(remote)?actor:42,rejected});
+      return url.startsWith(remote)&&remoteHandler?remoteHandler(browser,url,options,original):original(browser,url,options);
     }));return browsers.get(name);
   };
   const createRuntime=async account=>{
@@ -97,7 +98,7 @@ function fixture({known=true,offline=false,rejected=false,actor=42,legacy=true}=
       async start(){this.starts++;events.push('runtime-start:'+account.id);return {origin:local,token:'b'.repeat(64)};},cancelStartup(){this.cancelled=true;},async stop(){this.stops++;}};
     runtimes.set(account.id,value);return value;
   };
-  return {broker:new AccountLogin({profiles,createRuntime,createSession,serverOrigin:remote}),profiles,rows,browsers,runtimes,requests,events,saved,selected:()=>selected};
+  return {broker:new AccountLogin({profiles,createRuntime,createSession,serverOrigin:remote,online:()=>online}),profiles,rows,browsers,runtimes,requests,events,saved,selected:()=>selected};
 }
 test('a known prepared account authenticates locally without Internet or a second profile selection',async()=>{
   const f=fixture({offline:true});const result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:true});
@@ -211,4 +212,154 @@ test('an unexpected signed-out marker remains fail-closed without interpreting c
   const signout=require('../src/account-signout.cjs');
   for(const value of [false,{},[],{format:99},'unexpected'])assert.equal(await signout.requirePassword({metadata:{read:async()=>value}}),true);
   assert.equal(await signout.requirePassword({metadata:{read:async()=>null}}),false);
+});
+
+test('a prepared online account stays local and receives both original same-actor cookie sessions before handoff',async()=>{
+  const f=fixture({online:true}),input={email:'owner@example.test',password:secret,remember:true};
+  const result=await f.broker.authenticate(input),target=f.browsers.get(result.account.partition);
+  assert.equal(result.local,true);assert.equal(result.origin,local);assert.equal(result.localToken,'b'.repeat(64));
+  for(const scope of [local,remote]){
+    const cookies=await target.cookies.get({url:scope+'/'});
+    assert.equal(cookies.find(value=>value.name==='laravel_session')?.value,'synthetic-session');
+    assert.equal(cookies.find(value=>value.name===recaller)?.httpOnly,true);
+  }
+  assert.equal(f.requests.filter(value=>value.method==='POST').length,2);
+  assert.equal(f.requests.filter(value=>new URL(value.url).pathname==='/admin/choose_type').length,2);
+  assert.equal(f.requests.some(value=>new URL(value.url).pathname==='/admin/dashboard'),false);
+  assert.equal(f.runtimes.get('default').starts,1);assert.equal(JSON.stringify(f.saved).includes(secret),false);
+  assert.equal([...f.browsers].filter(([name])=>name.startsWith('go-erp-account-auth-')).every(([,browser])=>browser.cleared===1),true);
+  await f.broker.stop();
+});
+
+test('an offline hint avoids optional HTTPS entirely while a real network failure safely keeps local login',async()=>{
+  const hinted=fixture({online:false});const first=await hinted.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  assert.equal(first.local,true);assert.equal(hinted.requests.some(value=>value.url.startsWith(remote)),false);await hinted.broker.stop();
+  const failed=fixture({online:true,offline:true});const second=await failed.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  assert.equal(second.local,true);assert.equal(failed.requests.filter(value=>value.url.startsWith(remote)).length,1);
+  assert.equal((await failed.browsers.get(second.account.partition).cookies.get({url:remote+'/'})).length,0);await failed.broker.stop();
+});
+
+test('remote password refusal, HTTP error, actor/role change and unsafe redirect cannot fall back to accepted local credentials',async()=>{
+  const cases=[
+    async(browser,url,options,original)=>url.endsWith('/admin/signin')?response('',302,url,remote+'/admin/login'):original(browser,url,options),
+    async(browser,url,options,original)=>url.endsWith('/admin/signin')?response('unavailable',500,url):original(browser,url,options),
+    async(browser,url,options,original)=>url.endsWith('/admin/choose_type')?response(home(43),200,url):original(browser,url,options),
+    async(browser,url,options,original)=>url.endsWith('/admin/choose_type')?response(home(42).replace(':admin',':vendor'),200,url):original(browser,url,options),
+    async(browser,url,options,original)=>url.endsWith('/admin/signin')?response('',302,url,'https://foreign.example.test/admin/dashboard'):original(browser,url,options)
+  ];
+  for(const remoteHandler of cases){
+    const f=fixture({online:true,remoteHandler}),target=f.broker.createSession('persist:fasakhansta-dashboard');
+    target.cookies.seed(cookiesFor(local,true));const before=target.cookies.all();
+    await assert.rejects(f.broker.authenticate({email:'owner@example.test',password:secret,remember:true}));
+    assert.deepEqual(target.cookies.all(),before);assert.deepEqual(f.saved,[]);assert.equal(f.selected(),'default');
+    const runtime=f.runtimes.get('default');assert.ok(runtime.stops>=1);assert.equal(f.broker.runtimes.has('default'),false);
+    await f.broker.stop();
+  }
+});
+
+test('a failed optional server authentication cancels and drains a simultaneous local boot before another attempt',async()=>{
+  const remoteGate=deferred(),localGate=deferred(),localStarted=deferred();
+  const f=fixture({online:true,remoteHandler:async(browser,url,options,original)=>{if(url.endsWith('/admin/signin')){await remoteGate.promise;return response('',302,url,remote+'/admin/login');}return original(browser,url,options);}});
+  const create=f.broker.createRuntime;f.broker.createRuntime=async account=>{
+    const runtime=await create(account);runtime.start=()=>{runtime.starts++;localStarted.resolve();return localGate.promise;};
+    runtime.cancelStartup=()=>{runtime.cancelled=true;localGate.reject(Error('cancelled local verification'));};return runtime;
+  };
+  const submitted=f.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  const refused=assert.rejects(submitted,{code:'ACCOUNT_CREDENTIALS_REJECTED'});
+  await localStarted.promise;remoteGate.resolve();await refused;
+  const runtime=f.runtimes.get('default');assert.equal(runtime.cancelled,true);assert.equal(runtime.stops,1);
+  assert.equal(f.broker.runtimes.has('default'),false);assert.equal(f.broker.runtimeTasks.has('default'),false);
+  assert.deepEqual(f.saved,[]);await f.broker.stop();
+});
+
+test('the optional HTTPS deadline aborts and drains its read before local cookies can be committed',{timeout:7000},async()=>{
+  let active=false,cancelled=false;
+  const f=fixture({online:true,remoteHandler:async(_browser,_url,options)=>new Promise((_,reject)=>{
+    active=true;options.signal.addEventListener('abort',()=>{active=false;cancelled=true;reject(Object.assign(Error('cancelled optional network read'),{code:'ACCOUNT_LOGIN_CANCELLED'}));},{once:true});
+  })});
+  const started=Date.now(),result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  assert.ok(Date.now()-started<5700);assert.equal(result.local,true);assert.equal(active,false);assert.equal(cancelled,true);
+  assert.equal((await f.browsers.get(result.account.partition).cookies.get({url:remote+'/'})).length,0);
+  await f.broker.stop();
+});
+
+function stallRemoteCleanup(f){
+  const create=f.broker.createSession;f.broker.createSession=name=>{
+    const browser=create(name);if(name.startsWith('go-erp-account-auth-'))browser.clearStorageData=async()=>{
+      browser.cleared++;if(f.requests.some(value=>value.partition===name&&value.url.startsWith(remote)))await new Promise(()=>{});
+      browser.cookies.seed([]);
+    };return browser;
+  };
+}
+test('a known remote password refusal survives slow private cleanup and cannot become deadline fallback',{timeout:7000},async()=>{
+  const f=fixture({online:true,remoteHandler:async(browser,url,options,original)=>url.endsWith('/admin/signin')?response('',302,url,remote+'/admin/login'):original(browser,url,options)});
+  stallRemoteCleanup(f);const started=Date.now();
+  await assert.rejects(f.broker.authenticate({email:'owner@example.test',password:secret,remember:false}),{code:'ACCOUNT_CREDENTIALS_REJECTED'});
+  assert.ok(Date.now()-started<5700);assert.deepEqual(f.saved,[]);assert.equal(f.runtimes.get('default').stops,1);await f.broker.stop();
+});
+test('an accepted in-memory HTTPS cookie snapshot survives bounded private cleanup without losing local mode',{timeout:7000},async()=>{
+  const f=fixture({online:true});stallRemoteCleanup(f);const started=Date.now();
+  const result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  assert.ok(Date.now()-started<5700);assert.equal(result.local,true);assert.equal(result.origin,local);
+  assert.equal((await f.browsers.get(result.account.partition).cookies.get({url:remote+'/'})).find(value=>value.name==='laravel_session')?.value,'synthetic-session');
+  await f.broker.stop();
+});
+test('a failed second-scope cookie commit rolls back local and HTTPS cookies without selecting or remembering an account',async()=>{
+  const f=fixture({online:true}),target=f.broker.createSession('persist:fasakhansta-dashboard');
+  const localBefore=cookiesFor(local,true).map(cookie=>({...cookie,value:'previous-local-'+cookie.name})),remoteBefore=cookiesFor(remote,true).map(cookie=>({...cookie,value:'previous-server-'+cookie.name}));
+  target.cookies.seed([...localBefore,...remoteBefore]);let flushes=0;
+  target.cookies.flushStore=async()=>{flushes++;if(flushes===2)throw Error('synthetic second-scope commit failed');};
+  await assert.rejects(f.broker.authenticate({email:'owner@example.test',password:secret,remember:true}),/second-scope commit/);
+  const attributes=values=>values.map(({url,...cookie})=>cookie);
+  assert.deepEqual(attributes(await target.cookies.get({url:local+'/'})),localBefore);
+  assert.deepEqual(attributes(await target.cookies.get({url:remote+'/'})),remoteBefore);
+  assert.deepEqual(f.saved,[]);assert.equal(f.selected(),'default');assert.equal(f.runtimes.get('default').stops,1);await f.broker.stop();
+});
+test('shutdown cancellation drains optional HTTPS and never commits either persistent account cookie scope',async()=>{
+  const started=deferred();let active=false;
+  const f=fixture({online:true,remoteHandler:async(_browser,_url,options)=>new Promise((_,reject)=>{
+    active=true;started.resolve();options.signal.addEventListener('abort',()=>{active=false;reject(Object.assign(Error('cancelled read'),{code:'ACCOUNT_LOGIN_CANCELLED'}));},{once:true});
+  })});
+  const target=f.broker.createSession('persist:fasakhansta-dashboard'),before=target.cookies.all();
+  const pending=f.broker.authenticate({email:'owner@example.test',password:secret,remember:true}),refused=assert.rejects(pending,{code:'ACCOUNT_LOGIN_CANCELLED'});
+  await started.promise;f.broker.cancel();await refused;
+  assert.equal(active,false);assert.deepEqual(target.cookies.all(),before);assert.deepEqual(f.saved,[]);await f.broker.stop();
+});
+test('a simultaneous user shutdown outranks the optional deadline instead of allowing offline authentication',{timeout:7000},async()=>{
+  const f=fixture({online:true,remoteHandler:async(_browser,_url,options)=>new Promise((_,reject)=>{
+    options.signal.addEventListener('abort',()=>{f.broker.cancel();reject(Object.assign(Error('cancelled at optional deadline'),{code:'ACCOUNT_LOGIN_CANCELLED'}));},{once:true});
+  })});
+  await assert.rejects(f.broker.authenticate({email:'owner@example.test',password:secret,remember:true}),{code:'ACCOUNT_LOGIN_CANCELLED'});
+  assert.deepEqual(f.saved,[]);assert.equal(f.browsers.has('persist:fasakhansta-dashboard'),false);await f.broker.stop();
+});
+test('a durable central selection still requires its original server password even with an offline hint',async()=>{
+  const f=fixture({online:false}),runtime=await f.broker.runtime(await f.profiles.account('default'));
+  await runtime.metadata.write('central-mode',{format:1,phase:'central'});
+  const result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  assert.equal(result.local,false);assert.equal(result.origin,remote);assert.equal(result.localToken,'');
+  assert.equal(f.requests.filter(value=>value.method==='POST').length,2);await f.broker.stop();
+});
+test('a previously unknown alias reuses its already verified HTTPS sign-in for the prepared actor',async()=>{
+  const f=fixture({known:false,online:true}),result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:true});
+  assert.equal(result.account.id,'default');assert.equal(result.local,true);assert.equal(result.origin,local);assert.equal(f.rows.size,1);
+  for(const scope of [local,remote])assert.equal(f.requests.filter(value=>value.method==='POST'&&value.url.startsWith(scope)).length,1);
+  for(const scope of [local,remote])assert.ok((await f.browsers.get(result.account.partition).cookies.get({url:scope+'/'})).some(cookie=>cookie.name==='laravel_session'));
+  assert.equal(f.saved.length,1);await f.broker.stop();
+});
+test('a reused server proof cannot authorize a different prepared actor or role',async()=>{
+  for(const differentActor of [true,false]){
+    const f=fixture({known:false,online:true,actor:differentActor?43:42,remoteHandler:differentActor?undefined:async(browser,url,options,original)=>url.endsWith('/admin/choose_type')?response(home(42).replace(':admin',':vendor'),200,url):original(browser,url,options)});
+    if(differentActor)f.profiles.forActor=async()=>f.rows.get('default');
+    const target=f.broker.createSession('persist:fasakhansta-dashboard');target.cookies.seed(cookiesFor(local,true));const before=target.cookies.all();
+    await assert.rejects(f.broker.authenticate({email:'owner@example.test',password:secret,remember:true}));
+    assert.deepEqual(target.cookies.all(),before);assert.deepEqual(f.saved,[]);assert.equal(f.selected(),'default');await f.broker.stop();
+  }
+});
+test('a reused fresh server proof satisfies an existing central latch without a second HTTPS password POST',async()=>{
+  const f=fixture({known:false,online:false}),runtime=await f.broker.runtime(await f.profiles.account('default'));
+  await runtime.metadata.write('central-mode',{format:1,phase:'central'});
+  const result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:false});
+  assert.equal(result.local,false);assert.equal(result.origin,remote);assert.equal(result.localToken,'');
+  for(const scope of [local,remote])assert.equal(f.requests.filter(value=>value.method==='POST'&&value.url.startsWith(scope)).length,1);
+  await f.broker.stop();
 });
