@@ -64,12 +64,15 @@ class DashboardHomeOverviewTest extends TestCase
             $this->assertCount(1,$r['today_expenses']['items']);$this->assertSame('5.25',$r['inventory']['items'][0]['quantity']);
         }
         $this->assertFalse($this->overview()['branch_home']);
+        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php');(new \CreatePermissionTables)->up();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         $this->actingAs($this->actor(10),'admin');
         // Isolate view selection from the global site's unrelated settings/header.
         $factory=\Mockery::mock(\Illuminate\Contracts\Routing\ResponseFactory::class);
         $factory->shouldReceive('view')->once()->with('admin.home_branch',\Mockery::on(fn($data)=>$data['boot']['initial']['branch_home']&&$data['boot']['initial']['today_expenses']['total_cents']===1500))->andReturn(new \Illuminate\Http\Response(''));
         $this->app->instance(\Illuminate\Contracts\Routing\ResponseFactory::class,$factory);
-        app(\App\Http\Controllers\Dashboard\HomeController::class)->index(\Illuminate\Http\Request::create('/admin'),app(HomeOverview::class));
+        $request=\Illuminate\Http\Request::create('/admin');$request->setLaravelSession($this->app['session.store']);
+        app(\App\Http\Controllers\Dashboard\HomeController::class)->index($request,app(HomeOverview::class));
         $template=file_get_contents(resource_path('views/admin/home_branch.blade.php'));
         $this->assertSame(2,substr_count($template,'data-bh-panel='));
         $this->assertStringNotContainsString('data-ho-kpis',$template);$this->assertStringNotContainsString('data-ho-chart',$template);

@@ -33,25 +33,36 @@ jobs:
       - name: Install the existing locked application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
       - name: Prepare only the isolated CI application
+        id: isolated_app
         run: |
           mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
           cp .env.example .env
           php artisan key:generate
-      - name: Verify original financial scope and bounded cart reads
+      - name: Check the measured production source and regression syntax
         run: |
           php -l app/Services/Dashboard/BranchShiftClosing.php
           php -l tests/Feature/DashboardOwnerBalanceBatchTest.php
-          vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
-          vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
-          vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php --filter test_batch_
-          vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
+      - name: Verify the original HomeOverview suite
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
+      - name: Verify the original shift closing suite
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
+      - name: Verify bounded cart reads and exact financial parity
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php --filter test_batch_
+      - name: Verify original navigation fragments for every role
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
       - name: Measure actual Owner services against private retained data
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         env:
           GO_ERP_OWNER_PERFORMANCE_REPORT: ${{ runner.temp }}/go-erp-owner-offline-performance.json
         run: |
           php -l tests/Feature/DashboardOwnerOfflinePerformanceTest.php
           vendor/bin/phpunit tests/Feature/DashboardOwnerOfflinePerformanceTest.php --filter test_measure_actual_retained_offline_owner_without_changing_business_data
       - name: Retain the bounded synthetic measurement
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: go-erp-owner-offline-performance
