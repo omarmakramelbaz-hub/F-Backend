@@ -39,7 +39,7 @@ jobs:
       - name: Load final native core and its exact three-file policy seed
         run: >-
           git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
-          3f063af15c875c383c816f72c7e87054716b2b3c
+          0885a3b550f92df2b74bcd2c16d27954d8b44b7b
           b199706b24146c85760b673448cb2e8bcd1f7812
       - name: Verify root command syntax
         run: bash -n deployment/run_go_erp_navigation_root.sh
@@ -56,12 +56,12 @@ jobs:
                   target = Path(folder) / name
                   target.parent.mkdir(parents=True, exist_ok=True)
                   target.write_bytes(subprocess.check_output(['git', 'show',
-                      '3f063af15c875c383c816f72c7e87054716b2b3c:' + name]))
+                      '0885a3b550f92df2b74bcd2c16d27954d8b44b7b:' + name]))
               path = Path(folder) / 'deployment/verify_go_erp_preview31_seed.py'
               spec = importlib.util.spec_from_file_location('navigation_seed_policy', path)
               policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
-              proof = policy.validate_seed(Path.cwd(), '3f063af15c875c383c816f72c7e87054716b2b3c')
-              assert proof['core'] == '73cc998c9e8160e700f376e96e5c584421bafdd6'
+              proof = policy.validate_seed(Path.cwd(), '0885a3b550f92df2b74bcd2c16d27954d8b44b7b')
+              assert proof['core'] == '13fd8b038bd1a853a30ba9b4140a053088efa73d'
               assert policy.POLICY == 'native-close-reopen-program-contract-direct-login-accounts-v4'
               suite = unittest.defaultTestLoader.discover(str(Path(folder) / 'tests'), pattern='test_go_erp_preview31_seed.py')
               assert unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()

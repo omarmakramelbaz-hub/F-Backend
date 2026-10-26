@@ -75,12 +75,12 @@ NEW_COHORT = {'pins': {'desktop_dashboard_server_preflight.py': ('4f3feb5b5c68ae
           'go_erp_current_candidate_ci.yml': ('af4d9bb97572c84e26cb6750d380adde2f7e9423',
                                               7231,
                                               '203ca21186223cacb7feb98dc8eb372bceb258c4e0f01e4c7a8b917b417271ea'),
-          'go_erp_live_source.py': ('2c0bab8332925555421f111737947b9e4988bddf',
+          'go_erp_live_source.py': ('29d1a2583a91f05c4f4c39cdf555e48f0dbd19a5',
                                     38829,
-                                    '8e78a9fa099ed279ea0a0feb70594cc778aa43f26de35565dff1f36598e2f9d0'),
-          'go_erp_live_updates.py': ('a000df376f2e4a8609ebee01a6bcb76da77b46ab',
+                                    '22cad7fc794e1153c79dc016554323335b02409645585fb53ce4e83c0b932453'),
+          'go_erp_live_updates.py': ('c1414dbecf13331641ff11fae6a9f51fb73226ce',
                                      70031,
-                                     '5d91e480f2e1f01d759168ee83fdb328f1801a6993a2be705f70bc8f3736d100'),
+                                     '2555209445b41641a1358d5a75d0dd9f501b8992510bfd7661573664b4a84f5f'),
           'publish_go_erp_update.py': ('f9a7353b0705383844a576ab6d0f5b1662912bfb',
                                        18089,
                                        '3a277fcbe44f3b58bc89be907928ed3f6dcb1bb43e21c30e2f83948ab8245490'),
@@ -88,9 +88,9 @@ NEW_COHORT = {'pins': {'desktop_dashboard_server_preflight.py': ('4f3feb5b5c68ae
                                                     10634,
                                                     'e005df2cd2229188d79418754dedd1ea18cbfb5256727ee126a881dfa660461a')},
  'policy': 'historical-baseline-v2-native-close-reopen-program-contract-direct-login-accounts-v4',
- 'runtime': Path('/opt/go-erp-live-updates/releases/policy-b19eafa4e71709cd870994b8795cb0c1d78493296ae4b0e68bf76b31b7e501e0'),
- 'seed': '3f063af15c875c383c816f72c7e87054716b2b3c',
- 'unit_sha256': '2100bd3ecbac8cddae1fce8a0a019cf9c45fe33899cea47cda3671f9a0fa130c'}
+ 'runtime': Path('/opt/go-erp-live-updates/releases/policy-4d1bb8ea0a62b0be48dcaed76dc6e5bdabc15e7c6c123c921eb211c5ca7fab71'),
+ 'seed': '0885a3b550f92df2b74bcd2c16d27954d8b44b7b',
+ 'unit_sha256': 'ffb0015cdab442c3ffd84062aaec897633edda70ed6ac01380dbda4c78d94a5a'}
 
 
 class Stop(Exception):
