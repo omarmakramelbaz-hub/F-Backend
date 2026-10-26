@@ -1,0 +1,84 @@
+name: GO ERP failed-candidate repair contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-warm-start-repair-*']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_warm_start_repair*'
+      - 'tests/*go_erp_warm_start_repair*'
+      - '.github/scripts/verify-orderboard-website-intent.cjs'
+      - '.github/workflows/go-erp-warm-start-repair-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load exact predecessor and original transaction fixtures
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          12d74b4f35737a2b1e271657b159137538c3edaf
+          baa2157fea6f943c55597c924447cc574d9fcef2
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+          5563faf5aa1e2e62157c4b3b9638592a02854c59
+      - name: Load the immutable repaired core and exact three-file seed lineage
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
+          1556e002f18d00b9e8f9ba81590843e0d8697318
+      - name: Verify root wrapper syntax
+        run: bash -n deployment/run_go_erp_warm_start_repair_root.sh
+      - name: Verify exact failed state, historical proof, source preservation and transaction guards
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_warm_start_repair_*.py'
+  captured-order-board-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Load the immutable failed candidate source
+        run: git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin 5563faf5aa1e2e62157c4b3b9638592a02854c59 afb333bbddd9dbc908e3c3674d99c766ed5c4053
+      - name: Check the reviewed fixture against baseline and captured website source bytes
+        shell: pwsh
+        run: |
+          $probe = @'
+          'use strict';
+          const assert=require('node:assert/strict'),cp=require('node:child_process'),crypto=require('node:crypto'),fs=require('node:fs');
+          const target='public/dashboard/js/order-board.js',saved=fs.readFileSync(target);
+          const baseline=cp.execFileSync('git',['show','afb333bbddd9dbc908e3c3674d99c766ed5c4053:'+target]);
+          const captured=cp.execFileSync('git',['show','5563faf5aa1e2e62157c4b3b9638592a02854c59:'+target]);
+          const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+          assert.equal(digest(captured),'f9f1fbc57c03fef1e8183b8ddc5aa7b54ee1d232bb3b2338ea8f82a6c28cbe98');
+          const execute=(args,expected)=>{const value=cp.spawnSync(process.execPath,args,{encoding:'utf8'});process.stdout.write(value.stdout||'');process.stderr.write(value.stderr||'');assert.equal(value.error,undefined);assert.equal(value.signal,null);assert.equal(value.status,expected);return value;};
+          try{
+            fs.writeFileSync(target,baseline);
+            execute(['--test','desktop-pos/test/order-board-commands.test.cjs'],0);
+            execute(['.github/scripts/verify-orderboard-website-intent.cjs',target],1);
+            fs.writeFileSync(target,captured);
+            execute(['--test','desktop-pos/test/order-board-commands.test.cjs'],0);
+            const result=execute(['.github/scripts/verify-orderboard-website-intent.cjs',target],0);
+            const lines=result.stdout.trim().split(/\r?\n/).filter(line=>line.startsWith('ORDER_BOARD_WEBSITE_INTENT_COMPLETE '));assert.equal(lines.length,1);
+            const proof=JSON.parse(lines[0].slice('ORDER_BOARD_WEBSITE_INTENT_COMPLETE '.length));assert.equal(proof.sourceSha256,digest(captured));
+            for(const field of ['extractedProductionFunction','syntheticDom','websiteIdempotencyRequired','retryStable','restartStable','actionRebinds','actorRebinds','storageFailureStops','ordinaryBrowserUnchanged','nativeCommandAbsent','nativeLegacyReservationSupported','nativeWebsiteReservationUnsupported','completed'])assert.equal(proof[field],true,field);
+            assert.equal(proof.actualBrowser,false);
+          }finally{fs.writeFileSync(target,saved);}
+          assert.deepEqual(fs.readFileSync(target),saved);
+          '@
+          node -e $probe
+          if ($LASTEXITCODE -ne 0) { throw 'The exact captured website order board did not retain its mandatory intent behavior.' }
