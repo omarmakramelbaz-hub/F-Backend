@@ -37,6 +37,14 @@ jobs:
           mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
           cp .env.example .env
           php artisan key:generate
+      - name: Verify original financial scope and bounded cart reads
+        run: |
+          php -l app/Services/Dashboard/BranchShiftClosing.php
+          php -l tests/Feature/DashboardOwnerBalanceBatchTest.php
+          vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
+          vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
+          vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php --filter test_batch_
+          vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
       - name: Measure actual Owner services against private retained data
         env:
           GO_ERP_OWNER_PERFORMANCE_REPORT: ${{ runner.temp }}/go-erp-owner-offline-performance.json
