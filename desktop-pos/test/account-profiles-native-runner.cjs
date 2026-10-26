@@ -53,10 +53,33 @@ let server, child, serverFailure, initialExit;
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const ownPids = () => fs.readdirSync(root).filter(name => /^started-[012]\.json$/.test(name))
   .map(name => JSON.parse(fs.readFileSync(path.join(root, name), 'utf8')).pid);
+function diagnostics() {
+  return fs.readdirSync(root).filter(name => /^diagnostic-[1-9][0-9]*\.json$/.test(name)).slice(0, 6).map(name => {
+    const file = path.join(root, name); assert.ok(fs.statSync(file).size <= 8192);
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(value.kind, 'go-erp-native-account-diagnostic');
+    return value;
+  });
+}
+function failureEvidence() {
+  const value = { format: 1, kind: 'go-erp-native-account-runner-diagnostic', sourceRevision,
+    initialExit: initialExit || null, requests, processes: diagnostics(),
+    receipts: [0, 1, 2].map(phase => ({ phase, started: fs.existsSync(path.join(root, 'started-' + phase + '.json')),
+      completed: fs.existsSync(path.join(root, 'phase-' + phase + '.json')) })) };
+  try {
+    const trace = JSON.parse(fs.readFileSync(path.join(profile, 'lifecycle-trace.json'), 'utf8'));
+    value.lifecycle = (Array.isArray(trace.events) ? trace.events : []).filter(row => typeof row?.phase === 'string'
+      && /^(?:startup|ledger|splash|prepared|runtime|remote|central|dashboard|recovery|generation|local|shutdown)-[a-z-]{1,45}$/.test(row.phase))
+      .slice(-12).map(row => ({ phase: row.phase, seconds: Number.isFinite(row.elapsed_ms) ? Math.round(row.elapsed_ms / 100) / 10 : null }));
+  } catch { value.lifecycle = []; }
+  fs.writeFileSync(path.join(path.dirname(output), 'account-profiles-native-diagnostic.json'), JSON.stringify(value, null, 2) + '\n');
+  console.error('NATIVE_ACCOUNT_RUNNER_DIAGNOSTIC ' + JSON.stringify(value));
+}
 async function waitFor(predicate, message, timeout = 180000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (serverFailure) throw serverFailure;
+    if (diagnostics().some(value => value.failed === true)) throw Error('An actual native account phase failed; bounded diagnostics are retained.');
     const result = predicate(); if (result) return result;
     await new Promise(resolve => setTimeout(resolve, 50));
   }
@@ -174,6 +197,7 @@ async function main() {
     console.log('NATIVE_ACCOUNT_PROFILES_COMPLETE ' + JSON.stringify({ processes: 3, sourceRevision, electronVersion }));
   } finally {
     if (!completed) {
+      try { failureEvidence(); } catch { console.error('NATIVE_ACCOUNT_RUNNER_DIAGNOSTIC_UNAVAILABLE'); }
       for (const pid of new Set([child?.pid, ...ownPids()].filter(Number.isInteger))) {
         if (alive(pid)) spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', shell: false, windowsHide: true, timeout: 10000 });
       }

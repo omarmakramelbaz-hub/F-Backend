@@ -1,6 +1,7 @@
 'use strict';
 const crypto=require('node:crypto');
 const {withDeadline}=require('./native-deadline.cjs');
+const {nativeAuthHTML}=require('./native-auth-http.cjs');
 
 const recaller='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 const roles=new Set(['admin','vendor','resturant_owner']);
@@ -94,39 +95,28 @@ async function installCookies(source,target,origin,local=false,{active=()=>true}
   return async()=>{if(undone)return;undone=true;await replace(previous,false,false);};
 }
 
-function authenticationAdmission(browser,origin,{readOnly=false}={}){
-  // Electron 44 rejects redirect:'manual' at its native loader. A private
-  // Session may follow redirects only while this gate admits exact auth reads.
-  // No production/dashboard Session is passed to this original-signin client.
-  if(typeof browser.webRequest?.onBeforeRequest!=='function')return {redirect:'manual',beginPost(){},close(){}};
-  let active=true,posting=false,posted=false,count=0;
-  browser.webRequest.onBeforeRequest({urls:['<all_urls>']},(details,callback)=>{
-    let allowed=false;
-    try{
-      const url=new URL(details.url),method=String(details.method||'GET').toUpperCase();
-      if(active&&++count<=8&&url.origin===origin&&!url.username&&!url.password&&!url.search&&!url.hash){
-        if(!readOnly&&method==='POST'&&posting&&!posted&&url.pathname==='/admin/signin'){posted=true;allowed=true;}
-        else if(['GET','HEAD'].includes(method))allowed=url.pathname==='/admin/login'||(posted||readOnly)&&homes.has(url.pathname);
-      }
-    }catch{}
-    callback({cancel:!allowed});
-  });
-  return {redirect:'follow',beginPost(){posting=true;},close(){active=false;browser.webRequest.onBeforeRequest(null);}};
+function authRequest(browser,origin,url,options={},readOnly=false){
+  if(process.versions.electron){
+    return nativeAuthHTML({browser,origin,url,...options,readOnly,
+      allowRedirects:new URL(url).pathname!=='/admin/login'||String(options.method||'GET').toUpperCase()==='POST',
+      requestFactory:configuration=>require('electron').net.request(configuration)});
+  }
+  // Node contract fixtures use standard fetch's actual manual responses.
+  return browser.fetch(url,{...options,redirect:'manual'});
 }
 
 /** Original Laravel authentication in a fresh, nonpersistent cookie session. */
 async function originalSignin({browser,origin,localToken='',email,password,remember,signal}){
   const local=Boolean(localToken);scope(origin,local);
-  const controller=new AbortController(),admission=authenticationAdmission(browser,origin);
+  const controller=new AbortController();
   const requestSignal=AbortSignal.any([controller.signal,...(signal?[signal]:[]),AbortSignal.timeout(120000)]);
   const headers={Accept:'text/html',...(local?{'X-Fasakhansta-Desktop':localToken}:{})};
-  const fetch=(url,options={})=>browser.fetch(url,{...options,credentials:'include',redirect:admission.redirect,signal:requestSignal,headers:{...headers,...options.headers}});
+  const fetch=(url,options={})=>authRequest(browser,origin,url,{...options,credentials:'include',signal:requestSignal,headers:{...headers,...options.headers}});
   try{
     const login=await fetch(origin+'/admin/login');
     if(login.status!==200){await discard(login);throw failure();}
     const csrf=csrfFromHTML(await boundedHTML(login),origin);
     const body=new URLSearchParams({_token:csrf,email,password,remember:remember?'1':'0'});
-    admission.beginPost();
     let response;try{response=await fetch(origin+'/admin/signin',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-CSRF-TOKEN':csrf,Referer:origin+'/admin/login',Origin:origin},body:body.toString()});}
     finally{body.set('password','');}
     let next=response;
@@ -149,7 +139,7 @@ async function originalSignin({browser,origin,localToken='',email,password,remem
       try{csrfFromHTML(html,origin);}catch{throw error;}
       throw denied();
     }
-  }finally{controller.abort();admission.close();}
+  }finally{controller.abort();}
 }
 
 class AccountLogin{
@@ -294,14 +284,14 @@ class AccountLogin{
       // Session. A delayed passive response cannot overwrite an explicit login.
       await withDeadline(()=>browser.cookies.set(cookieDetails(remembered[0],destination)),5000,'تعذر فتح جلسة الحساب المحفوظة.');
       if(!current())return null;
-      const readController=new AbortController(),admission=authenticationAdmission(browser,destination,{readOnly:true});
+      const readController=new AbortController();
       try{
-        const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',redirect:admission.redirect,signal:AbortSignal.any([readController.signal,signal,AbortSignal.timeout(45000)])};
-        let response=await browser.fetch(destination+'/admin/dashboard',options);this.assert();
+        const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',signal:AbortSignal.any([readController.signal,signal,AbortSignal.timeout(45000)])};
+        let response=await authRequest(browser,destination,destination+'/admin/dashboard',options,true);this.assert();
         for(let redirects=0;[301,302,303].includes(response.status)&&redirects<4;redirects++){
           const next=new URL(response.headers.get('location')||'',destination);await discard(response);
           if(next.origin!==destination||!homes.has(next.pathname)||next.search||next.hash)return null;
-          if(!current())return null;response=await browser.fetch(next.href,options);this.assert();
+          if(!current())return null;response=await authRequest(browser,destination,next.href,options,true);this.assert();
         }
         if(response.status!==200){await discard(response);return null;}
         const actor=actorFromHTML(await boundedHTML(response));this.assert();
@@ -312,7 +302,7 @@ class AccountLogin{
         await installCookies(browser,target,destination,!remoteNeeded,{active:current});
         if(!current())return null;
         return {account,runtime,local:!remoteNeeded,origin:destination,localToken:remoteNeeded?'':local.token};
-      }finally{readController.abort();admission.close();}
+      }finally{readController.abort();}
     });
   }
   async handoff(result){
@@ -335,4 +325,4 @@ class AccountLogin{
     this.runtimeTasks.clear();
   }
 }
-module.exports={AccountLogin,originalSignin,authenticationAdmission,actorFromHTML,csrfFromHTML,installCookies,authCookie,recaller,networkFailure};
+module.exports={AccountLogin,originalSignin,actorFromHTML,csrfFromHTML,installCookies,authCookie,recaller,networkFailure};
