@@ -1,0 +1,29 @@
+name: Owner home browser layout diagnostic
+
+on:
+  push:
+    branches: ['codex/go-erp-owner-home-diagnostic-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  genuine-browser-layout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated pinned browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/owner-home-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          "$RUNNER_TEMP/owner-home-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+      - name: Measure genuine owner chart resize and idle activity
+        env:
+          NODE_PATH: ${{ runner.temp }}/owner-home-browser/node_modules
+        run: node tests/browser/owner-home-render-diagnostic.cjs
