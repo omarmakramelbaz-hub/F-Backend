@@ -38,14 +38,26 @@ module.exports=function createLoginWindow({broker,quitting=()=>false,quit=()=>{}
   function dispose(){if(disposed)return;disposed=true;detach();if(!window.isDestroyed())window.destroy();}
   function reveal(){if(!ready||disposed||window.isDestroyed()||quitting()||window.webContents.getURL()!==url)return;window.show();if(window.isMinimized())window.restore();window.focus();}
   function userEditing(){if(!finished&&!disposed&&!explicit){explicit=true;broker.userEditing?.();}}
+  function keyboard(event,input){
+    if(input?.key==='F12'){
+      // This window has no menu. Consume both native key events so a later
+      // dashboard menu cannot toggle it twice, and keep view changes separate
+      // from account input while a remembered session is being checked.
+      event.preventDefault();
+      if(input.type==='keyDown'&&!input.isAutoRepeat&&!input.alt&&!input.control&&!input.meta&&!input.shift
+          &&!disposed&&!quitting()&&!window.isDestroyed())window.setFullScreen(!window.isFullScreen());
+      return;
+    }
+    userEditing();
+  }
   const owned=event=>event.sender===window.webContents&&event.senderFrame===window.webContents.mainFrame&&event.senderFrame.url===url&&!quitting()&&!disposed&&!finished;
-  window.webContents.on('before-input-event',userEditing);
+  window.webContents.on('before-input-event',keyboard);
   ipcMain.handle(channel+':intent',event=>{if(!owned(event))return false;userEditing();return true;});
   ipcMain.handle(channel,async(event,input)=>{
     if(!owned(event)||busy)return {ok:false,error:'تعذر تسجيل الدخول الآن.'};
     explicit=true;busy=true;
     try{const value=await broker.authenticate(input);return finish(value)?{ok:true}:{ok:false,error:'تم إلغاء تسجيل الدخول.'};}
-    catch(error){return {ok:false,error:error?.code==='ACCOUNT_LOGIN_RESTART_REQUIRED'?'تعذر تأكيد حفظ جلسة الحساب. أغلق البرنامج ثم أعد فتحه.':error?.code==='ACCOUNT_CREDENTIALS_REJECTED'?'بيانات الدخول غير صحيحة. تأكد من اسم الحساب وكلمة المرور.':'تعذر تسجيل الدخول. الحساب الذي لم يُجهّز على هذا الجهاز يحتاج اتصالًا بالإنترنت أول مرة.'};}
+    catch(error){return {ok:false,error:error?.code==='ACCOUNT_LOGIN_RESTART_REQUIRED'?'تعذر تأكيد حفظ جلسة الحساب. أغلق البرنامج ثم أعد فتحه.':error?.code==='ACCOUNT_CREDENTIALS_REJECTED'?'بيانات الدخول غير صحيحة. تأكد من اسم الحساب وكلمة المرور.':'تعذر إكمال تسجيل الدخول. بيانات الحساب محفوظة؛ أعد المحاولة، وإذا استمرت المشكلة تواصل مع الدعم.'};}
     finally{busy=false;if(input&&typeof input==='object')input.password='';}
   });
   window.on('close',event=>{if(!disposed){event.preventDefault();try{cancel();}finally{if(!quitting())quit();}}});

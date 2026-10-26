@@ -30,6 +30,24 @@ test('trusted login aliases survive restart encrypted and do not change the sele
   assert.equal((await f.profiles.forActor(10,origin)).partition,branch.partition);
 });
 
+test('a trusted login with repeated leading zeroes survives restart without blocking another account or changing its meaning',async t=>{
+  const f=await fixture(t),branch=await f.profiles.create(),owner=await f.profiles.create();
+  await f.profiles.bind(branch.id,{actorId:10,serverOrigin:origin});await f.profiles.bind(owner.id,{actorId:11,serverOrigin:origin});
+  // The original Laravel controller removes exactly one leading zero. The
+  // stored alias is already normalized and must not lose another on reading.
+  await f.profiles.rememberLogin(branch.id,{actorId:10,serverOrigin:origin},'00501000123');
+  const before=await fs.readFile(path.join(f.root,'account-logins.enc'));
+  const restarted=f.restart();
+  assert.equal((await restarted.findLogin('00501000123',origin)).id,branch.id);
+  assert.equal(await restarted.findLogin('0501000123',origin),null,'Removing a different zero is another original login identity.');
+  assert.equal(await restarted.findLogin('owner@example.test',origin),null,'A stored branch alias must not poison unrelated account lookup.');
+  assert.deepEqual(await fs.readFile(path.join(f.root,'account-logins.enc')),before,'Previously written version-56 metadata needs no rewrite.');
+  await restarted.rememberLogin(owner.id,{actorId:11,serverOrigin:origin},'owner@example.test');
+  assert.equal((await f.restart().findLogin('owner@example.test',origin)).id,owner.id);
+  assert.equal((await f.restart().findLogin('00501000123',origin)).id,branch.id);
+  assert.equal((await f.profiles.selected()).id,'default');
+});
+
 test('an alias cannot bind another actor and corrupt or duplicate alias rows never select a profile',async t=>{
   const f=await fixture(t),first=await f.profiles.create(),second=await f.profiles.create();
   await f.profiles.bind(first.id,{actorId:10,serverOrigin:origin});await f.profiles.bind(second.id,{actorId:11,serverOrigin:origin});
@@ -37,7 +55,9 @@ test('an alias cannot bind another actor and corrupt or duplicate alias rows nev
   const good=await f.profiles.metadata.read('account-logins');
   await assert.rejects(f.profiles.rememberLogin(second.id,{actorId:11,serverOrigin:origin},'account@example.test'),/مرتبط/);
   await assert.rejects(f.profiles.rememberLogin(first.id,{actorId:11,serverOrigin:origin},'other@example.test'));
-  for(const mutate of [value=>{value.entries[0].actorId=11;},value=>{value.entries.push({...value.entries[0]});},value=>{value.entries[0].id='../outside';},value=>{value.password='PRIVATE_PASSWORD';}]){
+  for(const mutate of [value=>{value.entries[0].actorId=11;},value=>{value.entries.push({...value.entries[0]});},value=>{value.entries[0].id='../outside';},
+    value=>{value.entries[0].login='ACCOUNT@example.test';},value=>{value.entries[0].login=' account@example.test';},
+    value=>{value.entries[0].login='account@example.test\n';},value=>{value.entries[0].login='';},value=>{value.password='PRIVATE_PASSWORD';}]){
     const value=structuredClone(good);mutate(value);await f.profiles.metadata.write('account-logins',value);
     await assert.rejects(f.restart().findLogin('account@example.test',origin));assert.equal((await f.profiles.selected()).id,'default');
   }

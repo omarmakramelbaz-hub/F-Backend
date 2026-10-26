@@ -15,6 +15,8 @@ function binding(value){
 }
 const initial=()=>({format:1,selected:'default',profiles:[{id:'default',label:'الحساب الحالي',actorId:null,serverOrigin:null}]});
 const normalized=value=>process.platform==='win32'?path.normalize(value).toLowerCase():path.normalize(value);
+const storedLogin=value=>typeof value==='string'&&value.length>0&&value.length<=320
+  &&value===value.trim().toLowerCase()&&!/[\x00-\x1f\x7f]/.test(value);
 const loginName=value=>{
   if(typeof value!=='string'||!value.trim()||value.length>320||/[\x00-\x1f\x7f]/.test(value))throw invalid();
   let name=value.trim().toLowerCase();if(name.startsWith('0'))name=name.slice(1);
@@ -109,7 +111,10 @@ class AccountProfiles{
     if(!exact(record,['format','entries'])||record.format!==1||!Array.isArray(record.entries)||record.entries.length>256)throw invalid();
     const seen=new Set();
     for(const item of record.entries){
-      if(!exact(item,['login','id','actorId','serverOrigin'])||loginName(item.login)!==item.login||!validId(item.id))throw invalid();
+      // The original controller strips one zero from submitted identifiers.
+      // Stored aliases already underwent that transform; applying it again
+      // corrupts legitimate identifiers beginning with two or more zeroes.
+      if(!exact(item,['login','id','actorId','serverOrigin'])||!storedLogin(item.login)||!validId(item.id))throw invalid();
       const trusted=binding(item),row=value.profiles.find(profile=>profile.id===item.id);
       if(!row||row.actorId!==trusted.actorId||row.serverOrigin!==trusted.serverOrigin)throw invalid();
       const key=JSON.stringify([item.serverOrigin,item.login]);if(seen.has(key))throw invalid();seen.add(key);

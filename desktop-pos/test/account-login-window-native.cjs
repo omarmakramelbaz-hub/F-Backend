@@ -134,6 +134,15 @@ app.whenReady().then(async()=>{
   const originalClient=await actualOriginalSessionClient();
   let releaseRemembered;const ordinary=broker();ordinary.resumeRemembered=()=>new Promise(resolve=>{releaseRemembered=resolve;});active=createLoginWindow({broker:ordinary,quitting:()=>quitting});
   const window=await actualWindow();
+  assert.equal(window.isFullScreen(),true);
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'F12'});
+  window.webContents.sendInputEvent({type:'keyUp',keyCode:'F12'});
+  await waitFor(()=>!window.isFullScreen(),'F12 did not leave native login full screen.');
+  assert.equal(ordinary.editing,0,'A view shortcut must not cancel the pending remembered account.');
+  window.webContents.sendInputEvent({type:'keyDown',keyCode:'F12'});
+  window.webContents.sendInputEvent({type:'keyUp',keyCode:'F12'});
+  await waitFor(()=>window.isFullScreen(),'F12 did not restore native login full screen.');
+  assert.equal(ordinary.editing,0);
   const layout=await window.webContents.executeJavaScript(`(() => {
     const visible=id=>{const r=document.getElementById(id).getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight;};
     return {forms:document.forms.length,buttons:Array.from(document.querySelectorAll('button')).map(value=>value.id),
@@ -188,7 +197,7 @@ app.whenReady().then(async()=>{
   proof={format:1,kind:'go-erp-login-window-native',sourceRevision,sourceHashes,electronVersion:process.versions.electron,platform:process.platform,
     actualElectron:true,actualBrowserWindow:true,actualPreload:true,actualIpc:true,sandbox:true,trustedFile:true,
     singleOrdinaryForm:true,passwordClearedBeforeAuthenticationSettles:true,passwordNeverPersisted:true,rendererReceivesOnlyBoundedEnvelope:true,
-    fullResultStaysInMain:true,formRetainedDisabledUntilHandoff:true,editingPreventsRememberedOverride:true,actualNativeCloseCancels:true,quitCallbackRequested:true,
+    fullResultStaysInMain:true,formRetainedDisabledUntilHandoff:true,editingPreventsRememberedOverride:true,actualLoginFullscreenF12:true,fullscreenKeepsRememberedCheck:true,actualNativeCloseCancels:true,quitCallbackRequested:true,
     capture:{width:size.width,height:size.height,sha256:crypto.createHash('sha256').update(fs.readFileSync(captureFile)).digest('hex')},
     ...originalClient,syntheticHttpAuthServer:true,syntheticBroker:true,quitCallbackFixture:true,actualPhpAuthorization:false,actualProductionMain:false,productionProfile:false,hardware:false};
   complete=true;quitting=true;app.quit();

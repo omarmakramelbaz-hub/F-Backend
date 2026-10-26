@@ -312,6 +312,9 @@ async function run() {
     await signin(window, 42); await accountPage(window, 42);stage('owner-authenticated');
     state.owner = await privateState(selected, 42);
     await profiles.bind('default', { actorId: 42, serverOrigin: config.origin, label: 'مالك اختبار منفصل' });
+    await profiles.rememberLogin('default', { actorId: 42, serverOrigin: config.origin }, '00501000123');
+    await profiles.rememberLogin('default', { actorId: 42, serverOrigin: config.origin }, 'owner@example.test');
+    state.ownerAliasHash = sha(fs.readFileSync(path.join(config.profile, 'account-logins.enc')));
     const eventId = seedJournal(selected.profile, 42); state.ownerEventId = eventId;
     assert.equal((await mainState()).counts.pending, 1);
     expectedDialog = true; switchMenu();
@@ -333,11 +336,21 @@ async function run() {
     assert.equal((await window.webContents.session.cookies.get({ url: config.origin })).some(cookie => cookie.name === config.recaller), false);
     assert.ok((await session.fromPartition('persist:fasakhansta-dashboard').cookies.get({ url: config.origin })).some(cookie => cookie.name === config.recaller));
     assert.deepEqual(hashes(config.profile), state.ownerHashes);
+    assert.equal((await profiles.findLogin('00501000123', config.origin)).id, 'default');
+    assert.equal(await profiles.findLogin('0501000123', config.origin), null, 'The original input loses exactly one zero.');
+    assert.equal((await profiles.findLogin('owner@example.test', config.origin)).id, 'default');
+    assert.equal(sha(fs.readFileSync(path.join(config.profile, 'account-logins.enc'))), state.ownerAliasHash,
+      'Reading the previous process\'s DPAPI aliases must preserve their encrypted bytes.');
+    evidence.repeatedLeadingZeroAliasesSurvivedDpapiRelaunch = true;
+    evidence.normalizedAliasMeaningPreserved = true;
     await signin(window, 84); await accountPage(window, 84);stage('manager-authenticated');
     state.other = await privateState(selected, 84); state.otherId = selected.id; state.otherProfile = selected.profile; state.otherPartition = selected.partition;
     for (const key of ['deviceId', 'rootPassword', 'appPassword', 'appKey']) assert.ok(state.owner.settings[key] !== state.other.settings[key], 'Profiles must generate distinct ' + key);
     assert.notEqual(state.owner.authStorage, state.other.authStorage); assert.ok(state.owner.jwtSecret !== state.other.jwtSecret, 'Native signing keys must be separate.');
     await profiles.bind(selected.id, { actorId: 84, serverOrigin: config.origin, label: 'مدير اختبار منفصل' });
+    await profiles.rememberLogin(selected.id, { actorId: 84, serverOrigin: config.origin }, '00701000123');
+    await profiles.rememberLogin(selected.id, { actorId: 84, serverOrigin: config.origin }, 'manager@example.test');
+    state.otherAliasHash = sha(fs.readFileSync(path.join(config.profile, 'account-logins.enc')));
     const eventId = seedJournal(selected.profile, 84); state.otherEventId = eventId;
     const ledger = await mainState(); assert.equal(ledger.history.length, 1); assert.equal(ledger.history[0].id, eventId);
     assert.notEqual(eventId, state.ownerEventId); acknowledgeFixture(selected.profile, eventId);
@@ -349,6 +362,15 @@ async function run() {
   } else {
     assert.equal(selected.id, 'default'); assert.equal(selected.profile, config.profile);
     await accountPage(window, 42);
+    for (const input of ['00501000123', 'owner@example.test']) assert.equal((await profiles.findLogin(input, config.origin)).id, 'default');
+    for (const input of ['00701000123', 'manager@example.test']) assert.equal((await profiles.findLogin(input, config.origin)).id, state.otherId);
+    assert.equal(await profiles.findLogin('0501000123', config.origin), null);
+    assert.equal(await profiles.findLogin('0701000123', config.origin), null);
+    assert.equal(sha(fs.readFileSync(path.join(config.profile, 'account-logins.enc'))), state.otherAliasHash,
+      'Both original DPAPI aliases must survive the third process without a migration or rewrite.');
+    evidence.repeatedLeadingZeroAliasesSurvivedDpapiRelaunch = true;
+    evidence.normalizedAliasMeaningPreserved = true;
+    evidence.aliasLookupPreservedEncryptedBytes = true;
     const restoredRuntime = runtimeFor(selected);
     assert.equal(await restoredRuntime.isPrepared(), false);
     assert.equal(sha(JSON.stringify(await restoredRuntime.settings())), sha(JSON.stringify(state.owner.settings)), 'The original encrypted native settings must be restored exactly.');
