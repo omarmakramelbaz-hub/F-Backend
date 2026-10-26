@@ -1,0 +1,109 @@
+name: GO ERP shared navigation and owner performance contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-navigation-web-performance-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-financial-navigation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      TAKEAWAY_TEST_CONNECTION: sqlite
+      CACHE_DRIVER: array
+      SESSION_DRIVER: array
+      MAIL_MAILER: log
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          ini-values: memory_limit=256M
+          coverage: none
+      - name: Install the existing locked application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare only the isolated CI application
+        id: isolated_app
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Check the measured production source and regression syntax
+        run: |
+          php -l app/Services/Dashboard/BranchShiftClosing.php
+          php -l tests/Feature/DashboardOwnerBalanceBatchTest.php
+      - name: Verify the original HomeOverview suite
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
+      - name: Verify the original shift closing suite
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
+      - name: Verify bounded cart reads and exact financial parity
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php --filter test_batch_
+      - name: Verify original navigation fragments for every role
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
+      - name: Measure actual Owner services against private retained data
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        env:
+          GO_ERP_OWNER_PERFORMANCE_REPORT: ${{ runner.temp }}/go-erp-owner-offline-performance.json
+        run: |
+          php -l tests/Feature/DashboardOwnerOfflinePerformanceTest.php
+          vendor/bin/phpunit tests/Feature/DashboardOwnerOfflinePerformanceTest.php --filter test_measure_actual_retained_offline_owner_without_changing_business_data
+      - name: Retain the bounded synthetic measurement
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-erp-owner-offline-performance
+          path: ${{ runner.temp }}/go-erp-owner-offline-performance.json
+          if-no-files-found: error
+  browser-navigation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify stylesheet ownership and navigation lifecycle
+        run: >-
+          node --test desktop-pos/test/dashboard-css-lifecycle.test.cjs
+          desktop-pos/test/dashboard-modal-lifecycle.test.cjs
+          desktop-pos/test/restaurant-sort-spa-retry.test.cjs
+          desktop-pos/test/restaurant-product-crud-spa-retry.test.cjs
+          desktop-pos/test/business-idle.test.cjs
+          desktop-pos/test/dashboard-update-idle.test.cjs
+          desktop-pos/test/dashboard-idle.test.cjs
+      - name: Install isolated pinned browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/navigation-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          if command -v google-chrome >/dev/null 2>&1; then
+            browser_path=$(command -v google-chrome)
+          elif test -x /opt/google/chrome/chrome; then
+            browser_path=/opt/google/chrome/chrome
+          else
+            "$RUNNER_TEMP/navigation-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+            browser_path=
+          fi
+          if test -n "$browser_path"; then
+            "$browser_path" --version
+            printf 'DESKTOP_TEST_BROWSER_EXECUTABLE=%s\n' "$browser_path" >> "$GITHUB_ENV"
+          fi
+      - name: Measure actual SPA navigation with bounded synthetic transport
+        env:
+          NODE_PATH: ${{ runner.temp }}/navigation-browser/node_modules
+          GO_ERP_EXPECT_CSS_REUSE: '1'
+        run: node tests/browser/navigation-performance-diagnostic.cjs

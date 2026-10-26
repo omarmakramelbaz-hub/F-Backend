@@ -189,15 +189,17 @@ class BranchShiftClosing
             return $this->close($values,$actor);
         });
     }
-    private function appAmount(object $row): array
+    private function appAmount(object $row,?\Illuminate\Support\Collection $lines=null,?int &$bps=null): array
     {
-        $lines=DB::table('carts')->where('order_id',$row->id)->get();$subtotal=0;
+        $lines=$lines??DB::table('carts')->where('order_id',$row->id)->get();$subtotal=0;
         foreach($lines as $line){
             if(!empty($line->updated_total)){$subtotal+=$this->cents($line->updated_total);continue;}
             $quantity=(string)($line->qty??0);abort_unless(preg_match('/^\d{1,6}(?:\.\d{1,3})?$/D',$quantity),409,'كمية طلب التطبيق غير صالحة.');$parts=explode('.',$quantity);$millis=(int)$parts[0]*1000+(int)str_pad($parts[1]??'',3,'0');$subtotal+=intdiv($this->cents($line->price??0)*$millis+500,1000);
         }
         if(!$lines->count())$subtotal=$this->cents($row->total_price??0);
-        $rate=DB::table('settings')->where('name','service_fees')->value('payload');$percent=$rate===null?'0':json_decode($rate,true);$bps=Money::rate(is_scalar($percent)?(string)$percent:'0');
+        if($bps===null){
+            $rate=DB::table('settings')->where('name','service_fees')->value('payload');$percent=$rate===null?'0':json_decode($rate,true);$bps=Money::rate(is_scalar($percent)?(string)$percent:'0');
+        }
         $delivery=$this->cents($row->delivery_price??0);$tax=$this->cents($row->user_tax??0);$total=$subtotal+$delivery+$tax+Money::commission($subtotal,$bps);
         abort_unless($subtotal>=0&&$delivery>=0&&$total>=0,409,'راجع قيم طلب التطبيق.');return [$total,$delivery];
     }
@@ -222,10 +224,24 @@ class BranchShiftClosing
         $appSources=FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$branch['id']);
         $appRows=DB::table('orders')->whereIn('resturant_id',$appSources)->where('type','current')->where('status','completed')->where('updated_at','>=',$activated)->where(function($q)use($value){$this->unclaimed($q,$value,'app','orders.id');$q->orWhere(function($cash)use($value){$cash->where('payment_type','cash')->where('transfer_price_by','vendor');$this->unclaimed($cash,$value,'app_cash','orders.id');});})->orderBy('id')->get();
         $claimed=DB::table('branch_shift_sources')->whereIn('source',['app','app_cash'])->whereIn('source_id',$appRows->pluck('id'))->get()->groupBy('source')->map(fn($rows)=>array_fill_keys($rows->pluck('source_id')->all(),true));
-        foreach($appRows as $row){$saleClaimed=isset(($claimed['app']??[])[$row->id]);$cashClaimed=isset(($claimed['app_cash']??[])[$row->id]);$vendorCash=$row->payment_type==='cash'&&($row->transfer_price_by??null)==='vendor';if($saleClaimed&&(!$vendorCash||$cashClaimed))continue;[$total,$delivery]=$this->appAmount($row);
-            if(!$saleClaimed){$channels['app']['count']++;$channels['app']['gross_cents']+=$total;$channels['app']['delivery_cents']+=$delivery;$sources[]=['source'=>'app','source_id'=>$row->id];if(!$vendorCash)$appOutside+=$total-$delivery;}
-            if($vendorCash&&!$cashClaimed){$appCash+=$total-$delivery;$sources[]=['source'=>'app_cash','source_id'=>$row->id];}
-            if($row->payment_type==='cash'&&($row->transfer_price_by??null)===null)$appPending++;
+        $unsettled=$appRows->filter(function($row)use($claimed){
+            $saleClaimed=isset(($claimed['app']??[])[$row->id]);$cashClaimed=isset(($claimed['app_cash']??[])[$row->id]);
+            $vendorCash=$row->payment_type==='cash'&&($row->transfer_price_by??null)==='vendor';
+            return !$saleClaimed||($vendorCash&&!$cashClaimed);
+        });
+        // Retained Owner data can contain thousands of app orders. Read the
+        // same scoped cart rows in bounded batches and resolve the service rate
+        // only when the first original amount calculation actually needs it.
+        // This context belongs to this build, never another request or closing.
+        $bps=null;
+        foreach($unsettled->chunk(500) as $batch){
+            $cartRows=DB::table('carts')->whereIn('order_id',$batch->pluck('id'))->get()->groupBy('order_id');
+            foreach($batch as $row){$saleClaimed=isset(($claimed['app']??[])[$row->id]);$cashClaimed=isset(($claimed['app_cash']??[])[$row->id]);$vendorCash=$row->payment_type==='cash'&&($row->transfer_price_by??null)==='vendor';
+                [$total,$delivery]=$this->appAmount($row,$cartRows[$row->id]??collect(),$bps);
+                if(!$saleClaimed){$channels['app']['count']++;$channels['app']['gross_cents']+=$total;$channels['app']['delivery_cents']+=$delivery;$sources[]=['source'=>'app','source_id'=>$row->id];if(!$vendorCash)$appOutside+=$total-$delivery;}
+                if($vendorCash&&!$cashClaimed){$appCash+=$total-$delivery;$sources[]=['source'=>'app_cash','source_id'=>$row->id];}
+                if($row->payment_type==='cash'&&($row->transfer_price_by??null)===null)$appPending++;
+            }
         }
         $expenses=0;$cashExpenses=0;
         $commands=$this->unclaimed(DB::table('branch_expense_commands')->where('branch',$value)->where('created_at','>=',$activated),$value,'expense','branch_expense_commands.id')->orderBy('id')->get();
