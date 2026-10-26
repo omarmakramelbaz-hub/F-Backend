@@ -44,7 +44,9 @@ const shell='*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;
  const errors=[];const measurements=[];
  try{
   const page=await browser.newPage();page.on('pageerror',error=>errors.push(error.message));
-  await page.route('**/*',route=>route.abort());
+  await page.route('**/*',route=>route.request().isNavigationRequest()
+   ?route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}):route.abort());
+  await page.goto('http://owner-layout.fixture.test/admin/dashboard');
   await page.setViewportSize({width:1920,height:1080});
   await page.setContent('<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>'+read('public/dashboard/dist/css/bootstrap.rtl.min.css')+'\n'+read('public/dashboard/dist/css/adminlte.min.css')+'\n'+shell+'\n'+read('public/dashboard/css/home-overview.css')+'</style></head><body><header class="main-header">GO ERP</header><aside class="sidebar"></aside>'+ownerHtml()+'<footer class="main-footer">Copyright GO ERP</footer><script id="home-overview-bootstrap" type="application/json">'+JSON.stringify(boot)+'</script></body></html>');
   await page.evaluate(()=>{
@@ -67,6 +69,6 @@ const shell='*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;
    measurements.push({viewport,idleChartReplacements:after.replacements-before.replacements,idleOwnerFrames:after.ownerFrames-before.ownerFrames,idleResizeCallbacks:after.resizeCallbacks-before.resizeCallbacks,totalChartReplacements:after.replacements,chart:after.chart,resizeSamples:after.resizeSamples});
   }
   assert.deepEqual(errors,[]);
-  console.log('GO_ERP_OWNER_HOME_LAYOUT_DIAGNOSTIC '+JSON.stringify({sourceRevision:process.env.GITHUB_SHA||'local',genuineChromium:true,syntheticAccountData:true,actualBladeStructure:true,actualCss:true,actualHomeScript:true,financialOwner:true,branches:32,trendPoints:24,measurements}));
+  console.log('GO_ERP_OWNER_HOME_LAYOUT_DIAGNOSTIC '+JSON.stringify({sourceRevision:process.env.GITHUB_SHA||'local',genuineChromium:true,browserVersion:browser.version(),browserExecutable:process.env.DESKTOP_TEST_BROWSER_EXECUTABLE||'pinned-playwright-headless-shell',syntheticAccountData:true,actualBladeStructure:true,actualCss:true,actualHomeScript:true,financialOwner:true,branches:32,trendPoints:24,measurements}));
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

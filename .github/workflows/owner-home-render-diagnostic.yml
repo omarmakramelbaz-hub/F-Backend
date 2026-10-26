@@ -19,10 +19,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install isolated pinned browser
+      - name: Install isolated browser driver and use genuine runner Chrome
         run: |
           npm install --prefix "$RUNNER_TEMP/owner-home-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
-          "$RUNNER_TEMP/owner-home-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+          owner_chrome=$(command -v google-chrome || true)
+          if [[ -z "$owner_chrome" && -x /opt/google/chrome/chrome ]]; then
+            owner_chrome=/opt/google/chrome/chrome
+          fi
+          if [[ -n "$owner_chrome" && -x "$owner_chrome" ]]; then
+            "$owner_chrome" --version
+            printf 'DESKTOP_TEST_BROWSER_EXECUTABLE=%s\n' "$owner_chrome" >> "$GITHUB_ENV"
+          else
+            "$RUNNER_TEMP/owner-home-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+          fi
       - name: Measure genuine owner chart resize and idle activity
         env:
           NODE_PATH: ${{ runner.temp }}/owner-home-browser/node_modules
