@@ -60,6 +60,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'PHAR builder syntax failed.' }
           php -l desktop-pos/vendor-phar-autoload.php
           if ($LASTEXITCODE -ne 0) { throw 'Native Composer adapter syntax failed.' }
+          php -l desktop-pos/vendor-phar-verify.php
+          if ($LASTEXITCODE -ne 0) { throw 'Independent PHAR verifier syntax failed.' }
           node desktop-pos/test/vendor-phar-php-probe.cjs (Get-Command php).Source "$env:RUNNER_TEMP/original-google-probe" "$env:RUNNER_TEMP/compact-google-probe"
           if ($LASTEXITCODE -ne 0) { throw 'Actual PHP compact runtime probe failed.' }
       - uses: actions/upload-artifact@v4
