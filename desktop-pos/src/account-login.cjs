@@ -145,10 +145,27 @@ async function originalSignin({browser,origin,localToken='',email,password,remem
 class AccountLogin{
   constructor({profiles,createRuntime,createSession,serverOrigin,stopped=()=>false,onState=()=>{}}){
     scope(serverOrigin);Object.assign(this,{profiles,createRuntime,createSession,serverOrigin,stopped,onState});
-    this.runtimes=new Map();this.runtimeTasks=new Map();this.sessions=new Set();this.controllers=new Set();this.running=null;this.cancelled=false;this.sequence=0;
+    this.runtimes=new Map();this.runtimeTasks=new Map();this.sessions=new Set();this.controllers=new Set();this.running=null;this.cancelled=false;this.sequence=0;this.passiveBoot=null;this.passiveRetirement=null;
   }
   assert(){if(this.cancelled||this.stopped())throw aborted();}
-  userEditing(){this.sequence++;if(!this.running)for(const controller of this.controllers)controller.abort();}
+  userEditing(){this.sequence++;if(!this.running){for(const controller of this.controllers)controller.abort();this.retirePassiveStartup();}}
+  retirePassiveStartup(){
+    const passive=this.passiveBoot;if(!passive||passive.retirement)return this.passiveRetirement;
+    // A remembered account has no business view yet. Retire its read-only
+    // startup before an explicit account can acquire the same profile again.
+    try{passive.runtime.cancelStartup?.();}catch{}
+    const stopping=Promise.resolve().then(()=>passive.runtime.stop());
+    const retirement=Promise.allSettled([passive.start,stopping]).then(results=>{
+      if(results[1].status==='rejected')throw results[1].reason;
+      if(this.runtimes.get(passive.id)===passive.runtime){
+        this.runtimes.delete(passive.id);
+        if(this.runtimeTasks.get(passive.id)===passive.runtimeTask)this.runtimeTasks.delete(passive.id);
+      }
+    });
+    passive.retirement=retirement;this.passiveRetirement=retirement;
+    retirement.then(()=>{if(this.passiveRetirement===retirement)this.passiveRetirement=null;},()=>{});
+    return retirement;
+  }
   report(phase){this.onState({phase});}
   async runtime(account){
     this.assert();
@@ -189,7 +206,7 @@ class AccountLogin{
       ||typeof input.password!=='string'||!input.password||input.password.length>4096||typeof input.remember!=='boolean')throw failure();
     this.userEditing();
     const credentials={email:input.email.trim(),password:input.password,remember:input.remember};
-    this.running=this.login(credentials).catch(error=>{if(error.code==='ACCOUNT_LOGIN_RESTART_REQUIRED')this.cancel();throw error;})
+    this.running=(async()=>{if(this.passiveRetirement)await this.passiveRetirement;this.assert();return this.login(credentials);})().catch(error=>{if(error.code==='ACCOUNT_LOGIN_RESTART_REQUIRED')this.cancel();throw error;})
       .finally(()=>{credentials.password='';this.running=null;});
     return this.running;
   }
@@ -274,7 +291,12 @@ class AccountLogin{
     let local,connection;
     if(prepared){
       connection=await runtime.connection();if(connection.actorId!==account.actorId||connection.serverOrigin!==account.serverOrigin)throw failure();
-      this.assert();this.report('starting');local=await runtime.start();this.assert();
+      this.assert();if(sequence!==this.sequence||this.running)return null;this.report('starting');
+      const passive={id:account.id,runtime,runtimeTask:this.runtimeTasks.get(account.id),start:null,retirement:null};this.passiveBoot=passive;
+      passive.start=Promise.resolve().then(()=>{this.assert();if(sequence!==this.sequence||this.running)throw aborted();return runtime.start();});
+      try{local=await passive.start;this.assert();}
+      catch(error){if(passive.retirement)return null;throw error;}
+      finally{if(this.passiveBoot===passive)this.passiveBoot=null;}
     }
     if(sequence!==this.sequence||this.running)return null;
     const destination=remoteNeeded?this.serverOrigin:local.origin;
@@ -315,9 +337,9 @@ class AccountLogin{
     if(this.remembering)await this.remembering.catch(()=>{});this.assert();
     this.runtimes.delete(result.account.id);this.runtimeTasks.delete(result.account.id);return result;
   }
-  cancel(){this.cancelled=true;for(const controller of this.controllers)controller.abort();for(const runtime of this.runtimes.values())try{runtime.cancelStartup?.();}catch{}}
+  cancel(){this.cancelled=true;for(const controller of this.controllers)controller.abort();for(const runtime of this.runtimes.values())try{runtime.cancelStartup?.();}catch{}this.retirePassiveStartup();}
   async stop(){
-    this.cancel();await Promise.allSettled(this.runtimeTasks.values());
+    this.cancel();if(this.passiveRetirement)await this.passiveRetirement.catch(()=>{});await Promise.allSettled(this.runtimeTasks.values());
     const runtimes=[...this.runtimes.entries()],results=await Promise.allSettled(runtimes.map(([,runtime])=>Promise.resolve().then(()=>runtime.stop())));
     if(this.running)await this.running.catch(()=>{});if(this.remembering)await this.remembering.catch(()=>{});
     const failures=[];for(let i=0;i<results.length;i++){if(results[i].status==='fulfilled'){this.runtimes.delete(runtimes[i][0]);this.runtimeTasks.delete(runtimes[i][0]);}else failures.push(results[i].reason);}
