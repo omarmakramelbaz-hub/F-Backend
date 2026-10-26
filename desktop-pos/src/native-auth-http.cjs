@@ -51,6 +51,7 @@ function nativeAuthHTML({requestFactory,browser,origin,url,method='GET',headers=
         });
         response.on('error',error=>stop(error));
         response.on('aborted',()=>stop(cancelled()));
+        response.on('close',()=>{if(!responseEnded&&!settled)stop(failure());});
         response.on('end',()=>{
           responseEnded=true;if(settled)return;
           const text=Buffer.concat(parts,size).toString('utf8'),raw=response.headers||{};
@@ -61,7 +62,8 @@ function nativeAuthHTML({requestFactory,browser,origin,url,method='GET',headers=
       });
       request.on('error',error=>stop(error));
       request.on('abort',()=>stop(cancelled()));
-      request.on('close',()=>{if(!responseEnded&&!settled)stop(failure());});
+      // Electron's Writable upload may close before its incoming HTTP body.
+      // Only the incoming stream's end/error/aborted/close decides body EOF.
       if(signal?.aborted){abort();return;}
       request.end(body);
     }catch(error){stop(error);}
