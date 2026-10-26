@@ -60,7 +60,7 @@ class DetailDiagnosticTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             exec(compile(body, str(SCRIPT), 'exec'), context)
         rendered = output.getvalue()
-        self.assertLess(len(rendered), 30000)
+        self.assertLess(len(rendered), 24*1024)
         self.assertEqual(len(rendered.splitlines()), 1)
         result = json.loads(rendered.removeprefix('GO_ERP_PHP_HANDLER_DETAIL_DIAG '))
         self.assertTrue(result['read_only'])
@@ -120,6 +120,10 @@ class DetailDiagnosticTests(unittest.TestCase):
         self.assertEqual(result['containers'], ['ifmodule', 'OTHER'])
         self.assertEqual(result['guards'], ['OTHER'])
         self.assertNotIn('PRIVATE_', json.dumps(result))
+        for scheme in ('ws', 'wss'):
+            classified = shape('ProxyPass /private '+scheme+'://localhost:2080/private')
+            self.assertEqual(classified['destination_kind'], scheme.upper())
+            self.assertEqual(classified['destination_host_kind'], 'LOOPBACK')
 
     def test_proxy_inventory_covers_every_referenced_vhost_and_truncates_only_output(self):
         def change(f):
@@ -187,6 +191,29 @@ class DetailDiagnosticTests(unittest.TestCase):
         self.assertEqual(result['socket_facts']['matching_row_count'], 41)
         self.assertEqual(len(result['socket_facts']['rows']), 32)
         self.assertTrue(result['socket_facts']['rows_truncated'])
+
+    def test_disappearing_file_descriptors_do_not_prevent_listener_diagnosis(self):
+        def change(f):
+            readlink = f.readlink
+            def raced(path):
+                if path.endswith('/8'):
+                    raise FileNotFoundError
+                return readlink(path)
+            f.readlink = raced
+            f.io['readlink'] = raced
+            f.io['listdir'] = lambda name: ['0', '1', '7', '8']
+        result, _, _, _ = self.diagnostic(change)
+        self.assertTrue(result['live_socket']['ok'])
+        self.assertEqual(result['socket_facts']['fd_disappeared'], 1)
+        self.assertTrue(result['socket_facts']['master_holds_listener'])
+
+    def test_proc_or_descriptor_count_over_limit_stops_without_printing_input(self):
+        for change in (lambda f: setattr(f, 'unix', 'PRIVATE_OVERSIZE'+'x'*(2*1024**2)),
+                       lambda f: f.io.__setitem__('listdir', lambda name: ['7']*8193)):
+            with self.subTest(change=change):
+                result, _, _, rendered = self.diagnostic(change)
+                self.assertFalse(result['live_socket']['ok'])
+                self.assertNotIn('PRIVATE_OVERSIZE', rendered)
 
     def test_missing_phpversion_and_single_vhost_dump_remain_diagnosable(self):
         result, _, _, _ = self.diagnostic(lambda f: f.files.__setitem__(fixtures.subject.USERDATA,
