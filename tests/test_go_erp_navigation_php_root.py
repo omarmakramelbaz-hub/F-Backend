@@ -12,6 +12,15 @@ subject = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(subject
 
 
 class HandlerProofTests(unittest.TestCase):
+    CPANEL_ROUTES = (
+        ('/___proxy_subdomain_cpanel', 'http://127.0.0.1:2082'),
+        ('/___proxy_subdomain_cpcalendars', 'http://127.0.0.1:2079'),
+        ('/___proxy_subdomain_cpcontacts', 'http://127.0.0.1:2079'),
+        ('/___proxy_subdomain_webdisk', 'http://127.0.0.1:2077'),
+        ('/___proxy_subdomain_webmail', 'http://127.0.0.1:2095'),
+        ('/___proxy_activesync', 'http://127.0.0.1:2090/Microsoft-Server-ActiveSync'),
+    )
+
     def setUp(self):
         self.socket = subject.SOCKET_ROOT + 'reviewed-domain.sock'
         self.files = {
@@ -122,6 +131,105 @@ class HandlerProofTests(unittest.TestCase):
                 'ProxyPassMatch ^/.* !', 'ProxyPassMatch ^/.* http://127.0.0.1:8080/'):
             self.files[subject.APACHE] = original.replace('</VirtualHost>',row+'\n</VirtualHost>')
             with self.subTest(row=row), self.assertRaises(subject.Stop): self.verify()
+
+    def test_six_exact_cpanel_routes_preserve_full_binding_for_both_domain_vhosts(self):
+        first = self.files[subject.APACHE]
+        routes = '\n'.join('ProxyPass "'+source+'" "'+backend+'" max=1 retry=0'
+            for source, backend in self.CPANEL_ROUTES)
+        second = first.replace('127.0.0.1:80>', '127.0.0.1:443>').replace('</VirtualHost>',
+            routes+'\n</VirtualHost>')
+        second_line = len(first.splitlines())+1
+        self.files[subject.APACHE] = first+second
+        self.dump += 'port 443 namevhost fasakhaninja.com (/etc/apache2/conf/httpd.conf:'+str(second_line)+')\n'
+        result = self.verify()
+        self.assertEqual(result['configuration']['vhost_lines'], [1,second_line])
+        self.assertEqual(result['configuration']['documentroot'], str(subject.ROOT))
+        self.assertEqual(result['configuration']['socket'], self.socket)
+        self.assertEqual(result['live'], {'master_pid':1234,'socket_inode':'9876'})
+        self.assertFalse(any('reload' in args for args in self.calls))
+
+    def test_cpanel_route_tokens_support_only_exact_quoted_or_unquoted_values(self):
+        original = self.files[subject.APACHE]
+        for source, backend in self.CPANEL_ROUTES:
+            for row in ('ProxyPass "'+source+'" "'+backend+'" max=1 retry=0',
+                    'ProxyPass '+source+' '+backend+' max=1 retry=0',
+                    'pRoXyPaSs\t"'+source+'"\t'+backend+'\tmax=1\tretry=0'):
+                self.files[subject.APACHE] = original.replace('</VirtualHost>',row+'\n</VirtualHost>')
+                with self.subTest(source=source,row=row): self.verify()
+
+    def test_cpanel_service_recognition_rejects_changed_paths_backends_or_options(self):
+        original = self.files[subject.APACHE]
+        good = 'ProxyPass "/___proxy_subdomain_cpanel" "http://127.0.0.1:2082" max=1 retry=0'
+        rows = [good.replace('/___proxy_subdomain_cpanel',value) for value in (
+            '/', '/admin', '/___proxy_subdomain_', '/___proxy_subdomain_unknown',
+            '/___proxy_subdomain_cpanel/', '/___proxy_subdomain_cpanel/../admin',
+            '/___proxy_subdomain_CPANEL', '/___proxy_subdomain_cpanel?x',
+            '/___proxy_subdomain_cpanel%2fadmin', '/${CPANEL_PATH}')]
+        rows += [good.replace('http://127.0.0.1:2082',value) for value in (
+            'http://127.0.0.1:2095', 'http://localhost:2082', 'http://[::1]:2082',
+            'http://127.0.0.2:2082', 'http://127.0.0.1:2082/',
+            'http://127.0.0.1:2082/admin', 'https://127.0.0.1:2082',
+            'http://foreign.example:2082', 'http://user:password@127.0.0.1:2082',
+            'http://127.0.0.1:2082?secret=1', 'http://127.0.0.1:2082#fragment',
+            'http://127.0.0.1:2082@foreign.example', 'unix:'+self.socket+'|fcgi://fasakhaninja.com')]
+        rows += [good.replace('max=1 retry=0',value) for value in (
+            '', 'max=2 retry=0', 'max=1 retry=1', 'retry=0 max=1',
+            'max=1 retry=0 nocanon', 'max=1 retry=0 interpolate',
+            'max=1 retry=0 # comment', 'max=1 retry=0 max=1',
+            'max="1" retry=0', 'max=1 retry=${RETRY}')]
+        rows += [good.replace('ProxyPass','ProxyPassMatch'),
+            good.replace('"/___proxy_subdomain_cpanel"', '"/___proxy_subdomain_cpanel\\"'),
+            'ProxyPass /___proxy_activesync http://127.0.0.1:2090/microsoft-server-activesync max=1 retry=0',
+            'ProxyPass /___proxy_subdomain_webmail http://127.0.0.1:2090/Microsoft-Server-ActiveSync max=1 retry=0',
+            'ProxyPass /___proxy_activesync http://127.0.0.1:2090 max=1 retry=0']
+        for row in rows:
+            self.files[subject.APACHE] = original.replace('</VirtualHost>',row+'\n</VirtualHost>')
+            with self.subTest(row=row), self.assertRaises(subject.Stop): self.verify()
+
+    def test_cpanel_service_routes_require_top_level_vhost_scope(self):
+        original = self.files[subject.APACHE]
+        row = 'ProxyPass /___proxy_subdomain_cpanel http://127.0.0.1:2082 max=1 retry=0'
+        for opening, closing in (('<IfModule proxy_module>','</IfModule>'),
+                ('<IfModule !proxy_module>','</IfModule>'),
+                ('<IfModule missing_module>','</IfModule>'),
+                ('<Location "/admin">','</Location>'),
+                ('<Directory "/home/fasakha/public_html">','</Directory>'),
+                ('<FilesMatch "\\.php$">','</FilesMatch>'),
+                ('<IfDefine CPANEL>','</IfDefine>')):
+            self.files[subject.APACHE] = original.replace('</VirtualHost>',
+                opening+'\n'+row+'\n'+closing+'\n</VirtualHost>')
+            with self.subTest(opening=opening), self.assertRaises(subject.Stop): self.verify()
+
+    def test_cpanel_routes_do_not_waive_php_handler_docroot_or_live_master_checks(self):
+        original = self.files[subject.APACHE].replace('</VirtualHost>',
+            'ProxyPass /___proxy_subdomain_cpanel http://127.0.0.1:2082 max=1 retry=0\n</VirtualHost>')
+        for before, after in ((self.socket,self.socket+'other'),
+                ('DocumentRoot "/home/fasakha/public_html"','DocumentRoot "/other"'),
+                ('ServerName fasakhaninja.com','ServerName other.example'),
+                ('|fcgi://fasakhaninja.com','|fcgi://localhost')):
+            self.files[subject.APACHE] = original.replace(before,after)
+            with self.subTest(after=after), self.assertRaises(subject.Stop): self.verify()
+        self.files[subject.APACHE] = original
+        self.fd_target = 'socket:[9877]'
+        with self.assertRaises(subject.Stop): self.verify()
+
+    def test_cpanel_routes_from_bounded_domain_includes_keep_exact_scope_and_pair_rules(self):
+        name = '/etc/apache2/conf.d/userdata/ssl/2_4/fasakha/fasakhaninja.com/cpanel.conf'
+        apache = self.files[subject.APACHE].replace('</VirtualHost>',
+            'IncludeOptional "'+name+'"\n</VirtualHost>')
+        row = 'ProxyPass /___proxy_subdomain_cpcontacts http://127.0.0.1:2079 max=1 retry=0'
+        for included, accepted in ((row,True), (row.replace('2079','2082'),False),
+                ('<Location /admin>\n'+row+'\n</Location>',False)):
+            reader = subject.domain_includes(lambda path,limit:included,
+                globber=lambda pattern:[name],directory_check=lambda path:True)
+            with self.subTest(included=included):
+                if accepted:
+                    self.assertEqual(subject.virtual_hosts(apache,self.dump,{'proxy_module','proxy_fcgi_module'},
+                        str(subject.ROOT),self.socket,include_reader=reader),[1])
+                else:
+                    with self.assertRaises(subject.Stop):
+                        subject.virtual_hosts(apache,self.dump,{'proxy_module','proxy_fcgi_module'},
+                            str(subject.ROOT),self.socket,include_reader=reader)
 
     def test_proxy_exclusions_reject_unknown_options_interpolation_and_ambiguous_paths(self):
         original = self.files[subject.APACHE]

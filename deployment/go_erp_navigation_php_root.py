@@ -122,8 +122,8 @@ def domain_includes(read, *, globber=None, directory_check=None):
 def literal_proxy_exclusion(row, containers, guards):
     """Recognize only literal, non-routing ProxyPass path ! exclusions.
 
-    Apache documents ! as an exclusion, not a backend. Positive mappings,
-    implicit Location paths, interpolation and options remain unreviewed.
+    Apache documents ! as an exclusion, not a backend. Service mappings are
+    recognized separately; implicit Location paths and options stay excluded.
     https://httpd.apache.org/docs/2.4/mod/mod_proxy.html#proxypass
     """
     match = re.fullmatch(r'(?i)ProxyPass\s+(?:"([^"\\]*)"|([^\s"\\]+))\s+(?:"!"|!)', row)
@@ -133,6 +133,35 @@ def literal_proxy_exclusion(row, containers, guards):
     path = match[1] if match[1] is not None else match[2]
     return bool(re.fullmatch(r'/[A-Za-z0-9._~/-]*', path)) and '//' not in path \
         and all(part not in ('.', '..') for part in path.split('/'))
+
+
+def cpanel_service_proxy(row, containers, guards):
+    """Recognize six fixed cPanel service routes outside the dashboard path.
+
+    These are exact source/backend pairs, not a general loopback proxy rule.
+    Keep the generated max/retry options and top-level vhost scope exact;
+    the dashboard must still prove its own PHP handler and live pool socket.
+    Official cPanel templates, revision 57af87bacd2e8fbb6e2ba441bde89a763bd01c84:
+    https://github.com/CpanelInc/ea-apache24-config/blob/57af87bacd2e8fbb6e2ba441bde89a763bd01c84/SOURCES/ea4_main.default
+    https://github.com/CpanelInc/ea-apache24-config/blob/57af87bacd2e8fbb6e2ba441bde89a763bd01c84/SOURCES/ssl_vhost.default
+    """
+    if containers or guards:
+        return False
+    match = re.fullmatch(r'(?i:ProxyPass)\s+(?:"([^"\\]*)"|([^\s"\\]+))\s+'
+        r'(?:"([^"\\]*)"|([^\s"\\]+))\s+max=1\s+retry=0', row)
+    if not match:
+        return False
+    source = match[1] if match[1] is not None else match[2]
+    backend = match[3] if match[3] is not None else match[4]
+    routes = {
+        '/___proxy_subdomain_cpanel': 'http://127.0.0.1:2082',
+        '/___proxy_subdomain_cpcalendars': 'http://127.0.0.1:2079',
+        '/___proxy_subdomain_cpcontacts': 'http://127.0.0.1:2079',
+        '/___proxy_subdomain_webdisk': 'http://127.0.0.1:2077',
+        '/___proxy_subdomain_webmail': 'http://127.0.0.1:2095',
+        '/___proxy_activesync': 'http://127.0.0.1:2090/Microsoft-Server-ActiveSync',
+    }
+    return source in routes and backend == routes[source]
 
 
 def virtual_hosts(raw, dump, modules, documentroot, socket, *, include_reader=None):
@@ -173,7 +202,8 @@ def virtual_hosts(raw, dump, modules, documentroot, socket, *, include_reader=No
             # Only bounded, root-owned domain-specific includes are expanded.
             # Every handler/conditional in that content follows the same rules.
             if re.match(r'(?i)ProxyPass\b', row):
-                need(literal_proxy_exclusion(row, containers, guards))
+                need(literal_proxy_exclusion(row, containers, guards)
+                    or cpanel_service_proxy(row, containers, guards))
                 continue
             need(not re.match(r'(?i)(?:Include|IncludeOptional|ProxyPassMatch)\b', row))
             opened = re.fullmatch(r'<IfModule\s+([^>]+)>', row, re.I)
