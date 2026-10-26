@@ -1,0 +1,27 @@
+name: GO ERP reserved allocation diagnostic
+
+on:
+  push:
+    branches: ['codex/go-erp-allocation-probe-*']
+  pull_request:
+    paths:
+      - 'deployment/diagnose_go_erp_reserved_allocation_root.py'
+      - 'tests/test_go_erp_reserved_allocation_probe.py'
+      - '.github/workflows/go-erp-allocation-probe-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify read-only state guards, isolated cleanup and bounded errors
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          python3 -B -m unittest discover -s tests -p test_go_erp_reserved_allocation_probe.py
