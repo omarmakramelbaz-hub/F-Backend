@@ -35,7 +35,7 @@ async function fixture(t){
           await cookies.set({url:origin+'/',name:'laravel_session',value:'synthetic-'+user.actorId,path:'/',httpOnly:true,secure:true});
           return response('',302,url,origin+'/admin/dashboard');
         }
-        assert.equal(url,origin+'/admin/dashboard');assert.ok(browser.actor,'The actor document requires an original successful POST in this fresh session.');
+        assert.equal(url,origin+'/admin/choose_type');assert.ok(browser.actor,'The actor document requires an original successful POST in this fresh session.');
         return response(`<body data-dashboard-actor="${browser.actor}:admin"></body>`,200,url);
       }};sessions.set(name,browser);
     }

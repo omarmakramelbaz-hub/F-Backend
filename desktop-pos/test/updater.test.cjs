@@ -112,6 +112,91 @@ test('parallel authorization cannot race a newer watermark back to an older rele
   assert.deepEqual(result, [true, false]); assert.equal([...f.records.values()][0].sequence, 12);
 });
 
+test('an already aborted external authorization budget performs no credential read or HTTP request', async t => {
+  const f = await authorizationFixture(t), before = f.requests.length, controller = new AbortController();
+  let credentials = 0; f.updater.credential = () => { credentials++; return credential; };
+  controller.abort();
+  assert.equal(await f.updater.authorizeInstalled(installed(), { signal: controller.signal }), false);
+  assert.equal(credentials, 0); assert.equal(f.requests.length, before); assert.equal(f.applied.length, 0);
+  assert.equal(f.updater.authorizations.size, 0);
+});
+
+test('an external authorization signal preserves successful exact-source checks and cannot authorize before start', async t => {
+  const controller = new AbortController(), unopened = await fixture(t);
+  assert.equal(await unopened.updater.authorizeInstalled(installed(), { signal: controller.signal }), false);
+  assert.equal(unopened.requests.length, 0); assert.equal(unopened.updater.active, false);
+  const f = await authorizationFixture(t), before = clone(f.updater.state);
+  assert.equal(await f.updater.authorizeInstalled(installed(), { signal: controller.signal }), true);
+  assert.deepEqual(f.updater.state, before); assert.equal(f.applied.length, 0);
+  assert.equal(f.requests.every(item => item.url.endsWith('/update')), true);
+});
+
+test('external abort cancels an actual HTTP request stalled before response headers', { timeout: 5000 }, async t => {
+  const f = await authorizationFixture(t), http = require('node:http'), paths = [];
+  let entered, closed;
+  const started = new Promise(resolve => { entered = resolve; }), drained = new Promise(resolve => { closed = resolve; });
+  const server = http.createServer((request, response) => {
+    paths.push(request.url); response.once('close', closed); entered();
+    // No response headers or body are emitted before the caller's abort.
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  f.updater.transport = (url, options) => fetch('http://127.0.0.1:' + server.address().port + new URL(url).pathname, options);
+  const controller = new AbortController(), authorization = f.updater.authorizeInstalled(installed(), { signal: controller.signal });
+  await started; controller.abort();
+  assert.equal(await authorization, false); await drained;
+  assert.deepEqual(paths, ['/api/desktop-dashboard/update']); assert.equal(f.applied.length, 0);
+  assert.equal(f.updater.authorizations.size, 0);
+});
+
+test('external authorization abort cancels a stalled manifest body and never accepts its partial JSON', async t => {
+  const f = await authorizationFixture(t), before = structuredClone([...f.records]), state = clone(f.updater.state);
+  let entered, cancelled = 0, requestedSignal;
+  const started = new Promise(resolve => { entered = resolve; });
+  f.updater.transport = async (_url, options) => {
+    requestedSignal = options.signal;
+    return new Response(new ReadableStream({
+      start(controller) { controller.enqueue(Buffer.from('{"format":1,')); entered(); },
+      cancel() { cancelled++; }
+    }));
+  };
+  const controller = new AbortController(), authorization = f.updater.authorizeInstalled(installed(), { signal: controller.signal });
+  await started; controller.abort();
+  assert.equal(await authorization, false); assert.equal(requestedSignal.aborted, true); assert.equal(cancelled, 1);
+  assert.deepEqual([...f.records], before); assert.deepEqual(f.updater.state, state);
+  assert.equal(f.applied.length, 0); assert.equal(f.updater.authorizations.size, 0);
+});
+
+test('manifest EOF caused by an external abort cannot parse invalid JSON or create authority', async t => {
+  const f = await authorizationFixture(t), controller = new AbortController(), before = structuredClone([...f.records]);
+  const body = new ReadableStream({ start(stream) { stream.enqueue(Buffer.from('not valid JSON')); stream.close(); } });
+  f.updater.transport = async () => ({ status: 200, redirected: false, headers: new Headers(), body: {
+    getReader() {
+      const reader = body.getReader();
+      return { async read() { const part = await reader.read(); if (part.done) controller.abort(); return part; },
+        cancel: () => reader.cancel(), releaseLock: () => reader.releaseLock() };
+    }
+  } });
+  let parsed = 0; const parse = JSON.parse;
+  t.mock.method(JSON, 'parse', (...args) => { if (args[0] === 'not valid JSON') parsed++; return parse(...args); });
+  assert.equal(await f.updater.authorizeInstalled(installed(), { signal: controller.signal }), false);
+  assert.equal(parsed, 0); assert.deepEqual([...f.records], before); assert.equal(body.locked, false);
+  assert.equal(f.applied.length, 0);
+});
+
+test('restarting the poll after stop cannot revive an authorization from the previous epoch', async t => {
+  const f = await authorizationFixture(t), controller = new AbortController(); let entered, release;
+  const started = new Promise(resolve => { entered = resolve; }), version = new Promise(resolve => { release = resolve; });
+  f.updater.currentVersion = () => { entered(); return version; };
+  const authorization = f.updater.authorizeInstalled(installed(), { signal: controller.signal });
+  await started; f.updater.stop(); const restarted = f.updater.start();
+  assert.equal(f.updater.active, true); assert.equal(controller.signal.aborted, false);
+  release('0.4.4-preview.6');
+  assert.equal(await authorization, false); await restarted;
+  assert.equal(f.updater.state.status, 'current'); assert.equal(f.applied.length, 0);
+  assert.equal(f.updater.authorizations.size, 0);
+});
+
 test('verified same-origin release is rechecked and handed off once without exposing credentials', async t => {
   const f = await fixture(t); await f.updater.check();
   assert.equal(f.applied.length, 1); assert.equal(f.gates(), 2);

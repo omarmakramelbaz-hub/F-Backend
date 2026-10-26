@@ -49,6 +49,54 @@ test('spreading or cloning a downloaded snapshot intentionally loses its origina
   assert.equal(readSnapshot.input(snapshot), wire);
 });
 
+test('a successful snapshot with an external budget preserves exact numeric input and frozen metadata', async () => {
+  const wire = ' {"rows":[{"whole":1.0,"negative":-0.0,"large":9007199254740993,"label":"رنجة"}]}\n';
+  const controller = new AbortController(), snapshot = await readSnapshot(response(wire), undefined, { signal: controller.signal });
+  assert.equal(readSnapshot.input(snapshot), wire); assert.notEqual(JSON.stringify(snapshot), wire);
+  assert.equal(Object.isFrozen(snapshot), true); assert.equal(Object.isFrozen(snapshot.rows), true); assert.equal(Object.isFrozen(snapshot.rows[0]), true);
+});
+
+test('an already aborted snapshot budget cancels its real response without reading or parsing it', async t => {
+  const controller = new AbortController(), reason = Error('synthetic startup budget ended'); let cancelled = 0, pulls = 0, parsed = 0;
+  const body = new ReadableStream({ pull() { pulls++; }, cancel() { cancelled++; } });
+  const incoming = new Response(body, { headers: { 'content-type': 'application/json' } });
+  const parse = JSON.parse; t.mock.method(JSON, 'parse', (...args) => { parsed++; return parse(...args); });
+  controller.abort(reason);
+  await assert.rejects(readSnapshot(incoming, undefined, { signal: controller.signal }), error => error === reason);
+  assert.equal(cancelled, 1); assert.equal(pulls, 0); assert.equal(parsed, 0); assert.equal(body.locked, false);
+});
+
+test('aborting a stalled real snapshot reader drains cancellation and cannot treat cancellation as JSON EOF', async t => {
+  const controller = new AbortController(), reason = Error('synthetic snapshot deadline'); let cancelCalls = 0, parsed = 0, entered, release;
+  const started = new Promise(resolve => { entered = resolve; }), drained = new Promise(resolve => { release = resolve; });
+  const body = new ReadableStream({
+    start(stream) { stream.enqueue(Buffer.from('{"rows":[1.0,')); },
+    pull() { entered(); },
+    cancel() { cancelCalls++; return drained; }
+  });
+  const incoming = new Response(body, { headers: { 'content-type': 'application/json' } });
+  const parse = JSON.parse; t.mock.method(JSON, 'parse', (...args) => { parsed++; return parse(...args); });
+  const pending = readSnapshot(incoming, undefined, { signal: controller.signal });
+  let settled = false; pending.then(() => { settled = true; }, () => { settled = true; });
+  await started; controller.abort(reason); await new Promise(setImmediate);
+  assert.equal(cancelCalls, 1); assert.equal(settled, false); assert.equal(parsed, 0);
+  release(); await assert.rejects(pending, error => error === reason);
+  assert.equal(parsed, 0); assert.equal(body.locked, false);
+});
+
+test('an abort at a real reader EOF wins over malformed JSON and cannot create retained importer input', async t => {
+  const controller = new AbortController(), reason = Error('synthetic EOF deadline'); let parsed = 0;
+  const incoming = response('not valid JSON'), body = incoming.body;
+  const wrapped = { headers: incoming.headers, body: { getReader() {
+    const reader = body.getReader();
+    return { async read() { const part = await reader.read(); if (part.done) controller.abort(reason); return part; },
+      cancel: () => reader.cancel(), releaseLock: () => reader.releaseLock() };
+  } } };
+  const parse = JSON.parse; t.mock.method(JSON, 'parse', (...args) => { parsed++; return parse(...args); });
+  await assert.rejects(readSnapshot(wrapped, undefined, { signal: controller.signal }), error => error === reason);
+  assert.equal(parsed, 0); assert.equal(body.locked, false);
+});
+
 test('PHP canonical table hashes survive the actual downloaded input path through JavaScript', async t => {
   const php = process.env.DESKTOP_TEST_PHP || 'php';
   const options = { encoding: 'utf8', timeout: 10000, windowsHide: true, maxBuffer: 1024 * 1024 };

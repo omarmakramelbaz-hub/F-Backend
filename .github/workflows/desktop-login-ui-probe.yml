@@ -31,16 +31,12 @@ jobs:
       - name: Exercise the real form, sandbox, cookies and original Session client
         shell: pwsh
         run: |
+          node --test desktop-pos/test/account-login-proof.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'The strict native login receipt verifier failed its rejection contracts.' }
           node desktop-pos/test/run-electron-native.cjs desktop-pos/test/account-login-window-native.cjs desktop-pos/dist/account-login-window-native.json
           if ($LASTEXITCODE -ne 0) { throw 'The real login UI or original Session authentication client failed.' }
-          $proof = Get-Content desktop-pos/dist/account-login-window-native.json -Raw | ConvertFrom-Json
-          if ($proof.sourceRevision -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32') { throw 'The login proof belongs to another revision.' }
-          foreach ($field in @('actualElectron','actualBrowserWindow','actualPreload','actualIpc','sandbox','trustedFile','singleOrdinaryForm','passwordClearedBeforeAuthenticationSettles','passwordNeverPersisted','rendererReceivesOnlyBoundedEnvelope','fullResultStaysInMain','formRetainedDisabledUntilHandoff','actualNativeCloseCancels','actualOriginalSessionAuthClient','actualSessionCookieJar','originalCsrfHeadersObserved','guardedRedirectCookiesPreserved','actualClientRequestManualAdmission','authOnlyRedirectAdmission','foreignRedirectNotTransmitted','repeatedPostRedirectBlocked','editingPreventsRememberedOverride','actualCookieHandoff','wrongPasswordRejected','actualRememberedSessionClient','rememberedRoleRedirectAccepted','rememberedWithoutPasswordPost','naturalQuit','completed')) {
-            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "Native login proof is missing $field." }
-          }
-          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
-            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'A login source binding changed.' }
-          }
+          node .github/scripts/verify-account-login-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The real login UI receipt is incomplete or differs from the exact native source and scope.' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -455,6 +455,48 @@ echo $wire;
     const upgradedReplay=await php(bootstrap+"try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$input['values']],[],fn()=>throw new RuntimeException('Old work ran after code upgrade.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",{device:snapshot.device_id,id:pending.commands[0].command_id,actor:snapshot.actor_id,values:command.values});
     assert.equal(upgradedReplay.status,409);assert.equal(failures.length,0);
     console.log('PASS real Windows code/schema upgrade retains the matching installed application with unchanged database binaries, recovers a rejected pointer and lost reply, preserves the previous schema and journal, and restarts from its retained new runtime');
+
+    // Exercise the new pre-view source path separately, after every original B
+    // upgrade assertion above. The installed C changes code only; the original
+    // canonical B server-fixture rows, schema, scope and media stay unchanged.
+    const beforeStartupUpgrade=await runtime.connection(),beforeStartupApplication=runtime.application;
+    const startupInstall=path.join(profile,'synthetic-startup-source-upgrade');
+    await fs.cp(bundle,startupInstall,{recursive:true});
+    const startupMarkerBytes=Buffer.from('<?php\nnamespace App\\Services\\Dashboard;\nclass DesktopUpgradeFixture { public const VERSION=3; }\n');
+    await fs.writeFile(path.join(startupInstall,'application',marker),startupMarkerBytes);
+    const startupManifest={...installedManifest,sourceRevision:'c'.repeat(40),sourceHashes:{...installedManifest.sourceHashes,
+      [marker]:crypto.createHash('sha256').update(startupMarkerBytes).digest('hex')},
+      sourceFingerprint:await sourceCode.fingerprint(path.join(startupInstall,'application'))};
+    await fs.writeFile(path.join(startupInstall,'manifest.json'),JSON.stringify(startupManifest));
+    await runtime.stop();runtime=create(startupInstall);await runtime.start();
+    assert.deepEqual(await runtime.connection(),beforeStartupUpgrade);
+    assert.equal(runtime.application,beforeStartupApplication);
+    assert.equal(runtime.manifest.sourceRevision,newManifest.sourceRevision);
+    const {verifyStartupSourceUpgrade,deltaFromCanonicalSnapshot}=require('./startup-source-upgrade-native.cjs');
+    const startupDownload=deltaFromCanonicalSnapshot({php,bootstrap,canonicalSnapshotWire:snapshotWire,
+      sourceFingerprint:startupManifest.sourceFingerprint,codeRoot});
+    const startupProof=await verifyStartupSourceUpgrade({runtime,installedManifest:startupManifest,
+      download:startupDownload,allowPreview:true,php,bootstrap,codeRoot,verifyBusiness:async()=>{
+        assert.deepEqual(await php(bootstrap+"echo json_encode(['version'=>\\App\\Services\\Dashboard\\DesktopUpgradeFixture::VERSION,'field'=>\\Illuminate\\Support\\Facades\\Schema::hasColumn('branch_customers','desktop_upgrade_fixture'),'archived'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_archived_commands')->count()]);"),
+          {version:3,field:true,archived:1});
+        assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'app',pdfPath)),pdfBytes);
+        assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'app/public',imagePath)),imageBytes);
+      }});
+    const afterStartupUpgrade=await runtime.connection();
+    await runtime.stop();await fs.rm(startupInstall,{recursive:true});runtime=create();await runtime.start();
+    assert.deepEqual(await runtime.connection(),afterStartupUpgrade);
+    assert.equal(runtime.manifest.sourceRevision,startupManifest.sourceRevision);
+    assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'framework/sessions/supervisor-fixture-session'),'utf8'),'synthetic preserved session');
+    assert.deepEqual(await php(bootstrap+"echo json_encode(['version'=>\\App\\Services\\Dashboard\\DesktopUpgradeFixture::VERSION]);"),{version:3});
+    assert.equal(failures.length,0);
+    startupProof.restartRetainsActivatedSource=true;
+    startupProof.sourceRevision=installedManifest.sourceRevision;
+    startupProof.sourceHashes={
+      helper:crypto.createHash('sha256').update(await fs.readFile(path.join(codeRoot,'startup-source-upgrade.cjs'))).digest('hex'),
+      fixture:crypto.createHash('sha256').update(await fs.readFile(__filename)).digest('hex'),
+      nativeModule:crypto.createHash('sha256').update(await fs.readFile(path.join(__dirname,'startup-source-upgrade-native.cjs'))).digest('hex')};
+    console.log('GO_ERP_STARTUP_SOURCE_NATIVE '+JSON.stringify(startupProof));
+    console.log('PASS real Windows startup source activation preserves the original scoped preview account, session, business rows and replay journal, then reopens the activated source without setup');
     console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
   } finally { await runtime.stop(); await new Promise(resolve => mediaServer.close(resolve)); await fs.rm(profile, { recursive: true, force: true }); }
 }

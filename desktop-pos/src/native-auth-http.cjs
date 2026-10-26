@@ -1,5 +1,6 @@
 'use strict';
 const homes=new Set(['/admin/dashboard','/admin/applies-orders','/admin/resturants']);
+const identityPath='/admin/choose_type';
 const invalid=()=>Object.assign(Error('تعذر تأكيد مسار تسجيل الدخول.'),{code:'ACCOUNT_AUTH_REDIRECT_REJECTED'});
 const cancelled=()=>Object.assign(Error('تم إلغاء تسجيل الدخول.'),{code:'ACCOUNT_LOGIN_CANCELLED'});
 function authURL(value,origin){
@@ -15,14 +16,14 @@ function redirectAllowed({origin,target,method,statusCode,previousMethod,allowRe
 }
 
 /** Bounded original-auth HTTP through Electron's documented manual redirect event. */
-function nativeAuthHTML({requestFactory,browser,origin,url,method='GET',headers={},body,signal,readOnly=false,allowRedirects=true}){
+function nativeAuthHTML({requestFactory,browser,origin,url,method='GET',headers={},body,signal,readOnly=false,allowRedirects=true,surfaceRedirects=false}){
   return new Promise((resolve,reject)=>{
     let currentURL,currentMethod=String(method).toUpperCase();
     try{
       const parsed=authURL(url,origin);currentURL=parsed.href;
-      const read=['GET','HEAD'].includes(currentMethod)&&(parsed.pathname==='/admin/login'||homes.has(parsed.pathname));
+      const read=['GET','HEAD'].includes(currentMethod)&&(parsed.pathname==='/admin/login'||parsed.pathname===identityPath||homes.has(parsed.pathname));
       const signin=!readOnly&&currentMethod==='POST'&&parsed.pathname==='/admin/signin';
-      if(!read&&!signin||body!==undefined&&(typeof body!=='string'||Buffer.byteLength(body)>64*1024||!signin))throw invalid();
+      if(typeof surfaceRedirects!=='boolean'||!read&&!signin||body!==undefined&&(typeof body!=='string'||Buffer.byteLength(body)>64*1024||!signin))throw invalid();
       if(signal?.aborted)throw cancelled();
     }catch(error){reject(error);return;}
     let request,settled=false,redirects=0,responseEnded=false;
@@ -38,6 +39,15 @@ function nativeAuthHTML({requestFactory,browser,origin,url,method='GET',headers=
       request.on('login',(_information,callback)=>callback());
       request.on('redirect',(statusCode,nextMethod,target)=>{
         if(settled||signal?.aborted||++redirects>4||!redirectAllowed({origin,target,method:nextMethod,statusCode,previousMethod:currentMethod,allowRedirects})){stop(invalid());return;}
+        if(surfaceRedirects){
+          // Chromium has already received this original response and retained
+          // its cookies. Do not render a full business home just to prove the
+          // account: return only the admitted redirect, then retire its socket.
+          const location=new URL(target).href;
+          finish(null,{status:statusCode,url:currentURL,headers:{get(name){return String(name).toLowerCase()==='location'?location:null;}},text:async()=>''});
+          try{request.abort();}catch{}
+          return;
+        }
         currentURL=new URL(target).href;currentMethod=String(nextMethod).toUpperCase();
         // With redirect:'manual', Chromium cannot transmit this redirect until
         // this exact synchronous approval calls followRedirect().

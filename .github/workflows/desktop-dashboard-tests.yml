@@ -25,6 +25,8 @@ on:
       - '.gitattributes'
       - '.github/workflows/desktop-dashboard-tests.yml'
       - '.github/scripts/desktop-*.cjs'
+      - '.github/scripts/verify-account-login-native.cjs'
+      - '.github/scripts/verify-startup-source-native.cjs'
       - '.github/scripts/prepare-desktop-vcredist.ps1'
 
 permissions:
@@ -53,6 +55,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify strict native login receipt rejection contracts
+        shell: pwsh
+        run: |
+          node --test desktop-pos/test/account-login-proof.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'The native login receipt verifier did not reject incomplete or altered proofs.' }
       - name: Install pinned Electron test dependencies
         shell: pwsh
         run: |
@@ -129,6 +136,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Actual main account switching did not finish naturally.' }
           node .github/scripts/verify-account-profiles-native.cjs desktop-pos/dist/account-profiles-native.json
           if ($LASTEXITCODE -ne 0) { throw 'Native account source-bound receipt is incomplete.' }
+      - name: Verify actual native login, small identity and prepared-account HTTPS session
+        shell: pwsh
+        run: |
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/account-login-window-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The actual native login, small identity or prepared server session failed.' }
+          node .github/scripts/verify-account-login-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The native login receipt differs from this exact source or scope.' }
       - name: Retain the exact connected native acceptance receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -141,6 +155,8 @@ jobs:
             desktop-pos/dist/runtime-inventory-electron-native.json
             desktop-pos/dist/account-profiles-native.json
             desktop-pos/dist/account-profiles-picker-*.png
+            desktop-pos/dist/account-login-window-native.json
+            desktop-pos/dist/account-login-window-native-login.png
           if-no-files-found: error
           retention-days: 14
   original-runtime:
@@ -274,7 +290,7 @@ jobs:
             $accountRolesMatches = [regex]::Matches(($accountRolesOutput -join "`n"), '(?m)^DESKTOP_ACCOUNT_PROFILES_ROLE_HTTP_COMPLETE (\{[^\r\n]+\})$')
             if ($accountRolesExit -ne 0 -or $accountRolesMatches.Count -ne 1) { throw 'The actual Owner/Admin/Branch login and scope checks did not complete exactly once.' }
             $accountRoles = $accountRolesMatches[0].Groups[1].Value | ConvertFrom-Json
-            if ($accountRoles.format -ne 1 -or $accountRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $accountRoles.sourceRevision -cne $env:GITHUB_SHA -or $accountRoles.fixtureRevision -cne $env:GITHUB_SHA -or $accountRoles.helperBinding -cne 'exact-git-revision' -or $accountRoles.schemaInventory -ne 106 -or $accountRoles.distinctEnrollments -ne 3 -or $accountRoles.distinctDatabases -ne 4 -or $accountRoles.distinctStorageRoots -ne 3 -or $accountRoles.actors.Count -ne 3) { throw 'The real account/role scope differs from the exact captured application.' }
+            if ($accountRoles.format -ne 1 -or $accountRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $accountRoles.sourceRevision -cne $env:GITHUB_SHA -or $accountRoles.fixtureRevision -cne $env:GITHUB_SHA -or $accountRoles.helperBinding -cne 'exact-git-revision' -or $accountRoles.schemaInventory -ne 106 -or $accountRoles.distinctEnrollments -ne 3 -or $accountRoles.distinctDatabases -ne 4 -or $accountRoles.distinctStorageRoots -ne 3 -or $accountRoles.actors.Count -ne 3 -or $accountRoles.checks -ne 123) { throw 'The real account/role scope differs from the exact captured application.' }
             foreach ($field in @('actualPhpServer','originalRouter','originalAuthProvider','sourceVerifiedAfter','helpersVerifiedAfter','centralBusinessAndCredentialsUnchanged','httpServersStopped','privateDatabasesDropped','privateStorageRemoved','existingEffectsPreserved','completed')) {
               if ($accountRoles.$field -isnot [bool] -or $accountRoles.$field -ne $true) { throw "Actual account/role proof is missing $field." }
             }
@@ -283,7 +299,7 @@ jobs:
             }
             if (($accountRoles.actors.actorId -join ',') -cne '1,30,10') { throw 'The expected actual Owner/Admin/Branch actors were not tested.' }
             foreach ($actor in $accountRoles.actors) {
-              if ($actor.originalLogin -ne $true -or $actor.signinStatus -ne 302 -or $actor.wrongCsrfStatus -ne 419 -or $actor.foreignLoginsRejected -ne 3 -or $actor.otherPasswordsMasked -ne $true -or $actor.verifiedImport -ne $true -or $actor.credentialRowsUnchanged -ne $true -or $actor.journalCommands -ne 0) { throw 'An actual account did not retain original authentication and isolation.' }
+              if ($actor.originalLogin -ne $true -or $actor.originalIdentityDocument -ne $true -or $actor.guestIdentityRejected -ne $true -or $actor.identitySkipsOverview -ne $true -or $actor.signinStatus -ne 302 -or $actor.wrongCsrfStatus -ne 419 -or $actor.foreignLoginsRejected -ne 3 -or $actor.otherPasswordsMasked -ne $true -or $actor.verifiedImport -ne $true -or $actor.credentialRowsUnchanged -ne $true -or $actor.journalCommands -ne 0) { throw 'An actual account did not retain original authentication and isolation.' }
               $expectedBranches = if ($actor.actorId -eq 10) { 'f:100' } else { 'f:100,f:101' }
               $expectedPermission = if ($actor.actorId -eq 10) { 403 } else { 200 }
               if (($actor.branches -join ',') -cne $expectedBranches -or $actor.orderListHttpStatus -ne $expectedPermission) { throw 'An actual account crossed its branch or permission scope.' }
@@ -319,7 +335,7 @@ jobs:
             $compactRoles = $compactRolesMatches[0].Groups[1].Value | ConvertFrom-Json
             $compactRoles | ConvertTo-Json -Depth 16 | Set-Content "$compactProfile/compact-role-receipt.json" -Encoding utf8NoBOM
             if ($accountRoles.compactVendor -isnot [bool] -or $accountRoles.compactVendor -ne $false -or $compactRoles.compactVendor -isnot [bool] -or $compactRoles.compactVendor -ne $true) { throw 'Normal and compact role fixtures did not use their explicit authority paths.' }
-            if ($compactRoles.format -ne 1 -or $compactRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $compactRoles.sourceRevision -cne $env:GITHUB_SHA -or $compactRoles.fixtureRevision -cne $env:GITHUB_SHA -or $compactRoles.helperBinding -cne 'exact-git-revision' -or $compactRoles.schemaInventory -ne 106 -or $compactRoles.distinctEnrollments -ne 3 -or $compactRoles.distinctDatabases -ne 4 -or $compactRoles.distinctStorageRoots -ne 3 -or $compactRoles.actors.Count -ne 3 -or $compactRoles.checks -ne 117 -or $compactRoles.checks -ne $accountRoles.checks) { throw 'The compact original-auth scope differs from the normal runtime or its 117 checks.' }
+            if ($compactRoles.format -ne 1 -or $compactRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $compactRoles.sourceRevision -cne $env:GITHUB_SHA -or $compactRoles.fixtureRevision -cne $env:GITHUB_SHA -or $compactRoles.helperBinding -cne 'exact-git-revision' -or $compactRoles.schemaInventory -ne 106 -or $compactRoles.distinctEnrollments -ne 3 -or $compactRoles.distinctDatabases -ne 4 -or $compactRoles.distinctStorageRoots -ne 3 -or $compactRoles.actors.Count -ne 3 -or $compactRoles.checks -ne 123 -or $compactRoles.checks -ne $accountRoles.checks) { throw 'The compact original-auth scope differs from the normal runtime or its 123 checks.' }
             foreach ($field in @('actualPhpServer','originalRouter','originalAuthProvider','sourceVerifiedAfter','helpersVerifiedAfter','centralBusinessAndCredentialsUnchanged','httpServersStopped','privateDatabasesDropped','privateStorageRemoved','existingEffectsPreserved','completed')) {
               if ($compactRoles.$field -isnot [bool] -or $compactRoles.$field -ne $true) { throw "Compact original-auth acceptance is missing $field." }
             }
@@ -328,7 +344,7 @@ jobs:
             }
             if (($compactRoles.actors.actorId -join ',') -cne '1,30,10') { throw 'Compact acceptance did not retain Owner/Admin/Branch identities.' }
             foreach ($actor in $compactRoles.actors) {
-              if ($actor.originalLogin -ne $true -or $actor.signinStatus -ne 302 -or $actor.wrongCsrfStatus -ne 419 -or $actor.foreignLoginsRejected -ne 3 -or $actor.otherPasswordsMasked -ne $true -or $actor.verifiedImport -ne $true -or $actor.credentialRowsUnchanged -ne $true -or $actor.journalCommands -ne 0) {
+              if ($actor.originalLogin -ne $true -or $actor.originalIdentityDocument -ne $true -or $actor.guestIdentityRejected -ne $true -or $actor.identitySkipsOverview -ne $true -or $actor.signinStatus -ne 302 -or $actor.wrongCsrfStatus -ne 419 -or $actor.foreignLoginsRejected -ne 3 -or $actor.otherPasswordsMasked -ne $true -or $actor.verifiedImport -ne $true -or $actor.credentialRowsUnchanged -ne $true -or $actor.journalCommands -ne 0) {
                 throw 'A compact original account did not retain authentication, CSRF or credential isolation.'
               }
               $expectedBranches = if ($actor.actorId -eq 10) { 'f:100' } else { 'f:100,f:101' }
@@ -648,8 +664,22 @@ jobs:
         shell: pwsh
         timeout-minutes: 25
         run: |
-          node desktop-pos/test/generation-native.cjs "$env:RUNNER_TEMP/dashboard PDF bundle" $env:DESKTOP_TEST_SNAPSHOT_FILE
-          if ($LASTEXITCODE -ne 0) { throw 'Real Windows generation supervisor checks failed.' }
+          New-Item -ItemType Directory -Force desktop-pos/dist | Out-Null
+          node desktop-pos/test/generation-native.cjs "$env:RUNNER_TEMP/dashboard PDF bundle" $env:DESKTOP_TEST_SNAPSHOT_FILE 2>&1 | Tee-Object -FilePath desktop-pos/dist/startup-source-native.log
+          $generationExit = $LASTEXITCODE
+          if ($generationExit -ne 0) { throw 'Real Windows generation supervisor checks failed.' }
+          node .github/scripts/verify-startup-source-native.cjs desktop-pos/dist/startup-source-native.log desktop-pos/dist/startup-source-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The actual startup source delta activation proof is incomplete or has a changed scope.' }
+      - name: Retain actual Windows startup source activation output and strict proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-source-native-windows
+          path: |
+            desktop-pos/dist/startup-source-native.log
+            desktop-pos/dist/startup-source-native.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Check desktop reconciliation and existing POS regressions
         working-directory: desktop-pos
         run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs
@@ -786,6 +816,11 @@ jobs:
           foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
             if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Inventory worker source changed before packaging.' }
           }
+      - name: Require the exact native login and prepared server session proof before packaging
+        shell: pwsh
+        run: |
+          node .github/scripts/verify-account-login-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging requires this exact source native login, identity and prepared HTTPS session proof.' }
       - name: Build the reviewed Windows installer preview
         shell: pwsh
         run: |
@@ -858,6 +893,7 @@ jobs:
           path: |
             desktop-pos/dist/GO-ERP-Preview-Setup.exe
             desktop-pos/dist/installer-checks.json
+            desktop-pos/dist/installed-startup-source-native.json
             desktop-pos/dist/runtime-package.json
             desktop-pos/dist/runtime-audit.json
             desktop-pos/dist/prerequisites/vcredist-package.json

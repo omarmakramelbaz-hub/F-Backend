@@ -217,6 +217,9 @@ async function residualPaths(directory){
       path.join(project,'dist/dashboard-synthetic-snapshot.json'),path.join(installed,'resources/app.asar/src')],
       {encoding:'utf8',windowsHide:true,timeout:1200000,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}});
     assert.match(nativeOutput,/PASS real Windows supervisor prepares account data/);
+    const startupSourceProof=require('../../.github/scripts/verify-startup-source-native.cjs').parse(nativeOutput,
+      {revision:receipt.sourceRevision,installedAsarCode:true});
+    await fs.writeFile(path.join(project,'dist/installed-startup-source-native.json'),JSON.stringify(startupSourceProof,null,2)+'\n',{flag:'wx',mode:0o600});
     process.stdout.write(nativeOutput);
     process.stdout.write('PASS the actually installed ASAR supervisor runs the original local Laravel dashboard and preserves its data across restart and code upgrade\n');
     const saved=JSON.parse(execFileSync(executable,[probe,installed,profile],{encoding:'utf8',windowsHide:true,timeout:30000,

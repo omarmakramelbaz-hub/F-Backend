@@ -25,7 +25,13 @@ class DashboardRemoteState {
   browse(){
     return this.serialize(async()=>{
       if(this.blocked)throw Error('يجري تحديث بيانات الجهاز؛ انتظر اكتماله.');
-      const value=await this.read();value.dirty=true;await this.metadata.write('remote-writes',value);
+      const value=await this.read();
+      // Every central read waits for this durable fence before transmission.
+      // Once dirty, more navigation/polling cannot make the local copy dirtier;
+      // keep validating the record but do not queue identical encrypted fsyncs.
+      // A successful snapshot clears the fence and requires the next write again.
+      if(value.dirty)return;
+      value.dirty=true;await this.metadata.write('remote-writes',value);
     });
   }
   complete(id) {

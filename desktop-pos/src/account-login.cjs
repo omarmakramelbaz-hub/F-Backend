@@ -7,6 +7,9 @@ const signout=require('./account-signout.cjs');
 const recaller='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 const roles=new Set(['admin','vendor','resturant_owner']);
 const homes=new Set(['/admin/dashboard','/admin/applies-orders','/admin/resturants']);
+// This original IsAdmin-protected page carries the same trusted actor marker
+// without calculating every branch's sales, stock and owner cash drawers.
+const identityPath='/admin/choose_type';
 const failure=()=>Error('تعذر تسجيل الدخول. تأكد من بيانات الحساب والاتصال، ثم أعد المحاولة.');
 const denied=()=>Object.assign(failure(),{code:'ACCOUNT_CREDENTIALS_REJECTED'});
 const aborted=()=>Object.assign(Error('تم إلغاء تسجيل الدخول.'),{code:'ACCOUNT_LOGIN_CANCELLED'});
@@ -68,6 +71,12 @@ function cookieDetails(cookie,origin,upgrade=true){
     ...(!upgrade&&cookie.hostOnly===false?{domain:cookie.domain}:{}),
     ...(cookie.sameSite?{sameSite:cookie.sameSite}:{}),...(cookie.session===false?{expirationDate:cookie.expirationDate}:{})};
 }
+function checkedAuthCookies(values,origin,local){
+  if(!Array.isArray(values))throw failure();
+  const cookies=values.filter(value=>authCookie(value,origin,local));
+  if(cookies.length>16||!cookies.some(value=>/^[A-Za-z0-9_-]{1,120}_session$/.test(value.name)))throw failure();
+  return cookies;
+}
 async function installCookies(source,target,origin,local=false,{active=()=>true}={}){
   scope(origin,local);
   const bounded=async(work,external=true)=>{
@@ -78,8 +87,7 @@ async function installCookies(source,target,origin,local=false,{active=()=>true}
   };
   let incoming,previous,names;
   await bounded(async check=>{
-    check();incoming=(await source.cookies.get({url:origin+'/admin/dashboard'})).filter(value=>authCookie(value,origin,local));check();
-    if(incoming.length>16||!incoming.some(value=>/^[A-Za-z0-9_-]{1,120}_session$/.test(value.name)))throw failure();
+    check();incoming=checkedAuthCookies(await source.cookies.get({url:origin+'/admin/dashboard'}),origin,local);check();
     previous=(await target.cookies.get({url:origin+'/admin/dashboard'})).filter(value=>authCookie(value,origin,local));check();
     if(previous.length>16)throw failure();names=new Set([...incoming,...previous].map(value=>value.name));
   });
@@ -100,6 +108,7 @@ function authRequest(browser,origin,url,options={},readOnly=false){
   if(process.versions.electron){
     return nativeAuthHTML({browser,origin,url,...options,readOnly,
       allowRedirects:new URL(url).pathname!=='/admin/login'||String(options.method||'GET').toUpperCase()==='POST',
+      surfaceRedirects:true,
       requestFactory:configuration=>require('electron').net.request(configuration)});
   }
   // Node contract fixtures use standard fetch's actual manual responses.
@@ -121,16 +130,19 @@ async function originalSignin({browser,origin,localToken='',email,password,remem
     let response;try{response=await fetch(origin+'/admin/signin',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-CSRF-TOKEN':csrf,Referer:origin+'/admin/login',Origin:origin},body:body.toString()});}
     finally{body.set('password','');}
     let next=response;
-    for(let redirects=0;[301,302,303].includes(next.status)&&redirects<4;redirects++){
+    if([301,302,303].includes(next.status)){
       const location=next.headers.get('location');await discard(next);
       const url=new URL(location||'',origin);
       if(url.origin===origin&&url.pathname==='/admin/login'&&!url.search&&!url.hash)throw denied();
       if(url.origin!==origin||url.username||url.password||!homes.has(url.pathname)||url.search||url.hash)throw failure();
-      next=await fetch(url.href);
+      // The original successful password POST and its exact role-home redirect
+      // remain mandatory. Read its protected identity document once; the visible
+      // dashboard, rather than this hidden client, renders the expensive home.
+      next=await fetch(origin+identityPath);
     }
     if(next.status!==200){await discard(next);throw [401,422].includes(next.status)?denied():failure();}
     const finalURL=next.url?new URL(next.url):null;
-    if(finalURL&&(finalURL.origin!==origin||!homes.has(finalURL.pathname))){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
+    if(finalURL&&(finalURL.origin!==origin||finalURL.pathname!==identityPath||finalURL.search||finalURL.hash)){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
     const html=await boundedHTML(next);
     try{return actorFromHTML(html);}
     catch(error){
@@ -144,8 +156,8 @@ async function originalSignin({browser,origin,localToken='',email,password,remem
 }
 
 class AccountLogin{
-  constructor({profiles,createRuntime,createSession,serverOrigin,stopped=()=>false,onState=()=>{}}){
-    scope(serverOrigin);Object.assign(this,{profiles,createRuntime,createSession,serverOrigin,stopped,onState});
+  constructor({profiles,createRuntime,createSession,serverOrigin,stopped=()=>false,onState=()=>{},online=()=>true}){
+    scope(serverOrigin);Object.assign(this,{profiles,createRuntime,createSession,serverOrigin,stopped,onState,online});
     this.runtimes=new Map();this.runtimeTasks=new Map();this.sessions=new Set();this.controllers=new Set();this.running=null;this.cancelled=false;this.sequence=0;this.passiveBoot=null;this.passiveRetirement=null;
   }
   assert(){if(this.cancelled||this.stopped())throw aborted();}
@@ -191,15 +203,55 @@ class AccountLogin{
     }
     return account;
   }
-  async fresh(work){
+  async fresh(work,{signal:externalSignal,deadlineAt}={}){
     this.assert();const browser=this.createSession('go-erp-account-auth-'+crypto.randomUUID());this.sessions.add(browser);
     const controller=new AbortController();this.controllers.add(controller);
-    const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(120000)]);
+    const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(120000),...(externalSignal?[externalSignal]:[])]);
     try{return await work(browser,signal);}finally{
       controller.abort();this.controllers.delete(controller);
-      try{await withDeadline(()=>browser.clearStorageData?.(),5000,'تعذر إغلاق جلسة الدخول المؤقتة.');}catch{}
+      const cleanupBudget=deadlineAt===undefined?5000:Math.max(0,Math.min(5000,deadlineAt-Date.now()));
+      try{await withDeadline(()=>browser.clearStorageData?.(),cleanupBudget,'تعذر إغلاق جلسة الدخول المؤقتة.');}catch{}
       this.sessions.delete(browser);
     }
+  }
+  async serverCookieSnapshot(browser,actor,origin,{timeoutMs=5000,check=()=>this.assert()}={}){
+    scope(origin);check();
+    if(!Number.isSafeInteger(actor?.actorId)||actor.actorId<1||!roles.has(actor.role))throw failure();
+    const received=await withDeadline(()=>browser.cookies.get({url:origin+identityPath}),timeoutMs,'تعذر تأكيد جلسة السيرفر.');
+    check();const cookies=checkedAuthCookies(received,origin,false);
+    return {origin,actor:{actorId:actor.actorId,role:actor.role},cookies:structuredClone(cookies)};
+  }
+  async optionalServerSession(credentials,connection,{signal,onFatal=()=>{}}={}){
+    const deadlineAt=Date.now()+5000,controller=new AbortController();let expired=false,outcome;
+    const expiry=()=>Object.assign(Error('انتهت مهلة تحديث جلسة السيرفر الاختيارية.'),{code:'ACCOUNT_OPTIONAL_SERVER_TIMEOUT'});
+    const timer=setTimeout(()=>{expired=true;controller.abort();},5000);
+    const ownTimeout=error=>expired&&['ACCOUNT_OPTIONAL_SERVER_TIMEOUT','ACCOUNT_LOGIN_CANCELLED','NATIVE_OPERATION_TIMEOUT'].includes(error?.code);
+    try{
+      const result=await this.fresh(async(browser,requestSignal)=>{
+        try{
+          const actor=await originalSignin({browser,origin:connection.serverOrigin,...credentials,signal:requestSignal});this.assert();
+          if(actor.actorId!==connection.actorId)throw failure();
+          if(expired||requestSignal.aborted)throw expiry();
+          const remaining=deadlineAt-Date.now();if(remaining<=0){expired=true;throw expiry();}
+          const snapshot=await this.serverCookieSnapshot(browser,actor,connection.serverOrigin,{timeoutMs:remaining,check:()=>{
+            this.assert();if(expired||requestSignal.aborted)throw expiry();
+          }});
+          outcome={result:snapshot};
+          return outcome.result;
+        }catch(error){
+          // Record the actual authentication outcome before private cleanup.
+          // A later cleanup/deadline race cannot turn a refusal into offline success.
+          outcome={error};
+          if(!networkFailure(error)&&!ownTimeout(error))onFatal(error);
+          throw error;
+        }
+      },{signal:AbortSignal.any([controller.signal,...(signal?[signal]:[])]),deadlineAt});
+      this.assert();return result;
+    }catch(error){
+      this.assert();const actual=outcome?.error||error;
+      if(networkFailure(actual)||ownTimeout(actual))return null;
+      throw actual;
+    }finally{clearTimeout(timer);controller.abort();}
   }
   async authenticate(input){
     if(this.running)throw Error('جارٍ تسجيل الدخول بالفعل.');
@@ -217,32 +269,64 @@ class AccountLogin{
       .finally(()=>{credentials.password='';this.running=null;});
     return this.running;
   }
-  async localLogin(account,credentials){
+  async localLogin(account,credentials,serverProof=null){
     this.assert();const runtime=await this.runtime(account);
     if(!(await runtime.isPrepared()))return null;
     const connection=await runtime.connection();
     if(connection.actorId!==account.actorId||connection.serverOrigin!==account.serverOrigin)throw failure();
-    this.assert();this.report('starting');const local=await runtime.start();this.assert();this.report('authenticating');
-    return this.fresh(async(browser,signal)=>{
-      const actor=await originalSignin({browser,origin:local.origin,localToken:local.token,...credentials,signal});this.assert();
-      if(actor.actorId!==connection.actorId)throw failure();
-      const commit=async serverBrowser=>{
-        if(this.remembering)await this.remembering.catch(()=>{});this.assert();
-        const target=this.createSession(account.partition),undo=[];
+    if(serverProof&&(serverProof.origin!==connection.serverOrigin||serverProof.actor.actorId!==connection.actorId))throw failure();
+    const required=await this.needsRemote(runtime),join=new AbortController();let sideError,optional;
+    if(!required&&!serverProof&&this.online()!==false)optional=this.optionalServerSession(credentials,connection,{signal:join.signal,onFatal:error=>{
+      sideError=error;join.abort();try{runtime.cancelStartup?.();}catch{}
+    }}).then(result=>({result}),error=>({error}));
+    try{
+      this.assert();this.report('starting');
+      const local=await runtime.start();this.assert();if(sideError)throw sideError;this.report('authenticating');
+      return await this.fresh(async(browser,signal)=>{
+        const actor=await originalSignin({browser,origin:local.origin,localToken:local.token,...credentials,signal});this.assert();
+        if(actor.actorId!==connection.actorId)throw failure();
+        const commit=async serverBrowser=>{
+          if(this.remembering)await this.remembering.catch(()=>{});this.assert();
+          const target=this.createSession(account.partition),undo=[];
+          try{
+            undo.push(await installCookies(browser,target,local.origin,true,{active:()=>!this.cancelled&&!this.stopped()}));
+            if(serverBrowser)undo.push(await installCookies(serverBrowser,target,connection.serverOrigin,false,{active:()=>!this.cancelled&&!this.stopped()}));
+            await this.profiles.rememberLogin(account.id,{actorId:actor.actorId,serverOrigin:connection.serverOrigin},credentials.email);
+            this.assert();await this.profiles.select(account.id);
+          }catch(error){for(const rollback of undo.reverse())await rollback();throw error;}
+          return {account,runtime,local:!serverBrowser,origin:serverBrowser?connection.serverOrigin:local.origin,localToken:serverBrowser?'':local.token};
+        };
+        const commitProof=async snapshot=>{
+          this.assert();
+          if(snapshot.origin!==connection.serverOrigin||snapshot.actor.actorId!==actor.actorId||snapshot.actor.role!==actor.role)throw failure();
+          const serverBrowser={cookies:{get:async()=>structuredClone(snapshot.cookies)}};
+          const result=await commit(serverBrowser);
+          return required?result:{...result,local:true,origin:local.origin,localToken:local.token};
+        };
+        // A successful outer HTTPS sign-in already owns a fresh proof. Reuse
+        // it for a prepared actor rather than posting the same password twice.
+        if(serverProof)return commitProof(serverProof);
+        if(required)return this.fresh(async(serverBrowser,serverSignal)=>{
+          const serverActor=await originalSignin({browser:serverBrowser,origin:connection.serverOrigin,...credentials,signal:serverSignal});
+          this.assert();if(serverActor.actorId!==actor.actorId||serverActor.role!==actor.role)throw failure();return commit(serverBrowser);
+        });
+        const received=optional?await optional:null;
+        if(received?.error)throw received.error;
+        const snapshot=received?.result;
         try{
-          undo.push(await installCookies(browser,target,local.origin,true,{active:()=>!this.cancelled&&!this.stopped()}));
-          if(serverBrowser)undo.push(await installCookies(serverBrowser,target,connection.serverOrigin,false,{active:()=>!this.cancelled&&!this.stopped()}));
-          await this.profiles.rememberLogin(account.id,{actorId:actor.actorId,serverOrigin:connection.serverOrigin},credentials.email);
-          this.assert();await this.profiles.select(account.id);
-        }catch(error){for(const rollback of undo.reverse())await rollback();throw error;}
-        return {account,runtime,local:!serverBrowser,origin:serverBrowser?connection.serverOrigin:local.origin,localToken:serverBrowser?'':local.token};
-      };
-      if(await this.needsRemote(runtime))return this.fresh(async(serverBrowser,serverSignal)=>{
-        const serverActor=await originalSignin({browser:serverBrowser,origin:connection.serverOrigin,...credentials,signal:serverSignal});
-        this.assert();if(serverActor.actorId!==actor.actorId)throw failure();return commit(serverBrowser);
-      });
-      return commit(null);
-    });
+          // Both original password authentications settle before persistent
+          // cookies change. Refreshing HTTPS cookies never selects central ERP.
+          return snapshot?await commitProof(snapshot):await commit(null);
+        }finally{if(snapshot)snapshot.cookies.length=0;}
+      },{signal:join.signal});
+    }catch(error){
+      const actual=sideError||error;join.abort();
+      if(optional){const received=await optional;if(received.result)received.result.cookies.length=0;}
+      try{runtime.cancelStartup?.();await runtime.stop();}
+      catch{throw restartRequired();}
+      if(this.runtimes.get(account.id)===runtime){this.runtimes.delete(account.id);this.runtimeTasks.delete(account.id);}
+      throw actual;
+    }finally{join.abort();}
   }
   async needsRemote(runtime){
     const remote=await runtime.metadata.read('remote-writes'),central=await runtime.metadata.read('central-mode');
@@ -270,7 +354,11 @@ class AccountLogin{
       const actor=await originalSignin({browser,origin:this.serverOrigin,...credentials,signal});this.assert();
       await this.selectedAccount();this.assert();
       let account=await this.profiles.forActor(actor.actorId,this.serverOrigin);this.assert();
-      if(account){const result=await this.localLogin(account,credentials);if(result)return result;}
+      if(account){
+        const proof=await this.serverCookieSnapshot(browser,actor,this.serverOrigin);
+        try{const result=await this.localLogin(account,credentials,proof);if(result)return result;}
+        finally{proof.cookies.length=0;}
+      }
       else{account=await this.profiles.create();this.assert();await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);this.assert();}
       if(this.remembering)await this.remembering.catch(()=>{});this.assert();
       const target=this.createSession(account.partition),undo=await installCookies(browser,target,this.serverOrigin,false,{active:()=>!this.cancelled&&!this.stopped()});
@@ -319,7 +407,7 @@ class AccountLogin{
       const readController=new AbortController();
       try{
         const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',signal:AbortSignal.any([readController.signal,signal,AbortSignal.timeout(45000)])};
-        let response=await authRequest(browser,destination,destination+'/admin/dashboard',options,true);this.assert();
+        let response=await authRequest(browser,destination,destination+identityPath,options,true);this.assert();
         for(let redirects=0;[301,302,303].includes(response.status)&&redirects<4;redirects++){
           const next=new URL(response.headers.get('location')||'',destination);await discard(response);
           if(next.origin!==destination||!homes.has(next.pathname)||next.search||next.hash)return null;

@@ -7,6 +7,7 @@ on:
       - 'desktop-pos/src/**'
       - 'desktop-pos/test/account-*.cjs'
       - 'desktop-pos/package*.json'
+      - '.github/scripts/verify-account-login-native.cjs'
       - '.github/workflows/desktop-account-profiles-native.yml'
   pull_request:
     paths:
@@ -14,6 +15,7 @@ on:
       - 'desktop-pos/src/main.cjs'
       - 'desktop-pos/src/dashboard*'
       - 'desktop-pos/test/account-*.cjs'
+      - '.github/scripts/verify-account-login-native.cjs'
       - '.github/workflows/desktop-account-profiles-native.yml'
   workflow_dispatch:
 
@@ -45,7 +47,7 @@ jobs:
       - name: Verify profile, picker and transition contracts
         shell: pwsh
         run: |
-          node --test desktop-pos/test/account-profiles.test.cjs desktop-pos/test/account-switch.test.cjs desktop-pos/test/account-picker.test.cjs desktop-pos/test/account-picker-renderer.test.cjs
+          node --test desktop-pos/test/account-profiles.test.cjs desktop-pos/test/account-switch.test.cjs desktop-pos/test/account-picker.test.cjs desktop-pos/test/account-picker-renderer.test.cjs desktop-pos/test/account-login-proof.test.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Native account contracts failed.' }
       - name: Install pinned Electron acceptance dependencies
         shell: pwsh
@@ -76,18 +78,8 @@ jobs:
         run: |
           node desktop-pos/test/run-electron-native.cjs desktop-pos/test/account-login-window-native.cjs desktop-pos/dist/account-login-window-native.json
           if ($LASTEXITCODE -ne 0) { throw 'The actual ordinary login window or original Session client failed.' }
-          $proof = Get-Content desktop-pos/dist/account-login-window-native.json -Raw | ConvertFrom-Json
-          if ($proof.sourceRevision -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32') { throw 'The login proof belongs to another source or platform.' }
-          foreach ($field in @('actualElectron','actualBrowserWindow','actualPreload','actualIpc','sandbox','trustedFile','singleOrdinaryForm','passwordClearedBeforeAuthenticationSettles','passwordNeverPersisted','rendererReceivesOnlyBoundedEnvelope','fullResultStaysInMain','formRetainedDisabledUntilHandoff','actualNativeCloseCancels','actualOriginalSessionAuthClient','actualSessionCookieJar','originalCsrfHeadersObserved','guardedRedirectCookiesPreserved','actualClientRequestManualAdmission','authOnlyRedirectAdmission','foreignRedirectNotTransmitted','repeatedPostRedirectBlocked','editingPreventsRememberedOverride','actualCookieHandoff','wrongPasswordRejected','actualRememberedSessionClient','rememberedRoleRedirectAccepted','rememberedWithoutPasswordPost','naturalQuit','completed')) {
-            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "The actual login proof is missing $field." }
-          }
-          foreach ($field in @('actualPhpAuthorization','actualProductionMain','productionProfile','hardware','forcedSuccessExit')) {
-            if ($proof.$field -isnot [bool] -or $proof.$field -ne $false) { throw "The login proof scope differs: $field." }
-          }
-          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
-            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'An ordinary login source binding changed.' }
-          }
-          if ($proof.capture.sha256 -cne (Get-FileHash desktop-pos/dist/account-login-window-native-login.png -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'The login image differs from its native receipt.' }
+          node .github/scripts/verify-account-login-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The actual native login, small identity or prepared HTTPS receipt is incomplete or changed.' }
       - name: Retain source-bound native receipts and picker captures
         if: always()
         uses: actions/upload-artifact@v4

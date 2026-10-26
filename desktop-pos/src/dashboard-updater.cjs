@@ -125,21 +125,22 @@ class DashboardUpdater {
     this.running = task; return task;
   }
   ensure(signal, epoch) { aborted(signal); if (epoch !== this.epoch) throw Error('تم إيقاف تحديث البرنامج.'); }
-  async authorizeInstalled(installed) {
-    if (!this.active || !revision(installed?.sourceRevision) || !fingerprint(installed?.sourceFingerprint)) return false;
+  async authorizeInstalled(installed, { signal: externalSignal } = {}) {
+    if (!this.active || externalSignal?.aborted || !revision(installed?.sourceRevision) || !fingerprint(installed?.sourceFingerprint)) return false;
     const epoch = this.epoch, controller = new AbortController(); this.authorizations.add(controller);
     try {
-      const binding = credentialBinding(await this.credential()); this.ensure(controller.signal, epoch);
-      const manifest = await this.manifest(binding, controller.signal); this.ensure(controller.signal, epoch);
+      const signal = externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal;
+      const binding = credentialBinding(await this.credential()); this.ensure(signal, epoch);
+      const manifest = await this.manifest(binding, signal); this.ensure(signal, epoch);
       if (manifest.state !== 'ready') return false;
-      await this.highwater(binding, manifest); this.ensure(controller.signal, epoch);
+      await this.highwater(binding, manifest); this.ensure(signal, epoch);
       const installedVersion = typeof this.currentVersion === 'function' ? await this.currentVersion() : this.currentVersion;
       const installedRevision = typeof this.currentRevision === 'function' ? await this.currentRevision() : this.currentRevision;
       if (!revision(installedRevision) || manifest.release.source_revision !== installed.sourceRevision
         || installed.sourceRevision !== installedRevision || manifest.release.version !== installedVersion
         || !source.same(manifest.release.source, installed.sourceFingerprint)) return false;
       if (canonical(credentialBinding(await this.credential())) !== canonical(binding)) return false;
-      this.ensure(controller.signal, epoch);
+      this.ensure(signal, epoch);
       return this.active === true;
     } catch { return false; }
     finally { this.authorizations.delete(controller); }

@@ -24,6 +24,25 @@ test('native ClientRequest holds each redirect until exact manual approval and r
   assert.equal(f.calls[0].request.follows,1);assert.equal(result.url,origin+'/admin/dashboard');assert.equal(result.status,200);
   assert.match(await result.text(),/42:admin/);
 });
+test('native authentication can surface an admitted password redirect without transmitting its heavy home',async()=>{
+  const f=factory(request=>request.emit('redirect',302,'GET',origin+'/admin/dashboard',{}));
+  const result=await nativeAuthHTML({...f,browser:{},origin,url:origin+'/admin/signin',method:'POST',body:'original-form-body',surfaceRedirects:true});
+  assert.equal(result.status,302);assert.equal(result.url,origin+'/admin/signin');
+  assert.equal(result.headers.get('Location'),origin+'/admin/dashboard');assert.equal(await result.text(),'');
+  assert.equal(f.calls[0].request.follows,0);assert.equal(f.calls[0].request.aborts,1);
+  const identity=factory();assert.equal((await nativeAuthHTML({...identity,browser:{},origin,url:origin+'/admin/choose_type',readOnly:true,surfaceRedirects:true})).status,200);
+});
+test('surfacing redirects preserves foreign, credential replay and cancelled-request rejection',async()=>{
+  for(const [status,method,target] of [[302,'GET','https://foreign.example.test/collect'],[302,'GET',origin+'/admin/choose_type?actor=1'],
+    [307,'POST',origin+'/admin/signin'],[308,'POST',origin+'/admin/signin']]){
+    const f=factory(request=>request.emit('redirect',status,method,target,{}));
+    await assert.rejects(nativeAuthHTML({...f,browser:{},origin,url:origin+'/admin/signin',method:'POST',body:'original-form-body',surfaceRedirects:true}),error=>error.code==='ACCOUNT_AUTH_REDIRECT_REJECTED');
+    assert.equal(f.calls[0].request.follows,0);assert.equal(f.calls[0].request.aborts,1);
+  }
+  const controller=new AbortController(),f=factory(request=>{controller.abort();request.emit('redirect',302,'GET',origin+'/admin/dashboard',{});});
+  await assert.rejects(nativeAuthHTML({...f,browser:{},origin,url:origin+'/admin/signin',method:'POST',body:'original-form-body',surfaceRedirects:true,signal:controller.signal}),error=>error.code==='ACCOUNT_LOGIN_CANCELLED');
+  assert.equal(f.calls[0].request.follows,0);
+});
 test('closing the native Writable upload does not discard a still arriving HTTP response',async()=>{
   const f=factory((request,response)=>{request.emit('close');response();});
   const result=await nativeAuthHTML({...f,browser:{},origin,url:origin+'/admin/login'});

@@ -6,19 +6,24 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),cryp
 const {execFileSync}=require('node:child_process');
 const createLoginWindow=require('../src/login-window.cjs');
 const {AccountLogin,originalSignin,installCookies,recaller}=require('../src/account-login.cjs');
+const {DashboardLiveSocial}=require('../src/dashboard-live-social.cjs');
 assert.equal(process.platform,'win32');assert.equal(process.type,'browser');assert.equal(process.argv.length,3);
 const repository=path.resolve(__dirname,'../..'),receiptFile=path.resolve(process.argv[2]);
 const locked=JSON.parse(fs.readFileSync(path.join(repository,'desktop-pos/package-lock.json'),'utf8'));
 assert.equal(process.versions.electron,locked.packages['node_modules/electron'].version);
 const sourceRevision=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim();
 assert.match(sourceRevision,/^[a-f0-9]{40}$/);
-const sourceFiles=['desktop-pos/src/native-auth-http.cjs','desktop-pos/src/account-login.cjs','desktop-pos/src/account-signout.cjs','desktop-pos/src/native-deadline.cjs','desktop-pos/src/login-window.cjs','desktop-pos/src/login-preload.cjs','desktop-pos/src/login.js',
+const sourceFiles=['desktop-pos/src/native-auth-http.cjs','desktop-pos/src/account-login.cjs','desktop-pos/src/account-signout.cjs','desktop-pos/src/dashboard-live-social.cjs','desktop-pos/src/native-deadline.cjs','desktop-pos/src/login-window.cjs','desktop-pos/src/login-preload.cjs','desktop-pos/src/login.js',
   'desktop-pos/src/login.html','desktop-pos/src/login.css','desktop-pos/src/assets/go-erp.svg',
-  'desktop-pos/test/account-login-window-native.cjs','desktop-pos/test/run-electron-native.cjs'];
+  'desktop-pos/test/account-login-window-native.cjs','desktop-pos/test/run-electron-native.cjs',
+  'desktop-pos/test/fixtures/connected-loopback-cert.pem','desktop-pos/test/fixtures/connected-loopback-key.pem'];
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(path.join(repository,file))).digest('hex');
 const sourceHashes=Object.fromEntries(sourceFiles.map(file=>[file,sha(file)]));
 const root=fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()),'go-erp-login-ui-'));
 app.setPath('userData',path.join(root,'chromium-profile'));app.disableHardwareAcceleration();
+// The two real fixture origins need different cookie hosts. Keep localhost's
+// HTTPS socket on the explicitly bound IPv4 loopback, independent of CI DNS.
+app.commandLine.appendSwitch('host-resolver-rules','MAP localhost 127.0.0.1');
 app.on('window-all-closed',()=>{}); // The fixture has three sequential UI phases.
 let failed=false,complete=false,quitting=false,proof,active,authServer,foreignServer;
 const deadline=setTimeout(()=>{failed=true;process.stderr.write('Actual login UI exceeded its native deadline.\n');app.exit(1);},60000);
@@ -39,8 +44,9 @@ function broker(){
   return value;
 }
 async function actualOriginalSessionClient(){
-  const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,foreignOrigin,serverFailure,foreignWire=0,repeatedPosts=0,rememberedMode=false,rememberedRedirects=0,rememberedHomes=0;
-  const requests={logins:0,signins:0,dashboards:0};
+  const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,foreignOrigin,serverFailure,foreignWire=0,repeatedPosts=0,rememberedMode=false,rememberedRedirects=0,rememberedHomes=0,lateIdentity;
+  let identityStarted;const delayedIdentity=new Promise(resolve=>{identityStarted=resolve;});
+  const requests={logins:0,signins:0,identities:0,dashboards:0};
   const originalNetRequest=net.request;let manualRequests=0,manualRedirects=0,rememberedManualRequests=0,rememberedManualRedirects=0;
   net.request=function(options,...args){
     const request=originalNetRequest.call(net,options,...args);
@@ -67,11 +73,12 @@ async function actualOriginalSessionClient(){
         const input=new URLSearchParams(Buffer.concat(chunks).toString());assert.equal(input.get('_token'),csrf);assert.equal(input.get('email'),'native.owner@example.test');
         if(input.get('password')==='foreign-redirect-only'){response.writeHead(302,{Location:foreignOrigin+'/collect'});response.end();return;}
         if(input.get('password')==='repeat-post-redirect-only'){repeatedPosts++;response.writeHead(307,{Location:origin+'/admin/signin'});response.end();return;}
-        if(input.get('password')!==password){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
-        response.setHeader('Set-Cookie','native_session=synthetic-authenticated-session; Path=/; HttpOnly; SameSite=Lax');
+        const variants={'guest-proof-only':'synthetic-guest-proof','invalid-actor-proof-only':'synthetic-invalid-actor','cancelled-before-identity-only':'synthetic-delayed-identity'};
+        if(input.get('password')!==password&&!variants[input.get('password')]){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
+        response.setHeader('Set-Cookie','native_session='+(variants[input.get('password')]||'synthetic-authenticated-session')+'; Path=/; HttpOnly; SameSite=Lax');
         response.writeHead(302,{Location:origin+'/admin/dashboard'});response.end();return;
       }
-      if(rememberedMode&&request.method==='GET'&&request.url==='/admin/dashboard'){
+      if(rememberedMode&&request.method==='GET'&&request.url==='/admin/choose_type'){
         assert.ok(String(request.headers.cookie).includes(recaller+'=synthetic-native-recaller'));rememberedRedirects++;
         response.setHeader('Set-Cookie','native_session=synthetic-authenticated-session; Path=/; HttpOnly; SameSite=Lax');
         response.writeHead(302,{Location:origin+'/admin/applies-orders'});response.end();return;
@@ -79,6 +86,14 @@ async function actualOriginalSessionClient(){
       if(rememberedMode&&request.method==='GET'&&request.url==='/admin/applies-orders'){
         assert.ok(String(request.headers.cookie).includes('native_session=synthetic-authenticated-session'));rememberedHomes++;
         response.end('<body data-dashboard-actor="42:resturant_owner">Remembered branch role fixture</body>');return;
+      }
+      if(request.method==='GET'&&request.url==='/admin/choose_type'){
+        requests.identities++;
+        if(request.headers.cookie==='native_session=synthetic-guest-proof'){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
+        if(request.headers.cookie==='native_session=synthetic-invalid-actor'){response.end('<body data-dashboard-actor="42:admin" data-dashboard-actor="43:admin">Invalid original identity fixture</body>');return;}
+        if(request.headers.cookie==='native_session=synthetic-delayed-identity'){lateIdentity=response;identityStarted();return;}
+        assert.equal(request.headers.cookie,'native_session=synthetic-authenticated-session');
+        response.end('<body data-dashboard-actor="42:admin">Small original authenticated identity fixture</body>');return;
       }
       assert.equal(request.method,'GET');assert.equal(request.url,'/admin/dashboard');requests.dashboards++;
       assert.equal(request.headers.cookie,'native_session=synthetic-authenticated-session');response.end('<body data-dashboard-actor="42:admin">Original client authenticated fixture</body>');
@@ -89,15 +104,24 @@ async function actualOriginalSessionClient(){
     const browser=session.fromPartition('native-auth-client-'+crypto.randomUUID()),target=session.fromPartition('native-auth-target-'+crypto.randomUUID());
     const actor=await originalSignin({browser,origin,localToken:token,email:'native.owner@example.test',password,remember:false,signal:AbortSignal.timeout(10000)});
     assert.deepEqual(actor,{actorId:42,role:'admin'});assert.equal(serverFailure,undefined);
+    assert.deepEqual(requests,{logins:1,signins:1,identities:1,dashboards:0},'Native password authentication must not render the heavy dashboard.');
     await installCookies(browser,target,origin,true);
     const home=await target.fetch(origin+'/admin/dashboard',{credentials:'include',redirect:'error',headers:{'X-Fasakhansta-Desktop':token}});
     assert.equal(home.status,200);assert.match(await home.text(),/data-dashboard-actor="42:admin"/);
     await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-rejected-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:'wrong-synthetic-only',remember:false,signal:AbortSignal.timeout(10000)}),error=>error.code==='ACCOUNT_CREDENTIALS_REJECTED');
-    assert.equal(serverFailure,undefined);assert.deepEqual(requests,{logins:3,signins:2,dashboards:2});
+    assert.equal(serverFailure,undefined);assert.deepEqual(requests,{logins:2,signins:2,identities:1,dashboards:1});
     for(const candidate of ['foreign-redirect-only','repeat-post-redirect-only']){
       await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-blocked-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:candidate,remember:false,signal:AbortSignal.timeout(10000)}));
     }
-    assert.equal(serverFailure,undefined);assert.equal(foreignWire,0);assert.equal(repeatedPosts,1);assert.deepEqual(requests,{logins:5,signins:4,dashboards:2});
+    assert.equal(serverFailure,undefined);assert.equal(foreignWire,0);assert.equal(repeatedPosts,1);assert.deepEqual(requests,{logins:4,signins:4,identities:1,dashboards:1});
+    for(const candidate of ['guest-proof-only','invalid-actor-proof-only']){
+      await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-untrusted-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:candidate,remember:false,signal:AbortSignal.timeout(10000)}));
+    }
+    const cancellation=new AbortController(),cancelledSignin=originalSignin({browser:session.fromPartition('native-auth-cancelled-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:'cancelled-before-identity-only',remember:false,signal:cancellation.signal});
+    const cancelledCheck=assert.rejects(cancelledSignin,error=>error.code==='ACCOUNT_LOGIN_CANCELLED');
+    await delayedIdentity;cancellation.abort();await cancelledCheck;lateIdentity.end('<body data-dashboard-actor="42:admin">A cancelled identity may not finish authentication.</body>');
+    assert.equal(serverFailure,undefined);assert.equal(requests.dashboards,1,'Rejected or cancelled identity reads cannot render the heavy home.');
+    assert.equal((await target.cookies.get({url:origin+'/'})).find(cookie=>cookie.name==='native_session')?.value,'synthetic-authenticated-session','A rejected or late identity cannot overwrite the accepted account session.');
     await target.cookies.remove(origin+'/','native_session');
     await target.cookies.set({url:origin+'/',name:recaller,value:'synthetic-native-recaller',path:'/',httpOnly:true,secure:false,expirationDate:Date.now()/1000+3600});
     await target.cookies.flushStore();rememberedMode=true;
@@ -110,15 +134,116 @@ async function actualOriginalSessionClient(){
     const remembered=await rememberedBroker.resumeRemembered();
     assert.ok(remembered,'An actual remembered role redirect must admit the already authenticated account.');
     assert.equal(remembered.account,account);assert.equal(remembered.runtime,runtime);assert.equal(remembered.origin,origin);assert.equal(remembered.localToken,token);assert.equal(remembered.local,true);
-    assert.equal(rememberedStarts,1);assert.equal(rememberedRedirects,1);assert.equal(rememberedHomes,1);assert.equal(requests.signins,4);assert.equal(serverFailure,undefined);
+    assert.equal(rememberedStarts,1);assert.equal(rememberedRedirects,1);assert.equal(rememberedHomes,1);assert.equal(requests.signins,7);assert.equal(serverFailure,undefined);
     const rememberedCookies=await target.cookies.get({url:origin+'/admin/dashboard'});
     assert.equal(rememberedCookies.find(value=>value.name==='native_session')?.value,'synthetic-authenticated-session');
     assert.equal(rememberedCookies.find(value=>value.name===recaller)?.value,'synthetic-native-recaller');
     await rememberedBroker.stop();assert.equal(rememberedStops,1);
     assert.ok(manualRequests>=9);assert.ok(manualRedirects>=5);assert.ok(rememberedManualRequests>=1);assert.ok(rememberedManualRedirects>=1);
     return {actualOriginalSessionAuthClient:true,actualSessionCookieJar:true,originalCsrfHeadersObserved:true,guardedRedirectCookiesPreserved:true,actualClientRequestManualAdmission:true,authOnlyRedirectAdmission:true,foreignRedirectNotTransmitted:true,repeatedPostRedirectBlocked:true,actualCookieHandoff:true,wrongPasswordRejected:true,
-      actualRememberedSessionClient:true,rememberedRoleRedirectAccepted:true,rememberedWithoutPasswordPost:true};
+      actualRememberedSessionClient:true,rememberedRoleRedirectAccepted:true,rememberedWithoutPasswordPost:true,
+      nativeIdentityDocument:true,nativePasswordSigninSkipsHome:true,nativeGuestIdentityRejected:true,nativeMalformedIdentityRejected:true,nativeIdentityCancellation:true,nativeRememberedIdentityRead:true};
   }catch(error){throw serverFailure||error;}finally{net.request=originalNetRequest;authServer.closeAllConnections?.();await new Promise(resolve=>authServer.close(resolve));authServer=null;foreignServer.closeAllConnections?.();await new Promise(resolve=>foreignServer.close(resolve));foreignServer=null;}
+}
+async function actualPreparedServerSession(){
+  const http=require('node:http'),https=require('node:https'),token='d'.repeat(64),csrf='e'.repeat(40),password='synthetic-prepared-owner-only';
+  const key=fs.readFileSync(path.join(__dirname,'fixtures/connected-loopback-key.pem')),cert=fs.readFileSync(path.join(__dirname,'fixtures/connected-loopback-cert.pem'));
+  const fingerprint=new crypto.X509Certificate(cert).fingerprint256,deviceId=crypto.randomUUID(),serverToken='c'.repeat(64);
+  let localOrigin,serverOrigin,failure,blocked=false,refused=false,lateReply,abortedReads=0,pins=0,social;
+  const requests={local:{logins:0,signins:0,identities:0,homes:0},server:{logins:0,signins:0,identities:0,homes:0,probes:0,social:0}};
+  const handler=kind=>(request,response)=>{(async()=>{
+    try{
+      const original=kind==='local'?localOrigin:serverOrigin,counters=requests[kind];
+      assert.equal(request.headers['x-fasakhansta-desktop'],kind==='local'?token:undefined);
+      response.setHeader('Cache-Control','private, no-store');response.setHeader('Content-Type','text/html; charset=utf-8');
+      const cookie=String(request.headers.cookie||'');
+      if(request.method==='GET'&&request.url==='/admin/login'){
+        counters.logins++;
+        if(kind==='server'&&blocked){lateReply=response;response.once('close',()=>{if(!response.writableEnded)abortedReads++;});return;}
+        response.setHeader('Set-Cookie','owner_session=before-signin; Path=/; HttpOnly; SameSite=Lax'+(kind==='server'?'; Secure':''));
+        response.end('<body><form method="POST" action="'+original+'/admin/signin" data-dashboard-login><input name="_token" value="'+csrf+'"></form></body>');return;
+      }
+      if(request.method==='POST'&&request.url==='/admin/signin'){
+        counters.signins++;assert.equal(cookie,'owner_session=before-signin');assert.equal(request.headers.origin,original);
+        const chunks=[];for await(const chunk of request)chunks.push(chunk);const fields=new URLSearchParams(Buffer.concat(chunks).toString());
+        assert.equal(fields.get('_token'),csrf);assert.equal(fields.get('email'),'prepared.owner@example.test');assert.equal(fields.get('password'),password);
+        if(kind==='server'&&refused){response.writeHead(302,{Location:original+'/admin/login'});response.end();return;}
+        const flags='; Path=/; HttpOnly; SameSite=Lax'+(kind==='server'?'; Secure':'');
+        response.setHeader('Set-Cookie',['owner_session='+kind+'-authenticated'+flags,...(fields.get('remember')==='1'?[recaller+'='+kind+'-remembered'+flags+'; Max-Age=3600']:[])]);
+        response.writeHead(302,{Location:original+'/admin/dashboard'});response.end();return;
+      }
+      if(request.method==='GET'&&request.url==='/admin/choose_type'){
+        counters.identities++;assert.ok(cookie.includes('owner_session='+kind+'-authenticated'));
+        response.end('<body data-dashboard-actor="42:admin">Original protected identity fixture</body>');return;
+      }
+      if(kind==='server'&&request.method==='GET'&&request.url==='/admin/desktop-dashboard/session'){
+        counters.probes++;assert.ok(cookie.includes('owner_session=server-authenticated'));assert.equal(request.headers.authorization,'Bearer '+serverToken);
+        response.setHeader('Content-Type','application/json');response.end(JSON.stringify({actor_id:42,device_id:deviceId,connected_request_protocol:1}));return;
+      }
+      if(kind==='server'&&request.method==='GET'&&request.url==='/admin/meta'){
+        counters.social++;assert.ok(cookie.includes('owner_session=server-authenticated'));
+        assert.equal(request.headers['x-fasakhansta-connected-device'],deviceId);assert.equal(request.headers['x-fasakhansta-connected-token'],serverToken);
+        response.end('<html><head><title>Isolated social fixture</title></head><body data-live-actor="42"><main class="content-wrapper">Same authenticated server actor</main></body></html>');return;
+      }
+      if(request.url==='/admin/dashboard')counters.homes++;
+      throw Error('Unexpected prepared native authentication route.');
+    }catch(error){failure=error;response.writeHead(500);response.end('Synthetic prepared authentication rejected its contract.');}
+  })();};
+  const localServer=http.createServer(handler('local')),remoteServer=https.createServer({key,cert},handler('server'));
+  await new Promise(resolve=>localServer.listen(0,'127.0.0.1',resolve));localOrigin='http://127.0.0.1:'+localServer.address().port;
+  await new Promise(resolve=>remoteServer.listen(0,'127.0.0.1',resolve));serverOrigin='https://localhost:'+remoteServer.address().port;
+  const browserSession=name=>{
+    const browser=session.fromPartition(name);browser.setCertificateVerifyProc((request,callback)=>{
+      let actual;try{actual=new crypto.X509Certificate(request.certificate.data).fingerprint256;}catch{}
+      const accepted=request.hostname==='localhost'&&actual===fingerprint;if(accepted)pins++;callback(accepted?0:-2);
+    });return browser;
+  };
+  const makeBroker=({online=true,heldBoot=false,known=true}={})=>{
+    const id=crypto.randomUUID(),account={id,actorId:42,serverOrigin,partition:'persist:native-prepared-'+id,profile:path.join(root,id)},metadata=new Map(),remembered=[];
+    let rejectBoot;const boot=heldBoot?new Promise((_,reject)=>{rejectBoot=reject;}):null;
+    const runtime={starts:0,stops:0,metadata:{read:async name=>metadata.get(name)??null,write:async(name,value)=>{metadata.set(name,value);}},isPrepared:async()=>true,
+      connection:async()=>({actorId:42,serverOrigin,deviceId,token:serverToken}),start:async()=>{runtime.starts++;if(boot)return boot;return {origin:localOrigin,token};},
+      cancelStartup(){runtime.cancelled=true;rejectBoot?.(Error('Read-only local boot cancelled after server refusal.'));},stop:async()=>{runtime.stops++;}};
+    const profiles={selected:async()=>account,account:async()=>account,findLogin:async()=>known?account:null,forActor:async actorId=>actorId===account.actorId?account:null,
+      rememberLogin:async(...value)=>{remembered.push(value);},select:async()=>account};
+    return {broker:new AccountLogin({profiles,createRuntime:()=>runtime,createSession:browserSession,serverOrigin,online:()=>online}),account,runtime,remembered};
+  };
+  const input={email:'prepared.owner@example.test',password,remember:true};
+  try{
+    const connected=makeBroker(),result=await connected.broker.authenticate(input),target=browserSession(connected.account.partition);
+    assert.equal(failure,undefined);assert.equal(result.local,true);assert.equal(result.origin,localOrigin);assert.equal(result.localToken,token);
+    assert.equal(requests.local.homes+requests.server.homes,0);assert.equal(requests.local.signins,1);assert.equal(requests.server.signins,1);
+    for(const [scope,kind]of[[localOrigin,'local'],[serverOrigin,'server']]){
+      const cookies=await target.cookies.get({url:scope+'/'}),current=cookies.find(cookie=>cookie.name==='owner_session'),remember=cookies.find(cookie=>cookie.name===recaller);
+      assert.equal(current?.value,kind+'-authenticated');assert.equal(current?.httpOnly,true);assert.equal(current?.secure,kind==='server');
+      assert.equal(remember?.value,kind+'-remembered');assert.equal(remember?.session,false);
+    }
+    social=new DashboardLiveSocial({runtime:connected.runtime,sourceSession:()=>target,createSession:browserSession,createWindow:options=>new BrowserWindow(options)});
+    assert.deepEqual(await social.open('messages'),{live:true,kind:'messages'});
+    assert.equal(await social.window.webContents.executeJavaScript('document.body.dataset.liveActor',true),'42');
+    assert.equal(requests.server.probes,1);assert.equal(requests.server.social,1);assert.ok(pins>0);
+    const context=social.context;social.close();await social.dispose(context);social=null;
+    await connected.broker.stop();assert.equal(connected.runtime.stops,1);
+    const serverBefore=JSON.stringify(requests.server),offline=makeBroker({online:false}),offlineResult=await offline.broker.authenticate(input);
+    assert.equal(offlineResult.local,true);assert.equal(JSON.stringify(requests.server),serverBefore);await offline.broker.stop();
+    const beforeReuse={local:requests.local.signins,server:requests.server.signins},unknown=makeBroker({known:false}),reused=await unknown.broker.authenticate(input);
+    assert.equal(reused.local,true);assert.equal(reused.origin,localOrigin);assert.equal(requests.local.signins-beforeReuse.local,1);assert.equal(requests.server.signins-beforeReuse.server,1);
+    assert.equal((await browserSession(unknown.account.partition).cookies.get({url:serverOrigin+'/'})).find(cookie=>cookie.name==='owner_session')?.value,'server-authenticated');
+    await unknown.broker.stop();
+    blocked=true;const deadline=makeBroker(),start=Date.now(),localResult=await deadline.broker.authenticate(input),isolated=browserSession(deadline.account.partition);
+    assert.equal(localResult.local,true);assert.ok(Date.now()-start<6500);assert.ok(lateReply);await waitFor(()=>abortedReads>0,'The optional native HTTPS read did not abort at its deadline.');
+    assert.equal((await isolated.cookies.get({url:serverOrigin+'/'})).length,0);
+    const postsBefore=requests.server.signins;lateReply.end('<body>Late private auth response must be discarded.</body>');await new Promise(resolve=>setTimeout(resolve,30));
+    assert.equal(requests.server.signins,postsBefore);assert.equal((await isolated.cookies.get({url:serverOrigin+'/'})).length,0);await deadline.broker.stop();
+    blocked=false;refused=true;const invalid=makeBroker({heldBoot:true});
+    await assert.rejects(invalid.broker.authenticate(input),error=>error.code==='ACCOUNT_CREDENTIALS_REJECTED');
+    assert.equal(invalid.runtime.cancelled,true);assert.equal(invalid.runtime.stops,1);assert.equal(invalid.remembered.length,0);await invalid.broker.stop();
+    assert.equal(failure,undefined);assert.equal(requests.local.homes+requests.server.homes,0);
+    return {preparedLocalKeepsMode:true,preparedLocalHasFreshServerSession:true,preparedSocialUsesSameActor:true,preparedOfflineHintSkipsServer:true,
+      preparedOptionalDeadlineDrained:true,preparedServerRefusalDrainsRuntime:true,preparedLoginHasNoLateCookieWrites:true,preparedServerProofReused:true};
+  }finally{
+    social?.close();for(const server of[localServer,remoteServer]){server.closeAllConnections?.();await new Promise(resolve=>server.close(resolve));}
+  }
 }
 app.once('will-quit',()=>{
   clearTimeout(deadline);if(failed)return;
@@ -132,6 +257,7 @@ app.once('will-quit',()=>{
 });
 app.whenReady().then(async()=>{
   const originalClient=await actualOriginalSessionClient();
+  const preparedClient=await actualPreparedServerSession();
   let releaseRemembered;const ordinary=broker();ordinary.resumeRemembered=()=>new Promise(resolve=>{releaseRemembered=resolve;});active=createLoginWindow({broker:ordinary,quitting:()=>quitting});
   const window=await actualWindow();
   assert.equal(window.isFullScreen(),true);
@@ -194,7 +320,7 @@ app.whenReady().then(async()=>{
   const cancelledWindow=await actualWindow(),cancelledResult=active.result;
   cancelledWindow.close();await assert.rejects(cancelledResult,error=>error.code==='ACCOUNT_LOGIN_CANCELLED');
   assert.equal(cancelled.cancels,1);assert.equal(quitRequests,1);assert.equal(cancelledWindow.isDestroyed(),true);assert.equal(cancelled.calls,0);
-  proof={format:1,kind:'go-erp-login-window-native',sourceRevision,sourceHashes,electronVersion:process.versions.electron,platform:process.platform,
+  proof={format:1,kind:'go-erp-login-window-native',sourceRevision,sourceHashes,electronVersion:process.versions.electron,platform:process.platform,...preparedClient,
     actualElectron:true,actualBrowserWindow:true,actualPreload:true,actualIpc:true,sandbox:true,trustedFile:true,
     singleOrdinaryForm:true,passwordClearedBeforeAuthenticationSettles:true,passwordNeverPersisted:true,rendererReceivesOnlyBoundedEnvelope:true,
     fullResultStaysInMain:true,formRetainedDisabledUntilHandoff:true,editingPreventsRememberedOverride:true,actualLoginFullscreenF12:true,fullscreenKeepsRememberedCheck:true,actualNativeCloseCancels:true,quitCallbackRequested:true,

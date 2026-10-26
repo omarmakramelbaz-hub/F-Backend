@@ -250,6 +250,8 @@ if(($argv[1]??null)==='--compact-vendor-authority-self-test'){
             for($attempt=0;$attempt<100;$attempt++){if($http('/_desktop/health')['status']===200)break;usleep(50000);}
             $check($http('/_desktop/health')['status']===200,'Original private PHP router did not become healthy.');
             $login=static function()use($http,$check): string{$page=$http('/admin/login');preg_match('/name="_token" value="([^"]+)"/',$page['body'],$csrf);$check($page['status']===200&&!empty($csrf[1])&&str_contains($page['body'],'dashboard-login-form'),'Original login/CSRF form did not render.');return html_entity_decode($csrf[1],ENT_QUOTES|ENT_HTML5,'UTF-8');};
+            $guestIdentity=$http('/admin/choose_type');
+            $check($guestIdentity['status']===302&&$guestIdentity['location']==='/admin/login','Guest accessed the protected lightweight identity document.');
             $csrf=$login();$check($http('/admin/signin',['_token'=>str_repeat('x',40),'email'=>$account['email'],'password'=>$account['password']])['status']===419,'Wrong CSRF token reached original signin.');
             $rejected=0;
             foreach($accounts as $foreignId=>$foreign){if($foreignId===$actorId)continue;
@@ -258,6 +260,9 @@ if(($argv[1]??null)==='--compact-vendor-authority-self-test'){
             }
             $csrf=$login();$reply=$http('/admin/signin',['_token'=>$csrf,'email'=>$account['email'],'password'=>$account['password']]);
             $check($reply['status']===302&&$reply['location']===$account['redirect'],'Original account-type signin redirect differs.');
+            $identityDocument=$http('/admin/choose_type');
+            preg_match_all('/<body\b[^>]*\bdata-dashboard-actor="([1-9][0-9]*):(admin|vendor|resturant_owner)"/i',$identityDocument['body'],$identityActors,PREG_SET_ORDER);
+            $check($identityDocument['status']===200&&count($identityActors)===1&&(int)$identityActors[0][1]===$actorId&&$identityActors[0][2]===$account['account_type']&&!str_contains($identityDocument['body'],'home-overview-bootstrap'),'Lightweight original identity document does not retain the authenticated actor without rendering the overview.');
             $again=$http('/admin/login');$check($again['status']===302&&$again['location']===$account['redirect'],'Original session did not retain the enrolled account.');
             $overview=$http('/admin/dashboard/overview');$data=json_decode($overview['body'],true,512,JSON_THROW_ON_ERROR);$httpBranches=array_column($data['branches']??[],'value');sort($httpBranches,SORT_STRING);
             $check($overview['status']===200&&($data['success']??false)===true&&$httpBranches===$account['branches'],'Original authenticated HTTP overview crossed account branches.');
@@ -265,7 +270,7 @@ if(($argv[1]??null)==='--compact-vendor-authority-self-test'){
             $check($credentials()===$credentialBefore,'Original local signin changed imported password or remember-token rows.');
             $check(DB::table('desktop_dashboard_commands')->count()===0,'Read/login proof created a business journal command.');
             $proofs[]=['actorId'=>$actorId,'label'=>$account['label'],'accountType'=>$account['account_type'],'branches'=>$httpBranches,'snapshotTables'=>106,
-                'originalLogin'=>true,'signinStatus'=>$reply['status'],'signinRedirect'=>$reply['location'],'wrongCsrfStatus'=>419,'foreignLoginsRejected'=>$rejected,
+                'originalLogin'=>true,'originalIdentityDocument'=>true,'guestIdentityRejected'=>true,'identitySkipsOverview'=>true,'signinStatus'=>$reply['status'],'signinRedirect'=>$reply['location'],'wrongCsrfStatus'=>419,'foreignLoginsRejected'=>$rejected,
                 'otherPasswordsMasked'=>true,'verifiedImport'=>true,'orderListHttpStatus'=>$permissionReply['status'],'credentialRowsUnchanged'=>true,'journalCommands'=>0];
         }
         config(['database.connections.mysql.database'=>$central,'desktop_dashboard.local'=>false,'desktop_dashboard.device_id'=>null]);DB::purge();

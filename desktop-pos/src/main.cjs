@@ -19,6 +19,8 @@ const {DashboardLiveSocial}=require('./dashboard-live-social.cjs');
 const {DashboardUpdater}=require('./dashboard-updater.cjs');
 const createUpdateInstall=require('./update-install.cjs');
 const RuntimeArchive=require('./runtime-archive.cjs');
+const {upgradeStartupSource}=require('./startup-source-upgrade.cjs');
+const {inspectStartupIdle}=require('./startup-source-idle.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const {withDeadline,printOnce}=require('./native-deadline.cjs');
 const LifecycleTrace=require('./lifecycle-trace.cjs');
@@ -107,16 +109,17 @@ async function dashboardMediaRequest(ticket) {
     return new Response(stream,{status:response.status,headers:response.headers});
   }catch(error){requests.delete(controller);throw error;}
 }
-async function dashboardDeltaRequest(index,credential) {
+async function dashboardDeltaRequest(index,credential,{signal}={}) {
   const input=JSON.stringify(index);
   if(Buffer.byteLength(input)>64*1024*1024)throw Error('فهرس تغييرات الجهاز أكبر من الحد المسموح؛ العمل المحلي مستمر.');
   const controller=new AbortController();requests.add(controller);
   try{
+    const requestSignal=AbortSignal.any([controller.signal,AbortSignal.timeout(128000),...(signal?[signal]:[])]);
     const response=await net.fetch(origin(credential.serverOrigin)+'/api/desktop-dashboard/delta',{
       method:'POST',headers:{Accept:'application/json','Content-Type':'application/octet-stream',Authorization:'Bearer '+credential.token},
-      body:input,redirect:'error',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(128000)])});
+      body:input,redirect:'error',signal:requestSignal});
     if(!response.ok){await response.body?.cancel().catch(()=>{});const error=Error('تعذر استقبال تغييرات السيرفر؛ العمل المحلي مستمر.');error.status=response.status;throw error;}
-    return await readSnapshot(response,256*1024*1024);
+    return await readSnapshot(response,256*1024*1024,{signal:requestSignal});
   }finally{requests.delete(controller);}
 }
 async function dashboardEnrollment(serverOrigin, input, csrf) {
@@ -139,7 +142,7 @@ async function dashboardState() {
     data_refresh:incomingDelta?.state||{phase:'idle'},sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
 }
 async function updateReady(insideTransition=false) {
-  if(quitting||installingUpdate||liveSocial?.busy()||incomingDelta?.running||!dashboardMode||syncSchedule.running||syncSchedule.waiting||generations?.running
+  if(!startupComplete||quitting||installingUpdate||liveSocial?.busy()||incomingDelta?.running||!dashboardMode||syncSchedule.running||syncSchedule.waiting||generations?.running
     ||shutdown.pending.size>(insideTransition?1:0)||(!insideTransition&&dashboardMode.accepted.size)
     ||!(await localRuntime.isPrepared())||!(await dashboard.canRefresh()))return false;
   const old=store.counts(),remote=await remoteState.read();
@@ -148,7 +151,7 @@ async function updateReady(insideTransition=false) {
   return local.counts.pending===0&&local.counts.conflicts===0;
 }
 function connectUpdater(profile) {
-  if(updater||!app.isPackaged||process.platform!=='win32'||!localRuntime)return;
+  if(quitting||updater||!app.isPackaged||process.platform!=='win32'||!localRuntime)return;
   const install=createUpdateInstall({profile});
   updater=new DashboardUpdater({profile,metadata:localRuntime.metadata,fetch:(...args)=>net.fetch(...args),
     credential:async()=>await localRuntime.isPrepared()?localRuntime.connection():null,
@@ -322,7 +325,7 @@ app.whenReady().then(async()=>{
     const {AccountLogin}=require('./account-login.cjs');
     const createLoginWindow=require('./login-window.cjs');
     accountLogin=new AccountLogin({profiles:accountProfiles,createRuntime,createSession:partition=>session.fromPartition(partition),
-      serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,stopped:()=>quitting});
+      serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,stopped:()=>quitting,online:()=>net.isOnline()});
     // Show the normal one-form sign-in before reading or booting an account's
     // runtime. Only the verified account result can open its retained ledger.
     loginWindow=createLoginWindow({broker:accountLogin,quitting:()=>quitting,quit:()=>app.quit()});
@@ -405,8 +408,44 @@ app.whenReady().then(async()=>{
       const remote=await remoteState.read();
       startupPhase('central-selection');
       const centralSelected=await connectedAccess.selected({recover:true});
+      if(quitting)return;
       if(remote.dirty||remote.pending.length||centralSelected){dashboardOrigin=(await localRuntime.connection()).serverOrigin;localToken='';}
       else {dashboardOrigin=local.origin;localToken=local.token;}
+      // Upgrade an older retained source through the original generation/delta
+      // protocol before a business view exists. Later opens of the same source
+      // do not contact the server or capture the database here.
+      if(localToken){
+        connectUpdater(profile);
+        if(updater){
+          const controller=new AbortController();requests.add(controller);
+          try{
+            await shutdown.run(async()=>{
+              const metadata=localRuntime.metadata;
+              const recovery=new DashboardGeneration({runtime:localRuntime,metadata,
+                download:()=>dashboardRequest(null,true),
+                allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion())});
+              const installedManifest=await new RuntimeArchive(profile,metadata).manifest(localRuntime.installedBundle);
+              // Use the original capabilities to recover an interrupted local
+              // return before a new generation is considered. The normal
+              // dashboard recovery below remains authoritative on every path.
+              await recovery.recover();
+              const startupMode=new DashboardMode({runtime:localRuntime,generations:recovery,remoteState,remoteAttempts});
+              await startupMode.recover();
+              if(quitting)return;
+              startupPhase('source-upgrade-check');
+              const result=await upgradeStartupSource({runtime:localRuntime,metadata,installedManifest,
+                online:()=>net.isOnline(),viewAbsent:()=>!dashboard&&!startupComplete&&!quitting,
+                inspectIdle:()=>inspectStartupIdle({store,runtime:localRuntime,metadata}),remoteState,
+                authorizeInstalled:(manifest,options)=>updater.authorizeInstalled(manifest,options),
+                download:dashboardDeltaRequest,recover:()=>recovery.recover(),signal:controller.signal,
+                allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
+                onState:value=>startupPhase('source-upgrade-'+value.phase)});
+              startupPhase('source-upgrade-'+result.status);
+              dashboardOrigin=localRuntime.origin;localToken=localRuntime.token;
+            });
+          }finally{requests.delete(controller);}
+        }
+      }
     }
   }
   if(quitting)return;
