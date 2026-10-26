@@ -1,0 +1,64 @@
+name: GO ERP login reopen rollout contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-login-reopen-rollout-*']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_login_reopen*'
+      - 'tests/*go_erp_login_reopen*'
+      - '.github/workflows/go-erp-login-reopen-rollout-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load exact predecessor transactions and accepted 56 source
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          12d74b4f35737a2b1e271657b159137538c3edaf
+          deaa588337a84521eb7a6201066df3156991af64
+          0adf41c64aa587b495a55b7ec058bf5cc54d1e2a
+          baa2157fea6f943c55597c924447cc574d9fcef2
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+          cbef3c25085da15ce8e9d5884448ddece16c19ae
+      - name: Load final native core and its exact three-file policy seed
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
+          a78fbbb4b394e676adfe3699c24aa0a362f4025a
+      - name: Verify root command syntax
+        run: bash -n deployment/run_go_erp_login_reopen_root.sh
+      - name: Verify seed policy and exact final lineage as the checkout owner
+        run: |
+          python3 -B -m unittest discover -s tests -p test_go_erp_preview31_seed.py
+          python3 -B - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import subprocess
+          import tempfile
+          with tempfile.TemporaryDirectory(prefix='go-erp-login-reopen-seed-policy-') as folder:
+              path = Path(folder) / 'verify.py'
+              path.write_bytes(subprocess.check_output(['git', 'show',
+                  'a78fbbb4b394e676adfe3699c24aa0a362f4025a:deployment/verify_go_erp_preview31_seed.py']))
+              spec = importlib.util.spec_from_file_location('login_reopen_seed_policy', path)
+              policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
+              proof = policy.validate_seed(Path.cwd(), 'a78fbbb4b394e676adfe3699c24aa0a362f4025a')
+              assert proof['core'] == '0c1cf5b6e2fb2030228f17771c506e3bac61c376'
+              assert policy.POLICY == 'native-close-reopen-program-contract-direct-login-accounts-v2'
+              print(proof)
+          PY
+      - name: Verify accepted proof retention, fresh source capture and original 57 creation
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_login_reopen_*.py' -v
