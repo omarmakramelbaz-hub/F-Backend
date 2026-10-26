@@ -1,7 +1,7 @@
 'use strict';
 // Real Windows Electron UI, preload and IPC. Authentication is an explicit
 // synthetic broker; original Laravel authorization is verified separately.
-const {app,BrowserWindow,session}=require('electron');
+const {app,BrowserWindow,session,net}=require('electron');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
 const createLoginWindow=require('../src/login-window.cjs');
@@ -12,7 +12,7 @@ const locked=JSON.parse(fs.readFileSync(path.join(repository,'desktop-pos/packag
 assert.equal(process.versions.electron,locked.packages['node_modules/electron'].version);
 const sourceRevision=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim();
 assert.match(sourceRevision,/^[a-f0-9]{40}$/);
-const sourceFiles=['desktop-pos/src/account-login.cjs','desktop-pos/src/native-deadline.cjs','desktop-pos/src/login-window.cjs','desktop-pos/src/login-preload.cjs','desktop-pos/src/login.js',
+const sourceFiles=['desktop-pos/src/native-auth-http.cjs','desktop-pos/src/account-login.cjs','desktop-pos/src/native-deadline.cjs','desktop-pos/src/login-window.cjs','desktop-pos/src/login-preload.cjs','desktop-pos/src/login.js',
   'desktop-pos/src/login.html','desktop-pos/src/login.css','desktop-pos/src/assets/go-erp.svg',
   'desktop-pos/test/account-login-window-native.cjs','desktop-pos/test/run-electron-native.cjs'];
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(path.join(repository,file))).digest('hex');
@@ -41,6 +41,15 @@ function broker(){
 async function actualOriginalSessionClient(){
   const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,foreignOrigin,serverFailure,foreignWire=0,repeatedPosts=0,rememberedMode=false,rememberedRedirects=0,rememberedHomes=0;
   const requests={logins:0,signins:0,dashboards:0};
+  const originalNetRequest=net.request;let manualRequests=0,manualRedirects=0,rememberedManualRequests=0,rememberedManualRedirects=0;
+  net.request=function(options,...args){
+    const request=originalNetRequest.call(net,options,...args);
+    if(options?.redirect==='manual'&&options.useSessionCookies===true&&options.credentials==='include'){
+      manualRequests++;if(rememberedMode)rememberedManualRequests++;
+      request.on('redirect',()=>{manualRedirects++;if(rememberedMode)rememberedManualRedirects++;});
+    }
+    return request;
+  };
   foreignServer=require('node:http').createServer((_request,response)=>{foreignWire++;response.end('A foreign authentication redirect must never arrive.');});
   await new Promise(resolve=>foreignServer.listen(0,'127.0.0.1',resolve));foreignOrigin='http://127.0.0.1:'+foreignServer.address().port;
   authServer=require('node:http').createServer(async(request,response)=>{
@@ -106,9 +115,10 @@ async function actualOriginalSessionClient(){
     assert.equal(rememberedCookies.find(value=>value.name==='native_session')?.value,'synthetic-authenticated-session');
     assert.equal(rememberedCookies.find(value=>value.name===recaller)?.value,'synthetic-native-recaller');
     await rememberedBroker.stop();assert.equal(rememberedStops,1);
-    return {actualOriginalSessionAuthClient:true,actualSessionCookieJar:true,originalCsrfHeadersObserved:true,guardedRedirectCookiesPreserved:true,authOnlyRedirectAdmission:true,foreignRedirectNotTransmitted:true,repeatedPostRedirectBlocked:true,actualCookieHandoff:true,wrongPasswordRejected:true,
+    assert.ok(manualRequests>=9);assert.ok(manualRedirects>=5);assert.ok(rememberedManualRequests>=1);assert.ok(rememberedManualRedirects>=1);
+    return {actualOriginalSessionAuthClient:true,actualSessionCookieJar:true,originalCsrfHeadersObserved:true,guardedRedirectCookiesPreserved:true,actualClientRequestManualAdmission:true,authOnlyRedirectAdmission:true,foreignRedirectNotTransmitted:true,repeatedPostRedirectBlocked:true,actualCookieHandoff:true,wrongPasswordRejected:true,
       actualRememberedSessionClient:true,rememberedRoleRedirectAccepted:true,rememberedWithoutPasswordPost:true};
-  }catch(error){throw serverFailure||error;}finally{authServer.closeAllConnections?.();await new Promise(resolve=>authServer.close(resolve));authServer=null;foreignServer.closeAllConnections?.();await new Promise(resolve=>foreignServer.close(resolve));foreignServer=null;}
+  }catch(error){throw serverFailure||error;}finally{net.request=originalNetRequest;authServer.closeAllConnections?.();await new Promise(resolve=>authServer.close(resolve));authServer=null;foreignServer.closeAllConnections?.();await new Promise(resolve=>foreignServer.close(resolve));foreignServer=null;}
 }
 app.once('will-quit',()=>{
   clearTimeout(deadline);if(failed)return;
