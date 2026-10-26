@@ -97,6 +97,74 @@ class HandlerProofTests(unittest.TestCase):
             'IncludeOptional /etc/apache2/unknown/*.conf\n</VirtualHost>')
         with self.assertRaises(subject.Stop): self.verify()
 
+    def test_literal_proxy_exclusions_preserve_the_exact_php_handler_binding(self):
+        original = self.files[subject.APACHE]
+        for row in ('ProxyPass /.well-known !', 'ProxyPass /.well-known/ !',
+                'ProxyPass "/.well-known/acme-challenge/" "!"',
+                'ProxyPass "/local-prefix" !', 'ProxyPass / "!"'):
+            self.files[subject.APACHE] = original.replace('</VirtualHost>', row+'\n</VirtualHost>')
+            with self.subTest(row=row):
+                result = self.verify()
+                self.assertEqual(result['configuration']['socket'], self.socket)
+                self.assertEqual(result['configuration']['vhost_lines'], [1])
+
+    def test_exclusions_inside_positive_loaded_proxy_module_guards_are_supported(self):
+        original = self.files[subject.APACHE]
+        for guard in ('proxy_module', 'mod_proxy.c'):
+            self.files[subject.APACHE] = original.replace('</VirtualHost>',
+                '<IfModule '+guard+'>\nProxyPass /.well-known !\n</IfModule>\n</VirtualHost>')
+            with self.subTest(guard=guard): self.verify()
+
+    def test_positive_proxy_mappings_and_all_regex_mappings_remain_rejected(self):
+        original = self.files[subject.APACHE]
+        for row in ('ProxyPass / http://127.0.0.1:8080/', 'ProxyPass / https://another.example/',
+                'ProxyPass / unix:'+self.socket+'|fcgi://fasakhaninja.com/',
+                'ProxyPassMatch ^/.* !', 'ProxyPassMatch ^/.* http://127.0.0.1:8080/'):
+            self.files[subject.APACHE] = original.replace('</VirtualHost>',row+'\n</VirtualHost>')
+            with self.subTest(row=row), self.assertRaises(subject.Stop): self.verify()
+
+    def test_proxy_exclusions_reject_unknown_options_interpolation_and_ambiguous_paths(self):
+        original = self.files[subject.APACHE]
+        for row in ('ProxyPass /local ! nocanon', 'ProxyPass /local ! interpolate',
+                'ProxyPass ${LOCAL_PATH} !', 'ProxyPass /${LOCAL_PATH} !',
+                'ProxyPass /local?query !', 'ProxyPass /local#fragment !',
+                'ProxyPass /local* !', 'ProxyPass /local%2fpath !', 'ProxyPass /local\\path !',
+                'ProxyPass //local !', 'ProxyPass /../local !', 'ProxyPass /./local !',
+                'ProxyPass "" !', 'ProxyPass !', 'ProxyPass /local "!remote"',
+                'ProxyPass "/local\\" !', 'ProxyPass "/local path" !'):
+            self.files[subject.APACHE] = original.replace('</VirtualHost>',row+'\n</VirtualHost>')
+            with self.subTest(row=row), self.assertRaises(subject.Stop): self.verify()
+
+    def test_proxy_exclusion_does_not_waive_scope_or_module_guard_checks(self):
+        original = self.files[subject.APACHE]
+        for opening, closing in (('<Location "/local">','</Location>'),
+                ('<Directory "/home/fasakha/public_html">','</Directory>'),
+                ('<FilesMatch "\\.php$">','</FilesMatch>'),
+                ('<IfModule !proxy_module>','</IfModule>'),
+                ('<IfModule missing_module>','</IfModule>'),
+                ('<IfModule proxy_fcgi_module>','</IfModule>')):
+            self.files[subject.APACHE] = original.replace('</VirtualHost>',
+                opening+'\nProxyPass /local !\n'+closing+'\n</VirtualHost>')
+            with self.subTest(opening=opening), self.assertRaises(subject.Stop): self.verify()
+
+    def test_domain_include_proxy_exclusions_follow_the_same_literal_and_scope_checks(self):
+        name = '/etc/apache2/conf.d/userdata/std/2_4/fasakha/fasakhaninja.com/exclude.conf'
+        apache = self.files[subject.APACHE].replace('</VirtualHost>',
+            'IncludeOptional "'+name+'"\n</VirtualHost>')
+        for included, accepted in (('ProxyPass /.well-known !',True),
+                ('ProxyPass / http://127.0.0.1:8080/',False),
+                ('<Location "/local">\nProxyPass /local !\n</Location>',False)):
+            reader = subject.domain_includes(lambda path,limit:included,
+                globber=lambda pattern:[name],directory_check=lambda path:True)
+            with self.subTest(included=included):
+                if accepted:
+                    self.assertEqual(subject.virtual_hosts(apache,self.dump,{'proxy_module','proxy_fcgi_module'},
+                        str(subject.ROOT),self.socket,include_reader=reader),[1])
+                else:
+                    with self.assertRaises(subject.Stop):
+                        subject.virtual_hosts(apache,self.dump,{'proxy_module','proxy_fcgi_module'},
+                            str(subject.ROOT),self.socket,include_reader=reader)
+
     def test_matching_handler_under_unrelated_directory_or_unknown_conditional_is_rejected(self):
         original = self.files[subject.APACHE]
         for opening,closing in [('<Directory "/unrelated-not-app">','</Directory>'),
@@ -129,6 +197,38 @@ class HandlerProofTests(unittest.TestCase):
         with self.assertRaises(subject.Stop): self.verify()
         self.files[subject.USERDATA] = self.files[subject.USERDATA].rsplit('phpversion:',1)[0]
         self.files[subject.POOL] += '[extra_pool]\n'
+        with self.assertRaises(subject.Stop): self.verify()
+
+    def test_nonlistening_stream_rows_with_the_same_path_do_not_hide_the_master_listener(self):
+        header, listener = self.unix.splitlines()
+        peers = ['0001: 0002 0000 00000000 0001 ' + state + ' ' + str(10000 + index)
+            + ' ' + self.socket for index, state in enumerate(('01','02','03','04'))]
+        for rows in ([*peers,listener], [listener,*peers]):
+            self.unix = '\n'.join([header,*rows]) + '\n'
+            with self.subTest(listener_first=rows[0] == listener):
+                self.assertEqual(self.verify()['live']['socket_inode'], '9876')
+
+    def test_nonlistening_rows_alone_cannot_prove_a_master_owned_listener(self):
+        header = self.unix.splitlines()[0]
+        for state in ('01','02','03','04'):
+            self.unix = header + '\n0001: 0002 0000 00000000 0001 ' + state + ' 9876 ' + self.socket + '\n'
+            with self.subTest(state=state), self.assertRaises(subject.Stop): self.verify()
+
+    def test_master_ownership_of_an_accepted_peer_is_not_listener_ownership(self):
+        self.unix += '0001: 0002 0000 00000000 0001 03 9877 ' + self.socket + '\n'
+        self.fd_target = 'socket:[9877]'
+        with self.assertRaises(subject.Stop): self.verify()
+
+    def test_unknown_same_path_socket_fields_cannot_be_treated_as_normal_peers(self):
+        listener = self.unix
+        for flags,kind,state,inode in [('00010002','0001','01','9877'),
+                ('00000000','0002','03','9877'),('00000000','0001','05','9877'),
+                ('00000000','0001','03','not-an-inode')]:
+            self.unix = listener + '0001: 0002 0000 ' + flags + ' ' + kind + ' ' + state + ' ' + inode + ' ' + self.socket + '\n'
+            with self.subTest(flags=flags,kind=kind,state=state,inode=inode), self.assertRaises(subject.Stop): self.verify()
+
+    def test_distinct_same_path_listeners_remain_ambiguous(self):
+        self.unix += '0001: 0002 0000 00010000 0001 01 9877 ' + self.socket + '\n'
         with self.assertRaises(subject.Stop): self.verify()
 
     def test_root_owned_domain_includes_are_expanded_with_the_same_handler_checks(self):

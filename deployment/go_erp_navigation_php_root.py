@@ -119,6 +119,22 @@ def domain_includes(read, *, globber=None, directory_check=None):
     return load
 
 
+def literal_proxy_exclusion(row, containers, guards):
+    """Recognize only literal, non-routing ProxyPass path ! exclusions.
+
+    Apache documents ! as an exclusion, not a backend. Positive mappings,
+    implicit Location paths, interpolation and options remain unreviewed.
+    https://httpd.apache.org/docs/2.4/mod/mod_proxy.html#proxypass
+    """
+    match = re.fullmatch(r'(?i)ProxyPass\s+(?:"([^"\\]*)"|([^\s"\\]+))\s+(?:"!"|!)', row)
+    if not match or len(containers) != len(guards) or any(name != 'ifmodule' for name in containers) \
+            or any(guard not in ('proxy_module', 'mod_proxy.c') for guard in guards):
+        return False
+    path = match[1] if match[1] is not None else match[2]
+    return bool(re.fullmatch(r'/[A-Za-z0-9._~/-]*', path)) and '//' not in path \
+        and all(part not in ('.', '..') for part in path.split('/'))
+
+
 def virtual_hosts(raw, dump, modules, documentroot, socket, *, include_reader=None):
     """Bind every loaded name-vhost for this domain to one exact pool socket."""
     need('proxy_module' in modules and 'proxy_fcgi_module' in modules)
@@ -156,7 +172,10 @@ def virtual_hosts(raw, dump, modules, documentroot, socket, *, include_reader=No
                     containers.append(name)
             # Only bounded, root-owned domain-specific includes are expanded.
             # Every handler/conditional in that content follows the same rules.
-            need(not re.match(r'(?i)(?:Include|IncludeOptional|ProxyPass|ProxyPassMatch)\b', row))
+            if re.match(r'(?i)ProxyPass\b', row):
+                need(literal_proxy_exclusion(row, containers, guards))
+                continue
+            need(not re.match(r'(?i)(?:Include|IncludeOptional|ProxyPassMatch)\b', row))
             opened = re.fullmatch(r'<IfModule\s+([^>]+)>', row, re.I)
             if opened:
                 guards.append(opened[1].strip()); continue
@@ -221,8 +240,13 @@ def live_socket(pid, socket, *, read_text=None, readlink=None, listdir=None):
     for row in raw.splitlines()[1:]:
         parts = row.split()
         if len(parts) == 8 and parts[7] == socket:
-            need(parts[3] == '00010000' and parts[4] == '0001' and parts[5] == '01'
-                and re.fullmatch(r'[1-9][0-9]*', parts[6]))
+            need(re.fullmatch(r'[1-9][0-9]*', parts[6]))
+            # Linux copies a listening stream's address to its accepted peers.
+            # Those rows may share this pathname, but cannot prove a listener.
+            if parts[3] == '00000000':
+                need(parts[4] == '0001' and parts[5] in ('01', '02', '03', '04'))
+                continue
+            need(parts[3] == '00010000' and parts[4] == '0001' and parts[5] == '01')
             inodes.add(parts[6])
     need(len(inodes) == 1)
     inode = next(iter(inodes)); folder = '/proc/' + str(pid) + '/fd'
