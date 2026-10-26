@@ -27,15 +27,15 @@ SUFFIX = b'-native-close-reopen-program-contract-direct-login-accounts-v1'
 # The outer root command is not publishable until all final native and helper
 # pins have been supplied and validated by the exact-cohort tests.
 PINS_PENDING = False
-CORE = 'd04575427b4fcfc2595745589f09f72529ab587d'
-SEED = '73457007bf96c944e739304abdd807094fa32935'
+CORE = '617ff126b5c38bd1d70e5b2b78eb8e0b3e36b60a'
+SEED = 'd064c097fcc7351ae78749d7390e27d74239525a'
 OLD_MANUAL_PINS = {
     'go_erp_manual_tick_root.py': '361df24ea239a54833c575a27feaa6b403b745ea76f2349d6bc707e35d919179',
     'go_erp_manual_updates_root.py': '36b408d398644f34c4ca931897f1bacaf9002705636568213bcbb9654efa4b55',
     'go_erp_published_download_root.py': '2b5f5adf102e7d0e149b1f05c52ae4207e298d26daa3140c409bddddbf60e17b',
 }
-MANUAL_PINS = {'go_erp_manual_tick_root.py': 'e39a2aac1401617d16a633fcaad51c060a80a6fbc924251a6e815faffda12c79',
- 'go_erp_manual_updates_root.py': '24dccac1d875a3359529b95e3fafba5970d535b42e602090742d5a68707841c8',
+MANUAL_PINS = {'go_erp_manual_tick_root.py': 'e4c1d0e0541267dc9321d469bd52dec3b596c6c81a1ccc441db0fe5da7422ad6',
+ 'go_erp_manual_updates_root.py': 'c2ed159a7e0f04def2ef2181147e5151bfbb5b07ab04b81b1d1a54f80c7dc275',
  'go_erp_published_download_root.py': '2b5f5adf102e7d0e149b1f05c52ae4207e298d26daa3140c409bddddbf60e17b'}
 REV = re.compile(r'[a-f0-9]{40}\Z')
 SHA = re.compile(r'[a-f0-9]{64}\Z')
