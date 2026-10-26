@@ -1,0 +1,47 @@
+name: GO ERP native regression contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-navigation-native-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-regressions:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Preserve the exact tested source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact source configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact source line ending configuration failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Require unchanged production code from native Windows acceptance
+        shell: pwsh
+        run: |
+          $accepted = '73cc998c9e8160e700f376e96e5c584421bafdd6'
+          git fetch --quiet --depth=1 --no-tags origin $accepted
+          if ($LASTEXITCODE -ne 0) { throw 'The accepted native source could not be read.' }
+          git diff --exit-code $accepted HEAD -- desktop-pos/src app bootstrap config database desktop public resources routes artisan composer.json composer.lock desktop-pos/package.json desktop-pos/package-lock.json desktop-pos/test/generation-native.cjs desktop-pos/test/startup-source-upgrade-native.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Production or actual activation fixture bytes differ from the successful native acceptance.' }
+          $changed = @(git diff --name-only $accepted HEAD --)
+          if ($LASTEXITCODE -ne 0 -or ($changed -join ',') -cne '.github/workflows/go-erp-navigation-native-tests.yml,desktop-pos/test/startup-source-idle.test.cjs') { throw 'Only the SQLite test cleanup and this regression workflow may differ.' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          coverage: none
+      - name: Verify all native reconciliation and POS regressions on Windows
+        working-directory: desktop-pos
+        run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs

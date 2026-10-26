@@ -55,15 +55,17 @@ test('pending commands, conflicts, legacy errors and open orders retain their in
 
 test('the actual legacy SQLite store empty SUM and persisted pending rows match the startup API',async t=>{
   const f=await fixture(t),Store=require('../src/store.cjs');
-  const store=new Store(path.join(f.profile,'legacy.sqlite'));t.after(()=>store.close());
-  const inspect=()=>inspectStartupIdle({store,runtime:f.runtime,metadata:f.metadata});
-  assert.equal(store.counts().errors,null);assert.deepEqual(await inspect(),expected);
-  store.db.prepare('INSERT INTO outbox(id,order_id,payload,last_error) VALUES(?,?,?,?)')
-    .run(uuid(99),uuid(100),'{}','unconfirmed original operation');
-  store.db.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?)')
-    .run(uuid(100),'original-snapshot','draft',0,'{}','2026-10-26T00:00:00Z');
-  assert.deepEqual(await inspect(),{...expected,legacyPending:1,legacyConflicts:1,openOrders:1});
-  assert.equal(store.pending()[0].id,uuid(99));assert.equal(store.openOrders()[0].id,uuid(100));
+  const store=new Store(path.join(f.profile,'legacy.sqlite'));
+  try{
+    const inspect=()=>inspectStartupIdle({store,runtime:f.runtime,metadata:f.metadata});
+    assert.equal(store.counts().errors,null);assert.deepEqual(await inspect(),expected);
+    store.db.prepare('INSERT INTO outbox(id,order_id,payload,last_error) VALUES(?,?,?,?)')
+      .run(uuid(99),uuid(100),'{}','unconfirmed original operation');
+    store.db.prepare('INSERT INTO orders VALUES(?,?,?,?,?,?)')
+      .run(uuid(100),'original-snapshot','draft',0,'{}','2026-10-26T00:00:00Z');
+    assert.deepEqual(await inspect(),{...expected,legacyPending:1,legacyConflicts:1,openOrders:1});
+    assert.equal(store.pending()[0].id,uuid(99));assert.equal(store.openOrders()[0].id,uuid(100));
+  }finally{store.close();}
 });
 
 test('unknown, coerced, negative, fractional or contradictory command and legacy counts throw',async t=>{
