@@ -24,7 +24,7 @@ import uuid
 BASE = Path('/var/lib/go-erp-manual-updates')
 NATIVE = Path('/var/lib/go-erp-live-updates/state/current.json')
 FEED = Path('/home/fasakha/public_html/storage/app/desktop-updates/current.json')
-TICK_SHA256 = '86f3bbc88bc862072bb263d7e2bdefac549c7cb7532f12e7ff4e406a99d5c314'
+TICK_SHA256 = 'e39a2aac1401617d16a633fcaad51c060a80a6fbc924251a6e815faffda12c79'
 DOWNLOAD_ARCHIVE_SHA256 = '2b5f5adf102e7d0e149b1f05c52ae4207e298d26daa3140c409bddddbf60e17b'
 SAFE = 9007199254740991
 ACTIVE = frozenset(('queued', 'running', 'waiting-ci', 'publishing'))
