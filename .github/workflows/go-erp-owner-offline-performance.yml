@@ -1,0 +1,50 @@
+name: GO ERP offline Owner PHP measurement
+
+on:
+  push:
+    branches: ['codex/go-erp-owner-offline-performance-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-owner-services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      TAKEAWAY_TEST_CONNECTION: sqlite
+      CACHE_DRIVER: array
+      SESSION_DRIVER: array
+      MAIL_MAILER: log
+      GO_ERP_OWNER_PERFORMANCE_REPORT: ${{ runner.temp }}/go-erp-owner-offline-performance.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          ini-values: memory_limit=256M
+          coverage: none
+      - name: Install the existing locked application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare only the isolated CI application
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Measure actual Owner services against private retained data
+        run: |
+          php -l tests/Feature/DashboardOwnerOfflinePerformanceTest.php
+          vendor/bin/phpunit tests/Feature/DashboardOwnerOfflinePerformanceTest.php --filter test_measure_actual_retained_offline_owner_without_changing_business_data
+      - name: Retain the bounded synthetic measurement
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-erp-owner-offline-performance
+          path: ${{ runner.temp }}/go-erp-owner-offline-performance.json
+          if-no-files-found: error
