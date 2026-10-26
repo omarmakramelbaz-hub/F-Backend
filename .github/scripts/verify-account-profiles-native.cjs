@@ -17,7 +17,7 @@ for(const name of ['actualElectron','actualProductionMain','actualDpapi','actual
   'corruptEncryptedRegistryRejected','naturalQuit','completed','syntheticRoleProjectionOnly','syntheticPrivateProofOnly',
   'syntheticAcknowledgementOnly','dialogsIntercepted'])assert.equal(proof[name],true,name);
 for(const name of ['hardware','productionProfile','actualPhpAuthorization','actualInstalledApplication','forcedSuccessExit'])assert.equal(proof[name],false,name);
-const sources=['desktop-pos/src/main.cjs','desktop-pos/src/shutdown.cjs','desktop-pos/src/startup.html','desktop-pos/src/account-switch.cjs',
+const sources=['desktop-pos/src/main.cjs','desktop-pos/src/shutdown.cjs','desktop-pos/src/account-signout.cjs','desktop-pos/src/startup.html','desktop-pos/src/account-switch.cjs',
   'desktop-pos/src/account-profiles.cjs','desktop-pos/src/account-picker.cjs','desktop-pos/src/account-picker-preload.cjs',
   'desktop-pos/src/account-picker-renderer.js','desktop-pos/src/account-picker.css','desktop-pos/src/account-picker.html',
   'desktop-pos/src/dashboard.cjs','desktop-pos/src/dashboard-preload.cjs','desktop-pos/src/preparation-clock.js','desktop-pos/src/dashboard-preparation.cjs',

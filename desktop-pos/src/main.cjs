@@ -26,6 +26,7 @@ const AccountProfiles=require('./account-profiles.cjs');
 const AccountSwitch=require('./account-switch.cjs');
 const chooseAccount=require('./account-picker.cjs');
 const createDashboard=require('./dashboard.cjs'),dashboardPolicy=require('./dashboard-policy.cjs');
+const accountSignout=require('./account-signout.cjs');
 app.setName('GO ERP');
 protocol.registerSchemesAsPrivileged([{scheme:'fasakhansta',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
@@ -411,6 +412,7 @@ app.whenReady().then(async()=>{
   if(quitting)return;
   startupPhase('dashboard-create');
   dashboard=createDashboard({origin:dashboardOrigin,localToken,partition:activeAccount.partition,switchAccount,
+    beforeLogout:localRuntime?()=>accountSignout.signedOut(localRuntime):undefined,
     serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
     onVisible:dashboardShown,onNavigation:dashboardNavigation,
     prepare:preparation?async(serverOrigin,csrf)=>{

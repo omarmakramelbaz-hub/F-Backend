@@ -5,6 +5,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const AccountProfiles=require('../src/account-profiles.cjs');
 const {AccountLogin}=require('../src/account-login.cjs');
+const {GenerationStore}=require('../src/dashboard-generation.cjs');
 const origin='https://dashboard.example.test',password='synthetic-registry-restart-password',csrf='a'.repeat(40);
 const users=[{input:'00501000123',normalized:'0501000123',actorId:84},{input:'owner@example.test',normalized:'owner@example.test',actorId:42}];
 const response=(body,status,url,location)=>{const value=new Response(body,{status,headers:location?{location}:{}});Object.defineProperty(value,'url',{value:url});return value;};
@@ -42,7 +43,7 @@ async function fixture(t){
   }
   function restart(){
     const profiles=new AccountProfiles({root,safeStorage});
-    const broker=new AccountLogin({profiles,serverOrigin:origin,createSession,createRuntime:account=>({account,metadata:{async read(){return null;}},
+    const broker=new AccountLogin({profiles,serverOrigin:origin,createSession,createRuntime:account=>({account,metadata:new GenerationStore(account.profile,safeStorage),
       async isPrepared(){return false;},async start(){throw Error('An unprepared account must never start a local runtime.');},async stop(){}})});
     return {profiles,broker};
   }

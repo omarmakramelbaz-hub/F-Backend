@@ -24,7 +24,7 @@ assert.match(sourceRevision, /^[a-f0-9]{40}$/);
 if (process.env.GITHUB_SHA) assert.equal(sourceRevision, process.env.GITHUB_SHA);
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(repository, file))).digest('hex');
 const sourceFiles = [
-  'desktop-pos/src/main.cjs', 'desktop-pos/src/shutdown.cjs', 'desktop-pos/src/startup.html', 'desktop-pos/src/account-switch.cjs',
+  'desktop-pos/src/main.cjs', 'desktop-pos/src/shutdown.cjs', 'desktop-pos/src/account-signout.cjs', 'desktop-pos/src/startup.html', 'desktop-pos/src/account-switch.cjs',
   'desktop-pos/src/account-profiles.cjs', 'desktop-pos/src/account-picker.cjs', 'desktop-pos/src/account-picker-preload.cjs',
   'desktop-pos/src/account-picker-renderer.js', 'desktop-pos/src/account-picker.css', 'desktop-pos/src/account-picker.html',
   'desktop-pos/src/dashboard.cjs', 'desktop-pos/src/dashboard-preload.cjs', 'desktop-pos/src/preparation-clock.js', 'desktop-pos/src/local-runtime.cjs',

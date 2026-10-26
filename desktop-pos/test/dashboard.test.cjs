@@ -7,7 +7,7 @@ const nativeCookie=(name,changes={})=>({name,value:'private-cookie-bytes',domain
 
 function fixture(t, options = {}){
   let next=0,closing=false;const windows=[],handlers=new Map(),external=[],notices=[];let pageHTML='<html data-dashboard-receipt="takeaway"><head><style>body{color:black}</style><script>window.print()</script></head><body>فاتورة</body></html>';
-  const session={cookies:{get:async()=>[],remove:async()=>{}},fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
+  const session={cookies:{get:async()=>[],remove:async()=>{},flushStore:async()=>{}},fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
     webRequest:{onCompleted(_filter,handler){this.completed=handler;},onErrorOccurred(_filter,handler){this.error=handler;},onBeforeSendHeaders(_filter,handler){this.headers=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
   class Window extends EventEmitter{
     constructor(options){super();this.options=options;this.visible=false;this.showCalls=0;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
@@ -162,34 +162,94 @@ test('closing a still-loading dashboard releases readiness without reading a des
   window.webContents.getURL=()=>{throw Error('Object has been destroyed');};
   assert.doesNotThrow(()=>window.emit('closed'));await opening;
 });
-test('remembered native logout clears only scoped session cookies, preserves the original protected recaller and flushes before quitting',async t=>{
-  t.mock.timers.enable({apis:['setTimeout']});let quits=0,flushed=false;const removed=[];
+test('explicit remembered logout preserves the original request, then clears scoped sessions and recaller before quitting',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let quits=0,flushed=false,marked=false;const removed=[];
   const remember=nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400,value:'encrypted-original-recaller'});
   const cookies=[nativeCookie('fasakhaninja_session'),remember,nativeCookie('unrelated-preference',{httpOnly:false}),
     nativeCookie('foreign_session',{domain:'other.test'}),nativeCookie('persistent_session',{session:false,expirationDate:Date.now()/1000+86400})];
-  const f=fixture(t,{quit:()=>{assert.equal(flushed,true);quits++;}});await f.dashboard.open();
-  f.session.cookies.get=async filter=>{assert.equal(filter.url,policy.DEFAULT_ORIGIN+'/admin/dashboard');return cookies;};
+  const f=fixture(t,{beforeLogout:async()=>{marked=true;},quit:()=>{assert.equal(flushed,true);quits++;}});await f.dashboard.open();
+  f.session.cookies.get=async filter=>filter.url.startsWith(policy.DEFAULT_ORIGIN+'/')?cookies:[];
   f.session.cookies.remove=async(...args)=>removed.push(args);f.session.cookies.flushStore=async()=>{flushed=true;};
-  let decision;f.session.webRequest.headers({id:501,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
-    webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'never-logged'}},value=>decision=value);
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(decision.cancel,true);assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session'],[policy.DEFAULT_ORIGIN+'/','persistent_session']]);
-  assert.equal(remember.value,'encrypted-original-recaller');assert.equal(await f.dashboard.canRefresh(),false);
+  const request={id:501,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
+    webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'original-session-and-recaller'}};
+  let decision;f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(marked,true);assert.equal(decision.requestHeaders.Cookie,'original-session-and-recaller');assert.equal(quits,0);assert.deepEqual(removed,[]);
+  f.session.webRequest.completed({...request,url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session'],[policy.DEFAULT_ORIGIN+'/',recallerName],[policy.DEFAULT_ORIGIN+'/','persistent_session']]);
+  assert.equal(await f.dashboard.canRefresh(),false);
 });
-test('remembered close retires Laravel expire_on_close=false session cookies while preserving the protected recaller',async t=>{
+test('explicit logout retires Laravel expire_on_close=false session cookies and the protected recaller while preserving XSRF',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});const removed=[];let flushed=false,quits=0;
   const originalSession=nativeCookie('fasakhaninja_session',{session:false,expirationDate:Date.now()/1000+7*86400});
   const protectedRecaller=nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+30*86400,value:'protected-original-recaller'});
   const f=fixture(t,{quit:()=>{assert.equal(flushed,true);quits++;}});await f.dashboard.open();
-  f.session.cookies.get=async()=>[originalSession,protectedRecaller,nativeCookie('XSRF-TOKEN',{httpOnly:false})];
+  f.session.cookies.get=async filter=>filter.url.startsWith(policy.DEFAULT_ORIGIN+'/')?[originalSession,protectedRecaller,nativeCookie('XSRF-TOKEN',{httpOnly:false})]:[];
   f.session.cookies.remove=async(...args)=>removed.push(args);f.session.cookies.flushStore=async()=>{flushed=true;};
-  let decision;f.session.webRequest.headers({id:527,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
-    webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'not-recorded'}},value=>decision=value);
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(decision.cancel,true);assert.equal(quits,1);
-  assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session']]);
-  assert.equal(protectedRecaller.value,'protected-original-recaller');assert.equal(protectedRecaller.session,false);
-  assert.equal(removed.some(([,name])=>name===recallerName||name==='XSRF-TOKEN'),false);
+  let decision;const request={id:527,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
+    webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'not-recorded'}};
+  f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(decision.requestHeaders);assert.equal(quits,0);
+  f.windows[0].url=policy.DEFAULT_ORIGIN+'/admin/login';f.windows[0].webContents.emit('did-navigate',{},f.windows[0].url,200,'OK');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session'],[policy.DEFAULT_ORIGIN+'/',recallerName]]);
+  assert.equal(removed.some(([,name])=>name==='XSRF-TOKEN'),false);
+});
+
+test('explicit logout marks before transmission and clears only this account local and server auth after the original response',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  for(const origin of ['http://127.0.0.1:43123',policy.DEFAULT_ORIGIN]){
+    const local='http://127.0.0.1:43123',stages=[],removed=[];let quits=0,flushed=0,marks=0;
+    let cookies=[nativeCookie('laravel_session',{domain:'127.0.0.1',secure:false}),
+      nativeCookie(recallerName,{domain:'127.0.0.1',secure:false,session:false,expirationDate:Date.now()/1000+86400}),
+      nativeCookie('laravel_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400}),
+      nativeCookie('preference',{httpOnly:false}),nativeCookie('XSRF-TOKEN',{httpOnly:false}),
+      nativeCookie(recallerName,{domain:'foreign.test',session:false,expirationDate:Date.now()/1000+86400})];
+    const otherAccountCookies=[nativeCookie(recallerName,{value:'other-private-profile-cookie'})],otherBefore=structuredClone(otherAccountCookies);
+    const f=fixture(t,{origin,serverOrigin:policy.DEFAULT_ORIGIN,localToken:origin===local?'private-token':'',
+      beforeLogout:async()=>{marks++;stages.push('durable-intent');},
+      accepted:async work=>{stages.push('accepted');return work();},quit:()=>{assert.equal(flushed,1);quits++;stages.push('quit');}});
+    await f.dashboard.open();const window=f.windows[0],contents=window.webContents;
+    f.session.cookies.get=async({url})=>cookies.filter(cookie=>cookie.domain===new URL(url).hostname);
+    f.session.cookies.remove=async(url,name)=>{removed.push([url,name]);cookies=cookies.filter(cookie=>!(cookie.domain===new URL(url).hostname&&cookie.name===name));};
+    f.session.cookies.flushStore=async()=>{flushed++;stages.push('flush');};
+    const request={id:528,url:origin+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',webContentsId:contents.id,
+      requestHeaders:{Cookie:'the-original-authenticated-session'}};
+    Object.defineProperty(request,'uploadData',{get(){throw Error('No credentials are read during logout.');}});
+    let decision;f.session.webRequest.headers(request,value=>{stages.push('transmitted');decision=value;});await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(marks,1);assert.ok(stages.indexOf('durable-intent')<stages.indexOf('transmitted'));
+    assert.equal(decision.requestHeaders.Cookie,'the-original-authenticated-session');assert.equal(removed.length,0);assert.equal(quits,0);
+    f.session.webRequest.completed({...request,url:origin+'/admin/login',statusCode:200});
+    window.url=origin+'/admin/login';contents.emit('did-navigate',{},window.url,200,'OK');await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(quits,1,'request and navigation completion share one cleanup/quit');assert.equal(flushed,1);assert.equal(removed.length,4);
+    assert.deepEqual(cookies.map(cookie=>[cookie.domain,cookie.name]),[['fasakhaninja.com','preference'],['fasakhaninja.com','XSRF-TOKEN'],['foreign.test',recallerName]]);
+    assert.deepEqual(otherAccountCookies,otherBefore);assert.equal(f.dashboard.isVisible(),false);
+  }
+});
+test('a durable logout-intent failure blocks the original request and does not quit or mutate cookies',async t=>{
+  let quits=0,reads=0;const notices=[],f=fixture(t,{beforeLogout:async()=>{throw Error('تعذر حفظ تسجيل الخروج.');},quit:()=>quits++});await f.dashboard.open();
+  f.electron.dialog.showMessageBox=async(_window,details)=>{notices.push(details.message);return {response:1};};
+  f.session.cookies.get=async()=>{reads++;return [];};
+  let decision;f.session.webRequest.headers({id:529,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
+    webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'original-authentication'}},value=>decision=value);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.cancel,true);assert.equal(reads,0);assert.equal(quits,0);
+  assert.equal(f.dashboard.isVisible(),true);assert.deepEqual(notices,['تعذر حفظ تسجيل الخروج.']);
+});
+test('an auth-cookie flush failure after confirmed logout stays visible and cannot race a fresh sign-in',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let quits=0,marked=false;const notices=[],f=fixture(t,{beforeLogout:async()=>{marked=true;},quit:()=>quits++});await f.dashboard.open();
+  f.electron.dialog.showMessageBox=async(_window,details)=>{notices.push(details.message);return {response:1};};
+  f.session.cookies.get=async({url})=>url.startsWith(policy.DEFAULT_ORIGIN+'/')?[nativeCookie('laravel_session')]:[];
+  f.session.cookies.flushStore=async()=>{throw Error('تعذر تأكيد ملفات الجلسة.');};
+  const request={id:530,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',webContentsId:f.windows[0].webContents.id,requestHeaders:{}};
+  f.session.webRequest.headers(request,()=>{});await new Promise(resolve=>setImmediate(resolve));
+  f.session.webRequest.completed({...request,url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(marked,true);assert.equal(quits,0);assert.equal(f.dashboard.isVisible(),true);assert.equal(notices.length,1);assert.equal(await f.dashboard.canRefresh(),false);
+  let signin;f.session.webRequest.headers({...request,id:531,url:policy.DEFAULT_ORIGIN+'/admin/signin',method:'POST'},value=>signin=value);assert.equal(signin.cancel,true);
+});
+test('closing the window without explicit logout preserves Remember me and never marks or clears the account',async t=>{
+  let quits=0,marks=0,reads=0,removed=0;const f=fixture(t,{beforeLogout:async()=>marks++,quit:()=>quits++});await f.dashboard.open();
+  f.session.cookies.get=async()=>{reads++;return [nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})];};
+  f.session.cookies.remove=async()=>removed++;
+  let prevented=false;f.windows[0].emit('close',{preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);assert.equal(quits,1);assert.equal(marks,0);assert.equal(reads,0);assert.equal(removed,0);
 });
 test('native logout without a persistent protected admin recaller retains ordinary server logout and then quits',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
@@ -200,7 +260,7 @@ test('native logout without a persistent protected admin recaller retains ordina
     let decision;const window=f.windows[0];f.session.webRequest.headers({id:502,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
       webContentsId:window.webContents.id,requestHeaders:{Cookie:'original-session'}},value=>decision=value);
     await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.requestHeaders.Cookie,'original-session');assert.equal(removed,0);assert.equal(quits,0);
-    window.url=policy.DEFAULT_ORIGIN+'/admin/login';window.webContents.emit('did-navigate',{},window.url,200,'OK');assert.equal(quits,1);
+    window.url=policy.DEFAULT_ORIGIN+'/admin/login';window.webContents.emit('did-navigate',{},window.url,200,'OK');await new Promise(resolve=>setImmediate(resolve));assert.equal(quits,1);
   }
 });
 test('ordinary local logout retains the required native token header after cookie inspection',async t=>{
@@ -212,13 +272,15 @@ test('ordinary local logout retains the required native token header after cooki
   assert.equal(decision.requestHeaders['X-Fasakhansta-Desktop'],'private-runtime-token');
   assert.equal(decision.requestHeaders.Cookie,'laravel_session=original-session');
 });
-test('native remembered close never decrypts or trusts an invalid recaller or submits credentials',async t=>{
-  let quits=0;const f=fixture(t,{quit:()=>quits++});await f.dashboard.open();const window=f.windows[0];
-  f.session.cookies.get=async()=>[nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400,value:'invalid-not-authenticated'})];
-  f.session.cookies.flushStore=async()=>{};
-  let decision;f.session.webRequest.headers({id:503,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
-    webContentsId:window.webContents.id,requestHeaders:{}},value=>decision=value);
-  await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.cancel,true);assert.equal(quits,1);
+test('explicit logout never decrypts or trusts an invalid recaller and preserves the original logout without a credential POST',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let quits=0;const removed=[],f=fixture(t,{quit:()=>quits++});await f.dashboard.open();const window=f.windows[0];
+  f.session.cookies.get=async filter=>filter.url.startsWith(policy.DEFAULT_ORIGIN+'/')?[nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400,value:'invalid-not-authenticated'})]:[];
+  f.session.cookies.remove=async(...args)=>removed.push(args);
+  let decision;const request={id:503,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
+    webContentsId:window.webContents.id,requestHeaders:{}};
+  f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));assert.ok(decision.requestHeaders);assert.equal(quits,0);
+  f.session.webRequest.completed({...request,url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/',recallerName]]);
   assert.deepEqual(window.loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard'],'no login POST or forced session restoration is invented');
 });
 test('foreign, unowned and subframe logout requests cannot read or change native session cookies',async t=>{
@@ -229,32 +291,31 @@ test('foreign, unowned and subframe logout requests cannot read or change native
   }
   assert.equal(reads,0);assert.equal(quits,0);
 });
-test('a quit arriving during remembered cookie inspection cancels logout transmission without late session mutations',async t=>{
-  let inspected,removed=0,quits=0;const f=fixture(t,{quit:()=>quits++});await f.dashboard.open();
-  f.session.cookies.get=()=>new Promise(resolve=>inspected=resolve);f.session.cookies.remove=async()=>removed++;
+test('a quit arriving during the durable logout intent cancels transmission without inspecting or mutating session cookies',async t=>{
+  let mark,reads=0,removed=0,quits=0;const f=fixture(t,{beforeLogout:()=>new Promise(resolve=>mark=resolve),quit:()=>quits++});await f.dashboard.open();
+  f.session.cookies.get=async()=>{reads++;return [];};f.session.cookies.remove=async()=>removed++;
   let decision;f.session.webRequest.headers({id:505,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
     webContentsId:f.windows[0].webContents.id,requestHeaders:{}},value=>decision=value);
-  await Promise.resolve();f.close();inspected([nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})]);
-  await new Promise(resolve=>setImmediate(resolve));assert.equal(decision.cancel,true);assert.equal(removed,0);assert.equal(quits,0);
+  await Promise.resolve();f.close();mark();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.cancel,true);assert.equal(reads,0);assert.equal(removed,0);assert.equal(quits,0);
 });
-test('the original SPA logout fetch from the owning main frame preserves remember cookies and quits before transmission',async t=>{
-  let quits=0,flushed=false,inspect;const removed=[];
+test('the original SPA logout fetch keeps authentication until its response, then flushes logout before hiding owned views',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});let quits=0,flushed=false,inspect;const removed=[];
   const f=fixture(t,{quit:()=>{assert.equal(flushed,true);assert.equal(f.dashboard.isVisible(),false);quits++;}});await f.dashboard.open();const contents=f.windows[0].webContents;
   const child=new f.windows[0].constructor(f.windows[0].options);child.show();contents.emit('did-create-window',child);
-  f.session.cookies.get=()=>new Promise(resolve=>inspect=resolve);
+  f.session.cookies.get=filter=>filter.url.startsWith(policy.DEFAULT_ORIGIN+'/')?new Promise(resolve=>inspect=resolve):Promise.resolve([]);
   f.session.cookies.remove=async(...args)=>removed.push(args);f.session.cookies.flushStore=async()=>{flushed=true;};
-  let decision;f.session.webRequest.headers({id:520,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'xhr',
-    webContentsId:contents.id,frame:contents.mainFrame,requestHeaders:{Accept:'text/html','X-Dashboard-SPA':'1'}},value=>{
-      assert.equal(f.dashboard.isVisible(),false,'hide the owned SPA before intentional cancellation can render a retry toast');decision=value;
-    });
-  await Promise.resolve();contents.emit('did-navigate',{},policy.DEFAULT_ORIGIN+'/admin/dashboard',200,'OK');
-  assert.equal(quits,0);assert.equal(decision,undefined,'read-only cookie inspection must settle before native close');
+  const request={id:520,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'xhr',
+    webContentsId:contents.id,frame:contents.mainFrame,requestHeaders:{Accept:'text/html','X-Dashboard-SPA':'1',Cookie:'original-authentication'}};
+  let decision;f.session.webRequest.headers(request,value=>decision=value);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.requestHeaders.Cookie,'original-authentication');assert.equal(quits,0);assert.equal(inspect,undefined);
   assert.equal(f.dashboard.isVisible(),true);assert.equal(child.isVisible(),true);
-  inspect([nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})]);
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(decision.cancel,true);assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session']]);
+  f.session.webRequest.completed({...request,url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});await Promise.resolve();
+  assert.equal(typeof inspect,'function');assert.equal(quits,0);assert.equal(f.dashboard.isVisible(),true);
+  inspect([nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})]);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session'],[policy.DEFAULT_ORIGIN+'/',recallerName]]);
   assert.equal(child.isVisible(),false);assert.equal(child.isDestroyed(),false,'accepted work may still drain in the hidden windows');
-  assert.deepEqual(f.windows[0].loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard'],'a delayed quit never opens another login page');
+  assert.deepEqual(f.windows[0].loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);
 });
 test('ordinary SPA logout retains the native header and quits only for its successful original request completion',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});let quits=0;const origin='http://127.0.0.1:43123';
@@ -268,7 +329,7 @@ test('ordinary SPA logout retains the native header and quits only for its succe
   contents.emit('did-navigate',{},origin+'/admin/dashboard',200,'OK');assert.equal(quits,0);
   for(const details of [{...request,id:522,statusCode:200},{...request,webContentsId:999,statusCode:200}])f.session.webRequest.completed(details);
   assert.equal(quits,0);
-  f.session.webRequest.completed({...request,url:origin+'/admin/login',statusCode:200});assert.equal(quits,1);
+  f.session.webRequest.completed({...request,url:origin+'/admin/login',statusCode:200});await new Promise(resolve=>setImmediate(resolve));assert.equal(quits,1);
   assert.equal(f.dashboard.isVisible(),false,'the successful response hides the SPA while native shutdown drains');
   t.mock.timers.tick(15000);assert.equal(quits,1);
 });
@@ -327,8 +388,9 @@ test('a fresh original sign-in discards only the old recaller, preserves CSRF/se
     if(rememberNewAccount)cookies.push(nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400,value:'new-account-recaller'}));
     let logout;f.session.webRequest.headers({...request,id:507,method:'GET',url:policy.DEFAULT_ORIGIN+'/admin/adminLogout'},value=>logout=value);
     await new Promise(resolve=>setImmediate(resolve));
-    if(rememberNewAccount){assert.equal(logout.cancel,true);assert.equal(quits,1);assert.equal(cookies.find(cookie=>cookie.name===recallerName).value,'new-account-recaller');assert.equal(flushed,2);}
-    else{assert.ok(logout.requestHeaders);assert.equal(quits,0);assert.equal(cookies.some(cookie=>cookie.name===recallerName),false);}
+    assert.ok(logout.requestHeaders);assert.equal(quits,0);
+    f.session.webRequest.completed({...request,id:507,method:'GET',url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(quits,1);assert.equal(cookies.some(cookie=>cookie.name===recallerName),false);assert.equal(flushed,2);
   }
 });
 test('a timed-out fresh-login cookie cleanup never transmits credentials or removes cookies after its deadline',async t=>{
@@ -341,17 +403,18 @@ test('a timed-out fresh-login cookie cleanup never transmits credentials or remo
   decision=null;f.session.webRequest.headers({...request,id:509},value=>decision=value);assert.equal(decision.cancel,true,'a timed-out deletion cannot race a fresh login until a new native process');
   assert.equal(await f.dashboard.canRefresh(),false,'a modal renewal must not race the same pending removal');
 });
-test('a timed-out remembered session deletion keeps fresh login and mode changes blocked until the process closes',async t=>{
+test('a timed-out logout session cleanup keeps fresh login and mode changes blocked until the process closes',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});let releaseRemoval,reads=0,quits=0;const f=fixture(t,{quit:()=>quits++});await f.dashboard.open();
   f.session.cookies.get=async()=>{reads++;return [nativeCookie('fasakhaninja_session'),nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+86400})];};
   f.session.cookies.remove=()=>new Promise(resolve=>releaseRemoval=resolve);
   const base={id:511,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',webContentsId:f.windows[0].webContents.id,requestHeaders:{}};
-  let logout;f.session.webRequest.headers(base,value=>logout=value);await new Promise(resolve=>setImmediate(resolve));
+  let logout;f.session.webRequest.headers(base,value=>logout=value);await new Promise(resolve=>setImmediate(resolve));assert.ok(logout.requestHeaders);
+  f.session.webRequest.completed({...base,url:policy.DEFAULT_ORIGIN+'/admin/login',statusCode:200});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(typeof releaseRemoval,'function');t.mock.timers.tick(5000);await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(logout.cancel,true);assert.equal(await f.dashboard.canRefresh(),false);
+  assert.equal(await f.dashboard.canRefresh(),false);
   let signin;f.session.webRequest.headers({...base,id:512,url:policy.DEFAULT_ORIGIN+'/admin/signin',method:'POST'},value=>signin=value);
   assert.equal(signin.cancel,true);await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/login');
-  assert.deepEqual(f.windows[0].loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);assert.equal(reads,1);
+  assert.deepEqual(f.windows[0].loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);assert.equal(reads,2);
   releaseRemoval();await new Promise(resolve=>setImmediate(resolve));assert.equal(quits,0);
 });
 test('F12 toggles the focused native app window without changing dashboard navigation',async t=>{

@@ -7,20 +7,20 @@ const policy = require('./dashboard-policy.cjs');
 const preparationClock = require('node:fs').readFileSync(path.join(__dirname, 'preparation-clock.js'), 'utf8');
 const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 const { withDeadline, printOnce } = require('./native-deadline.cjs');
-// config/auth.php uses the original Laravel session guard named admin. Its
-// recaller stays encrypted and is validated only by Laravel on the next GET.
+// config/auth.php uses the original Laravel session guard named admin.
+// An explicit logout removes its recaller from this account's native session.
 const adminRecallerName='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 
 /** Runs the existing dashboard unchanged. Remote pages receive no Node or POS bridge. */
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '', partition = 'persist:fasakhansta-dashboard',
   prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial, switchAccount,
-  onVisible = () => {}, onNavigation = () => {}, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
+  onVisible = () => {}, onNavigation = () => {}, beforeLogout = async () => {}, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
   if(typeof partition!=='string'||!/^persist:fasakhansta-dashboard(?:-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$/.test(partition))throw Error('ملف جلسة الداشبورد غير صالح.');
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, presentationReady = false, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
   let firstRead = null, firstReadStarted = false, navigationStartedAt = Date.now(), lastResponse = null, sessionRecovery = false, pendingLogin = null;
-  let logoutDecision=null,spaLogout=null,logoutNavigation=false,signinCookieCleanupBlocked=false,accountSwitchPending=false;
+  let logoutDecision=null,logoutFinishing=null,spaLogout=null,logoutNavigation=false,signinCookieCleanupBlocked=false,accountSwitchPending=false;
   const owned = new Set();
   const children = new Set();
   const remoteWrites = new Map();
@@ -96,37 +96,61 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       .then(choice=>{if(choice.response===0){pendingLogin={window:target,url,response};resumeFreshLogin();}})
       .catch(()=>{}).finally(()=>{sessionRecovery=false;});
   }
-  async function rememberedCloseSession(cookieSession,scope) {
+  async function clearLogoutSession(cookieSession,scope) {
     let active=true;
     const current=()=>active&&!quitting()&&!refreshing&&!authentication&&origin===scope;
     try{return await withDeadline(async()=>{
-      const cookies=await cookieSession.cookies.get({url:scope+'/admin/dashboard'});
-      if(!current())return {cancelled:true};
-      const host=new URL(scope).hostname.toLowerCase();
-      const scoped=cookie=>typeof cookie.domain==='string'&&typeof cookie.path==='string'&&cookie.path==='/'
-        &&(cookie.domain.replace(/^\./,'').toLowerCase()===host
-          ||cookie.hostOnly===false&&host.endsWith('.'+cookie.domain.replace(/^\./,'').toLowerCase()));
-      const remembered=cookies.some(cookie=>scoped(cookie)&&cookie.name===adminRecallerName&&cookie.httpOnly===true
-        &&cookie.session===false&&Number.isFinite(cookie.expirationDate)&&cookie.expirationDate>Date.now()/1000
-        &&typeof cookie.value==='string'&&cookie.value.length>0);
-      if(!remembered)return {remembered:false};
-      // Laravel may give its active session cookie an expiry even when
-      // remember-me is unchecked. End that session independently of Chromium's
-      // session-cookie flag; retain only the separately verified recaller.
-      const sessions=cookies.filter(cookie=>scoped(cookie)&&cookie.httpOnly===true
-        &&/^[a-zA-Z0-9_-]{1,120}_session$/.test(cookie.name));
-      if(sessions.length>16)throw Error('تعذر تحديد جلسة الحساب الحالية.');
-      for(const cookie of sessions){
+      // Local and connected pages share only this selected account's partition.
+      // Remove its original auth cookies in both modes; preserve preferences,
+      // other hosts and all other account partitions, journals and profiles.
+      const scopes=new Map();
+      const add=value=>{
+        const url=new URL(value);
+        if(url.origin!==value||url.username||url.password||!['https:','http:'].includes(url.protocol))throw Error('تعذر تحديد جلسة الحساب الحالية.');
+        scopes.set(url.protocol+'//'+url.hostname,value);
+      };
+      add(scope);
+      if(serverOrigin){
+        const remote=new URL(serverOrigin);
+        if(remote.protocol!=='https:')throw Error('تعذر تحديد جلسة السيرفر الحالية.');
+        add(serverOrigin);
+      }
+      if(!scopes.has('http://127.0.0.1'))add('http://127.0.0.1');
+      const removals=[];
+      for(const value of scopes.values()){
+        const cookies=await cookieSession.cookies.get({url:value+'/admin/dashboard'});
         if(!current())return {cancelled:true};
-        await cookieSession.cookies.remove(scope+cookie.path,cookie.name);
+        const host=new URL(value).hostname.toLowerCase();
+        const scoped=cookie=>typeof cookie.domain==='string'&&cookie.path==='/'
+          &&cookie.domain.replace(/^\./,'').toLowerCase()===host;
+        const auth=cookies.filter(cookie=>scoped(cookie)&&(cookie.name===adminRecallerName
+          ||cookie.httpOnly===true&&/^[a-zA-Z0-9_-]{1,120}_session$/.test(cookie.name)));
+        if(auth.length>16)throw Error('تعذر تحديد جلسة الحساب الحالية.');
+        for(const cookie of auth)removals.push([value+'/',cookie.name]);
+      }
+      for(const [url,name] of removals){
+        if(!current())return {cancelled:true};
+        await cookieSession.cookies.remove(url,name);
       }
       if(!current())return {cancelled:true};
-      // Never copy/restore the recaller or store a password. Flush the original
-      // protected browser cookie so a fresh process can validate it normally.
-      await cookieSession.cookies.flushStore();
-      return current()?{remembered:true}:{cancelled:true};
-    },5000,'تعذر حفظ حالة تذكرني. أغلق البرنامج ثم أعد فتحه.');}
+      if(removals.length)await cookieSession.cookies.flushStore();
+      return {cancelled:!current()};
+    },5000,'تعذر تأكيد تسجيل الخروج. أغلق البرنامج ثم أعد فتحه.');}
     finally{active=false;}
+  }
+  function finishLogout(cookieSession,scope) {
+    if(logoutFinishing)return logoutFinishing;
+    if(spaLogout){clearTimeout(spaLogout.timer);spaLogout=null;}
+    logoutFinishing=accepted(()=>clearLogoutSession(cookieSession,scope)).then(result=>{
+      if(result.cancelled||quitting()||origin!==scope)return;
+      hideLogoutWindows();quit();
+    },error=>{
+      // A durable signed-out marker is already committed. Keep this uncertain
+      // browser process from racing a fresh sign-in or late cookie removal.
+      signinCookieCleanupBlocked=true;
+      if(!quitting())dialog.showMessageBox(window,{type:'error',title:'GO ERP',message:error.message});
+    });
+    return logoutFinishing;
   }
   async function clearPreviousRecaller(cookieSession,scope) {
     let active=true;
@@ -391,18 +415,20 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               &&String(details.method).toUpperCase()==='GET'&&getPolicy.normalized(new URL(details.url).pathname)==='/admin/adminLogout'){
               if(logoutDecision||quitting()||refreshing||authentication){callback({cancel:true});return;}
               const scope=origin;loggingOut=true;
-              logoutDecision=accepted(()=>rememberedCloseSession(contents.session,scope));
+              // Commit the selected account's signed-out intent before the
+              // original authenticated logout can reach PHP or shutdown.
+              logoutDecision=accepted(async()=>{
+                await beforeLogout();
+                return {cancelled:quitting()||refreshing||authentication||origin!==scope};
+              });
               Promise.resolve(logoutDecision).then(result=>{
                 if(result.cancelled||quitting()||origin!==scope){callback({cancel:true});return;}
-                if(result.remembered){hideLogoutWindows();callback({cancel:true});quit();return;}
-                // Without an explicit persistent recaller, keep the original
-                // server logout and its remember-token revocation unchanged.
-                if(spaLogoutRequest){
-                  spaLogout={id:details.id,contentsId:details.webContentsId,scope,
-                    timer:setTimeout(()=>failSpaLogout('لم يصل تأكيد تسجيل الخروج. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.'),15000)};
-                }else logoutNavigation=true;
+                // Preserve the original session until Laravel invalidates it
+                // and revokes its remember token, including remembered users.
+                spaLogout={id:details.id,contentsId:details.webContentsId,scope,
+                  timer:setTimeout(()=>failSpaLogout('لم يصل تأكيد تسجيل الخروج. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.'),15000)};
+                logoutNavigation=!spaLogoutRequest;
                 authorizeRequest();
-                if(!spaLogoutRequest)setTimeout(()=>{if(!quitting())quit();},15000);
               },error=>{
                 callback({cancel:true});
                 if(error.code==='NATIVE_OPERATION_TIMEOUT'){
@@ -467,7 +493,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             if(origin===expected.scope&&policy.sameOrigin(details.url,expected.scope)&&String(details.method).toUpperCase()==='GET'
               &&['/admin/adminLogout','/admin/login'].includes(getPolicy.normalized(new URL(details.url).pathname))
               &&details.statusCode>=200&&details.statusCode<400){
-              clearTimeout(expected.timer);spaLogout=null;if(!quitting()){hideLogoutWindows();quit();}
+              if(!quitting())finishLogout(contents.session,expected.scope);
             }else failSpaLogout('تعذر تأكيد تسجيل الخروج من السيرفر. أغلق البرنامج ثم أعد فتحه قبل تسجيل دخول جديد.');
           }
           if (!remoteWrites.has(details.id)) return;
@@ -505,9 +531,13 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           });
         });
         window.on('close', event => { if (!quitting()) { event.preventDefault(); quit(); } });
-        // A normal nonremembered logout closes after its original response;
-        // remembered close is cancelled before transmission by the native gate.
-        contents.on('did-navigate', () => { if (loggingOut && logoutNavigation && !quitting()) quit(); });
+        // The normal original logout and its cookie cleanup complete before
+        // the native view closes, independently of a prior Remember me choice.
+        contents.on('did-navigate', (_event,url,status) => {
+          if(loggingOut&&logoutNavigation&&!quitting()&&policy.sameOrigin(url,origin)
+            &&['/admin/adminLogout','/admin/login'].includes(getPolicy.normalized(new URL(url).pathname))
+            &&status>=200&&status<400)finishLogout(contents.session,origin);
+        });
         contents.on('did-fail-load', (_event, _code, description, _url, mainFrame) => {
           if (!refreshing && mainFrame && policy.networkFailure(description)) {
             if (localToken) dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر الاتصال بالداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });

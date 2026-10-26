@@ -78,7 +78,8 @@ function fixture({known=true,offline=false,rejected=false,actor=42,legacy=true}=
     }));return browsers.get(name);
   };
   const createRuntime=async account=>{
-    const value={metadata:{async read(){return null;}},starts:0,stops:0,async isPrepared(){return legacy&&account.id==='default';},async connection(){return {actorId:42,serverOrigin:remote};},
+    const metadata=new Map();
+    const value={metadata:{async read(name){return metadata.get(name)??null;},async write(name,value){metadata.set(name,value);}},starts:0,stops:0,async isPrepared(){return legacy&&account.id==='default';},async connection(){return {actorId:42,serverOrigin:remote};},
       async start(){this.starts++;events.push('runtime-start:'+account.id);return {origin:local,token:'b'.repeat(64)};},cancelStartup(){this.cancelled=true;},async stop(){this.stops++;}};
     runtimes.set(account.id,value);return value;
   };
@@ -163,4 +164,35 @@ test('a failed passive stop retains ownership and blocks new authentication unti
   assert.equal(f.broker.runtimes.get('default'),f.made[0]);assert.equal(await f.broker.runtimeTasks.get('default'),f.made[0]);
   assert.equal(f.selected(),'default');assert.deepEqual(f.saved,[]);
   await f.broker.stop();assert.equal(f.made[0].stops,2);assert.equal(f.broker.runtimes.size,0);assert.equal(f.broker.runtimeTasks.size,0);
+});
+
+test('explicit sign-out requires a password before any remembered cookie read, runtime boot or HTTP request',async()=>{
+  const signout=require('../src/account-signout.cjs'),f=fixture();
+  const account=await f.profiles.account('default'),runtime=await f.broker.runtime(account);
+  await signout.signedOut(runtime);
+  const target=f.broker.createSession(account.partition);target.cookies.seed(cookiesFor(local,true));
+  assert.equal(await f.broker.resumeRemembered(),null);
+  assert.equal(runtime.starts,0);assert.equal(f.requests.length,0);
+  assert.equal(target.cookies.calls.some(([operation])=>operation==='get'),false);
+  assert.equal(await signout.requirePassword(runtime),true);
+  await f.broker.stop();
+});
+
+test('a rejected password retains explicit sign-out while a fresh successful password retires it',async()=>{
+  const signout=require('../src/account-signout.cjs');
+  const rejected=fixture({rejected:true}),badRuntime=await rejected.broker.runtime(await rejected.profiles.account('default'));
+  await signout.signedOut(badRuntime);
+  await assert.rejects(rejected.broker.authenticate({email:'owner@example.test',password:secret,remember:true}),{code:'ACCOUNT_CREDENTIALS_REJECTED'});
+  assert.equal(await signout.requirePassword(badRuntime),true);assert.equal(rejected.selected(),'default');await rejected.broker.stop();
+  const accepted=fixture(),runtime=await accepted.broker.runtime(await accepted.profiles.account('default'));
+  await signout.signedOut(runtime);
+  const result=await accepted.broker.authenticate({email:'owner@example.test',password:secret,remember:true});
+  assert.equal(result.account.id,'default');assert.equal(await signout.requirePassword(runtime),false);
+  assert.equal(accepted.requests.filter(value=>value.method==='POST').length,1);await accepted.broker.stop();
+});
+
+test('an unexpected signed-out marker remains fail-closed without interpreting cookie values',async()=>{
+  const signout=require('../src/account-signout.cjs');
+  for(const value of [false,{},[],{format:99},'unexpected'])assert.equal(await signout.requirePassword({metadata:{read:async()=>value}}),true);
+  assert.equal(await signout.requirePassword({metadata:{read:async()=>null}}),false);
 });

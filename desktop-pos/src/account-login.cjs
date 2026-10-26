@@ -2,6 +2,7 @@
 const crypto=require('node:crypto');
 const {withDeadline}=require('./native-deadline.cjs');
 const {nativeAuthHTML}=require('./native-auth-http.cjs');
+const signout=require('./account-signout.cjs');
 
 const recaller='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 const roles=new Set(['admin','vendor','resturant_owner']);
@@ -206,7 +207,13 @@ class AccountLogin{
       ||typeof input.password!=='string'||!input.password||input.password.length>4096||typeof input.remember!=='boolean')throw failure();
     this.userEditing();
     const credentials={email:input.email.trim(),password:input.password,remember:input.remember};
-    this.running=(async()=>{if(this.passiveRetirement)await this.passiveRetirement;this.assert();return this.login(credentials);})().catch(error=>{if(error.code==='ACCOUNT_LOGIN_RESTART_REQUIRED')this.cancel();throw error;})
+    this.running=(async()=>{
+      if(this.passiveRetirement)await this.passiveRetirement;this.assert();
+      const result=await this.login(credentials);this.assert();
+      // Only a fresh original password sign-in can retire explicit sign-out.
+      // Never clear it for a passive recaller, rejected password, or X close.
+      await signout.signedIn(result.runtime,{active:()=>!this.cancelled&&!this.stopped()});this.assert();return result;
+    })().catch(error=>{if(error.code==='ACCOUNT_LOGIN_RESTART_REQUIRED')this.cancel();throw error;})
       .finally(()=>{credentials.password='';this.running=null;});
     return this.running;
   }
@@ -284,7 +291,10 @@ class AccountLogin{
     let account=await this.selectedAccount();
     if(account.serverOrigin!==null&&account.serverOrigin!==this.serverOrigin)return null;
     const target=this.createSession(account.partition);
-    const runtime=await this.runtime(account),prepared=await runtime.isPrepared();
+    const runtime=await this.runtime(account);
+    if(await signout.requirePassword(runtime))return null;
+    this.assert();if(sequence!==this.sequence||this.running)return null;
+    const prepared=await runtime.isPrepared();
     const remoteNeeded=!prepared||await this.needsRemote(runtime),cookies=await withDeadline(()=>target.cookies.get({name:recaller}),5000,'تعذر قراءة جلسة الحساب.');this.assert();
     const remembered=cookies.filter(cookie=>authCookie(cookie,remoteNeeded?this.serverOrigin:'http://127.0.0.1:1',!remoteNeeded)&&cookie.name===recaller);
     if(remembered.length!==1||sequence!==this.sequence||this.running)return null;

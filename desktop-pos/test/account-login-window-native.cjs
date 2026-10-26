@@ -12,7 +12,7 @@ const locked=JSON.parse(fs.readFileSync(path.join(repository,'desktop-pos/packag
 assert.equal(process.versions.electron,locked.packages['node_modules/electron'].version);
 const sourceRevision=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:repository,encoding:'utf8'}).trim();
 assert.match(sourceRevision,/^[a-f0-9]{40}$/);
-const sourceFiles=['desktop-pos/src/native-auth-http.cjs','desktop-pos/src/account-login.cjs','desktop-pos/src/native-deadline.cjs','desktop-pos/src/login-window.cjs','desktop-pos/src/login-preload.cjs','desktop-pos/src/login.js',
+const sourceFiles=['desktop-pos/src/native-auth-http.cjs','desktop-pos/src/account-login.cjs','desktop-pos/src/account-signout.cjs','desktop-pos/src/native-deadline.cjs','desktop-pos/src/login-window.cjs','desktop-pos/src/login-preload.cjs','desktop-pos/src/login.js',
   'desktop-pos/src/login.html','desktop-pos/src/login.css','desktop-pos/src/assets/go-erp.svg',
   'desktop-pos/test/account-login-window-native.cjs','desktop-pos/test/run-electron-native.cjs'];
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(path.join(repository,file))).digest('hex');
@@ -103,7 +103,7 @@ async function actualOriginalSessionClient(){
     await target.cookies.flushStore();rememberedMode=true;
     const account={id:'native-remembered-fixture',actorId:42,serverOrigin:'https://native-auth.example.test',partition:'persist:native-remembered-fixture',profile:path.join(root,'synthetic-runtime')};
     let rememberedStops=0,rememberedStarts=0;
-    const runtime={metadata:{read:async()=>null},isPrepared:async()=>true,connection:async()=>({actorId:42,serverOrigin:account.serverOrigin}),
+    const runtime={metadata:{read:async()=>null,write:async()=>{}},isPrepared:async()=>true,connection:async()=>({actorId:42,serverOrigin:account.serverOrigin}),
       start:async()=>{rememberedStarts++;return {origin,token};},cancelStartup(){},stop:async()=>{rememberedStops++;}};
     const rememberedBroker=new AccountLogin({profiles:{selected:async()=>account,account:async()=>account},
       createRuntime:()=>runtime,createSession:partition=>{if(partition===account.partition)return target;assert.match(partition,/^go-erp-account-auth-[a-f0-9-]+$/);return session.fromPartition(partition);},serverOrigin:account.serverOrigin});
