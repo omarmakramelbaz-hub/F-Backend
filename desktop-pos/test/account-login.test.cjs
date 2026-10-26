@@ -115,3 +115,52 @@ test('wrong explicit credentials cannot enter through an existing remembered coo
   assert.equal(f.requests.filter(value=>value.method==='POST').length,1);assert.equal(f.requests.every(value=>!value.partition.startsWith('persist:')),true);
   assert.equal(target.cookies.all().some(value=>value.name===recaller),true);assert.deepEqual(f.saved,[]);
 });
+function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
+function passiveFixture({autoCancel=true,stopGate=null,failStop=false}={}){
+  const f=fixture({known:true,actor:30}),started=deferred(),cancelled=deferred(),stopping=deferred(),boot=deferred(),made=[];
+  const create=f.broker.createRuntime;
+  f.broker.createRuntime=async account=>{
+    const runtime=await create(account);made.push(runtime);
+    if(account.id==='default'&&made.length===1){
+      runtime.start=async()=>{runtime.starts++;started.resolve();return boot.promise;};
+      runtime.cancelStartup=()=>{runtime.cancelled=true;cancelled.resolve();if(autoCancel)boot.reject(Error('passive startup cancelled'));};
+      runtime.stop=async()=>{runtime.stops++;stopping.resolve();if(failStop&&runtime.stops===1)throw Error('synthetic stop failure');if(stopGate)await stopGate.promise;};
+    }
+    return runtime;
+  };
+  f.broker.createSession('persist:fasakhansta-dashboard').cookies.seed(cookiesFor(local,true));
+  return {...f,started,cancelled,stopping,boot,made};
+}
+test('editing cancels a passive startup and drains both startup and stop before explicit authentication',{timeout:3000},async()=>{
+  const stopGate=deferred(),f=passiveFixture({autoCancel:false,stopGate}),remembered=f.broker.resumeRemembered();
+  await f.started.promise;f.broker.userEditing();await f.cancelled.promise;await f.stopping.promise;
+  let accepted=false;const explicit=f.broker.authenticate({email:'branch@example.test',password:secret,remember:false}).then(value=>{accepted=true;return value;});
+  await Promise.resolve();assert.equal(f.requests.length,0);assert.equal(accepted,false);
+  stopGate.resolve();await Promise.resolve();assert.equal(f.requests.length,0,'An exited service alone does not release an unfinished startup.');
+  f.boot.reject(Error('cancelled verification drained'));
+  const result=await explicit;assert.equal(await remembered,null);assert.equal(result.account.actorId,30);
+  assert.equal(f.made[0].cancelled,true);assert.equal(f.made[0].stops,1);await f.broker.stop();
+});
+test('an explicit login for the same account creates a fresh runtime after retiring its cancelled startup',{timeout:3000},async()=>{
+  const f=passiveFixture(),remembered=f.broker.resumeRemembered();await f.started.promise;
+  const result=await f.broker.authenticate({email:'owner@example.test',password:secret,remember:true});
+  assert.equal(await remembered,null);assert.equal(f.made.length,2);assert.notEqual(result.runtime,f.made[0]);
+  assert.equal(f.made[0].stops,1);assert.equal(f.made[1].starts,1);assert.equal(result.account.id,'default');
+  assert.equal(f.broker.runtimes.get('default'),result.runtime);assert.equal(await f.broker.runtime(result.account),result.runtime);await f.broker.stop();
+});
+test('an unknown Branch server login does not wait for the remembered Owner startup to finish naturally',{timeout:3000},async()=>{
+  const f=passiveFixture(),remembered=f.broker.resumeRemembered();await f.started.promise;
+  const result=await f.broker.authenticate({email:'branch@example.test',password:secret,remember:false});
+  assert.equal(await remembered,null);assert.equal(result.local,false);assert.equal(result.account.actorId,30);
+  assert.equal(f.requests[0].url,remote+'/admin/login');assert.equal(f.made[0].cancelled,true);
+  assert.equal(f.broker.runtimes.has('default'),false);assert.equal(f.broker.runtimeTasks.has('default'),false);
+  assert.equal(f.rows.get('default').actorId,42);await f.broker.stop();
+});
+test('a failed passive stop retains ownership and blocks new authentication until shutdown retries the drain',{timeout:3000},async()=>{
+  const f=passiveFixture({failStop:true}),remembered=f.broker.resumeRemembered();await f.started.promise;
+  await assert.rejects(f.broker.authenticate({email:'branch@example.test',password:secret,remember:false}),/synthetic stop failure/);
+  assert.equal(await remembered,null);assert.equal(f.requests.length,0);assert.equal(f.made.length,1);
+  assert.equal(f.broker.runtimes.get('default'),f.made[0]);assert.equal(await f.broker.runtimeTasks.get('default'),f.made[0]);
+  assert.equal(f.selected(),'default');assert.deepEqual(f.saved,[]);
+  await f.broker.stop();assert.equal(f.made[0].stops,2);assert.equal(f.broker.runtimes.size,0);assert.equal(f.broker.runtimeTasks.size,0);
+});
