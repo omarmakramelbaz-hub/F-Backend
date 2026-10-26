@@ -37,7 +37,7 @@ WEB_WORKFLOW = 'go-erp-navigation-web-tests.yml'
 WEB_WORKFLOW_SHA256 = 'd0639d8c3b5072dd9fba3d741f65f57539df84d82b229d7117482100165db6f9'
 WEB_RUN_ID = 40400653601
 WEB_JOBS = ('php-financial-navigation', 'browser-navigation')
-SOURCE_HELPER_SHA256 = 'e1f0c655dcc73284bcec289c6ffc5673fa4f2f02e129591f25f43f470ec447e4'
+SOURCE_HELPER_SHA256 = 'bdd11c73531c2d3169a00ca5253dd288f3c0a86d5a92764ea003ecf38196f02a'
 PHP_HELPER_SHA256 = 'dc26aa53fb8c2636ff079a43d0f8062e75b837154315a7a3693b1e1e18828634'
 PHP_FPM_UNIT = 'ea-php82-php-fpm.service'
 WEB_PATCHES = {
@@ -306,7 +306,8 @@ def apply_web_source(ctx, template):
         need(existing[0] == proof_raw, 'WEB_CI_AUDIT_CHANGED')
     print('GO_ERP_NAVIGATION_APPLYING_REVIEWED_WEB_SOURCE', flush=True)
     result = module.apply(template.ROOT, audit_parent, WEB_RELEASE, ctx.owner.pw_uid, payloads,
-        pins=WEB_PATCHES, verify_locks=ctx.held_verify, after_apply=lambda: reload_php_handler(ctx),
+        pins=WEB_PATCHES, verify_locks=ctx.held_verify, cache_owner_gid=ctx.owner.pw_gid,
+        after_apply=lambda: reload_php_handler(ctx),
         after_rollback=lambda: reload_php_handler(ctx))
     ctx.held_verify()
     print('GO_ERP_NAVIGATION_WEB_SOURCE_READY', flush=True)

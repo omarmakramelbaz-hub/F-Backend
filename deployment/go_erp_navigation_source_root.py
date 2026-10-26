@@ -77,7 +77,8 @@ def parent_fd(path):
         raise
 
 
-def read_file(path, owners, limit=MAX_FILE, optional=False, private=False):
+def _read_file(path, owners, limit=MAX_FILE, optional=False, private=False,
+        cache_identity=None):
     parent = parent_fd(path)
     try:
         try:
@@ -86,8 +87,11 @@ def read_file(path, owners, limit=MAX_FILE, optional=False, private=False):
             if optional:
                 return None
             raise Stop('GO_ERP_NAVIGATION_SOURCE_FILE_MISSING') from None
+        owned_cache = (not private and cache_identity is not None
+            and (before.st_uid, before.st_gid) == cache_identity
+            and stat.S_IMODE(before.st_mode) == 0o664)
         need(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
-            and before.st_uid in owners and not before.st_mode & 0o022
+            and before.st_uid in owners and (not before.st_mode & 0o022 or owned_cache)
             and not before.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX)
             and 0 <= before.st_size <= limit
             and (not private or stat.S_IMODE(before.st_mode) == 0o600), 'FILE_UNSAFE')
@@ -108,6 +112,11 @@ def read_file(path, owners, limit=MAX_FILE, optional=False, private=False):
             os.close(fd)
     finally:
         os.close(parent)
+
+
+def read_file(path, owners, limit=MAX_FILE, optional=False, private=False):
+    # Source files and root-only audit records always retain the strict policy.
+    return _read_file(path, owners, limit, optional, private)
 
 
 def directory(path, owners, mode=None):
@@ -248,14 +257,45 @@ def compiled_path(root, name):
     return root / 'storage/framework/views' / (key + '.php')
 
 
-def invalidate_blade(root, names, audit, owner_uid, verify, check_only=False):
+def compiled_directory(root, owner_uid, cache_owner_gid):
+    """Allow the application's exact writable Blade cache chain, not source paths.
+
+    The coordinator supplies the application's primary GID from its trusted
+    account record. Only these three application-owned directories may use
+    0775; every ancestor keeps the original directory policy.
+    """
+    path = root / 'storage/framework/views'
+    need(path.is_absolute() and path.resolve() == path, 'DIRECTORY_PATH_INVALID')
+    cache_paths = {root / 'storage', root / 'storage/framework', path}
+    for parent in (*reversed(path.parents), path):
+        info = parent.lstat()
+        sticky_ancestor = parent != path and bool(info.st_mode & stat.S_ISVTX)
+        owned_cache = (parent in cache_paths and cache_owner_gid is not None
+            and (info.st_uid, info.st_gid) == (owner_uid, cache_owner_gid)
+            and stat.S_IMODE(info.st_mode) == 0o775)
+        need(stat.S_ISDIR(info.st_mode) and info.st_uid in {0, owner_uid}
+            and (not info.st_mode & 0o022 or sticky_ancestor or owned_cache)
+            and (parent not in cache_paths
+                or not info.st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX)), 'DIRECTORY_UNSAFE')
+
+
+def read_compiled(root, name, owner_uid, cache_owner_gid):
+    # This is the only caller that permits 0664, for one derived Blade file.
+    # Its marker, regular-file, hardlink, size and identity checks still apply.
+    path = compiled_path(root, name)
+    cache_identity = None if cache_owner_gid is None else (owner_uid, cache_owner_gid)
+    return _read_file(path, {0, owner_uid}, optional=True, cache_identity=cache_identity)
+
+
+def invalidate_blade(root, names, audit, owner_uid, verify, check_only=False,
+        cache_owner_gid=None):
     invalidated = []
     for name in sorted(names):
         if not name.endswith('.blade.php'):
             continue
         path = compiled_path(root, name)
-        directory(path.parent, {0, owner_uid})
-        value = read_file(path, {0, owner_uid}, optional=True)
+        compiled_directory(root, owner_uid, cache_owner_gid)
+        value = read_compiled(root, name, owner_uid, cache_owner_gid)
         if value is None:
             continue
         raw, info = value
@@ -277,7 +317,7 @@ def invalidate_blade(root, names, audit, owner_uid, verify, check_only=False):
 
 
 def apply(root, audit_parent, release, owner_uid, payloads, *, pins=None, verify_locks=None,
-        after_apply=None, after_rollback=None):
+        after_apply=None, after_rollback=None, cache_owner_gid=None):
     """Apply one trusted coordinator's reviewed manifest; never allocate or publish.
 
     `pins` is the coordinator's immutable code constant, never a web/request
@@ -296,6 +336,8 @@ def apply(root, audit_parent, release, owner_uid, payloads, *, pins=None, verify
     verify()
     root, audit_parent = Path(root), Path(audit_parent)
     need(type(owner_uid) is int and owner_uid >= 0, 'OWNER_INVALID')
+    need(cache_owner_gid is None or type(cache_owner_gid) is int and cache_owner_gid >= 0,
+        'CACHE_OWNER_GID_INVALID')
     if pins is None:
         need(not PINS_PENDING, 'PINS_PENDING')
         pins = SOURCE_PINS
@@ -354,7 +396,8 @@ def apply(root, audit_parent, release, owner_uid, payloads, *, pins=None, verify
         need(parse(committed[0]) == expected_commit and all(sha(raw) == pins[name]['after'] for name, (raw, _) in current.items()), 'COMMITTED_SOURCE_CHANGED')
         verify()
         return {'changed': False, 'audit': str(audit), 'paths': sorted(pins), 'business_data_changed': False}
-    invalidate_blade(root, pins, audit, owner_uid, verify, check_only=True)
+    invalidate_blade(root, pins, audit, owner_uid, verify, check_only=True,
+        cache_owner_gid=cache_owner_gid)
     changed = {}
     owned_commit = []
     try:
@@ -368,7 +411,7 @@ def apply(root, audit_parent, release, owner_uid, payloads, *, pins=None, verify
             facts = originals[name]
             need(raw == payloads[name] and (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
                 == (facts['uid'], facts['gid'], facts['mode']), 'SOURCE_COMMIT_VERIFY_FAILED')
-        invalidate_blade(root, pins, audit, owner_uid, verify)
+        invalidate_blade(root, pins, audit, owner_uid, verify, cache_owner_gid=cache_owner_gid)
         if after_apply is not None:
             verify()
             need(callable(after_apply), 'CACHE_VERIFIER_INVALID')
@@ -404,7 +447,7 @@ def apply(root, audit_parent, release, owner_uid, payloads, *, pins=None, verify
             except BaseException:
                 restored = False
         try:
-            invalidate_blade(root, changed, audit, owner_uid, verify)
+            invalidate_blade(root, changed, audit, owner_uid, verify, cache_owner_gid=cache_owner_gid)
         except BaseException:
             restored = False
         concurrent = False

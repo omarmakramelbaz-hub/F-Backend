@@ -7,6 +7,7 @@ from pathlib import Path
 import stat
 import subprocess
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -88,6 +89,14 @@ class SourceTransactionTests(unittest.TestCase):
             str(self.root / BLADE).encode() + b' ENDPATH**/ ?>\n')
         file.chmod(0o644)
         return file
+
+    def writable_cache(self):
+        paths = [self.root / 'storage', self.root / 'storage/framework',
+            self.root / 'storage/framework/views']
+        for path in paths:
+            path.chmod(0o775)
+        return {path: (path.stat().st_uid, path.stat().st_gid,
+            stat.S_IMODE(path.stat().st_mode)) for path in paths}
 
     def test_exact_source_plan_is_backed_up_before_owner_mode_preserving_commit(self):
         facts = {name: (file.stat().st_uid, file.stat().st_gid,
@@ -210,6 +219,155 @@ class SourceTransactionTests(unittest.TestCase):
         self.assertFalse(compiled.exists())
         backups = list(Path(result['audit']).glob('compiled-before-*.bin'))
         self.assertEqual([p.read_bytes() for p in backups], [raw])
+        self.assert_protected()
+
+    def test_application_group_cache_is_accepted_without_changing_directory_permissions(self):
+        directories = self.writable_cache()
+        compiled = self.create_compiled()
+        compiled.chmod(0o664)
+        before = compiled.read_bytes()
+        with self.assertRaisesRegex(subject.Stop, 'FILE_UNSAFE'):
+            subject.read_file(compiled, {0})
+        result = self.apply(cache_owner_gid=os.getgid())
+        self.assertTrue(result['changed'])
+        self.assertFalse(compiled.exists())
+        self.assertEqual([p.read_bytes() for p in Path(result['audit']).glob('compiled-before-*.bin')], [before])
+        for path, expected in directories.items():
+            info = path.stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)), expected)
+        self.assert_protected()
+
+    def test_group_cache_repair_resumes_the_existing_preflight_intent_and_backups(self):
+        self.writable_cache()
+        self.create_compiled().chmod(0o664)
+        with self.assertRaisesRegex(subject.Stop, 'DIRECTORY_UNSAFE'):
+            self.apply()
+        audit, = self.audits.iterdir()
+        preserved = {p.name: (subject.identity(p.stat()), p.read_bytes()) for p in audit.iterdir()}
+        intent = json.loads((audit / 'intent.json').read_bytes())
+        self.assertEqual(set(intent['plan']), {'format', 'kind', 'release', 'paths', 'root', 'owner_uid'})
+        result = self.apply(cache_owner_gid=os.getgid())
+        self.assertEqual(result['audit'], str(audit))
+        self.assertEqual(list(self.audits.iterdir()), [audit])
+        for name, expected in preserved.items():
+            file = audit / name
+            self.assertEqual((subject.identity(file.stat()), file.read_bytes()), expected)
+        self.assertTrue((audit / 'committed.json').exists())
+        self.assert_protected()
+
+    def test_group_cache_does_not_allow_world_write_special_modes_or_other_group(self):
+        directories = self.writable_cache()
+        storage = self.root / 'storage'
+        for mode in (0o777, 0o2775, 0o1775):
+            storage.chmod(mode)
+            with self.subTest(mode=oct(mode)), self.assertRaisesRegex(subject.Stop, 'DIRECTORY_UNSAFE'):
+                self.apply(cache_owner_gid=os.getgid())
+        storage.chmod(0o775)
+        with self.assertRaisesRegex(subject.Stop, 'DIRECTORY_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid()+1)
+        original_lstat = Path.lstat
+        def foreign_owner(path):
+            info = original_lstat(path)
+            if path in directories:
+                return types.SimpleNamespace(st_mode=info.st_mode, st_uid=60003, st_gid=info.st_gid)
+            return info
+        with patch.object(Path, 'lstat', foreign_owner):
+            with self.assertRaisesRegex(subject.Stop, 'DIRECTORY_UNSAFE'):
+                self.apply(cache_owner_gid=os.getgid())
+        self.assert_original()
+
+    def test_group_cache_policy_does_not_extend_to_source_files_source_parents_or_audits(self):
+        source = self.root / SCRIPT
+        source.chmod(0o664)
+        with self.assertRaisesRegex(subject.Stop, 'FILE_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid())
+        source.chmod(0o640)
+        source.parent.chmod(0o775)
+        with self.assertRaisesRegex(subject.Stop, 'DIRECTORY_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid())
+        source.parent.chmod(0o755)
+        self.audits.chmod(0o775)
+        with self.assertRaisesRegex(subject.Stop, 'DIRECTORY_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid())
+        self.audits.chmod(0o700)
+        self.assert_original()
+
+    def test_group_cache_chain_cannot_follow_a_symlink(self):
+        framework = self.root / 'storage/framework'
+        original = self.root / 'storage/framework-original'
+        framework.rename(original)
+        framework.symlink_to(original, target_is_directory=True)
+        with self.assertRaisesRegex(subject.Stop, 'DIRECTORY_PATH_INVALID'):
+            self.apply(cache_owner_gid=os.getgid())
+        self.assertTrue(framework.is_symlink())
+        framework.unlink()
+        original.rename(framework)
+        self.assert_original()
+
+    def test_group_compiled_cache_still_requires_its_marker_single_link_and_exact_identity(self):
+        compiled = self.create_compiled()
+        compiled.chmod(0o664)
+        with self.assertRaisesRegex(subject.Stop, 'FILE_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid()+1)
+        compiled.write_bytes(b'<?php /* wrong Blade marker */ ?>')
+        with self.assertRaisesRegex(subject.Stop, 'COMPILED_MARKER_INVALID'):
+            self.apply(cache_owner_gid=os.getgid())
+        compiled = self.create_compiled()
+        compiled.chmod(0o664)
+        hardlink = self.folder / 'other-cache-link'
+        os.link(compiled, hardlink)
+        with self.assertRaisesRegex(subject.Stop, 'FILE_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid())
+        hardlink.unlink()
+        compiled.chmod(0o666)
+        with self.assertRaisesRegex(subject.Stop, 'FILE_UNSAFE'):
+            self.apply(cache_owner_gid=os.getgid())
+        with self.assertRaisesRegex(subject.Stop, 'COMPILED_SOURCE_SCOPE_INVALID'):
+            subject.read_compiled(self.root, SCRIPT, 0, os.getgid())
+        self.assert_original()
+
+    def test_group_cache_policy_is_kept_during_rollback_and_only_targeted_cache_is_removed(self):
+        directories = self.writable_cache()
+        self.create_compiled().chmod(0o664)
+        events = []
+        def failed_activation():
+            events.append('activate')
+            self.create_compiled(b'regenerated reviewed cache').chmod(0o664)
+            raise RuntimeError('synthetic activation failure')
+        with self.assertRaisesRegex(subject.Stop, 'OWN_SOURCES_RESTORED'):
+            self.apply(cache_owner_gid=os.getgid(), after_apply=failed_activation,
+                after_rollback=lambda: events.append('restore'))
+        self.assertEqual(events, ['activate', 'restore'])
+        self.assertFalse(subject.compiled_path(self.root, BLADE).exists())
+        for path, expected in directories.items():
+            info = path.stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)), expected)
+        self.assert_original()
+        retry = self.apply(cache_owner_gid=os.getgid())
+        self.assertTrue(retry['changed'])
+        self.assert_protected()
+
+    def test_cache_group_identity_is_optional_but_must_be_a_numeric_gid(self):
+        for value in (True, -1, '1003'):
+            with self.subTest(value=value), self.assertRaisesRegex(subject.Stop, 'CACHE_OWNER_GID_INVALID'):
+                self.apply(cache_owner_gid=value)
+        self.assertEqual(list(self.audits.iterdir()), [])
+        self.assert_original()
+
+    @unittest.skipUnless(REAL_OWNERS, 'Real mapped owner UID60001/GID60002 required')
+    def test_nonroot_application_cache_uid_and_gid_match_real_filesystem_ownership(self):
+        directories = self.writable_cache()
+        compiled = self.create_compiled()
+        compiled.chmod(0o664)
+        for path in (*directories, compiled):
+            os.chown(path, 60001, 60002)
+        result = subject.apply(self.root, self.audits, RELEASE, 60001, self.after,
+            pins=self.pins, verify_locks=self.verify, cache_owner_gid=60002)
+        self.assertTrue(result['changed'])
+        self.assertFalse(compiled.exists())
+        for path in directories:
+            info = path.stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)), (60001,60002,0o775))
         self.assert_protected()
 
     def test_unrecognized_compiled_marker_or_symlink_stops_before_source_replacement(self):

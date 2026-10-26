@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 import types
 import unittest
 from unittest.mock import patch
@@ -161,6 +162,35 @@ class WebSourceCIGuards(unittest.TestCase):
         result['configuration']['domain'] = 'concurrent-change'
         with self.assertRaisesRegex(subject.Stop, 'PHP_HANDLER_CONFIGURATION_CHANGED'):
             subject.reload_php_handler(ctx)
+
+    def test_source_cache_group_is_the_trusted_application_accounts_primary_gid(self):
+        from test_go_erp_navigation_rollout import published_state
+        state = published_state(); calls = []
+        payloads = {'reviewed': b'source'}
+        def apply(*args, **kwargs):
+            calls.append((args,kwargs))
+            return {'changed':True}
+        source_module = types.SimpleNamespace(apply=apply)
+        template = types.SimpleNamespace(ROOT=Path('/reviewed/application'),
+            CONTROL=Path('/reviewed/control'), module=lambda *args:source_module)
+        ctx = types.SimpleNamespace(held_verify=lambda:None, state=lambda:state,
+            publication=lambda:state['published']['release'], quiet_hold=lambda:None,
+            previous_proof=lambda:None, owner=types.SimpleNamespace(pw_uid=1001,pw_gid=1003),
+            release=types.SimpleNamespace(file=lambda name:b'pinned source helper'),
+            e=types.SimpleNamespace(canonical=lambda value:json.dumps(value).encode(),
+                read_file=lambda *args,**kwargs:None, atomic_write=lambda *args:None))
+        with patch.object(subject,'checked_existing_manual'), \
+                patch.object(subject,'verify_web_ci',return_value=(payloads,{'reviewed':True})), \
+                patch.object(subject,'verify_php_handler',return_value={'configuration':{'verified':True}}):
+            result = subject.apply_web_source(ctx,template)
+        self.assertTrue(result['changed'])
+        self.assertEqual(len(calls),1)
+        args, options = calls[0]
+        self.assertEqual(args,(template.ROOT,template.CONTROL/'private/audits',
+            subject.WEB_RELEASE,1001,payloads))
+        self.assertEqual(options['cache_owner_gid'],1003)
+        self.assertEqual(options['pins'],subject.WEB_PATCHES)
+        self.assertIs(options['verify_locks'],ctx.held_verify)
 
 
 if __name__ == '__main__':
