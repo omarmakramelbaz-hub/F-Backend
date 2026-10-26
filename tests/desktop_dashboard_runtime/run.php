@@ -19,9 +19,25 @@ $fixtureCompleted=false;register_shutdown_function(function()use(&$fixtureComple
 foreach(['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$profile,'APP_ENV'=>'desktop','APP_DEBUG'=>'false','APP_URL'=>'http://127.0.0.1:33408',
     'APP_KEY'=>'base64:'.base64_encode(random_bytes(32)),'DB_CONNECTION'=>'mysql','DB_HOST'=>'127.0.0.1','DB_PORT'=>(string)$port,'DB_DATABASE'=>$database,'DB_USERNAME'=>'root','DB_PASSWORD'=>'',
     'CACHE_DRIVER'=>'file','SESSION_DRIVER'=>'file','APP_CONFIG_CACHE'=>$profile.'/bootstrap/cache/config.php','APP_PACKAGES_CACHE'=>$profile.'/bootstrap/cache/packages.php',
-    'APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php'] as $key=>$value)putenv($key.'='.$value);
+    'APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php'] as $key=>$value){
+    // Laravel's locked phpdotenv repository reads $_SERVER, then $_ENV,
+    // before its putenv adapter. A previous process environment must not
+    // override this disposable fixture's explicitly declared local mode.
+    putenv($key.'='.$value);$_ENV[$key]=$value;$_SERVER[$key]=$value;
+}
 set_exception_handler(function(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);});
-try{$app=require $application.'/desktop/bootstrap.php';}
+try{
+    $app=require $application.'/desktop/bootstrap.php';
+    if(config('desktop_dashboard.local')!==true){
+        fwrite(STDERR,'DESKTOP_FIXTURE_LOCAL_MODE_DIAGNOSTIC '.json_encode([
+            'processTrue'=>getenv('DESKTOP_DASHBOARD_LOCAL')==='true',
+            'envTrue'=>($_ENV['DESKTOP_DASHBOARD_LOCAL']??null)==='true',
+            'serverTrue'=>($_SERVER['DESKTOP_DASHBOARD_LOCAL']??null)==='true',
+            'configTrue'=>config('desktop_dashboard.local')===true,
+            'configType'=>gettype(config('desktop_dashboard.local'))],JSON_THROW_ON_ERROR).PHP_EOL);
+        throw new RuntimeException('The disposable runtime did not bootstrap its declared local environment.');
+    }
+}
 catch(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);}
 set_exception_handler(function(Throwable $error){fwrite(STDERR,get_class($error).': '.$error->getMessage().PHP_EOL.$error->getTraceAsString().PHP_EOL);exit(1);});
 \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-08T12:00:00Z'));
