@@ -29,7 +29,33 @@ app.setPath('userData', config.browserRoot);
 assert.equal(app.requestSingleInstanceLock(), true, 'Each natural relaunch must acquire the released native lock.');
 let failed = false, phaseReady = false, phase, selected, state, evidence = {}, dialogs = 0, expectedDialog = false;
 let certificateChecks = 0;
-const fail = error => { failed = true; process.stderr.write(error.stack + '\n'); app.exit(1); };
+let diagnosticStage = 'loaded';
+function diagnostic(error) {
+  const value = { format: 1, kind: 'go-erp-native-account-diagnostic', pid: process.pid,
+    phase: Number.isInteger(phase) ? phase : null, stage: diagnosticStage, failed: Boolean(error) };
+  if (error) {
+    value.errorType = ['Error','AssertionError','TypeError','ReferenceError','SyntaxError','RangeError'].includes(error.name) ? error.name : 'Error';
+    if (error.code === 'ERR_ASSERTION') value.errorCode = error.code;
+    let message = String(error.message || '').replace(/[\x00-\x1f\x7f]/g, ' ')
+      .replace(/base64:[A-Za-z0-9+/=]+/g, '[redacted-key]').replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]')
+      .replace(/https?:\/\/[^\s]+/gi, '[redacted-url]').split(config.root).join('[fixture]');
+    for (const account of [state?.owner, state?.other]) for (const secret of [account?.settings?.rootPassword,
+      account?.settings?.appPassword, account?.settings?.appKey, account?.jwtSecret]) {
+      if (typeof secret === 'string' && secret) message = message.split(secret).join('[redacted-secret]');
+    }
+    value.message = message.slice(0, 500);
+  }
+  const target = path.join(config.root, 'diagnostic-' + process.pid + '.json'), temporary = target + '.tmp';
+  try { fs.writeFileSync(temporary, JSON.stringify(value) + '\n'); fs.renameSync(temporary, target); } catch {}
+  return value;
+}
+function stage(value) { diagnosticStage = value; diagnostic(); }
+const fail = error => {
+  if (failed) return;
+  failed = true; process.stderr.write('NATIVE_ACCOUNT_PHASE_FAILURE ' + JSON.stringify(diagnostic(error)) + '\n'); app.exit(1);
+};
+process.on('uncaughtException', fail); process.on('unhandledRejection', fail);
+stage('loaded');
 const watchdog = setTimeout(() => fail(Error('Actual main account switching exceeded its bounded fixture deadline.')), 55000);
 const originalDialog = dialog.showMessageBox.bind(dialog);
 dialog.showMessageBox = async (...args) => {
@@ -245,6 +271,7 @@ async function commitPicker(picker, action) {
 
 app.once('will-quit', () => {
   clearTimeout(watchdog); if (failed) return;
+  stage('will-quit');
   try {
     assert.equal(phaseReady, true); assert.equal(firstVisiblePage, true); assert.equal(BrowserWindow.getAllWindows().length, 0);
     const trace = JSON.parse(fs.readFileSync(path.join(config.profile, 'lifecycle-trace.json'), 'utf8'));
@@ -260,13 +287,14 @@ app.once('will-quit', () => {
       hardware: false, productionProfile: false, actualPhpAuthorization: false, syntheticRoleProjectionOnly: true,
       syntheticPrivateProofOnly: true, dialogsIntercepted: true, naturalQuit: true, forcedSuccessExit: false,
       certificateChecks, interceptedDialogs: dialogs, ...evidence, completed: true };
-    publishReceipt('phase-' + phase + '.json', receipt);
-  } catch (error) { process.exitCode = 1; process.stderr.write(error.stack + '\n'); }
+    stage('will-quit-validated');publishReceipt('phase-' + phase + '.json', receipt);stage('receipt-written');
+  } catch (error) { process.exitCode = 1; process.stderr.write('NATIVE_ACCOUNT_PHASE_FAILURE ' + JSON.stringify(diagnostic(error)) + '\n'); }
 });
 
 async function run() {
   await app.whenReady(); assert.equal(app.isPackaged, false); assert.equal(safeStorage.isEncryptionAvailable(), true);
   state = readState(); phase = state.next; assert.ok([0, 1, 2].includes(phase));
+  stage('ready');
   publishReceipt('started-' + phase + '.json', { pid: process.pid, phase });
   const profiles = new AccountProfiles({ root: config.profile, safeStorage });
   selected = await profiles.selected();
@@ -276,11 +304,12 @@ async function run() {
   }, 'Production main startup did not settle.');
   await waitFor(() => window.webContents.executeJavaScript('document.readyState === "complete"', true), 'The dashboard document did not settle.');
   preferences(window); assert.equal(window.webContents.session, session.fromPartition(selected.partition));
+  stage('dashboard-ready');
   if (phase === 0) {
     assert.equal(selected.id, 'default'); assert.equal(selected.profile, config.profile);
     assert.equal(new URL(window.webContents.getURL()).pathname, '/admin/login');
     assert.equal((await mainState()).history.length, 0);
-    await signin(window, 42); await accountPage(window, 42);
+    await signin(window, 42); await accountPage(window, 42);stage('owner-authenticated');
     state.owner = await privateState(selected, 42);
     await profiles.bind('default', { actorId: 42, serverOrigin: config.origin, label: 'مالك اختبار منفصل' });
     const eventId = seedJournal(selected.profile, 42); state.ownerEventId = eventId;
@@ -295,7 +324,7 @@ async function run() {
     acknowledgeFixture(selected.profile, eventId); assert.equal((await mainState()).counts.pending, 0);
     await endTransientFixtureSession(window);
     state.ownerHashes = hashes(selected.profile); state.next = 1; saveState(state);
-    await commitPicker(await pickerFor('add'), 'add');
+    stage('owner-add-picker');await commitPicker(await pickerFor('add'), 'add');
   } else if (phase === 1) {
     assert.notEqual(selected.id, 'default'); assert.equal(selected.profile, path.join(config.profile, 'accounts', selected.id));
     assert.notEqual(selected.partition, 'persist:fasakhansta-dashboard');
@@ -304,7 +333,7 @@ async function run() {
     assert.equal((await window.webContents.session.cookies.get({ url: config.origin })).some(cookie => cookie.name === config.recaller), false);
     assert.ok((await session.fromPartition('persist:fasakhansta-dashboard').cookies.get({ url: config.origin })).some(cookie => cookie.name === config.recaller));
     assert.deepEqual(hashes(config.profile), state.ownerHashes);
-    await signin(window, 84); await accountPage(window, 84);
+    await signin(window, 84); await accountPage(window, 84);stage('manager-authenticated');
     state.other = await privateState(selected, 84); state.otherId = selected.id; state.otherProfile = selected.profile; state.otherPartition = selected.partition;
     for (const key of ['deviceId', 'rootPassword', 'appPassword', 'appKey']) assert.ok(state.owner.settings[key] !== state.other.settings[key], 'Profiles must generate distinct ' + key);
     assert.notEqual(state.owner.authStorage, state.other.authStorage); assert.ok(state.owner.jwtSecret !== state.other.jwtSecret, 'Native signing keys must be separate.');
@@ -316,7 +345,7 @@ async function run() {
     state.otherHashes = hashes(selected.profile); state.next = 2; saveState(state);
     evidence.distinctDevicesAndSecrets = true; evidence.distinctPrivateAuthStorage = true; evidence.emptyNewCookiePartition = true;
     evidence.ownerDurableBytesUnchanged = true;
-    await commitPicker(await pickerFor('select'), 'select');
+    stage('manager-select-picker');await commitPicker(await pickerFor('select'), 'select');
   } else {
     assert.equal(selected.id, 'default'); assert.equal(selected.profile, config.profile);
     await accountPage(window, 42);
@@ -348,14 +377,15 @@ async function run() {
     const capacity = [{ id: 'default', label: 'الحساب الحالي', selected: true },
       ...Array.from({ length: 63 }, () => ({ id: crypto.randomUUID(), label: 'اسم <img src=x onerror=alert(1)> '.repeat(4).slice(0, 120), selected: false }))];
     const choose = require('../src/account-picker.cjs')({ parent: window, profiles: capacity });
-    const picker = await pickerFor('capacity', { invokeMenu: false });
+    const picker = await pickerFor('capacity', { invokeMenu: false });stage('capacity-picker');
     const capacityState = await picker.webContents.executeJavaScript(`({rows:document.querySelectorAll('.account-row').length,
       images:document.querySelectorAll('img').length,scroll:document.getElementById('account-list').scrollHeight>document.getElementById('account-list').clientHeight})`, true);
     assert.deepEqual(capacityState, { rows: 64, images: 0, scroll: true });
+    stage('capacity-cancel-requested');
     await picker.webContents.executeJavaScript('document.getElementById("account-cancel").click();true', true).catch(error => { if (!picker.isDestroyed()) throw error; });
-    assert.equal(await choose, null); assert.equal((await profiles.selected()).id, 'default');
+    assert.equal(await choose, null); assert.equal((await profiles.selected()).id, 'default');stage('capacity-cancelled');
     evidence.capacity64PickerActionsVisible = true; evidence.labelsRenderedAsText = true;
-    phaseReady = true; app.quit();
+    phaseReady = true;stage('quit-requested'); app.quit();
   }
 }
 run().catch(fail);
