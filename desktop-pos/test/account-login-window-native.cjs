@@ -39,8 +39,9 @@ function broker(){
   return value;
 }
 async function actualOriginalSessionClient(){
-  const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,foreignOrigin,serverFailure,foreignWire=0,repeatedPosts=0,rememberedMode=false,rememberedRedirects=0,rememberedHomes=0;
-  const requests={logins:0,signins:0,dashboards:0};
+  const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,foreignOrigin,serverFailure,foreignWire=0,repeatedPosts=0,rememberedMode=false,rememberedRedirects=0,rememberedHomes=0,lateIdentity;
+  let identityStarted;const delayedIdentity=new Promise(resolve=>{identityStarted=resolve;});
+  const requests={logins:0,signins:0,identities:0,dashboards:0};
   const originalNetRequest=net.request;let manualRequests=0,manualRedirects=0,rememberedManualRequests=0,rememberedManualRedirects=0;
   net.request=function(options,...args){
     const request=originalNetRequest.call(net,options,...args);
@@ -67,11 +68,12 @@ async function actualOriginalSessionClient(){
         const input=new URLSearchParams(Buffer.concat(chunks).toString());assert.equal(input.get('_token'),csrf);assert.equal(input.get('email'),'native.owner@example.test');
         if(input.get('password')==='foreign-redirect-only'){response.writeHead(302,{Location:foreignOrigin+'/collect'});response.end();return;}
         if(input.get('password')==='repeat-post-redirect-only'){repeatedPosts++;response.writeHead(307,{Location:origin+'/admin/signin'});response.end();return;}
-        if(input.get('password')!==password){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
-        response.setHeader('Set-Cookie','native_session=synthetic-authenticated-session; Path=/; HttpOnly; SameSite=Lax');
+        const variants={'guest-proof-only':'synthetic-guest-proof','invalid-actor-proof-only':'synthetic-invalid-actor','cancelled-before-identity-only':'synthetic-delayed-identity'};
+        if(input.get('password')!==password&&!variants[input.get('password')]){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
+        response.setHeader('Set-Cookie','native_session='+(variants[input.get('password')]||'synthetic-authenticated-session')+'; Path=/; HttpOnly; SameSite=Lax');
         response.writeHead(302,{Location:origin+'/admin/dashboard'});response.end();return;
       }
-      if(rememberedMode&&request.method==='GET'&&request.url==='/admin/dashboard'){
+      if(rememberedMode&&request.method==='GET'&&request.url==='/admin/choose_type'){
         assert.ok(String(request.headers.cookie).includes(recaller+'=synthetic-native-recaller'));rememberedRedirects++;
         response.setHeader('Set-Cookie','native_session=synthetic-authenticated-session; Path=/; HttpOnly; SameSite=Lax');
         response.writeHead(302,{Location:origin+'/admin/applies-orders'});response.end();return;
@@ -79,6 +81,14 @@ async function actualOriginalSessionClient(){
       if(rememberedMode&&request.method==='GET'&&request.url==='/admin/applies-orders'){
         assert.ok(String(request.headers.cookie).includes('native_session=synthetic-authenticated-session'));rememberedHomes++;
         response.end('<body data-dashboard-actor="42:resturant_owner">Remembered branch role fixture</body>');return;
+      }
+      if(request.method==='GET'&&request.url==='/admin/choose_type'){
+        requests.identities++;
+        if(request.headers.cookie==='native_session=synthetic-guest-proof'){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
+        if(request.headers.cookie==='native_session=synthetic-invalid-actor'){response.end('<body data-dashboard-actor="42:admin" data-dashboard-actor="43:admin">Invalid original identity fixture</body>');return;}
+        if(request.headers.cookie==='native_session=synthetic-delayed-identity'){lateIdentity=response;identityStarted();return;}
+        assert.equal(request.headers.cookie,'native_session=synthetic-authenticated-session');
+        response.end('<body data-dashboard-actor="42:admin">Small original authenticated identity fixture</body>');return;
       }
       assert.equal(request.method,'GET');assert.equal(request.url,'/admin/dashboard');requests.dashboards++;
       assert.equal(request.headers.cookie,'native_session=synthetic-authenticated-session');response.end('<body data-dashboard-actor="42:admin">Original client authenticated fixture</body>');
@@ -89,15 +99,24 @@ async function actualOriginalSessionClient(){
     const browser=session.fromPartition('native-auth-client-'+crypto.randomUUID()),target=session.fromPartition('native-auth-target-'+crypto.randomUUID());
     const actor=await originalSignin({browser,origin,localToken:token,email:'native.owner@example.test',password,remember:false,signal:AbortSignal.timeout(10000)});
     assert.deepEqual(actor,{actorId:42,role:'admin'});assert.equal(serverFailure,undefined);
+    assert.deepEqual(requests,{logins:1,signins:1,identities:1,dashboards:0},'Native password authentication must not render the heavy dashboard.');
     await installCookies(browser,target,origin,true);
     const home=await target.fetch(origin+'/admin/dashboard',{credentials:'include',redirect:'error',headers:{'X-Fasakhansta-Desktop':token}});
     assert.equal(home.status,200);assert.match(await home.text(),/data-dashboard-actor="42:admin"/);
     await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-rejected-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:'wrong-synthetic-only',remember:false,signal:AbortSignal.timeout(10000)}),error=>error.code==='ACCOUNT_CREDENTIALS_REJECTED');
-    assert.equal(serverFailure,undefined);assert.deepEqual(requests,{logins:3,signins:2,dashboards:2});
+    assert.equal(serverFailure,undefined);assert.deepEqual(requests,{logins:2,signins:2,identities:1,dashboards:1});
     for(const candidate of ['foreign-redirect-only','repeat-post-redirect-only']){
       await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-blocked-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:candidate,remember:false,signal:AbortSignal.timeout(10000)}));
     }
-    assert.equal(serverFailure,undefined);assert.equal(foreignWire,0);assert.equal(repeatedPosts,1);assert.deepEqual(requests,{logins:5,signins:4,dashboards:2});
+    assert.equal(serverFailure,undefined);assert.equal(foreignWire,0);assert.equal(repeatedPosts,1);assert.deepEqual(requests,{logins:4,signins:4,identities:1,dashboards:1});
+    for(const candidate of ['guest-proof-only','invalid-actor-proof-only']){
+      await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-untrusted-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:candidate,remember:false,signal:AbortSignal.timeout(10000)}));
+    }
+    const cancellation=new AbortController(),cancelledSignin=originalSignin({browser:session.fromPartition('native-auth-cancelled-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:'cancelled-before-identity-only',remember:false,signal:cancellation.signal});
+    const cancelledCheck=assert.rejects(cancelledSignin,error=>error.code==='ACCOUNT_LOGIN_CANCELLED');
+    await delayedIdentity;cancellation.abort();await cancelledCheck;lateIdentity.end('<body data-dashboard-actor="42:admin">A cancelled identity may not finish authentication.</body>');
+    assert.equal(serverFailure,undefined);assert.equal(requests.dashboards,1,'Rejected or cancelled identity reads cannot render the heavy home.');
+    assert.equal((await target.cookies.get({url:origin+'/'})).find(cookie=>cookie.name==='native_session')?.value,'synthetic-authenticated-session','A rejected or late identity cannot overwrite the accepted account session.');
     await target.cookies.remove(origin+'/','native_session');
     await target.cookies.set({url:origin+'/',name:recaller,value:'synthetic-native-recaller',path:'/',httpOnly:true,secure:false,expirationDate:Date.now()/1000+3600});
     await target.cookies.flushStore();rememberedMode=true;
@@ -110,14 +129,15 @@ async function actualOriginalSessionClient(){
     const remembered=await rememberedBroker.resumeRemembered();
     assert.ok(remembered,'An actual remembered role redirect must admit the already authenticated account.');
     assert.equal(remembered.account,account);assert.equal(remembered.runtime,runtime);assert.equal(remembered.origin,origin);assert.equal(remembered.localToken,token);assert.equal(remembered.local,true);
-    assert.equal(rememberedStarts,1);assert.equal(rememberedRedirects,1);assert.equal(rememberedHomes,1);assert.equal(requests.signins,4);assert.equal(serverFailure,undefined);
+    assert.equal(rememberedStarts,1);assert.equal(rememberedRedirects,1);assert.equal(rememberedHomes,1);assert.equal(requests.signins,7);assert.equal(serverFailure,undefined);
     const rememberedCookies=await target.cookies.get({url:origin+'/admin/dashboard'});
     assert.equal(rememberedCookies.find(value=>value.name==='native_session')?.value,'synthetic-authenticated-session');
     assert.equal(rememberedCookies.find(value=>value.name===recaller)?.value,'synthetic-native-recaller');
     await rememberedBroker.stop();assert.equal(rememberedStops,1);
     assert.ok(manualRequests>=9);assert.ok(manualRedirects>=5);assert.ok(rememberedManualRequests>=1);assert.ok(rememberedManualRedirects>=1);
     return {actualOriginalSessionAuthClient:true,actualSessionCookieJar:true,originalCsrfHeadersObserved:true,guardedRedirectCookiesPreserved:true,actualClientRequestManualAdmission:true,authOnlyRedirectAdmission:true,foreignRedirectNotTransmitted:true,repeatedPostRedirectBlocked:true,actualCookieHandoff:true,wrongPasswordRejected:true,
-      actualRememberedSessionClient:true,rememberedRoleRedirectAccepted:true,rememberedWithoutPasswordPost:true};
+      actualRememberedSessionClient:true,rememberedRoleRedirectAccepted:true,rememberedWithoutPasswordPost:true,
+      nativeIdentityDocument:true,nativePasswordSigninSkipsHome:true,nativeGuestIdentityRejected:true,nativeMalformedIdentityRejected:true,nativeIdentityCancellation:true,nativeRememberedIdentityRead:true};
   }catch(error){throw serverFailure||error;}finally{net.request=originalNetRequest;authServer.closeAllConnections?.();await new Promise(resolve=>authServer.close(resolve));authServer=null;foreignServer.closeAllConnections?.();await new Promise(resolve=>foreignServer.close(resolve));foreignServer=null;}
 }
 app.once('will-quit',()=>{

@@ -28,7 +28,8 @@ function originalHandler({actor=42,rejected=false,redirect='/admin/dashboard',ca
       if(rejected)return response('',302,url,scope+'/admin/login');
       browser.cookies.seed(cookiesFor(scope,fields.get('remember')==='1'));return response('',302,url,scope+redirect);
     }
-    if(url===scope+redirect)return response(home(actor),200,url);
+    if(url===scope+'/admin/choose_type')return response(home(actor),200,url);
+    if(url===scope+redirect)throw Error('Native authentication must not calculate the heavy business home.');
     throw Error('UNEXPECTED_SYNTHETIC_ROUTE');
   };
 }
@@ -36,6 +37,7 @@ test('original sign-in obtains fresh CSRF and sends the original POST before rea
   const capture=[],browser=session('fresh',originalHandler({capture}));
   const actor=await originalSignin({browser,origin:remote,email:'manager@example.test',password:secret,remember:true});
   assert.deepEqual(actor,{actorId:42,role:'admin'});assert.deepEqual(capture.map(value=>value.method),['GET','POST','GET']);
+  assert.deepEqual(capture.map(value=>new URL(value.url).pathname),['/admin/login','/admin/signin','/admin/choose_type']);
   assert.equal(capture.some(value=>value.headers['X-Fasakhansta-Desktop']),false);
   const localCapture=[],localBrowser=session('fresh',originalHandler({capture:localCapture}));
   await originalSignin({browser:localBrowser,origin:local,localToken:'b'.repeat(64),email:'manager@example.test',password:secret,remember:false});
@@ -49,6 +51,18 @@ test('wrong credentials, bad CSRF forms and foreign redirects never produce a tr
     assert.throws(()=>csrfFromHTML(html,remote));
   }
   for(const html of ['<body></body>','<body data-dashboard-actor="42:admin" data-dashboard-actor="43:admin"></body>','<div data-dashboard-actor="42:admin"></div>'])assert.throws(()=>actorFromHTML(html));
+});
+test('the small protected identity document cannot be replaced by a guest, error or business-home redirect',async()=>{
+  for(const [status,html,location] of [[302,'',remote+'/admin/login'],[302,'',remote+'/admin/dashboard'],
+    [302,'','https://foreign.example.test/admin/choose_type'],[403,home(42)],[500,home(42)],
+    [200,'<body></body>'],[200,home(42).replace(':admin',':unexpected')]]){
+    const capture=[],original=originalHandler({capture});
+    const browser=session('fresh',async(browser,url,options)=>url===remote+'/admin/choose_type'
+      ?response(html,status,url,location):original(browser,url,options));
+    await assert.rejects(originalSignin({browser,origin:remote,email:'owner@example.test',password:secret,remember:false}));
+    assert.equal(capture.filter(value=>value.method==='POST').length,1);
+    assert.equal(capture.some(value=>new URL(value.url).pathname==='/admin/dashboard'),false);
+  }
 });
 test('cookie handoff is scoped to original protected auth cookies and rolls back if flush fails',async()=>{
   const source=session('source',()=>{}),target=session('target',()=>{});

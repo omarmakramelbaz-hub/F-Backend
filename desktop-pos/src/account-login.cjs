@@ -7,6 +7,9 @@ const signout=require('./account-signout.cjs');
 const recaller='remember_admin_'+crypto.createHash('sha1').update('Illuminate\\Auth\\SessionGuard').digest('hex');
 const roles=new Set(['admin','vendor','resturant_owner']);
 const homes=new Set(['/admin/dashboard','/admin/applies-orders','/admin/resturants']);
+// This original IsAdmin-protected page carries the same trusted actor marker
+// without calculating every branch's sales, stock and owner cash drawers.
+const identityPath='/admin/choose_type';
 const failure=()=>Error('تعذر تسجيل الدخول. تأكد من بيانات الحساب والاتصال، ثم أعد المحاولة.');
 const denied=()=>Object.assign(failure(),{code:'ACCOUNT_CREDENTIALS_REJECTED'});
 const aborted=()=>Object.assign(Error('تم إلغاء تسجيل الدخول.'),{code:'ACCOUNT_LOGIN_CANCELLED'});
@@ -100,6 +103,7 @@ function authRequest(browser,origin,url,options={},readOnly=false){
   if(process.versions.electron){
     return nativeAuthHTML({browser,origin,url,...options,readOnly,
       allowRedirects:new URL(url).pathname!=='/admin/login'||String(options.method||'GET').toUpperCase()==='POST',
+      surfaceRedirects:true,
       requestFactory:configuration=>require('electron').net.request(configuration)});
   }
   // Node contract fixtures use standard fetch's actual manual responses.
@@ -121,16 +125,19 @@ async function originalSignin({browser,origin,localToken='',email,password,remem
     let response;try{response=await fetch(origin+'/admin/signin',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-CSRF-TOKEN':csrf,Referer:origin+'/admin/login',Origin:origin},body:body.toString()});}
     finally{body.set('password','');}
     let next=response;
-    for(let redirects=0;[301,302,303].includes(next.status)&&redirects<4;redirects++){
+    if([301,302,303].includes(next.status)){
       const location=next.headers.get('location');await discard(next);
       const url=new URL(location||'',origin);
       if(url.origin===origin&&url.pathname==='/admin/login'&&!url.search&&!url.hash)throw denied();
       if(url.origin!==origin||url.username||url.password||!homes.has(url.pathname)||url.search||url.hash)throw failure();
-      next=await fetch(url.href);
+      // The original successful password POST and its exact role-home redirect
+      // remain mandatory. Read its protected identity document once; the visible
+      // dashboard, rather than this hidden client, renders the expensive home.
+      next=await fetch(origin+identityPath);
     }
     if(next.status!==200){await discard(next);throw [401,422].includes(next.status)?denied():failure();}
     const finalURL=next.url?new URL(next.url):null;
-    if(finalURL&&(finalURL.origin!==origin||!homes.has(finalURL.pathname))){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
+    if(finalURL&&(finalURL.origin!==origin||finalURL.pathname!==identityPath||finalURL.search||finalURL.hash)){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
     const html=await boundedHTML(next);
     try{return actorFromHTML(html);}
     catch(error){
@@ -319,7 +326,7 @@ class AccountLogin{
       const readController=new AbortController();
       try{
         const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',signal:AbortSignal.any([readController.signal,signal,AbortSignal.timeout(45000)])};
-        let response=await authRequest(browser,destination,destination+'/admin/dashboard',options,true);this.assert();
+        let response=await authRequest(browser,destination,destination+identityPath,options,true);this.assert();
         for(let redirects=0;[301,302,303].includes(response.status)&&redirects<4;redirects++){
           const next=new URL(response.headers.get('location')||'',destination);await discard(response);
           if(next.origin!==destination||!homes.has(next.pathname)||next.search||next.hash)return null;
