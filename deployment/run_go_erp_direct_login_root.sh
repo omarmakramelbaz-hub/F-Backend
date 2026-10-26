@@ -14,10 +14,10 @@ go_prior=2d9e23a5157782882382c797a44ad15c317ae845
 go_previous=0adf41c64aa587b495a55b7ec058bf5cc54d1e2a
 go_template=12d74b4f35737a2b1e271657b159137538c3edaf
 go_old_seed=1556e002f18d00b9e8f9ba81590843e0d8697318
-go_seed=75171aa1b7fe12e7315fd3427eea56b6a9cc2951
+go_seed=5404d97ae473cec5e6248ea4bcf494844bd3d6e5
 go_old_core=a237b4c048887c6af1b0fb53fe02c414c1d17cd6
 go_input=825f3f6437d5d7e6bcb90182f69a9af1828706c7
-go_core=d19cebab4712a5f9e6af3626a7778dd7afa23357
+go_core=84529f73fc63af98375ca8f7d0e3210ec1f108bc
 go_archive=5628a33525e2af63b221f044eb0e650cb6a2b790
 [[ "$go_core" =~ ^[a-f0-9]{40}$ && "$go_seed" =~ ^[a-f0-9]{40}$ ]]
 go_stage=$(mktemp -d /var/tmp/go-erp-direct-login.XXXXXXXX)

@@ -41,14 +41,14 @@ OLD_COHORT = {'pins': {'desktop_dashboard_server_preflight.py': ('4f3feb5b5c68ae
 NEW_COHORT = {'pins': {'desktop_dashboard_server_preflight.py': ('4f3feb5b5c68ae06039c56758f6a72aebd3bdbc4', 10515, '21a8f2ffa16e47322853c33de07af855d8fcb4cc6759750dfda84ca5a0db33bb'),
  'diagnose_desktop_dashboard_current_source.py': ('e7a7a8271481013a1c16167d6f7a6ff429687ef5', 16743, '3e3c852b5916f0cf38d7deb16656e0c13f855f0b5bf8fb326b2e25250d3be7ed'),
  'go_erp_current_candidate_ci.yml': ('af4d9bb97572c84e26cb6750d380adde2f7e9423', 7231, '203ca21186223cacb7feb98dc8eb372bceb258c4e0f01e4c7a8b917b417271ea'),
- 'go_erp_live_source.py': ('ed03ac30d7b98822170f78af9a5080cf542c54fc', 38829, '7c522b9a6aef33eeb93b77ea6c8558a92f86b2cc18dd2a07a605e53649fd5afc'),
- 'go_erp_live_updates.py': ('2461485fef416b5d6c915cb83e6a4b9552472796', 70031, '12454bad7a9a85ed8292ef5dde54b9a8bcc896b7b84ccedbeaf16c9d2b010101'),
+ 'go_erp_live_source.py': ('9b2f137992d8fd9fbfae625fa0ffeeddda56fed7', 38829, 'ccc65f2a3f0e6ffb2af530df9eae7330bc87864077d5b0bfd16ed8f7ac293631'),
+ 'go_erp_live_updates.py': ('ffac4626e0bced6f0833290a21a7e27f2a2f935c', 70031, '66b37d421741b5b1153c3ab27736ad0d9944107df41007b9bc30500360801aea'),
  'publish_go_erp_update.py': ('f9a7353b0705383844a576ab6d0f5b1662912bfb', 18089, '3a277fcbe44f3b58bc89be907928ed3f6dcb1bb43e21c30e2f83948ab8245490'),
  'verify_go_erp_current_candidate_ci.py': ('fb2c6ee364fae14062148846b654df8c96bba0de', 10634, 'e005df2cd2229188d79418754dedd1ea18cbfb5256727ee126a881dfa660461a')},
  'policy': 'historical-baseline-v2-native-close-reopen-program-contract-direct-login-accounts-v1',
- 'runtime': Path('/opt/go-erp-live-updates/releases/policy-8f939a8cad296616f609a2daec855c2dd8da82e2e98898651981232bcbabca9e'),
- 'seed': '75171aa1b7fe12e7315fd3427eea56b6a9cc2951',
- 'unit_sha256': '9598d3041647e815a12b8d2d0832e26ed0768563c2f7c41a96c337b222ece39d'}
+ 'runtime': Path('/opt/go-erp-live-updates/releases/policy-9282ef66759d93800cdaa56c7241c26ec140ee00955ca057a58391b64b96e2d2'),
+ 'seed': '5404d97ae473cec5e6248ea4bcf494844bd3d6e5',
+ 'unit_sha256': '960003d982937f43d1e4d0318836435eb5b883327633bd64c044a5bf4279d718'}
 
 
 class Stop(Exception):

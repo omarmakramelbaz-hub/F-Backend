@@ -34,7 +34,7 @@ jobs:
       - name: Load final native core and its exact three-file policy seed
         run: >-
           git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
-          75171aa1b7fe12e7315fd3427eea56b6a9cc2951
+          5404d97ae473cec5e6248ea4bcf494844bd3d6e5
       - name: Verify root command syntax
         run: bash -n deployment/run_go_erp_direct_login_root.sh
       - name: Verify seed policy and exact final lineage as the checkout owner
@@ -48,11 +48,11 @@ jobs:
           with tempfile.TemporaryDirectory(prefix='go-erp-direct-login-seed-policy-') as folder:
               path = Path(folder) / 'verify.py'
               path.write_bytes(subprocess.check_output(['git', 'show',
-                  '75171aa1b7fe12e7315fd3427eea56b6a9cc2951:deployment/verify_go_erp_preview31_seed.py']))
+                  '5404d97ae473cec5e6248ea4bcf494844bd3d6e5:deployment/verify_go_erp_preview31_seed.py']))
               spec = importlib.util.spec_from_file_location('direct_login_seed_policy', path)
               policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
-              proof = policy.validate_seed(Path.cwd(), '75171aa1b7fe12e7315fd3427eea56b6a9cc2951')
-              assert proof['core'] == 'd19cebab4712a5f9e6af3626a7778dd7afa23357'
+              proof = policy.validate_seed(Path.cwd(), '5404d97ae473cec5e6248ea4bcf494844bd3d6e5')
+              assert proof['core'] == '84529f73fc63af98375ca8f7d0e3210ec1f108bc'
               assert policy.POLICY == 'native-close-reopen-program-contract-direct-login-accounts-v1'
               print(proof)
           PY
