@@ -382,7 +382,11 @@ async function run() {
       images:document.querySelectorAll('img').length,scroll:document.getElementById('account-list').scrollHeight>document.getElementById('account-list').clientHeight})`, true);
     assert.deepEqual(capacityState, { rows: 64, images: 0, scroll: true });
     stage('capacity-cancel-requested');
-    await picker.webContents.executeJavaScript('document.getElementById("account-cancel").click();true', true).catch(error => { if (!picker.isDestroyed()) throw error; });
+    // The real native IPC action destroys this renderer. Its executeJavaScript
+    // reply can disappear with the frame; completion is the actual chooser
+    // result, not a response from the intentionally destroyed document.
+    picker.webContents.executeJavaScript('document.getElementById("account-cancel").click();true', true)
+      .catch(error => { if (!picker.isDestroyed()) fail(error); });
     assert.equal(await choose, null); assert.equal((await profiles.selected()).id, 'default');stage('capacity-cancelled');
     evidence.capacity64PickerActionsVisible = true; evidence.labelsRenderedAsText = true;
     phaseReady = true;stage('quit-requested'); app.quit();
