@@ -29,7 +29,7 @@ foreach (['app/public','framework/cache/data','framework/sessions','framework/vi
 foreach (['DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$profile,'APP_ENV'=>'desktop','APP_DEBUG'=>'false',
     'APP_URL'=>'http://127.0.0.1:43144','APP_KEY'=>'base64:'.base64_encode(random_bytes(32)), 'CACHE_DRIVER'=>'file','SESSION_DRIVER'=>'file',
     'APP_CONFIG_CACHE'=>$profile.'/bootstrap/cache/config.php','APP_PACKAGES_CACHE'=>$profile.'/bootstrap/cache/packages.php',
-    'APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php'] as $name=>$value) putenv($name.'='.$value);
+    'APP_SERVICES_CACHE'=>$profile.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$profile.'/bootstrap/cache/routes.php'] as $name=>$value){putenv($name.'='.$value);$_ENV[$name]=$value;$_SERVER[$name]=$value;}
 $app = require $application.'/desktop/bootstrap.php';
 require_once __DIR__.'/native-delete-form-contract-support.php';
 if (!class_exists(FormBuilder::class)) throw new RuntimeException('The explicit old Collective reference is unavailable.');

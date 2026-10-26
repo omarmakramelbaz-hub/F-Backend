@@ -9,11 +9,15 @@ verify(auth('admin')->getProvider() instanceof FasakhanstaDesktopRememberProvide
     'the actual CLI admin guard resolves the private native provider after bootstrap');
 $previousLocal=getenv('DESKTOP_DASHBOARD_LOCAL');
 try{
-    putenv('DESKTOP_DASHBOARD_LOCAL=false');$serverSettings=require $application.'/config/settings.php';
+    putenv('DESKTOP_DASHBOARD_LOCAL=false');$_ENV['DESKTOP_DASHBOARD_LOCAL']=$_SERVER['DESKTOP_DASHBOARD_LOCAL']='false';
+    $serverSettings=require $application.'/config/settings.php';
     verify($serverSettings['auto_discover_settings']===[app()->path()]
         &&$serverSettings['settings']===[\App\Models\GeneralSettings::class],
         'ordinary server settings discovery and the explicit settings class stay unchanged');
-}finally{putenv('DESKTOP_DASHBOARD_LOCAL='.$previousLocal);}
+}finally{
+    if($previousLocal===false){putenv('DESKTOP_DASHBOARD_LOCAL');unset($_ENV['DESKTOP_DASHBOARD_LOCAL'],$_SERVER['DESKTOP_DASHBOARD_LOCAL']);}
+    else{putenv('DESKTOP_DASHBOARD_LOCAL='.$previousLocal);$_ENV['DESKTOP_DASHBOARD_LOCAL']=$_SERVER['DESKTOP_DASHBOARD_LOCAL']=$previousLocal;}
+}
 $reservation=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);
 $bootstrapPort=(int)substr(strrchr(stream_socket_get_name($reservation,false),':'),1);fclose($reservation);
 $bootstrapOrigin='http://127.0.0.1:'.$bootstrapPort;$bootstrapToken=bin2hex(random_bytes(32));
@@ -173,7 +177,7 @@ try{
         'a copied old recaller cannot restore login after explicit logout revocation');
     $oldAuthRoot=getenv('DESKTOP_DASHBOARD_AUTH_STORAGE');
     try{
-        putenv('DESKTOP_DASHBOARD_AUTH_STORAGE='.$profile.'/auth');
+        putenv('DESKTOP_DASHBOARD_AUTH_STORAGE='.$profile.'/auth');$_ENV['DESKTOP_DASHBOARD_AUTH_STORAGE']=$_SERVER['DESKTOP_DASHBOARD_AUTH_STORAGE']=$profile.'/auth';
         $provider=app('auth')->createUserProvider('admins');
         $proofUser=$provider->retrieveByCredentials(['email'=>'branch@test.invalid']);
         $proofToken=\Illuminate\Support\Str::random(60);$provider->updateRememberToken($proofUser,$proofToken);
@@ -192,7 +196,8 @@ try{
         verify(glob($profile.'/auth/*.enc')===[]&&$provider->retrieveByToken(10,$proofToken)===null,
             'the actual current-device logout event revokes the private capability without modifying synchronized credentials');
     }finally{
-        putenv($oldAuthRoot===false?'DESKTOP_DASHBOARD_AUTH_STORAGE':'DESKTOP_DASHBOARD_AUTH_STORAGE='.$oldAuthRoot);
+        if($oldAuthRoot===false){putenv('DESKTOP_DASHBOARD_AUTH_STORAGE');unset($_ENV['DESKTOP_DASHBOARD_AUTH_STORAGE'],$_SERVER['DESKTOP_DASHBOARD_AUTH_STORAGE']);}
+        else{putenv('DESKTOP_DASHBOARD_AUTH_STORAGE='.$oldAuthRoot);$_ENV['DESKTOP_DASHBOARD_AUTH_STORAGE']=$_SERVER['DESKTOP_DASHBOARD_AUTH_STORAGE']=$oldAuthRoot;}
     }
     DB::table('users')->where('id',10)->update(['remember_token'=>$originalRememberToken]);
     $bootstrapCookies=[];
