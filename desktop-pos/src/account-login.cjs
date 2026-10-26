@@ -290,10 +290,10 @@ class AccountLogin{
     if(this.running)return null;this.assert();const sequence=this.sequence;
     let account=await this.selectedAccount();
     if(account.serverOrigin!==null&&account.serverOrigin!==this.serverOrigin)return null;
-    const target=this.createSession(account.partition);
     const runtime=await this.runtime(account);
     if(await signout.requirePassword(runtime))return null;
     this.assert();if(sequence!==this.sequence||this.running)return null;
+    const target=this.createSession(account.partition);
     const prepared=await runtime.isPrepared();
     const remoteNeeded=!prepared||await this.needsRemote(runtime),cookies=await withDeadline(()=>target.cookies.get({name:recaller}),5000,'تعذر قراءة جلسة الحساب.');this.assert();
     const remembered=cookies.filter(cookie=>authCookie(cookie,remoteNeeded?this.serverOrigin:'http://127.0.0.1:1',!remoteNeeded)&&cookie.name===recaller);

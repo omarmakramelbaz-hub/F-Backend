@@ -171,8 +171,10 @@ test('explicit sign-out requires a password before any remembered cookie read, r
   const account=await f.profiles.account('default'),runtime=await f.broker.runtime(account);
   await signout.signedOut(runtime);
   const target=f.broker.createSession(account.partition);target.cookies.seed(cookiesFor(local,true));
+  const createSession=f.broker.createSession;let sessionCreations=0;
+  f.broker.createSession=(...args)=>{sessionCreations++;return createSession(...args);};
   assert.equal(await f.broker.resumeRemembered(),null);
-  assert.equal(runtime.starts,0);assert.equal(f.requests.length,0);
+  assert.equal(runtime.starts,0);assert.equal(f.requests.length,0);assert.equal(sessionCreations,0);
   assert.equal(target.cookies.calls.some(([operation])=>operation==='get'),false);
   assert.equal(await signout.requirePassword(runtime),true);
   await f.broker.stop();
