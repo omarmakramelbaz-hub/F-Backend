@@ -94,7 +94,7 @@ async function installCookies(source,target,origin,local=false,{active=()=>true}
   return async()=>{if(undone)return;undone=true;await replace(previous,false,false);};
 }
 
-function authenticationAdmission(browser,origin){
+function authenticationAdmission(browser,origin,{readOnly=false}={}){
   // Electron 44 rejects redirect:'manual' at its native loader. A private
   // Session may follow redirects only while this gate admits exact auth reads.
   // No production/dashboard Session is passed to this original-signin client.
@@ -105,8 +105,8 @@ function authenticationAdmission(browser,origin){
     try{
       const url=new URL(details.url),method=String(details.method||'GET').toUpperCase();
       if(active&&++count<=8&&url.origin===origin&&!url.username&&!url.password&&!url.search&&!url.hash){
-        if(method==='POST'&&posting&&!posted&&url.pathname==='/admin/signin'){posted=true;allowed=true;}
-        else if(['GET','HEAD'].includes(method))allowed=url.pathname==='/admin/login'||posted&&homes.has(url.pathname);
+        if(!readOnly&&method==='POST'&&posting&&!posted&&url.pathname==='/admin/signin'){posted=true;allowed=true;}
+        else if(['GET','HEAD'].includes(method))allowed=url.pathname==='/admin/login'||(posted||readOnly)&&homes.has(url.pathname);
       }
     }catch{}
     callback({cancel:!allowed});
@@ -140,7 +140,15 @@ async function originalSignin({browser,origin,localToken='',email,password,remem
     if(next.status!==200){await discard(next);throw [401,422].includes(next.status)?denied():failure();}
     const finalURL=next.url?new URL(next.url):null;
     if(finalURL&&(finalURL.origin!==origin||!homes.has(finalURL.pathname))){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
-    return actorFromHTML(await boundedHTML(next));
+    const html=await boundedHTML(next);
+    try{return actorFromHTML(html);}
+    catch(error){
+      // Electron's followed native response may omit its final URL. Laravel
+      // returns the original CSRF login form after a rejected password; that
+      // form is a credential refusal, never an authenticated actor document.
+      try{csrfFromHTML(html,origin);}catch{throw error;}
+      throw denied();
+    }
   }finally{controller.abort();admission.close();}
 }
 
@@ -150,7 +158,7 @@ class AccountLogin{
     this.runtimes=new Map();this.runtimeTasks=new Map();this.sessions=new Set();this.controllers=new Set();this.running=null;this.cancelled=false;this.sequence=0;
   }
   assert(){if(this.cancelled||this.stopped())throw aborted();}
-  userEditing(){this.sequence++;}
+  userEditing(){this.sequence++;if(!this.running)for(const controller of this.controllers)controller.abort();}
   report(phase){this.onState({phase});}
   async runtime(account){
     this.assert();
@@ -189,7 +197,7 @@ class AccountLogin{
     if(this.running)throw Error('جارٍ تسجيل الدخول بالفعل.');
     if(!input||typeof input.email!=='string'||!input.email.trim()||input.email.length>320||/[\x00-\x1f\x7f]/.test(input.email)
       ||typeof input.password!=='string'||!input.password||input.password.length>4096||typeof input.remember!=='boolean')throw failure();
-    this.sequence++;
+    this.userEditing();
     const credentials={email:input.email.trim(),password:input.password,remember:input.remember};
     this.running=this.login(credentials).catch(error=>{if(error.code==='ACCOUNT_LOGIN_RESTART_REQUIRED')this.cancel();throw error;})
       .finally(()=>{credentials.password='';this.running=null;});
@@ -205,6 +213,7 @@ class AccountLogin{
       const actor=await originalSignin({browser,origin:local.origin,localToken:local.token,...credentials,signal});this.assert();
       if(actor.actorId!==connection.actorId)throw failure();
       const commit=async serverBrowser=>{
+        if(this.remembering)await this.remembering.catch(()=>{});this.assert();
         const target=this.createSession(account.partition),undo=[];
         try{
           undo.push(await installCookies(browser,target,local.origin,true,{active:()=>!this.cancelled&&!this.stopped()}));
@@ -249,6 +258,7 @@ class AccountLogin{
       let account=await this.profiles.forActor(actor.actorId,this.serverOrigin);this.assert();
       if(account){const result=await this.localLogin(account,credentials);if(result)return result;}
       else{account=await this.profiles.create();this.assert();await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);this.assert();}
+      if(this.remembering)await this.remembering.catch(()=>{});this.assert();
       const target=this.createSession(account.partition),undo=await installCookies(browser,target,this.serverOrigin,false,{active:()=>!this.cancelled&&!this.stopped()});
       try{
         await this.profiles.rememberLogin(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin},credentials.email);
@@ -259,38 +269,51 @@ class AccountLogin{
   }
   resumeRemembered(){
     if(this.remembering)return this.remembering;
-    this.remembering=this.remembered().finally(()=>{this.remembering=null;});return this.remembering;
+    this.remembering=this.remembered().catch(error=>{if(error.code==='ACCOUNT_LOGIN_RESTART_REQUIRED')this.cancel();throw error;})
+      .finally(()=>{this.remembering=null;});return this.remembering;
   }
   async remembered(){
     if(this.running)return null;this.assert();const sequence=this.sequence;
     let account=await this.selectedAccount();
     if(account.serverOrigin!==null&&account.serverOrigin!==this.serverOrigin)return null;
-    const browser=this.createSession(account.partition);
+    const target=this.createSession(account.partition);
     const runtime=await this.runtime(account),prepared=await runtime.isPrepared();
-    const remoteNeeded=!prepared||await this.needsRemote(runtime),cookies=await withDeadline(()=>browser.cookies.get({name:recaller}),5000,'تعذر قراءة جلسة الحساب.');this.assert();
-    if(!cookies.some(cookie=>authCookie(cookie,remoteNeeded?this.serverOrigin:'http://127.0.0.1:1',!remoteNeeded)&&cookie.name===recaller))return null;
+    const remoteNeeded=!prepared||await this.needsRemote(runtime),cookies=await withDeadline(()=>target.cookies.get({name:recaller}),5000,'تعذر قراءة جلسة الحساب.');this.assert();
+    const remembered=cookies.filter(cookie=>authCookie(cookie,remoteNeeded?this.serverOrigin:'http://127.0.0.1:1',!remoteNeeded)&&cookie.name===recaller);
+    if(remembered.length!==1||sequence!==this.sequence||this.running)return null;
     let local,connection;
     if(prepared){
       connection=await runtime.connection();if(connection.actorId!==account.actorId||connection.serverOrigin!==account.serverOrigin)throw failure();
       this.assert();this.report('starting');local=await runtime.start();this.assert();
     }
-    const controller=new AbortController();this.controllers.add(controller);
-    try{
-      const destination=remoteNeeded?this.serverOrigin:local.origin;
-      const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',redirect:'manual',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(45000)])};
-      this.assert();let response=await browser.fetch(destination+'/admin/dashboard',options);this.assert();
-      for(let redirects=0;[301,302,303].includes(response.status)&&redirects<4;redirects++){
-        const next=new URL(response.headers.get('location')||'',destination);await discard(response);
-        if(next.origin!==destination||!homes.has(next.pathname)||next.search||next.hash)return null;
-        this.assert();response=await browser.fetch(next.href,options);this.assert();
-      }
-      if(response.status!==200){await discard(response);return null;}
-      const actor=actorFromHTML(await boundedHTML(response));this.assert();
-      if(account.actorId!==null&&actor.actorId!==account.actorId)throw failure();
-      if(sequence!==this.sequence||this.running)return null;
-      if(account.actorId===null){await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);}
-      return {account,runtime,local:!remoteNeeded,origin:destination,localToken:remoteNeeded?'':local.token};
-    }finally{controller.abort();this.controllers.delete(controller);}
+    if(sequence!==this.sequence||this.running)return null;
+    const destination=remoteNeeded?this.serverOrigin:local.origin;
+    const current=()=>!this.cancelled&&!this.stopped()&&sequence===this.sequence&&!this.running;
+    return this.fresh(async(browser,signal)=>{
+      // Read only the selected account's protected recaller in an isolated
+      // Session. A delayed passive response cannot overwrite an explicit login.
+      await withDeadline(()=>browser.cookies.set(cookieDetails(remembered[0],destination)),5000,'تعذر فتح جلسة الحساب المحفوظة.');
+      if(!current())return null;
+      const readController=new AbortController(),admission=authenticationAdmission(browser,destination,{readOnly:true});
+      try{
+        const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',redirect:admission.redirect,signal:AbortSignal.any([readController.signal,signal,AbortSignal.timeout(45000)])};
+        let response=await browser.fetch(destination+'/admin/dashboard',options);this.assert();
+        for(let redirects=0;[301,302,303].includes(response.status)&&redirects<4;redirects++){
+          const next=new URL(response.headers.get('location')||'',destination);await discard(response);
+          if(next.origin!==destination||!homes.has(next.pathname)||next.search||next.hash)return null;
+          if(!current())return null;response=await browser.fetch(next.href,options);this.assert();
+        }
+        if(response.status!==200){await discard(response);return null;}
+        const actor=actorFromHTML(await boundedHTML(response));this.assert();
+        if(account.actorId!==null&&actor.actorId!==account.actorId)throw failure();
+        if(!current())return null;
+        if(account.actorId===null){await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);}
+        if(!current())return null;
+        await installCookies(browser,target,destination,!remoteNeeded,{active:current});
+        if(!current())return null;
+        return {account,runtime,local:!remoteNeeded,origin:destination,localToken:remoteNeeded?'':local.token};
+      }finally{readController.abort();admission.close();}
+    });
   }
   async handoff(result){
     this.assert();
