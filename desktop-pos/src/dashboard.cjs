@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const getPolicy=require('./dashboard-get-policy.cjs');
 const policy = require('./dashboard-policy.cjs');
+const preparationClock = require('node:fs').readFileSync(path.join(__dirname, 'preparation-clock.js'), 'utf8');
 const { DashboardPrintEffects } = require('./dashboard-print-effects.cjs');
 const { withDeadline, printOnce } = require('./native-deadline.cjs');
 // config/auth.php uses the original Laravel session guard named admin. Its
@@ -17,7 +18,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
   if(typeof partition!=='string'||!/^persist:fasakhansta-dashboard(?:-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$/.test(partition))throw Error('ملف جلسة الداشبورد غير صالح.');
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
-  let window, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
+  let window, presentationReady = false, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
   let firstRead = null, firstReadStarted = false, navigationStartedAt = Date.now(), lastResponse = null, sessionRecovery = false, pendingLogin = null;
   let logoutDecision=null,spaLogout=null,logoutNavigation=false,signinCookieCleanupBlocked=false,accountSwitchPending=false;
   const owned = new Set();
@@ -65,11 +66,11 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         if(settled)return;settled=true;clearTimeout(timer);
         contents.removeListener('dom-ready',interactive);target.removeListener('closed',closed);
         firstRead=null;navigationTrace(phase,target.isDestroyed()?url:(contents.getURL()||url));
-        error?reject(error):resolve();
+        error?reject(error):resolve(phase);
       };
-      const interactive=()=>finish(null,'interactive'),closed=()=>finish(null,'failed');
+      const interactive=()=>{if(policy.sameOrigin(contents.getURL(),origin))finish(null,'interactive');},closed=()=>finish(null,'failed');
       firstRead={handoff:()=>finish(null,'user-navigation')};
-      contents.once('dom-ready',interactive);target.once('closed',closed);
+      contents.on('dom-ready',interactive);target.once('closed',closed);
       timer=setTimeout(()=>{
         finish(Error('تحميل صفحة الداشبورد أخذ وقتًا أطول من المسموح. أعد فتح صفحة الدخول من قائمة البرنامج.'),'timeout');
         if(!target.isDestroyed())contents.stop();
@@ -109,7 +110,10 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         &&cookie.session===false&&Number.isFinite(cookie.expirationDate)&&cookie.expirationDate>Date.now()/1000
         &&typeof cookie.value==='string'&&cookie.value.length>0);
       if(!remembered)return {remembered:false};
-      const sessions=cookies.filter(cookie=>scoped(cookie)&&cookie.session===true&&cookie.httpOnly===true
+      // Laravel may give its active session cookie an expiry even when
+      // remember-me is unchecked. End that session independently of Chromium's
+      // session-cookie flag; retain only the separately verified recaller.
+      const sessions=cookies.filter(cookie=>scoped(cookie)&&cookie.httpOnly===true
         &&/^[a-zA-Z0-9_-]{1,120}_session$/.test(cookie.name));
       if(sessions.length>16)throw Error('تعذر تحديد جلسة الحساب الحالية.');
       for(const cookie of sessions){
@@ -310,10 +314,16 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     finally { printing--; }
   }); } catch (error) { return { ok: false, error: error.message }; } });
   function reveal() {
-    if (window && !window.isDestroyed()) {
+    if (presentationReady && !quitting() && window && !window.isDestroyed()) {
       window.show(); if (window.isMinimized()) window.restore(); window.focus();
       try{Promise.resolve(onVisible()).catch(()=>{});}catch{}
     }
+  }
+  function revealFailure() {
+    // A failed first navigation must leave the original error and the native
+    // retry/quit menu available, rather than a process with no visible surface.
+    presentationReady = true;
+    reveal();
   }
   async function open(url = home) {
     if (loading || refreshing || authentication || loggingOut || signinCookieCleanupBlocked || quitting()) return;
@@ -321,11 +331,23 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     loading = true;
     try {
       if (!window || window.isDestroyed()) {
+        presentationReady = false;
         window = new BrowserWindow({ width: 1440, height: 950, minWidth: 1000, minHeight: 650, show: false, fullscreen: true,
           title: 'GO ERP — الداشبورد', icon: path.join(__dirname, 'assets', 'app.ico'), backgroundColor: '#f4f5f8',
           webPreferences: { preload: path.join(__dirname, 'dashboard-preload.cjs'), partition, sandbox: true, contextIsolation: true,
             nodeIntegration: false, webSecurity: true } });
         const contents = window.webContents;
+        contents.on('dom-ready',()=>{
+          if(quitting()||!policy.sameOrigin(contents.getURL(),origin)
+            ||new URL(contents.getURL()).pathname!=='/admin/desktop-dashboard')return;
+          contents.executeJavaScript(preparationClock).catch(()=>{});
+        });
+        contents.on('dom-ready',()=>{
+          if(presentationReady||quitting()||!window||window.isDestroyed()||window.webContents!==contents
+            ||!policy.sameOrigin(contents.getURL(),origin))return;
+          presentationReady=true;
+          reveal();
+        });
         contents.on('page-title-updated',event=>event.preventDefault());
         contents.on('did-start-navigation',(event,url,_sameDocument,isMainFrame)=>{
           const target=event.url||url,main=event.isMainFrame??isMainFrame;
@@ -517,24 +539,30 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
           callback(result.response === 0);
         });
       }
-      // Keep the app and its local-order menu usable while a slow/offline server is being contacted.
+      // Existing documents stay usable during navigation. A new window stays
+      // hidden until the original page is interactive, without a loading page.
       reveal();
       navigationStartedAt=Date.now();navigationTrace('started',url);
+      let readPhase='loaded';
       if((!firstReadStarted&&new URL(url).pathname==='/admin/dashboard')||new URL(url).pathname==='/admin/login'){
-        firstReadStarted=true;await loadFirstRead(window,url);
+        firstReadStarted=true;readPhase=await loadFirstRead(window,url);
       }else await window.loadURL(url);
       if (quitting()) return;
+      if(['loaded','interactive'].includes(readPhase)&&window&&!window.isDestroyed()
+        &&policy.sameOrigin(window.webContents.getURL(),origin))presentationReady=true;
       reveal();
     } catch (error) {
       navigationTrace('failed',url);
       if (quitting()) return;
       if (localToken) {
-        reveal(); await dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
+        revealFailure(); await dialog.showMessageBox(window, { type:'error', title:'GO ERP', message:'تعذر فتح الداشبورد المحلية. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.' });
       }
-      else if (policy.networkFailure(error.message)) offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.', failure());
+      else if (policy.networkFailure(error.message)) {
+        revealFailure();offline('الداشبورد غير متصلة حاليًا. يمكنك العمل على الطلبات المحلية ثم العودة للداشبورد من قائمة البرنامج.', failure());
+      }
       else {
         // Server errors stay visible with their real status; they are not cached or called offline saves.
-        reveal();
+        revealFailure();
         await dialog.showMessageBox(window, { type: 'error', title: 'GO ERP', message: 'تعذر فتح الداشبورد. أعد المحاولة من قائمة البرنامج.' });
       }
     } finally { loading = false;resumeFreshLogin(); }

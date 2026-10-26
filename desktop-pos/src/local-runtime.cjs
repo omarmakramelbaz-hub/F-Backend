@@ -7,6 +7,7 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { GenerationStore, prepared, generation } = require('./dashboard-generation.cjs');
 const media = require('./dashboard-media.cjs');
+const RuntimeMedia = require('./runtime-media.cjs');
 const RuntimeArchive = require('./runtime-archive.cjs');
 const sourceCode = require('./dashboard-source.cjs');
 const readSnapshot = require('./dashboard-download.cjs');
@@ -189,18 +190,38 @@ async function phpIniFor(bundle,manifest,profile) {
     await fs.access(caFile);
     const caPath = caFile.replaceAll('\\', '/');
     const phpIni = path.join(profile, 'php-' + manifest.sourceRevision + '.ini');
+    // The bundled CLI server is a long-lived foreground PHP process. Load only
+    // its freshly verified bundled opcode extension; never a global DLL or a
+    // persistent bytecode cache from another installed/retained application.
+    const opcode = path.join(extensionDirectory, 'php_opcache.dll');
+    const hasOpcode = extensionLines.some(match => match[1] === 'zend_extension'
+      && /(?:^|[\\/])(?:php_)?opcache(?:\.dll)?$/i.test(match[2].trim().replace(/^['"]|['"]$/g, '')));
+    if (!hasOpcode) {
+      try {
+        await fs.access(opcode);
+        phpConfiguration += '\nzend_extension="' + phpRelativePath(application, opcode) + '"\n';
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    const compactConfiguration = manifest.compactVendor?.kind === 'go-erp-compact-vendor'
+      ? '\nphar.readonly=1\nphar.require_hash=1\nphar.cache_list="google-services.phar"\n' : '\nphar.cache_list=\n';
     // Keep the original expense form's upload limit in both active and staged runtimes.
     // Its encrypted base64 journal also requires room beyond PHP's build-host defaults.
     await fs.writeFile(phpIni, phpConfiguration + '\nextension_dir="' + phpRelativePath(application, extensionDirectory)
       // Do not inherit the builder's 256 MiB JIT buffer and native compilation
       // settings in a retained Windows runtime; validate ordinary PHP execution.
       + '"\ncurl.cainfo="' + caPath + '"\nopenssl.cafile="' + caPath
-      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\nopcache.jit=0\nopcache.jit_buffer_size=0\n', { mode: 0o600 });
+      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\nopcache.enable=1\nopcache.enable_cli=1\nopcache.validate_timestamps=1\nopcache.revalidate_freq=0\nopcache.revalidate_path=1\nopcache.use_cwd=1\nopcache.enable_file_override=0\nopcache.file_cache=\nopcache.file_cache_only=0\nopcache.jit=0\nopcache.jit_buffer_size=0\n' + compactConfiguration, { mode: 0o600 });
     return phpIni;
 }
 
 /** Manages private PHP/MariaDB processes. It never contacts the production database. */
 class LocalRuntime {
+  static contextEnvironment(context, environment) {
+    const { DESKTOP_DASHBOARD_VENDOR_PHAR: _previous, ...base } = environment;
+    return { ...base, PHP_INI_SCAN_DIR: path.join(context.bundle, 'php', 'conf.d'),
+      ...(context.manifest?.compactVendor?.kind === 'go-erp-compact-vendor'
+        ? { DESKTOP_DASHBOARD_VENDOR_PHAR: path.join(context.application || path.join(context.bundle, 'application'), 'google-services.phar') } : {}) };
+  }
   static phpArguments(context) {
     return ['-c', phpRelativePath(context.application, context.phpIni)];
   }
@@ -294,7 +315,13 @@ class LocalRuntime {
     this.starting = this.boot().then(value => { this.started = true; return value; }).catch(async error => { await this.stop(); throw error; });
     return this.starting;
   }
-  cancelStartup() { if (!this.started) this.stopping = true; }
+  cancelStartup() {
+    // Stop read-only code verification immediately, including a later incoming
+    // update. The active service remains available until accepted writes and
+    // any durable generation fence have settled through the shutdown barrier.
+    this.cancelReads = true;
+    if (!this.started) this.stopping = true;
+  }
   assertStarting() { if (this.stopping) throw Error('البرنامج يُغلق الآن.'); }
   async boot() {
     this.assertStarting();
@@ -356,8 +383,14 @@ class LocalRuntime {
     }
     if (active?.format === 2) {
       this.phase('runtime-media');
-      const verified = JSON.parse(await run(php, [...phpArgs, path.join(application, 'desktop/verify-media.php')],
-        { env: runtimeEnvironment, cwd: application }, JSON.stringify(active)));
+      // Source bytes were freshly verified by the encrypted archive receipt
+      // above. Read the matching active database receipt with installed native
+      // code, then freshly hash its files in a bounded parallel pool. Retained
+      // runtimes need no rewrite or application-source upgrade for this path.
+      const verified = await RuntimeMedia.verify({ active, sourceFingerprint: this.sourceFingerprint, storage,
+        stopped: () => this.stopping,
+        readBinding: async (code, binding) => JSON.parse(await run(php, [...phpArgs, '-r', code],
+          { env: runtimeEnvironment, cwd: application }, JSON.stringify(binding), 20000)) });
       if (verified.verified !== true) throw Error('صور نسخة الجهاز غير مكتملة؛ العمليات محفوظة.');
     }
     this.phase('runtime-web');
@@ -375,7 +408,7 @@ class LocalRuntime {
     const jwtSecret=crypto.createHmac('sha256',decoded).update('fasakhansta-desktop-local-jwt:v1').digest('hex');
     const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
       /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA|HOMEDRIVE|HOMEPATH)$/i.test(name)));
-    return {
+    return LocalRuntime.contextEnvironment({ bundle: this.bundle, manifest: this.manifest }, {
       ...inherited, APP_ENV: 'desktop', APP_DEBUG: 'false', APP_URL: this.origin, ASSET_URL: this.origin,
       APP_KEY: settings.appKey, JWT_SECRET: jwtSecret, DB_CONNECTION: 'mysql', DB_HOST: '127.0.0.1', DB_PORT: String(this.dbPort),
       DB_DATABASE: 'fasakhansta_dashboard', DB_USERNAME: 'dashboard', DB_PASSWORD: settings.appPassword,
@@ -391,7 +424,7 @@ class LocalRuntime {
       APP_SERVICES_CACHE: path.join(storage, 'bootstrap/cache/services.php'),
       APP_PACKAGES_CACHE: path.join(storage, 'bootstrap/cache/packages.php'),
       PHP_INI_SCAN_DIR: path.join(this.bundle, 'php', 'conf.d')
-    };
+    });
   }
   storageFor(value) {
     if (!value?.generation) return path.join(this.profile, 'storage');
@@ -432,7 +465,7 @@ class LocalRuntime {
     if(activeMatches&&!authorized)return this.context();
     const mismatch=()=>Error('نسخة البرنامج لا تطابق بيانات السيرفر؛ بيانات الجهاز وسجلاته محفوظة.');
     if(!this.manifest||!this.installedBundle)throw mismatch();
-    const archive=new RuntimeArchive(this.profile,this.metadata),bundle=await archive.retain(this.installedBundle);
+    const archive=new RuntimeArchive(this.profile,this.metadata,{stopped:()=>this.stopping||this.cancelReads}),bundle=await archive.retain(this.installedBundle);
     const manifest=await archive.manifest(bundle),application=path.join(bundle,'application');
     const sourceFingerprint=await archive.sourceFingerprint(bundle);
     if(!sourceCode.same(snapshot.source,sourceFingerprint)||!sourceCode.same(manifest.sourceFingerprint,sourceFingerprint))throw mismatch();
@@ -453,9 +486,9 @@ class LocalRuntime {
     return true;
   }
   async deltaContext(previous) {
-    if(this.stopping||!this.environment||!this.manifest||!sourceCode.same(previous.sourceFingerprint,this.sourceFingerprint))
+    if(this.deltaStopped()||!this.environment||!this.manifest||!sourceCode.same(previous.sourceFingerprint,this.sourceFingerprint))
       throw Error('مصدر قاعدة الجهاز لا يطابق التشغيل الحالي؛ بيانات الجهاز محفوظة.');
-    const archive=new RuntimeArchive(this.profile,this.metadata),installed=await archive.manifest(this.installedBundle);
+    const archive=new RuntimeArchive(this.profile,this.metadata,{stopped:()=>this.deltaStopped()}),installed=await archive.manifest(this.installedBundle);
     if(!/^[a-f0-9]{64}$/.test(installed.sourceHashes?.['desktop/delta.php']||'')||!sourceCode.valid(installed.sourceFingerprint))
       throw Error('نسخة البرنامج تحتاج تحديثًا لاستقبال تغييرات السيرفر في الخلفية.');
     // An offline or unapproved installer cannot start a clone using new code against old data.
@@ -484,7 +517,7 @@ class LocalRuntime {
     if(!this.deltaBackgroundValid(record))throw Error('تعذر التحقق من سجل تحديث الخلفية؛ بيانات الجهاز محفوظة.');
     if(this.manifest?.sourceRevision===record.sourceRevision&&sourceCode.same(this.sourceFingerprint,record.sourceFingerprint)
       &&/^[a-f0-9]{64}$/.test(this.manifest.sourceHashes?.['desktop/delta.php']||''))return this.context();
-    const archive=new RuntimeArchive(this.profile,this.metadata),bundle=path.join(this.profile,'runtimes',record.sourceRevision);
+    const archive=new RuntimeArchive(this.profile,this.metadata,{stopped:()=>this.deltaStopped()}),bundle=path.join(this.profile,'runtimes',record.sourceRevision);
     const receipt=await this.metadata.read('runtimes/'+record.sourceRevision);
     await archive.verify(bundle,receipt);
     const manifest=await archive.manifest(bundle),application=path.join(bundle,'application'),sourceFingerprint=await archive.sourceFingerprint(bundle);
@@ -512,7 +545,7 @@ class LocalRuntime {
     if(active.deviceId!==record.device_id||active.actorId!==record.actor_id||active.database===record.capture_database)
       throw Error('سجل تحديث الخلفية لا يطابق حساب قاعدة الجهاز.');
     const describe=(id,database)=>{
-      const value={generation:id,database},env={...this.environmentFor(value),PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d'),
+      const value={generation:id,database},env={...LocalRuntime.contextEnvironment(context,this.environmentFor(value)),
         DESKTOP_DASHBOARD_DELTA_SOURCE_DATABASE:active.database};
       return {value,root:path.join(this.profile,'generations',id),env,options:{env,cwd:context.application},args:LocalRuntime.phpArguments(context),context};
     };
@@ -534,7 +567,7 @@ class LocalRuntime {
     await fs.mkdir(path.dirname(root),{recursive:true,mode:0o700});await fs.mkdir(root,{mode:0o700});
     for(const dir of ['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private'])
       await fs.mkdir(path.join(this.storageFor(value),dir),{recursive:true,mode:0o700});
-    const env={...this.environmentFor(value),PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d')};
+    const env=LocalRuntime.contextEnvironment(context,this.environmentFor(value));
     this.deltaController??=new AbortController();
     const settings=await this.settings(),args=LocalRuntime.phpArguments(context),options={env,cwd:context.application,signal:this.deltaController.signal};
     await run(context.php,[...args,path.join(context.application,'desktop/database.php'),'stage'],options,
@@ -674,14 +707,14 @@ class LocalRuntime {
     // Only this supervisor's fresh, privately marked and positively discarded temporary stage is removed.
     await fs.rm(root,{recursive:true,force:false});return true;
   }
-  deltaStopped(){return this.stopping||this.deltaController?.signal.aborted===true;}
+  deltaStopped(){return this.stopping||this.cancelReads===true||this.deltaController?.signal.aborted===true;}
   cancelDelta(){this.deltaController??=new AbortController();this.deltaController.abort();}
   async stage(snapshot, id, archive, onMediaProgress) {
     if (this.stopping || !this.environment || !generation(id)) throw Error('تعذر بدء تجهيز البيانات.');
     const context = await this.candidate(snapshot);
     media.manifest(snapshot.media || []);
     const database = 'fasakhansta_dashboard_stage_' + id;
-    const value = { generation: id, database }, env = { ...this.environmentFor(value), PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d') };
+    const value = { generation: id, database }, env = LocalRuntime.contextEnvironment(context,this.environmentFor(value));
     const root = path.join(this.profile, 'generations', id);
     await fs.mkdir(path.dirname(root), { recursive: true, mode: 0o700 });
     await fs.mkdir(root, { mode: 0o700 }); // Never reuse a partial or previously active generation.
@@ -751,7 +784,7 @@ class LocalRuntime {
       }
     }
     Object.assign(this,context);
-    this.environment = { ...this.environmentFor(next), PHP_INI_SCAN_DIR:path.join(context.bundle,'php','conf.d') };
+    this.environment = LocalRuntime.contextEnvironment(context,this.environmentFor(next));
     this.stagedContexts.delete(next.generation);
     this.deltaStages?.delete(next.generation);
     if (!this.stopping) await this.startWeb();

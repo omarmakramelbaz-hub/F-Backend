@@ -265,4 +265,47 @@ async function download(root, files, request, stopped = () => false, privateRoot
   if (failure) throw failure;
   return { verified: true, files: receipt, transfer: { reusedFiles, downloadedFiles, downloadedBytes } };
 }
-module.exports = { download, DOWNLOAD_CONCURRENCY, manifest, safePath, verifyReceipt, MAX_FILE, MAX_TOTAL };
+/** Freshly verify a bound active receipt without copying files or contacting a server.
+ * Directory descriptors are shared only within this call; every open and every
+ * completed read rechecks that chain and the exact file identity. */
+async function verify(root, files, { privateRoot, stopped = () => false, concurrency = 8 } = {}) {
+  if (!Array.isArray(files) || files.some(item => !item || typeof item !== 'object'
+      || Object.keys(item).sort().join(',') !== (item.area === undefined ? 'bytes,mime,path,sha256' : 'area,bytes,mime,path,sha256')))
+    throw Error('قائمة الصور المحلية غير صالحة.');
+  manifest(files.map(item => ({ ...item, ticket: 'native-active-media-verification' })));
+  root = path.resolve(root);
+  await checkedDirectories(root);
+  if (files.some(item => item.area === 'private')) {
+    if (typeof privateRoot !== 'string' || path.resolve(root) !== path.join(path.resolve(privateRoot), 'public')) throw unsafe();
+    privateRoot = path.resolve(privateRoot);
+    await checkedDirectories(privateRoot);
+  }
+  const limit = Number.isSafeInteger(concurrency) && concurrency > 0 ? Math.min(concurrency, 8) : 8;
+  const directories = new Map();
+  let next = 0, failure = null;
+  const halted = () => failure !== null || stopped();
+  async function one(item) {
+    const base = item.area === 'private' ? privateRoot : root;
+    const targetPath = path.join(base, ...item.path.split('/')), parent = path.dirname(targetPath);
+    if (!directories.has(parent)) directories.set(parent, checkedDirectories(parent));
+    const target = { path: targetPath, chain: await directories.get(parent) };
+    const input = await opened(target);
+    try {
+      if (input.stat.size !== BigInt(item.bytes) || !(await hashOpened(input.file, item, halted)))
+        throw Error('بصمة الصورة المحلية مختلفة؛ بيانات الجهاز محفوظة.');
+      await unchanged(target, input.file, input.stat);
+    } finally { await input.file.close(); }
+  }
+  async function worker() {
+    while (!failure && next < files.length) {
+      if (stopped()) { failure ??= Error('البرنامج يُغلق الآن.'); return; }
+      const item = files[next++];
+      try { await one(item); } catch (error) { failure ??= error; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, files.length) }, worker));
+  if (failure) throw failure;
+  if (stopped()) throw Error('البرنامج يُغلق الآن.');
+  return { verified: true, files: files.length };
+}
+module.exports = { download, verify, DOWNLOAD_CONCURRENCY, manifest, safePath, verifyReceipt, MAX_FILE, MAX_TOTAL };

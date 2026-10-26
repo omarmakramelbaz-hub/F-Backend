@@ -10,13 +10,13 @@ function fixture(t, options = {}){
   const session={cookies:{get:async()=>[],remove:async()=>{}},fetch:async(_url,options)=>{assert.equal(options.credentials,'include');return new Response(pageHTML,{headers:{'content-type':'text/html; charset=utf-8'}});},
     webRequest:{onCompleted(_filter,handler){this.completed=handler;},onErrorOccurred(_filter,handler){this.error=handler;},onBeforeSendHeaders(_filter,handler){this.headers=handler;}},setPermissionCheckHandler(fn){this.check=fn;},setPermissionRequestHandler(fn){this.permission=fn;}};
   class Window extends EventEmitter{
-    constructor(options){super();this.options=options;this.visible=false;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
+    constructor(options){super();this.options=options;this.visible=false;this.showCalls=0;this.destroyed=false;this.webContents=new EventEmitter();const contents=this.webContents;
       contents.id=++next;contents.session=session;contents.setWindowOpenHandler=fn=>{contents.popup=fn;};
       const owner=this;contents.mainFrame={get url(){return owner.url;}};
       contents.stop=()=>{contents.stopped=true;};contents.send=(name,value)=>{contents.lastMessage={name,value};};
       contents.getURL=()=>this.url;contents.getPrintersAsync=async()=>[{name:'BranchPrinter'}];
       contents.executeJavaScript=async()=>true;contents.print=(options,callback)=>{this.printOptions=options;callback?.(true);};windows.push(this);}
-    maximize(){} async loadURL(url){this.url=url;(this.loads||=[]).push(url);if(this.failure)throw Error(this.failure);if(options.loadURL)await options.loadURL(this,url);} show(){this.visible=true;} hide(){this.visible=false;} focus(){} isMinimized(){return false;} isDestroyed(){return this.destroyed;} isVisible(){return this.visible;} destroy(){this.destroyed=true;} reload(){}
+    maximize(){} async loadURL(url){this.url=url;(this.loads||=[]).push(url);if(this.failure)throw Error(this.failure);if(options.loadURL)await options.loadURL(this,url);} show(){this.visible=true;this.showCalls++;} hide(){this.visible=false;} focus(){} isMinimized(){return false;} isDestroyed(){return this.destroyed;} isVisible(){return this.visible;} destroy(){this.destroyed=true;} reload(){}
     static getFocusedWindow(){return windows.find(w=>w.visible);}
   }
   const electron={BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},Menu:{buildFromTemplate:template=>template,setApplicationMenu:menu=>{electron.menu=menu;}},shell:{openExternal:url=>external.push(url)},dialog:{showMessageBox:async()=>({response:1})}};
@@ -26,7 +26,7 @@ function fixture(t, options = {}){
 }
 
 test('installed app opens the original complete dashboard and keeps a persistent signed-in session',async t=>{
-  const f=fixture(t);const opening=f.dashboard.open();const w=f.windows[0];assert.ok(w.visible,'dashboard frame and offline menu remain available during loading');await opening;
+  const f=fixture(t);const opening=f.dashboard.open();const w=f.windows[0];assert.equal(w.visible,false,'The first blank frame must not be exposed.');await opening;
   assert.equal(w.url,'https://fasakhaninja.com/admin/dashboard');assert.ok(w.visible);
   assert.equal(w.options.title,'GO ERP — الداشبورد');
   assert.equal(w.options.fullscreen,true,'the dashboard starts in native full screen');
@@ -69,15 +69,39 @@ test('account switching exposes only an optional native menu and argument-free o
   assert.equal(ordinary.electron.menu[0].submenu.some(item=>item.label==='تبديل الحساب'),false);
   const sender=ordinary.windows[0].webContents;assert.equal(ordinary.handlers.get('dashboard:account-switch-available')({sender,senderFrame:sender.mainFrame}).value,false);
 });
-test('the dashboard reveals immediately and becomes ready at DOM readiness without waiting for fonts and images',async t=>{
+test('the first real dashboard stays hidden until DOM readiness and does not wait for fonts and images',async t=>{
   let finishLoad,visible=0;const events=[];
   const f=fixture(t,{onVisible:()=>visible++,onNavigation:entry=>events.push(entry),loadURL:()=>new Promise(resolve=>finishLoad=resolve)});
   let settled=false;const opening=f.dashboard.open().then(()=>{settled=true;});
-  assert.equal(visible,1);assert.equal(f.windows[0].visible,true);
+  assert.equal(visible,0);assert.equal(f.windows[0].visible,false);
+  f.dashboard.reveal();assert.equal(f.windows[0].visible,false,'A second launch cannot show a first blank frame.');
   await Promise.resolve();assert.equal(settled,false);
   f.windows[0].webContents.emit('dom-ready');await opening;
-  assert.equal(settled,true);assert.ok(events.some(event=>event.phase==='interactive'));
+  assert.equal(settled,true);assert.equal(f.windows[0].visible,true);assert.ok(visible>=1);assert.ok(events.some(event=>event.phase==='interactive'));
+  const shown=visible;f.dashboard.reveal();assert.equal(visible,shown+1,'Once real content is ready, normal foregrounding remains available.');
   finishLoad();await Promise.resolve();assert.equal(events.filter(event=>event.phase==='loaded').length,0);
+});
+test('an initial empty document cannot reveal a first blank frame before a real login redirect is ready',async t=>{
+  let finishLoad;const f=fixture(t,{loadURL:()=>new Promise(resolve=>finishLoad=resolve)});
+  t.after(()=>finishLoad?.());
+  let settled=false;const opening=f.dashboard.open().then(()=>settled=true);await Promise.resolve();
+  const window=f.windows[0];window.url='about:blank';window.webContents.emit('dom-ready');
+  f.dashboard.reveal();await Promise.resolve();assert.equal(window.visible,false);assert.equal(settled,false);
+  window.url=policy.DEFAULT_ORIGIN+'/admin/login';window.webContents.emit('dom-ready');await new Promise(setImmediate);
+  assert.equal(settled,true,'The real login DOM must settle readiness without waiting for the first GET deadline.');await opening;
+  assert.equal(window.visible,true);assert.equal(window.url,policy.DEFAULT_ORIGIN+'/admin/login');
+  finishLoad();
+});
+test('a failed first navigation reveals its native failure surface without exposing the bootstrap loader or stranding the app',async t=>{
+  for(const message of ['net::ERR_INTERNET_DISCONNECTED','net::ERR_HTTP_RESPONSE_CODE_FAILURE']){
+    const dialogs=[];const f=fixture(t,{loadURL:async()=>{throw Error(message);}});
+    f.electron.dialog.showMessageBox=async(_window,details)=>{dialogs.push(details);return {response:1};};
+    const opening=f.dashboard.open();assert.equal(f.windows[0].visible,false);await opening;
+    assert.equal(f.windows[0].visible,true);assert.equal(f.windows[0].showCalls,1);
+    assert.deepEqual(f.windows[0].loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);
+    assert.equal(message.includes('INTERNET')?f.notices.length:dialogs.length,1);
+    assert.equal(f.windows[0].loads.some(url=>url.includes('startup.html')),false);
+  }
 });
 test('an initial GET which never returns reaches a finite deadline and keeps its native window available',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});const events=[],dialogs=[];
@@ -94,6 +118,8 @@ test('initial navigation supervision hands off before an original POST and never
   f.session.webRequest.headers({id:15,url:policy.DEFAULT_ORIGIN+'/admin/signin',method:'POST',resourceType:'mainFrame',
     webContentsId:window.webContents.id,requestHeaders:{Cookie:'private-session','X-CSRF-TOKEN':'private-csrf'}},value=>decision=value);
   await opening;await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(window.visible,false,'A supervised POST handoff does not make a first unrendered document visible.');
+  window.webContents.emit('dom-ready');assert.equal(window.visible,true,'The real response can reveal itself after supervision hands off.');
   assert.equal(decision.requestHeaders.Cookie,'private-session');assert.equal(decision.requestHeaders['X-CSRF-TOKEN'],'private-csrf');
   t.mock.timers.tick(45000);assert.equal(window.webContents.stopped,undefined);
   assert.deepEqual(window.loads,[policy.DEFAULT_ORIGIN+'/admin/dashboard']);assert.ok(events.some(event=>event.phase==='user-navigation'));
@@ -147,8 +173,23 @@ test('remembered native logout clears only scoped session cookies, preserves the
   let decision;f.session.webRequest.headers({id:501,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
     webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'never-logged'}},value=>decision=value);
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(decision.cancel,true);assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session']]);
+  assert.equal(decision.cancel,true);assert.equal(quits,1);assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session'],[policy.DEFAULT_ORIGIN+'/','persistent_session']]);
   assert.equal(remember.value,'encrypted-original-recaller');assert.equal(await f.dashboard.canRefresh(),false);
+});
+test('remembered close retires Laravel expire_on_close=false session cookies while preserving the protected recaller',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});const removed=[];let flushed=false,quits=0;
+  const originalSession=nativeCookie('fasakhaninja_session',{session:false,expirationDate:Date.now()/1000+7*86400});
+  const protectedRecaller=nativeCookie(recallerName,{session:false,expirationDate:Date.now()/1000+30*86400,value:'protected-original-recaller'});
+  const f=fixture(t,{quit:()=>{assert.equal(flushed,true);quits++;}});await f.dashboard.open();
+  f.session.cookies.get=async()=>[originalSession,protectedRecaller,nativeCookie('XSRF-TOKEN',{httpOnly:false})];
+  f.session.cookies.remove=async(...args)=>removed.push(args);f.session.cookies.flushStore=async()=>{flushed=true;};
+  let decision;f.session.webRequest.headers({id:527,url:policy.DEFAULT_ORIGIN+'/admin/adminLogout',method:'GET',resourceType:'mainFrame',
+    webContentsId:f.windows[0].webContents.id,requestHeaders:{Cookie:'not-recorded'}},value=>decision=value);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(decision.cancel,true);assert.equal(quits,1);
+  assert.deepEqual(removed,[[policy.DEFAULT_ORIGIN+'/','fasakhaninja_session']]);
+  assert.equal(protectedRecaller.value,'protected-original-recaller');assert.equal(protectedRecaller.session,false);
+  assert.equal(removed.some(([,name])=>name===recallerName||name==='XSRF-TOKEN'),false);
 });
 test('native logout without a persistent protected admin recaller retains ordinary server logout and then quits',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});

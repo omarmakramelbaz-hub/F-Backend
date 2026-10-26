@@ -66,20 +66,20 @@ test('a failed native relaunch cannot strand the drained process after its ledge
   assert.equal(app.exited,true);assert.deepEqual(shutdown.errors,[{phase:'relaunch',error}]);
 });
 
-async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,holdDashboardLoad=false,holdRuntimeStart=false,nativeClock=false,deltaBridge=false,deltaRun,runtimeControl,beforeUnload=false,holdRuntimeStop=false}={}){
+async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdPrint=false,holdLoad=false,holdDashboardLoad=false,holdRuntimeStart=false,runtimeStartError,holdLogin=false,holdLoginHandoff=false,loginAccountId='default',loginOrigin='https://fasakhaninja.com',loginToken='',remoteDirty=false,brokerStopError,nativeClock=false,deltaBridge=false,deltaRun,runtimeControl,beforeUnload=false,holdRuntimeStop=false}={}){
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'pos-shutdown-')),file=path.join(profile,'fasakhansta-pos.sqlite');
   const seed=new Store(file),snapshot={id:randomUUID(),generated_at:new Date().toISOString(),branch:{value:'f:100',name:'اختبار'},actor:{id:10,name:'كاشير'},tax_bps:0,service_bps:0,can_discount:false,categories:[],products:[{id:1,name:'رنجة',unit:'piece',variants:[{option_id:'',label:'أساسي',unit_price_cents:10000,quantity_mode:'piece'}]}]};
   seed.saveSnapshot(snapshot);const order=seed.newOrder();seed.update(order.id,{...order.data,items:[{product_id:1,option_id:'',quantity_mode:'piece',quantity:'1'}],cash_received:'100.00'});const sale=seed.dispatch(order.id,'sale');
   if(paired)seed.set('connection',{origin:'https://fasakhaninja.com',device_id:1,token_cipher:Buffer.from('test-token').toString('base64')});seed.close();
   if(packaged){fs.mkdirSync(path.join(profile,'dashboard-runtime'));fs.writeFileSync(path.join(profile,'dashboard-runtime','manifest.json'),'{}');}
-  const windows=[],handlers=new Map(),timers=new Map(),nativeTimers=new Map(),events=[];let store,printCallback,finishLoad,finishRuntimeStart,finishDashboardLoad,finishRuntimeStop,runtimeStarts=0,runtimeStops=0,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardReveals=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
+  const windows=[],handlers=new Map(),timers=new Map(),nativeTimers=new Map(),events=[],errors=[];let store,selectedLedgerFile,loginBrokerOptions,loginVisible=false,loginDisposals=0,loginReveals=0,loginCancels=0,brokerCancels=0,brokerStops=0,brokerHandoffs=0,finishLogin,finishLoginHandoff,rejectLogin,loginAdmission,printCallback,finishLoad,finishRuntimeStart,finishDashboardLoad,finishRuntimeStop,runtimeStarts=0,runtimeStops=0,dashboardOptions,preparationOptions,deltaOptions,deltaStops=0,dashboardOpens=0,dashboardReveals=0,dashboardCancels=0,runtimeReady=prepared,localSwitches=0,scheduleNow=0;
   class ScheduledClock extends SyncSchedule{constructor(options){super({...options,now:()=>scheduleNow});}}
-  class TrackedStore extends Store{constructor(file){super(file);store=this;this.closeCalls=0;this.historyReads=0;}history(){this.historyReads++;return super.history();}close(){this.closeCalls++;super.close();}}
+  class TrackedStore extends Store{constructor(file){super(file);store=this;selectedLedgerFile=file;events.push('ledger-open');this.closeCalls=0;this.historyReads=0;}history(){this.historyReads++;return super.history();}close(){this.closeCalls++;super.close();}}
   class App extends EventEmitter{
     constructor(){super();this.isPackaged=packaged;this.quitCalls=0;this.exited=false;this.relaunchCalls=0;}
     getVersion(){return '0.3.0-preview.1';}setName(value){this.displayName=value;}setPath(name,value){(this.paths||=new Map()).set(name,value);}
     whenReady(){return Promise.resolve();}getPath(){return profile;}requestSingleInstanceLock(){return true;}
-    relaunch(){assert.equal(store.db.isOpen,false,'Relaunch is scheduled only after SQLite closes.');this.relaunchCalls++;}
+    relaunch(){assert.equal(store?.db.isOpen??false,false,'Relaunch is scheduled only after SQLite closes or before an account ledger is opened.');events.push('app-relaunch');this.relaunchCalls++;}
     quit(){if(this.exited)return;if(++this.quitCalls>10)throw Error('recursive quit');const event={prevented:false,preventDefault(){this.prevented=true;}};this.emit('before-quit',event);if(event.prevented)return;
       for(const window of [...windows])if(!window.destroyed)window.close();if(windows.some(window=>!window.destroyed))return;this.emit('will-quit',{});this.exited=true;}
   }
@@ -95,12 +95,12 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
       if(beforeUnload){const unload={prevented:false,preventDefault(){this.prevented=true;}};this.webContents.emit('will-prevent-unload',unload);if(!unload.prevented)return;}this.destroy();}
     destroy(){if(this.destroyed)return;this.destroyed=true;this.emit('closed');if(windows.every(w=>w.destroyed))app.emit('window-all-closed');}
   }
-  const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},protocol:{registerSchemesAsPrivileged(){},handle(){}},net:{fetch:fetch||(async()=>new Response('{}'))},safeStorage:{decryptString:buffer=>buffer.toString(),isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value)},dialog:{showErrorBox(){},showSaveDialog:async()=>({canceled:true})}};
+  const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},protocol:{registerSchemesAsPrivileged(){},handle(){}},net:{fetch:fetch||(async()=>new Response('{}'))},safeStorage:{decryptString:buffer=>buffer.toString(),isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value)},dialog:{showErrorBox:(title,message)=>errors.push({title,message}),showSaveDialog:async()=>({canceled:true})}};
   class UnpreparedRuntime{
-    constructor(){this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async()=>null,write:async()=>{}};}
-    async isPrepared(){return runtimeReady;}async start(){runtimeStarts++;if(holdRuntimeStart)await new Promise(resolve=>{finishRuntimeStart=resolve;});return {origin:this.origin,token:this.token};}
-    async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:randomUUID(),actorId:10};}async stop(){runtimeStops++;if(holdRuntimeStop)await new Promise(resolve=>{finishRuntimeStop=resolve;});}
-    async control(input){return runtimeControl?runtimeControl(input):{commands:[],counts:{pending:0,conflicts:0}};}
+    constructor(options={}){this.profile=options.profile;this.deviceId=randomUUID();this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async name=>remoteDirty&&name==='remote-writes'?{format:1,dirty:true,pending:[]}:null,write:async()=>{}};}
+    async isPrepared(){return runtimeReady;}async start(){runtimeStarts++;events.push('runtime-start');if(holdRuntimeStart)await new Promise(resolve=>{finishRuntimeStart=resolve;});if(runtimeStartError)throw Error(runtimeStartError);return {origin:this.origin,token:this.token};}
+    async connection(){return {serverOrigin:'https://fasakhaninja.com',deviceId:this.deviceId,actorId:10};}async stop(){runtimeStops++;if(holdRuntimeStop)await new Promise(resolve=>{finishRuntimeStop=resolve;});}
+    async control(input){return runtimeControl?runtimeControl(input,this):{commands:[],counts:{pending:0,conflicts:0}};}
   }
   class Preparation{
     constructor(options){preparationOptions=options;}async status(){return {available:true,prepared:runtimeReady};}
@@ -111,21 +111,113 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
     async selected(){return{id:'default',label:'Fixture account',profile:this.root,partition:'persist:fasakhansta-dashboard'};}
     async bind(){}async assertBinding(){}
   }
+  // These downstream lifecycle fixtures admit a trusted broker result without
+  // exercising authentication. The actual broker/UI have separate tests; held
+  // admission below verifies main never opens an account ledger prematurely.
+  class LoginBroker{
+    constructor(options){loginBrokerOptions=options;events.push('login-broker');}
+    async admission(){
+      const account=loginAccountId==='default'?await loginBrokerOptions.profiles.selected():{
+        id:loginAccountId,label:'Other verified fixture account',profile:path.join(profile,'accounts',loginAccountId),partition:'persist:fasakhansta-dashboard-'+loginAccountId};
+      return {account,runtime:loginBrokerOptions.createRuntime(account),origin:loginOrigin,localToken:loginToken,local:false};
+    }
+    async handoff(result){brokerHandoffs++;events.push('login-handoff');if(holdLoginHandoff)await new Promise(resolve=>finishLoginHandoff=resolve);return result;}
+    cancel(){brokerCancels++;events.push('login-broker-cancel');}
+    async stop(){brokerStops++;events.push('login-broker-stop');if(brokerStopError)throw Error(brokerStopError);}
+  }
+  const loginUI=({broker})=>{
+    loginVisible=true;events.push('login-form-visible');
+    const result=new Promise((resolve,reject)=>{rejectLogin=reject;finishLogin=async()=>{loginAdmission=await broker.admission();resolve(loginAdmission);};});
+    if(!holdLogin)finishLogin();
+    return {result,dispose(){loginVisible=false;loginDisposals++;events.push('login-form-dispose');},
+      cancel(){loginVisible=false;loginCancels++;rejectLogin(Error('Synthetic account login cancelled'));},reveal(){loginVisible=true;loginReveals++;}};
+  };
   class DeltaBridge{
     constructor(options){deltaOptions=options;this.state={phase:'idle'};this.running=null;}
     run(){this.running=Promise.resolve().then(()=>deltaRun?deltaRun():{unchanged:true}).finally(()=>{this.running=null;});return this.running;}stop(){deltaStops++;}
   }
   const nativeDeadline=nativeClock?vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/native-deadline.cjs'),'utf8')+'\n;module.exports',{module:{exports:{}},setTimeout:(fn,delay)=>{nativeTimers.set(fn,delay);return fn;},clearTimeout:fn=>nativeTimers.delete(fn)}):require('../src/native-deadline.cjs');
-  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./account-profiles.cjs'?Profiles:name==='./account-picker.cjs'?async()=>null:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');options.onVisible?.();if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');options.onVisible?.();},isVisible:()=>true,reveal(){dashboardReveals++;options.onVisible?.();},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./account-profiles.cjs'?Profiles:name==='./account-login.cjs'?{AccountLogin:LoginBroker}:name==='./login-window.cjs'?loginUI:name==='./account-picker.cjs'?async()=>null:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');options.onVisible?.();if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');options.onVisible?.();},isVisible:()=>true,reveal(){dashboardReveals++;options.onVisible?.();},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
-  t.after(()=>{if(store.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
-  return {app,store,file,sale,order,windows,timers,nativeTimers,events,get trace(){return JSON.parse(fs.readFileSync(path.join(profile,'lifecycle-trace.json'),'utf8'));},openLocalOrders:mainState.localOrders,notify:mainState.notify,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStart(){return finishRuntimeStart;},get finishDashboardLoad(){return finishDashboardLoad;},get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStarts(){return runtimeStarts;},get runtimeStops(){return runtimeStops;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardReveals(){return dashboardReveals;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
+  t.after(()=>{if(store?.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
+  return {app,get store(){return store;},get selectedLedgerFile(){return selectedLedgerFile;},get loginVisible(){return loginVisible;},get loginDisposals(){return loginDisposals;},get loginReveals(){return loginReveals;},get loginCancels(){return loginCancels;},get brokerCancels(){return brokerCancels;},get brokerStops(){return brokerStops;},get brokerHandoffs(){return brokerHandoffs;},get finishLogin(){return finishLogin;},get finishLoginHandoff(){return finishLoginHandoff;},get loginAdmission(){return loginAdmission;},get loginBrokerOptions(){return loginBrokerOptions;},profile,file,sale,order,windows,timers,nativeTimers,events,errors,get trace(){return JSON.parse(fs.readFileSync(path.join(profile,'lifecycle-trace.json'),'utf8'));},openLocalOrders:mainState.localOrders,notify:mainState.notify,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStart(){return finishRuntimeStart;},get finishDashboardLoad(){return finishDashboardLoad;},get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStarts(){return runtimeStarts;},get runtimeStops(){return runtimeStops;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardReveals(){return dashboardReveals;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
 }
 
-test('prepared startup displays a local splash while runtime starts without loading the legacy renderer or reading its history',async t=>{
+test('the packaged main presents ordinary login before selecting a ledger or starting any local service',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdLogin:true});
+  assert.equal(f.loginVisible,true);assert.equal(f.store,undefined);assert.equal(f.selectedLedgerFile,undefined);
+  assert.equal(f.runtimeStarts,0);assert.equal(f.windows.length,0);assert.equal(f.dashboardOpens,0);assert.equal(f.timers.size,0);
+  assert.equal(f.trace.events.at(-1).phase,'startup-ready');assert.equal(f.events.at(-1),'login-form-visible');
+  f.app.emit('second-instance');assert.equal(f.loginReveals,1);assert.equal(f.windows.length,0);
+  f.app.quit();await settle();
+  assert.equal(f.loginCancels,1);assert.equal(f.brokerCancels,1);assert.equal(f.brokerStops,1);
+  assert.equal(f.app.exited,true);assert.equal(f.store,undefined);assert.equal(f.runtimeStops,0);assert.equal(f.errors.length,0);
+  assert.equal(f.trace.events.at(-1).phase,'shutdown-complete');
+  const retained=new Store(f.file);try{assert.equal(retained.pending()[0].id,f.sale.id);}finally{retained.close();}
+});
+
+test('reopening during login cancellation queues one clean relaunch even though no account ledger was opened',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdLogin:true});
+  f.app.quit();f.app.emit('second-instance');f.app.emit('second-instance');await settle();
+  assert.equal(f.app.exited,true);assert.equal(f.app.relaunchCalls,1);assert.equal(f.store,undefined);
+  assert.equal(f.loginCancels,1);assert.equal(f.brokerStops,1);assert.equal(f.windows.length,0);assert.equal(f.dashboardOpens,0);
+  assert.ok(f.events.indexOf('login-broker-stop')<f.events.indexOf('app-relaunch'));
+});
+
+test('only a trusted login result admits its account ledger and the normal form remains until real page visibility',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdLogin:true,holdRuntimeStart:true});
+  assert.equal(f.store,undefined);await f.finishLogin();await settle();
+  assert.equal(f.brokerHandoffs,1);assert.equal(f.selectedLedgerFile,f.file);assert.equal(f.runtimeStarts,1);
+  assert.equal(f.loginVisible,true);assert.equal(f.loginDisposals,0);assert.equal(f.dashboardOpens,0);assert.equal(f.windows[0].visible,false);
+  assert.ok(f.events.indexOf('login-form-visible')<f.events.indexOf('login-handoff'));
+  assert.ok(f.events.indexOf('login-handoff')<f.events.indexOf('ledger-open'));
+  assert.ok(f.events.indexOf('ledger-open')<f.events.indexOf('runtime-start'));
+  f.finishRuntimeStart();await settle();
+  assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');assert.equal(f.dashboardOptions.localToken,'owned-local');
+  assert.equal(f.loginVisible,false);assert.equal(f.loginDisposals,1);assert.equal(f.dashboardOpens,1);assert.equal(f.timers.size,1);
+  f.app.quit();await settle();assert.equal(f.runtimeStops,1);assert.equal(f.brokerStops,1);assert.equal(f.store.closeCalls,1);
+});
+
+test('verified ordinary login opens only the returned account ledger and partition while the previous sale remains intact',async t=>{
+  const id='12345678-1234-4321-8765-123456789abc';
+  const f=await fixture(t,{packaged:true,loginAccountId:id});
+  const selected=path.join(f.profile,'accounts',id,'fasakhansta-pos.sqlite');
+  assert.equal(f.selectedLedgerFile,selected);assert.equal(f.loginAdmission.runtime.profile,path.dirname(selected));
+  assert.equal(f.dashboardOptions.partition,'persist:fasakhansta-dashboard-'+id);
+  assert.equal(f.dashboardOptions.origin,'https://fasakhaninja.com');assert.equal(f.dashboardOptions.localToken,'');
+  assert.equal(f.store.pending().length,0);assert.equal(f.loginDisposals,1);assert.equal(f.brokerHandoffs,1);
+  const previous=new Store(f.file);try{assert.equal(previous.pending()[0].id,f.sale.id);assert.equal(previous.order(f.order.id).status,'paid');}finally{previous.close();}
+  f.app.quit();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);
+});
+
+test('a quit racing trusted runtime handoff waits for ownership and drains without opening any account ledger',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,holdLoginHandoff:true});
+  assert.equal(f.brokerHandoffs,1);assert.equal(f.store,undefined);assert.equal(f.runtimeStarts,0);assert.equal(f.loginVisible,true);
+  f.app.quit();await settle();assert.equal(f.app.exited,false);assert.equal(f.runtimeStops,0);assert.equal(f.brokerStops,0);
+  f.finishLoginHandoff();await settle();
+  assert.equal(f.app.exited,true);assert.equal(f.runtimeStops,1);assert.equal(f.brokerStops,1);assert.equal(f.store,undefined);
+  assert.equal(f.dashboardOpens,0);assert.equal(f.windows.length,0);assert.equal(f.timers.size,0);assert.equal(f.errors.length,0);
+});
+
+test('a failed broker drain still stops its handed runtime and closes the admitted ledger once',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,brokerStopError:'synthetic broker drain failed'});
+  f.app.quit();await settle();
+  assert.equal(f.app.exited,true);assert.equal(f.runtimeStops,1);assert.equal(f.brokerStops,1);assert.equal(f.store.closeCalls,1);
+  assert.equal(f.timers.size,0);assert.equal(f.trace.events.at(-1).phase,'shutdown-complete');
+});
+
+test('a server recovery branch never forwards a retained local capability into an HTTPS dashboard',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,remoteDirty:true,loginToken:'local-capability-must-not-forward',
+    runtimeControl:async(input,runtime)=>input.action==='refresh-begin'?{held:true,device_id:runtime.deviceId,actor_id:10}: {commands:[],counts:{pending:0,conflicts:0}}});
+  assert.equal(f.dashboardOptions.origin,'https://fasakhaninja.com');assert.equal(f.dashboardOptions.localToken,'');
+  assert.equal(f.brokerHandoffs,1);assert.equal(f.runtimeStarts,1);assert.equal(f.loginDisposals,1);
+  f.app.quit();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);
+});
+
+test('prepared startup keeps its internal bridge hidden while verified local services start',async t=>{
   const f=await fixture(t,{packaged:true,prepared:true,holdRuntimeStart:true});
   const splash=f.windows[0];
-  assert.equal(splash.visible,true);assert.equal(splash.showCalls,1);
+  assert.equal(splash.visible,false);assert.equal(splash.showCalls,0);
   assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);
   assert.equal(f.runtimeStarts,1);assert.equal(f.dashboardOpens,0);assert.equal(f.timers.size,0);
   f.notify();assert.equal(f.store.historyReads,0);assert.deepEqual(splash.sent,[]);
@@ -135,29 +227,29 @@ test('prepared startup displays a local splash while runtime starts without load
   assert.equal(f.timers.size,1);f.app.quit();await settle();assert.equal(f.app.exited,true);
 });
 
-test('the visible dashboard replaces the splash before navigation settles while background synchronization still waits',async t=>{
+test('the actual dashboard can be interactive before subresources finish without exposing the internal bridge',async t=>{
   const f=await fixture(t,{holdDashboardLoad:true}),splash=f.windows[0];
-  assert.equal(f.dashboardOpens,1);assert.equal(splash.visible,false);assert.equal(splash.hideCalls,1);
+  assert.equal(f.dashboardOpens,1);assert.equal(splash.visible,false);assert.equal(splash.showCalls,0);
   assert.equal(f.timers.size,0);assert.equal(f.store.historyReads,0);
   assert.equal(f.trace.events.at(-1).phase,'dashboard-visible');
   f.finishDashboardLoad();await settle();
-  assert.equal(splash.visible,false);assert.equal(splash.hideCalls,1);assert.equal(f.timers.size,1);
-  assert.ok(f.events.indexOf('window-hide')<f.events.indexOf('dashboard-ready'));
+  assert.equal(splash.visible,false);assert.equal(splash.showCalls,0);assert.equal(f.timers.size,1);
+  assert.equal(f.events.includes('window-show'),false,'The bootstrap bridge is never a visible application page.');
   f.app.quit();await settle();assert.equal(f.app.exited,true);assert.equal(f.timers.size,0);
 });
 
-test('a second launch restores the existing startup splash and reveals the dashboard after startup without opening legacy orders',async t=>{
+test('a second launch during bootstrap never reveals the hidden bridge and later foregrounds the real dashboard',async t=>{
   const f=await fixture(t,{holdLoad:true}),splash=f.windows[0];
   splash.minimized=true;splash.visible=false;
   f.app.emit('second-instance');await settle();
-  assert.equal(f.windows.length,1);assert.equal(splash.visible,true);assert.equal(splash.restoreCalls,1);assert.equal(splash.focusCalls,1);
+  assert.equal(f.windows.length,1);assert.equal(splash.visible,false);assert.equal(splash.restoreCalls,0);assert.equal(splash.focusCalls,0);assert.equal(splash.showCalls,0);
   assert.equal(f.dashboardReveals,0);assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);
   f.finishLoad();await settle();f.app.emit('second-instance');await settle();
   assert.equal(f.dashboardReveals,1);assert.equal(splash.visible,false);assert.equal(f.store.historyReads,0);
   assert.deepEqual(splash.loadURLs,['fasakhansta://pos/startup.html']);f.app.quit();await settle();
 });
 
-test('a second launch foregrounds the actual dashboard while its navigation is pending instead of restoring the hidden splash',async t=>{
+test('a second launch foregrounds the interactive dashboard while images load and never restores the hidden bridge',async t=>{
   const f=await fixture(t,{holdDashboardLoad:true}),splash=f.windows[0],showCalls=splash.showCalls;
   assert.equal(splash.visible,false);assert.equal(f.timers.size,0);
   f.app.emit('second-instance');await settle();
@@ -184,9 +276,9 @@ test('a main-frame login response after startup still records its exact local/se
   assert.equal(JSON.stringify(f.trace).includes('PRIVATE_COOKIE'),false);f.app.quit();await settle();
 });
 
-test('closing the startup splash while dashboard navigation is pending cannot restart background work after navigation settles',async t=>{
+test('a quit during dashboard navigation cannot restart background work after navigation settles',async t=>{
   const f=await fixture(t,{holdDashboardLoad:true}),splash=f.windows[0];
-  splash.close();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
+  f.app.quit();await settle();assert.equal(f.app.exited,true);assert.equal(f.store.closeCalls,1);assert.equal(f.timers.size,0);
   f.finishDashboardLoad();await settle();
   assert.equal(splash.destroyed,true);assert.equal(splash.hideCalls,1);assert.equal(f.timers.size,0);
   assert.equal(f.dashboardOpens,1);assert.equal(f.store.historyReads,0);
@@ -195,7 +287,7 @@ test('closing the startup splash while dashboard navigation is pending cannot re
 test('closing during accepted runtime startup drains that attempt and never opens a dashboard or background schedule afterward',async t=>{
   const f=await fixture(t,{packaged:true,prepared:true,holdRuntimeStart:true});
   assert.equal(f.trace.events.at(-1).phase,'runtime-start');
-  f.windows[0].close();await settle();
+  f.app.quit();await settle();
   assert.equal(f.app.exited,false);assert.equal(f.store.db.isOpen,true);assert.equal(f.runtimeStops,0);
   assert.equal(f.trace.events.at(-1).phase,'shutdown-wait-accepted');
   f.finishRuntimeStart();await settle();
@@ -204,6 +296,15 @@ test('closing during accepted runtime startup drains that attempt and never open
   assert.equal(f.trace.events.at(-1).phase,'shutdown-complete');
   const shutdownIndex=f.trace.events.findIndex(event=>event.phase==='shutdown-requested');
   assert.ok(f.trace.events.slice(shutdownIndex).every(event=>event.phase.startsWith('shutdown-')),'A late startup completion must not overwrite the shutdown location.');
+  const reopened=new Store(f.file);try{assert.equal(reopened.pending()[0].id,f.sale.id);}finally{reopened.close();}
+});
+
+test('a failed local-service start shows the native error and exits without exposing a bootstrap page',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,runtimeStartError:'synthetic local service failure'});
+  assert.equal(f.dashboardOpens,0);assert.equal(f.windows[0].showCalls,0);
+  assert.deepEqual(f.errors,[{title:'تعذر فتح برنامج GO ERP',message:'synthetic local service failure'}]);
+  assert.equal(f.runtimeStops,1);assert.equal(f.store.closeCalls,1);assert.equal(f.app.exited,true);
+  assert.equal(f.timers.size,0);assert.equal(f.trace.events.at(-1).phase,'shutdown-complete');
   const reopened=new Store(f.file);try{assert.equal(reopened.pending()[0].id,f.sale.id);}finally{reopened.close();}
 });
 

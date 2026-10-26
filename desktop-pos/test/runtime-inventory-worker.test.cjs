@@ -89,7 +89,7 @@ function success(shard, overrides = {}) {
     rosterCount: 4, rosterSha256: 'f'.repeat(64), ...overrides };
 }
 function emitResult(worker, value) {
-  // A real successful shard reserves its bytes before opening files. Protocol
+  // A real successful shard reserves its bytes before reading files. Protocol
   // fakes must account for that shared reservation as well as their message.
   if (value?.kind === 'runtime-inventory' && Number.isSafeInteger(value.bytes) && value.bytes >= 0) {
     Atomics.add(new BigInt64Array(worker.options.workerData.quota), 0, BigInt(value.bytes));
@@ -190,7 +190,7 @@ test('a real inventory shard rejects the byte limit before reading a sparse over
   for (const result of errors) failure(result, 'LIMIT');
 });
 
-test('different shards reserve the global byte quota before opening oversized sparse file content', async t => {
+test('different shards reserve the global byte quota from the opened handle before reading sparse file content', async t => {
   const directory = await fixture(t), selectedBytes = 2 * 1024 ** 3;
   // The fixed filenames belong to different shards. Pre-reservation represents
   // bytes already accepted by another shard without reading gigabytes here.
@@ -200,8 +200,12 @@ test('different shards reserve the global byte quota before opening oversized sp
   }
   const quota = new SharedArrayBuffer(8), counters = new BigInt64Array(quota);
   Atomics.store(counters, 0, 4n * 1024n ** 3n - 1n);
-  let opened = 0;
-  const guardedFs = { ...syncFs, openSync() { opened++; throw Error('content must not open after exhausted quota'); } };
+  let opened = 0, reads = 0, closed = 0;
+  const guardedFs = { ...syncFs,
+    openSync(...args) { opened++; return syncFs.openSync(...args); },
+    readSync() { reads++; throw Error('content must not read after exhausted quota'); },
+    closeSync(...args) { closed++; return syncFs.closeSync(...args); },
+  };
   for (const shard of [0, 1]) {
     const messages = []; let closed = false;
     vm.runInNewContext(syncFs.readFileSync(workerFile, 'utf8'), {
@@ -215,8 +219,79 @@ test('different shards reserve the global byte quota before opening oversized sp
     assert.equal(messages.length, 1); assert.equal(messages[0].kind, 'runtime-inventory-error');
     assert.equal(messages[0].code, 'LIMIT');
   }
-  assert.equal(opened, 0, 'quota overflow must stop before any content handle is opened');
+  assert.equal(opened, 2, 'each owner must obtain the actual handle size rather than trusting directory metadata');
+  assert.equal(closed, 2, 'quota overflow must close every content handle');
+  assert.equal(reads, 0, 'quota overflow must stop before any content byte is read');
   assert.equal(Atomics.load(counters, 0), 8n * 1024n ** 3n - 1n, 'failed reservations are never released');
+});
+
+test('deep inventories freshly hash every byte with one pathname stat and two handle stats per file', async t => {
+  const directory = await fixture(t), expected = new Map();
+  for (let index = 0; index < 128; index++) {
+    const name = `application/vendor/package-${index % 16}/deep/sub/file-${index}.php`;
+    const bytes = Buffer.from(`<?php /* fresh file ${index} */ return ${index};`);
+    await fs.mkdir(path.dirname(path.join(directory, name)), { recursive: true });
+    await fs.writeFile(path.join(directory, name), bytes); expected.set(name, sha(bytes));
+  }
+  const calls = { fileStats: 0, directoryStats: 0, handleStats: 0, opens: 0, closes: 0, bytes: 0 };
+  const guardedFs = { ...syncFs,
+    lstatSync(...args) {
+      const stat = syncFs.lstatSync(...args);
+      if (stat.isFile()) calls.fileStats++; else calls.directoryStats++;
+      return stat;
+    },
+    fstatSync(...args) { calls.handleStats++; return syncFs.fstatSync(...args); },
+    openSync(...args) { calls.opens++; return syncFs.openSync(...args); },
+    closeSync(...args) { calls.closes++; return syncFs.closeSync(...args); },
+    readSync(...args) { const count = syncFs.readSync(...args); calls.bytes += count; return count; },
+  };
+  const quota = new SharedArrayBuffer(8), results = [];
+  for (const shard of [0, 1, 2, 3]) {
+    const messages = [];
+    vm.runInNewContext(syncFs.readFileSync(workerFile, 'utf8'), {
+      require: name => name === 'node:fs' ? guardedFs : name === 'node:worker_threads' ? {
+        isMainThread: false, parentPort: { postMessage: value => messages.push(value), close() {} },
+        workerData: { format: 1, directory, shard, shards: 4, quota, cancel: new SharedArrayBuffer(4) },
+      } : localRequire(name),
+      Buffer, SharedArrayBuffer, Int32Array, BigInt64Array, Atomics,
+    }, { filename: workerFile });
+    assert.equal(messages.length, 1); assert.equal(messages[0].kind, 'runtime-inventory');
+    results.push(messages[0]);
+  }
+  assert.deepEqual(results.flatMap(value => value.files).map(row => [...row]).sort(order), [...expected].sort(order));
+  assert.equal(calls.fileStats, expected.size, 'one final pathname identity check replaces the redundant pre-open pathname stat');
+  assert.equal(calls.handleStats, expected.size * 2, 'the actual handle is checked before and after hashing');
+  assert.equal(calls.opens, expected.size); assert.equal(calls.closes, expected.size);
+  assert.equal(calls.bytes, Number(Atomics.load(new BigInt64Array(quota), 0)));
+  assert.equal(new Set(results.map(value => value.rosterSha256)).size, 1);
+  assert.ok(calls.directoryStats > 128, 'all four complete deep directory rosters remain checked');
+});
+
+test('an opened file replaced before its first content read cannot establish pathname authority', async t => {
+  const directory = await fixture(t), file = path.join(directory, 'source-1.php');
+  await fs.writeFile(file, 'first regular file');
+  let displaced = false, closed = 0;
+  const guardedFs = { ...syncFs,
+    readSync(...args) {
+      if (!displaced) {
+        displaced = true; syncFs.renameSync(file, file + '.displaced');
+        syncFs.writeFileSync(file, 'first regular file');
+      }
+      return syncFs.readSync(...args);
+    },
+    closeSync(...args) { closed++; return syncFs.closeSync(...args); },
+  };
+  const messages = [];
+  vm.runInNewContext(syncFs.readFileSync(workerFile, 'utf8'), {
+    require: name => name === 'node:fs' ? guardedFs : name === 'node:worker_threads' ? {
+      isMainThread: false, parentPort: { postMessage: value => messages.push(value), close() {} },
+      workerData: { format: 1, directory, shard: 0, shards: 4, quota: new SharedArrayBuffer(8), cancel: new SharedArrayBuffer(4) },
+    } : localRequire(name),
+    Buffer, SharedArrayBuffer, Int32Array, BigInt64Array, Atomics,
+  }, { filename: workerFile });
+  assert.equal(messages.length, 1); assert.equal(messages[0].kind, 'runtime-inventory-error');
+  assert.equal(messages[0].code, 'CHANGED'); assert.equal(closed, 1);
+  assert.equal(await fs.readFile(file, 'utf8'), 'first regular file', 'a failed check never deletes the replacement');
 });
 
 test('the real inventory workers settle shared cancellation before and during a large file hash', async t => {

@@ -7,9 +7,11 @@ const sourcePolicy = require('./runtime-source-policy.cjs');
 const sourceCode = require('./src/dashboard-source.cjs');
 const coverage = require('./src/dashboard-coverage.cjs');
 const nativePdf = require('./src/native-pdf.cjs');
+const vendorPhar = require('./build-vendor-phar.cjs');
+const { artifactPins } = require('./src/runtime-compact.cjs');
 
 /** Package the original source from an explicit allowlist; never copy an environment or production storage. */
-async function build({ source, target, dependencyRoot, phpDirectory, mariaDirectory, wkhtmlDirectory, revision }) {
+async function build({ source, target, dependencyRoot, phpDirectory, mariaDirectory, wkhtmlDirectory, revision, compactVendor = false }) {
   if (!/^[a-f0-9]{40}$/.test(revision)) throw Error('A pinned source revision is required.');
   if (execFileSync('git', ['rev-parse','HEAD'], { cwd: source, encoding:'utf8' }).trim() !== revision) throw Error('Source revision does not match the checkout.');
   execFileSync('git', ['diff-index','--quiet','HEAD','--'], { cwd: source });
@@ -94,8 +96,16 @@ async function build({ source, target, dependencyRoot, phpDirectory, mariaDirect
     else if (/^[0-9]+\.[0-9]+\.[0-9]+$/.test(packageInfo.version)) channel = { channel: 'release', fullDashboard: true };
     else throw Error('The runtime package channel is not recognized.');
   }
+  let compactVendorPins;
+  if (compactVendor) {
+    if (!phpDirectory) throw Error('A native PHP executable is required to build the compact vendor artifact.');
+    await vendorPhar.build({ vendor: path.join(application, 'vendor'), target: path.join(target, 'compact-vendor'),
+      php: path.join(target, 'php', 'php.exe') });
+    compactVendorPins = { ...(await artifactPins(target)).pins, producerRevision: revision };
+  }
   await fs.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ format:1, platform:'win32-x64', sourceRevision:revision, sourceHashes:hashes, sourceFingerprint, runtimeFramework,
-    ...(runtimeCompatibilitySha256?{runtimeCompatibilitySha256}:{}), ...(pdfRuntime ? {pdfRuntime} : {}), ...channel }, null, 2)+'\n');
+    ...(runtimeCompatibilitySha256?{runtimeCompatibilitySha256}:{}), ...(pdfRuntime ? {pdfRuntime} : {}),
+    ...(compactVendorPins ? { compactVendor: compactVendorPins } : {}), ...channel }, null, 2)+'\n');
   return { application, files: Object.keys(hashes).length };
 }
 module.exports = build;
@@ -103,5 +113,6 @@ if (require.main === module) {
   const [source,target,dependencyRoot,phpDirectory,mariaDirectory,revision,wkhtmlDirectory] = process.argv.slice(2);
   if (!source || !target || !dependencyRoot || !revision) throw Error('Usage: build-runtime source target dependencies php mariadb revision wkhtmltox');
   build({ source:path.resolve(source),target:path.resolve(target),dependencyRoot:path.resolve(dependencyRoot),phpDirectory:path.resolve(phpDirectory),mariaDirectory:path.resolve(mariaDirectory),
-    ...(wkhtmlDirectory ? {wkhtmlDirectory:path.resolve(wkhtmlDirectory)} : {}),revision }).then(result => process.stdout.write(JSON.stringify(result)+'\n'));
+    ...(wkhtmlDirectory ? {wkhtmlDirectory:path.resolve(wkhtmlDirectory)} : {}), revision,
+    compactVendor: Boolean(phpDirectory) }).then(result => process.stdout.write(JSON.stringify(result)+'\n'));
 }

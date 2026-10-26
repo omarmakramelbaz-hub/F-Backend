@@ -15,6 +15,36 @@ async function fixture(t){
 }
 const origin='https://fasakhaninja.com';
 
+test('trusted login aliases survive restart encrypted and do not change the selected account or legacy index shape',async t=>{
+  const f=await fixture(t),branch=await f.profiles.create();await f.profiles.bind(branch.id,{actorId:10,serverOrigin:origin});
+  const index=await fs.readFile(path.join(f.root,'account-profiles.enc'));
+  await f.profiles.rememberLogin(branch.id,{actorId:10,serverOrigin:origin,password:'PRIVATE_PASSWORD'},'01012345678');
+  await f.profiles.rememberLogin(branch.id,{actorId:10,serverOrigin:origin},'Branch@Example.test');
+  assert.equal((await f.restart().findLogin('1012345678',origin)).id,branch.id);
+  assert.equal((await f.restart().findLogin('branch@example.test',origin)).id,branch.id);
+  assert.equal((await f.profiles.selected()).id,'default');
+  assert.deepEqual(await fs.readFile(path.join(f.root,'account-profiles.enc')),index);
+  const raw=await fs.readFile(path.join(f.root,'account-logins.enc')),aliases=await f.profiles.metadata.read('account-logins');
+  assert.equal(raw.includes(Buffer.from('branch@example.test')),false);assert.equal(JSON.stringify(aliases).includes('PRIVATE_PASSWORD'),false);
+  assert.equal(await f.profiles.findLogin('branch@example.test','https://other.invalid'),null);
+  assert.equal((await f.profiles.forActor(10,origin)).partition,branch.partition);
+});
+
+test('an alias cannot bind another actor and corrupt or duplicate alias rows never select a profile',async t=>{
+  const f=await fixture(t),first=await f.profiles.create(),second=await f.profiles.create();
+  await f.profiles.bind(first.id,{actorId:10,serverOrigin:origin});await f.profiles.bind(second.id,{actorId:11,serverOrigin:origin});
+  await f.profiles.rememberLogin(first.id,{actorId:10,serverOrigin:origin},'account@example.test');
+  const good=await f.profiles.metadata.read('account-logins');
+  await assert.rejects(f.profiles.rememberLogin(second.id,{actorId:11,serverOrigin:origin},'account@example.test'),/مرتبط/);
+  await assert.rejects(f.profiles.rememberLogin(first.id,{actorId:11,serverOrigin:origin},'other@example.test'));
+  for(const mutate of [value=>{value.entries[0].actorId=11;},value=>{value.entries.push({...value.entries[0]});},value=>{value.entries[0].id='../outside';},value=>{value.password='PRIVATE_PASSWORD';}]){
+    const value=structuredClone(good);mutate(value);await f.profiles.metadata.write('account-logins',value);
+    await assert.rejects(f.restart().findLogin('account@example.test',origin));assert.equal((await f.profiles.selected()).id,'default');
+  }
+  await f.profiles.metadata.write('account-logins',good);
+  assert.equal((await f.profiles.findLogin('account@example.test',origin)).actorId,10);
+});
+
 test('a missing index preserves the original profile, cookie partition and every legacy file byte',async t=>{
   const f=await fixture(t),sentinel=crypto.randomBytes(256);await fs.writeFile(path.join(f.root,'fasakhansta-pos.sqlite'),sentinel);
   assert.deepEqual(await f.profiles.selected(),{id:'default',label:'الحساب الحالي',profile:f.root,partition:'persist:fasakhansta-dashboard'});

@@ -57,18 +57,22 @@ try {
         // All four workers inspect the same complete roster. Exactly one owns
         // each filename's bytes; no retained code or cached hash is executed.
         if (shardFor(name) !== workerData.shard) continue;
-        const file = path.join(directory, name), stat = fs.lstatSync(file, { bigint: true });
-        if (!stat.isFile() || stat.isSymbolicLink()) fail('FILE_INVALID');
-        if (stat.size > BigInt(MAX_BYTES - total)) fail('LIMIT');
-        // Reserve before opening/reading. The four shards share the original
-        // global 4 GiB cutoff, including concurrent oversized inventories.
-        const reserved = Atomics.add(quota, 0, stat.size);
-        if (reserved < 0n || reserved + stat.size > BigInt(MAX_BYTES)) fail('LIMIT');
-        total += Number(stat.size);
-        const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+        const file = path.join(directory, name);
+        // The typed directory roster rejects links. Validate the opened handle
+        // itself before any read, then match it to the pathname after hashing.
+        // This removes one metadata round trip per file on Windows without
+        // reusing a content hash or trusting timestamps in place of bytes.
+        const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)
+          | (fs.constants.O_NONBLOCK || 0));
         try {
           const opened = fs.fstatSync(fd, { bigint: true });
-          if (!opened.isFile() || !same(stat, opened)) fail('CHANGED');
+          if (!opened.isFile() || opened.isSymbolicLink()) fail('FILE_INVALID');
+          if (opened.size < 0n || opened.size > BigInt(MAX_BYTES - total)) fail('LIMIT');
+          // Reserve before reading. Failed reservations remain consumed so no
+          // concurrent shard can read past the original global 4 GiB cutoff.
+          const reserved = Atomics.add(quota, 0, opened.size);
+          if (reserved < 0n || reserved + opened.size > BigInt(MAX_BYTES)) fail('LIMIT');
+          total += Number(opened.size);
           const hash = crypto.createHash('sha256');
           let read = 0;
           while (true) {
@@ -76,12 +80,13 @@ try {
             const count = fs.readSync(fd, buffer, 0, buffer.length, null);
             if (!count) break;
             read += count;
-            if (read > Number(stat.size)) fail('CHANGED');
+            if (read > Number(opened.size)) fail('CHANGED');
             hash.update(buffer.subarray(0, count));
           }
           running();
-          if (read !== Number(stat.size) || !same(opened, fs.fstatSync(fd, { bigint: true }))
-              || !same(stat, fs.lstatSync(file, { bigint: true }))) fail('CHANGED');
+          if (read !== Number(opened.size) || !same(opened, fs.fstatSync(fd, { bigint: true }))) fail('CHANGED');
+          const current = fs.lstatSync(file, { bigint: true });
+          if (!current.isFile() || current.isSymbolicLink() || !same(opened, current)) fail('CHANGED');
           files.push([name, hash.digest('hex')]);
         } finally { fs.closeSync(fd); }
       } else fail('FILE_INVALID');

@@ -5,12 +5,14 @@ const crypto = require('node:crypto');
 const { Worker } = require('node:worker_threads');
 const nativePdf = require('./native-pdf.cjs');
 const sourceCode = require('./dashboard-source.cjs');
+const { RuntimeCompact } = require('./runtime-compact.cjs');
 const revision = value => /^[a-f0-9]{40}$/.test(value || '');
 
 /** Retain the exact application and native binaries required by an existing local journal. */
 class RuntimeArchive {
-  constructor(profile, metadata, { stopped = () => false } = {}) {
+  constructor(profile, metadata, { stopped = () => false, compactPins = undefined } = {}) {
     this.root = path.join(profile, 'runtimes'); this.metadata = metadata; this.verified = new Map(); this.stopped = stopped;
+    this.compactor = new RuntimeCompact(this, { pins: compactPins });
   }
   assertRunning() { if (this.stopped()) throw Error('البرنامج يُغلق الآن.'); }
   static databaseCompatible(current, candidate) {
@@ -148,12 +150,12 @@ class RuntimeArchive {
         throw Error('مصدر الداشبورد لا يطابق حزمة التشغيل.');
       return structuredClone(receipt.sourceFingerprint);
     }
-    const fingerprint = await sourceCode.fingerprint(path.join(directory, 'application'));
+    const fingerprint = await sourceCode.fingerprint(path.join(directory, 'application'), { stopped: this.stopped });
     this.assertRunning();
     if (manifest.sourceFingerprint && !sourceCode.same(manifest.sourceFingerprint, fingerprint))
       throw Error('مصدر الداشبورد لا يطابق حزمة التشغيل.');
     const updated = { ...receipt, sourceFingerprint: fingerprint };
-    await this.metadata.write('runtimes/' + receipt.revision, updated);
+    await this.metadata.write((receipt.compactVendor ? 'compact-runtimes/' : 'runtimes/') + receipt.revision, updated);
     checked.receipt = updated;
     return structuredClone(fingerprint);
   }
@@ -176,7 +178,8 @@ class RuntimeArchive {
     const receipt = { format: 1, revision: id, files };
     this.assertRunning();
     try {
-      await fs.cp(bundle, temporary, { recursive: true, errorOnExist: true, force: false });
+      await fs.cp(bundle, temporary, { recursive: true, errorOnExist: true, force: false,
+        filter: () => { this.assertRunning(); return true; } });
       await this.verify(temporary, receipt);
       this.assertRunning();
       await fs.rename(temporary, destination);
@@ -192,10 +195,21 @@ class RuntimeArchive {
   }
   async select(bundle, active) {
     const manifest = await this.manifest(bundle);
-    if (!active?.sourceRevision || active.sourceRevision === manifest.sourceRevision) return this.retain(bundle);
+    if (!active?.sourceRevision || active.sourceRevision === manifest.sourceRevision) {
+      const previous = await this.metadata.read('runtimes/' + manifest.sourceRevision);
+      if (previous) {
+        const compact = await this.compactor.select(bundle, path.join(this.root, manifest.sourceRevision), previous);
+        if (compact) return compact;
+      }
+      const retained = await this.retain(bundle);
+      const receipt = await this.metadata.read('runtimes/' + manifest.sourceRevision);
+      return await this.compactor.select(bundle, retained, receipt) || retained;
+    }
     if (!revision(active.sourceRevision)) throw Error('نسخة بيانات الجهاز غير صالحة.');
     const receipt = await this.metadata.read('runtimes/' + active.sourceRevision);
     if (!receipt) throw Error('يلزم استرجاع نسخة التشغيل السابقة قبل فتح بيانات الجهاز؛ العمليات محفوظة.');
+    const compact = await this.compactor.select(bundle, path.join(this.root, active.sourceRevision), receipt);
+    if (compact) return compact;
     // Do not start a new MariaDB binary against the old data directory during an app update.
     return this.verify(path.join(this.root, active.sourceRevision), receipt);
   }

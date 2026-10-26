@@ -21,14 +21,20 @@ function enrollment(value, deviceId) {
 
 /** The original signed-in dashboard starts preparation. Credentials remain in native encrypted metadata. */
 class DashboardPreparation {
-  constructor({ runtime, enroll, download, allowPreview = false, beforePrepare = async () => {}, onState = () => {}, onEnrolled = async () => {}, onPrepared = async () => {} }) {
+  constructor({ runtime, enroll, download, allowPreview = false, beforePrepare = async () => {}, onState = () => {}, onEnrolled = async () => {}, onPrepared = async () => {}, now = () => performance.now() }) {
     this.runtime = runtime; this.metadata = runtime.metadata; this.enroll = enroll; this.download = download;
     this.onState = onState; this.onPrepared = onPrepared; this.state = { phase: 'idle', progress: 0, error: '' };
     this.onEnrolled = onEnrolled;
     this.beforePrepare = beforePrepare;
     this.allowPreview = allowPreview === true;
+    this.now = now; this.setupStarted = null; this.setupFinished = null;
   }
-  report(value) { Object.assign(this.state, value); this.onState({ ...this.state }); }
+  timing() {
+    if (this.setupStarted === null) return null;
+    return { elapsed_ms: Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor((this.setupFinished ?? this.now()) - this.setupStarted))),
+      running: this.setupFinished === null };
+  }
+  report(value) { Object.assign(this.state, value); this.onState({ ...this.state, setup_timing: this.timing() }); }
   async credential() {
     if (await this.runtime.isPrepared()) return this.runtime.connection();
     const device = await this.runtime.settings(), value = await this.metadata.read('enrollment');
@@ -37,11 +43,15 @@ class DashboardPreparation {
   }
   async status() {
     const ready = await this.runtime.isPrepared();
-    return { available: true, prepared: ready, ...this.state, ...(ready && !this.running ? { phase: 'ready', progress: 100, error: '' } : {}) };
+    return { available: true, prepared: ready, ...this.state, setup_timing: this.timing(), ...(ready && !this.running ? { phase: 'ready', progress: 100, error: '' } : {}) };
   }
   prepare(origin, csrf) {
     if (this.running) return this.running;
-    this.running = this.initialize(origin, csrf).finally(() => { this.running = null; });
+    this.setupStarted = this.now(); this.setupFinished = null;
+    this.running = this.initialize(origin, csrf).finally(() => {
+      this.setupFinished = this.now(); this.running = null;
+      this.onState({ ...this.state, setup_timing: this.timing() });
+    });
     return this.running;
   }
   async initialize(origin, csrf) {
@@ -112,7 +122,9 @@ class DashboardPreparation {
       const actor=snapshot.tables?.users?.rows?.find(row=>String(row.id)===String(next.actorId));
       const rawLabel=typeof actor?.name==='string'?actor.name:typeof actor?.email==='string'?actor.email:'';
       const accountLabel=rawLabel.replace(/[\x00-\x1f\x7f]/g,' ').trim().slice(0,80);
-      await this.onPrepared(next,{accountLabel});
+      const accountLogins=[...new Set([actor?.email,actor?.mobile].filter(value=>typeof value==='string'
+        &&value.trim()&&value.length<=320&&!/[\x00-\x1f\x7f]/.test(value)).map(value=>value.trim()))];
+      await this.onPrepared(next,{accountLabel,...(accountLogins.length?{accountLogins}:{})});
       this.report({ phase: 'ready', progress: 100, error: '' });
       return { available: true, prepared: true, ...this.state };
     } catch (error) {

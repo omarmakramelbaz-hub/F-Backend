@@ -70,6 +70,22 @@ app.on('session-created', browser => browser.setCertificateVerifyProc((request, 
   if (accepted) certificateChecks++;
   callback(accepted ? 0 : -2);
 }));
+// Observe actual native presentation, including remembered reopen. The hidden
+// POS bridge may exist for internal IPC, but must never become the first page.
+let firstVisiblePage = false;
+app.on('browser-window-created', (_event, window) => {
+  window.on('show', () => {
+    try {
+      const url = window.webContents.getURL();
+      assert.notEqual(url, 'fasakhansta://pos/startup.html', 'The internal startup bridge must stay hidden.');
+      if (!firstVisiblePage) {
+        assert.equal(url.startsWith(config.origin + '/admin/'), true, 'The first visible native window must contain a real account page.');
+        assert.notEqual(url, 'about:blank');
+        firstVisiblePage = true;
+      }
+    } catch (error) { fail(error); }
+  });
+});
 // Register the production shutdown handlers before this fixture's will-quit
 // receipt, so a receipt observes the actual ledger-close barrier.
 require('../src/main.cjs');
@@ -116,6 +132,7 @@ function runtimeFor(descriptor) {
 async function mainState() {
   const splash = BrowserWindow.getAllWindows().find(window => window.webContents.getURL() === 'fasakhansta://pos/startup.html');
   assert.ok(splash, 'The actual main POS bridge must exist.');
+  assert.equal(splash.isVisible(), false, 'Internal POS IPC must not expose the startup loader.');
   return splash.webContents.executeJavaScript('window.POS.state()', true);
 }
 function switchMenu() {
@@ -229,7 +246,7 @@ async function commitPicker(picker, action) {
 app.once('will-quit', () => {
   clearTimeout(watchdog); if (failed) return;
   try {
-    assert.equal(phaseReady, true); assert.equal(BrowserWindow.getAllWindows().length, 0);
+    assert.equal(phaseReady, true); assert.equal(firstVisiblePage, true); assert.equal(BrowserWindow.getAllWindows().length, 0);
     const trace = JSON.parse(fs.readFileSync(path.join(config.profile, 'lifecycle-trace.json'), 'utf8'));
     assert.equal(trace.events.at(-1).phase, 'shutdown-complete', 'The actual main must close its selected ledger before success.');
     const index = JSON.parse(safeStorage.decryptString(fs.readFileSync(path.join(config.profile, 'account-profiles.enc'))));
@@ -238,7 +255,7 @@ app.once('will-quit', () => {
     const receipt = { format: 1, kind: 'go-erp-account-profile-phase', phase, pid: process.pid, sourceRevision: config.sourceRevision,
       sourceHashes: config.sourceHashes, electronVersion: process.versions.electron, platform: process.platform,
       actualElectron: true, actualProductionMain: true, actualAsarCode: true, actualInstalledApplication: false,
-      actualDpapi: true, actualNativeMenu: phase < 2,
+      actualDpapi: true, firstVisibleRealAccountPage: true, startupBridgeNeverShown: true, actualNativeMenu: phase < 2,
       actualNaturalRelaunch: phase < 2, actualUnpreparedProfile: true, actualSelectedLedger: true,
       hardware: false, productionProfile: false, actualPhpAuthorization: false, syntheticRoleProjectionOnly: true,
       syntheticPrivateProofOnly: true, dialogsIntercepted: true, naturalQuit: true, forcedSuccessExit: false,

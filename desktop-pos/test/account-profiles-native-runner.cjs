@@ -27,7 +27,7 @@ const sourceFiles = [
   'desktop-pos/src/main.cjs', 'desktop-pos/src/shutdown.cjs', 'desktop-pos/src/startup.html', 'desktop-pos/src/account-switch.cjs',
   'desktop-pos/src/account-profiles.cjs', 'desktop-pos/src/account-picker.cjs', 'desktop-pos/src/account-picker-preload.cjs',
   'desktop-pos/src/account-picker-renderer.js', 'desktop-pos/src/account-picker.css', 'desktop-pos/src/account-picker.html',
-  'desktop-pos/src/dashboard.cjs', 'desktop-pos/src/dashboard-preload.cjs', 'desktop-pos/src/local-runtime.cjs',
+  'desktop-pos/src/dashboard.cjs', 'desktop-pos/src/dashboard-preload.cjs', 'desktop-pos/src/preparation-clock.js', 'desktop-pos/src/local-runtime.cjs',
   'desktop-pos/src/dashboard-generation.cjs', 'desktop-pos/src/dashboard-preparation.cjs', 'desktop-pos/src/store.cjs', 'desktop-pos/src/preload.cjs',
   'public/dashboard/js/dashboard-spa.js', 'desktop-pos/test/account-profiles-native.cjs',
   'desktop-pos/test/account-profiles-native-runner.cjs', '.github/workflows/desktop-account-profiles-native.yml'
@@ -145,7 +145,7 @@ async function main() {
     for (const [phase, receipt] of phases.entries()) {
       assert.equal(receipt.phase, phase); assert.equal(receipt.sourceRevision, sourceRevision); assert.deepEqual(receipt.sourceHashes, sourceHashes);
       assert.equal(receipt.platform, 'win32'); assert.equal(receipt.electronVersion, electronVersion);
-      for (const field of ['actualElectron', 'actualProductionMain', 'actualAsarCode', 'actualDpapi', 'actualUnpreparedProfile', 'actualSelectedLedger', 'naturalQuit', 'completed']) assert.equal(receipt[field], true, phase + ':' + field);
+      for (const field of ['actualElectron', 'actualProductionMain', 'actualAsarCode', 'actualDpapi', 'actualUnpreparedProfile', 'actualSelectedLedger', 'firstVisibleRealAccountPage', 'startupBridgeNeverShown', 'naturalQuit', 'completed']) assert.equal(receipt[field], true, phase + ':' + field);
       for (const field of ['hardware', 'productionProfile', 'actualPhpAuthorization', 'actualInstalledApplication', 'forcedSuccessExit']) assert.equal(receipt[field], false, phase + ':' + field);
     }
     for (const receipt of phases.slice(0, 2)) {
@@ -163,7 +163,7 @@ async function main() {
       actualElectron: true, actualProductionMain: true, actualAsarCode: true, actualDpapi: true, processes: 3, actualNaturalRelaunch: true, actualNativeMenu: true,
       actualNativePicker: true, pickerActionsVisible: true, distinctDevicesAndSecrets: true, distinctPrivateAuthStorage: true,
       capacity64PickerActionsVisible: true, labelsRenderedAsText: true, transientFixtureSessionEnded: true,
-      firstAuthenticationRequired: true, emptyNewCookiePartition: true, persistentCookiePartitionsIsolated: true,
+      firstAuthenticationRequired: true, firstVisibleRealAccountPage: true, startupBridgeNeverShown: true, emptyNewCookiePartition: true, persistentCookiePartitionsIsolated: true,
       ownerRememberedWithoutCredentialPost: true, ownerDurableBytesUnchanged: true, otherDurableBytesUnchanged: true,
       selectedJournalsIsolated: true, originalJournalRestored: true, pendingJournalBlockedSwitch: true, syntheticAcknowledgementOnly: true,
       actorBindingMismatchRejected: true, corruptEncryptedRegistryRejected: true, naturalQuit: true, forcedSuccessExit: false,

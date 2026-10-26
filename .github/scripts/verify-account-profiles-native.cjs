@@ -11,7 +11,7 @@ assert.equal(proof.asarVersion,locked.packages['node_modules/@electron/asar'].ve
 assert.match(proof.asarSha256,/^[a-f0-9]{64}$/);
 for(const name of ['actualElectron','actualProductionMain','actualDpapi','actualAsarCode','actualNaturalRelaunch','actualNativeMenu',
   'actualNativePicker','pickerActionsVisible','capacity64PickerActionsVisible','labelsRenderedAsText','transientFixtureSessionEnded',
-  'distinctDevicesAndSecrets','distinctPrivateAuthStorage','firstAuthenticationRequired','emptyNewCookiePartition',
+  'distinctDevicesAndSecrets','distinctPrivateAuthStorage','firstAuthenticationRequired','firstVisibleRealAccountPage','startupBridgeNeverShown','emptyNewCookiePartition',
   'persistentCookiePartitionsIsolated','ownerRememberedWithoutCredentialPost','ownerDurableBytesUnchanged','otherDurableBytesUnchanged',
   'selectedJournalsIsolated','originalJournalRestored','pendingJournalBlockedSwitch','actorBindingMismatchRejected',
   'corruptEncryptedRegistryRejected','naturalQuit','completed','syntheticRoleProjectionOnly','syntheticPrivateProofOnly',
@@ -20,7 +20,7 @@ for(const name of ['hardware','productionProfile','actualPhpAuthorization','actu
 const sources=['desktop-pos/src/main.cjs','desktop-pos/src/shutdown.cjs','desktop-pos/src/startup.html','desktop-pos/src/account-switch.cjs',
   'desktop-pos/src/account-profiles.cjs','desktop-pos/src/account-picker.cjs','desktop-pos/src/account-picker-preload.cjs',
   'desktop-pos/src/account-picker-renderer.js','desktop-pos/src/account-picker.css','desktop-pos/src/account-picker.html',
-  'desktop-pos/src/dashboard.cjs','desktop-pos/src/dashboard-preload.cjs','desktop-pos/src/dashboard-preparation.cjs',
+  'desktop-pos/src/dashboard.cjs','desktop-pos/src/dashboard-preload.cjs','desktop-pos/src/preparation-clock.js','desktop-pos/src/dashboard-preparation.cjs',
   'desktop-pos/src/local-runtime.cjs','desktop-pos/src/dashboard-generation.cjs','desktop-pos/src/store.cjs','desktop-pos/src/preload.cjs',
   'public/dashboard/js/dashboard-spa.js','desktop-pos/test/account-profiles-native.cjs',
   'desktop-pos/test/account-profiles-native-runner.cjs','.github/workflows/desktop-account-profiles-native.yml'];

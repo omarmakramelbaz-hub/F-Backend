@@ -2,7 +2,7 @@ name: Original local dashboard on Windows
 
 on:
   push:
-    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021', 'codex/go-erp-media-capacity-20261022', 'codex/go-erp-snapshot-transport-20261022', 'codex/go-erp-close-reopen-20261024']
+    branches: ['main', 'codex/desktop-offline-pos-20261007', 'codex/go-erp-minute-updates-20261020', 'codex/go-erp-live-source-20261021', 'codex/go-erp-media-capacity-20261022', 'codex/go-erp-snapshot-transport-20261022', 'codex/go-erp-close-reopen-20261024', 'codex/go-erp-warm-start-direct-login-*']
   workflow_dispatch:
   pull_request:
     paths:
@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024' || startsWith(github.ref, 'refs/heads/codex/go-erp-warm-start-direct-login-')
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -149,7 +149,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024' || startsWith(github.ref, 'refs/heads/codex/go-erp-warm-start-direct-login-')
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -169,6 +169,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Lint the compact archive builder, adapter and independent verifier
+        shell: pwsh
+        run: |
+          foreach ($helper in @('desktop-pos/vendor-phar-build.php', 'desktop-pos/vendor-phar-autoload.php', 'desktop-pos/vendor-phar-verify.php')) {
+            & php -l $helper
+            if ($LASTEXITCODE -ne 0) { throw "Compact PHP syntax differs: $helper" }
+          }
       - name: Verify bounded fixture recovery from repeated API rate limits
         shell: pwsh
         run: |
@@ -278,6 +285,52 @@ jobs:
               $expectedBranches = if ($actor.actorId -eq 10) { 'f:100' } else { 'f:100,f:101' }
               $expectedPermission = if ($actor.actorId -eq 10) { 403 } else { 200 }
               if (($actor.branches -join ',') -cne $expectedBranches -or $actor.orderListHttpStatus -ne $expectedPermission) { throw 'An actual account crossed its branch or permission scope.' }
+            }
+            # Exercise the actual converter before the same unchanged PHP role
+            # fixture. The helper also writes exact-source disposable native
+            # pins so subsequent generation-native boots use the compact path.
+            $compactProfile = "$env:RUNNER_TEMP/desktop-compact-acceptance"
+            node desktop-pos/test/runtime-compact-php-acceptance.cjs $bundle $compactProfile (Get-Command php).Source
+            if ($LASTEXITCODE -ne 0) { throw 'The actual compact runtime converter did not complete.' }
+            $compact = Get-Content "$compactProfile/proof.json" -Raw | ConvertFrom-Json
+            $accountRoles | ConvertTo-Json -Depth 16 | Set-Content "$compactProfile/normal-role-receipt.json" -Encoding utf8NoBOM
+            if ($compact.format -ne 1 -or $compact.kind -cne 'go-erp-runtime-compact-php-probe' -or $compact.sourceRevision -cne $env:GITHUB_SHA -or $compact.googleFilesCompacted -lt 30000 -or $compact.filesAfter -ge ($compact.filesBefore - 30000) -or $compact.application -cne (Join-Path $compact.runtime 'application')) { throw 'Compact conversion source or file-count reduction differs.' }
+            foreach ($field in @('unchangedBusinessSource','originalReceiptUnchanged','originalBundleUnchanged','reopenedWithoutNewInstallerPins','actualPhp','actualGoogleArchiveClass','actualPhysicalLaravelClass','generatedFixtureNativePins','actualBundle','independentArchiveEntryVerification','completed')) {
+              if ($compact.$field -isnot [bool] -or $compact.$field -ne $true) { throw "Actual compact acceptance is missing $field." }
+            }
+            foreach ($field in @('actualEncryptedMetadata','productionProfile','databaseRead')) {
+              if ($compact.$field -isnot [bool] -or $compact.$field -ne $false) { throw "Actual compact acceptance scope differs: $field." }
+            }
+            $priorCompactLocal = [Environment]::GetEnvironmentVariable('DESKTOP_DASHBOARD_LOCAL', 'Process')
+            $priorCompactArchive = [Environment]::GetEnvironmentVariable('DESKTOP_DASHBOARD_VENDOR_PHAR', 'Process')
+            try {
+              $env:DESKTOP_DASHBOARD_LOCAL = 'true'
+              $env:DESKTOP_DASHBOARD_VENDOR_PHAR = Join-Path $compact.application 'google-services.phar'
+              & php tests/desktop_dashboard_runtime/accountprofiles-role-http.php $compact.application $port $env:GITHUB_SHA 2>&1 | Tee-Object -Variable compactRolesOutput
+              $compactRolesExit = $LASTEXITCODE
+            } finally {
+              [Environment]::SetEnvironmentVariable('DESKTOP_DASHBOARD_LOCAL', $priorCompactLocal, 'Process')
+              [Environment]::SetEnvironmentVariable('DESKTOP_DASHBOARD_VENDOR_PHAR', $priorCompactArchive, 'Process')
+            }
+            $compactRolesMatches = [regex]::Matches(($compactRolesOutput -join "`n"), '(?m)^DESKTOP_ACCOUNT_PROFILES_ROLE_HTTP_COMPLETE (\{[^\r\n]+\})$')
+            if ($compactRolesExit -ne 0 -or $compactRolesMatches.Count -ne 1) { throw 'The compact runtime did not complete the unchanged actual role fixture exactly once.' }
+            $compactRoles = $compactRolesMatches[0].Groups[1].Value | ConvertFrom-Json
+            $compactRoles | ConvertTo-Json -Depth 16 | Set-Content "$compactProfile/compact-role-receipt.json" -Encoding utf8NoBOM
+            if ($compactRoles.format -ne 1 -or $compactRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $compactRoles.sourceRevision -cne $env:GITHUB_SHA -or $compactRoles.fixtureRevision -cne $env:GITHUB_SHA -or $compactRoles.helperBinding -cne 'exact-git-revision' -or $compactRoles.schemaInventory -ne 106 -or $compactRoles.distinctEnrollments -ne 3 -or $compactRoles.distinctDatabases -ne 4 -or $compactRoles.distinctStorageRoots -ne 3 -or $compactRoles.actors.Count -ne 3 -or $compactRoles.checks -ne 117 -or $compactRoles.checks -ne $accountRoles.checks) { throw 'The compact original-auth scope differs from the normal runtime or its 117 checks.' }
+            foreach ($field in @('actualPhpServer','originalRouter','originalAuthProvider','sourceVerifiedAfter','helpersVerifiedAfter','centralBusinessAndCredentialsUnchanged','httpServersStopped','privateDatabasesDropped','privateStorageRemoved','existingEffectsPreserved','completed')) {
+              if ($compactRoles.$field -isnot [bool] -or $compactRoles.$field -ne $true) { throw "Compact original-auth acceptance is missing $field." }
+            }
+            foreach ($field in @('providersReplaced','permissionBypass','productionProfile','productionCredentialsCopied','fullDashboard')) {
+              if ($compactRoles.$field -isnot [bool] -or $compactRoles.$field -ne $false) { throw "Compact original-auth scope differs: $field." }
+            }
+            if (($compactRoles.actors.actorId -join ',') -cne '1,30,10') { throw 'Compact acceptance did not retain Owner/Admin/Branch identities.' }
+            foreach ($actor in $compactRoles.actors) {
+              if ($actor.originalLogin -ne $true -or $actor.signinStatus -ne 302 -or $actor.wrongCsrfStatus -ne 419 -or $actor.foreignLoginsRejected -ne 3 -or $actor.otherPasswordsMasked -ne $true -or $actor.verifiedImport -ne $true -or $actor.credentialRowsUnchanged -ne $true -or $actor.journalCommands -ne 0) {
+                throw 'A compact original account did not retain authentication, CSRF or credential isolation.'
+              }
+              $expectedBranches = if ($actor.actorId -eq 10) { 'f:100' } else { 'f:100,f:101' }
+              $expectedPermission = if ($actor.actorId -eq 10) { 403 } else { 200 }
+              if (($actor.branches -join ',') -cne $expectedBranches -or $actor.orderListHttpStatus -ne $expectedPermission) { throw 'Compact acceptance crossed a branch or permission scope.' }
             }
             $pdfProofDirectory = "$env:RUNNER_TEMP/contract-pdf-windows"
             New-Item -ItemType Directory -Path $pdfProofDirectory -Force | Out-Null
@@ -501,6 +554,17 @@ jobs:
           } finally {
             if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
           }
+      - name: Retain actual compact conversion and unchanged PHP role receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compact-runtime-original-auth-windows
+          path: |
+            ${{ runner.temp }}/desktop-compact-acceptance/proof.json
+            ${{ runner.temp }}/desktop-compact-acceptance/normal-role-receipt.json
+            ${{ runner.temp }}/desktop-compact-acceptance/compact-role-receipt.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain the current live shift regression receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -622,7 +686,7 @@ jobs:
       actions: read
     steps:
       - name: Preserve exact live source bytes at checkout
-        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024'
+        if: github.ref == 'refs/heads/codex/go-erp-live-source-20261021' || github.ref == 'refs/heads/codex/go-erp-media-capacity-20261022' || github.ref == 'refs/heads/codex/go-erp-snapshot-transport-20261022' || github.ref == 'refs/heads/codex/go-erp-close-reopen-20261024' || startsWith(github.ref, 'refs/heads/codex/go-erp-warm-start-direct-login-')
         shell: pwsh
         run: |
           git config --global core.autocrlf false

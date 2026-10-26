@@ -15,6 +15,11 @@ function binding(value){
 }
 const initial=()=>({format:1,selected:'default',profiles:[{id:'default',label:'الحساب الحالي',actorId:null,serverOrigin:null}]});
 const normalized=value=>process.platform==='win32'?path.normalize(value).toLowerCase():path.normalize(value);
+const loginName=value=>{
+  if(typeof value!=='string'||!value.trim()||value.length>320||/[\x00-\x1f\x7f]/.test(value))throw invalid();
+  let name=value.trim().toLowerCase();if(name.startsWith('0'))name=name.slice(1);
+  if(!name)throw invalid();return name;
+};
 
 /** Account selection is metadata only. No runtime, cookie, credential or journal is copied or deleted. */
 class AccountProfiles{
@@ -88,6 +93,48 @@ class AccountProfiles{
     return {id:row.id,label:row.label,profile:await this.profile(row.id),partition:'persist:fasakhansta-dashboard'+(row.id==='default'?'':'-'+row.id)};
   }
   selected(){return this.serialize(async()=>{const value=await this.read();return this.descriptor(value.profiles.find(row=>row.id===value.selected));});}
+  account(id){return this.serialize(async()=>{const value=await this.read(),row=value.profiles.find(item=>item.id===id);if(!row)throw invalid();return {...await this.descriptor(row),actorId:row.actorId,serverOrigin:row.serverOrigin};});}
+  forActor(actorId,serverOrigin){return this.serialize(async()=>{
+    const wanted=binding({actorId,serverOrigin}),value=await this.read();
+    const rows=value.profiles.filter(row=>row.actorId===wanted.actorId&&row.serverOrigin===wanted.serverOrigin);
+    if(rows.length>1)throw Error('يوجد أكثر من ملف للحساب نفسه؛ بياناته محفوظة وتحتاج مراجعة.');
+    return rows.length?{...await this.descriptor(rows[0]),actorId:rows[0].actorId,serverOrigin:rows[0].serverOrigin}:null;
+  });}
+  async loginIndex(value){
+    const file=path.join(this.root,'account-logins.enc');
+    let before;
+    try{before=await fs.lstat(file);if(!before.isFile()||before.isSymbolicLink()||before.size<1||before.size>65536)throw invalid();}
+    catch(error){if(error.code==='ENOENT')return {format:1,entries:[]};throw error;}
+    const record=await this.metadata.read('account-logins');
+    if(!exact(record,['format','entries'])||record.format!==1||!Array.isArray(record.entries)||record.entries.length>256)throw invalid();
+    const seen=new Set();
+    for(const item of record.entries){
+      if(!exact(item,['login','id','actorId','serverOrigin'])||loginName(item.login)!==item.login||!validId(item.id))throw invalid();
+      const trusted=binding(item),row=value.profiles.find(profile=>profile.id===item.id);
+      if(!row||row.actorId!==trusted.actorId||row.serverOrigin!==trusted.serverOrigin)throw invalid();
+      const key=JSON.stringify([item.serverOrigin,item.login]);if(seen.has(key))throw invalid();seen.add(key);
+    }
+    const after=await fs.lstat(file);
+    if(!after.isFile()||after.isSymbolicLink()||before.dev!==after.dev||before.ino!==after.ino||before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw invalid();
+    return record;
+  }
+  findLogin(input,serverOrigin){return this.serialize(async()=>{
+    const name=loginName(input);binding({actorId:1,serverOrigin});const value=await this.read(),index=await this.loginIndex(value);
+    const item=index.entries.find(row=>row.login===name&&row.serverOrigin===serverOrigin);if(!item)return null;
+    const row=value.profiles.find(profile=>profile.id===item.id);return {...await this.descriptor(row),actorId:row.actorId,serverOrigin:row.serverOrigin};
+  });}
+  rememberLogin(id,credential,input){return this.serialize(async()=>{
+    const trusted=binding(credential),name=loginName(input),value=await this.read(),row=value.profiles.find(item=>item.id===id);
+    if(!row||row.actorId!==trusted.actorId||row.serverOrigin!==trusted.serverOrigin)throw invalid();
+    const previous=await this.loginIndex(value),existing=previous.entries.find(item=>item.login===name&&item.serverOrigin===trusted.serverOrigin);
+    if(existing&&(existing.id!==id||existing.actorId!==trusted.actorId))throw Error('اسم الدخول مرتبط بملف حساب آخر؛ بيانات الحسابين محفوظة.');
+    if(!existing){
+      const next={format:1,entries:[...previous.entries,{login:name,id,...trusted}]};
+      if(previous.entries.length>=256||Buffer.byteLength(JSON.stringify(next),'utf8')>48*1024)throw Error('وصل عدد أسماء الحسابات المحفوظة إلى الحد المسموح.');
+      await this.metadata.write('account-logins',next);
+    }
+    return true;
+  });}
   list(){return this.serialize(async()=>{const value=await this.read();return value.profiles.map(row=>({id:row.id,label:row.label,selected:row.id===value.selected}));});}
   create(){return this.serialize(async()=>{
     const previous=await this.read();if(previous.profiles.length>=64)throw Error('وصل عدد الحسابات المحفوظة إلى الحد المسموح.');

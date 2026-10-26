@@ -62,7 +62,7 @@ jobs:
           $proof = Get-Content desktop-pos/dist/account-profiles-native.json -Raw | ConvertFrom-Json
           $locked = (Get-Content desktop-pos/package-lock.json -Raw | ConvertFrom-Json -AsHashtable)['packages']['node_modules/electron']['version']
           if ($proof.sourceRevision -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32' -or $proof.electronVersion -cne $locked -or $proof.processes -ne 3) { throw 'Native account acceptance belongs to another source or runtime.' }
-          foreach ($field in @('actualElectron','actualProductionMain','actualAsarCode','actualDpapi','actualNaturalRelaunch','actualNativeMenu','actualNativePicker','pickerActionsVisible','capacity64PickerActionsVisible','labelsRenderedAsText','transientFixtureSessionEnded','distinctDevicesAndSecrets','distinctPrivateAuthStorage','firstAuthenticationRequired','emptyNewCookiePartition','persistentCookiePartitionsIsolated','ownerRememberedWithoutCredentialPost','ownerDurableBytesUnchanged','otherDurableBytesUnchanged','selectedJournalsIsolated','originalJournalRestored','pendingJournalBlockedSwitch','actorBindingMismatchRejected','corruptEncryptedRegistryRejected','naturalQuit','completed')) {
+          foreach ($field in @('actualElectron','actualProductionMain','actualAsarCode','actualDpapi','actualNaturalRelaunch','actualNativeMenu','actualNativePicker','pickerActionsVisible','capacity64PickerActionsVisible','labelsRenderedAsText','transientFixtureSessionEnded','distinctDevicesAndSecrets','distinctPrivateAuthStorage','firstAuthenticationRequired','firstVisibleRealAccountPage','startupBridgeNeverShown','emptyNewCookiePartition','persistentCookiePartitionsIsolated','ownerRememberedWithoutCredentialPost','ownerDurableBytesUnchanged','otherDurableBytesUnchanged','selectedJournalsIsolated','originalJournalRestored','pendingJournalBlockedSwitch','actorBindingMismatchRejected','corruptEncryptedRegistryRejected','naturalQuit','completed')) {
             if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "Native account acceptance is missing $field." }
           }
           foreach ($field in @('hardware','productionProfile','actualPhpAuthorization','actualInstalledApplication','forcedSuccessExit')) {
@@ -71,6 +71,23 @@ jobs:
           foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
             if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'A native account source binding changed.' }
           }
+      - name: Verify the ordinary login window and original Session authentication client
+        shell: pwsh
+        run: |
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/account-login-window-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The actual ordinary login window or original Session client failed.' }
+          $proof = Get-Content desktop-pos/dist/account-login-window-native.json -Raw | ConvertFrom-Json
+          if ($proof.sourceRevision -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32') { throw 'The login proof belongs to another source or platform.' }
+          foreach ($field in @('actualElectron','actualBrowserWindow','actualPreload','actualIpc','sandbox','trustedFile','singleOrdinaryForm','passwordClearedBeforeAuthenticationSettles','passwordNeverPersisted','rendererReceivesOnlyBoundedEnvelope','fullResultStaysInMain','formRetainedDisabledUntilHandoff','actualNativeCloseCancels','actualOriginalSessionAuthClient','actualSessionCookieJar','originalCsrfHeadersObserved','guardedRedirectCookiesPreserved','authOnlyRedirectAdmission','foreignRedirectNotTransmitted','repeatedPostRedirectBlocked','editingPreventsRememberedOverride','actualCookieHandoff','wrongPasswordRejected','actualRememberedSessionClient','rememberedRoleRedirectAccepted','rememberedWithoutPasswordPost','naturalQuit','completed')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "The actual login proof is missing $field." }
+          }
+          foreach ($field in @('actualPhpAuthorization','actualProductionMain','productionProfile','hardware','forcedSuccessExit')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $false) { throw "The login proof scope differs: $field." }
+          }
+          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
+            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'An ordinary login source binding changed.' }
+          }
+          if ($proof.capture.sha256 -cne (Get-FileHash desktop-pos/dist/account-login-window-native-login.png -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'The login image differs from its native receipt.' }
       - name: Retain source-bound native receipts and picker captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -79,5 +96,7 @@ jobs:
           path: |
             desktop-pos/dist/account-profiles-native.json
             desktop-pos/dist/account-profiles-picker-*.png
+            desktop-pos/dist/account-login-window-native.json
+            desktop-pos/dist/account-login-window-native-login.png
           if-no-files-found: error
           retention-days: 14

@@ -1,10 +1,12 @@
 'use strict';
 const fs = require('node:fs/promises'), path = require('node:path'), crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { isDeepStrictEqual } = require('node:util');
 const RuntimeArchive = require('./src/runtime-archive.cjs');
 const sourceCode = require('./src/dashboard-source.cjs');
 const sourcePolicy = require('./runtime-source-policy.cjs');
 const nativePdf = require('./src/native-pdf.cjs');
+const { artifactPins, matchesReceipt, validatePins } = require('./src/runtime-compact.cjs');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const required = ['application/artisan','application/desktop/router.php','application/desktop/verify.php',
   'application/vendor/autoload.php','application/composer.json','application/composer.lock','php/php.ini','php/ssl/cacert.pem'];
@@ -38,7 +40,30 @@ async function verifyBundle(bundle) {
     if(runtimeFramework!==manifest.runtimeFramework||installedFramework!==runtimeFramework)
       throw Error('The bundled framework metadata does not match its installed and locked engine.');
   }else if(files['application/desktop/source-contract.json'])throw Error('The source contract requires actual runtime framework metadata.');
-  return {manifest,files,lockSha256:hash(await fs.readFile(path.join(bundle,'application/composer.lock')))};
+  let compactVendorPins = null;
+  if (manifest.compactVendor) {
+    compactVendorPins = validatePins(manifest.compactVendor);
+    const artifact = await artifactPins(bundle);
+    if (compactVendorPins.producerRevision !== manifest.sourceRevision
+        || !isDeepStrictEqual({ ...artifact.pins, producerRevision: manifest.sourceRevision }, compactVendorPins)
+        || !matchesReceipt(artifact.index, { format: 1, revision: manifest.sourceRevision, files })) {
+      throw Error('The compact package does not match every original packaged Google class.');
+    }
+    let proof;
+    try {
+      proof = JSON.parse(execFileSync(path.join(bundle, 'php/php.exe'), [
+        '-d', 'phar.require_hash=1', '-d', 'memory_limit=1024M',
+        path.join(__dirname, 'vendor-phar-verify.php'), path.join(bundle, 'compact-vendor/google-services.phar'),
+        path.join(bundle, 'compact-vendor/vendor-phar-index.json')
+      ], { encoding: 'utf8', timeout: 600000, maxBuffer: 1024 * 1024, windowsHide: true }));
+    } catch { throw Error('The compact archive did not independently verify its original package entries.'); }
+    if (proof?.format !== 1 || proof.kind !== 'go-erp-google-services-phar-verification'
+        || proof.verified !== true || proof.files !== Object.keys(artifact.index.files).length
+        || !isDeepStrictEqual((await artifactPins(bundle)).pins, artifact.pins)) {
+      throw Error('The compact archive changed during independent package verification.');
+    }
+  }
+  return {manifest,files,compactVendorPins,lockSha256:hash(await fs.readFile(path.join(bundle,'application/composer.lock')))};
 }
 async function beforePack(context) {
   if(context.electronPlatformName!=='win32'||context.arch!==1) throw Error('The original dashboard installer requires Windows x64.');
@@ -78,7 +103,16 @@ async function beforePack(context) {
   }
   const receipt={format:1,version:packageInfo.version,channel:preview?'preview':'release',fullDashboard:!preview,
     sourceRevision:revision,sourceFingerprint:verified.manifest.sourceFingerprint,runtimeFramework:verified.manifest.runtimeFramework||verified.manifest.sourceFingerprint.framework,lockSha256:verified.lockSha256,advisoryCount,
-    runtimeCompatibilitySha256:verified.manifest.runtimeCompatibilitySha256||null,pdfRuntime:verified.manifest.pdfRuntime||null,files:verified.files};
+    runtimeCompatibilitySha256:verified.manifest.runtimeCompatibilitySha256||null,pdfRuntime:verified.manifest.pdfRuntime||null,
+    compactVendorPins: verified.compactVendorPins, files:verified.files};
+  if (verified.compactVendorPins
+      && hash(await fs.readFile(path.join(project, 'vendor-phar-autoload.php'))) !== verified.compactVendorPins.loaderSha256) {
+    throw Error('The compact autoload adapter differs from the verified native source.');
+  }
+  // This generated asset is inside app.asar, beside the native code which
+  // checks it. Mutable runtime manifests cannot grant adoption authority.
+  await fs.mkdir(path.join(project, 'src'), { recursive: true });
+  await fs.writeFile(path.join(project, 'src/compact-vendor-pins.json'), JSON.stringify(verified.compactVendorPins) + '\n');
   await fs.mkdir(path.join(project,'dist'),{recursive:true});
   await fs.writeFile(path.join(project,'dist/runtime-package.json'),JSON.stringify(receipt,null,2)+'\n');
   if(!/^[0-9]+\.[0-9]+\.[0-9]+(?:-preview\.[1-9][0-9]*)?$/.test(packageInfo.version)) throw Error('Invalid installer version.');
@@ -94,6 +128,14 @@ async function afterPack(context) {
   const names=Object.keys(receipt.files).sort(),actual=Object.keys(bundled.files).sort();
   if(receipt.sourceRevision!==bundled.manifest.sourceRevision||JSON.stringify(names)!==JSON.stringify(actual)
       ||names.some(name=>receipt.files[name]!==bundled.files[name])) throw Error('The installer did not retain the complete verified dashboard runtime.');
+  if (receipt.compactVendorPins) {
+    const asar = require('./node_modules/@electron/asar');
+    const raw = asar.extractFile(path.join(context.appOutDir, 'resources/app.asar'), 'src/compact-vendor-pins.json');
+    if (!isDeepStrictEqual(JSON.parse(raw), bundled.compactVendorPins)
+        || !isDeepStrictEqual(receipt.compactVendorPins, bundled.compactVendorPins)) {
+      throw Error('The packaged native compact-runtime authority differs from the independently verified artifact.');
+    }
+  }
   await fs.writeFile(path.join(context.appOutDir,'resources/desktop-build.json'),JSON.stringify(receipt,null,2)+'\n');
 }
 module.exports=Object.assign(beforePack,{verifyBundle,beforePack,afterPack});

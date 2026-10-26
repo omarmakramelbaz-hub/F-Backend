@@ -2,3 +2,4 @@ node_modules/
 dist/
 runtime-bundle/
 *.db*
+src/compact-vendor-pins.json

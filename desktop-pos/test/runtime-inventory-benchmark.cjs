@@ -10,6 +10,7 @@ const { execFileSync } = require('node:child_process');
 const { performance } = require('node:perf_hooks');
 const RuntimeArchive = require('../src/runtime-archive.cjs');
 const Baseline = require('./runtime-inventory-baseline.cjs');
+const Preview55 = require('./runtime-inventory-preview55.cjs');
 
 const BASELINE_REVISION = 'afb333bbddd9dbc908e3c3674d99c766ed5c4053';
 const BASELINE_FILE_SHA256 = '0692861db717f9f3f54841b82ee3140a6e5ef0aecb219b54a7a4098d811cd4cc';
@@ -22,6 +23,7 @@ const workerArchive = options => new RuntimeArchive('/unused-benchmark-profile',
 const sourceFiles = [
   'desktop-pos/src/runtime-archive.cjs', 'desktop-pos/src/runtime-inventory-worker.cjs',
   'desktop-pos/test/runtime-inventory-baseline.cjs', 'desktop-pos/test/runtime-inventory-benchmark.cjs',
+  'desktop-pos/test/runtime-inventory-preview55.cjs', 'desktop-pos/test/runtime-inventory-preview55-worker.cjs',
   '.github/workflows/desktop-runtime-inventory-benchmark.yml'
 ];
 async function bindings() {
@@ -80,7 +82,7 @@ async function populate(directory, files) {
 }
 
 async function measure(kind, directory, expected, label) {
-  const archive = kind === 'baseline' ? new Baseline() : workerArchive();
+  const archive = kind === 'baseline' ? new Baseline() : kind === 'preview55' ? new Preview55() : workerArchive();
   const originalHash = crypto.createHash;
   let parentHashCalls = 0;
   crypto.createHash = function (...args) { parentHashCalls++; return originalHash.apply(this, args); };
@@ -92,7 +94,7 @@ async function measure(kind, directory, expected, label) {
   const milliseconds = finished - started, finalGap = finished - last;
   assert.equal(Object.keys(files).length, expected.length);
   assert.deepEqual(canonical(files).map(([name]) => name), expected.map(file => file.name).sort());
-  if (kind === 'worker') {
+  if (kind !== 'baseline') {
     assert.equal(parentHashCalls, 0, 'File content hashing must stay off the parent/UI event loop.');
     assert.ok(gaps.length > 0, 'The parent event loop must make progress while the worker is scanning.');
   } else assert.equal(parentHashCalls, expected.length);
@@ -169,6 +171,16 @@ async function main() {
       assert.equal(result.inventorySha256, expectedDigest);
       measurements.push(result);
     }
+    // Compare the actual four-worker implementation shipped in preview55 too.
+    // The older preview52 baseline alone cannot demonstrate the effect of the
+    // current per-file metadata reduction. Both receive the same fresh walk.
+    const preview55Warm = await new Preview55().inventory(directory);
+    assert.deepEqual(canonical(preview55Warm), canonical(baselineWarm));
+    const preview55Measurements = [];
+    for (const [kind, label] of [['preview55', '55-AB-1'], ['worker', '55-AB-2'], ['worker', '55-BA-1'], ['preview55', '55-BA-2']]) {
+      const result = await measure(kind, directory, files, label);
+      assert.equal(result.inventorySha256, expectedDigest); preview55Measurements.push(result);
+    }
     const cancellation = await cancellationProbe(directory);
     const integrity = await integrityProbe(root);
     assert.deepEqual(await bindings(), sourceHashes, 'Measured sources must stay unchanged throughout the benchmark.');
@@ -182,6 +194,10 @@ async function main() {
       order: ['baseline', 'worker', 'worker', 'baseline'], warmups: ['baseline', 'worker'], measurements,
       baselineMeanMs: mean('baseline'), workerMeanMs: mean('worker'),
       workerToBaselineRatio: mean('worker') / mean('baseline'), inventorySha256: expectedDigest,
+      preview55Revision: '825f3f6437d5d7e6bcb90182f69a9af1828706c7',
+      preview55WorkerSha256: Preview55.workerSha256, preview55Measurements,
+      preview55ToCurrentRatio: preview55Measurements.filter(item=>item.kind==='worker').reduce((sum,item)=>sum+item.milliseconds,0)
+        / preview55Measurements.filter(item=>item.kind==='preview55').reduce((sum,item)=>sum+item.milliseconds,0),
       exactInventoriesEqual: true, parentContentHashingAbsent: true, parentEventLoopProgressed: true,
       ...cancellation, ...integrity, completed: true
     };

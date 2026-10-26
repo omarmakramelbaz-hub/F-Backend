@@ -1,0 +1,52 @@
+name: Verify ordinary desktop login on Windows
+on:
+  push:
+    branches: ['codex/go-erp-login-ui-probe-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-electron-login:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Preserve exact native source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned Electron dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Electron binary installation failed.' }
+      - name: Exercise the real form, sandbox, cookies and original Session client
+        shell: pwsh
+        run: |
+          node desktop-pos/test/run-electron-native.cjs desktop-pos/test/account-login-window-native.cjs desktop-pos/dist/account-login-window-native.json
+          if ($LASTEXITCODE -ne 0) { throw 'The real login UI or original Session authentication client failed.' }
+          $proof = Get-Content desktop-pos/dist/account-login-window-native.json -Raw | ConvertFrom-Json
+          if ($proof.sourceRevision -cne $env:GITHUB_SHA -or $proof.platform -cne 'win32') { throw 'The login proof belongs to another revision.' }
+          foreach ($field in @('actualElectron','actualBrowserWindow','actualPreload','actualIpc','sandbox','trustedFile','singleOrdinaryForm','passwordClearedBeforeAuthenticationSettles','passwordNeverPersisted','rendererReceivesOnlyBoundedEnvelope','fullResultStaysInMain','formRetainedDisabledUntilHandoff','actualNativeCloseCancels','actualOriginalSessionAuthClient','actualSessionCookieJar','originalCsrfHeadersObserved','guardedRedirectCookiesPreserved','authOnlyRedirectAdmission','foreignRedirectNotTransmitted','repeatedPostRedirectBlocked','editingPreventsRememberedOverride','actualCookieHandoff','wrongPasswordRejected','actualRememberedSessionClient','rememberedRoleRedirectAccepted','rememberedWithoutPasswordPost','naturalQuit','completed')) {
+            if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "Native login proof is missing $field." }
+          }
+          foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
+            if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'A login source binding changed.' }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ordinary-login-native-windows
+          path: |
+            desktop-pos/dist/account-login-window-native.json
+            desktop-pos/dist/account-login-window-native-login.png
+          if-no-files-found: error
+          retention-days: 7

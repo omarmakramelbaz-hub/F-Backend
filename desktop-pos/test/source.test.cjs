@@ -49,3 +49,12 @@ test('a different server code is refused before creating a generation directory 
   await assert.rejects(runtime.stage({source:{...runtime.sourceFingerprint,sha256:'f'.repeat(64)},media:[]},'a'.repeat(16)));
   assert.equal(await fs.readFile(journal,'utf8'),'confirmed and pending work');await assert.rejects(fs.access(path.join(runtime.profile,'generations')));
 });
+test('source fingerprint cancellation interrupts a legacy walk without changing source bytes',async t=>{
+  const root=await fixture(t),before=await fs.readFile(path.join(root,'app/business.php'));
+  for(let index=0;index<20;index++)await fs.writeFile(path.join(root,'app','rule-'+index+'.php'),'<?php return '+index+';');
+  let checks=0;
+  await assert.rejects(source.fingerprint(root,{stopped:()=>++checks>=12}),/البرنامج يُغلق/);
+  assert.equal(checks,12,'the walk checks cancellation between directory and file reads');
+  assert.deepEqual(await fs.readFile(path.join(root,'app/business.php')),before);
+  assert.equal((await source.fingerprint(root)).files,21,'cancellation did not replace or remove any source');
+});

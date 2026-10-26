@@ -2,6 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises');
 const path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const LocalRuntime=require('../src/local-runtime.cjs'),RuntimeArchive=require('../src/runtime-archive.cjs'),source=require('../src/dashboard-source.cjs');
+const Shutdown=require('../src/shutdown.cjs'),{EventEmitter}=require('node:events');
 async function fixture(t){
   const temporary=await fs.mkdtemp(path.join(os.tmpdir(),'dashboard-upgrade-'));t.after(()=>fs.rm(temporary,{recursive:true,force:true}));
   const root=path.join(temporary,'بيانات المستخدم~1');await fs.mkdir(root);
@@ -105,6 +106,80 @@ async function deltaRecoveryFixture(t,{candidate=true}={}){
   f.runtime.authorizeInstalled=async()=>{throw Error('Recovery cannot request a new installed-code authority.');};
   return {...f,previous,context,record,calls};
 }
+
+async function cancelledArchive(work, cancel) {
+  const original = RuntimeArchive.prototype.inventory;
+  let entered;
+  const waiting = new Promise(resolve => { entered = resolve; });
+  RuntimeArchive.prototype.inventory = async function () {
+    entered();
+    const deadline = Date.now() + 1000;
+    // A slow read-only verification models the user's retained code scan.
+    // It may finish only through the actual archive cancellation contract.
+    while (!this.stopped()) {
+      if (Date.now() >= deadline) throw Error('Archive ignored shutdown cancellation.');
+      await new Promise(resolve => setTimeout(resolve, 2));
+    }
+    this.assertRunning();
+    throw Error('Cancelled verification must not become executable authority.');
+  };
+  try {
+    const running = work();
+    const rejected = assert.rejects(running, /البرنامج يُغلق/);
+    await waiting;
+    await cancel();
+    await rejected;
+  } finally { RuntimeArchive.prototype.inventory = original; }
+}
+
+test('closing cancels candidate code verification without stopping accepted local writes or changing the active journal',async t=>{
+  const f=await fixture(t),previous=structuredClone(f.records.get('prepared'));
+  f.runtime.started=true;
+  await cancelledArchive(()=>f.runtime.candidate({source:f.next.manifest.sourceFingerprint}),()=>f.runtime.cancelStartup());
+  assert.equal(f.runtime.stopping,false,'Accepted active-service work still owns the shutdown barrier.');
+  assert.deepEqual(f.records.get('prepared'),previous);
+  assert.equal(f.records.has('runtimes/'+f.next.manifest.sourceRevision),false);
+  assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
+});
+
+test('stopping an incoming update cancels its new-code scan and preserves the active database',async t=>{
+  const f=await fixture(t),previous=deltaActive(f);await addDeltaEntry(f.next);
+  f.runtime.authorizeInstalled=async()=>true;
+  await cancelledArchive(()=>f.runtime.deltaContext(previous),()=>f.runtime.cancelDelta());
+  assert.deepEqual(f.records.get('prepared'),previous);
+  assert.equal(f.records.has('runtimes/'+f.next.manifest.sourceRevision),false);
+  assert.equal(f.records.has('delta-background'),false);
+  assert.equal(f.runtime.manifest.sourceRevision,f.old.manifest.sourceRevision);
+});
+
+test('closing during retained cleanup verification leaves the exact recovery capability for next launch',async t=>{
+  const f=await deltaRecoveryFixture(t),before=structuredClone(f.record);
+  await cancelledArchive(()=>f.runtime.restoreDeltaContext(f.record),()=>f.runtime.cancelDelta());
+  assert.deepEqual(f.records.get('delta-background'),before);
+  assert.deepEqual(f.records.get('prepared'),f.previous);
+  assert.deepEqual(f.calls,[],'No inactive database is inspected or discarded after cancellation.');
+});
+
+test('the original shutdown barrier settles a cancelled incoming code scan before closing its ledger',async t=>{
+  const f=await fixture(t),previous=deltaActive(f);await addDeltaEntry(f.next);
+  f.runtime.started=true;f.runtime.authorizeInstalled=async()=>true;
+  const app=new EventEmitter(),events=[];app.exited=false;
+  app.quit=()=>{
+    if(app.exited)return;
+    const event={prevented:false,preventDefault(){this.prevented=true;}};
+    app.emit('before-quit',event);
+    if(!event.prevented){app.emit('will-quit');app.exited=true;}
+  };
+  const shutdown=new Shutdown(app,()=>{
+    events.push('cancel');f.runtime.cancelStartup();f.runtime.cancelDelta();
+  },()=>events.push('ledger-closed'),async()=>events.push('runtime-drained'));
+  await cancelledArchive(()=>shutdown.run(()=>f.runtime.deltaContext(previous)),()=>app.quit());
+  for(let turn=0;turn<20&&!app.exited;turn++)await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(app.exited,true);
+  assert.deepEqual(events,['cancel','runtime-drained','ledger-closed']);
+  assert.deepEqual(f.records.get('prepared'),previous);
+  assert.equal(f.records.has('delta-background'),false);
+});
 
 test('background restart recovery verifies retained code and removes only its absent owned stage before its capture',async t=>{
   const f=await deltaRecoveryFixture(t);await f.runtime.recoverDeltaBackground();

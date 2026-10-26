@@ -32,12 +32,12 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
-let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,lifecycleTrace,accountProfiles,activeAccount,accountSwitch,quitting=false,installingUpdate=false,profileSwitching=false,startupComplete=false,dashboardVisible=false,startupHidden=false,legacyLoading,legacyReady=false;
+let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,lifecycleTrace,accountProfiles,activeAccount,accountSwitch,accountLogin,loginWindow,quitting=false,installingUpdate=false,profileSwitching=false,startupComplete=false,startupHidden=false,legacyLoading,legacyReady=false;
 const requests=new Set();
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
 const shutdown=new Shutdown(app,()=>{
   lifecycleTrace?.mark('shutdown-requested');quitting=true;
-  accountSwitch?.cancel();localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();
+  loginWindow?.cancel();accountLogin?.cancel();accountSwitch?.cancel();localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();
   lifecycleTrace?.mark('shutdown-wait-accepted');
 },()=>{
   lifecycleTrace?.mark('shutdown-close-ledger');
@@ -45,13 +45,15 @@ const shutdown=new Shutdown(app,()=>{
   catch(error){lifecycleTrace?.mark('shutdown-ledger-failed');throw error;}
 },async()=>{
   lifecycleTrace?.mark('shutdown-accepted-settled');lifecycleTrace?.mark('shutdown-drain-updater');await updater?.running;
-  lifecycleTrace?.mark('shutdown-stop-runtime');await localRuntime?.stop();lifecycleTrace?.mark('shutdown-runtime-stopped');
+  lifecycleTrace?.mark('shutdown-stop-runtime');
+  try{await accountLogin?.stop();}finally{await localRuntime?.stop();}
+  lifecycleTrace?.mark('shutdown-runtime-stopped');
 },{canRelaunch:()=>!installingUpdate});
 function startupPhase(phase,details){if(!quitting&&!startupComplete)lifecycleTrace?.mark(phase,details);}
 function hideStartup(){if(!legacyLoading&&!startupHidden&&win&&!win.isDestroyed()){win.hide();startupHidden=true;}}
 function dashboardShown(){
   if(quitting)return;
-  dashboardVisible=true;startupPhase('dashboard-visible');hideStartup();
+  startupPhase('dashboard-visible');hideStartup();loginWindow?.dispose();loginWindow=null;
 }
 function dashboardNavigation(event={}){
   if(quitting)return;
@@ -308,7 +310,29 @@ app.whenReady().then(async()=>{
   if(!primaryInstance||quitting)return;
   const baseProfile=process.env.POS_TEST_PROFILE&&!app.isPackaged?process.env.POS_TEST_PROFILE:app.getPath('userData');fs.mkdirSync(baseProfile,{recursive:true});
   lifecycleTrace=new LifecycleTrace(baseProfile);startupPhase('startup-ready');
-  accountProfiles=new AccountProfiles({root:baseProfile,safeStorage});activeAccount=await accountProfiles.selected();
+  accountProfiles=new AccountProfiles({root:baseProfile,safeStorage});
+  const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
+  const bundledRuntime=app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'));
+  const createRuntime=account=>new LocalRuntime({bundle:localBundle,profile:account.profile,safeStorage,downloadMedia:dashboardMediaRequest,onPhase:startupPhase,
+    authorizeInstalled:manifest=>updater?updater.authorizeInstalled(manifest):false,
+    onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+  let loginResult;
+  if(bundledRuntime){
+    const {AccountLogin}=require('./account-login.cjs');
+    const createLoginWindow=require('./login-window.cjs');
+    accountLogin=new AccountLogin({profiles:accountProfiles,createRuntime,createSession:partition=>session.fromPartition(partition),
+      serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,stopped:()=>quitting});
+    // Show the normal one-form sign-in before reading or booting an account's
+    // runtime. Only the verified account result can open its retained ledger.
+    loginWindow=createLoginWindow({broker:accountLogin,quitting:()=>quitting,quit:()=>app.quit()});
+    loginResult=await shutdown.run(()=>loginWindow.result);
+    if(quitting)return;
+    activeAccount=loginResult.account;localRuntime=loginResult.runtime;
+    // The shutdown owner is installed before the broker retires other native
+    // services, including a quit that races this asynchronous handoff.
+    await shutdown.run(()=>accountLogin.handoff(loginResult));
+    if(quitting)return;
+  }else activeAccount=await accountProfiles.selected();
   const profile=activeAccount.profile;fs.mkdirSync(profile,{recursive:true});startupPhase('ledger-open');
   store=new Store(path.join(profile,'fasakhansta-pos.sqlite'));sync=new Sync(store,request);
   const allowed=new Set(['index.html','renderer.js','style.css','domain.js','startup.html']);
@@ -319,9 +343,8 @@ app.whenReady().then(async()=>{
   win.on('close',e=>{if(!quitting){e.preventDefault();app.quit();}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',(e,url)=>{if(!url.startsWith('fasakhansta://pos/'))e.preventDefault();});
   win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
-  // Show a local, script-free loading screen before validating the retained
-  // runtime. Windows can display and close the app throughout startup.
-  win.show();
+  // This trusted page is only the hidden IPC bridge for the retained POS
+  // ledger. The first visible app window is the original dashboard document.
   handle('state',()=>state());handle('new',()=>{writable();if(store.openOrders().filter(o=>o.status==='draft').length>=5)throw Error('الحد الأقصى ٥ فواتير مفتوحة؛ أكمل واحدة أولًا.');return store.newOrder();});
   handle('discard',id=>{writable();return store.discard(id);});
   handle('order',id=>store.order(id));handle('update',(id,data)=>{writable();return store.update(id,data);});
@@ -344,13 +367,9 @@ app.whenReady().then(async()=>{
   startupPhase('splash-loading');await win.loadURL('fasakhansta://pos/startup.html');
   if(quitting)return;
   startupPhase('splash-loaded');
-  let dashboardOrigin=!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN);
+  let dashboardOrigin=loginResult?.origin||(!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN));
   let localToken='';
-  const localBundle=path.join(process.resourcesPath||'', 'dashboard-runtime');
-  if(app.isPackaged&&fs.existsSync(path.join(localBundle,'manifest.json'))) {
-    localRuntime=new LocalRuntime({bundle:localBundle,profile,safeStorage,downloadMedia:dashboardMediaRequest,onPhase:startupPhase,
-      authorizeInstalled:manifest=>updater?updater.authorizeInstalled(manifest):false,
-      onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الداشبورد المحلية توقفت. بيانات الجهاز محفوظة؛ أعد فتح البرنامج.');}});
+  if(bundledRuntime) {
     remoteState=new DashboardRemoteState(localRuntime.metadata);
     liveSocial=new DashboardLiveSocial({runtime:localRuntime,sourceSession:()=>dashboard?.session(),
       createSession:partition=>session.fromPartition(partition),createWindow:options=>new BrowserWindow(options),quitting:()=>quitting||installingUpdate,
@@ -372,6 +391,8 @@ app.whenReady().then(async()=>{
       onEnrolled:value=>accountProfiles.bind(activeAccount.id,{actorId:value.actorId,serverOrigin:value.serverOrigin}),
       onPrepared:async(value,details)=>{
         await accountProfiles.bind(activeAccount.id,{actorId:value.actorId,serverOrigin:value.serverOrigin,...(details?.accountLabel?{label:details.accountLabel}:{})});
+        for(const name of details?.accountLogins||[])await accountProfiles.rememberLogin(activeAccount.id,
+          {actorId:value.actorId,serverOrigin:value.serverOrigin},name);
         connectDashboardSync();
       }});
     startupPhase('prepared-check');if(await localRuntime.isPrepared()) {
@@ -383,7 +404,7 @@ app.whenReady().then(async()=>{
       const remote=await remoteState.read();
       startupPhase('central-selection');
       const centralSelected=await connectedAccess.selected({recover:true});
-      if(remote.dirty||remote.pending.length||centralSelected)dashboardOrigin=(await localRuntime.connection()).serverOrigin;
+      if(remote.dirty||remote.pending.length||centralSelected){dashboardOrigin=(await localRuntime.connection()).serverOrigin;localToken='';}
       else {dashboardOrigin=local.origin;localToken=local.token;}
     }
   }
@@ -434,13 +455,11 @@ app.whenReady().then(async()=>{
   await dashboard.open();if(quitting)return;
   startupPhase('dashboard-open-settled');hideStartup();startupPhase('startup-complete');startupComplete=true;syncSchedule.start();connectUpdater(profile);
 }).catch(error=>{if(!quitting){startupPhase('startup-failed');dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
-// Opening GO ERP again while it is still starting must wait for the dashboard,
-// never show the previous local orders screen in its place.
+// Opening GO ERP again must not expose the hidden POS bridge or a blank first
+// dashboard document while the verified local services are still starting.
 app.on('second-instance',()=>{
   if(quitting)return;
-  // The actual dashboard is usable before its final subresource load settles.
-  // A second launch must reveal it instead of covering it with the splash.
-  if(dashboardVisible&&dashboard){dashboard.reveal();return;}
-  if(!startupComplete){if(win&&!win.isDestroyed()){win.show();startupHidden=false;if(win.isMinimized())win.restore();win.focus();}return;}
+  if(loginWindow){loginWindow.reveal();return;}
+  if(!startupComplete){dashboard?.reveal();return;}
   if(dashboard)dashboard.reveal();else localOrders();
 });

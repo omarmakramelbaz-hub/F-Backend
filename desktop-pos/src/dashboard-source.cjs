@@ -31,19 +31,24 @@ function valid(value) {
     &&/^[a-f0-9]{64}$/.test(value.sha256||'')&&typeof value.framework==='string'&&value.framework.length>0&&value.framework.length<=100
     &&Object.keys(value).every(key=>['format','files','sha256','framework'].includes(key));
 }
-async function fingerprint(application) {
+async function fingerprint(application, { stopped = () => false } = {}) {
+  const running = () => { if (stopped()) throw Error('البرنامج يُغلق الآن.'); };
+  running();
   const files=new Map(),cases=new Set();let total=0;
   const add=async name=>{
+    running();
     const file=path.join(application,...name.split('/')),stat=await fs.lstat(file);
     if(!stat.isFile()||stat.isSymbolicLink()||!/^[a-zA-Z0-9_.@/-]+$/.test(name)||cases.has(name.toLowerCase()))throw Error('مصدر البرنامج يحتوي مسارًا غير متوافق.');
-    const bytes=await fs.readFile(file);total+=bytes.length;
+    const bytes=await fs.readFile(file);running();total+=bytes.length;
     if(total>64*1024**2||files.size>=20000)throw Error('مصدر البرنامج تجاوز حد التحقق.');
     cases.add(name.toLowerCase());files.set(name,digest(bytes));
   };
   const walk=async relative=>{
+    running();
     if(relative==='bootstrap/cache'||excluded.test(relative))return;
     const entries=await fs.readdir(path.join(application,...relative.split('/')),{withFileTypes:true});
     for(const entry of entries){
+      running();
       const name=relative+'/'+entry.name;
       if(name.startsWith('bootstrap/cache/')||excluded.test(name))continue;
       if(entry.isSymbolicLink())throw Error('مصدر البرنامج يحتوي رابطًا غير متوافق.');
@@ -52,16 +57,17 @@ async function fingerprint(application) {
     }
   };
   for(const root of roots){
+    running();
     let stat;try{stat=await fs.lstat(path.join(application,...root.split('/')));}catch(error){if(error.code==='ENOENT')continue;throw error;}
     if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('مصدر البرنامج يحتاج التحقق قبل تجهيز الجهاز.');
     await walk(root);
   }
   try{await fs.access(path.join(application,'artisan'));await add('artisan');}catch(error){if(error.code!=='ENOENT')throw error;}
-  const {contractFramework:framework}=await frameworks(application);
+  running();const {contractFramework:framework}=await frameworks(application);running();
   const hash=crypto.createHash('sha256').update('desktop-dashboard-source:1\n');
   for(const name of [...files.keys()].sort((a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b))))hash.update(name+'\0'+files.get(name)+'\n');
   const value={format:1,files:files.size,sha256:hash.digest('hex'),framework};
-  if(!valid(value))throw Error('نسخة إطار البرنامج غير معروفة.');return value;
+  if(!valid(value))throw Error('نسخة إطار البرنامج غير معروفة.');running();return value;
 }
 function same(left,right) {
   return valid(left)&&valid(right)&&left.files===right.files&&left.sha256===right.sha256&&left.framework===right.framework;

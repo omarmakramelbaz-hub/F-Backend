@@ -1,0 +1,73 @@
+name: Verify compact Google runtime on Windows
+on:
+  push:
+    branches: ['codex/go-erp-vendor-phar-probe-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-php:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Preserve exact source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          tools: composer:v2
+          coverage: none
+      - name: Verify bounded archive metadata and matching old receipts
+        run: node --test desktop-pos/test/vendor-phar.test.cjs
+      - name: Install the pinned original application dependencies
+        run: composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist
+      - name: Copy original application files into a disposable fixture
+        shell: pwsh
+        run: |
+          $code = @'
+          const fs=require('node:fs/promises'),path=require('node:path'),cp=require('node:child_process');
+          const policy=require('./desktop-pos/runtime-source-policy.cjs');
+          (async()=>{
+            const target=path.join(process.env.RUNNER_TEMP,'original-google-probe');await fs.mkdir(target);
+            const roots=new Set(['app','bootstrap','config','database','desktop','public','resources','routes']);
+            for(const file of cp.execFileSync('git',['ls-files','-z'],{encoding:'utf8'}).split('\0').filter(Boolean)){
+              if((!roots.has(file.split('/')[0])&&file!=='artisan')||policy.excludedPath(file))continue;
+              const stat=await fs.lstat(file);if(!stat.isFile())continue;
+              const bytes=await fs.readFile(file);if(policy.credentialJson(file,bytes))continue;
+              const output=path.join(target,file);await fs.mkdir(path.dirname(output),{recursive:true});await fs.writeFile(output,bytes);
+            }
+            await fs.cp('desktop-pos/runtime/vendor',path.join(target,'vendor'),{recursive:true});
+            for(const file of ['composer.json','composer.lock','compatibility.php'])await fs.copyFile(path.join('desktop-pos/runtime',file),path.join(target,file));
+            await fs.mkdir(path.join(target,'bootstrap/cache'),{recursive:true});
+          })().catch(error=>{console.error(error);process.exitCode=1;});
+          '@
+          node -e $code
+          if ($LASTEXITCODE -ne 0) { throw 'Disposable source fixture failed.' }
+      - name: Exercise actual packed Google APIs, aliases and physical Laravel paths
+        shell: pwsh
+        run: |
+          php -l desktop-pos/vendor-phar-build.php
+          if ($LASTEXITCODE -ne 0) { throw 'PHAR builder syntax failed.' }
+          php -l desktop-pos/vendor-phar-autoload.php
+          if ($LASTEXITCODE -ne 0) { throw 'Native Composer adapter syntax failed.' }
+          php -l desktop-pos/vendor-phar-verify.php
+          if ($LASTEXITCODE -ne 0) { throw 'Independent PHAR verifier syntax failed.' }
+          node desktop-pos/test/vendor-phar-php-probe.cjs (Get-Command php).Source "$env:RUNNER_TEMP/original-google-probe" "$env:RUNNER_TEMP/compact-google-probe"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual PHP compact runtime probe failed.' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compact-google-runtime-probe
+          path: ${{ runner.temp }}/compact-google-probe/proof.json
+          if-no-files-found: error
+          retention-days: 7

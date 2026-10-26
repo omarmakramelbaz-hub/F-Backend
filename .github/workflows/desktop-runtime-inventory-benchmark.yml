@@ -52,7 +52,7 @@ jobs:
         run: |
           node desktop-pos/test/runtime-inventory-electron-native-runner.cjs desktop-pos/dist/runtime-inventory-electron-native.json
           if ($LASTEXITCODE -ne 0) { throw 'The actual Electron ASAR inventory worker did not complete.' }
-      - name: Compare frozen preview52 with the worker on 50000 files and 815 MiB
+      - name: Compare frozen preview52 and preview55 with the worker on 50000 files and 815 MiB
         shell: pwsh
         run: |
           node desktop-pos/test/runtime-inventory-benchmark.cjs desktop-pos/dist/runtime-inventory-benchmark.json
@@ -63,12 +63,17 @@ jobs:
             if ($proof.$field -isnot [bool] -or $proof.$field -ne $true) { throw "Benchmark acceptance is missing $field." }
           }
           if ($proof.measurements.Count -ne 4 -or ($proof.measurements.kind -join ',') -cne 'baseline,worker,worker,baseline') { throw 'The fair AB/BA comparison did not complete.' }
+          if ($proof.preview55Revision -cne '825f3f6437d5d7e6bcb90182f69a9af1828706c7' -or $proof.preview55WorkerSha256 -cne 'e095aa4b3055bd207234fef306ceb027115e85fd06082574be1122b71a8aa539' -or $proof.preview55Measurements.Count -ne 4 -or ($proof.preview55Measurements.kind -join ',') -cne 'preview55,worker,worker,preview55') { throw 'The frozen preview55 AB/BA comparison did not complete.' }
+          foreach ($measurement in $proof.preview55Measurements) {
+            if ($measurement.parentHashCalls -ne 0 -or $measurement.inventorySha256 -cne $proof.inventorySha256 -or $measurement.heartbeatCount -le 0) { throw 'The preview55 comparison did not preserve inventory or native parent responsiveness.' }
+          }
           foreach ($binding in $proof.sourceHashes.PSObject.Properties) {
             if ($binding.Value -cne (Get-FileHash -LiteralPath $binding.Name -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'A measured source file changed.' }
           }
           Write-Host ('Baseline mean ms: ' + $proof.baselineMeanMs)
           Write-Host ('Worker mean ms: ' + $proof.workerMeanMs)
           Write-Host ('Worker/baseline ratio: ' + $proof.workerToBaselineRatio)
+          Write-Host ('Current/preview55 ratio: ' + $proof.preview55ToCurrentRatio)
       - name: Retain source-bound Windows measurements
         if: always()
         uses: actions/upload-artifact@v4

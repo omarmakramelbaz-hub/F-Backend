@@ -128,3 +128,25 @@ test('a warm launch rejects both missing and extra retained files without replac
   assert.deepEqual(f.records.get('runtimes/'+id),receipt);
   assert.equal(f.records.get('prepared').database,'preserved-business-db');
 });
+
+test('cancellation during retained-file copying stops at the next entry and removes only its incomplete stage',async t=>{
+  const f=await fixture(t),id='9'.repeat(40),bundle=await f.make(id,'preserved source');
+  f.records.set('prepared',{sourceRevision:'a'.repeat(40),database:'preserved-business-db'});
+  let stopping=false,entries=0;
+  const archive=new RuntimeArchive(path.join(f.profile,'dashboard'),f.metadata,{stopped:()=>stopping});
+  const cp=fs.cp;
+  fs.cp=async(source,target,options)=>{
+    assert.equal(typeof options.filter,'function','a large retained copy must have a per-entry cancellation boundary');
+    return cp(source,target,{...options,filter:(from,to)=>{
+      const accepted=options.filter(from,to);
+      if(++entries===2)stopping=true;
+      return accepted;
+    }});
+  };
+  try{await assert.rejects(archive.retain(bundle),/البرنامج يُغلق/);}
+  finally{fs.cp=cp;}
+  assert.ok(entries>=2);assert.equal(f.records.size,1);
+  assert.equal(f.records.get('prepared').database,'preserved-business-db');
+  assert.deepEqual(await fs.readdir(archive.root),[],'only this interrupted copy stage is removed');
+  assert.equal(await fs.readFile(path.join(bundle,'application/source.php'),'utf8'),'preserved source');
+});

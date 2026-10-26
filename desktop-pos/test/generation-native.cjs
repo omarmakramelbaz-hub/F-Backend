@@ -18,6 +18,7 @@ const DashboardRemoteState = require(path.join(codeRoot, 'dashboard-remote-state
 const sourceCode = require(path.join(codeRoot, 'dashboard-source.cjs'));
 const coverageCode = require(path.join(codeRoot, 'dashboard-coverage.cjs'));
 const readSnapshot = require(path.join(codeRoot, 'dashboard-download.cjs'));
+const RuntimeMedia = require(path.join(codeRoot, 'runtime-media.cjs'));
 
 async function importMemoryProbe(bundle, snapshot) {
   const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'dashboard-native-import-memory-'));
@@ -222,6 +223,14 @@ echo $wire;
     assert.equal(runtime.children.length, 0); assert.equal(await runtime.isPrepared(), false);
     const preparation = new DashboardPreparation({ ...preparationOptions, allowPreview: true });
     await preparation.prepare('https://fixture.test', 'synthetic-signed-in-CSRF');
+    const hasCompactArtifact=Boolean(JSON.parse(await fs.readFile(path.join(bundle,'manifest.json'),'utf8')).compactVendor);
+    if(hasCompactArtifact){
+      assert.equal(runtime.manifest.compactVendor?.kind,'go-erp-compact-vendor','The actual prepared supervisor must execute the verified compact runtime.');
+      assert.equal(runtime.environment.DESKTOP_DASHBOARD_VENDOR_PHAR,path.join(runtime.application,'google-services.phar'));
+      const packed=await php(bootstrap+"echo json_encode(['google'=>str_starts_with((new ReflectionClass('Google\\\\Service\\\\Drive'))->getFileName(),'phar://'),'laravel'=>realpath((new ReflectionClass('Illuminate\\\\Foundation\\\\Application'))->getFileName())!==false]);");
+      assert.deepEqual(packed,{google:true,laravel:true});
+      console.log('PASS actual Windows supervisor uses compact Google classes with the original physical Laravel application');
+    }
     assert.deepEqual(await numericProbe(), { integralFloat: true, exactInteger: true, integerText: '9007199254740993' });
     console.log('PASS real Windows initial preparation imports the PHP integral DOUBLE and exact 64-bit integer through the original snapshot download bytes');
     assert.match(runtime.environment.JWT_SECRET,/^[a-f0-9]{64}$/);
@@ -236,6 +245,21 @@ echo $wire;
       { upload: '5M', post: '12M', memory: '256M', jit: '0', jitBuffer: '0',
         extensions: extensionDirectory, curlCA: certificateFile, opensslCA: certificateFile });
     const initial = await runtime.connection();
+    const opcode = await php("echo json_encode(['loaded'=>extension_loaded('Zend OPcache'),'cli'=>ini_get('opcache.enable_cli'),'enabled'=>ini_get('opcache.enable'),'validate'=>ini_get('opcache.validate_timestamps'),'revalidate'=>ini_get('opcache.revalidate_freq'),'fileCache'=>ini_get('opcache.file_cache'),'fileOverride'=>ini_get('opcache.enable_file_override')]);");
+    assert.deepEqual(opcode, { loaded: true, cli: '1', enabled: '1', validate: '1', revalidate: '0', fileCache: '', fileOverride: '0' });
+    const verifyNativeMedia = active => RuntimeMedia.verify({ active, sourceFingerprint: runtime.sourceFingerprint,
+      storage: runtime.environment.DESKTOP_DASHBOARD_STORAGE,
+      readBinding: (code, binding) => php(code, binding) });
+    assert.deepEqual(await verifyNativeMedia(initial), { verified: true, files: 2 });
+    const sourceRecord = await php(bootstrap + "echo json_encode((array)\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_source_manifest')->where('device_id',$input['device'])->first());", { device: initial.deviceId });
+    try {
+      await php(bootstrap + "\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_source_manifest')->where('device_id',$input['device'])->update(['sha256'=>str_repeat('0',64)]);echo '{}';", { device: initial.deviceId });
+      await assert.rejects(verifyNativeMedia(initial));
+    } finally {
+      await php(bootstrap + "\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_source_manifest')->where('device_id',$input['device'])->update(['sha256'=>$input['sha256']]);echo '{}';", { device: initial.deviceId, sha256: sourceRecord.sha256 });
+    }
+    assert.deepEqual(await verifyNativeMedia(initial), { verified: true, files: 2 });
+    console.log('PASS real Windows native PDO media verification reads the bound active database without Laravel bootstrap, rejects a changed source receipt, hashes public/private bytes, and enables validated in-memory PHP opcode caching');
     assert.equal(initial.fullCoverage, false); assert.equal(initial.previewOnly, true);
     assert.deepEqual(initial.coverage, snapshot.coverage);
     assert.equal(await runtime.isPrepared(), true);
@@ -337,7 +361,8 @@ echo $wire;
     // Measure the actual retained PHP/vendor/PE/PDF files as well as the synthetic
     // 50k benchmark. Never use a timing result to bypass a fresh verification.
     const BaselineInventory=require('./runtime-inventory-baseline.cjs');
-    const retainedReceipt=await runtime.metadata.read('runtimes/'+next.sourceRevision);
+    const compactRuntime=runtime.manifest.compactVendor?.kind==='go-erp-compact-vendor';
+    const retainedReceipt=await runtime.metadata.read((compactRuntime?'compact-runtimes/':'runtimes/')+next.sourceRevision);
     const baselineStarted=performance.now();
     const baselineFiles=await new BaselineInventory().inventory(runtime.bundle);
     const baselineInventoryMs=performance.now()-baselineStarted;
@@ -352,7 +377,7 @@ echo $wire;
     assert.ok(archiveStarted&&archiveFinished&&archiveFinished.milliseconds>=archiveStarted.milliseconds);
     console.log('DESKTOP_WARM_START_MEASUREMENT '+JSON.stringify({format:1,sourceRevision:process.env.GITHUB_SHA||null,
       actualWindows:true,realRetainedRuntime:true,syntheticSnapshot:true,fullDashboard:false,nativeSafeStorage:false,
-      packagedAsar:codeRoot.includes('.asar'),files:Object.keys(baselineFiles).length,baselineInventoryMs,
+      packagedAsar:codeRoot.includes('.asar'),compactRuntime,files:Object.keys(baselineFiles).length,baselineInventoryMs,
       workerInventoryMs:archiveFinished.milliseconds-archiveStarted.milliseconds,warmRuntimeMs,phases:warmPhases}));
     assert.equal(await runtime.isPrepared(), true); assert.equal((await runtime.connection()).fullCoverage, false);
     assert.deepEqual((await runtime.connection()).coverage, snapshot.coverage);
@@ -380,6 +405,11 @@ echo $wire;
     assert.equal((await runtime.connection()).database, next.database);
     console.log('PASS real Windows source binding refuses changed server code before staging and changed active code before starting native services, preserving the journal and prepared database');
     const activeImage = path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath);
+    const imageStat = await fs.stat(activeImage), changedImage = Buffer.from(imageBytes); changedImage[changedImage.length - 1] ^= 1;
+    await runtime.stop(); await fs.writeFile(activeImage, changedImage); await fs.utimes(activeImage, imageStat.atime, imageStat.mtime);
+    runtime = create(); await assert.rejects(runtime.start());
+    assert.equal((await runtime.connection()).database, next.database);
+    await fs.writeFile(activeImage, imageBytes); runtime = create(); await runtime.start();
     await runtime.stop(); await fs.unlink(activeImage); runtime = create();
     await assert.rejects(runtime.start());
     assert.equal((await runtime.connection()).database, next.database);

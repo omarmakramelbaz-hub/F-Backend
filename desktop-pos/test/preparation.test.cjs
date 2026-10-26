@@ -14,12 +14,39 @@ function fixture() {
     onState: value => states.push(value), onPrepared: async () => calls.push('ready') });
   return { saved, snapshot, runtime, setup, states, calls, link };
 }
+test('setup time advances during real work, freezes on completion, and resets only for a new attempt', async () => {
+  const f = fixture(); let now = 1000, release;
+  f.setup.now = () => now;
+  f.setup.download = async () => { await new Promise(resolve => { release = resolve; }); return f.snapshot; };
+  assert.equal((await f.setup.status()).setup_timing, null);
+  const pending = f.setup.prepare('https://fixture.test', 'csrf');
+  await new Promise(resolve => setImmediate(resolve)); now = 62450;
+  assert.deepEqual((await f.setup.status()).setup_timing, { elapsed_ms: 61450, running: true });
+  assert.equal(f.setup.prepare('https://fixture.test', 'csrf'), pending);
+  release(); await pending;
+  now = 999999;
+  assert.deepEqual((await f.setup.status()).setup_timing, { elapsed_ms: 61450, running: false });
+  const failed = fixture(); failed.setup.now = () => now;
+  failed.setup.enroll = async () => { now += 4000; throw Error('offline'); };
+  await assert.rejects(failed.setup.prepare('https://fixture.test', 'csrf'), /offline/);
+  assert.deepEqual((await failed.setup.status()).setup_timing, { elapsed_ms: 4000, running: false });
+  now += 8000;
+  assert.deepEqual((await failed.setup.status()).setup_timing, { elapsed_ms: 4000, running: false });
+  failed.setup.enroll = async () => { now += 6000; return failed.link; };
+  await failed.setup.prepare('https://fixture.test', 'csrf');
+  assert.deepEqual((await failed.setup.status()).setup_timing, { elapsed_ms: 6000, running: false });
+});
 test('initial preparation verifies a coherent generation before activating and publishes only bounded progress', async () => {
   const f = fixture(); const result = await f.setup.prepare('https://fixture.test', 'csrf');
   assert.equal(result.prepared, true); assert.equal(result.phase, 'ready');
   assert.deepEqual(f.calls, ['start', 'stage', 'activate', 'ready']);
   assert.equal(f.saved.get('prepared').actorId, 10); assert.equal(f.saved.get('prepared').mediaVerified, true);
-  for (const value of f.states) assert.deepEqual(Object.keys(value).sort(), ['error', 'phase', 'progress']);
+  for (const value of f.states) {
+    assert.deepEqual(Object.keys(value).sort(), ['error', 'phase', 'progress', 'setup_timing']);
+    assert.equal(Number.isSafeInteger(value.setup_timing.elapsed_ms), true);
+    assert.equal(value.setup_timing.elapsed_ms >= 0, true);
+    assert.equal(typeof value.setup_timing.running, 'boolean');
+  }
   assert.equal(JSON.stringify(f.states).includes(f.link.token), false);
   assert.equal((await f.setup.credential()).token, f.link.token);
 });
@@ -40,6 +67,15 @@ test('a rejected account binding keeps enrollment recoverable and cannot start o
   const f=fixture();f.setup.onEnrolled=async()=>{throw Error('another enrolled actor');};
   await assert.rejects(f.setup.prepare('https://fixture.test','csrf'),/another enrolled actor/);
   assert.equal(f.saved.get('enrollment').actorId,10);assert.equal(f.saved.has('prepared'),false);assert.deepEqual(f.calls,[]);
+});
+test('offline username aliases come only from the verified actor row and never include another account or password',async()=>{
+  const f=fixture();f.snapshot.tables={users:{rows:[
+    {id:11,email:'foreign@example.test',mobile:'099999',password:'foreign-password'},
+    {id:10,name:'حساب الفرع',email:' branch@example.test ',mobile:'00123456789',password:'never-store-this'}]}};
+  let details;f.setup.onPrepared=async(_next,value)=>{details=value;};
+  await f.setup.prepare('https://fixture.test','csrf');
+  assert.deepEqual(details,{accountLabel:'حساب الفرع',accountLogins:['branch@example.test','00123456789']});
+  assert.equal(JSON.stringify(details).includes('foreign'),false);assert.equal(JSON.stringify(details).includes('password'),false);
 });
 test('a lost enrollment reply retries the persisted nonce without replacing a device identity', async () => {
   const f = fixture(), nonces = []; let failed = true;
