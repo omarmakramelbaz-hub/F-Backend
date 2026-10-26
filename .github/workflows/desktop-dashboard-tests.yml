@@ -176,6 +176,8 @@ jobs:
             & php -l $helper
             if ($LASTEXITCODE -ne 0) { throw "Compact PHP syntax differs: $helper" }
           }
+          & php tests/desktop_dashboard_runtime/accountprofiles-role-http.php --compact-vendor-authority-self-test 2>&1 | Tee-Object -Variable compactAuthorityOutput
+          if ($LASTEXITCODE -ne 0 -or [regex]::Matches(($compactAuthorityOutput -join "`n"), '(?m)^COMPACT_VENDOR_AUTHORITY_SELF_TEST_COMPLETE 8$').Count -ne 1) { throw 'Compact fixture authority did not reject unbound archives.' }
       - name: Verify bounded fixture recovery from repeated API rate limits
         shell: pwsh
         run: |
@@ -306,7 +308,7 @@ jobs:
             try {
               $env:DESKTOP_DASHBOARD_LOCAL = 'true'
               $env:DESKTOP_DASHBOARD_VENDOR_PHAR = Join-Path $compact.application 'google-services.phar'
-              & php tests/desktop_dashboard_runtime/accountprofiles-role-http.php $compact.application $port $env:GITHUB_SHA 2>&1 | Tee-Object -Variable compactRolesOutput
+              & php tests/desktop_dashboard_runtime/accountprofiles-role-http.php $compact.application $port $env:GITHUB_SHA --compact-vendor 2>&1 | Tee-Object -Variable compactRolesOutput
               $compactRolesExit = $LASTEXITCODE
             } finally {
               [Environment]::SetEnvironmentVariable('DESKTOP_DASHBOARD_LOCAL', $priorCompactLocal, 'Process')
@@ -316,6 +318,7 @@ jobs:
             if ($compactRolesExit -ne 0 -or $compactRolesMatches.Count -ne 1) { throw 'The compact runtime did not complete the unchanged actual role fixture exactly once.' }
             $compactRoles = $compactRolesMatches[0].Groups[1].Value | ConvertFrom-Json
             $compactRoles | ConvertTo-Json -Depth 16 | Set-Content "$compactProfile/compact-role-receipt.json" -Encoding utf8NoBOM
+            if ($accountRoles.compactVendor -isnot [bool] -or $accountRoles.compactVendor -ne $false -or $compactRoles.compactVendor -isnot [bool] -or $compactRoles.compactVendor -ne $true) { throw 'Normal and compact role fixtures did not use their explicit authority paths.' }
             if ($compactRoles.format -ne 1 -or $compactRoles.kind -cne 'go-erp-accountprofiles-role-http' -or $compactRoles.sourceRevision -cne $env:GITHUB_SHA -or $compactRoles.fixtureRevision -cne $env:GITHUB_SHA -or $compactRoles.helperBinding -cne 'exact-git-revision' -or $compactRoles.schemaInventory -ne 106 -or $compactRoles.distinctEnrollments -ne 3 -or $compactRoles.distinctDatabases -ne 4 -or $compactRoles.distinctStorageRoots -ne 3 -or $compactRoles.actors.Count -ne 3 -or $compactRoles.checks -ne 117 -or $compactRoles.checks -ne $accountRoles.checks) { throw 'The compact original-auth scope differs from the normal runtime or its 117 checks.' }
             foreach ($field in @('actualPhpServer','originalRouter','originalAuthProvider','sourceVerifiedAfter','helpersVerifiedAfter','centralBusinessAndCredentialsUnchanged','httpServersStopped','privateDatabasesDropped','privateStorageRemoved','existingEffectsPreserved','completed')) {
               if ($compactRoles.$field -isnot [bool] -or $compactRoles.$field -ne $true) { throw "Compact original-auth acceptance is missing $field." }

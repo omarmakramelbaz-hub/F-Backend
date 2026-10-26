@@ -7,6 +7,45 @@ use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,DesktopDashboardImport,DesktopDashboardSource,DesktopDashboardPrintLedgerSchema};
 
+/** Restore only an explicitly opted-in, byte-bound fixture archive after env sanitization. */
+function desktopAccountProfilesCompactAuthority(string $application,array $manifest,bool $enabled,$requested): ?string
+{
+    if(!$enabled)return null;
+    $marker=$manifest['compactVendor']??null;$archive=$application.'/google-services.phar';$canonical=realpath($archive);
+    if(!is_array($marker)||($marker['kind']??null)!=='go-erp-compact-vendor'
+        ||($marker['sourceRevision']??null)!==($manifest['sourceRevision']??null)
+        ||!is_string($marker['archiveSha256']??null)||!preg_match('/^[a-f0-9]{64}$/D',$marker['archiveSha256'])
+        ||!is_int($marker['archiveBytes']??null)||$marker['archiveBytes']<1||$marker['archiveBytes']>4*1024**3
+        ||!is_string($requested)||!is_string($canonical)||!is_file($archive)||is_link($archive)||is_link($requested)
+        ||realpath($requested)!==$canonical||filesize($archive)!==$marker['archiveBytes'])
+        throw new RuntimeException('Compact fixture archive authority is invalid.');
+    $actual=hash_file('sha256',$archive);
+    if(!is_string($actual)||!hash_equals($marker['archiveSha256'],$actual))
+        throw new RuntimeException('Compact fixture archive bytes differ.');
+    return $canonical;
+}
+
+if(($argv[1]??null)==='--compact-vendor-authority-self-test'){
+    $root=sys_get_temp_dir().'/desktop-compact-authority-'.bin2hex(random_bytes(8));mkdir($root,0700);
+    $file=$root.'/google-services.phar';$other=$root.'/other.phar';$bytes='synthetic compact fixture only';
+    file_put_contents($file,$bytes);file_put_contents($other,'unrelated fixture');$checks=0;
+    try{
+        $manifest=['sourceRevision'=>str_repeat('a',40),'compactVendor'=>['kind'=>'go-erp-compact-vendor',
+            'sourceRevision'=>str_repeat('a',40),'archiveSha256'=>hash('sha256',$bytes),'archiveBytes'=>strlen($bytes)]];
+        if(desktopAccountProfilesCompactAuthority($root,$manifest,false,$other)!==null)throw new RuntimeException('Disabled compact authority was adopted.');$checks++;
+        if(desktopAccountProfilesCompactAuthority($root,$manifest,true,$file)!==realpath($file))throw new RuntimeException('Bound compact authority was rejected.');$checks++;
+        $badHash=$manifest;$badHash['compactVendor']['archiveSha256']=str_repeat('f',64);
+        $badKind=$manifest;$badKind['compactVendor']['kind']='go-erp-compact-vendor-pins';
+        $badSource=$manifest;$badSource['compactVendor']['sourceRevision']=str_repeat('b',40);
+        $badSize=$manifest;$badSize['compactVendor']['archiveBytes']++;
+        foreach([[$manifest,false],[$manifest,$other],[$badHash,$file],[$badKind,$file],[$badSource,$file],[$badSize,$file]] as [$value,$requested]){
+            $rejected=false;try{desktopAccountProfilesCompactAuthority($root,$value,true,$requested);}catch(RuntimeException $error){$rejected=true;}
+            if(!$rejected)throw new RuntimeException('Unbound compact fixture authority was accepted.');$checks++;
+        }
+    }finally{unlink($file);unlink($other);rmdir($root);}
+    echo 'COMPACT_VENDOR_AUTHORITY_SELF_TEST_COMPLETE '.$checks.PHP_EOL;exit;
+}
+
 (function()use($argv){
     $application=realpath($argv[1]??'');$port=filter_var($argv[2]??null,FILTER_VALIDATE_INT);$revision=$argv[3]??'';
     if(!$application||!$port||$port<1024||$port>65535||!preg_match('/^[a-f0-9]{40}$/D',$revision))
@@ -16,6 +55,9 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
     if(($manifest['sourceRevision']??null)!==$revision||($manifest['fullDashboard']??null)!==false
         ||!is_array($manifest['sourceHashes']??null)||!$manifest['sourceHashes']||file_exists($application.'/.env'))
         throw new RuntimeException('Requires the exact environment-free preview runtime manifest.');
+    $compactEnabled=($argv[4]??null)==='--compact-vendor';
+    if(isset($argv[4])&&!$compactEnabled||count($argv)>5)throw new RuntimeException('Unknown account profile fixture option.');
+    $compactArchive=desktopAccountProfilesCompactAuthority($application,$manifest,$compactEnabled,getenv('DESKTOP_DASHBOARD_VENDOR_PHAR'));
     $command=static function(array $arguments)use($source): string{
         $process=proc_open($arguments,[['pipe','r'],['pipe','w'],['pipe','w']],$pipes,$source,null,['bypass_shell'=>true]);
         if(!is_resource($process))throw new RuntimeException('Cannot start exact-source verification.');
@@ -120,6 +162,9 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
             'DESKTOP_DASHBOARD_LOCAL'=>'true','DESKTOP_DASHBOARD_ENABLED'=>'true','DESKTOP_DASHBOARD_STORAGE'=>$storage,
             'DESKTOP_DASHBOARD_AUTH_STORAGE'=>$profile.'/central/auth','APP_CONFIG_CACHE'=>$storage.'/bootstrap/cache/config.php',
             'APP_PACKAGES_CACHE'=>$storage.'/bootstrap/cache/packages.php','APP_SERVICES_CACHE'=>$storage.'/bootstrap/cache/services.php','APP_ROUTES_CACHE'=>$storage.'/bootstrap/cache/routes.php'];
+        // All inherited DESKTOP_* settings were removed above. Preserve only
+        // the explicitly opted-in path bound to this exact fixture's manifest.
+        if($compactArchive!==null)$environment['DESKTOP_DASHBOARD_VENDOR_PHAR']=$compactArchive;
         foreach($environment as $name=>$value){putenv($name.'='.$value);$_ENV[$name]=$_SERVER[$name]=$value;}
         $pdo=new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
         $exists=$pdo->prepare('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');$exists->execute([$effects]);$effectsOwned=(int)$exists->fetchColumn()===0;
@@ -233,6 +278,7 @@ use App\Services\Dashboard\{DesktopDashboardDevices,DesktopDashboardBootstrap,De
             'helperBinding'=>getenv('CI')==='true'?'exact-git-revision':'local-working-tree','fixtureHashes'=>$helperHashes,'phpVersion'=>PHP_VERSION,'laravel'=>app()->version(),
             'schemaInventory'=>106,'actors'=>$proofs,'distinctEnrollments'=>3,'distinctDatabases'=>4,'distinctStorageRoots'=>3,'actualPhpServer'=>true,'originalRouter'=>true,
             'originalAuthProvider'=>true,'providersReplaced'=>false,'permissionBypass'=>false,'syntheticFixture'=>true,'productionProfile'=>false,'productionCredentialsCopied'=>false,
+            'compactVendor'=>$compactArchive!==null,
             'fullDashboard'=>false,'sourceVerifiedAfter'=>true,'helpersVerifiedAfter'=>true,'centralTablesBefore'=>$centralBefore,'centralTablesAfter'=>$centralAfter,
             'centralBusinessAndCredentialsUnchanged'=>true,'checks'=>$checks,'completed'=>false];
     }finally{$cleanup();}
