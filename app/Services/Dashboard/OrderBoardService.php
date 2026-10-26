@@ -63,7 +63,7 @@ class OrderBoardService
         $counts = array_fill_keys(self::GROUPS, 0);
         $limit = max(10, min(100, (int) $request->input('limit', 50)));
         $bases = [];
-        foreach (['legacy', 'store', 'service', 'partner_service'] as $source) {
+        foreach (['legacy', 'store', 'service', 'partner_service', 'website'] as $source) {
             $base = $this->query($source, $actor, $filters);
             if ($base) $bases[$source] = $base;
         }
@@ -109,7 +109,7 @@ class OrderBoardService
     {
         abort_unless($this->canAccess($actor), 403);
         $keys = [];
-        foreach (['legacy', 'store', 'service', 'partner_service'] as $source) {
+        foreach (['legacy', 'store', 'service', 'partner_service', 'website'] as $source) {
             $query = $this->query($source, $actor, []);
             if (!$query) continue;
             $this->forGroup($query, $source, 'new');
@@ -136,6 +136,8 @@ class OrderBoardService
                 $restaurantExists = $this->has('resturants', 'id') && DB::table('resturants')->where('id', $row->resturant_id ?? 0)->exists();
                 $actions = $this->legacyActions($row, $restaurantExists);
             }
+        } elseif ($source === 'website') {
+            $actions = app(WebsiteOrderBoardActions::class)->available($row, $actor);
         } elseif ($source === 'store') {
             // Share readiness checks with the controller's existing transition service.
             $this->storeActions = $stores;
@@ -234,13 +236,36 @@ class OrderBoardService
 
     private function query(string $source, $actor, array $filters)
     {
-        $table = ['legacy'=>'orders', 'store'=>'go_store_orders', 'service'=>'go_service_jobs', 'partner_service'=>'partner_service_requests'][$source] ?? null;
+        $table = ['legacy'=>'orders', 'store'=>'go_store_orders', 'service'=>'go_service_jobs', 'partner_service'=>'partner_service_requests', 'website'=>'pos_service_tickets'][$source] ?? null;
         if (!$table || !$this->has($table, 'status') || !$this->has($table, 'created_at')) return null;
-        if ($source !== 'legacy' && $actor->account_type === 'admin' && !empty($actor->owner_resturant_id)) return null;
-        if ($source !== 'legacy' && ($filters['app'] ?? '') === 'fasakhansta') return null;
+        if (!in_array($source, ['legacy', 'website'], true) && $actor->account_type === 'admin' && !empty($actor->owner_resturant_id)) return null;
+        if (!in_array($source, ['legacy', 'website'], true) && ($filters['app'] ?? '') === 'fasakhansta') return null;
         if (in_array($source, ['service', 'partner_service'], true) && !$this->isAdmin($actor)) return null;
+        if ($source === 'website') {
+            if (($filters['app'] ?? '') === 'go') return null;
+            foreach (['web_storefront_orders'=>['ticket_id', 'branch_id', 'created_at'],
+                $table=>['id', 'branch', 'channel', 'payment_status', 'revision', 'customer_name', 'customer_phone',
+                    'address', 'area', 'notes', 'quote_snapshot', 'last_kitchen_id', 'bill_issued_at', 'bill_issued_revision']] as $requiredTable => $requiredColumns) {
+                foreach ($requiredColumns as $column) if (!$this->has($requiredTable, $column)) return null;
+            }
+        }
         $query = DB::table($table);
-        if ($source === 'legacy') {
+        if ($source === 'website') {
+            // Membership is the persisted checkout receipt, never a user-editable note.
+            // Also bind its branch to the canonical ticket to reject inconsistent mappings.
+            $branchExpression = DB::connection()->getDriverName() === 'sqlite'
+                ? "('f:' || storefront_receipt.branch_id)" : "CONCAT('f:', storefront_receipt.branch_id)";
+            $query->where('channel', 'phone')->whereExists(function ($receipt) use ($branchExpression) {
+                $receipt->selectRaw('1')->from('web_storefront_orders as storefront_receipt')
+                    ->whereColumn('storefront_receipt.ticket_id', 'pos_service_tickets.id')
+                    // A stale receipt must not attach to an id reused after a data reset.
+                    ->whereColumn('storefront_receipt.created_at', '>=', 'pos_service_tickets.created_at')
+                    ->whereRaw('pos_service_tickets.branch = '.$branchExpression);
+            });
+            if (!$this->isAdmin($actor)) {
+                $query->whereIn('branch', array_map(fn ($id) => 'f:'.$id, $this->restaurantIds($actor)));
+            }
+        } elseif ($source === 'legacy') {
             if ($this->has($table, 'type')) $query->whereIn('type', ['current', 'schedule', 'shipping']);
             if (!$this->isAdmin($actor)) {
                 if (!$this->has($table, 'resturant_id')) return null;
@@ -253,12 +278,14 @@ class OrderBoardService
         }
         if (!empty($filters['branch'])) {
             [$kind, $id] = explode(':', $filters['branch']);
-            if ($source === 'legacy' && $kind === 'f') $query->where('resturant_id', (int) $id);
+            if ($source === 'website' && $kind === 'f') $query->where('branch', 'f:'.(int) $id);
+            elseif ($source === 'legacy' && $kind === 'f') $query->where('resturant_id', (int) $id);
             elseif ($source === 'store' && $kind === 'gs') $query->where('store_id', (int) $id);
             else return null;
         }
         if (!empty($filters['date'])) {
-            $zone=config('app.timezone','Africa/Cairo');
+            // POS timestamps are UTC; legacy tables retain their established storage zone.
+            $zone=$source === 'website' ? 'UTC' : config('app.timezone','Africa/Cairo');
             $query->where('created_at','>=',OperatingDay::start($filters['date'])->setTimezone($zone)->toDateTimeString())
                 ->where('created_at','<',OperatingDay::end($filters['date'])->setTimezone($zone)->toDateTimeString());
         }
@@ -266,10 +293,13 @@ class OrderBoardService
             $search = $filters['search'];
             $query->where(function ($q) use ($source, $table, $search) {
                 $q->where('id', (int) preg_replace('/\D/', '', $search));
+                if ($source === 'website') {
+                    $q->orWhere('customer_name', 'like', '%'.$search.'%')->orWhere('customer_phone', 'like', '%'.$search.'%');
+                }
                 if ($source === 'legacy' && $this->has($table, 'order_no')) $q->orWhere('order_no', 'like', '%'.$search.'%');
                 if ($source === 'store') $q->orWhere('snapshot', 'like', '%'.$search.'%');
                 $customer = $source === 'legacy' || $source === 'partner_service' ? 'user_id' : 'customer_id';
-                if ($this->has($table, $customer) && $this->has('users', 'name')) {
+                if ($source !== 'website' && $this->has($table, $customer) && $this->has('users', 'name')) {
                     $q->orWhereIn($customer, DB::table('users')->select('id')->where(function ($users) use ($search) {
                         $users->where('name', 'like', '%'.$search.'%');
                         if ($this->has('users', 'mobile')) $users->orWhere('mobile', 'like', '%'.$search.'%');
@@ -296,6 +326,15 @@ class OrderBoardService
 
     private function forGroup($query, string $source, string $group): void
     {
+        if ($source === 'website') {
+            if ($group === 'completed') {
+                $query->where(function ($ended) { $ended->where('payment_status', 'paid')->orWhere('status', 'cancelled'); });
+            } else {
+                $statuses = ['new'=>['new'], 'preparing'=>['preparing'], 'courier'=>['out_for_delivery', 'finished']];
+                $query->where('payment_status', 'unpaid')->whereIn('status', $statuses[$group]);
+            }
+            return;
+        }
         if ($source === 'legacy' && $this->failedCheckoutSchema()) {
             // Failed online payments never became orders; keep them off the board.
             if ($group === 'completed') { $this->normalGroup($query, 'legacy', 'completed'); return; }
@@ -407,6 +446,11 @@ class OrderBoardService
 
     private function loadRelated(string $source, $rows): void
     {
+        if ($source === 'website') {
+            $ids = $rows->map(fn ($row) => (int) substr((string) $row->branch, 2))->unique()->all();
+            $this->cacheRows('resturants', 'id', $ids);
+            return;
+        }
         $ids = $rows->pluck('id')->all();
         $userIds = $rows->pluck($source === 'legacy' || $source === 'partner_service' ? 'user_id' : 'customer_id')
             ->merge($rows->pluck($source === 'legacy' ? 'delegate_id' : 'partner_id'))->filter()->unique()->all();
@@ -479,7 +523,8 @@ class OrderBoardService
         $customer = $this->related['users'][$customerId] ?? null;
         $app = $source === 'legacy' ? $this->origin($row, $customer) : 'go';
         $status = $row->status ?? '';
-        $created = Carbon::parse($row->created_at, config('app.timezone', 'Africa/Cairo'));
+        $created = Carbon::parse($row->created_at, $source === 'website' ? 'UTC' : config('app.timezone', 'Africa/Cairo'))
+            ->setTimezone(config('app.timezone', 'Africa/Cairo'));
         $card = ['id'=>(int) $row->id, 'source'=>$source, 'key'=>$source.':'.$row->id,
             'app'=>$app, 'app_label'=>$app === 'go' ? 'جو' : 'فسخانستا',
             'number'=>$row->order_no ?? ($source === 'store' ? 'GS-' : ($source === 'legacy' ? '#' : 'GO-')).$row->id,
@@ -491,7 +536,49 @@ class OrderBoardService
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
                 'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
-        if ($source === 'legacy') {
+        if ($source === 'website') {
+            $quote = json_decode((string) ($row->quote_snapshot ?? '{}'), true) ?: [];
+            $restaurant = $this->related['resturants'][(int) substr((string) $row->branch, 2)] ?? null;
+            $card['app'] = 'fasakhansta';
+            $card['app_label'] = 'الموقع الإلكتروني';
+            $card['number'] = 'WEB-'.$row->id;
+            $card['customer'] = $row->customer_name ?? 'عميل';
+            $card['phone'] = $row->customer_phone ?? '';
+            $card['store'] = $restaurant->name ?? ($quote['branch']['label'] ?? $row->branch);
+            $card['address'] = implode('، ', array_filter([$row->address ?? '', $row->area ?? '']));
+            $card['payment_label'] = ($row->payment_status ?? '') === 'paid' ? 'كاش · تم التحصيل' : 'كاش عند الاستلام';
+            $card['status_label'] = ['new'=>'طلب جديد', 'preparing'=>'قيد التجهيز', 'out_for_delivery'=>'مع المندوب',
+                'finished'=>'مع المندوب', 'cancelled'=>'ملغي'][$status] ?? 'منتهي';
+            if (($row->payment_status ?? '') === 'paid') $card['status_label'] = 'تم التسليم والتحصيل';
+            foreach (array_values($quote['items'] ?? []) as $index => $line) {
+                $quantity = $line['quantity'] ?? (isset($line['quantity_millis']) ? rtrim(rtrim(number_format($line['quantity_millis'] / 1000, 3, '.', ''), '0'), '.') : 1);
+                $item = ['line_id'=>$index, 'name'=>$line['name'] ?? 'صنف', 'quantity'=>$quantity,
+                    'option_label'=>$line['option_label'] ?? '', 'line_total'=>$line['total'] ?? (isset($line['total_cents']) ? Money::decimal((int) $line['total_cents']) : null)];
+                if (($line['quantity_mode'] ?? '') === 'weight') $item += ['display_quantity'=>$quantity, 'quantity_unit'=>'كجم'];
+                $card['items'][] = $item;
+            }
+            foreach (['subtotal'=>'قيمة الأصناف', 'discount'=>'الخصم', 'delivery'=>'التوصيل', 'service'=>'رسوم الخدمة', 'tax'=>'الضريبة'] as $field => $label) {
+                if (isset($quote[$field]) && ($field === 'subtotal' || (float) $quote[$field] !== 0.0)) {
+                    $card['totals'][] = ['label'=>$label, 'amount'=>$field === 'discount' ? '-'.$quote[$field] : $quote[$field]];
+                }
+            }
+            $card['total'] = $quote['total'] ?? null;
+            $actions = app(WebsiteOrderBoardActions::class);
+            $card['actions'] = $actions->available($row, $actor);
+            $card['action_labels'] = ['accept'=>'قبول وإرسال للمطبخ', 'reject'=>'رفض الطلب',
+                'dispatch'=>'اختيار شركة التوصيل', 'complete'=>'إنهاء وتحصيل'];
+            $companies = [];
+            if (in_array('dispatch', $card['actions'], true)) {
+                $companyKey = 'website_companies:'.$row->branch;
+                if (!array_key_exists($companyKey, $this->related)) $this->related[$companyKey] = $actions->companies($row, $actor);
+                $companies = $this->related[$companyKey];
+            }
+            $card['website'] = ['ticket_id'=>(int) $row->id, 'branch'=>$row->branch,
+                'revision'=>(int) ($row->revision ?? 0), 'quote_hash'=>$quote['quote_hash'] ?? '',
+                'payment_status'=>$row->payment_status ?? '', 'kitchen_sent'=>!empty($row->last_kitchen_id),
+                'bill_locked'=>!empty($row->bill_issued_at) || !empty($row->bill_issued_revision) || $status === 'awaiting_bill',
+                'companies'=>$companies];
+        } elseif ($source === 'legacy') {
             $card['payment_paid'] = $this->legacyPaymentPaid($row);
             if ($this->awaitingLegacyPayment($row)) {
                 $card['status'] = 'awaiting_payment';
@@ -617,6 +704,11 @@ class OrderBoardService
         if ($source === 'legacy' && $this->failedCheckout($row)) return 'completed';
         if ($source === 'legacy' && $this->awaitingLegacyPayment($row)) return 'new';
         $status = $row->status ?? '';
+        if ($source === 'website') {
+            if (($row->payment_status ?? '') === 'paid' || $status === 'cancelled') return 'completed';
+            if (in_array($status, ['out_for_delivery', 'finished'], true)) return 'courier';
+            return $status === 'preparing' ? 'preparing' : 'new';
+        }
         if (in_array($status, ['completed','cancelled','declined','rejected','expired',''], true)) return 'completed';
         if (in_array($status, ['shipped','out_for_delivery','in_progress','awaiting_confirmation'], true)) return 'courier';
         if ($source === 'legacy' && $status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') return 'courier';

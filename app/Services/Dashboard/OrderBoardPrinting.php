@@ -27,6 +27,7 @@ class OrderBoardPrinting
     public function allowed(string $source, object $row, $actor): bool
     {
         if (!$this->ready()) return false;
+        if ($source === 'website') return $this->websiteAllowed($row, $actor, $this->printed($source, $row));
         if ($this->access->canReprintReceipts($actor)) return true;
         return !$this->ended($source, $row) && !$this->printed($source, $row);
     }
@@ -57,13 +58,26 @@ class OrderBoardPrinting
     {
         DB::transaction(function () use ($source, $id, $actor, $board) {
             $actor = $this->access->actor($actor);
+            if ($source === 'website') {
+                $hint = $board->scopedRow($source, $id, $actor);
+                // Match the POS lock order: branch first, then the shared ticket.
+                $this->access->branch($hint->branch, $actor, true);
+            }
             $row = $board->scopedRow($source, $id, $actor, true);
             abort_unless($this->ready(), 503, 'تسجيل طباعة الفواتير غير مجهز.');
             $printed = $this->printed($source, $row, true);
-            abort_unless($this->access->canReprintReceipts($actor) || (!$printed && !$this->ended($source, $row)),
+            $allowed = $source === 'website' ? $this->websiteAllowed($row, $actor, $printed)
+                : ($this->access->canReprintReceipts($actor) || (!$printed && !$this->ended($source, $row)));
+            abort_unless($allowed,
                 403, 'إعادة طباعة الفاتورة متاحة للمالك أو الإدارة فقط.');
             if ($printed) return;
             [$branch, $key, $identity] = $this->identity($source, $row);
+            if ($source === 'website' && $row->payment_status === 'unpaid' && $row->status !== 'cancelled'
+                && empty($row->bill_issued_at)) {
+                // An invoice issued here locks the same POS ticket used by the delivery screen.
+                app(PosServiceTicket::class)->action('phone', $id, ['branch'=>$branch,
+                    'expected_revision'=>(int) $row->revision, 'idempotency_key'=>$key, 'action'=>'request_bill'], $actor);
+            }
             DB::table('branch_operation_commands')->insert(['branch'=>$branch, 'actor_id'=>(int) $actor->id,
                 'request_key'=>$key, 'request_hash'=>hash('sha256', $identity), 'kind'=>self::KIND,
                 'result'=>json_encode(['source'=>$source, 'order_id'=>$id, 'branch'=>$branch,
@@ -84,11 +98,21 @@ class OrderBoardPrinting
 
     private function identity(string $source, object $row): array
     {
-        $branch = $source === 'legacy' ? 'f:'.(int) ($row->resturant_id ?? 0)
-            : ($source === 'store' ? 'gs:'.(int) ($row->store_id ?? 0) : 'app:'.$source);
+        $branch = $source === 'website' ? (string) $row->branch : ($source === 'legacy' ? 'f:'.(int) ($row->resturant_id ?? 0)
+            : ($source === 'store' ? 'gs:'.(int) ($row->store_id ?? 0) : 'app:'.$source));
         $identity = self::KIND.'|'.$source.'|'.(int) $row->id.'|'.$branch;
         $hex = substr(hash('sha256', $identity), 0, 32);
         $key = substr($hex, 0, 8).'-'.substr($hex, 8, 4).'-5'.substr($hex, 13, 3).'-a'.substr($hex, 17, 3).'-'.substr($hex, 20, 12);
         return [$branch, $key, $identity];
+    }
+
+    private function websiteAllowed(object $row, $actor, bool $printed): bool
+    {
+        // Preparation comes before issuing a bill, which would block the kitchen action.
+        if (($row->status ?? '') === 'new' && empty($row->last_kitchen_id)) return false;
+        if ($this->access->canReprintReceipts($actor)) return true;
+        return ($row->payment_status ?? '') === 'unpaid'
+            && in_array($row->status ?? '', ['preparing', 'out_for_delivery', 'finished'], true)
+            && empty($row->bill_issued_at) && !$printed;
     }
 }
