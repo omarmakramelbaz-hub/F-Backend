@@ -20,7 +20,7 @@ const sourceHashes=Object.fromEntries(sourceFiles.map(file=>[file,sha(file)]));
 const root=fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()),'go-erp-login-ui-'));
 app.setPath('userData',path.join(root,'chromium-profile'));app.disableHardwareAcceleration();
 app.on('window-all-closed',()=>{}); // The fixture has three sequential UI phases.
-let failed=false,complete=false,quitting=false,proof,active,authServer;
+let failed=false,complete=false,quitting=false,proof,active,authServer,foreignServer;
 const deadline=setTimeout(()=>{failed=true;process.stderr.write('Actual login UI exceeded its native deadline.\n');app.exit(1);},60000);
 const waitFor=async(predicate,message)=>{const until=Date.now()+10000;while(Date.now()<until){const value=await predicate();if(value)return value;await new Promise(resolve=>setTimeout(resolve,20));}throw Error(message);};
 const loginURL=require('node:url').pathToFileURL(path.resolve(__dirname,'../src/login.html')).href;
@@ -33,14 +33,16 @@ async function actualWindow(){
   return window;
 }
 function broker(){
-  let resolve;const value={calls:0,cancels:0,onState:()=>{},resumeRemembered:async()=>null,
+  let resolve;const value={calls:0,cancels:0,editing:0,onState:()=>{},resumeRemembered:async()=>null,userEditing(){value.editing++;},
     authenticate(input){value.calls++;value.input=input;return new Promise(yes=>{resolve=yes;});},
     cancel(){value.cancels++;},release(result){resolve(result);}};
   return value;
 }
 async function actualOriginalSessionClient(){
-  const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,serverFailure;
+  const token='f'.repeat(64),csrf='a'.repeat(40),password='synthetic-original-client-only';let origin,foreignOrigin,serverFailure,foreignWire=0,repeatedPosts=0;
   const requests={logins:0,signins:0,dashboards:0};
+  foreignServer=require('node:http').createServer((_request,response)=>{foreignWire++;response.end('A foreign authentication redirect must never arrive.');});
+  await new Promise(resolve=>foreignServer.listen(0,'127.0.0.1',resolve));foreignOrigin='http://127.0.0.1:'+foreignServer.address().port;
   authServer=require('node:http').createServer(async(request,response)=>{
     try{
       assert.equal(request.headers['x-fasakhansta-desktop'],token);
@@ -54,6 +56,8 @@ async function actualOriginalSessionClient(){
         assert.equal(request.headers.origin,origin);assert.equal(request.headers.referer,origin+'/admin/login');assert.equal(request.headers['x-csrf-token'],csrf);
         const chunks=[];let size=0;for await(const chunk of request){size+=chunk.length;assert.ok(size<8192);chunks.push(chunk);}
         const input=new URLSearchParams(Buffer.concat(chunks).toString());assert.equal(input.get('_token'),csrf);assert.equal(input.get('email'),'native.owner@example.test');
+        if(input.get('password')==='foreign-redirect-only'){response.writeHead(302,{Location:foreignOrigin+'/collect'});response.end();return;}
+        if(input.get('password')==='repeat-post-redirect-only'){repeatedPosts++;response.writeHead(307,{Location:origin+'/admin/signin'});response.end();return;}
         if(input.get('password')!==password){response.writeHead(302,{Location:origin+'/admin/login'});response.end();return;}
         response.setHeader('Set-Cookie','native_session=synthetic-authenticated-session; Path=/; HttpOnly; SameSite=Lax');
         response.writeHead(302,{Location:origin+'/admin/dashboard'});response.end();return;
@@ -68,12 +72,16 @@ async function actualOriginalSessionClient(){
     const actor=await originalSignin({browser,origin,localToken:token,email:'native.owner@example.test',password,remember:false,signal:AbortSignal.timeout(10000)});
     assert.deepEqual(actor,{actorId:42,role:'admin'});assert.equal(serverFailure,undefined);
     await installCookies(browser,target,origin,true);
-    const home=await target.fetch(origin+'/admin/dashboard',{credentials:'include',redirect:'manual',headers:{'X-Fasakhansta-Desktop':token}});
+    const home=await target.fetch(origin+'/admin/dashboard',{credentials:'include',redirect:'error',headers:{'X-Fasakhansta-Desktop':token}});
     assert.equal(home.status,200);assert.match(await home.text(),/data-dashboard-actor="42:admin"/);
     await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-rejected-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:'wrong-synthetic-only',remember:false,signal:AbortSignal.timeout(10000)}),error=>error.code==='ACCOUNT_CREDENTIALS_REJECTED');
-    assert.equal(serverFailure,undefined);assert.deepEqual(requests,{logins:2,signins:2,dashboards:2});
-    return {actualOriginalSessionAuthClient:true,actualSessionCookieJar:true,originalCsrfHeadersObserved:true,manualRedirectCookiesPreserved:true,actualCookieHandoff:true,wrongPasswordRejected:true};
-  }finally{authServer.closeAllConnections?.();await new Promise(resolve=>authServer.close(resolve));authServer=null;}
+    assert.equal(serverFailure,undefined);assert.deepEqual(requests,{logins:3,signins:2,dashboards:2});
+    for(const candidate of ['foreign-redirect-only','repeat-post-redirect-only']){
+      await assert.rejects(originalSignin({browser:session.fromPartition('native-auth-blocked-'+crypto.randomUUID()),origin,localToken:token,email:'native.owner@example.test',password:candidate,remember:false,signal:AbortSignal.timeout(10000)}));
+    }
+    assert.equal(serverFailure,undefined);assert.equal(foreignWire,0);assert.equal(repeatedPosts,1);assert.deepEqual(requests,{logins:5,signins:4,dashboards:2});
+    return {actualOriginalSessionAuthClient:true,actualSessionCookieJar:true,originalCsrfHeadersObserved:true,guardedRedirectCookiesPreserved:true,authOnlyRedirectAdmission:true,foreignRedirectNotTransmitted:true,repeatedPostRedirectBlocked:true,actualCookieHandoff:true,wrongPasswordRejected:true};
+  }catch(error){throw serverFailure||error;}finally{authServer.closeAllConnections?.();await new Promise(resolve=>authServer.close(resolve));authServer=null;foreignServer.closeAllConnections?.();await new Promise(resolve=>foreignServer.close(resolve));foreignServer=null;}
 }
 app.once('will-quit',()=>{
   clearTimeout(deadline);if(failed)return;
@@ -87,7 +95,7 @@ app.once('will-quit',()=>{
 });
 app.whenReady().then(async()=>{
   const originalClient=await actualOriginalSessionClient();
-  const ordinary=broker();active=createLoginWindow({broker:ordinary,quitting:()=>quitting});
+  let releaseRemembered;const ordinary=broker();ordinary.resumeRemembered=()=>new Promise(resolve=>{releaseRemembered=resolve;});active=createLoginWindow({broker:ordinary,quitting:()=>quitting});
   const window=await actualWindow();
   const layout=await window.webContents.executeJavaScript(`(() => {
     const visible=id=>{const r=document.getElementById(id).getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight;};
@@ -97,10 +105,16 @@ app.whenReady().then(async()=>{
       passwordEmpty:document.getElementById('password').value==='',bodyText:document.body.textContent};
   })()`,true);
   assert.equal(layout.forms,1);assert.deepEqual(layout.buttons,['show-password','submit']);assert.equal(layout.visible,true);assert.equal(layout.noNode,true);
-  assert.deepEqual(layout.bridge,['authenticate','onState']);assert.equal(layout.passwordEmpty,true);assert.equal(/تبديل الحساب|اختيار حساب|جاري فتح الداشبورد|جارٍ فتح الداشبورد/.test(layout.bodyText),false);
+  assert.deepEqual(layout.bridge,['authenticate','onState','userEditing']);assert.equal(layout.passwordEmpty,true);assert.equal(/تبديل الحساب|اختيار حساب|جاري فتح الداشبورد|جارٍ فتح الداشبورد/.test(layout.bodyText),false);
   await window.webContents.executeJavaScript('document.fonts.ready.then(()=>true)',true);
   const capture=await window.webContents.capturePage(),size=capture.getSize();assert.ok(size.width>=1000&&size.height>=650);
   const captureFile=receiptFile.replace(/\.json$/,'')+'-login.png';fs.mkdirSync(path.dirname(captureFile),{recursive:true});fs.writeFileSync(captureFile,capture.toPNG());
+  let passiveAccepted=false;active.result.then(()=>passiveAccepted=true,()=>{});
+  await waitFor(()=>typeof releaseRemembered==='function','The passive remembered-account fixture did not start.');
+  await window.webContents.executeJavaScript(`(() => {document.getElementById('email').value='native.branch@example.test';document.getElementById('email').dispatchEvent(new Event('input',{bubbles:true}));return window.GOERPLogin.userEditing();})()`,true);
+  assert.equal(ordinary.editing,1);
+  releaseRemembered({account:{id:'passive-owner-must-not-override-editing'},runtime:{token:'PRIVATE-PASSIVE-RESULT'}});
+  await new Promise(resolve=>setTimeout(resolve,30));assert.equal(passiveAccepted,false);assert.equal(window.isVisible(),true);
   const syntheticPassword='NATIVE-FIXTURE-ONLY-NO-REAL-PASSWORD';
   const submitted=await window.webContents.executeJavaScript(`(() => {
     document.getElementById('email').value='native.owner@example.test';document.getElementById('password').value=${JSON.stringify(syntheticPassword)};
@@ -137,8 +151,8 @@ app.whenReady().then(async()=>{
   proof={format:1,kind:'go-erp-login-window-native',sourceRevision,sourceHashes,electronVersion:process.versions.electron,platform:process.platform,
     actualElectron:true,actualBrowserWindow:true,actualPreload:true,actualIpc:true,sandbox:true,trustedFile:true,
     singleOrdinaryForm:true,passwordClearedBeforeAuthenticationSettles:true,passwordNeverPersisted:true,rendererReceivesOnlyBoundedEnvelope:true,
-    fullResultStaysInMain:true,formRetainedDisabledUntilHandoff:true,actualNativeCloseCancels:true,quitCallbackRequested:true,
+    fullResultStaysInMain:true,formRetainedDisabledUntilHandoff:true,editingPreventsRememberedOverride:true,actualNativeCloseCancels:true,quitCallbackRequested:true,
     capture:{width:size.width,height:size.height,sha256:crypto.createHash('sha256').update(fs.readFileSync(captureFile)).digest('hex')},
     ...originalClient,syntheticHttpAuthServer:true,syntheticBroker:true,quitCallbackFixture:true,actualPhpAuthorization:false,actualProductionMain:false,productionProfile:false,hardware:false};
   complete=true;quitting=true;app.quit();
-}).catch(error=>{failed=true;process.exitCode=1;clearTimeout(deadline);process.stderr.write(error.stack+'\n');try{active?.cancel();}catch{}authServer?.closeAllConnections?.();authServer?.close();for(const window of BrowserWindow.getAllWindows())window.destroy();app.quit();});
+}).catch(error=>{failed=true;process.exitCode=1;clearTimeout(deadline);process.stderr.write(error.stack+'\n');try{active?.cancel();}catch{}authServer?.closeAllConnections?.();authServer?.close();foreignServer?.closeAllConnections?.();foreignServer?.close();for(const window of BrowserWindow.getAllWindows())window.destroy();app.quit();});

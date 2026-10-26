@@ -94,29 +94,54 @@ async function installCookies(source,target,origin,local=false,{active=()=>true}
   return async()=>{if(undone)return;undone=true;await replace(previous,false,false);};
 }
 
+function authenticationAdmission(browser,origin){
+  // Electron 44 rejects redirect:'manual' at its native loader. A private
+  // Session may follow redirects only while this gate admits exact auth reads.
+  // No production/dashboard Session is passed to this original-signin client.
+  if(typeof browser.webRequest?.onBeforeRequest!=='function')return {redirect:'manual',beginPost(){},close(){}};
+  let active=true,posting=false,posted=false,count=0;
+  browser.webRequest.onBeforeRequest({urls:['<all_urls>']},(details,callback)=>{
+    let allowed=false;
+    try{
+      const url=new URL(details.url),method=String(details.method||'GET').toUpperCase();
+      if(active&&++count<=8&&url.origin===origin&&!url.username&&!url.password&&!url.search&&!url.hash){
+        if(method==='POST'&&posting&&!posted&&url.pathname==='/admin/signin'){posted=true;allowed=true;}
+        else if(['GET','HEAD'].includes(method))allowed=url.pathname==='/admin/login'||posted&&homes.has(url.pathname);
+      }
+    }catch{}
+    callback({cancel:!allowed});
+  });
+  return {redirect:'follow',beginPost(){posting=true;},close(){active=false;browser.webRequest.onBeforeRequest(null);}};
+}
+
 /** Original Laravel authentication in a fresh, nonpersistent cookie session. */
 async function originalSignin({browser,origin,localToken='',email,password,remember,signal}){
   const local=Boolean(localToken);scope(origin,local);
+  const controller=new AbortController(),admission=authenticationAdmission(browser,origin);
+  const requestSignal=AbortSignal.any([controller.signal,...(signal?[signal]:[]),AbortSignal.timeout(120000)]);
   const headers={Accept:'text/html',...(local?{'X-Fasakhansta-Desktop':localToken}:{})};
-  const fetch=(url,options={})=>browser.fetch(url,{...options,credentials:'include',redirect:'manual',signal,headers:{...headers,...options.headers}});
-  const login=await fetch(origin+'/admin/login');
-  if(login.status!==200){await discard(login);throw failure();}
-  const csrf=csrfFromHTML(await boundedHTML(login),origin);
-  const body=new URLSearchParams({_token:csrf,email,password,remember:remember?'1':'0'});
-  let response;try{response=await fetch(origin+'/admin/signin',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-CSRF-TOKEN':csrf,Referer:origin+'/admin/login',Origin:origin},body:body.toString()});}
-  finally{body.set('password','');}
-  let next=response;
-  for(let redirects=0;[301,302,303].includes(next.status)&&redirects<4;redirects++){
-    const location=next.headers.get('location');await discard(next);
-    const url=new URL(location||'',origin);
-    if(url.origin===origin&&url.pathname==='/admin/login'&&!url.search&&!url.hash)throw denied();
-    if(url.origin!==origin||url.username||url.password||!homes.has(url.pathname)||url.search||url.hash)throw failure();
-    next=await fetch(url.href);
-  }
-  if(next.status!==200){await discard(next);throw [401,422].includes(next.status)?denied():failure();}
-  const finalURL=next.url?new URL(next.url):null;
-  if(finalURL&&(finalURL.origin!==origin||!homes.has(finalURL.pathname))){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
-  return actorFromHTML(await boundedHTML(next));
+  const fetch=(url,options={})=>browser.fetch(url,{...options,credentials:'include',redirect:admission.redirect,signal:requestSignal,headers:{...headers,...options.headers}});
+  try{
+    const login=await fetch(origin+'/admin/login');
+    if(login.status!==200){await discard(login);throw failure();}
+    const csrf=csrfFromHTML(await boundedHTML(login),origin);
+    const body=new URLSearchParams({_token:csrf,email,password,remember:remember?'1':'0'});
+    admission.beginPost();
+    let response;try{response=await fetch(origin+'/admin/signin',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','X-CSRF-TOKEN':csrf,Referer:origin+'/admin/login',Origin:origin},body:body.toString()});}
+    finally{body.set('password','');}
+    let next=response;
+    for(let redirects=0;[301,302,303].includes(next.status)&&redirects<4;redirects++){
+      const location=next.headers.get('location');await discard(next);
+      const url=new URL(location||'',origin);
+      if(url.origin===origin&&url.pathname==='/admin/login'&&!url.search&&!url.hash)throw denied();
+      if(url.origin!==origin||url.username||url.password||!homes.has(url.pathname)||url.search||url.hash)throw failure();
+      next=await fetch(url.href);
+    }
+    if(next.status!==200){await discard(next);throw [401,422].includes(next.status)?denied():failure();}
+    const finalURL=next.url?new URL(next.url):null;
+    if(finalURL&&(finalURL.origin!==origin||!homes.has(finalURL.pathname))){await discard(next);throw finalURL.origin===origin&&['/admin/login','/admin/signin'].includes(finalURL.pathname)?denied():failure();}
+    return actorFromHTML(await boundedHTML(next));
+  }finally{controller.abort();admission.close();}
 }
 
 class AccountLogin{
@@ -125,6 +150,7 @@ class AccountLogin{
     this.runtimes=new Map();this.runtimeTasks=new Map();this.sessions=new Set();this.controllers=new Set();this.running=null;this.cancelled=false;this.sequence=0;
   }
   assert(){if(this.cancelled||this.stopped())throw aborted();}
+  userEditing(){this.sequence++;}
   report(phase){this.onState({phase});}
   async runtime(account){
     this.assert();
@@ -143,7 +169,7 @@ class AccountLogin{
     if(account.actorId===null){
       const runtime=await this.runtime(account);
       if(await runtime.isPrepared()){
-        const trusted=await runtime.connection();await this.profiles.assertBinding(account.id,trusted);
+        const trusted=await runtime.connection();this.assert();await this.profiles.assertBinding(account.id,trusted);
         account=await this.profiles.account(account.id);
       }
     }
@@ -219,10 +245,10 @@ class AccountLogin{
     this.report('connecting');
     return this.fresh(async(browser,signal)=>{
       const actor=await originalSignin({browser,origin:this.serverOrigin,...credentials,signal});this.assert();
-      await this.selectedAccount();
-      let account=await this.profiles.forActor(actor.actorId,this.serverOrigin);
+      await this.selectedAccount();this.assert();
+      let account=await this.profiles.forActor(actor.actorId,this.serverOrigin);this.assert();
       if(account){const result=await this.localLogin(account,credentials);if(result)return result;}
-      else{account=await this.profiles.create();await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);}
+      else{account=await this.profiles.create();this.assert();await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);this.assert();}
       const target=this.createSession(account.partition),undo=await installCookies(browser,target,this.serverOrigin,false,{active:()=>!this.cancelled&&!this.stopped()});
       try{
         await this.profiles.rememberLogin(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin},credentials.email);
@@ -231,13 +257,17 @@ class AccountLogin{
       return {account,runtime:await this.runtime(account),local:false,origin:this.serverOrigin,localToken:''};
     });
   }
-  async resumeRemembered(){
+  resumeRemembered(){
+    if(this.remembering)return this.remembering;
+    this.remembering=this.remembered().finally(()=>{this.remembering=null;});return this.remembering;
+  }
+  async remembered(){
     if(this.running)return null;this.assert();const sequence=this.sequence;
     let account=await this.selectedAccount();
     if(account.serverOrigin!==null&&account.serverOrigin!==this.serverOrigin)return null;
     const browser=this.createSession(account.partition);
     const runtime=await this.runtime(account),prepared=await runtime.isPrepared();
-    const remoteNeeded=!prepared||await this.needsRemote(runtime),cookies=await withDeadline(()=>browser.cookies.get({name:recaller}),5000,'تعذر قراءة جلسة الحساب.');
+    const remoteNeeded=!prepared||await this.needsRemote(runtime),cookies=await withDeadline(()=>browser.cookies.get({name:recaller}),5000,'تعذر قراءة جلسة الحساب.');this.assert();
     if(!cookies.some(cookie=>authCookie(cookie,remoteNeeded?this.serverOrigin:'http://127.0.0.1:1',!remoteNeeded)&&cookie.name===recaller))return null;
     let local,connection;
     if(prepared){
@@ -248,14 +278,14 @@ class AccountLogin{
     try{
       const destination=remoteNeeded?this.serverOrigin:local.origin;
       const options={headers:{Accept:'text/html',...(!remoteNeeded?{'X-Fasakhansta-Desktop':local.token}:{})},credentials:'include',redirect:'manual',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(45000)])};
-      let response=await browser.fetch(destination+'/admin/dashboard',options);
+      this.assert();let response=await browser.fetch(destination+'/admin/dashboard',options);this.assert();
       for(let redirects=0;[301,302,303].includes(response.status)&&redirects<4;redirects++){
         const next=new URL(response.headers.get('location')||'',destination);await discard(response);
         if(next.origin!==destination||!homes.has(next.pathname)||next.search||next.hash)return null;
-        response=await browser.fetch(next.href,options);
+        this.assert();response=await browser.fetch(next.href,options);this.assert();
       }
       if(response.status!==200){await discard(response);return null;}
-      const actor=actorFromHTML(await boundedHTML(response));
+      const actor=actorFromHTML(await boundedHTML(response));this.assert();
       if(account.actorId!==null&&actor.actorId!==account.actorId)throw failure();
       if(sequence!==this.sequence||this.running)return null;
       if(account.actorId===null){await this.profiles.bind(account.id,{actorId:actor.actorId,serverOrigin:this.serverOrigin});account=await this.profiles.account(account.id);}
@@ -264,18 +294,22 @@ class AccountLogin{
   }
   async handoff(result){
     this.assert();
+    // An explicit account submission supersedes a passive remembered-session
+    // probe. Retire that read before the new account opens its business view.
+    for(const controller of this.controllers)controller.abort();
     await Promise.allSettled(this.runtimeTasks.values());this.assert();
     for(const [id,runtime] of this.runtimes)if(runtime!==result.runtime){await runtime.stop();this.runtimes.delete(id);}
+    if(this.remembering)await this.remembering.catch(()=>{});this.assert();
     this.runtimes.delete(result.account.id);this.runtimeTasks.delete(result.account.id);return result;
   }
   cancel(){this.cancelled=true;for(const controller of this.controllers)controller.abort();for(const runtime of this.runtimes.values())try{runtime.cancelStartup?.();}catch{}}
   async stop(){
     this.cancel();await Promise.allSettled(this.runtimeTasks.values());
     const runtimes=[...this.runtimes.entries()],results=await Promise.allSettled(runtimes.map(([,runtime])=>Promise.resolve().then(()=>runtime.stop())));
-    if(this.running)await this.running.catch(()=>{});
+    if(this.running)await this.running.catch(()=>{});if(this.remembering)await this.remembering.catch(()=>{});
     const failures=[];for(let i=0;i<results.length;i++){if(results[i].status==='fulfilled'){this.runtimes.delete(runtimes[i][0]);this.runtimeTasks.delete(runtimes[i][0]);}else failures.push(results[i].reason);}
     if(failures.length)throw new AggregateError(failures,'تعذر إغلاق خدمة الحساب. احتفظ ببياناته وأعد المحاولة.');
     this.runtimeTasks.clear();
   }
 }
-module.exports={AccountLogin,originalSignin,actorFromHTML,csrfFromHTML,installCookies,authCookie,recaller,networkFailure};
+module.exports={AccountLogin,originalSignin,authenticationAdmission,actorFromHTML,csrfFromHTML,installCookies,authCookie,recaller,networkFailure};
