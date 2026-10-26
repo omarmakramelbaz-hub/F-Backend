@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 
 const SCOPE = 'vendor/google/apiclient-services/src/';
 function validate(value) {
@@ -33,11 +33,39 @@ async function build({ vendor, target, php }) {
   await fs.mkdir(target, { recursive: false, mode: 0o700 });
   const archive = path.join(target, 'google-services.phar');
   try {
-    const result = spawnSync(php, ['-d', 'phar.readonly=0', '-d', 'memory_limit=1024M', '-d', 'opcache.enable_cli=0',
-      path.join(__dirname, 'vendor-phar-build.php'), vendor, archive],
-      { encoding: 'utf8', maxBuffer: 32 * 1024 ** 2, timeout: 180000, windowsHide: true });
-    if (result.error || result.status !== 0) throw Error('VENDOR_PHAR_BUILD_FAILED');
-    const index = validate(JSON.parse(result.stdout));
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(php, ['-d', 'phar.readonly=0', '-d', 'memory_limit=1024M', '-d', 'opcache.enable_cli=0',
+        path.join(__dirname, 'vendor-phar-build.php'), vendor, archive], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const chunks = []; let bytes = 0, stderr = '', partial = '', failure;
+      const stop = code => { failure ||= Error(code); child.kill(); };
+      const timer = setTimeout(() => stop('VENDOR_PHAR_BUILD_TIMEOUT'), 600000);
+      child.stdout.on('data', chunk => {
+        bytes += chunk.length;
+        if (bytes > 32 * 1024 ** 2) return stop('VENDOR_PHAR_BUILD_OUTPUT_LIMIT');
+        chunks.push(chunk);
+      });
+      child.stderr.on('data', chunk => {
+        stderr = (stderr + chunk.toString('utf8')).slice(-4096);
+        partial = (partial + chunk.toString('utf8')).slice(-8192);
+        const lines = partial.split(/\r?\n/); partial = lines.pop();
+        for (const line of lines) if (/^GO_ERP_VENDOR_PHAR_(?:SCAN|BUILD|VERIFY|COMPLETE) count=[0-9]{1,6}$/.test(line)) {
+          process.stderr.write(line + '\n');
+        }
+      });
+      child.once('error', () => { clearTimeout(timer); reject(Error('VENDOR_PHAR_BUILD_SPAWN_FAILED')); });
+      child.once('close', code => {
+        clearTimeout(timer);
+        if (failure) return reject(failure);
+        if (code !== 0) {
+          const category = /Allowed memory size|Out of memory/i.test(stderr) ? 'MEMORY_LIMIT'
+            : /No space left|disk full/i.test(stderr) ? 'NO_SPACE'
+            : /VENDOR_PHAR_[A-Z_]+/.exec(stderr)?.[0] || 'PHP_FAILED';
+          return reject(Error('VENDOR_PHAR_BUILD_' + category));
+        }
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+    });
+    const index = validate(JSON.parse(output));
     const digest = crypto.createHash('sha256'); let bytes = 0;
     for await (const chunk of createReadStream(archive, { highWaterMark: 1024 * 1024 })) {
       bytes += chunk.length;
