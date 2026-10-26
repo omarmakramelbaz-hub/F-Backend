@@ -1,0 +1,63 @@
+name: GO ERP direct login rollout contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-direct-login-rollout-*']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_direct_login*'
+      - 'tests/*go_erp_direct_login*'
+      - '.github/workflows/go-erp-direct-login-rollout-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load exact predecessor transactions and accepted 55 source
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          12d74b4f35737a2b1e271657b159137538c3edaf
+          0adf41c64aa587b495a55b7ec058bf5cc54d1e2a
+          baa2157fea6f943c55597c924447cc574d9fcef2
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+          825f3f6437d5d7e6bcb90182f69a9af1828706c7
+      - name: Load final native core and its exact three-file policy seed
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
+          75171aa1b7fe12e7315fd3427eea56b6a9cc2951
+      - name: Verify root command syntax
+        run: bash -n deployment/run_go_erp_direct_login_root.sh
+      - name: Verify seed policy and exact final lineage as the checkout owner
+        run: |
+          python3 -B -m unittest discover -s tests -p test_go_erp_preview31_seed.py
+          python3 -B - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import subprocess
+          import tempfile
+          with tempfile.TemporaryDirectory(prefix='go-erp-direct-login-seed-policy-') as folder:
+              path = Path(folder) / 'verify.py'
+              path.write_bytes(subprocess.check_output(['git', 'show',
+                  '75171aa1b7fe12e7315fd3427eea56b6a9cc2951:deployment/verify_go_erp_preview31_seed.py']))
+              spec = importlib.util.spec_from_file_location('direct_login_seed_policy', path)
+              policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
+              proof = policy.validate_seed(Path.cwd(), '75171aa1b7fe12e7315fd3427eea56b6a9cc2951')
+              assert proof['core'] == 'd19cebab4712a5f9e6af3626a7778dd7afa23357'
+              assert policy.POLICY == 'native-close-reopen-program-contract-direct-login-accounts-v1'
+              print(proof)
+          PY
+      - name: Verify accepted proof retention, fresh source capture and original 56 creation
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_direct_login_*.py' -v
