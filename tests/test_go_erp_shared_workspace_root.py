@@ -195,5 +195,32 @@ class RootActivationIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(fixture.subject.Stop,'HTTPS_CACHE_FLAG_CHANGED'):
             self.operator._activate(None,self.proof,lambda:True)
 
+    def test_actual_owned_source_rollback_uses_actual_environment_cache_and_drain_barrier(self):
+        root=self.fixture.root;before=self.fixture.file.read_bytes()
+        payloads={'app/reviewed.php':b'<?php // new referrer to New.php\n',
+            'app/New.php':b'<?php // new workspace dependency\n'}
+        pins={name:{'before':io.sha(before) if name=='app/reviewed.php' else None,'after':io.sha(raw)}
+            for name,raw in payloads.items()}
+        audit=self.fixture.private/'source-audits';audit.mkdir(mode=0o700)
+        transaction=io.Transaction(root,audit,'a'*40,0,0,payloads,pins,[],lambda:True)
+        self.actor.pins['source_files']={name:row['after'] for name,row in pins.items()}
+        self.actor.prepare_env_disabled()
+        def interrupted():
+            self.actor.prepare_disabled();raise fixture.Crash()
+        with self.assertRaises(fixture.Crash):transaction.apply(after_apply=interrupted)
+        self.assertTrue((root/'app/New.php').exists())
+        capture=self.fixture.processes.capture
+        def boundary(master):
+            self.assertEqual(before,self.fixture.file.read_bytes())
+            self.assertTrue((root/'app/New.php').exists())
+            return capture(master)
+        self.fixture.processes.capture=boundary
+        result=transaction.rollback(addition_removal_barrier=lambda pending:self.actor.addition_removal_barrier(
+            pending,lambda:io.sha(io.canonical(transaction._referrer_snapshot()))),
+            expected_handler_sha256=self.actor.pins['binding']['php_handler_configuration_sha256'])
+        self.assertTrue(result['restored']);self.assertFalse((root/'app/New.php').exists())
+        self.assertEqual(before,self.fixture.file.read_bytes())
+        self.assertEqual(self.fixture.raw,self.fixture.env.read_bytes())
+
 
 if __name__=='__main__':unittest.main()

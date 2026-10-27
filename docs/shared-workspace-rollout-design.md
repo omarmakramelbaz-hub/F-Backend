@@ -501,7 +501,7 @@ including an already-active resume, obtains a fresh HTTPS witness. The final pub
 marker appears only after those checks, reports the four additive tables, and confirms
 automatic updates remain disabled. No final user command is supplied while pins are null.
 
-The combined 194 tests include actual temporary source/environment/checkpoint inodes,
+The combined 195 tests include actual temporary source/environment/checkpoint inodes,
 mutation failures and resume, real original-template/native/manual byte derivation for
 both predecessors, pure PHP metadata fixtures, and the root loader driving actual
 activation/WAL code with injected fake PHP/FPM/HTTPS services. They execute no server,
