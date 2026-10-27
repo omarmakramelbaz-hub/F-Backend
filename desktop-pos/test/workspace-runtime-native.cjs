@@ -123,6 +123,51 @@ async function show(result) {
     assert.equal(await window.webContents.executeJavaScript('document.body.dataset.dashboardActor'), result.actor.actorId + ':' + result.actor.role);
   } finally { window.destroy(); }
 }
+function originalLogout(result) {
+  // Electron fetch rejects redirect:'manual' instead of surfacing a 302.
+  // Exercise the original logout with the same partition cookies and approve
+  // only its exact same-origin login redirect through the native request event.
+  return new Promise((resolve,reject) => {
+    let request, settled = false, redirects = 0, ended = false, bytes = 0; const parts = [];
+    const timer = setTimeout(() => finish(Error('The original logout response timed out.')), 15000);
+    const finish = (error,value) => {
+      if (settled) return; settled = true; clearTimeout(timer);
+      if (error) { try { request?.abort(); } catch {} reject(error); } else resolve(value);
+    };
+    try {
+      request = net.request({ url: result.origin + '/admin/adminLogout', method: 'GET',
+        session: session.fromPartition(result.account.partition), useSessionCookies: true, credentials: 'include',
+        redirect: 'manual', cache: 'no-store', headers: { Accept: 'text/html', 'X-Fasakhansta-Desktop': result.localToken } });
+      request.on('redirect',(status,method,target) => {
+        try {
+          assert.ok([302,303].includes(status)); assert.equal(method, 'GET');
+          assert.equal(target, result.origin + '/admin/login'); assert.equal(++redirects, 1);
+          request.followRedirect();
+        } catch (error) { finish(error); }
+      });
+      request.on('response',response => {
+        response.on('data',chunk => {
+          if (settled) return; const value = Buffer.from(chunk); bytes += value.length;
+          if (bytes > 4 * 1024 ** 2) { finish(Error('The original logout response exceeded its bound.')); return; } parts.push(value);
+        });
+        response.on('error',error => finish(error));
+        response.on('aborted',() => finish(Error('The original logout response was aborted.')));
+        response.on('close',() => { if (!ended) finish(Error('The original logout response closed before its body ended.')); });
+        response.on('end',() => {
+          ended = true;
+          try {
+            assert.equal(redirects, 1); assert.equal(response.statusCode, 200);
+            assert.match(Buffer.concat(parts,bytes).toString('utf8'), /<form\b[^>]*\bdata-dashboard-login\b/);
+            finish(null,{ status: response.statusCode });
+          } catch (error) { finish(error); }
+        });
+      });
+      request.on('error',error => finish(error));
+      request.on('abort',() => finish(Error('The original logout request was aborted.')));
+      request.end();
+    } catch (error) { finish(error); }
+  });
+}
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function main() {
   await app.whenReady(); assert.equal(safeStorage.isEncryptionAvailable(), true);
@@ -174,9 +219,7 @@ async function main() {
   nativeStage = 'remembered-reopen'; const remembered = await host.login.resumeRemembered(); assert.equal(remembered.actor.actorId, 11); assert.equal(remembered.local, true);
   b = remembered;
   nativeStage = 'explicit-logout'; await signout.signedOut(b.runtime); host.workspace.revokeSession(11);
-  const loggedOut = await session.fromPartition(b.account.partition).fetch(b.origin + '/admin/adminLogout', {
-    method: 'GET', headers: { 'X-Fasakhansta-Desktop': b.localToken }, redirect: 'manual' });
-  assert.ok([200,302,303].includes(loggedOut.status)); await loggedOut.body?.cancel();
+  const loggedOut = await originalLogout(b); assert.equal(loggedOut.status, 200);
   assert.equal(await host.login.resumeRemembered(), null); assert.equal(await signout.requirePassword(b.runtime), true);
   await assert.rejects(host.login.authenticate({ ...credentials(11), password: 'invalid-native-fixture-password' }));
   const bAgain = await host.login.authenticate(credentials(11)); bAgain.discardCredentials();
