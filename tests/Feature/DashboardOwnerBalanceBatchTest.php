@@ -100,7 +100,9 @@ class DashboardOwnerBalanceBatchTest extends DashboardHomeOverviewTest
         $this->batchTill();DB::table('settings')->where('name','service_fees')->update(['payload'=>'101']);
         [$empty,$queries]=$this->measuredBalances();$this->assertSame(50000,$empty['f:100']['expected_cents']);
         $this->assertCount(0,$this->batchQueries($queries,'settings'));$this->assertCount(0,$this->batchQueries($queries,'carts'));
-        $this->batchOrder(1,['payment_type'=>'card','transfer_price_by'=>'admin'],[['price'=>'1.00','qty'=>'invalid']]);
+        // A negative decimal survives both SQLite and MySQL's DECIMAL column;
+        // an arbitrary string would be coerced by MySQL before PHP validates it.
+        $this->batchOrder(1,['payment_type'=>'card','transfer_price_by'=>'admin'],[['price'=>'1.00','qty'=>'-1.000']]);
         try{$this->measuredBalances();$this->fail('Invalid noncash quantity must still be checked');}
         catch(HttpException $error){$this->assertSame(409,$error->getStatusCode());$this->assertSame('كمية طلب التطبيق غير صالحة.',$error->getMessage());}
         DB::table('carts')->update(['qty'=>'1.000']);

@@ -328,13 +328,18 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
     }
     private function catalogAllowed(DesktopDashboardWorkspaceScope $scope,User $actor,array $required,bool $enforce): bool
     {
-        $fresh=$this->locking(User::withoutGlobalScopes()->whereKey($actor->id))->first();
-        $facts=(new DesktopDashboardWorkspaceAuthority)->persistedMemberFacts((int)$actor->id,!DesktopDashboardWorkspaceExecutionContext::isReadOnly());
-        $allowed=$fresh&&$fresh->account_type==='admin'&&empty($fresh->owner_resturant_id)
-            &&!in_array($fresh->status,['disabled','declined'],true)
-            &&((int)$actor->id===1||(!array_diff($required,$scope->permissionFacts()['names'])
-                &&!array_diff($required,$facts['permissions']['names'])));
-        if($enforce)abort_unless($allowed,403);return $allowed;
+        $check=function()use($scope,$actor,$required,$enforce){
+            $fresh=$this->locking(User::withoutGlobalScopes()->whereKey($actor->id))->first();
+            $facts=(new DesktopDashboardWorkspaceAuthority)->persistedMemberFacts((int)$actor->id,!DesktopDashboardWorkspaceExecutionContext::isReadOnly());
+            $allowed=$fresh&&$fresh->account_type==='admin'&&empty($fresh->owner_resturant_id)
+                &&!in_array($fresh->status,['disabled','declined'],true)
+                &&((int)$actor->id===1||(!array_diff($required,$scope->permissionFacts()['names'])
+                    &&!array_diff($required,$facts['permissions']['names'])));
+            if($enforce)abort_unless($allowed,403);return $allowed;
+        };
+        // A direct scope read has the same fresh authority boundary as a page
+        // request. Callers do not need to open an undocumented transaction.
+        return DB::transactionLevel()>0?$check():DB::transaction($check);
     }
     private function canCreate(DesktopDashboardWorkspaceScope $scope,User $actor): void
     {

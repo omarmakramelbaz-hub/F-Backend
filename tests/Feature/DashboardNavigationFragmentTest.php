@@ -24,6 +24,7 @@ class DashboardNavigationFragmentTest extends DashboardHomeOverviewTest
         require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php');
         (new \CreatePermissionTables())->up();
         require_once database_path('migrations/2022_08_17_095029_create_notifications_table.php');
+        Schema::dropIfExists('notifications');
         (new \CreateNotificationsTable())->up();
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         $permission=Permission::create(['name'=>'order-list','guard_name'=>'admin']);
@@ -56,6 +57,12 @@ class DashboardNavigationFragmentTest extends DashboardHomeOverviewTest
                 'sql'=>strtolower(preg_replace('/\s+/',' ',trim($query->sql))),
                 'bindings'=>$query->bindings];
         });
+    }
+
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('notifications');
+        parent::tearDown();
     }
 
     private function navigationActor(int $id): User

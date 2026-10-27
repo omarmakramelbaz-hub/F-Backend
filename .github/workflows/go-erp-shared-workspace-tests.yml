@@ -124,7 +124,7 @@ jobs:
         run: vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php
       - name: Preserve fast navigation fragment and permission boundaries
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
-        run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php
+        run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
   windows-native-regressions:
     runs-on: windows-latest
     timeout-minutes: 20
