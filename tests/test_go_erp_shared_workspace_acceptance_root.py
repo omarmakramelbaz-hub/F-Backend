@@ -101,7 +101,9 @@ class AcceptanceTests(unittest.TestCase):
     def archive(self):
         output=memory.BytesIO()
         with zipfile.ZipFile(output,'w',zipfile.ZIP_STORED) as archive:
-            archive.writestr(subject.MEMBER,io.canonical(self.value))
+            # API digest and downloaded bytes model one immutable artifact;
+            # wall-clock ZIP timestamps must not change between fixture calls.
+            archive.writestr(zipfile.ZipInfo(subject.MEMBER,date_time=(2026,1,1,0,0,0)),io.canonical(self.value))
         return output.getvalue()
 
     def test_actual_receipt_scope_is_honest_and_original_gates_wait_for_original_completion(self):

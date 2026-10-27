@@ -136,6 +136,22 @@ class ProofAndSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(subject.Stop,'PINNED_SOURCE_ROSTER_FAILED'):subject.proof_maps(git,'synthetic fixture')
         files[name]=b"module.exports={sourceFiles:()=>['native-fixture.php','native-fixture.php']};"
         with self.assertRaisesRegex(subject.Stop,'NATIVE_PROOF_ROSTER_CHANGED'):subject.proof_maps(git,'synthetic fixture')
+    def test_unselected_asar_file_symlink_or_executable_is_rejected_before_node(self):
+        git,_files=self.fake();original=git.files
+        def changed(ref):
+            result=original(ref);result['desktop-pos/src/other.cjs']=('120000','blob','1'*40);return result
+        git.files=changed
+        with self.assertRaisesRegex(subject.Stop,'ASAR_SOURCE_MODE_CHANGED'):subject.proof_maps(git,'synthetic fixture')
+    def test_accepted_schema_prerequisite_drift_is_rejected_before_any_binding(self):
+        original=subject.prerequisites();self.assertEqual(4,len(original['migration_schemas']))
+        changed=copy.deepcopy(original);table=next(iter(changed['migration_schemas']))
+        changed['migration_schemas'][table]['columns'][0]['type']='char(35)'
+        read=subject.Path.read_bytes
+        def bytes_(path):
+            if path.name=='shared_workspace_prerequisites_r13.json':return subject.canonical(changed)
+            return read(path)
+        with patch.object(subject.Path,'read_bytes',bytes_):
+            with self.assertRaisesRegex(subject.Stop,'ACCEPTED_SCHEMA_PREREQUISITES_CHANGED'):subject.prerequisites()
     def test_cached_seven_previous_payloads_match_real_derivation_and_changes_fail(self):
         previous=subject.previous_payloads();self.assertEqual(7,len(previous))
         payloads=subject.module('go_erp_shared_workspace_payloads.py').native(previous,subject.module('go_erp_owner_fast_open_payloads.py'),
@@ -152,6 +168,8 @@ class ProofAndSafetyTests(unittest.TestCase):
             'workflows':{name:{'head_sha':'a'*40,'event':'push','status':'completed','conclusion':'success',
                 'path':'.github/workflows/'+name,'id':index+1,'attempt':1} for index,name in enumerate(subject.WORKFLOWS)}}
         subject.checked_approval(value,'a'*40)
+        copy_=copy.deepcopy(value);copy_['native_receipt_sha256']='0'*64
+        with self.assertRaisesRegex(subject.Stop,'FINAL_CORE_RECEIPT_HASHES_REQUIRED'):subject.checked_approval(copy_,'a'*40)
         value['workflows'][subject.WORKFLOWS[-1]]['head_sha']='e'*40
         with self.assertRaisesRegex(subject.Stop,'FINAL_CORE_CI_IDENTITY_REQUIRED'):subject.checked_approval(value,'a'*40)
 

@@ -150,6 +150,7 @@ def proof_maps(git,core):
     names=sorted(name.removeprefix('desktop-pos/src/') for name in files
         if re.fullmatch(r'desktop-pos/src/[^/]+\.cjs',name))
     need({'main.cjs','workspace-native.cjs','workspace-policy.cjs'}<=set(names),'COMPLETE_ASAR_ROSTER_REQUIRED')
+    need(all(files['desktop-pos/src/'+name][:2]==('100644','blob') for name in names),'ASAR_SOURCE_MODE_CHANGED')
     verifier='.github/scripts/verify-workspace-runtime-native.cjs';code=git.file(verifier,core)
     node=shutil.which('node');need(node is not None,'NODE_REQUIRED_FOR_PINNED_ROSTER')
     run=subprocess.run([node,'-e',NODE_ROSTER],input=canonical({'code':code.decode(),'names':names}),
@@ -184,12 +185,25 @@ def previous_payloads():
         result[name]=data
     need(len(result)==7,'LEGACY_CACHE_ROSTER');return result
 
+def prerequisites():
+    value=json.loads((HERE/'pins/shared_workspace_prerequisites_r13.json').read_bytes())
+    raw=(HERE/'pins/shared_workspace_schema_accepted_r13.json').read_bytes();accepted=json.loads(raw)
+    proof=value['schema_provenance']
+    need(sha(raw)==proof['member_sha256'] and sha(canonical(value['migration_schemas']))
+        ==proof['semantic_schemas_sha256']==accepted['semantic_schemas_sha256']
+        and canonical(value['migration_schemas'])==canonical(accepted['schemas'])
+        and canonical(value['migration_hashes'])==canonical(accepted['migration_hashes'])
+        and value['migration_template_sha256']==proof['helper_sha256']==accepted['helper_sha256']
+        and value['source_revision']==proof['source_revision']==accepted['source_revision'],
+        'ACCEPTED_SCHEMA_PREREQUISITES_CHANGED')
+    return value
+
 def bindings(git,core,seed,web=None):
     root=module('go_erp_shared_workspace_root.py');native=module('go_erp_shared_workspace_native_root.py')
     proof=verify_seed(git,core,seed);web=web or core;git.commit(web)
     need(git.run('diff-tree','-r','--no-commit-id','--name-only','--no-renames',web,core,'--',*native.BACKEND)==b'','WEB_BACKEND_DIFFERS_FROM_CORE')
     startup,asar,acceptance=proof_maps(git,core)
-    prereq=json.loads((HERE/'pins/shared_workspace_prerequisites_r13.json').read_bytes())
+    prereq=prerequisites()
     need(acceptance['contract_sha256']==prereq['contract_sha256'],'REVIEWED_CONTRACT_CHANGED')
     for name,pin in prereq['migration_hashes'].items():need(sha(git.file(name,web))==pin,'REVIEWED_MIGRATION_BYTES_CHANGED')
     payloads=module('go_erp_shared_workspace_payloads.py').native(previous_payloads(),module('go_erp_owner_fast_open_payloads.py'),
@@ -225,7 +239,7 @@ def checked_approval(value,core):
             and row.get('conclusion')=='success' and row.get('status')=='completed'
             and row.get('path')=='.github/workflows/'+name and type(row.get('id')) is int and row['id']>0
             and type(row.get('attempt')) is int and row['attempt']>0,'FINAL_CORE_CI_IDENTITY_REQUIRED')
-    need(all(isinstance(value.get(name),str) and SHA.fullmatch(value[name]) for name in
+    need(all(isinstance(value.get(name),str) and SHA.fullmatch(value[name]) and value[name]!='0'*64 for name in
         ('native_receipt_sha256','native_artifact_sha256','installed_asar_receipt_sha256')),'FINAL_CORE_RECEIPT_HASHES_REQUIRED')
 
 def write_files(folder,files):
