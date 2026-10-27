@@ -118,9 +118,11 @@ class DesktopDashboardSettings
     public function authorize(string $name,array $payload,User $actor,object $scope): User
     {
         $this->facts($name,$payload);$original=$this->original($name);
-        foreach(['settings','users','resturants','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions','desktop_dashboard_devices','desktop_dashboard_commands','desktop_dashboard_entities'] as $table){
+        $workspace=app(DesktopDashboardWorkspaceModuleAuthority::class)->scope($scope,$actor,$name==='updateSetting'?['setting-list']:[],true);
+        $enrollmentTable=$workspace?($workspace->isLocal()?'desktop_dashboard_workspace_local_authority':'desktop_dashboard_workspaces'):'desktop_dashboard_devices';
+        foreach(['settings','users','resturants','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions',$enrollmentTable,'desktop_dashboard_commands','desktop_dashboard_entities'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?',[$table]);abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,409);}
-        $device=DB::table('desktop_dashboard_devices')->where('id',$scope->device_id??$scope->id??'')->lockForUpdate()->first();
+        $device=$workspace??DB::table('desktop_dashboard_devices')->where('id',$scope->device_id??$scope->id??'')->lockForUpdate()->first();
         abort_unless($device&&$device->enabled&&(int)$device->actor_id===(int)$scope->actor_id&&(int)$scope->actor_id===(int)$actor->id,403);
         $fresh=User::withoutGlobalScopes()->whereKey($actor->id)->lockForUpdate()->first();
         abort_unless($fresh&&$fresh->account_type==='admin'&&empty($fresh->owner_resturant_id)&&!in_array($fresh->status,['disabled','declined'],true),403);
@@ -131,6 +133,7 @@ class DesktopDashboardSettings
         $roleGrants=DB::table(config('permission.table_names.role_has_permissions'))->whereIn('role_id',$roles->where('guard_name','admin')->pluck('id'))->orderBy('permission_id')->lockForUpdate()->get();
         $has=function(string $permission)use($permissionRows,$direct,$roleGrants){$id=$permissionRows->firstWhere('name',$permission)->id??null;return $id!==null&&($direct->contains('permission_id',$id)||$roleGrants->contains('permission_id',$id));};
         abort_unless((int)$fresh->id===1||$roles->contains(fn($role)=>$role->guard_name==='admin'&&$role->name==='Super Admin')||$has('order-list'),403);
+        if($workspace){$captured=$workspace->permissionFacts();abort_unless($captured['super_admin']||in_array('order-list',$captured['names'],true),403);}
         if($name==='updateSetting')abort_unless($has('setting-list'),403);
         $branches=app(DesktopDashboardDevices::class)->baseBranches($device,true);abort_unless(is_array($branches)&&count($branches)>0,403);
         $cohort=app(DesktopDashboardCreatedScopes::class)->available()?app(DesktopDashboardCreatedScopes::class)->structural($device,$fresh):$branches;

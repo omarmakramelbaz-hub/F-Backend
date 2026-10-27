@@ -12,6 +12,8 @@ try {
     if(strlen($input)>20*1024*1024){http_response_code(413);exit;}
     $value=json_decode($input,true,128,JSON_THROW_ON_ERROR);
     $app=require __DIR__.'/bootstrap.php';
+    // A shared workspace uses the separate root/session capability protocol.
+    abort_if(getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true',403);
     $device=(string)config('desktop_dashboard.device_id');
     $journal=$app->make(DesktopDashboardJournal::class);
     switch($value['action']??''){

@@ -26,7 +26,8 @@ class AdvertisingController extends Controller
         $request = request();
         $searchQuery = trim($request->query('search'));
 
-        $dash_advertisings = Advertising::query();
+        $dash_advertisings = app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)
+            ->restaurants(Advertising::query(),'advertisings.resturant_id');
 
         if($request->query('from_date')){
             $dash_advertisings = $dash_advertisings->whereDate('created_at','>=',date($request->query('from_date')));

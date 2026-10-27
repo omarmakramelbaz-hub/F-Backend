@@ -10,9 +10,9 @@ class DesktopDashboardDeltaLocal
     public const STAGE_TABLE='desktop_dashboard_delta_stage';
     public const REPLAY_TABLE='desktop_dashboard_delta_replay';
     private const MAX_ROWS=500000;
-    private object $pdo;
-    private array $runtime;
-    private \Closure $importer;
+    protected object $pdo;
+    protected array $runtime;
+    protected \Closure $importer;
 
     /** Injectable I/O is used by the isolated database protocol regression. */
     public function __construct(?object $pdo=null,?array $runtime=null,?callable $importer=null)
@@ -380,7 +380,7 @@ class DesktopDashboardDeltaLocal
             'media'=>$files,'enrollment'=>$enrollment];
     }
 
-    private function projection(string $table,array $coverage): ?array
+    protected function projection(string $table,array $coverage): ?array
     {
         return DesktopDashboardDeltaCodec::projection($table,$coverage);
     }
@@ -388,21 +388,21 @@ class DesktopDashboardDeltaLocal
     {
         $left=array_keys($left);$right=array_keys($right);sort($left,SORT_STRING);sort($right,SORT_STRING);return $left===$right;
     }
-    private function tables(string $database): array
+    protected function tables(string $database): array
     {
         $rows=$this->pdo->query('SHOW TABLES FROM `'.$database.'`')->fetchAll(\PDO::FETCH_COLUMN);
         $this->need(is_array($rows),'DATABASE_TABLES');return $rows;
     }
-    private function rows(string $database,string $table): array
+    protected function rows(string $database,string $table): array
     {
         return $this->pdo->query('SELECT * FROM `'.$database.'`.`'.$table.'`')->fetchAll(\PDO::FETCH_ASSOC);
     }
-    private function ddl(string $database,string $table): string
+    protected function ddl(string $database,string $table): string
     {
         $row=$this->pdo->query('SHOW CREATE TABLE `'.$database.'`.`'.$table.'`')->fetch(\PDO::FETCH_NUM);
         $this->need(is_array($row)&&is_string($row[1]??null),'TABLE_DDL');return $row[1];
     }
-    private function insertRows(string $database,string $table,array $rows): void
+    protected function insertRows(string $database,string $table,array $rows): void
     {
         if(!$rows)return;
         $columns=array_keys($rows[0]);$this->need(count($columns)>0,'ROW_COLUMNS');
@@ -455,7 +455,7 @@ class DesktopDashboardDeltaLocal
         return ['format'=>1,'source_database'=>$source,'sequence'=>$sequence,'rows'=>$count,'sha256'=>hash_final($hash)];
     }
 
-    private function safeDdl(string $table,string $ddl,array $roster): void
+    protected function safeDdl(string $table,string $ddl,array $roster): void
     {
         $this->need(strlen($ddl)<1024*1024&&str_starts_with($ddl,'CREATE TABLE `'.$table.'` ('),'TABLE_DDL');
         $syntax=preg_replace('/\x27(?:[^\x27\\\\]|\\\\.|\x27\x27)*\x27|"(?:[^"\\\\]|\\\\.|"")*"|`(?:[^`]|``)*`/s','_',$ddl);
@@ -466,24 +466,24 @@ class DesktopDashboardDeltaLocal
         preg_match_all('/REFERENCES\s+`([^`]+)`\s*\(/i',$ddl,$references);
         foreach($references[1] as $name)$this->need(in_array($name,$roster,true),'TABLE_REFERENCE');
     }
-    private function qualifiedDdl(string $database,string $table,string $ddl): string
+    protected function qualifiedDdl(string $database,string $table,string $ddl): string
     {
         return 'CREATE TABLE `'.$database.'`.`'.$table.'` ('.substr($ddl,strlen('CREATE TABLE `'.$table.'` ('));
     }
-    private function one(string $sql,array $bindings=[]): ?array{$statement=$this->execute($sql,$bindings);$value=$statement->fetch(\PDO::FETCH_ASSOC);return is_array($value)?$value:null;}
-    private function execute(string $sql,array $bindings=[]): object{$statement=$this->pdo->prepare($sql);$statement->execute($bindings);return $statement;}
-    private function decode($value){$this->need(is_string($value),'PRIVATE_JSON');return json_decode($value,true,512,JSON_THROW_ON_ERROR);}
-    private function integer($value,string $reason): int{$this->need((is_int($value)&&$value>=0)||(is_string($value)&&preg_match('/^(?:0|[1-9][0-9]{0,15})$/D',$value)), $reason);$this->need((int)$value<=9007199254740991,$reason);return (int)$value;}
-    private function database($value,bool $stage=false): bool{return is_string($value)&&preg_match($stage?'/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D':'/^fasakhansta_dashboard(?:_stage_[a-f0-9]{16})?$/D',$value)===1;}
-    private function uuid($value): bool{return is_string($value)&&preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD',$value)===1;}
-    private function hash($value): bool{return is_string($value)&&preg_match('/^[a-f0-9]{64}$/D',$value)===1;}
-    private function source($value): bool{return is_array($value)&&count($value)===4&&($value['format']??null)===1&&is_int($value['files']??null)&&$value['files']>0&&$value['files']<=20000&&$this->hash($value['sha256']??null)&&is_string($value['framework']??null)&&preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D',$value['framework']);}
-    private function sameSource($left,$right): bool
+    protected function one(string $sql,array $bindings=[]): ?array{$statement=$this->execute($sql,$bindings);$value=$statement->fetch(\PDO::FETCH_ASSOC);return is_array($value)?$value:null;}
+    protected function execute(string $sql,array $bindings=[]): object{$statement=$this->pdo->prepare($sql);$statement->execute($bindings);return $statement;}
+    protected function decode($value){$this->need(is_string($value),'PRIVATE_JSON');return json_decode($value,true,512,JSON_THROW_ON_ERROR);}
+    protected function integer($value,string $reason): int{$this->need((is_int($value)&&$value>=0)||(is_string($value)&&preg_match('/^(?:0|[1-9][0-9]{0,15})$/D',$value)), $reason);$this->need((int)$value<=9007199254740991,$reason);return (int)$value;}
+    protected function database($value,bool $stage=false): bool{return is_string($value)&&preg_match($stage?'/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D':'/^fasakhansta_dashboard(?:_stage_[a-f0-9]{16})?$/D',$value)===1;}
+    protected function uuid($value): bool{return is_string($value)&&preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD',$value)===1;}
+    protected function hash($value): bool{return is_string($value)&&preg_match('/^[a-f0-9]{64}$/D',$value)===1;}
+    protected function source($value): bool{return is_array($value)&&count($value)===4&&($value['format']??null)===1&&is_int($value['files']??null)&&$value['files']>0&&$value['files']<=20000&&$this->hash($value['sha256']??null)&&is_string($value['framework']??null)&&preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D',$value['framework']);}
+    protected function sameSource($left,$right): bool
     {
         return $this->source($left)&&$this->source($right)&&$left['files']===$right['files']
             &&$left['framework']===$right['framework']&&hash_equals($left['sha256'],$right['sha256']);
     }
-    private static function json($value): string{return DesktopDashboardBootstrap::json($value);}
-    private function need($value,string $reason): void{if(!$value)$this->fail($reason);}
-    private function fail(string $reason): never{throw new \RuntimeException('DESKTOP_DELTA_'.$reason);}
+    protected static function json($value): string{return DesktopDashboardBootstrap::json($value);}
+    protected function need($value,string $reason): void{if(!$value)$this->fail($reason);}
+    protected function fail(string $reason): never{throw new \RuntimeException('DESKTOP_DELTA_'.$reason);}
 }

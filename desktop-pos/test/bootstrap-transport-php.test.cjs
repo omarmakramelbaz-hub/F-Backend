@@ -34,11 +34,12 @@ namespace Illuminate\Support\Facades {
     }
 }
 namespace Illuminate\Support {class Str {public static function uuid(){return '00000000-0000-4000-8000-000000000001';}}}
+namespace App\Models {class User {public int $id=1;}}
 namespace App\Services\Dashboard {
     class DesktopDashboardDevices {
         public function ready(){}
         public function lockAuthenticated($device){return $device;}
-        public function actor($device){return (object)['id'=>1];}
+        public function actor($device){return new \App\Models\User;}
         public function branch($device,$branch,$actor){}
     }
     class DesktopDashboardData {

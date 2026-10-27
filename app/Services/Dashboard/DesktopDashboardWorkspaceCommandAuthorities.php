@@ -15,7 +15,8 @@ final class DesktopDashboardWorkspaceCommandAuthorities
     {
         $scope=$this->scope($workspace);
         if ($scope===null) return;
-        abort_unless(DB::transactionLevel()>0 && $scope->actor_id===$actor && $this->digest($requestHash),503,self::ERROR);
+        abort_unless(!DesktopDashboardWorkspaceExecutionContext::isReadOnly()&&DB::transactionLevel()>0
+            && $scope->actor_id===$actor && $this->digest($requestHash),503,self::ERROR);
         $journal=DB::table('desktop_dashboard_commands')->where('device_id',$workspace)->where('command_id',$command)->lockForUpdate()->first();
         abort_unless($journal&&(int)$journal->actor_id===$actor&&hash_equals($journal->request_hash,$requestHash),503,self::ERROR);
         if(config('desktop_dashboard.local')===true)

@@ -27,12 +27,13 @@ namespace App\Services\Dashboard {
             return ['workspace_id'=>$this->manifest['workspace_id'],'root_fingerprint'=>$this->manifest['root_fingerprint'],'manifest_revision'=>$this->manifest['revision'],'roster_sha256'=>$this->manifest['roster_sha256'],'manifest_sha256'=>hash('sha256',DesktopDashboardWorkspaceAuthority::canonical($this->manifest))];}
         public function verifyImport($receipt,$expected):array{\abort_unless($receipt['manifest_sha256']===hash('sha256',DesktopDashboardWorkspaceAuthority::canonical($this->manifest))&&$expected['revision']===$this->manifest['revision'],422);return $this->manifest;}
     }
+    class DesktopDashboardPrintLedger {public function bind($device):void{\check(isset($GLOBALS['installed_context'])&&$GLOBALS['installed_context']['snapshot']['workspace_id']===$device,'Print binding preceded verified local authority.');}}
 }
 namespace {
     function abort_unless($condition,$status,$message=''){if(!$condition)throw new RuntimeException('FIXED_'.$status);}
     function abort_if($condition,$status,$message=''){abort_unless(!$condition,$status,$message);}
     function config($key){return $key==='desktop_dashboard.device_id'?'11111111-1111-4111-8111-111111111111':true;}
-    function app($class){if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)return $GLOBALS['authority'];if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class)return $GLOBALS['localAuthority'];throw new RuntimeException('Unexpected synthetic service.');}
+    function app($class){if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)return $GLOBALS['authority'];if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class)return $GLOBALS['localAuthority'];if($class===\App\Services\Dashboard\DesktopDashboardPrintLedger::class)return new $class;throw new RuntimeException('Unexpected synthetic service.');}
     function source():array{return ['format'=>1,'files'=>1,'framework'=>'8.83.29','sha256'=>str_repeat('f',64)];}
     function check($condition,$message){if(!$condition)throw new RuntimeException($message);}
     function refused(callable $work):void{try{$work();}catch(Throwable $error){return;}throw new RuntimeException('Invalid workspace import was accepted.');}

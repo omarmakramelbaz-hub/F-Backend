@@ -174,7 +174,9 @@ class DesktopDashboardCustomerDirectory
         if(isset($payload['envelope'])){
             abort_unless(($result['committed']??null)===true&&is_array($result['result']??null),503);
             $result=$result['result'];$payload=$payload['envelope']['payload'];
-            $scope=DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();
+            $workspace=DesktopDashboardWorkspaceExecutionContext::current();
+            if($workspace){abort_unless($workspace->id===$device&&$workspace->actor_id===$actorId,403);$scope=$workspace->revalidated();}
+            else $scope=DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();
         }else $scope=app(DesktopDashboardRefresh::class)->lock($device);
         $id=$this->outputs($route,$result)['crm_customer']??null;
         $phone=$route==='customers.directory-save'?data_get($result,'customer.phone'):data_get($payload,'facts.customer_before.customer.phone');

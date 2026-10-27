@@ -91,8 +91,7 @@ class DesktopDashboardImport
                 // This is not a server bearer credential and is never used for server authentication.
                 'token_hash'=>hash('sha256',random_bytes(32)),'branches'=>DesktopDashboardBootstrap::json($base),
                 'enabled'=>true,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-            app(DesktopDashboardPrintLedgerSchema::class)->install();
-            app(DesktopDashboardPrintLedger::class)->bind($snapshot['device_id']);
+            $this->provisionPrintLedger($snapshot);
         }
         if($catalog){require_once database_path('migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php');(new \CreateDesktopDashboardCreatedScopes)->up();}
         $sourceJson=DesktopDashboardBootstrap::json($snapshot['source']);
@@ -122,6 +121,11 @@ class DesktopDashboardImport
             'snapshot_id'=>'required|uuid','device_id'=>'required|uuid','actor_id'=>'required|integer|min:1',
             'branches'=>'required|array|min:1','branches.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D','tables'=>'required|array',
             'coverage'=>'required|array'])->validate();
+    }
+    protected function provisionPrintLedger(array $snapshot): void
+    {
+        app(DesktopDashboardPrintLedgerSchema::class)->install();
+        app(DesktopDashboardPrintLedger::class)->bind($snapshot['device_id']);
     }
     protected function validateBaseBranches(array $base): void
     {

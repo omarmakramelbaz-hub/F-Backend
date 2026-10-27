@@ -5,28 +5,31 @@ use App\Models\User;
 use Illuminate\Support\Facades\{Crypt,DB,Schema,Validator};
 
 /** Append-only catalog creation entitlements. Financial enrollment always remains BASE. */
-final class DesktopDashboardCreatedScopes
+class DesktopDashboardCreatedScopes
 {
     public const TABLE='desktop_dashboard_created_scopes';
     public const ROUTE='go-stores.store';
     private const OWNER=['id','added_by','name','mobile','email','account_type','app_scope','status','balance','delegate_fees','created_at','updated_at','email_verified_at','pending_vendor_id','owner_resturant_id'];
     private const PROFILE=['user_id','name','kind','address','revision','created_at','updated_at'];
-    private const COLUMNS=['grant_id','device_id','enrollment_id','command_id','actor_id','route_name','capability','entity','entity_id','origin_entity_id','branch'];
+    protected const COLUMNS=['grant_id','device_id','enrollment_id','command_id','actor_id','route_name','capability','entity','entity_id','origin_entity_id','branch'];
     public function available(): bool {return Schema::hasTable(self::TABLE);}
     public function active(): bool
     {
+        if($this->workspace())return app(DesktopDashboardWorkspaceCreatedScopes::class)->active();
         if(config('desktop_dashboard.local')!==true||!Schema::hasTable('desktop_dashboard_local_state'))return false;
         $coverage=DB::table('desktop_dashboard_local_state')->where('device_id',config('desktop_dashboard.device_id'))->value('coverage');
         return (json_decode($coverage??'{}',true)['catalog_scopes']??null)===1;
     }
     public function enrollment(object $device): string
     {
+        if($this->workspace($device))return app(DesktopDashboardWorkspaceCreatedScopes::class)->enrollment($device);
         $branches=json_decode($device->branches,true,512,JSON_THROW_ON_ERROR);sort($branches,SORT_STRING);
         return $this->hash(['device_id'=>$device->id,'actor_id'=>(int)$device->actor_id,'enrollment_hash'=>$device->enrollment_hash,'enrolled_at'=>(string)$device->enrolled_at,'branches'=>$branches]);
     }
     /** Structural scope only. Calling this never grants independent User/settings/POS authority. */
     public function structural(object $device,User $actor): array
     {
+        if($this->workspace($device))return app(DesktopDashboardWorkspaceCreatedScopes::class)->structural($device,$actor);
         $fresh=$this->device($device,$actor);$branches=json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR);
         if(!$this->available())return $branches;
         foreach(DB::table(self::TABLE)->where('device_id',$fresh->id)->where('enrollment_id',$this->enrollment($fresh))->orderBy('grant_id')->limit(1001)->lockForUpdate()->get() as $index=>$row){
@@ -37,12 +40,14 @@ final class DesktopDashboardCreatedScopes
     /** Current actionable catalog scopes; dormant targets remain recorded only in structural(). */
     public function effective(object $device,User $actor): array
     {
+        if($this->workspace($device))return app(DesktopDashboardWorkspaceCreatedScopes::class)->effective($device,$actor);
         $fresh=$this->device($device,$actor);$branches=json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR);
         foreach($this->export($fresh,$actor) as $item){$descriptor=$item['descriptor'];if($this->live($descriptor,$actor))$branches[]=$descriptor['branch'];}
         return array_values(array_unique($branches));
     }
     public function catalog(object $device,string $branch,User $actor): void
     {
+        if($this->workspace($device)){app(DesktopDashboardWorkspaceCreatedScopes::class)->catalog($device,$branch,$actor);return;}
         // The original catalog authority is independent of both creation and financial rights.
         $current=app(DesktopDashboardGoStoreProfile::class)->authorizeActor($actor);$fresh=$this->device($device,$current);
         if(config('desktop_dashboard.local')===true&&isset($device->device_id))$this->assertStructural($device,$current);
@@ -54,6 +59,7 @@ final class DesktopDashboardCreatedScopes
     }
     public function captureLocal(string $device,string $command,int $actor,string $route,array $payload,array $result,array $references): void
     {
+        if($this->workspace()){app(DesktopDashboardWorkspaceCreatedScopes::class)->captureLocal($device,$command,$actor,$route,$payload,$result,$references);return;}
         if($route!==self::ROUTE||isset($payload['envelope']))return;
         abort_unless($this->active(),503,'تجهيز صلاحية كتالوج المتجر الجديد غير مكتمل.');
         $current=User::withoutGlobalScopes()->whereKey($actor)->lockForUpdate()->firstOrFail();$fresh=$this->device((object)['id'=>$device],$current);
@@ -65,6 +71,7 @@ final class DesktopDashboardCreatedScopes
     }
     public function captureCentral(object $device,array $envelope,array $payload,array $result,array $references): void
     {
+        if($this->workspace($device)){app(DesktopDashboardWorkspaceCreatedScopes::class)->captureCentral($device,$envelope,$payload,$result,$references);return;}
         if($envelope['route_name']!==self::ROUTE)return;
         $origin=$envelope['local_result']['created_scope']??null;
         abort_unless(is_array($origin)&&($origin['kind']??null)==='gs'&&($origin['entity']??null)==='menu_store_owner'
@@ -76,6 +83,7 @@ final class DesktopDashboardCreatedScopes
     }
     public function captureNative(object $device,string $attempt,string $command,array $payload,array $result): void
     {
+        if($this->workspace($device)){app(DesktopDashboardWorkspaceCreatedScopes::class)->captureNative($device,$attempt,$command,$payload,$result);return;}
         if(!$this->available())return;
         $this->mint($device,$command,self::ROUTE,$payload,$result,$result['references']??[],(int)($result['created_scope']['id']??0),['kind'=>'remote-attempt','attempt_id'=>$attempt]);
     }
@@ -101,6 +109,7 @@ final class DesktopDashboardCreatedScopes
     /** Transport authenticated public creator receipts, never credential payloads or server ciphertext. */
     public function export(object $device,User $actor): array
     {
+        if($this->workspace($device))return app(DesktopDashboardWorkspaceCreatedScopes::class)->export($device,$actor);
         $fresh=$this->device($device,$actor);if(!$this->available())return [];$out=[];
         foreach(DB::table(self::TABLE)->where('device_id',$fresh->id)->where('enrollment_id',$this->enrollment($fresh))->orderBy('grant_id')->limit(1001)->lockForUpdate()->get() as $index=>$row){
             abort_unless($index<1000,413);$descriptor=$this->read($row,$fresh,$actor);
@@ -112,6 +121,7 @@ final class DesktopDashboardCreatedScopes
     /** Immutable structural membership is separate from currently actionable catalog targets. */
     public function assertStructural(object $scope,User $actor): void
     {
+        if($this->workspace($scope)){app(DesktopDashboardWorkspaceCreatedScopes::class)->assertStructural($scope,$actor);return;}
         $fresh=$this->device($scope,$actor);$coverage=json_decode($scope->coverage??'{}',true,512,JSON_THROW_ON_ERROR);
         $base=json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR);$initial=[];
         foreach(DB::table(self::TABLE)->where('device_id',$fresh->id)->where('enrollment_id',$this->enrollment($fresh))->orderBy('grant_id')->limit(1001)->lockForUpdate()->get() as $index=>$row){
@@ -129,6 +139,8 @@ final class DesktopDashboardCreatedScopes
     }
     public function restore(array $snapshot): void
     {
+        // Protocol two restores only through its typed staging import provenance.
+        abort_if(($snapshot['format']??null)===2||$this->workspace(),503,'دليل استعادة كتالوج مساحة العمل غير مكتمل.');
         abort_unless(DB::transactionLevel()>0&&($snapshot['coverage']['catalog_scopes']??null)===1&&$this->available(),503);
         $items=$snapshot['created_scopes']??null;abort_unless(is_array($items)&&array_is_list($items)&&count($items)<=1000,422);
         $actor=User::withoutGlobalScopes()->whereKey($snapshot['actor_id'])->lockForUpdate()->firstOrFail();$fresh=$this->device((object)['id'=>$snapshot['device_id']],$actor);$seen=[];
@@ -176,7 +188,7 @@ final class DesktopDashboardCreatedScopes
         return ['format'=>1,'device_id'=>$device->id,'actor_id'=>(int)$device->actor_id,'route_name'=>self::ROUTE,'command_id'=>$command,'creator_created_at'=>$creator,
             'created_scope'=>$result['created_scope']??null,'references'=>$result['references']??null,'after'=>$result['after']??null];
     }
-    private function validateCreation(array $c,array $d): void
+    protected function validateCreation(array $c,array $d): void
     {
         abort_unless(strlen($this->json($c))<=16384,413);
         abort_unless($this->keys($c,['format','device_id','actor_id','route_name','command_id','creator_created_at','created_scope','references','after'])
@@ -218,6 +230,11 @@ final class DesktopDashboardCreatedScopes
     }
     private function keys(array $value,array $expected): bool {$keys=array_keys($value);sort($keys);sort($expected);return $keys===$expected;}
     private function grantId(array $d): string {return $this->hash(['catalog-created-scope:1',$d['device_id'],$d['enrollment_id'],$d['command_id'],'menu_store_owner',$d['origin_entity_id']]);}
-    private function hash(array $v): string {return hash('sha256',$this->json($v));}
-    private function json(array $v): string {$sort=function($v)use(&$sort){if(!is_array($v))return $v;if(!array_is_list($v))ksort($v,SORT_STRING);return array_map($sort,$v);};return json_encode($sort($v),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);}
+    protected function hash(array $v): string {return hash('sha256',$this->json($v));}
+    protected function json(array $v): string {$sort=function($v)use(&$sort){if(!is_array($v))return $v;if(!array_is_list($v))ksort($v,SORT_STRING);return array_map($sort,$v);};return json_encode($sort($v),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);}
+    private function workspace(?object $device=null): bool
+    {
+        return $device instanceof DesktopDashboardWorkspaceScope
+            ||(config('desktop_dashboard.local')===true&&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true');
+    }
 }

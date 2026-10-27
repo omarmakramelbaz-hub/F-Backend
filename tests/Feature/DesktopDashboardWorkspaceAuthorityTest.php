@@ -115,7 +115,7 @@ class DesktopDashboardWorkspaceAuthorityTest extends TestCase
     private function dropFixtures(): void
     {
         Schema::disableForeignKeyConstraints();
-        foreach (array_merge(self::WORKSPACE_TABLES, ['desktop_dashboard_entities', 'desktop_dashboard_commands',
+        foreach (array_merge(self::WORKSPACE_TABLES, ['desktop_dashboard_print_ownership','desktop_dashboard_workspace_command_authorities','desktop_dashboard_entities', 'desktop_dashboard_commands',
             'desktop_dashboard_devices', 'role_has_permissions', 'model_has_roles', 'model_has_permissions',
             'roles', 'permissions', 'go_stores', 'resturants', 'users']) as $table) Schema::dropIfExists($table);
         Schema::enableForeignKeyConstraints();
@@ -442,5 +442,36 @@ class DesktopDashboardWorkspaceAuthorityTest extends TestCase
             $lightweight->assertScope($scope);
         });
         $this->assertSame([], $writes);
+    }
+    public function test_retired_actor_print_outcome_keeps_original_command_proof_without_new_execution_authority(): void
+    {
+        require_once database_path('migrations/2026_10_27_030010_create_workspace_command_authorities.php');
+        (new \CreateWorkspaceCommandAuthorities)->up();
+        require_once database_path('migrations/2026_10_20_000001_create_desktop_dashboard_print_ownership.php');
+        (new \CreateDesktopDashboardPrintOwnership)->up();
+        $enrolled=$this->enroll();$root=$this->root($enrolled);$manifest=$enrolled['manifest'];$member=$this->member($manifest,11);
+        $scope=$this->authority()->scope($root,11,$member['grant'],$manifest['revision']);
+        $command='cccccccc-cccc-4ccc-8ccc-cccccccccccc';$effect=str_repeat('d',64);$fingerprint=$scope->rootFingerprint();
+        $payload=['enrollment_binding'=>['format'=>1,'fingerprint'=>$fingerprint],
+            'envelope'=>['command_id'=>$command,'actor_id'=>11]];
+        \App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::run($scope,
+            fn()=>app(\App\Services\Dashboard\DesktopDashboardJournal::class)->execute(self::DEVICE,$command,11,'fixture.print-work',
+                $payload,[],fn()=>['committed'=>true]));
+        DB::table('desktop_dashboard_print_ownership')->insert(['effect_id'=>$effect,'device_id'=>self::DEVICE,'command_id'=>$command,
+            'enrollment_id'=>$fingerprint,'actor_id'=>11,'branch'=>'f:101','kind'=>'sale_receipt','revision'=>1,'descriptor_hash'=>str_repeat('e',64),
+            'local_references'=>'{}','server_references'=>'{}','outcome'=>null,'outcome_hash'=>null,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        DB::table('users')->where('id',11)->update(['status'=>'disabled']);$this->authority()->manifest($root);
+        $this->denied(fn()=>$this->authority()->scopeForReplay($root,11,$member['grant'],$manifest['revision']),[403]);
+        $receipt=['effect_id'=>$effect,'enrollment_id'=>$fingerprint,'origin_command_id'=>$command,'actor_id'=>11,'branch'=>'f:101','revision'=>1,
+            'claim_token'=>'dddddddd-dddd-4ddd-8ddd-dddddddddddd','native_session_id'=>'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            'invocation_id'=>'ffffffff-ffff-4fff-8fff-ffffffffffff','permit_hash'=>str_repeat('f',64),'state'=>'review','reason'=>'previous-native-session'];
+        $audit=app(\App\Services\Dashboard\DesktopDashboardWorkspacePrintOwnership::class);
+        $result=$audit->outcome($root,$receipt);$this->assertSame($result,$audit->outcome($root,$receipt));
+        $this->assertSame('review',$result['state']);$this->assertSame(11,json_decode(DB::table('desktop_dashboard_print_ownership')->value('outcome'),true)['actor_id']);
+        $changed=$receipt;$changed['actor_id']=10;$this->denied(fn()=>$audit->outcome($root,$changed),[403]);
+        $changed=$receipt;$changed['state']='invoked';$this->denied(fn()=>$audit->outcome($root,$changed),[409]);
+        DB::table('desktop_dashboard_workspace_command_authorities')->where('command_id',$command)->update(['proof_mac'=>str_repeat('0',64)]);
+        $this->denied(fn()=>$audit->outcome($root,$receipt),[503]);
+        $this->assertSame(2,DB::table('desktop_dashboard_commands')->count());
     }
 }

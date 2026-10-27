@@ -17,6 +17,18 @@ class ResturantRepository implements ResturantRepositoryInterface
 
     public function getAllResturants($request) 
     {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);
+        if($workspace->selected()){
+            $resturants=$workspace->restaurants(Resturant::query());
+            if($request->filled('user_id'))$resturants->where('user_id',$request->query('user_id'));
+            if($request->filled('resturant_id'))$resturants->where(function($query)use($request){
+                $query->where('id',$request->query('resturant_id'))->orWhere('parent_id',$request->query('resturant_id'));
+            });
+            $resturants->where('name','like','%'.(string)$request->query('search').'%');
+            if($request->filled('from_date'))$resturants->where('created_at','>=',$request->query('from_date'));
+            if($request->filled('to_date'))$resturants->where('created_at','<=',$request->query('to_date'));
+            return $resturants->orderByDesc('id')->paginate(30);
+        }
         $searchQuery = trim($request->query('search'));
        
         $resturants= Resturant::when($request->query('user_id'), function($query, $user_id) {

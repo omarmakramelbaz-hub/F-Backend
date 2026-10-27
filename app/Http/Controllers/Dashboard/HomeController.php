@@ -47,6 +47,7 @@ class HomeController extends Controller
     
     
     public function adminWallet(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['wallet-list']);
         $wallets = Wallet::whereNull('from_user')->orWhereNull('to_user')->orderBy('id','DESC')->paginate(30);
 
         return view('admin.admin_wallet', compact('wallets'));
@@ -152,7 +153,13 @@ class HomeController extends Controller
 
     public function adminLogout()
     {
-        Auth::guard('admin')->logout();
+        $guard=Auth::guard('admin');
+        if(config('desktop_dashboard.local')===true&&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true'){
+            // Revoke this device's remembered login even if the cached member was retired.
+            $provider=$guard->getProvider();
+            if(method_exists($provider,'forgetRemembered'))$provider->forgetRemembered($guard->user());
+            $guard->logoutCurrentDevice();
+        }else $guard->logout();
              // Invalidate the session for this guard
         request()->session()->invalidate();
 

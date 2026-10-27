@@ -6,7 +6,7 @@ try{
     $keys=is_array($value)?array_keys($value):[];sort($keys);
     if(!in_array($keys,[['expected_binding','receipt'],['action','expected_binding','receipt'],['action','expected_binding','handoff_token','receipt']],true)
         ||!is_array($value['receipt'])||!is_array($value['expected_binding'])
-        ||(isset($value['action'])&&$value['action']!=='preverify'))throw new RuntimeException('Invalid workspace verification input.');
+        ||(array_key_exists('action',$value)&&$value['action']!=='preverify'))throw new RuntimeException('Invalid workspace verification input.');
     $app=require __DIR__.'/bootstrap.php';$importer=$app->make(\App\Services\Dashboard\DesktopDashboardWorkspaceImport::class);
     if(($value['action']??null)==='preverify'){
         if(array_key_exists('handoff_token',$value)){

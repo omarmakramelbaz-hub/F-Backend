@@ -200,10 +200,10 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
     }
 
     /** Shared server/local grant validation facts. It signs nothing and cannot issue authority by itself. */
-    public function persistedMemberFacts(int $actorId): array
+    public function persistedMemberFacts(int $actorId, bool $lock=true): array
     {
         abort_unless(DB::transactionLevel()>0,503);
-        $facts=$this->memberFacts($this->freshActor((object)['id'=>$actorId]),$this->permissionFacts($actorId));
+        $facts=$this->memberFacts($this->freshActor((object)['id'=>$actorId],$lock),$this->permissionFacts($actorId,$lock),$lock);
         abort_unless($facts!==null,403); return $facts;
     }
 
@@ -333,7 +333,7 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
         }
         return $this->set($result);
     }
-    private function permissionFacts(?int $actorId = null): array
+    private function permissionFacts(?int $actorId = null, bool $lock=true): array
     {
         $defaults=['permissions'=>'permissions','roles'=>'roles','model_has_roles'=>'model_has_roles',
             'model_has_permissions'=>'model_has_permissions','role_has_permissions'=>'role_has_permissions'];
@@ -342,24 +342,31 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
             && preg_match('/^[a-zA-Z0-9_]+$/D',$tables[$key]) && Schema::hasTable($tables[$key]),503,'سجل صلاحيات الحسابات غير مكتمل.');
         $facts=[];
         if ($actorId===null) {
-            foreach ($defaults as $key=>$unused) $facts[$key]=DB::table($tables[$key])->lockForUpdate()->get();
+            foreach ($defaults as $key=>$unused) {
+                $query=DB::table($tables[$key]);if($lock)$query->lockForUpdate();$facts[$key]=$query->get();
+            }
             return $facts;
         }
         $type=(new User)->getMorphClass();
-        foreach (['model_has_roles','model_has_permissions'] as $key)
-            $facts[$key]=DB::table($tables[$key])->where('model_type',$type)->where('model_id',$actorId)->lockForUpdate()->get();
+        foreach (['model_has_roles','model_has_permissions'] as $key) {
+            $query=DB::table($tables[$key])->where('model_type',$type)->where('model_id',$actorId);
+            if($lock)$query->lockForUpdate();$facts[$key]=$query->get();
+        }
         $roleIds=$facts['model_has_roles']->pluck('role_id')->all();
-        $facts['roles']=DB::table($tables['roles'])->whereIn('id',$roleIds)->lockForUpdate()->get();
-        $facts['role_has_permissions']=DB::table($tables['role_has_permissions'])->whereIn('role_id',$roleIds)->lockForUpdate()->get();
-        $facts['permissions']=DB::table($tables['permissions'])->where('guard_name','admin')->lockForUpdate()->get();
+        foreach(['roles','role_has_permissions','permissions']as$key) {
+            $query=DB::table($tables[$key]);
+            if($key==='permissions')$query->where('guard_name','admin');
+            else $query->whereIn($key==='roles'?'id':'role_id',$roleIds);
+            if($lock)$query->lockForUpdate();$facts[$key]=$query->get();
+        }
         return $facts;
     }
-    private function memberFacts(User $actor, array $facts): ?array
+    private function memberFacts(User $actor, array $facts, bool $lock=true): ?array
     {
         if (!$this->usablePassword($actor->getAuthPassword()) || !($aliases=$this->aliases($actor))) return null;
         $id=$this->safeInteger($actor->id); $permissions=$this->permissions($id,$facts);
         return ['actor_id'=>$id,'role'=>$actor->account_type,'enabled'=>true,'aliases'=>$aliases,
-            'branches'=>$this->branches($actor,$permissions),'permissions'=>$permissions,
+            'branches'=>$this->branches($actor,$permissions,$lock),'permissions'=>$permissions,
             // Import can check this without the server signing key; the HMAC grant authenticates it.
             'password_binding'=>hash('sha256',$actor->getAuthPassword())];
     }
@@ -379,7 +386,7 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
         abort_if(count($names)>4096 || count($roles)>4096,413);
         return ['super_admin'=>$super,'names'=>$names,'roles'=>$roles];
     }
-    private function branches(User $actor, array $permissions): array
+    private function branches(User $actor, array $permissions, bool $lock=true): array
     {
         $result=[]; $admin=$actor->account_type==='admin'; $parent=(int)($actor->owner_resturant_id??0);
         // A valid dashboard admin can have only nonfinancial modules, such as contracts.
@@ -392,19 +399,22 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
                     if ($this->has('resturants',['parent_id'])) $q->orWhere('parent_id',$parent); });
                 if ($parent<1) $query->whereRaw('1=0');
             } elseif (!$admin) $query->where('user_id',$actor->id);
-            foreach ($query->orderBy('id')->lockForUpdate()->pluck('id') as $id) $result[]='f:'.$this->safeInteger($id);
+            $query->orderBy('id');if($lock)$query->lockForUpdate();
+            foreach ($query->pluck('id') as $id) $result[]='f:'.$this->safeInteger($id);
         }
         if (!$parent && $actor->account_type!=='resturant_owner' && $this->has('go_stores',['user_id'])
             && $this->has('users',['account_type','app_scope','status'])) {
             $query=DB::table('go_stores')->join('users','users.id','=','go_stores.user_id')
                 ->where('users.app_scope','go_partner')->where('users.status','accepted');
             if (!$admin) $query->where('users.id',$actor->id);
-            foreach ($query->orderBy('go_stores.user_id')->lockForUpdate()->get(['users.id','users.account_type',
+            $query->orderBy('go_stores.user_id');if($lock)$query->lockForUpdate();
+            foreach ($query->get(['users.id','users.account_type',
                 $this->has('users',['pending_vendor_id'])?'users.pending_vendor_id':DB::raw('NULL AS pending_vendor_id')]) as $row) {
                 $allowed=$row->account_type==='vendor';
                 if (!$allowed && $row->account_type==='delegate' && !empty($row->pending_vendor_id)
                     && $this->has('pending_vendors',['id','profession_key']))
-                    $allowed=DB::table('pending_vendors')->where('id',$row->pending_vendor_id)->lockForUpdate()->value('profession_key')==='store_owner';
+                    { $pending=DB::table('pending_vendors')->where('id',$row->pending_vendor_id);if($lock)$pending->lockForUpdate();
+                        $allowed=$pending->value('profession_key')==='store_owner'; }
                 if ($allowed) $result[]='gs:'.$this->safeInteger($row->id);
             }
         }

@@ -54,21 +54,62 @@ jobs:
           mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
           cp .env.example .env
           php artisan key:generate
-      - name: Verify server workspace authority and canonical native interoperation
+      - name: Verify server workspace authority
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
-        run: |
-          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceAuthorityTest.php
-          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceLocalAuthorityTest.php
-          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceCoreBridgeTest.php
-          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceSnapshotTest.php
-          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceMediaTest.php
-      - name: Verify the independent SQL canonical workspace codec
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceAuthorityTest.php
+      - name: Verify local native authority and capabilities
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
-        run: |
-          php tests/desktop_dashboard_workspace_delta_codec_test.php
-          php tests/desktop_dashboard_workspace_delta_server_test.php
-          php tests/desktop_dashboard_workspace_import_test.php
-          php tests/desktop_dashboard_workspace_media_test.php
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceLocalAuthorityTest.php
+      - name: Verify original command and actor bridge
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceCoreBridgeTest.php
+      - name: Verify shared snapshot membership union
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceSnapshotTest.php
+      - name: Verify shared media authorization
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceMediaTest.php
+      - name: Verify shared HTML JSON and SPA read scope
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceReadAuthorityTest.php
+      - name: Verify shared created catalog without widening financial BASE
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceCreatedScopesTest.php
+      - name: Verify resolved desktop read route inventory
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceReadRouteInventoryTest.php
+      - name: Verify connected workspace actual actor and header boundary
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_connected_context_test.php
+      - name: Verify shared workspace delta codec
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_delta_codec_test.php
+      - name: Verify shared workspace delta server
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_delta_server_test.php
+      - name: Verify shared workspace import
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_import_test.php
+      - name: Verify shared workspace media
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_media_test.php
+      - name: Verify shared workspace delta local
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_delta_local_test.php
+      - name: Verify shared workspace delta entry
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_delta_entry_test.php
+      - name: Verify shared created catalog preflight
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_created_scopes_test.php
+      - name: Verify shared workspace handoff
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_handoff_test.php
+      - name: Verify original full schema through actual workspace import and native authority
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' && matrix.database == 'mysql' }}
+        env:
+          DESKTOP_WORKSPACE_TEST_DB_PASSWORD: test-only
+        run: php tests/desktop_dashboard_runtime/workspace-snapshot.php "$PWD" 3306
       - name: Preserve original overview and financial scope
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
@@ -101,3 +142,32 @@ jobs:
       - name: Verify shared registry migration and all existing account/printing contracts
         working-directory: desktop-pos
         run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs
+
+  actual-private-print-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mariadb:
+        image: mariadb:11.4.13
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: 'yes'
+        ports: ['3307:3306']
+        options: --health-cmd="mariadb-admin ping -h 127.0.0.1 -uroot" --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          coverage: none
+      - name: Install isolated original application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare only the isolated test application
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Verify original financial print lifecycle and shared A B ownership on disposable MariaDB
+        run: php tests/desktop_dashboard_runtime/print-ledger.php "$PWD" 3307

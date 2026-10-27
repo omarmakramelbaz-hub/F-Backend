@@ -101,10 +101,11 @@ class DesktopDashboardUserAccounts
     public function authorizeAccount(string $name,array $before,User $actor,object $scope): User
     {
         abort_unless(self::handles($name)||$name==='users.update',422);$this->ready();
+        $workspace=app(DesktopDashboardWorkspaceModuleAuthority::class)->scope($scope,$actor,[],true);
         $fresh=User::withoutGlobalScopes()->whereKey($actor->id)->lockForUpdate()->first();
         abort_unless($fresh&&$fresh->account_type==='admin'&&empty($fresh->owner_resturant_id)&&!in_array($fresh->status,['disabled','declined'],true)
             &&(int)$scope->actor_id===(int)$fresh->id,403);abort_if(isset($scope->enabled)&&!$scope->enabled,401);
-        if(config('desktop_dashboard.local')&&(string)config('desktop_dashboard.device_id')!==''){
+        if(config('desktop_dashboard.local')&&(string)config('desktop_dashboard.device_id')!==''&&!$workspace){
             $enrolled=DB::table('desktop_dashboard_devices')->where('id',(string)config('desktop_dashboard.device_id'))->lockForUpdate()->first();
             abort_unless($enrolled&&$enrolled->enabled&&(int)$enrolled->actor_id===(int)$fresh->id,403,'ربط حساب الجهاز المحلي غير مفعّل.');
             if(app(DesktopDashboardCreatedScopes::class)->active())app(DesktopDashboardCreatedScopes::class)->assertStructural($scope,$fresh);
@@ -113,6 +114,7 @@ class DesktopDashboardUserAccounts
         // Only this original full-administration cohort imports complete account/role rows.
         // Lock current memberships, bypassing cached Spatie permissions and older RR reads.
         if((int)$fresh->id!==1){
+            if($workspace)abort_unless($workspace->permissionFacts()['super_admin'],403);
             $ids=DB::table(config('permission.table_names.model_has_roles'))->where('model_type',$fresh->getMorphClass())->where('model_id',$fresh->id)->lockForUpdate()->pluck('role_id');
             $ids=DB::table(config('permission.table_names.roles'))->whereIn('id',$ids)->where('guard_name','admin')->lockForUpdate()->pluck('id');
             abort_unless(DB::table(config('permission.table_names.roles'))->whereIn('id',$ids)->where('name','Super Admin')->lockForUpdate()->first(),403,'تعديل الحسابات محليًا يحتاج نسخة الإدارة الشاملة.');
@@ -127,6 +129,7 @@ class DesktopDashboardUserAccounts
         }
         if((int)$fresh->id!==1){
             $permissionName=$before['user']['account_type'].($name==='useraddresses.destroy'?'-delete':'-edit');
+            if($workspace){$facts=$workspace->permissionFacts();abort_unless($facts['super_admin']||in_array($permissionName,$facts['names'],true),403);}
             $permission=DB::table(config('permission.table_names.permissions'))->where('guard_name','admin')->where('name',$permissionName)->lockForUpdate()->first();abort_unless($permission,403);
             $direct=DB::table(config('permission.table_names.model_has_permissions'))->where('model_type',$fresh->getMorphClass())->where('model_id',$fresh->id)->where('permission_id',$permission->id)->lockForUpdate()->first();
             $grant=DB::table(config('permission.table_names.role_has_permissions'))->whereIn('role_id',$ids)->where('permission_id',$permission->id)->lockForUpdate()->first();abort_unless($direct||$grant,403,'صلاحية تعديل هذا النوع من الحسابات لم تعد متاحة.');

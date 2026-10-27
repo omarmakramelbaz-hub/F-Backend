@@ -269,11 +269,11 @@ class DesktopDashboardRemoteAttempts
         $wallet=DesktopDashboardWalletCash::handles($name);$userAccount=DesktopDashboardUserAccounts::handles($name)||DesktopDashboardUserProfiles::handles($name);$board=DesktopDashboardOrderBoard::handles($name);
         abort_unless($settings||$board||$userAccount||$wallet||$catalog||$availability||$review||$wishlist||$restaurantFlags||$restaurantProducts||$productCrud||$menuCopy||isset(self::CORE[$name??'']),501);
         $files=$settings?app(DesktopDashboardSettingsImages::class)->files($name,$request):($management?app(DesktopDashboardRestaurantImages::class)->files($request):($goProducts?app(DesktopDashboardGoProductImages::class)->files($request):($productCrud?app(DesktopDashboardProductImages::class)->files($request):app(DesktopDashboardExpenseAttachments::class)->files($request,$name))));
-        $id=(string)$request->header('X-Fasakhansta-Remote-Attempt');$capability=(string)$request->header('X-Fasakhansta-Remote-Capability');
+        [$id,$capability]=$this->attemptHeaders($request);
         $v=$this->values(['id'=>$id,'method'=>strtoupper((string)$request->server('REQUEST_METHOD')),'path'=>'/'.$request->path()]);
         $candidate=DB::table('desktop_dashboard_remote_attempts')->where('id',$id)->first();abort_unless($candidate,409);
         $work=function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$restaurantControl,$goProducts,$management,$goCreation,$restaurantProducts,$productCrud,$menuCopy,$wallet,$userAccount,$board,$settings,$name,$files){$transaction=$settings?fn($callback)=>app(DesktopDashboardSettings::class)->transaction($callback):fn($callback)=>DB::transaction($callback);return $transaction(function()use($candidate,$request,$next,$v,$capability,$catalog,$history,$availability,$review,$wishlist,$restaurantFlags,$restaurantControl,$goProducts,$management,$goCreation,$restaurantProducts,$productCrud,$menuCopy,$wallet,$userAccount,$board,$settings,$name,$files){
-            try{$device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);$device=$this->device($device,DesktopDashboardCoreAuthority::handles($name));
+            try{$device=$this->resolveDevice($candidate);$device=$this->device($device,DesktopDashboardCoreAuthority::handles($name));
             $row=DB::table('desktop_dashboard_remote_attempts')->where('id',$candidate->id)->lockForUpdate()->first();
             abort_unless($row,409);$this->bound($row,$device);
             abort_unless((int)$row->actor_id===(int)$device->actor_id&&$row->method===$v['method']&&$row->path===$v['path']&&preg_match('/^[a-f0-9]{64}$/D',$capability)
@@ -507,6 +507,14 @@ class DesktopDashboardRemoteAttempts
         if($goProducts)return app(DesktopDashboardGoProductImages::class)->guard($work);
         if($settings)return app(DesktopDashboardSettings::class)->guard($work);
         return ($productCrud||$menuCopy)?app(DesktopDashboardProductImages::class)->guard(fn()=>app(DesktopDashboardProductEffects::class)->guard($work)):$work();
+    }
+    protected function attemptHeaders(Request $request): array
+    {
+        return [(string)$request->header('X-Fasakhansta-Remote-Attempt'),(string)$request->header('X-Fasakhansta-Remote-Capability')];
+    }
+    protected function resolveDevice(object $candidate): object
+    {
+        $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);return $device;
     }
     private function coreRoute(string $method,string $path): ?string
     {

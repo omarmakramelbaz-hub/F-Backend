@@ -246,4 +246,5 @@ check($ledger->read($device,$phone['idempotency_key'],1,'f:100')===$original,'or
 check(array_unique(DB::table('fasakhansta_dashboard_effects.print_ledger_intents')->pluck('lifecycle_state')->all())===['intent'],'all captured effects remain inert and cannot claim or invoke a printer');
 check(!in_array('phone-orders.print-claim',\App\Services\Dashboard\DesktopDashboardRoutes::WRITES,true)&&!in_array('branch-shift-print.claim',\App\Services\Dashboard\DesktopDashboardRoutes::WRITES,true),'physical write routes remain outside ordinary business replay coverage');
 require __DIR__.'/print-effects.php';
+require __DIR__.'/workspace-print-effects.php';
 echo $count.' private print-ledger checks passed using original Laravel and disposable MariaDB'.PHP_EOL;

@@ -29,7 +29,8 @@ final class DesktopDashboardPrintLedger
     public function verifyEnrollment(string $device): void
     {
         $db=$this->schema->connection();abort_unless($db->transactionLevel()>0,503);$this->schema->verify($db);
-        $scope=$this->scope($db,$device);$fresh=$this->enrollment($db,$device,true);$this->matchingEnrollment($scope,$fresh);$this->printAuthority->actor((int)$fresh->actor_id);
+        $scope=$this->scope($db,$device);$fresh=$this->enrollment($db,$device,true);$this->matchingEnrollment($scope,$fresh);
+        if(($fresh->workspace_protocol??null)!==2)$this->printAuthority->actor((int)$fresh->actor_id);
     }
 
     /** Revalidate current authority before original SQL work or returning a cached print-producing reply. */
@@ -51,7 +52,7 @@ final class DesktopDashboardPrintLedger
         $payload=json_decode(Crypt::decryptString($entry->command_cipher),true,512,JSON_THROW_ON_ERROR);abort_if(isset($payload['envelope']),409);
         $intents=json_decode($this->json($this->derive($db,$entry,$payload,$scope,$state)),true,512,JSON_THROW_ON_ERROR);
         // A call-center kitchen remains owned by the central branch receiver.
-        $current=$this->printAuthority->actor((int)$this->enrollment($db,$device,true)->actor_id);
+        $current=$this->printAuthority->actor($actor);
         $intents=array_values(array_filter($intents,fn($intent)=>in_array($intent['kind'],['sale_receipt','bill_receipt','dining_kitchen','delivery_batch'],true)||($intent['kind']==='shift_report'?$this->printAuthority->canClose($current):$this->printAuthority->receiverBranch($current)===$branch)));
         $db->table($this->schema->table('print_ledger_commands'))->insert(['device_id'=>$device,'command_id'=>$command,'enrollment_id'=>$scope->enrollment_id,'actor_id'=>$actor,
             'branch'=>$branch,'route_name'=>$entry->route_name,'request_hash'=>$entry->request_hash,'origin_database'=>$db->getDatabaseName(),
@@ -83,7 +84,7 @@ final class DesktopDashboardPrintLedger
             $scope=$this->scope($db,$device);
             $fresh=$this->enrollment($db,$device,true);
             $this->matchingEnrollment($scope,$fresh);
-            $this->printAuthority->actor((int)$fresh->actor_id);
+            if(($fresh->workspace_protocol??null)!==2)$this->printAuthority->actor((int)$fresh->actor_id);
             return $scope->enrollment_id;
         });
     }
@@ -179,9 +180,30 @@ final class DesktopDashboardPrintLedger
         return $this->storedIntents($db,$row);
     }
 
+    /** Internal native metadata lookup: old actor evidence is retained without granting a new print. */
+    public function readImmutableInTransaction(string $device,string $command,int $actor,string $branch): array
+    {
+        $db=$this->schema->connection();abort_unless($db->transactionLevel()>0
+            && app(DesktopDashboardWorkspacePrintAuthority::class)->selected(),403);
+        $scope=$this->scope($db,$device);$root=$this->enrollment($db,$device,true);$this->matchingEnrollment($scope,$root);
+        $row=$db->table($this->schema->table('print_ledger_commands'))->where('device_id',$device)->where('command_id',$command)->first();
+        abort_unless($row&&(int)$row->actor_id===$actor&&$row->branch===$branch&&$row->enrollment_id===$scope->enrollment_id,404);
+        $evidence=$db->table(DesktopDashboardWorkspaceCommandAuthorities::TABLE)->where('workspace_id',$device)->where('command_id',$command)->first();
+        abort_unless($evidence&&(int)$evidence->actor_id===$actor&&hash_equals($row->request_hash,$evidence->request_hash),503);
+        app(DesktopDashboardWorkspaceCommandAuthorities::class)->assertHistoryRow((array)$evidence,$device,$scope->enrollment_id);
+        return $this->storedIntents($db,$row);
+    }
+
     private function authority(Connection $db,string $device,int $actor,string $branch,bool $write): array
     {
         $scope=$this->scope($db,$device);
+        if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected()) {
+            $workspace=app(DesktopDashboardWorkspacePrintAuthority::class);
+            $facade=$workspace->actor($device,$actor,$branch,$write);
+            $fresh=$workspace->root($device,true);$this->matchingEnrollment($scope,$fresh);
+            $this->printAuthority->branch($branch,$this->printAuthority->actor($actor));
+            return [$scope,$facade->localState()];
+        }
         $state=$db->table('desktop_dashboard_local_state')->where('device_id',$device)->lockForUpdate()->first();
         abort_unless($state&&(int)$state->actor_id===$actor,403);
         if($write)abort_unless($state->state==='ready',409);
@@ -196,6 +218,8 @@ final class DesktopDashboardPrintLedger
 
     private function enrollment(Connection $db,string $device,bool $lock): object
     {
+        if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected())
+            return app(DesktopDashboardWorkspacePrintAuthority::class)->root($device,$lock);
         $query=$db->table('desktop_dashboard_devices')->where('id',$device);if($lock)$query->lockForUpdate();
         $row=$query->first();abort_unless($row&&$row->enabled,401,'Authoritative enrollment evidence is unavailable.');
         return $row;
@@ -212,6 +236,7 @@ final class DesktopDashboardPrintLedger
     }
     private function enrollmentFacts(object $row): array
     {
+        if(($row->workspace_protocol??null)===2)return app(DesktopDashboardWorkspacePrintAuthority::class)->facts($row);
         $branches=json_decode($row->branches,true,512,JSON_THROW_ON_ERROR);
         Validator::make(['id'=>$row->id,'actor'=>$row->actor_id,'hash'=>$row->enrollment_hash,'at'=>$row->enrolled_at,'branches'=>$branches],[
             'id'=>'required|uuid','actor'=>'required|integer|min:1','hash'=>'required|regex:/^[a-f0-9]{64}$/D','at'=>'required|date',
@@ -247,7 +272,7 @@ final class DesktopDashboardPrintLedger
             // Persist immutable stored rows, never actor-dependent presenter URLs/flags.
             $snapshot=['order'=>(array)$order,'items'=>$db->table('takeaway_order_items')->where('order_id',$order->id)->orderBy('id')->get()->map(fn($row)=>(array)$row)->all(),
                 'grant'=>['version'=>1,'nonce'=>$grant['nonce'],'expires_at'=>$grant['expires_at']],
-                'presentation'=>app(TakeawayService::class)->receipt((int)$order->id,$this->printAuthority->actor((int)$this->enrollment($db,$entry->device_id,false)->actor_id))];
+                'presentation'=>app(TakeawayService::class)->receipt((int)$order->id,$this->printAuthority->actor((int)$entry->actor_id))];
             unset($snapshot['order']['updated_at']);
             $intents[]=$this->intent($base,'sale_receipt',1,['receipt'=>(int)$order->id,'sale_till_entry.primary'=>(int)$sale->id],$snapshot);
         }elseif($route==='branch-shifts.close'){

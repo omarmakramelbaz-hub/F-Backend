@@ -7,15 +7,22 @@ use Illuminate\Http\Request;
 
 class DesktopDashboardUpdateController extends Controller
 {
+    private function authenticate(Request $request,DesktopDashboardDevices $devices): void
+    {
+        if($request->hasHeader('X-Fasakhansta-Update-Protocol')){
+            abort_unless($request->header('X-Fasakhansta-Update-Protocol')==='2',422);
+            app(\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)->authenticate((string)$request->bearerToken());
+        }else $devices->device((string)$request->bearerToken());
+    }
     public function status(Request $request,DesktopDashboardDevices $devices,DesktopDashboardUpdates $updates)
     {
-        $devices->device((string)$request->bearerToken());
+        $this->authenticate($request,$devices);
         return response()->json($updates->status())->header('Cache-Control','private, no-store');
     }
 
     public function installer(Request $request,string $sha,DesktopDashboardDevices $devices,DesktopDashboardUpdates $updates)
     {
-        $devices->device((string)$request->bearerToken());$file=$updates->installer($sha);
+        $this->authenticate($request,$devices);$file=$updates->installer($sha);
         return response()->stream(function()use($file){
             try{
                 $remaining=$file['bytes'];

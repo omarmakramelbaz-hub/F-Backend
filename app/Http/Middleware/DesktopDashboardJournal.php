@@ -38,6 +38,18 @@ class DesktopDashboardJournal
     public function handle($request,Closure $next)
     {
         if (!config('desktop_dashboard.local')) {
+            $workspace=false;foreach(['Device','Token','Actor','Revision','Grant','Root','Attempt','Capability'] as $part)
+                if($request->hasHeader('X-Fasakhansta-Workspace-'.$part))$workspace=true;
+            if($workspace){
+                $scope=\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::current();
+                $signin=$request->attributes->get(\App\Http\Middleware\DesktopDashboardWorkspaceConnectedContext::SIGNIN_ATTRIBUTE);
+                if(\App\Http\Middleware\DesktopDashboardWorkspaceConnectedContext::signin($request)
+                    &&$signin instanceof \App\Services\Dashboard\DesktopDashboardWorkspaceScope){$signin->assertIssued();return $next($request);}
+                abort_unless($scope&&!$scope->isLocal()&&(int)auth('admin')->id()===$scope->actor_id,403);
+                if($request->hasHeader('X-Fasakhansta-Workspace-Attempt')||$request->hasHeader('X-Fasakhansta-Workspace-Capability'))
+                    return app(\App\Services\Dashboard\DesktopDashboardWorkspaceRemoteAttempts::class)->handle($request,$next);
+                return $next($request);
+            }
             if($request->hasHeader('X-Fasakhansta-Connected-Device')||$request->hasHeader('X-Fasakhansta-Connected-Token')){
                 abort_if($request->hasHeader('X-Fasakhansta-Remote-Attempt')||$request->hasHeader('X-Fasakhansta-Remote-Capability'),422);
                 $this->connectedActor($request);
@@ -67,16 +79,18 @@ class DesktopDashboardJournal
         if (!DesktopDashboardRoutes::journaled($route)) {
             $action=strtolower((string)$request->route()?->getActionName());
             $login=$route==='admin.login';
+            $logout=$request->isMethod('GET')&&$request->route()?->getActionName()
+                ===\App\Http\Controllers\Dashboard\HomeController::class.'@adminLogout';
             $unsafeRead=preg_match('/@(?:[^@]*(?:delete|destroy|update|save|send|accept|finish|clear|notificationtest)|testnotification)$/D',$action)
                 || in_array($request->path(),['clear-cache','clear-compiled','linkstoragse','send_order_email','admin/clear-cache-admin','admin/test-notification'],true);
             $readPost=in_array($route,DesktopDashboardRoutes::READ_POSTS,true)||($request->isMethod('POST')&&in_array($request->route()?->getActionName(),DesktopDashboardRoutes::READ_POST_ACTIONS,true));
             abort_if((!$request->isMethod('GET')&&!$request->isMethod('HEAD')&&!$login&&!$readPost)||$unsafeRead,501,'مزامنة هذا القسم لم تُجهّز بعد؛ لم تُنفّذ العملية.');
-            if($login)return $next($request);
+            if($login||$logout)return $next($request);
             // Some legacy GET actions write data. HTTP reads must never silently commit
             // a business change without a corresponding reconciled command.
             abort_unless(DB::transactionLevel()===0,503);
             DB::statement('SET TRANSACTION READ ONLY');
-            try{return DB::transaction(fn()=>$next($request));}
+            try{return DB::transaction(fn()=>\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::readOnly(fn()=>$next($request)));}
             catch(\Illuminate\Database\QueryException $error){
                 if((int)($error->errorInfo[1]??0)===1792)abort(501,'هذه الصفحة طلبت تعديلًا لم تُجهّز مزامنته؛ لم تُنفّذ العملية.');
                 throw $error;

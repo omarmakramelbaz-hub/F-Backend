@@ -11,6 +11,8 @@ final class DesktopDashboardPrintAuthority
     public function actor(int $id): User
     {
         abort_unless(DB::transactionLevel()>0,503);
+        $workspace=DesktopDashboardWorkspaceExecutionContext::current();
+        if($workspace!==null){abort_unless($workspace->actor_id===$id,403);$workspace=$workspace->revalidated();}
         $actor=User::withoutGlobalScopes()->whereKey($id)->lockForUpdate()->first();
         abort_unless($actor&&in_array($actor->account_type,['admin','vendor','resturant_owner','delegate'],true)
             &&!in_array($actor->status??null,['disabled','declined'],true),403);
@@ -28,15 +30,22 @@ final class DesktopDashboardPrintAuthority
             ->orderBy('id')->lockForUpdate()->get();
         $super=$id===1||$roles->where('guard_name','admin')->where('name','Super Admin')->isNotEmpty();
         $list=$permissions->where('name','order-list')->contains(fn($p)=>in_array($p->id,array_merge($direct,$grants)));
+        $write=$super||$permissions->contains(fn($p)=>in_array($p->id,array_merge($direct,$grants)));
+        if($workspace!==null){
+            $captured=$workspace->permissionFacts();$super=$super&&$captured['super_admin'];
+            $list=$list&&($captured['super_admin']||in_array('order-list',$captured['names'],true));
+            $write=$write&&($captured['super_admin']||(bool)array_intersect(['order-list','order-create','order-edit'],$captured['names']));
+        }
         if($actor->account_type==='admin'&&empty($actor->owner_resturant_id))abort_unless($super||$list,403);
         $this->validated??=new \WeakMap();
-        $this->validated[$actor]=['admin_write'=>$super||$permissions->contains(fn($p)=>in_array($p->id,array_merge($direct,$grants)))];
+        $this->validated[$actor]=['admin_write'=>$write,'workspace'=>$workspace];
         return $actor;
     }
 
     public function branch(string $value,User $actor): void
     {
-        $this->facts($actor);
+        $facts=$this->facts($actor);
+        if($facts['workspace']!==null)abort_unless(in_array($value,$facts['workspace']->branchGrants(),true),403);
         abort_unless(preg_match('/^(f|gs):([1-9][0-9]{0,18})$/D',$value,$m),404);$id=(int)$m[2];
         if($m[1]==='f'){
             abort_unless($actor->account_type!=='delegate'&&Schema::hasColumn('resturants','user_id'),404);
@@ -78,6 +87,8 @@ final class DesktopDashboardPrintAuthority
             if($owner&&$owner->app_scope==='go_partner'&&$owner->status==='accepted'&&$this->storeOwner($owner)
                 &&DB::table('go_stores')->where('user_id',$actor->id)->lockForUpdate()->first())$branches[]='gs:'.$actor->id;
         }
+        $facts=$this->facts($actor);
+        if($facts['workspace']!==null)$branches=array_values(array_intersect($branches,$facts['workspace']->branchGrants()));
         return count($branches)===1?$branches[0]:null;
     }
     private function goReady(): bool

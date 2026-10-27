@@ -6,7 +6,7 @@
     <label for="to_user"> @lang('main.to_user')</label><span class="text-danger">*</span>
 <select name="to_user" class="form-select" required>
         <option value="">@lang('main.choose')</option>
-        @foreach(\App\Models\User::where('account_type','!=','admin')->get() as $value)
+        @foreach($walletUsers as $value)
             <option value="{{$value->id}}" @if($value->id == old('to_user')) selected @endif >{{__('main.'.$value->account_type)}} : {{$value->name}} / {{$value->mobile}} / {{$value->balance}} @lang('main.egp')</option>
         @endforeach
     </select>

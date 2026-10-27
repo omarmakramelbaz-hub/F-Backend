@@ -427,6 +427,7 @@ class OrderController extends Controller
             ->header('Referrer-Policy', 'no-referrer');
     }
     public function download_daily_report(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->authorizeRequest(request());
         $user = User::where('id',request('vendor'))->first();
          
         if($user->account_type == 'vendor' && !request()->month && !request()->year){

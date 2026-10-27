@@ -21,6 +21,9 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
             $receipt=parent::import($legacy,$rowHashes);
             $proof=DesktopDashboardWorkspaceImportProvenance::issue($this,$this->issuanceCapability,$this->verifiedContext);
             $binding=app(DesktopDashboardWorkspaceLocalAuthority::class)->install($proof);
+            // The physical print scope is bound only after actual rows and the
+            // private local root authority exist. Custody does not grant prints.
+            app(DesktopDashboardPrintLedger::class)->bind($snapshot['device_id']);
             return array_merge($receipt,['format'=>2,'kind'=>'desktop-workspace-import-receipt','workspace'=>$binding]);
         }finally{$this->verifiedContext=null;}
     }
@@ -96,7 +99,8 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
         $codec->index('users',$users['rows'],$users['ddl']);
         return ['workspace_enrollment'=>$enrollment,'manifest'=>$manifest,
             'snapshot'=>['workspace_id'=>$snapshot['device_id'],'custodian_actor_id'=>$snapshot['actor_id'],
-                'snapshot_id'=>$snapshot['snapshot_id']??null,'schema_hash'=>$snapshot['schema_hash']??null,'source'=>$snapshot['source']??null],
+                'snapshot_id'=>$snapshot['snapshot_id']??null,'schema_hash'=>$snapshot['schema_hash']??null,'source'=>$snapshot['source']??null,
+                'branches'=>$snapshot['branches'],'coverage'=>$snapshot['coverage']],
             'database'=>DB::connection()->getDatabaseName(),
             'expected_binding_digest'=>hash('sha256',DesktopDashboardWorkspaceAuthority::canonical($expected))];
     }
@@ -125,12 +129,18 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
     private function boundary(): void
     {
         abort_unless(PHP_SAPI==='cli'&&getenv('DESKTOP_DASHBOARD_LOCAL')==='true'
+            &&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true'
             &&config('desktop_dashboard.local')===true&&config('desktop_dashboard.workspace_enabled')===true
             &&DB::connection()->getConfig('host')==='127.0.0.1'
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
     }
 
     /** Empty financial branch union is valid only after typed workspace preflight. */
+    protected function provisionPrintLedger(array $snapshot): void
+    {
+        self::need($this->verifiedContext!==null);
+        app(DesktopDashboardPrintLedgerSchema::class)->install();
+    }
     protected function validateImportMetadata(array $snapshot): void
     {
         self::need($this->verifiedContext!==null);

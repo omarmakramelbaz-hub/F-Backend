@@ -20,6 +20,7 @@ if ($pathname === '/_desktop/health') {
     echo '{"runtime":"fasakhansta-dashboard","format":1}'; exit;
 }
 if($pathname==='/_desktop/control'){require __DIR__.'/control.php';exit;}
+if($pathname==='/_desktop/workspace-control'){require __DIR__.'/workspace-control.php';exit;}
 if(str_starts_with($pathname,'/_desktop/')){http_response_code(404);exit;}
 $public = realpath(dirname(__DIR__).'/public');
 $root = $public; $relative = $pathname;

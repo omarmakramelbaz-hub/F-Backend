@@ -20,8 +20,10 @@ class WalletController extends Controller
 
     public function index(GeneralSettings $settings)
     {
+        $authority=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);$authority->central(['wallet-list']);
+        $walletUsers=$authority->selected()?User::withoutGlobalScopes()->where('account_type','!=','admin')->get():User::where('account_type','!=','admin')->get();
         $wallets = Wallet::whereNull('from_user')->where('type','transfer')->where('payment','wallet')->where('status','completed')->orderBy('created_at','desc')->paginate(30);
-        return view('admin.wallets.index',compact('wallets','settings'));
+        return view('admin.wallets.index',compact('wallets','settings','walletUsers'));
     }
     
     public function store(Request $request, GeneralSettings $settings)
@@ -34,13 +36,16 @@ class WalletController extends Controller
     }
     
     public function wallet_transactions(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['wallet-list']);
         return view('admin.wallets.transactions');
     }
     
        public function withdraw(GeneralSettings $settings)
     {
+        $authority=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);$authority->central(['wallet-list']);
+        $walletUsers=$authority->selected()?User::withoutGlobalScopes()->where('account_type','!=','admin')->get():User::where('account_type','!=','admin')->get();
         $wallets = Wallet::whereNull('to_user')->where('type','withdraw')->where('payment','wallet')->where('status','completed')->paginate(30);
-        return view('admin.wallets.withdraw',compact('wallets','settings'));
+        return view('admin.wallets.withdraw',compact('wallets','settings','walletUsers'));
     }
     
     public function store_withdraw(Request $request, GeneralSettings $settings)

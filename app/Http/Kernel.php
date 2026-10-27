@@ -10,7 +10,7 @@ class Kernel extends HttpKernel
     {
         parent::__construct($app,$router);
         $index=array_search(\Illuminate\Routing\Middleware\SubstituteBindings::class,$this->middlewarePriority,true);
-        if($index!==false){array_splice($this->middlewarePriority,$index,0,[\App\Http\Middleware\DesktopDashboardWorkspaceContext::class,\App\Http\Middleware\DesktopDashboardJournal::class]);$this->syncMiddlewareToRouter();}
+        if($index!==false){array_splice($this->middlewarePriority,$index,0,[\App\Http\Middleware\DesktopDashboardWorkspaceConnectedContext::class,\App\Http\Middleware\DesktopDashboardWorkspaceContext::class,\App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class,\App\Http\Middleware\DesktopDashboardJournal::class]);$this->syncMiddlewareToRouter();}
     }
     /**
      * The application's global HTTP middleware stack.
@@ -43,12 +43,15 @@ class Kernel extends HttpKernel
             // \Illuminate\Session\Middleware\AuthenticateSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
+            \App\Http\Middleware\DesktopDashboardWorkspaceConnectedContext::class,
             \App\Http\Middleware\DesktopDashboardWorkspaceContext::class,
+            \App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class,
             \App\Http\Middleware\DesktopDashboardJournal::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
 
         'api' => [
+            \App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class,
             \App\Http\Middleware\DesktopDashboardJournal::class,
             \App\Http\Middleware\EnsureGoSchema::class,
             'throttle:api',

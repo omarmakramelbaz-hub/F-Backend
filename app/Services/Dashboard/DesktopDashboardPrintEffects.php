@@ -15,6 +15,7 @@ final class DesktopDashboardPrintEffects
             if(isset($values['native_session_id'])){
                 Validator::make($values,['native_session_id'=>'required|uuid'])->validate();
                 foreach($this->attempts($device,true)->where('a.native_session_id','!=',$values['native_session_id'])->whereIn('a.state',['claimed','burnt'])->limit(100)->get(['a.*']) as $old){
+                    if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected() && (int)$old->actor_id!==(int)$actor->id)continue;
                     $intent=$this->descriptor($device,$old->effect_id);if((int)$intent['actor_id']!==(int)$actor->id)continue;
                     $review=['effect_id'=>$old->effect_id,'enrollment_id'=>$intent['enrollment_id'],'origin_command_id'=>$intent['origin_command_id'],'actor_id'=>(int)$actor->id,'branch'=>$intent['branch'],
                         'revision'=>$intent['revision'],'claim_token'=>$old->claim_token,'native_session_id'=>$old->native_session_id,'invocation_id'=>$old->invocation_id!==''?$old->invocation_id:$old->claim_token,
@@ -25,6 +26,7 @@ final class DesktopDashboardPrintEffects
             }
             $effects=[];$attention=$this->attempts($device,true)->whereIn('a.state',['claimed','burnt','review','expired'])->count();
             foreach(DB::table($this->schema->table('print_ledger_intents').' as i')->where('i.device_id',$device)->when(($values['include_manual']??false)!==true,fn($query)=>$query->whereIn('i.kind',['phone_kitchen','dining_kitchen','shift_report']))->whereNotExists(function($query){$query->selectRaw('1')->from($this->schema->table('print_ledger_attempts').' as a')->whereColumn('a.effect_id','i.effect_id');})->orderBy('i.created_at')->limit(100)->get(['i.*']) as $row){
+                if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected() && (int)$row->actor_id!==(int)$actor->id)continue;
                 $intent=$this->descriptor($device,$row->effect_id);if(!$this->eligible($intent,$actor))continue;
                 $attempt=DB::table($this->schema->table('print_ledger_attempts'))->where('effect_id',$row->effect_id)->first();
                 if(!$attempt&&$intent['kind']==='sale_receipt'&&($intent['snapshot']['grant']['expires_at']??0)<=now('UTC')->getTimestamp()){
@@ -123,7 +125,7 @@ final class DesktopDashboardPrintEffects
             foreach($this->attempts($device)->where('a.server_ack_hash','')->where('a.outcome_cipher','!=','')->orderBy('a.created_at')->limit(100)->get(['a.*']) as $row)
                 $outcomes[]=json_decode(Crypt::decryptString($row->outcome_cipher),true,512,JSON_THROW_ON_ERROR);
             return ['outcomes'=>$outcomes,'pending'=>$this->attempts($device)->where('a.server_ack_hash','')->where('a.outcome_cipher','!=','')->count()];
-        },false);
+        },false,false);
     }
     public function acknowledge(string $device,array $receipt): array
     {
@@ -134,7 +136,7 @@ final class DesktopDashboardPrintEffects
             $outcome=json_decode(Crypt::decryptString($row->outcome_cipher),true,512,JSON_THROW_ON_ERROR);$hash=hash('sha256',$this->canonical($outcome));
             abort_unless(hash_equals($hash,$receipt['receipt_sha256'])&&($row->server_ack_hash===''||hash_equals($row->server_ack_hash,$hash)),409);
             $table->where('effect_id',$row->effect_id)->update(['server_ack_hash'=>$hash,'updated_at'=>now('UTC')]);return $receipt;
-        },false);
+        },false,false);
     }
 
     public function resolve(string $device,array $values): array
@@ -192,16 +194,18 @@ final class DesktopDashboardPrintEffects
     }
     public function audit(string $device): array
     {
-        return $this->transaction($device,function($actor)use($device){
+        $rootAudit=app(DesktopDashboardWorkspacePrintAuthority::class)->selected()&&DesktopDashboardWorkspaceExecutionContext::isRootControl($device);
+        return $this->transaction($device,function($actor)use($device,$rootAudit){
             $audit=[];
             foreach($this->attempts($device,true)->orderByDesc('a.updated_at')->limit(100)->get(['a.*']) as $row){
-                $intent=$this->descriptor($device,$row->effect_id);if((int)$intent['actor_id']!==(int)$actor->id)continue;
+                if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected()&&!$rootAudit && (int)$row->actor_id!==(int)$actor->id)continue;
+                $intent=$this->descriptor($device,$row->effect_id);if(!$rootAudit && (int)$intent['actor_id']!==(int)$actor->id)continue;
                 $audit[]=['effect_id'=>$row->effect_id,'kind'=>$intent['kind'],'branch'=>$intent['branch'],'reprint'=>!empty($intent['reprint']),
                     'origin_command_id'=>$intent['origin_command_id'],'reprint_request_id'=>$intent['reprint_request_id']??null,'state'=>$row->state,'invocation_id'=>$row->invocation_id,'created_at'=>$row->created_at,
                     'outcome'=>$row->outcome_cipher!==''?json_decode(Crypt::decryptString($row->outcome_cipher),true,512,JSON_THROW_ON_ERROR):null];
             }
             return ['audit'=>$audit];
-        },false);
+        },false,!$rootAudit);
     }
     private function originCommand(string $kind,int $id): ?string
     {
@@ -224,26 +228,49 @@ final class DesktopDashboardPrintEffects
         });
     }
 
-    private function transaction(string $device,callable $work,bool $write=true): array
+    private function transaction(string $device,callable $work,bool $write=true,bool $actorRequired=true): array
     {
         abort_unless($this->ledger->active($device),503,'تجهيز الطباعة المحلية غير مكتمل.');$this->schema->verify();
         abort_unless(DB::transactionLevel()===0,503);
-        return DB::transaction(function()use($device,$work,$write){
-            $this->ledger->fence($device);$state=app(DesktopDashboardRefresh::class)->lock($device);abort_unless($state,403);
+        return DB::transaction(function()use($device,$work,$write,$actorRequired){
+            $workspace=app(DesktopDashboardWorkspacePrintAuthority::class);
+            if($workspace->selected()&&!$actorRequired)abort_unless(DesktopDashboardWorkspaceExecutionContext::isRootControl($device)||PHP_SAPI==='cli',403);
+            $this->ledger->fence($device);
+            $state=$workspace->selected()&&!$actorRequired?app(DesktopDashboardWorkspaceLocalAuthority::class)->rootState($device,true)
+                :app(DesktopDashboardRefresh::class)->lock($device);abort_unless($state,403);
             if($write)abort_unless($state->state==='ready',409);
-            $device=$this->device($device);$actor=$this->authority->actor((int)$device->actor_id);
+            $device=$this->device($device);
+            if($workspace->selected()) {
+                $actor=null;
+                if($actorRequired) {
+                    $context=DesktopDashboardWorkspaceExecutionContext::current();abort_unless($context,403);
+                    $facade=$workspace->actor($device->id,$context->actor_id,null,$write);
+                    $actor=$this->authority->actor($facade->actor_id);
+                }
+                $facts=$workspace->facts($device);
+            }else{
+            $actor=$this->authority->actor((int)$device->actor_id);
             $facts=['device_id'=>$device->id,'actor_id'=>(int)$device->actor_id,'enrollment_hash'=>$device->enrollment_hash,'enrolled_at'=>(string)$device->enrolled_at,'branches'=>json_decode($device->branches,true)];sort($facts['branches'],SORT_STRING);
+            }
             $scope=DB::table($this->schema->table('print_ledger_scopes'))->where('device_id',$device->id)->first();
             // Same encoding as immutable enrollment binding.
             abort_unless($scope&&hash_equals($scope->enrollment_id,hash('sha256',$this->canonical($facts))),409);
             return $work($actor);
         });
     }
-    private function device(string $device): object { $row=DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();abort_unless($row&&$row->enabled,401);return $row; }
+    private function device(string $device): object {
+        if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected())return app(DesktopDashboardWorkspacePrintAuthority::class)->root($device,true);
+        $row=DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();abort_unless($row&&$row->enabled,401);return $row;
+    }
     private function descriptor(string $device,string $effect): array
     {
         $row=DB::table($this->schema->table('print_ledger_intents'))->where('device_id',$device)->where('effect_id',$effect)->first();
-        if($row){foreach($this->ledger->readInTransaction($device,$row->command_id,(int)$row->actor_id,$row->branch) as $intent)if($intent['effect_id']===$effect)return $intent;}
+        if($row){
+            $intents=app(DesktopDashboardWorkspacePrintAuthority::class)->selected()
+                ?$this->ledger->readImmutableInTransaction($device,$row->command_id,(int)$row->actor_id,$row->branch)
+                :$this->ledger->readInTransaction($device,$row->command_id,(int)$row->actor_id,$row->branch);
+            foreach($intents as $intent)if($intent['effect_id']===$effect)return $intent;
+        }
         $reprint=DB::table($this->schema->table('print_ledger_reprints'))->where('device_id',$device)->where('effect_id',$effect)->first();abort_unless($reprint,404);
         $value=json_decode(Crypt::decryptString($reprint->descriptor_cipher),true,512,JSON_THROW_ON_ERROR);abort_unless(hash_equals($reprint->descriptor_hash,hash('sha256',$this->canonical($value)))&&$value['effect_id']===$effect&&$value['device_id']===$device,503);return $value;
     }
@@ -262,6 +289,8 @@ final class DesktopDashboardPrintEffects
     }
     private function enrolledBranch(object $device,string $branch,$actor): void
     {
+        if(($device->workspace_protocol??null)===2)
+            app(DesktopDashboardWorkspacePrintAuthority::class)->actor($device->id,(int)$actor->id,$branch,true);
         abort_unless(in_array($branch,json_decode($device->branches,true,512,JSON_THROW_ON_ERROR),true),403);
         $this->authority->branch($branch,$actor);
     }

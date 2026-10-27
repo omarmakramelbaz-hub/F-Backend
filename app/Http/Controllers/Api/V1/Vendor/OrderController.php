@@ -415,7 +415,14 @@ if ($resturant_owner) {
     }
     public function reports()
     {
-        if (request()->wantsJson() || request()->is('api/*')) {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);$localRestaurant=null;
+        if($workspace->selected()){
+            $ids=$workspace->restaurantIds();abort_unless(count($ids),404);
+            $selected=request('resturant_id',$ids[0]);
+            $id=filter_var($selected,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);abort_unless($id,404);$workspace->restaurant($id);
+            $localRestaurant=Resturant::query()->findOrFail($id);$resturant_id=(int)$localRestaurant->id;
+        }
+        elseif (request()->wantsJson() || request()->is('api/*')) {
             $resturant_id = auth('api')->user()->base_resturant->id;
         } else {
             $resturant_id = auth('admin')->user()->base_resturant->id;
@@ -559,7 +566,8 @@ if ($resturant_owner) {
             $payed_total = $payed_total + $pay->app_percentage;
             $delivery_price = $delivery_price + $pay->delivery_price;
         }
-        if (request()->wantsJson() || request()->is('api/*')) {
+        if($localRestaurant!==null){$vendor_orders=$localRestaurant->orders;}
+        elseif (request()->wantsJson() || request()->is('api/*')) {
             $vendor_orders = auth('api')->user()->base_resturant->orders;
         } else {
 

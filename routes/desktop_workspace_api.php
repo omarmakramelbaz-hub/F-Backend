@@ -8,5 +8,7 @@ Route::withoutMiddleware('throttle:api')->middleware([\App\Http\Middleware\Deskt
         Route::get('bootstrap',[DesktopDashboardWorkspaceController::class,'bootstrap'])->middleware('throttle:desktop-pos')->name('bootstrap');
         Route::post('delta',[DesktopDashboardWorkspaceController::class,'delta'])->middleware('throttle:desktop-pos')->name('delta');
         Route::post('commands',[DesktopDashboardWorkspaceController::class,'ingest'])->middleware('throttle:desktop-pos')->name('commands');
+        Route::post('print-outcomes',[DesktopDashboardWorkspaceController::class,'printOutcome'])->middleware('throttle:desktop-pos')->name('print-outcomes');
+        Route::post('remote-attempts',[DesktopDashboardWorkspaceController::class,'remoteAttempt'])->middleware('throttle:desktop-pos')->name('remote-attempts');
         Route::get('media',[DesktopDashboardWorkspaceController::class,'media'])->middleware('throttle:desktop-dashboard-media')->name('media');
     });

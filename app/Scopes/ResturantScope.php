@@ -16,7 +16,12 @@ class ResturantScope implements Scope
      * @return void
      */
     public function apply(Builder $builder, Model $model)
-    {          $id_returant = (session()->get('id_returant')) ?? null;
+    {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);
+        if($workspace->selected()){
+            $workspace->restaurants($builder,$model->qualifyColumn('id'));return;
+        }
+        $id_returant = (session()->get('id_returant')) ?? null;
         if(auth('admin')->check() && auth('admin')->user()->account_type =='resturant_owner' && auth('admin')->user()->owner_resturant_id){
             
             $builder->where('id',auth('admin')->user()->owner_resturant_id)->orWhere('parent_id', auth('admin')->user()->owner_resturant_id);

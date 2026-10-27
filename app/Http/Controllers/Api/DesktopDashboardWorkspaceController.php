@@ -57,4 +57,29 @@ final class DesktopDashboardWorkspaceController extends Controller
         return response($file['bytes'],200,['Content-Type'=>$file['mime'],'Content-Length'=>(string)strlen($file['bytes']),
             'Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);
     }
+    public function printOutcome(Request $request,DesktopDashboardWorkspaceAuthority $authority,
+        \App\Services\Dashboard\DesktopDashboardWorkspacePrintOwnership $printing)
+    {
+        return response()->json($printing->outcome($this->root($request,$authority),$request->all()))
+            ->header('Cache-Control','private, no-store');
+    }
+    public function remoteAttempt(Request $request,DesktopDashboardWorkspaceAuthority $authority,
+        \App\Services\Dashboard\DesktopDashboardWorkspaceRemoteAttempts $attempts)
+    {
+        $root=$this->root($request,$authority);
+        $values=$request->validate(['actor_id'=>'required|integer|min:1','manifest_revision'=>'required|integer|min:1',
+            'grant'=>'required|regex:/^[a-f0-9]{64}$/D','attempt'=>'required|array',
+            'attempt.id'=>'required|uuid','attempt.method'=>'required|in:GET,POST,PUT,PATCH,DELETE',
+            'attempt.path'=>'required|string|max:200','cancel'=>'required|boolean']);
+        abort_if(array_diff(array_keys($request->all()),['actor_id','manifest_revision','grant','attempt','cancel'])
+            ||array_diff(array_keys($request->input('attempt',[])),['id','method','path']),422);
+        $proof=['actor_id'=>(int)$values['actor_id'],'manifest_revision'=>(int)$values['manifest_revision'],'grant'=>$values['grant']];
+        if((bool)$values['cancel'])$result=$attempts->settleWorkspace($root,$proof,$values['attempt']);
+        else{
+            $scope=$authority->scope($root,$proof['actor_id'],$proof['grant'],$proof['manifest_revision']);
+            $result=$attempts->decideWorkspace($scope,$values['attempt'],false);
+        }
+        return response()->json($result)
+            ->header('Cache-Control','private, no-store');
+    }
 }

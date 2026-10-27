@@ -6,9 +6,28 @@ final class DesktopDashboardWorkspaceExecutionContext
 {
     private static ?DesktopDashboardWorkspaceScope $scope=null;
     private static ?array $proof=null;
+    private static bool $readOnly=false;
+    private static ?string $physicalRoot=null;
 
     public static function current(): ?DesktopDashboardWorkspaceScope { return self::$scope; }
     public static function incomingProof(): ?array { return self::$proof; }
+    public static function isReadOnly(): bool { return self::$readOnly; }
+    public static function isRootControl(string $workspace): bool { return self::$physicalRoot===$workspace; }
+    /** Caller authenticates BOTH the native control credential and the physical workspace bearer first. */
+    public static function rootControl(string $workspace,callable $work)
+    {
+        abort_unless(config('desktop_dashboard.local')===true&&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true'
+            &&preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$workspace)
+            &&$workspace===(string)config('desktop_dashboard.device_id')&&self::$scope===null
+            &&(self::$physicalRoot===null||self::$physicalRoot===$workspace),403);
+        $previous=self::$physicalRoot;self::$physicalRoot=$workspace;
+        try{return $work();}finally{self::$physicalRoot=$previous;}
+    }
+    public static function readOnly(callable $work)
+    {
+        $previous=self::$readOnly;self::$readOnly=true;
+        try{return $work();}finally{self::$readOnly=$previous;}
+    }
 
     public static function run(DesktopDashboardWorkspaceScope $scope, callable $work, ?array $incomingProof=null)
     {

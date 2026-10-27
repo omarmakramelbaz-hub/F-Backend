@@ -12,7 +12,7 @@ final class DesktopDashboardPrintOwnership
     {
         $proof=$envelope['print_ownership']??[];abort_unless(is_array($proof)&&count($proof)<=3,422);
         $branches=json_decode($device->branches,true,512,JSON_THROW_ON_ERROR);sort($branches,SORT_STRING);
-        $enrollment=$this->hash(['device_id'=>$device->id,'actor_id'=>(int)$device->actor_id,'enrollment_hash'=>$device->enrollment_hash,'enrolled_at'=>(string)$device->enrolled_at,'branches'=>$branches]);
+        $enrollment=$this->enrollmentIdentity($device,$branches);
         $kinds=[];
         foreach($proof as $item){
             Validator::make($item,['effect_id'=>'required|regex:/^[a-f0-9]{64}$/D','enrollment_id'=>'required|regex:/^[a-f0-9]{64}$/D','origin_command_id'=>'required|uuid',
@@ -96,7 +96,7 @@ final class DesktopDashboardPrintOwnership
             abort_unless($row->device_id===$device->id&&$row->command_id===$receipt['origin_command_id']&&$row->enrollment_id===$receipt['enrollment_id']
                 &&(int)$row->actor_id===(int)$receipt['actor_id']&&$row->branch===$receipt['branch']&&(int)$row->revision===(int)$receipt['revision']&&(int)$fresh->actor_id===(int)$receipt['actor_id'],403);
             $branches=json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR);sort($branches,SORT_STRING);
-            abort_unless(hash_equals($row->enrollment_id,$this->hash(['device_id'=>$fresh->id,'actor_id'=>(int)$fresh->actor_id,'enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at,'branches'=>$branches])),409);
+            abort_unless(hash_equals($row->enrollment_id,$this->enrollmentIdentity($fresh,$branches)),409);
             $hash=$this->hash($receipt);if($row->outcome_hash!==null)abort_unless(hash_equals($row->outcome_hash,$hash),409);
             else DB::table('desktop_dashboard_print_ownership')->where('effect_id',$row->effect_id)->update(['outcome'=>json_encode($receipt),'outcome_hash'=>$hash,'updated_at'=>now('UTC')]);
             return ['effect_id'=>$row->effect_id,'invocation_id'=>$receipt['invocation_id'],'state'=>$receipt['state'],'receipt_sha256'=>$hash];
@@ -106,5 +106,11 @@ final class DesktopDashboardPrintOwnership
     {
         $sort=function($v)use(&$sort){if(!is_array($v))return $v;if(!array_is_list($v))ksort($v,SORT_STRING);return array_map($sort,$v);};
         return hash('sha256',json_encode($sort($value),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR));
+    }
+    private function enrollmentIdentity(object $device,array $branches): string
+    {
+        if($device instanceof DesktopDashboardWorkspaceScope){$device->assertIssued();return $device->rootFingerprint();}
+        return $this->hash(['device_id'=>$device->id,'actor_id'=>(int)$device->actor_id,'enrollment_hash'=>$device->enrollment_hash,
+            'enrolled_at'=>(string)$device->enrolled_at,'branches'=>$branches]);
     }
 }

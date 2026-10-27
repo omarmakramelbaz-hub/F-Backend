@@ -62,12 +62,14 @@ final class DesktopDashboardWorkspaceController extends Controller
         $scope=DesktopDashboardWorkspaceExecutionContext::current();
         abort_unless($scope&&$scope->isLocal()&&$scope->id===$root->device_id
             &&(int)auth('admin')->id()===$scope->actor_id,403);
-        return response()->json($this->sessionPayload($scope))->withHeaders([
+        $payload=$this->sessionPayload($scope);
+        $payload['native_session']=app(\App\Services\Dashboard\DesktopDashboardWorkspaceNativeSessions::class)->issue($scope);
+        return response()->json($payload)->withHeaders([
             'Cache-Control'=>'private, no-store','X-Content-Type-Options'=>'nosniff']);
     }
     private function sessionPayload($scope): array
     {
-        return ['protocol'=>2,'workspace_id'=>$scope->id,'custodian_actor_id'=>(int)$scope->root()->custodian_actor_id,
+        return ['protocol'=>2,'connected_request_protocol'=>2,'workspace_id'=>$scope->id,'custodian_actor_id'=>(int)$scope->root()->custodian_actor_id,
             'actor_id'=>$scope->actor_id,'role'=>$scope->member()['role'],'manifest_revision'=>$scope->manifestRevision(),
             'root_fingerprint'=>$scope->rootFingerprint()];
     }

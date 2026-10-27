@@ -21,10 +21,11 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
     private array $expected;
     private string $token;
     private $oldNative;
+    private $oldControl;
 
     protected function setUp(): void
     {
-        parent::setUp();$this->oldNative=getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL');
+        parent::setUp();$this->oldNative=getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL');$this->oldControl=getenv('DESKTOP_DASHBOARD_CONTROL_TOKEN');
         $this->connection=env('TAKEAWAY_TEST_CONNECTION','sqlite');
         if(!in_array($this->connection,['sqlite','mysql'],true))throw new \RuntimeException('Unsupported test database');
         if($this->connection==='mysql'&&config('database.connections.mysql.database')!=='takeaway_test')
@@ -56,7 +57,8 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         config(['desktop_dashboard.local'=>true,'app.key'=>'base64:'.base64_encode(str_repeat('l',32))]);
         app()->forgetInstance('encrypter');putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL=true');LocalSchema::ensure();
         $snapshot=['workspace_id'=>self::DEVICE,'custodian_actor_id'=>10,'snapshot_id'=>self::SNAPSHOT,
-            'schema_hash'=>str_repeat('b',64),'source'=>['format'=>1,'files'=>10,'sha256'=>str_repeat('c',64),'framework'=>'fixture']];
+            'schema_hash'=>str_repeat('b',64),'source'=>['format'=>1,'files'=>10,'sha256'=>str_repeat('c',64),'framework'=>'fixture'],
+            'branches'=>['f:100','f:101'],'coverage'=>['workspace_protocol'=>2]];
         $this->record=['format'=>2,'kind'=>'desktop-dashboard-workspace-local-authority','workspace_id'=>self::DEVICE,
             'root_fingerprint'=>$this->manifest['root_fingerprint'],'root'=>['id'=>$root->id,'custodian_actor_id'=>10,'name'=>'Shared workspace',
                 'enabled'=>true,'enrollment_hash'=>$root->enrollment_hash,'token_hash'=>$root->token_hash,'enrolled_at'=>$root->enrolled_at],
@@ -78,6 +80,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
     protected function tearDown(): void
     {
         putenv($this->oldNative===false?'DESKTOP_DASHBOARD_WORKSPACE_LOCAL':'DESKTOP_DASHBOARD_WORKSPACE_LOCAL='.$this->oldNative);
+        putenv($this->oldControl===false?'DESKTOP_DASHBOARD_CONTROL_TOKEN':'DESKTOP_DASHBOARD_CONTROL_TOKEN='.$this->oldControl);
         if($this->connection==='mysql'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();
     }
     private function dropFixtures(): void
@@ -91,7 +94,8 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
     private function actor(int$id):User{return User::withoutGlobalScopes()->findOrFail($id);}
     private function local():LocalAuthority{return app(LocalAuthority::class);}
     private function mac(string$domain,array$value):string{return hash_hmac('sha256',"desktop-workspace-local-v2\0".$domain."\0".Authority::canonical($value),app('encrypter')->getKey());}
-    private function receipt():array{return array_intersect_key($this->record,array_flip(['workspace_id','root_fingerprint','manifest_revision','roster_sha256','manifest_sha256']));}
+    private function receipt():array{return json_decode(Authority::canonical(array_intersect_key($this->record,
+        array_flip(['workspace_id','root_fingerprint','manifest_revision','roster_sha256','manifest_sha256']))),true,16,JSON_THROW_ON_ERROR);}
     private function writeRecord():void
     {
         DB::table('desktop_dashboard_workspace_local_authority')->updateOrInsert(['workspace_id'=>self::DEVICE],[
@@ -170,5 +174,83 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         config(['desktop_dashboard.workspace_enabled'=>false]);$this->denied(fn()=>$this->local()->active(),[503]);
         putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL');$this->assertFalse($this->local()->active());
         config(['desktop_dashboard.workspace_enabled'=>true]);$this->denied(fn()=>LocalSchema::ensure(),[403]);
+    }
+    public function test_physical_print_identity_is_stable_and_custodian_status_cannot_change_b_print_grants():void
+    {
+        $prints=app(\App\Services\Dashboard\DesktopDashboardWorkspacePrintAuthority::class);
+        $identity=DB::transaction(fn()=>$prints->identity($prints->root(self::DEVICE)));
+        $this->assertSame($this->record['root_fingerprint'],$identity);
+        DB::table('users')->where('id',10)->update(['status'=>'disabled']);
+        $scope=$this->local()->scopeForActor(11);
+        \App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::run($scope,function()use($prints,$identity){
+            DB::transaction(function()use($prints,$identity){
+                $this->assertSame($identity,$prints->identity($prints->root(self::DEVICE)));
+                $this->assertSame(11,$prints->actor(self::DEVICE,11,'f:101')->actor_id);
+                $this->denied(fn()=>$prints->actor(self::DEVICE,11,'f:100'),[403]);
+                $this->denied(fn()=>$prints->actor(self::DEVICE,10,'f:100'),[403]);
+                $authority=app(\App\Services\Dashboard\DesktopDashboardPrintAuthority::class);$actor=$authority->actor(11);
+                $authority->branch('f:101',$actor);$this->denied(fn()=>$authority->branch('f:100',$actor),[403,404]);
+            });
+        });
+    }
+    public function test_readonly_scope_refresh_uses_no_locking_reads_and_cannot_issue_a_print_write():void
+    {
+        $scope=$this->local()->scopeForActor(11);$context=\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::class;
+        if($this->connection==='mysql')DB::statement('SET TRANSACTION READ ONLY');
+        DB::transaction(function()use($scope,$context){
+            $context::run($scope,fn()=>$context::readOnly(function()use($scope){
+                DB::enableQueryLog();$fresh=$scope->revalidated();$queries=DB::getQueryLog();DB::disableQueryLog();
+                $this->assertSame(11,$fresh->actor_id);
+                foreach($queries as$query)$this->assertStringNotContainsString('for update',strtolower($query['query']));
+                $this->denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardWorkspacePrintAuthority::class)
+                    ->actor(self::DEVICE,11,'f:101',true),[403]);
+            }));
+        });
+    }
+    public function test_native_session_requires_actual_login_then_preserves_b_and_restores_guard_after_failure():void
+    {
+        putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('c',64));
+        $sessions=app(\App\Services\Dashboard\DesktopDashboardWorkspaceNativeSessions::class);$scope=$this->local()->scopeForActor(11);
+        $this->denied(fn()=>$sessions->issue($scope),[403]);
+        $this->actingAs($this->actor(11),'admin');$capability=$sessions->issue($scope);auth('admin')->forgetUser();
+        $this->assertNull(auth('admin')->id());
+        $this->assertSame(11,$sessions->withSession($capability,function($current){
+            $this->assertSame(11,(int)auth('admin')->id());
+            $this->assertSame(11,\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::current()->actor_id);
+            return $current->actor_id;
+        }));
+        $this->assertNull(auth('admin')->id());$this->assertNull(\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::current());
+        try{$sessions->withSession($capability,function(){throw new \RuntimeException('Synthetic callback failure');});$this->fail('Expected callback failure');}
+        catch(\RuntimeException$e){$this->assertSame('Synthetic callback failure',$e->getMessage());}
+        $this->assertNull(auth('admin')->id());$this->assertNull(\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::current());
+        $this->actingAs($this->actor(10),'admin');$this->denied(fn()=>$sessions->withSession($capability,fn()=>null),[403]);
+        $this->assertSame(10,(int)auth('admin')->id());
+    }
+    public function test_native_session_rejects_changed_actor_root_revision_password_and_control_credential():void
+    {
+        putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('c',64));$this->actingAs($this->actor(11),'admin');
+        $sessions=app(\App\Services\Dashboard\DesktopDashboardWorkspaceNativeSessions::class);
+        $capability=$sessions->issue($this->local()->currentScope($this->actor(11)));auth('admin')->forgetUser();
+        foreach(['actor_id'=>10,'root_fingerprint'=>str_repeat('0',64),'manifest_revision'=>2,'password_binding'=>str_repeat('0',64),
+            'snapshot_id'=>'33333333-3333-4333-8333-333333333333','schema_hash'=>str_repeat('0',64)]as$key=>$value){
+            $changed=$capability;$changed[$key]=$value;$this->denied(fn()=>$sessions->withSession($changed,fn()=>null),[403]);
+        }
+        putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('d',64));$this->denied(fn()=>$sessions->withSession($capability,fn()=>null),[403]);
+        putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('c',64));
+        DB::table('users')->where('id',11)->update(['password'=>password_hash('rotated',PASSWORD_BCRYPT,['cost'=>4])]);
+        $this->denied(fn()=>$sessions->withSession($capability,fn()=>null),[403]);$this->assertNull(auth('admin')->id());
+    }
+    public function test_module_adapters_require_original_context_permissions_and_sealed_full_dataset():void
+    {
+        $scope=$this->local()->scopeForActor(11);$module=app(\App\Services\Dashboard\DesktopDashboardWorkspaceModuleAuthority::class);
+        $this->denied(fn()=>$module->scope($scope,$this->actor(11)),[403]);
+        \App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::run($scope,function()use($scope,$module){
+            $this->assertSame($scope,$module->scope($scope,$this->actor(11)));
+            $this->denied(fn()=>$module->scope($scope,$this->actor(11),['setting-list']),[403]);
+            $this->denied(fn()=>$module->scope($scope,$this->actor(11),[],true),[503]);
+            $this->denied(fn()=>$module->scope((object)['id'=>self::DEVICE,'actor_id'=>11],$this->actor(11)),[403]);
+        });
+        DB::table('desktop_dashboard_local_state')->update(['coverage'=>'{"workspace_protocol":2,"full_dashboard":true}']);
+        $this->denied(fn()=>$this->local()->scopeForActor(11),[503]);
     }
 }

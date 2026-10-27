@@ -16,6 +16,19 @@ class UserRepository implements UserRepositoryInterface
 
     public function getAllUsers($request) 
     {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);
+        if($workspace->selected()){
+            $workspace->userType((string)$request->query('account_type'));
+            $users=$workspace->users(User::withoutGlobalScope(\App\Scopes\AdminScope::class))
+                ->where('account_type',$request->query('account_type'));
+            $search=trim((string)$request->query('search'));
+            if($search!=='')$users->where(function($query)use($search){
+                $query->where('name','like','%'.$search.'%')->orWhere('email','like','%'.$search.'%')->orWhere('mobile','like','%'.$search.'%');
+            });
+            if($request->filled('from_date'))$users->where('created_at','>=',$request->query('from_date'));
+            if($request->filled('to_date'))$users->where('created_at','<=',$request->query('to_date'));
+            return $users->orderByDesc('id')->paginate(30);
+        }
         
         $searchQuery = trim($request->query('search'));
         $users = User::query();

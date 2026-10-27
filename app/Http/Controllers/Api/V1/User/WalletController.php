@@ -87,7 +87,10 @@ class WalletController extends Controller {
     }
     
     public function get_wallet(){
-        if (request()->wantsJson() || request()->is('api/*')) {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);
+        $localScope=$workspace->selected()?$workspace->scope():null;
+        if($localScope!==null){$user=$localScope->actor();}
+        elseif (request()->wantsJson() || request()->is('api/*')) {
         $user=auth('api')->user();
         }
         else{
@@ -97,7 +100,8 @@ class WalletController extends Controller {
             $data=[
             'wallet'=>WalletResource::collection($wallet),
             'balance'=>(double) $user->balance,
-            'profile'=>UserResource::make($user)->getToken(JWTAuth::fromUser($user)),
+            'profile'=>$localScope!==null?['id'=>(int)$user->id,'name'=>$user->name,'account_type'=>$user->account_type]
+                :UserResource::make($user)->getToken(JWTAuth::fromUser($user)),
             
             ];
             if (request()->wantsJson() || request()->is('api/*')) {

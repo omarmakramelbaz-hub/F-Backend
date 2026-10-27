@@ -32,7 +32,7 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
     {
         abort_unless($this->hash($token),401); $record=$this->record();
         abort_unless(hash_equals($record['root']['token_hash'],hash('sha256',$token)),401);
-        return $this->transaction(fn()=>$this->rootState($record['workspace_id'],true));
+        return $this->transaction(fn()=>$this->rootState($record['workspace_id'],!DesktopDashboardWorkspaceExecutionContext::isReadOnly()));
     }
 
     /** Recaller lookup runs before guard authentication; validate its real persisted member directly. */
@@ -62,7 +62,9 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
         abort_unless($manifest['workspace_id']===$root->id && $manifest['root_fingerprint']===$fingerprint
             && $snapshot['workspace_id']===$root->id && $snapshot['custodian_actor_id']===(int)$root->custodian_actor_id
             && $root->id===(string)config('desktop_dashboard.device_id') && $this->uuid($snapshot['snapshot_id']??null)
-            && $this->hash($snapshot['schema_hash']??null) && $this->source($snapshot['source']??null),422);
+            && $this->hash($snapshot['schema_hash']??null) && $this->source($snapshot['source']??null)
+            && is_array($snapshot['branches']??null) && array_is_list($snapshot['branches'])
+            && is_array($snapshot['coverage']??null),422);
         $record=['format'=>2,'kind'=>'desktop-dashboard-workspace-local-authority','workspace_id'=>$root->id,
             'root_fingerprint'=>$fingerprint,'root'=>(array)$root,'manifest_revision'=>$manifest['revision'],
             'roster_sha256'=>$manifest['roster_sha256'],'manifest_sha256'=>hash('sha256',self::json($manifest)),
@@ -90,7 +92,7 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
             }
             $ids=[];
             foreach ($manifest['members'] as $member) {
-                $this->assertMemberFacts($member); $ids[]=$member['actor_id'];
+                $this->assertMemberFacts($member,true,$record); $ids[]=$member['actor_id'];
                 DB::table('desktop_dashboard_workspace_local_members')->updateOrInsert(
                     ['workspace_id'=>$root->id,'actor_id'=>$member['actor_id']],
                     ['manifest_revision'=>$manifest['revision'],'member_json'=>self::json($member),
@@ -144,7 +146,7 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
         DesktopDashboardWorkspaceLocalSchema::assertNativeCli(); $this->sourceDatabase($database);
         $record=$this->checkedRecord($recordRow,$database);
         $this->assertExpected($record,$expectedBinding); $this->assertState((object)$stateRow,$record);
-        abort_unless(in_array($stateRow['state']??null,['ready','fenced'],true),409);
+        abort_unless(in_array($stateRow['state']??null,['ready','held'],true),409);
         return $this->bindings($record);
     }
 
@@ -178,12 +180,19 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
         $record=$this->record(); abort_unless($record['workspace_id']===$device,403);
         $state=$this->stateRow($device,$lock); $this->assertState($state,$record); return $state;
     }
+    /** Internal physical metadata only. Never serialize this descriptor into an HTTP response. */
+    public function physicalRoot(bool $lock=true): object
+    {
+        $record=$this->record();$state=$this->rootState($record['workspace_id'],$lock);
+        return (object)($record['root']+['actor_id'=>$record['root']['custodian_actor_id'],
+            'branches'=>$state->branches,'workspace_protocol'=>2]);
+    }
     public function scopeForState(object $state): ?DesktopDashboardWorkspaceScope
     {
         $context=DesktopDashboardWorkspaceExecutionContext::current();
         $authenticated=auth('admin')->id();
         $actor=$context ? $context->actor_id : ($authenticated===null?null:(int)$authenticated);
-        if ($actor===null) { abort_unless(PHP_SAPI==='cli',403); return null; }
+        if ($actor===null) { abort_unless(PHP_SAPI==='cli'||DesktopDashboardWorkspaceExecutionContext::isRootControl((string)$state->device_id),403); return null; }
         if ($authenticated!==null) abort_unless((int)$authenticated===$actor,403);
         return $this->scopeForActor($actor,$state);
     }
@@ -191,14 +200,15 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
     {
         return $this->transaction(function() use ($actorId,$state) {
             $record=$this->record(); $context=DesktopDashboardWorkspaceExecutionContext::current();
+            $lock=!DesktopDashboardWorkspaceExecutionContext::isReadOnly();
             if ($context) abort_unless($context->id===$record['workspace_id'] && $context->actor_id===$actorId,403);
             $authenticated=auth('admin')->id(); if ($authenticated!==null) abort_unless((int)$authenticated===$actorId,403);
             abort_unless($authenticated!==null || $context!==null || PHP_SAPI==='cli',403);
-            $actual=$this->rootState($record['workspace_id'],true);
+            $actual=$this->rootState($record['workspace_id'],$lock);
             if ($state!==null) abort_unless($state->device_id===$actual->device_id && $state->snapshot_id===$actual->snapshot_id
                 && $state->schema_hash===$actual->schema_hash,403);
-            $member=$this->member($record,$actorId); $this->assertMemberFacts($member);
-            $actor=User::withoutGlobalScopes()->whereKey($actorId)->lockForUpdate()->first(); abort_unless($actor,403);
+            $member=$this->member($record,$actorId); $this->assertMemberFacts($member,$lock);
+            $query=User::withoutGlobalScopes()->whereKey($actorId);if($lock)$query->lockForUpdate();$actor=$query->first();abort_unless($actor,403);
             return DesktopDashboardWorkspaceScope::issue($this,$this->issuanceCapability,(object)$record['root'],$actor,$member,
                 $record['root_fingerprint'],$record['manifest_revision'],null,null,$actual);
         });
@@ -209,9 +219,10 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
         abort_unless($scope->id===$record['workspace_id'] && $scope->rootFingerprint()===$record['root_fingerprint']
             && $scope->manifestRevision()===$record['manifest_revision'],409);
         $this->transaction(function() use ($scope,$record) {
+            $lock=!DesktopDashboardWorkspaceExecutionContext::isReadOnly();
             $member=$this->member($record,$scope->actor_id);
-            abort_unless(self::json($member)===self::json($scope->member()),403); $this->assertMemberFacts($member);
-            $state=$this->rootState($record['workspace_id'],true); $captured=$scope->localState();
+            abort_unless(self::json($member)===self::json($scope->member()),403); $this->assertMemberFacts($member,$lock);
+            $state=$this->rootState($record['workspace_id'],$lock); $captured=$scope->localState();
             abort_unless($captured && $captured->snapshot_id===$state->snapshot_id && $captured->schema_hash===$state->schema_hash,409);
         });
     }
@@ -291,9 +302,12 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
         abort_unless(($member['actor_id']??null)===$actor && ($member['enabled']??null)===true
             && hash_equals($row->local_mac,$this->memberMac($record,$member)),403,'دليل صلاحيات الحساب المحلي غير صالح.'); return $member;
     }
-    private function assertMemberFacts(array $member): void
+    private function assertMemberFacts(array $member, bool $lock=true, ?array $verifiedRecord=null): void
     {
-        $facts=(new DesktopDashboardWorkspaceAuthority)->persistedMemberFacts($member['actor_id']);
+        $facts=(new DesktopDashboardWorkspaceAuthority)->persistedMemberFacts($member['actor_id'],$lock);
+        $record=$verifiedRecord??$this->record();
+        $facts['branches']=app(DesktopDashboardWorkspaceCreatedScopes::class)->normalizeFreshBranches(
+            $member,$facts['branches'],$record['workspace_id'],$record['root_fingerprint']);
         $captured=$member; unset($captured['grant']);
         // Pending role/password edits are deliberately closed until their native overlay protocol is accepted.
         abort_unless(self::json($facts)===self::json($captured),403,'بيانات دخول أو صلاحيات الحساب تغيّرت وتحتاج مزامنة مؤكدة.');
@@ -308,7 +322,10 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
     private function assertState(object $state, array $record): void
     {
         abort_unless($state->device_id===$record['workspace_id'] && (int)$state->actor_id===$record['root']['custodian_actor_id']
-            && $state->snapshot_id===$record['snapshot']['snapshot_id'] && $state->schema_hash===$record['snapshot']['schema_hash'],503,
+            && $state->snapshot_id===$record['snapshot']['snapshot_id'] && $state->schema_hash===$record['snapshot']['schema_hash']
+            && isset($record['snapshot']['branches'],$record['snapshot']['coverage'])
+            && self::json(json_decode($state->branches,true,512,JSON_THROW_ON_ERROR))===self::json($record['snapshot']['branches'])
+            && self::json(json_decode($state->coverage,true,512,JSON_THROW_ON_ERROR))===self::json($record['snapshot']['coverage']),503,
             'حالة قاعدة مساحة العمل لا تطابق دليل التجهيز.');
     }
     private function rootFromEnrollment(array $value): object
