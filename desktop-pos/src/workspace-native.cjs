@@ -7,6 +7,7 @@ const { WorkspaceRuntime } = require('./workspace-runtime.cjs');
 const { WorkspaceLogin } = require('./workspace-login.cjs');
 const { WorkspacePreparation } = require('./workspace-preparation.cjs');
 const { WorkspaceMigrationInventory } = require('./workspace-migration.cjs');
+const { WorkspaceMigrationController } = require('./workspace-migration-controller.cjs');
 const { WorkspaceHTTP } = require('./workspace-http.cjs');
 const { WorkspaceSourceAuthority, groupUpdateTransport } = require('./workspace-source.cjs');
 const { DashboardUpdater } = require('./dashboard-updater.cjs');
@@ -33,9 +34,9 @@ async function createWorkspaceNative(options) {
 }
 class WorkspaceNative {
   constructor(options) {
-    const required = ['createSession', 'transport', 'serverSession', 'inspectLegacyProfile', 'transition', 'relaunch', 'ownRuntime', 'stopped', 'onLocked'];
+    const required = ['createSession', 'transport', 'serverSession', 'inspectLegacyProfile', 'transition', 'relaunch', 'ownRuntime', 'stopped', 'onLocked', 'accepted'];
     if (!options || required.some(name => typeof options[name] !== 'function') || !options.profiles || !options.legacyBroker
-      || typeof options.root !== 'string' || !path.isAbsolute(options.root) || typeof options.currentVersion !== 'string') throw failure();
+      || typeof options.root !== 'string' || !path.isAbsolute(options.root) || typeof options.currentVersion !== 'string' || !options.legacyInspector) throw failure();
     this.options = options; this.life = new AbortController(); this.onState = () => {};
     this.viewReady = new Promise(resolve => { this.resolveView = resolve; });
   }
@@ -96,18 +97,28 @@ class WorkspaceNative {
         }
         return accountLogin.authenticate(input);
       },
-      resumeRemembered: async () => (await current()) ? null : legacy.resumeRemembered(),
-      userEditing: () => { accountLogin.userEditing?.(); legacy.userEditing?.(); },
+      resumeRemembered: async () => {
+        if (!await current()) return legacy.resumeRemembered();
+        const remote = await this.remoteState.read(), central = await this.workspace.metadata.read('workspace-central-mode');
+        return remote.dirty || remote.pending.length || central ? null : accountLogin.resumeRemembered();
+      },
+      userEditing: () => { this.onlineLogin.discardCredentials(); accountLogin.userEditing?.(); legacy.userEditing?.(); },
       handoff: result => result.account.protocol === 2 ? Promise.resolve(result) : legacy.handoff(result),
-      cancel: () => { accountLogin.cancel(); legacy.cancel(); }, stop: async () => { await Promise.all([accountLogin.stop(), legacy.stop()]); } };
+      cancel: () => { accountLogin.cancel(); this.onlineLogin.cancel(); legacy.cancel(); }, stop: async () => { await Promise.all([accountLogin.stop(), this.onlineLogin.stop(), legacy.stop()]); } };
     this.onState = value => this.login.onState?.(value);
     const migration = new WorkspaceMigrationInventory({ profiles: o.profiles, inspectProfile: o.inspectLegacyProfile });
-    this.preparation = new WorkspacePreparation({ workspace: this.workspace, serverOrigin: o.serverOrigin, migration,
+    this.migration = new WorkspaceMigrationController({ profiles: o.profiles, inspector: o.legacyInspector, registry: this.registry,
+      remote: (command, credential, endpoint) => this.http.legacy(endpoint, command, credential), stopped: o.stopped, onState: o.onState });
+    this.preparation = new WorkspacePreparation({ workspace: this.workspace, serverOrigin: o.serverOrigin, migration, migrationController: this.migration,
       challenge: (serverOrigin, options) => this.http.challenge(serverOrigin, options), enroll: (...args) => this.http.enroll(...args),
       download: async (enrollment, options) => { this.pendingCredential = enrollment.credential; return this.http.root('bootstrap', undefined, enrollment.credential, options); },
       transition: o.transition, relaunch: o.relaunch, onState: o.onState, allowPreview: o.allowPreview });
     const prepare = this.preparation.prepare.bind(this.preparation);
-    this.preparation.prepare = (...args) => prepare(...args).finally(() => { this.pendingCredential = null; });
+    this.preparation.prepare = async (...args) => {
+      if (o.stopped() || this.life.signal.aborted) throw failure();
+      if (await this.registry.current() === null && this.workspace.stopping) await this.workspace.resetInactive();
+      return prepare(...args).finally(() => { this.pendingCredential = null; });
+    };
     return this;
   }
   async verifyReturn({ previousRootBinding, currentRootBinding, currentPrepared }) {
@@ -155,15 +166,16 @@ class WorkspaceNative {
         catch (error) { await this.options.onLocked({ actorId: result.actor.actorId, reason: 'membership-changed' }); throw error; }
       },
       onState, allowPreview: this.options.allowPreview });
-    const generations = { run: () => delta.refresh(), recover: () => delta.recover(), get running() { return delta.running; } };
+    const generations = { run: () => delta.refresh(), recover: () => delta.recoverAccepted(), get running() { return delta.running; } };
     mode = new WorkspaceMode({ workspace, actor, view, generations, probe, remoteState,
       remoteAttempts: { recover: () => attempts.recover() }, guard, verifyReturn, onState });
     connected = new WorkspaceConnected({ workspace, actor, view: () => view, mode: () => mode, generations: () => generations,
-      remoteState, remoteAttempts: { recover: () => attempts.recover() }, probe, synchronize, guard, verifyReturn, onState });
+      remoteState, remoteAttempts: { recover: () => attempts.recover() }, probe, synchronize, guard, verifyReturn,
+      canAuthenticateLocal: () => result.localPasswordAvailable?.() === true, authenticateLocal: () => result.authenticateLocal?.(), onState });
     attempts = new WorkspaceRemoteAttempts({ workspace, actor, state: remoteState,
       request: (body, credential) => this.http.root('remote-attempts', body, credential), direct: details => connected.authorizeDirect(details), guard });
     sync = new WorkspaceSync({ workspace, remote: (body, credential) => this.http.root('commands', body, credential),
-      refresh: () => connected.deferRefresh().then(defer => defer ? { deferred: true } : mode.serialize('workspace-incoming-delta', () => delta.run())),
+      refresh: () => this.options.accepted(() => connected.deferRefresh().then(defer => defer ? { deferred: true } : mode.serialize('workspace-incoming-delta', () => delta.run()))),
       effects: async ({ printProtocol }) => {
         if (!synchronizePrintOutcomes.activeProtocol(printProtocol)) return { pending: 0, deferred: false };
         if (view.current().local) await view.recoverPrintEffects();
@@ -186,7 +198,14 @@ class WorkspaceNative {
     if (this.visibleStarted) return this.afterViewJob;
     this.visibleStarted = true;
     this.afterViewJob = Promise.resolve().then(() => result.afterView?.());
-    this.afterViewJob.catch(() => {}); this.resolveView(); return this.afterViewJob;
+    this.afterViewJob.catch(() => {}); this.resolveView();
+    if (result.onlineOnly && result.localPasswordAvailable?.()) {
+      this.promotion = this.afterViewJob.then(() => this.options.accepted(() => this.services.connected.local()));
+      // Expiry, a changed verifier or an unsettled old queue preserves the
+      // already usable server view; a later local attempt asks for a password.
+      this.promotion.catch(() => {});
+    }
+    return this.afterViewJob;
   }
   async selectionStatus() {
     const selected = await this.workspace.metadata.read('workspace-central-mode');
@@ -194,6 +213,6 @@ class WorkspaceNative {
     if (!this.services) throw failure(); this.services.connected.record(selected); return true;
   }
   cancelStartup() { this.life.abort(); this.http?.stop(); this.updater?.stop(); this.accountLogin?.cancel(); this.onlineLogin?.cancel(); this.services?.delta.stop(); this.services?.sync.stop(); this.services?.liveSocial.close(); this.resolveView?.(); this.workspace?.cancelStartup(); }
-  async stop() { this.cancelStartup(); await Promise.all([this.accountLogin?.stop(), this.onlineLogin?.stop()]); await this.workspace?.stop(); }
+  async stop() { this.cancelStartup(); await Promise.allSettled([this.accountLogin?.stop(), this.onlineLogin?.stop(), this.services?.delta.running, this.promotion]); await this.workspace?.stop(); }
 }
 module.exports = { createWorkspaceNative };

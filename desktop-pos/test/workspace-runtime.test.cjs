@@ -103,3 +103,25 @@ test('shutdown cancellation leaves an already-started physical generation availa
   owner.physical.stop = async () => {};
   await owner.stop(); assert.equal(owner.stopping, true); assert.equal(owner.sessions.size, 0);
 });
+
+
+test('an explicit failed-preparation retry renews only a fully stopped inactive supervisor and preserves the same private credentials and staged files', async t => {
+  const f = await fixture(t, { activate: false }), owner = create(f), settings = await owner.settings();
+  const original = owner.physical, credentials = await fs.readFile(path.join(original.profile, 'credentials.enc'));
+  const evidence = path.join(f.registry.workspaceProfile, 'retained-staging-evidence'); await fs.writeFile(evidence, 'accepted inactive evidence');
+  await owner.stop(); assert.equal(await owner.resetInactive(), true); assert.notEqual(owner.physical, original);
+  assert.deepEqual(await owner.settings(), settings); assert.deepEqual(await fs.readFile(path.join(owner.physical.profile, 'credentials.enc')), credentials);
+  assert.equal(await fs.readFile(evidence, 'utf8'), 'accepted inactive evidence'); assert.equal(owner.stopping, false);
+  assert.equal(owner.starting, null); assert.equal(await f.registry.current(), null);
+});
+
+test('renewal refuses active generations, a failed child stop, and a still-live previous child', async t => {
+  const f = await fixture(t), active = create(f); await active.stop();
+  await assert.rejects(active.resetInactive(), { code: 'WORKSPACE_RUNTIME_RESTART_DENIED' });
+  const empty = await fixture(t, { activate: false }), owner = create(empty); owner.stopping = true;
+  owner.physical.stopped = Promise.resolve(); owner.physical.children = [{ pid: process.pid, exitCode: null, signalCode: null }];
+  const original = owner.physical;
+  await assert.rejects(owner.resetInactive(), { code: 'WORKSPACE_RUNTIME_RESTART_DENIED' }); assert.equal(owner.physical, original);
+  owner.physical.children = []; owner.physical.stopped = Promise.reject(Error('Native stop failed.')); owner.physical.stopped.catch(() => {});
+  await assert.rejects(owner.resetInactive(), /Native stop failed/); assert.equal(owner.physical, original);
+});

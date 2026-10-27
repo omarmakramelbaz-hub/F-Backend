@@ -5,8 +5,8 @@ const { canonical } = require('./workspace-protocol.cjs');
 const source = require('./dashboard-source.cjs');
 // Filled only by the release owner after the complete source/data/read/print,
 // recovery and Windows acceptance. No renderer/env/cached boolean enables it.
-const ACCEPTED_POLICY = null;
-const ACCEPTED_CONTRACT_SHA256 = null;
+const ACCEPTED_POLICY = "historical-baseline-v2-native-close-reopen-program-contract-shared-workspace-v1";
+const ACCEPTED_CONTRACT_SHA256 = "74a7106a21fd662f49548f883475c867fdff4e574a6b1e319ea719e8564c2ecb";
 const CONTRACT_PATH = 'desktop/workspace-contract.json';
 const PROGRAMS = Object.freeze(['desktop/workspace-import.php', 'desktop/workspace-verify.php', 'desktop/workspace-delta.php', 'desktop/workspace-control.php', 'desktop/workspace-archive.php']);
 const invalid = () => Object.assign(Error('تعذر تأكيد عقد تشغيل مساحة الجهاز؛ البيانات الحالية محفوظة.'), { code: 'WORKSPACE_POLICY_INVALID' });

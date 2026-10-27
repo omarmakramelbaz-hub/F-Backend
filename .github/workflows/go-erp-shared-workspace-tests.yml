@@ -60,6 +60,9 @@ jobs:
       - name: Verify local native authority and capabilities
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceLocalAuthorityTest.php
+      - name: Verify source-certified account and settings module coverage
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_module_coverage_test.php
       - name: Verify original command and actor bridge
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceCoreBridgeTest.php

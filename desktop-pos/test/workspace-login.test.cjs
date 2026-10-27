@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const test = require('node:test'), assert = require('node:assert/strict'), http = require('node:http'), fs = require('node:fs/promises'), path = require('node:path');
 const { WorkspaceRuntime } = require('../src/workspace-runtime.cjs');
 const { WorkspaceLogin } = require('../src/workspace-login.cjs');
-const { originalSignin, installCookies } = require('../src/account-login.cjs');
+const { originalSignin, installCookies, recaller } = require('../src/account-login.cjs');
 const signout = require('../src/account-signout.cjs');
 const { WorkspaceOnlineLogin } = require('../src/workspace-online-login.cjs');
 const { WorkspaceHTTP } = require('../src/workspace-http.cjs');
@@ -28,10 +28,11 @@ async function setup(t) {
       assert.equal(req.headers.authorization, 'Bearer ' + f.value.credential.token);
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(serverManifest)); return;
     }
-    const actorId = Number(/(?:^|; )go_erp_session=([0-9]+)/.exec(req.headers.cookie || '')?.[1]), actor = [...accounts.values()].find(a => a.actorId === actorId);
+    const actorId = Number(/(?:^|; )go_erp_session=([0-9]+)/.exec(req.headers.cookie || '')?.[1] || new RegExp('(?:^|; )' + recaller + '=([0-9]+)').exec(req.headers.cookie || '')?.[1]), actor = [...accounts.values()].find(a => a.actorId === actorId);
     if (!actor) { res.statusCode = 401; res.end(); return; }
     if (req.url === '/admin/choose_type') { res.end('<body data-dashboard-actor="' + actor.actorId + ':' + actor.role + '"></body>'); return; }
     if (req.url === '/admin/desktop-dashboard/workspace/local-session') {
+      res.setHeader('set-cookie', 'go_erp_session=' + actor.actorId + '; Path=/; HttpOnly; SameSite=Lax');
       assert.equal(req.headers['x-fasakhansta-desktop'], localToken);
       res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ protocol: 2, workspace_id: f.registry.workspaceId,
         actor_id: actor.actorId, role: actor.role, custodian_actor_id: 101, manifest_revision: 1, root_fingerprint: f.value.manifest.root_fingerprint,
@@ -70,6 +71,7 @@ async function setup(t) {
   }
   const workspace = new WorkspaceRuntime({ registry: f.registry, bundle: path.join(f.root, 'unused-source'), safeStorage: f.safeStorage,
     authorizeSource: async () => { throw Error('unexpected source update'); }, verifyActive: async () => true });
+  workspace.physical.origin = localOrigin; workspace.physical.token = localToken;
   workspace.start = async () => ({ origin: localOrigin, token: localToken });
   const locked = [];
   const create = (online = () => false) => new WorkspaceLogin({ workspace, createSession, online, onLocked: async value => { locked.push(value); },
@@ -100,7 +102,7 @@ test('one cached preparation allows first-ever offline B/A/B password sign-ins w
   assert.equal(f.log.filter(row => row.path === '/admin/signin').length, 3);
   assert.equal(f.log.filter(row => row.path.endsWith('/workspace/local-session')).length, 3);
   assert.equal(f.log.some(row => row.path === '/admin/dashboard'), false, 'Authentication never secretly calculates the expensive home.');
-  assert.deepEqual((await fs.readdir(path.join(f.root, 'workspaces', f.registry.workspaceId))).sort(), []);
+  assert.deepEqual((await fs.readdir(path.join(f.root, 'workspaces', f.registry.workspaceId))).sort(), ['dashboard'], 'Only one shared native metadata directory is created; actors create no runtime copies.');
   await login.stop();
 });
 
@@ -161,4 +163,72 @@ test('server-only login starts no source/legacy runtime and obtains temporary B 
   assert.equal(authority.actorId, 303); assert.equal(authority.manifestRevision, 2); assert.equal(authority.workspace.roster_sha256, fresh.roster_sha256);
   assert.equal(await f.registry.member(303), null); assert.deepEqual(await f.registry.current(), before);
   assert.equal((await result.runtime.connection()).actorId, 101); await online.stop();
+});
+
+
+test('a server password lease survives the completed form request and promotes only after a real local password POST and native session', async t => {
+  const f = await setup(t), online = f.createOnline(), controller = new AbortController();
+  const result = await online.authenticate(credentials('branch@example.test'), { signal: controller.signal });
+  controller.abort(); assert.equal(result.localPasswordAvailable(), true, 'Completed request cleanup cannot dispose the native life lease.');
+  await result.afterView(); const before = await f.registry.current();
+  assert.equal(await result.authenticateLocal(), true);
+  assert.equal(result.onlineOnly, false); assert.equal(result.local, true); assert.equal(result.origin, f.localOrigin);
+  assert.equal(await result.runtime.offlineAuthenticated(), true); assert.equal((await result.runtime.authority()).actorId, 202);
+  assert.deepEqual(await f.registry.current(), before, 'Password promotion changes neither source nor database pointer.');
+  assert.equal(f.log.filter(x => !x.remote && x.path === '/admin/signin').length, 1);
+  assert.equal(f.log.filter(x => !x.remote && x.path.endsWith('/workspace/local-session')).length, 1);
+  await assert.rejects(result.authenticateLocal(), { code: 'ACCOUNT_LOGIN_CANCELLED' }); await online.stop();
+});
+
+test('a stale local password or changed role cannot promote the valid server view or loop another server password request', async t => {
+  const f = await setup(t), online = f.createOnline(); f.setServerPassword('new-password');
+  const result = await online.authenticate({ ...credentials('branch@example.test'), password: 'new-password' }); await result.afterView();
+  await assert.rejects(result.authenticateLocal(), { code: 'ACCOUNT_CREDENTIALS_REJECTED' });
+  assert.equal(result.onlineOnly, true); assert.equal(await result.runtime.authenticated(), true); assert.equal(await result.runtime.offlineAuthenticated(), false);
+  assert.equal(f.log.filter(x => x.remote && x.path === '/admin/signin').length, 1);
+  const second = await online.authenticate(credentials('owner@example.test')).catch(() => null);
+  assert.equal(second, null); await online.stop();
+});
+
+test('account change, explicit disposal and shutdown wipe the transient bridge before any local password submission', async t => {
+  const f = await setup(t), online = f.createOnline(), first = await online.authenticate(credentials('branch@example.test'));
+  const next = await online.authenticate(credentials('owner@example.test'));
+  assert.equal(first.localPasswordAvailable(), false); next.discardCredentials(); assert.equal(next.localPasswordAvailable(), false);
+  const final = await online.authenticate(credentials('branch@example.test')); await online.stop(); assert.equal(final.localPasswordAvailable(), false);
+  assert.equal(f.log.filter(x => !x.remote && x.path === '/admin/signin').length, 0);
+});
+
+
+test('protected cached recaller reopens the same actor offline, while explicit logout wins over late remembered cookies', async t => {
+  const f = await setup(t), login = f.create(), result = await login.authenticate(credentials('branch@example.test')); result.discardCredentials();
+  const target = f.createSession(result.account.partition);
+  await target.cookies.set({ url: f.localOrigin, name: recaller, value: '202', path: '/', httpOnly: true, secure: false, expirationDate: Date.now() / 1000 + 3600 });
+  const before = f.log.length, reopened = await f.create().resumeRemembered();
+  assert.equal(reopened.actor.actorId, 202); assert.equal(await reopened.runtime.authenticated(), true);
+  assert.equal(f.log.slice(before).some(x => x.remote || x.path === '/admin/signin'), false, 'Passive reopen proves the real PHP recaller and fixed private context without password or HTTP server.');
+  await signout.signedOut(result.runtime); f.workspace.revokeSession(202);
+  const count = f.log.length; assert.equal(await f.create().resumeRemembered(), null); assert.equal(f.log.length, count);
+  assert.equal(await signout.requirePassword(result.runtime), true);
+  await f.workspace.metadata.write('workspace-last-login', { format: 2, actorId: 202, remember: false });
+  assert.equal(await f.create().resumeRemembered(), null);
+});
+
+
+test('an explicit same-actor password login retires a late passive recaller before committing fresh native authority', async t => {
+  const f = await setup(t), login = f.create(), first = await login.authenticate(credentials('branch@example.test')); first.discardCredentials();
+  const target = f.createSession(first.account.partition);
+  await target.cookies.set({ url: f.localOrigin, name: recaller, value: '202', path: '/', httpOnly: true, secure: false, expirationDate: Date.now() / 1000 + 3600 });
+  const original = login.verifyLocalSession; let release, entered;
+  const waiting = new Promise(resolve => { entered = resolve; }); let firstProbe = true;
+  login.verifyLocalSession = async (...args) => {
+    if (firstProbe) { firstProbe = false; entered(); await new Promise(resolve => { release = resolve; }); }
+    return original(...args);
+  };
+  const passive = login.resumeRemembered(); await waiting;
+  const explicit = login.authenticate(credentials('branch@example.test'));
+  await new Promise(setImmediate); release();
+  assert.equal(await passive, null);
+  const actual = await explicit; actual.discardCredentials();
+  assert.equal(await actual.runtime.authenticated(), true); assert.equal(await f.workspace.hasSession(202), true);
+  assert.equal(await signout.requirePassword(actual.runtime), false);
 });

@@ -45,3 +45,20 @@ test('shutdown aborts a pending body after headers and cannot authorize partial 
   const task = http.root('manifest', undefined, active.credential); await new Promise(setImmediate); http.stop();
   await assert.rejects(task); assert.equal(observed.aborted, true); assert.equal(closed, true);
 });
+
+test('legacy drain sends only original retained bearers to five fixed original endpoints', async () => {
+  const f = fixture(), credential = { serverOrigin: f.active.credential.serverOrigin, token: 'old-device-private-token-12345678901234567890' };
+  const cases = [['commands', { command_id: 'original-uuid' }, 'POST', '/api/desktop-dashboard/commands'],
+    ['print-outcomes', { outcomes: [] }, 'POST', '/api/desktop-dashboard/print-outcomes'],
+    ['legacy-pos/sync', { event: { id: 'original-pos-uuid' } }, 'POST', '/api/desktop-pos/sync'],
+    ['legacy-pos/health', null, 'GET', '/api/desktop-pos/health'], ['legacy-pos/snapshot', null, 'GET', '/api/desktop-pos/snapshot']];
+  for (const [endpoint, input, method, pathname] of cases) {
+    await f.http.legacy(endpoint, input, credential); const call = f.calls.at(-1);
+    assert.equal(call.url, credential.serverOrigin + pathname); assert.equal(call.options.method, method);
+    assert.equal(call.options.headers.Authorization, 'Bearer ' + credential.token);
+    assert.equal(Object.keys(call.options.headers).some(x => /^x-fasakhansta-/i.test(x)), false);
+  }
+  assert.throws(() => f.http.legacy('../commands', {}, credential), { code: 'WORKSPACE_HTTP_FAILED' });
+  assert.throws(() => f.http.legacy('commands', {}, { ...credential, serverOrigin: 'https://foreign.test' }), { code: 'WORKSPACE_HTTP_FAILED' });
+  assert.throws(() => f.http.legacy('legacy-pos/health', { event: 'unexpected' }, credential), { code: 'WORKSPACE_HTTP_FAILED' });
+});

@@ -45,6 +45,7 @@ final class DesktopDashboardWorkspaceBootstrap extends DesktopDashboardBootstrap
             $codec->index('users',$tables['users']['rows'],$tables['users']['ddl']);
             $userCounts=[];foreach($tables['users']['rows'] as $row){$id=(int)($row['id']??0);$userCounts[$id]=($userCounts[$id]??0)+1;}
             foreach($manifest['members'] as $member)abort_unless(($userCounts[$member['actor_id']]??0)===1,409,'بيانات حساب في مساحة عمل الجهاز مفقودة أو مكررة.');
+            $modules=$this->workspaceData->moduleCoverage($audience,$queries,$tables);
             $this->authority->assertSnapshotAudience($audience);
             abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
             $coverage=['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),
@@ -53,6 +54,7 @@ final class DesktopDashboardWorkspaceBootstrap extends DesktopDashboardBootstrap
                 'root_fingerprint'=>$manifest['root_fingerprint']];
             if($catalog->available())$coverage=array_merge($coverage,$catalog->coverage($branches,$created));
             if($eligibility!==null)$coverage['pending_vendor_eligibility']=$eligibility;
+            if($modules!==[])$coverage['modules']=$modules;
             return ['format'=>2,'kind'=>'initial-workspace-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$fresh->custodian_actor_id,'branches'=>$branches,
                 'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at,'base_branches'=>$branches],

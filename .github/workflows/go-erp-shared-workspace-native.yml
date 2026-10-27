@@ -1,0 +1,107 @@
+name: GO ERP shared workspace actual Windows runtime
+
+on:
+  push:
+    branches: ['codex/go-erp-shared-device-offline-*', 'codex/go-erp-live-source-20261021']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-workspace-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actual-shared-workspace:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Preserve exact source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact source configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact line ending configuration failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          tools: composer:v2
+          coverage: none
+      - name: Install the original pinned runtime and Electron dependencies
+        shell: pwsh
+        run: |
+          composer install --working-dir=desktop-pos/runtime --no-dev --no-scripts --no-interaction --prefer-dist
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned runtime dependencies failed.' }
+          npm ci --prefix desktop-pos --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned native dependencies failed.' }
+          node desktop-pos/node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path desktop-pos/node_modules/electron/dist/electron.exe)) { throw 'The pinned Electron executable is unavailable.' }
+      - name: Prepare the pinned original PDF payload
+        shell: pwsh
+        run: |
+          $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+          $env:DESKTOP_7ZIP = if ($sevenZip) { $sevenZip.Source } else { Join-Path $env:ProgramFiles '7-Zip/7z.exe' }
+          if (!(Test-Path $env:DESKTOP_7ZIP)) { throw 'The Windows archive extractor is unavailable.' }
+          node .github/scripts/desktop-wkhtmltox.cjs "$env:RUNNER_TEMP/workspace-wkhtmltox"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned official PDF payload verification failed.' }
+      - name: Exercise one preparation, offline actors, original writes, sync and teardown
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP/workspace-mariadb.zip"
+          Invoke-WebRequest 'https://archive.mariadb.org/mariadb-11.4.13/winx64-packages/mariadb-11.4.13-winx64.zip' -OutFile $archive -TimeoutSec 300
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd62986d433eeebfde218560b276103831604a61e929e87f1a17f5aebd80257e2') { throw 'MariaDB archive hash differs.' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/workspace-mariadb"
+          $server = (Get-ChildItem "$env:RUNNER_TEMP/workspace-mariadb/*/bin/mariadbd.exe")[0].FullName
+          $bin = Split-Path $server
+          $maria = Split-Path $bin
+          $bundle = "$env:RUNNER_TEMP/workspace runtime bundle"
+          $phpRoot = Split-Path (Get-Command php).Source
+          node desktop-pos/build-runtime.cjs . $bundle desktop-pos/runtime $phpRoot $maria $env:GITHUB_SHA "$env:RUNNER_TEMP/workspace-wkhtmltox/wkhtmltox"
+          if ($LASTEXITCODE -ne 0) { throw 'The exact original source bundle did not build.' }
+          $data = "$env:RUNNER_TEMP/workspace-source-database"
+          & "$bin/mariadb-install-db.exe" "--datadir=$data"
+          if ($LASTEXITCODE -ne 0) { throw 'Private source database initialization failed.' }
+          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $port = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $process = Start-Process $server -ArgumentList @('--no-defaults', "--datadir=`"$data`"", '--bind-address=127.0.0.1', "--port=$port", '--console') -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP/workspace-maria-out.log" -RedirectStandardError "$env:RUNNER_TEMP/workspace-maria-error.log"
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 120; $attempt++) {
+              if ($process.HasExited) { throw 'The private source database stopped before readiness.' }
+              $client = [System.Net.Sockets.TcpClient]::new()
+              try { if ($client.ConnectAsync('127.0.0.1', $port).Wait(250)) { $ready = $true; break } } catch {} finally { $client.Dispose() }
+              Start-Sleep -Milliseconds 250
+            }
+            if (!$ready) { throw 'Private source database readiness timed out.' }
+            node desktop-pos/test/workspace-runtime-native-runner.cjs $bundle $port desktop-pos/dist/workspace-runtime-native.json
+            if ($LASTEXITCODE -ne 0) { throw 'The actual shared workspace lifecycle failed.' }
+            node .github/scripts/verify-workspace-runtime-native.cjs desktop-pos/dist/workspace-runtime-native.json $bundle
+            if ($LASTEXITCODE -ne 0) { throw 'The source-bound shared workspace receipt is incomplete.' }
+          } finally {
+            if (!$process.HasExited) {
+              & "$bin/mariadb-admin.exe" --no-defaults --host=127.0.0.1 "--port=$port" --user=root shutdown
+              if (!$process.WaitForExit(15000)) { Stop-Process -Id $process.Id -Force }
+            }
+          }
+      - name: Retain only public, source-bound acceptance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-workspace-native-windows
+          path: |
+            desktop-pos/dist/workspace-runtime-native.json
+            desktop-pos/dist/workspace-native-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14

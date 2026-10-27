@@ -118,7 +118,7 @@ class DesktopDashboardSettings
     public function authorize(string $name,array $payload,User $actor,object $scope): User
     {
         $this->facts($name,$payload);$original=$this->original($name);
-        $workspace=app(DesktopDashboardWorkspaceModuleAuthority::class)->scope($scope,$actor,$name==='updateSetting'?['setting-list']:[],true);
+        $workspace=app(DesktopDashboardWorkspaceModuleAuthority::class)->scope($scope,$actor,$name==='updateSetting'?['setting-list']:[],'settings');
         $enrollmentTable=$workspace?($workspace->isLocal()?'desktop_dashboard_workspace_local_authority':'desktop_dashboard_workspaces'):'desktop_dashboard_devices';
         foreach(['settings','users','resturants','roles','permissions','model_has_roles','model_has_permissions','role_has_permissions',$enrollmentTable,'desktop_dashboard_commands','desktop_dashboard_entities'] as $table){
             $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?',[$table]);abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,409);}
@@ -136,7 +136,10 @@ class DesktopDashboardSettings
         if($workspace){$captured=$workspace->permissionFacts();abort_unless($captured['super_admin']||in_array('order-list',$captured['names'],true),403);}
         if($name==='updateSetting')abort_unless($has('setting-list'),403);
         $branches=app(DesktopDashboardDevices::class)->baseBranches($device,true);abort_unless(is_array($branches)&&count($branches)>0,403);
-        $cohort=app(DesktopDashboardCreatedScopes::class)->available()?app(DesktopDashboardCreatedScopes::class)->structural($device,$fresh):$branches;
+        $cohort=$workspace&&$workspace->isLocal()?DesktopDashboardWorkspaceModuleCoverage::forScope($workspace,'settings')['structural_branches']
+            :(app(DesktopDashboardCreatedScopes::class)->available()?app(DesktopDashboardCreatedScopes::class)->structural($device,$fresh):$branches);
+        if($workspace&&$workspace->isLocal()&&app(DesktopDashboardCreatedScopes::class)->available())
+            $cohort=array_values(array_unique(array_merge($cohort,app(DesktopDashboardCreatedScopes::class)->structural($device,$fresh))));
         if(config('desktop_dashboard.local')===true&&app(DesktopDashboardCreatedScopes::class)->active())app(DesktopDashboardCreatedScopes::class)->assertStructural($scope,$fresh);
         $required=[];
         foreach(DB::table('resturants')->orderBy('id')->lockForUpdate()->get() as $branch)$required[]='f:'.$branch->id;

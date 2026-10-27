@@ -89,6 +89,7 @@ class DesktopDashboardJournal
             foreach ($dependencies as $dependency) {
                 abort_unless(DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$dependency)->exists(),409,'العملية السابقة لم تُحفظ؛ لا يمكن حفظ عملية تابعة لها.');
             }
+            app(DesktopDashboardWorkspaceRoleMutationGuard::class)->beforeLocalWrite($route,$payload);
             if($localConsent!==null)app(DesktopDashboardCustomerFacts::class)->guardReopening($route,$localConsent);
             $started=now('UTC');
             $customerClock=config('desktop_dashboard.local')&&(DesktopDashboardGoStoreCreation::handles($route)||DesktopDashboardRestaurantManagement::handles($route)||DesktopDashboardGoProducts::handles($route)||DesktopDashboardCustomerFacts::handles($route)||DesktopDashboardCustomerDirectory::handles($route)||DesktopDashboardWalletCash::handles($route)||DesktopDashboardUserAccounts::handles($route)||DesktopDashboardUserProfiles::handles($route)||DesktopDashboardOrderBoard::handles($route)||DesktopDashboardSettings::handles($route));

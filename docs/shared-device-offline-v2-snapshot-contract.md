@@ -63,6 +63,17 @@ process and verifies actual database/member/source/media facts. The native
 registry atomically commits the complete prepared descriptor, receipt and roster
 as its sole active pointer. Cancellation retains the previous generation.
 
+Specific administration modules may carry `coverage.modules` while
+`full_dashboard` remains false. Each claim binds an actual signed global
+administrator witness, existing transport table counts/digests and a recomputed
+structural branch cohort. The source certifies every required table against an
+independent complete-source count inside the same snapshot transaction; settings
+use only the original editable general names. Address removal additionally needs
+all source foreign-key children of `user_address` to be complete. A partial
+table or missing structural table produces no claim. Import checks these claims
+before SQL creation, then the existing local authority MAC seals them. Page
+navigation and authentication do not repeat source scans or table hashing.
+
 ## Group deltas and cutover
 
 The request namespace is `format:2`, `kind:desktop-workspace-delta-index`,

@@ -75,6 +75,22 @@ class WorkspaceHTTP {
       return this.checked(response, download ? 256 * 1024 ** 2 : endpoint === 'manifest' ? 16 * 1024 ** 2 : 20 * 1024 ** 2, signal);
     }, { ...options, timeout: download ? 128000 : 25000 });
   }
+  legacy(endpoint, input, credential, options = {}) {
+    this.assert();
+    const paths = { commands: ['/api/desktop-dashboard/commands', 'POST'], 'print-outcomes': ['/api/desktop-dashboard/print-outcomes', 'POST'],
+      'legacy-pos/sync': ['/api/desktop-pos/sync', 'POST'], 'legacy-pos/health': ['/api/desktop-pos/health', 'GET'], 'legacy-pos/snapshot': ['/api/desktop-pos/snapshot', 'GET'] };
+    const target = Object.hasOwn(paths, endpoint) ? paths[endpoint] : null;
+    if (!target || credential?.serverOrigin !== this.serverOrigin || typeof credential.token !== 'string'
+      || credential.token.length < 32 || credential.token.length > 512 || /[\x00-\x20\x7f]/.test(credential.token)) throw failure();
+    if (target[1] === 'GET' && input !== null && input !== undefined) throw failure();
+    const body = target[1] === 'POST' ? JSON.stringify(input) : undefined;
+    if (body !== undefined && Buffer.byteLength(body) > 20 * 1024 ** 2) throw failure();
+    // Original retained credentials select original literal routes. This method
+    // never substitutes the group root or an effective B actor/header.
+    return this.withRequest(async signal => this.checked(await this.transport(this.serverOrigin + target[0], {
+      method: target[1], headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: 'Bearer ' + credential.token },
+      body, redirect: 'error', signal }), 20 * 1024 ** 2, signal), options);
+  }
   async media(ticket, credential, { signal } = {}) {
     this.credential(credential);
     if (typeof ticket !== 'string' || !ticket || ticket.length > 8192) throw failure();

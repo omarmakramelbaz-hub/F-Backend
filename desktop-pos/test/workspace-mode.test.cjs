@@ -80,3 +80,10 @@ test('fresh online-only B authority may be newer than cached data but cannot ent
   await assert.rejects(mode.local(), { code: 'WORKSPACE_MODE_LOCAL_PASSWORD_REQUIRED' });
   assert.equal(f.calls.some(c => c.action === 'start'), false);
 });
+
+test('ordinary A local pending work or unknown print cannot block B startup when there is no return/cutover fence', async t => {
+  const f = await modeFixture(t), b = f.createMode(202); f.setPrintPending(1);
+  b.guard = async () => { throw Error('A local queue must not be a B login gate.'); };
+  await b.recover(); assert.equal(await f.metadata.read(RETURN_KEY), null); assert.equal(f.calls.length, 0);
+  f.setRemotePending(1); await assert.rejects(b.recover(), /Unknown remote/);
+});

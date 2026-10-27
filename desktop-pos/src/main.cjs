@@ -33,12 +33,22 @@ if(app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()))
   app.setPath('userData',path.join(app.getPath('appData'),'fasakhansta-dashboard-preview'));
 const primaryInstance=Boolean(process.env.POS_TEST_PROFILE&&!app.isPackaged)||app.requestSingleInstanceLock();
 if(!primaryInstance)app.quit();
+let workspaceNative,workspaceLoginResult,legacyInspector;
 let win,store,sync,dashboard,localRuntime,localSync,generations,incomingDelta,preparation,dashboardMode,connectedAccess,connectedReview,remoteState,remoteAttempts,outboxReview,liveSocial,updater,lifecycleTrace,accountProfiles,activeAccount,accountSwitch,accountLogin,loginWindow,quitting=false,installingUpdate=false,profileSwitching=false,startupComplete=false,startupHidden=false,legacyLoading,legacyReady=false;
 const requests=new Set();
+// Preparation owns native children before any new workspace is activated.
+// Actor facades never own or stop these physical supervisors.
+const workspaceOwners=new Set();
+function ownWorkspaceRuntime(runtime){
+  workspaceOwners.add(runtime);
+  if(quitting)runtime.cancelStartup?.();
+  return runtime;
+}
 const syncSchedule=new SyncSchedule({work:syncCycle,setTimer:setTimeout,clearTimer:clearTimeout});
 const shutdown=new Shutdown(app,()=>{
   lifecycleTrace?.mark('shutdown-requested');quitting=true;
   loginWindow?.cancel();accountLogin?.cancel();accountSwitch?.cancel();localRuntime?.cancelStartup?.();updater?.stop();incomingDelta?.stop();liveSocial?.close();dashboard?.cancelAuthentication();syncSchedule.stop();sync?.stop();localSync?.stop();for(const controller of requests)controller.abort();
+  for(const owner of workspaceOwners)owner.cancelStartup?.();
   lifecycleTrace?.mark('shutdown-wait-accepted');
 },()=>{
   lifecycleTrace?.mark('shutdown-close-ledger');
@@ -47,13 +57,17 @@ const shutdown=new Shutdown(app,()=>{
 },async()=>{
   lifecycleTrace?.mark('shutdown-accepted-settled');lifecycleTrace?.mark('shutdown-drain-updater');await updater?.running;
   lifecycleTrace?.mark('shutdown-stop-runtime');
-  try{await accountLogin?.stop();}finally{await localRuntime?.stop();}
+  const stopped=await Promise.allSettled([Promise.resolve().then(()=>accountLogin?.stop()),
+    Promise.resolve().then(()=>localRuntime?.stop?.()),...Array.from(workspaceOwners,owner=>Promise.resolve().then(()=>owner.stop()))]);
+  const failures=stopped.filter(value=>value.status==='rejected').map(value=>value.reason);
+  if(failures.length)throw new AggregateError(failures,'تعذر إغلاق خدمات الجهاز؛ العمليات محفوظة.');
   lifecycleTrace?.mark('shutdown-runtime-stopped');
 },{canRelaunch:()=>!installingUpdate});
 function startupPhase(phase,details){if(!quitting&&!startupComplete)lifecycleTrace?.mark(phase,details);}
 function hideStartup(){if(!legacyLoading&&!startupHidden&&win&&!win.isDestroyed()){win.hide();startupHidden=true;}}
 function dashboardShown(){
   if(quitting)return;
+  if(workspaceLoginResult)workspaceNative?.visible(workspaceLoginResult)?.catch(()=>{});
   startupPhase('dashboard-visible');hideStartup();loginWindow?.dispose();loginWindow=null;
 }
 function dashboardNavigation(event={}){
@@ -76,6 +90,41 @@ async function request(method,endpoint,body,credential=store.get('connection')) 
 }
 function state() {
   const c=store.get('connection');return {paired:Boolean(c),origin:c?.origin||'',snapshot:store.snapshot(),orders:store.openOrders(),history:store.history(),counts:store.counts(),online:sync.online,error:sync.error,last_synced:store.get('last_synced'),printer:store.get('printer')||'',sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
+}
+function workspaceActor(){return Boolean(workspaceNative&&activeAccount?.protocol===2);}
+function dashboardControl(value){
+  if(workspaceActor()){
+    const {ROOT_ACTIONS}=require('./workspace-runtime.cjs');
+    return ROOT_ACTIONS.has(value?.action)?workspaceNative.workspace.control(value):localRuntime.control(value);
+  }
+  return localRuntime.control(value);
+}
+async function workspaceTransition(work){
+  syncSchedule.stop();
+  try{
+    if(syncSchedule.running)await syncSchedule.running;
+    const run=()=>dashboard.withAccountIdle(work);
+    return dashboardMode?await dashboardMode.serialize('workspace-preparation',run):await run();
+  }finally{if(!quitting&&!profileSwitching)syncSchedule.start();}
+}
+function relaunchWorkspace(){
+  profileSwitching=true;
+  try{shutdown.requestRelaunch();app.quit();}
+  catch(error){shutdown.cancelRelaunch();profileSwitching=false;throw error;}
+}
+function workspaceView(){
+  const names=['current','refresh','switchTo','canRefresh','recoverPrintEffects','open','reveal','reauthenticate'];
+  return Object.fromEntries(names.map(name=>[name,(...args)=>dashboard[name](...args)]));
+}
+function connectWorkspaceServices(result){
+  const services=workspaceNative.attach({result,view:workspaceView(),dialog,sourceSession:()=>dashboard?.session(),
+    createWindow:options=>new BrowserWindow(options),synchronize:()=>syncSchedule.request(),
+    confirmMicrophone:async window=>(await dialog.showMessageBox(window,{type:'question',title:'GO ERP',message:'السماح للرسائل المتصلة باستخدام الميكروفون لتسجيل رسالة صوتية؟',buttons:['السماح','إلغاء'],defaultId:1,cancelId:1})).response===0,
+    notify:message=>{if(!quitting)dialog.showErrorBox('GO ERP',message);},
+    onState:()=>dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{})});
+  remoteState=services.remoteState;remoteAttempts=services.attempts;dashboardMode=services.mode;connectedAccess=services.connected;
+  connectedReview=services.connectedReview;incomingDelta=services.delta;generations=services.generations;localSync=services.sync;
+  liveSocial=services.liveSocial;outboxReview=services.outboxReview;preparation=workspaceNative.preparation;
 }
 async function dashboardRequest(command, bootstrap=false, suppliedCredential, endpoint='commands') {
   const credential=suppliedCredential||await localRuntime.connection();
@@ -135,7 +184,7 @@ async function dashboardEnrollment(serverOrigin, input, csrf) {
 async function dashboardState() {
   if(!preparation)return {available:false};
   const remote=remoteState?await remoteState.read():{pending:[],dirty:false};
-  return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',full_central:connectedAccess?await connectedAccess.selected():false,remote_pending:remote.pending.length,remote_dirty:remote.dirty,...(localSync?.state||{}),
+  return {...await preparation.status(),mode:dashboard?.current().local?'local':'server',full_central:workspaceActor()?await workspaceNative.selectionStatus():connectedAccess?await connectedAccess.selected():false,remote_pending:remote.pending.length,remote_dirty:remote.dirty,...(localSync?.state||{}),
     pending:(localSync?.state.pending||0)+(store?.counts().pending||0),update:updater?.state,
     data_refresh:incomingDelta?.state||{phase:'idle'},sync_interval_seconds:syncSchedule.intervalMs/1000,sync_queued:Boolean(syncSchedule.waiting||syncSchedule.refreshPending),sync_running:Boolean(syncSchedule.running)};
 }
@@ -145,11 +194,16 @@ async function updateReady(insideTransition=false) {
     ||!(await localRuntime.isPrepared())||!(await dashboard.canRefresh()))return false;
   const old=store.counts(),remote=await remoteState.read();
   if(old.pending||old.conflicts||store.openOrders().length||remote.pending.length)return false;
-  const local=await localRuntime.control({action:'pending'});
+  const local=await dashboardControl({action:'pending'});
   return local.counts.pending===0&&local.counts.conflicts===0;
 }
 function connectUpdater(profile) {
   if(quitting||updater||!app.isPackaged||process.platform!=='win32'||!localRuntime)return;
+  if(workspaceActor()){
+    updater=workspaceNative.updater;updater.canApply=()=>updateReady();
+    updater.apply=candidate=>installDashboardUpdate(candidate,workspaceNative.workspace.physical.profile);
+    updater.onState=()=>dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});updater.start();return;
+  }
   const install=createUpdateInstall({profile});
   updater=new DashboardUpdater({profile,metadata:localRuntime.metadata,fetch:(...args)=>net.fetch(...args),
     credential:async()=>await localRuntime.isPrepared()?localRuntime.connection():null,
@@ -157,33 +211,25 @@ function connectUpdater(profile) {
     currentSource:async()=>(await new RuntimeArchive(profile,localRuntime.metadata).manifest(localRuntime.installedBundle)).sourceFingerprint,
     currentRevision:async()=>(await new RuntimeArchive(profile,localRuntime.metadata).manifest(localRuntime.installedBundle)).sourceRevision,
     canApply:()=>updateReady(),
-    apply:async candidate=>shutdown.run(()=>dashboardMode.serialize('installer-update',async()=>{
-      if(!(await updateReady(true)))return {deferred:true};
-      const wasLocal=dashboard.current().local;
-      return dashboard.withUpdateIdle(async()=>{
-        // The view now blocks writes, navigation and printing. Stop background
-        // work before taking the same durable database fence used by snapshots.
-        if(quitting||liveSocial?.busy()||incomingDelta?.running||syncSchedule.running||generations?.running||shutdown.pending.size>1)return {deferred:true};
-        syncSchedule.stop();installingUpdate=true;
-        try {
-          const remote=await remoteState.read(),local=await localRuntime.control({action:'pending'});
-          if(quitting)throw Error('أُوقف تثبيت التحديث أثناء إغلاق البرنامج.');
-          if(remote.pending.length||local.counts.pending||local.counts.conflicts)throw Error('انتظر تسوية العمليات قبل تثبيت التحديث.');
-          await dashboardMode.hold();
-          if(quitting)throw Error('أُوقف تثبيت التحديث أثناء إغلاق البرنامج.');
-          await install(candidate);
-          // Setup waits for this process to exit. Shutdown drains native work and
-          // stops MariaDB before any installed executable can be replaced.
-          app.quit();return {installing:true};
-        }catch(error){
-          installingUpdate=false;
-          if(wasLocal)await dashboardMode.cancelHold();
-          if(!quitting)syncSchedule.start();
-          throw error;
-        }
-      });
-    })),onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
+    apply:candidate=>installDashboardUpdate(candidate,profile),onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
   updater.start();
+}
+async function installDashboardUpdate(candidate,profile){
+  return shutdown.run(()=>dashboardMode.serialize('installer-update',async()=>{
+    if(!(await updateReady(true)))return {deferred:true};
+    return dashboard.withUpdateIdle(async()=>{
+      if(quitting||liveSocial?.busy()||incomingDelta?.running||syncSchedule.running||generations?.running||shutdown.pending.size>1)return {deferred:true};
+      const wasLocal=dashboard.current().local;syncSchedule.stop();installingUpdate=true;
+      try{
+        const remote=await remoteState.read(),local=await dashboardControl({action:'pending'});
+        if(quitting)throw Error('أُوقف تثبيت التحديث أثناء إغلاق البرنامج.');
+        if(remote.pending.length||local.counts.pending||local.counts.conflicts)throw Error('انتظر تسوية العمليات قبل تثبيت التحديث.');
+        if(workspaceActor()&&!(await workspaceNative.services.guard({operation:'installer-update'})))throw Error('انتظر تسوية عمليات الجهاز والطباعة قبل التحديث.');
+        await dashboardMode.hold();if(quitting)throw Error('أُوقف التحديث أثناء إغلاق البرنامج.');
+        await createUpdateInstall({profile})(candidate);app.quit();return {installing:true};
+      }catch(error){installingUpdate=false;if(wasLocal)await dashboardMode.cancelHold();if(!quitting)syncSchedule.start();throw error;}
+    });
+  }));
 }
 async function accountSwitchReady(){
   if(quitting||profileSwitching||installingUpdate||!dashboard||preparation?.running||liveSocial?.busy()
@@ -194,10 +240,10 @@ async function accountSwitchReady(){
   const remote=remoteState?await remoteState.read():{pending:[],dirty:false};
   if(remote.dirty||remote.pending.length)return false;
   if(localRuntime&&await localRuntime.isPrepared()){
-    const local=await localRuntime.control({action:'pending'});
+    const local=await dashboardControl({action:'pending'});
     if(local.counts.pending||local.counts.conflicts)return false;
     if(localRuntime.supportsPrintEffects()){
-      const prints=await localRuntime.control({action:'print-outcomes'});
+      const prints=await dashboardControl({action:'print-outcomes'});
       if(!prints||!Array.isArray(prints.outcomes)||!Number.isSafeInteger(prints.pending)||prints.pending<0
         ||prints.outcomes.length||prints.pending)return false;
     }
@@ -205,6 +251,7 @@ async function accountSwitchReady(){
   return !quitting&&!profileSwitching&&!syncSchedule.running&&!incomingDelta?.running;
 }
 function switchAccount(){
+  if(workspaceActor())return shutdown.run(async()=>{await accountSignout.signedOut(localRuntime);workspaceNative.workspace.revokeSession(activeAccount.actorId);relaunchWorkspace();return true;});
   if(!accountSwitch){
     accountSwitch=new AccountSwitch({profiles:accountProfiles,currentId:()=>activeAccount.id,available:accountSwitchReady,
       hold:work=>dashboard.withAccountIdle(work),
@@ -241,6 +288,7 @@ async function dashboardOffline(message, failure) {
 }
 function connectDashboardSync() {
   if(localSync)return;
+  if(workspaceActor()){connectWorkspaceServices(workspaceLoginResult);return;}
   // DashboardMode holds the settled home page for the whole guarded replacement.
   // Individual activation must not nest another window refresh.
   generations=new DashboardGeneration({runtime:localRuntime,metadata:localRuntime.metadata,download:()=>dashboardRequest(null,true),
@@ -252,12 +300,12 @@ function connectDashboardSync() {
     handoff:work=>localSync.withRefreshHandoff(work),
     allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
     onState:()=>{dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{});}});
-  localSync=new DashboardSync({local:value=>localRuntime.control(value),remote:dashboardRequest,backgroundRefresh:true,
+  localSync=new DashboardSync({local:value=>dashboardControl(value),remote:dashboardRequest,backgroundRefresh:true,
     effects:async({printProtocol})=>{
       if(!synchronizePrintOutcomes.activeProtocol(printProtocol))return {pending:0,deferred:false};
       if(!localRuntime.supportsPrintEffects())throw Error('سجل الطباعة لا يطابق مصدر البرنامج؛ العمليات محفوظة.');
       if(dashboard?.current().local)await dashboard.recoverPrintEffects();
-      return synchronizePrintOutcomes({local:value=>localRuntime.control(value),
+      return synchronizePrintOutcomes({local:value=>dashboardControl(value),
         remote:value=>dashboardRequest(value,false,undefined,'print-outcomes'),stopped:()=>quitting});
     },refresh:()=>shutdown.run(async()=>{
     if(connectedAccess&&await connectedAccess.deferRefresh())return {deferred:true};
@@ -324,12 +372,32 @@ app.whenReady().then(async()=>{
     const createLoginWindow=require('./login-window.cjs');
     accountLogin=new AccountLogin({profiles:accountProfiles,createRuntime,createSession:partition=>session.fromPartition(partition),
       serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,stopped:()=>quitting,online:()=>net.isOnline()});
+    if(require('./workspace-policy.cjs').available()){
+      const {createWorkspaceNative}=require('./workspace-native.cjs');
+      const {WorkspaceLegacyInspector}=require('./workspace-legacy-inspector.cjs');
+      legacyInspector=new WorkspaceLegacyInspector({profiles:accountProfiles,createRuntime,activeRuntime:id=>!workspaceActor()&&activeAccount?.id===id?localRuntime:null,
+        ownRuntime:ownWorkspaceRuntime,safeStorage,stopped:()=>quitting});
+      workspaceNative=await createWorkspaceNative({root:baseProfile,bundle:localBundle,safeStorage,profiles:accountProfiles,legacyBroker:accountLogin,
+        createSession:partition=>session.fromPartition(partition),transport:(...args)=>net.fetch(...args),serverOrigin:dashboardPolicy.DEFAULT_ORIGIN,
+        serverSession:()=>dashboard?.session(),currentVersion:app.getVersion(),online:()=>net.isOnline(),stopped:()=>quitting,
+        ownRuntime:ownWorkspaceRuntime,legacyInspector,inspectLegacyProfile:(account,options)=>legacyInspector.inspectProfile(account,options),
+        transition:workspaceTransition,relaunch:relaunchWorkspace,accepted:work=>shutdown.run(work),onPhase:startupPhase,
+        onState:()=>dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{}),
+        onFailure:()=>{if(!quitting)dialog.showErrorBox('GO ERP','خدمة الجهاز توقفت؛ البيانات محفوظة. أعد فتح البرنامج.');},
+        onLocked:async value=>{if(activeAccount?.actorId===value.actorId){try{dialog.showErrorBox('GO ERP','جلسة الحساب تحتاج تسجيل الدخول من جديد.');}finally{app.quit();}}},
+        allowPreview:/-preview\.[1-9][0-9]*$/.test(app.getVersion())});
+      if(workspaceNative){
+        accountLogin=workspaceNative.login;
+      }
+    }
+    if(quitting)return;
     // Show the normal one-form sign-in before reading or booting an account's
     // runtime. Only the verified account result can open its retained ledger.
     loginWindow=createLoginWindow({broker:accountLogin,quitting:()=>quitting,quit:()=>app.quit()});
     loginResult=await shutdown.run(()=>loginWindow.result);
     if(quitting)return;
     activeAccount=loginResult.account;localRuntime=loginResult.runtime;
+    if(workspaceActor())workspaceLoginResult=loginResult;
     // The shutdown owner is installed before the broker retires other native
     // services, including a quit that races this asynchronous handoff.
     await shutdown.run(()=>accountLogin.handoff(loginResult));
@@ -370,8 +438,9 @@ app.whenReady().then(async()=>{
   if(quitting)return;
   startupPhase('splash-loaded');
   let dashboardOrigin=loginResult?.origin||(!app.isPackaged&&process.env.POS_TEST_DASHBOARD_ORIGIN?new URL(process.env.POS_TEST_DASHBOARD_ORIGIN).origin:origin(store.get('connection')?.origin||dashboardPolicy.DEFAULT_ORIGIN));
-  let localToken='';
-  if(bundledRuntime) {
+  let localToken=workspaceActor()?loginResult.localToken:'';
+  if(workspaceActor()){connectWorkspaceServices(loginResult);}
+  else if(bundledRuntime) {
     remoteState=new DashboardRemoteState(localRuntime.metadata);
     liveSocial=new DashboardLiveSocial({runtime:localRuntime,sourceSession:()=>dashboard?.session(),
       createSession:partition=>session.fromPartition(partition),createWindow:options=>new BrowserWindow(options),quitting:()=>quitting||installingUpdate,
@@ -379,7 +448,7 @@ app.whenReady().then(async()=>{
       notify:message=>{if(!quitting)dialog.showErrorBox('GO ERP',message);}});
     connectedAccess=new DashboardConnected({runtime:localRuntime,view:()=>dashboard,mode:()=>dashboardMode,generations:()=>generations,remoteState,
       remoteAttempts:{recover:()=>remoteAttempts.recover()},probe:dashboardSession,
-      synchronize:async()=>{await syncSchedule.request();const counts=await localRuntime.control({action:'pending'});if(counts.counts.pending||counts.counts.conflicts)throw Error('توجد عمليات محلية معلقة أو متعارضة؛ أكمل مراجعتها ومزامنتها قبل الداشبورد المتصلة.');},
+      synchronize:async()=>{await syncSchedule.request();const counts=await dashboardControl({action:'pending'});if(counts.counts.pending||counts.counts.conflicts)throw Error('توجد عمليات محلية معلقة أو متعارضة؛ أكمل مراجعتها ومزامنتها قبل الداشبورد المتصلة.');},
       onState:()=>dashboardState().then(value=>dashboard?.publish(value)).catch(()=>{})});
     outboxReview=new DashboardOutboxReview({runtime:localRuntime,dialog,synchronize:async()=>{syncSchedule.request().catch(()=>{});}});
     remoteAttempts=new DashboardRemoteAttempts({state:remoteState,metadata:localRuntime.metadata,
@@ -414,13 +483,15 @@ app.whenReady().then(async()=>{
       // runtime copying and account-wide staging must not hold the login form.
     }
   }
+  if(workspaceNative&&!workspaceActor())preparation=workspaceNative.preparation;
   if(quitting)return;
   startupPhase('dashboard-create');
   dashboard=createDashboard({origin:dashboardOrigin,localToken,partition:activeAccount.partition,switchAccount,
-    beforeLogout:localRuntime?()=>accountSignout.signedOut(localRuntime):undefined,
+    beforeLogout:localRuntime?async()=>{workspaceLoginResult?.discardCredentials?.();await accountSignout.signedOut(localRuntime);if(workspaceActor())workspaceNative.workspace.revokeSession(activeAccount.actorId);}:undefined,
     serverOrigin:localToken?(await localRuntime.connection()).serverOrigin:dashboardOrigin,
     onVisible:dashboardShown,onNavigation:dashboardNavigation,
     prepare:preparation?async(serverOrigin,csrf)=>{
+      if(workspaceNative)return preparation.prepare(serverOrigin,csrf);
       const ready=await remoteState.snapshot(()=>preparation.prepare(serverOrigin,csrf));
       // The encrypted snapshot gate is clean only after preparation returns.
       // Start using original local forms immediately, even while online.
@@ -432,7 +503,7 @@ app.whenReady().then(async()=>{
     reauthenticate:connectedAccess?()=>connectedAccess.reauthenticate():undefined,
     localMode:connectedAccess?()=>connectedAccess.local():undefined,
     reviewCentral:connectedReview?window=>connectedReview.open(window):undefined,
-    browse:connectedAccess?()=>connectedAccess.browse():undefined,
+    browse:connectedAccess?()=>workspaceActor()&&workspaceLoginResult.onlineOnly?remoteState.browse():connectedAccess.browse():undefined,
     printControl:localRuntime?value=>{
       if(!localRuntime.supportsPrintEffects())throw Error('الطباعة المحلية تحتاج اكتمال تحديث نسخة بيانات الجهاز.');
       return localRuntime.control(value);
@@ -460,6 +531,7 @@ app.whenReady().then(async()=>{
   }
   startupPhase('dashboard-navigation');
   await dashboard.open();if(quitting)return;
+  if(workspaceLoginResult)workspaceNative.visible(workspaceLoginResult)?.catch(()=>{});
   startupPhase('dashboard-open-settled');hideStartup();startupPhase('startup-complete');startupComplete=true;
   // The first document has settled before either updater work or the original
   // synchronization schedule can admit an optional source replacement.

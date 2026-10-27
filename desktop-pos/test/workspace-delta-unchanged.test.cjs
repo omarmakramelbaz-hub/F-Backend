@@ -47,6 +47,16 @@ test('the explicit private catalog receipt also supports the empty PHP list', as
   const f = await catalogFixture('[]'); assert.equal(evaluate(f), true);
 });
 
+test('the shared PHP catalog wire fixture agrees with the native exact-byte no-op commitment', async () => {
+  const wire = require('../../tests/fixtures/workspace-catalog-wire-v2.json');
+  assert.equal(wire.format, 2); assert.equal(sha(wire.created_scopes_json), wire.sha256);
+  assert.equal(JSON.parse(wire.created_scopes_json).length, wire.count);
+  const f = await catalogFixture(wire.created_scopes_json);
+  assert.equal(f.capture.catalog.sha256, wire.sha256); assert.equal(f.capture.catalog.count, wire.count);
+  assert.equal(evaluate(f), true);
+  assert.equal(evaluate({ ...f, delta: structuredClone(f.delta) }), false, 'PHP balance:1.0 must not become balance:1');
+});
+
 test('the native unchanged index validator agrees with the PHP v2 codec fixture', () => {
   assert.equal(validIndex('users', codec.users_index, scopeFor(codec.manifest)), true);
   assert.equal(schemaHash(codec.users_ddl, 'users'), codec.users_index.schema_sha256);

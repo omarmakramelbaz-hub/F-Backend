@@ -89,3 +89,30 @@ test('a fresh online-only account may take its own server mode after A settles w
   assert.deepEqual(await f.metadata.read(history), previous); assert.ok(f.calls.some(c => c.action === 'remote-browse'));
   await assert.rejects(b.local(), { code: 'WORKSPACE_CONNECTED_LOCAL_PASSWORD_REQUIRED' });
 });
+
+test('online-only cached adoption verifies the union then actual local password before revealing local view', async t => {
+  const f = await modeFixture(t), b = f.createConnected(202); f.setLocal(false);
+  let authenticated = false, consumed = false;
+  const original = f.actor(202);
+  b.actor = { ...original, onlineOnly: true, offlineAuthenticated: async () => authenticated };
+  b.canAuthenticateLocal = async () => !consumed;
+  b.authenticateLocal = async () => {
+    assert.equal(f.generations, 1); assert.equal(f.view.current().local, false);
+    assert.equal(f.calls.some(c => c.action === 'snapshot-finish'), true);
+    consumed = true; authenticated = true; b.actor.onlineOnly = false; return true;
+  };
+  await b.local(); assert.equal(consumed, true); assert.equal(f.view.current().local, true);
+  assert.equal(await f.metadata.read(CENTRAL_KEY), null);
+});
+
+test('expired or rejected one-use local password keeps the already usable server view after union verification', async t => {
+  const f = await modeFixture(t), b = f.createConnected(202); f.setLocal(false);
+  b.actor = { ...f.actor(202), onlineOnly: true, offlineAuthenticated: async () => false };
+  b.canAuthenticateLocal = async () => true;
+  b.authenticateLocal = async () => { throw Object.assign(Error('Password changed.'), { code: 'ACCOUNT_CREDENTIALS_REJECTED' }); };
+  await assert.rejects(b.local(), { code: 'ACCOUNT_CREDENTIALS_REJECTED' });
+  assert.equal(f.view.current().local, false); assert.notEqual(f.held, null); assert.equal(f.generations, 1);
+  b.canAuthenticateLocal = async () => false;
+  await assert.rejects(b.local(), { code: 'WORKSPACE_CONNECTED_LOCAL_PASSWORD_REQUIRED' });
+  assert.equal(f.generations, 1, 'Expired bridge does not loop login/import or silently enter local data.');
+});

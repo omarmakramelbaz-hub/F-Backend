@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { originalSignin, installCookies, networkFailure } = require('./account-login.cjs');
+const { originalSignin, installCookies, networkFailure, authCookie, recaller } = require('./account-login.cjs');
 const { withDeadline } = require('./native-deadline.cjs');
 const signout = require('./account-signout.cjs');
 const rejected = () => Object.assign(Error('تعذر تسجيل الدخول. تأكد من بيانات الحساب.'), { code: 'WORKSPACE_CREDENTIALS_REJECTED' });
@@ -41,7 +41,7 @@ class WorkspaceLogin {
     if (this.running) throw Error('جارٍ تسجيل الدخول بالفعل.');
     if (!input || typeof input.email !== 'string' || !input.email.trim() || input.email.length > 320 || /[\x00-\x1f\x7f]/.test(input.email)
       || typeof input.password !== 'string' || !input.password || input.password.length > 4096 || typeof input.remember !== 'boolean') throw rejected();
-    this.sequence++;
+    this.userEditing();
     const credentials = { email: input.email.trim(), password: input.password, remember: input.remember };
     this.pendingCredentials.add(credentials);
     const task = this.login(credentials).catch(error => { credentials.password = ''; this.pendingCredentials.delete(credentials); throw error; })
@@ -89,6 +89,7 @@ class WorkspaceLogin {
           if (await this.serverAuthenticate(credentials, { member: now, active: latest, selected, signal }) !== true) throw rejected(); this.assert(signal);
         }
       }
+      if (this.remembering) await this.remembering.catch(() => {}); this.assert(signal);
       await this.workspace.acceptSession(actor, proof); this.assert(signal);
       const target = this.createSession(selected.descriptor.partition), activeLogin = () => !this.cancelled && !this.stopped() && !signal.aborted;
       const undo = await installCookies(browser, target, local.origin, true, { active: activeLogin });
@@ -96,6 +97,7 @@ class WorkspaceLogin {
         await signout.signedIn(selected.runtime, { active: activeLogin }); this.assert(signal);
         await selected.runtime.metadata.write('workspace-login', { format: 2, kind: 'workspace-login', actorId: actor.actorId,
           manifestRevision: latest.manifest.revision, remember: credentials.remember }); this.assert(signal);
+        await this.workspace.metadata.write('workspace-last-login', { format: 2, actorId: actor.actorId, remember: credentials.remember }); this.assert(signal);
       } catch (error) { this.workspace.revokeSession(actor.actorId); await undo(); throw error; }
       return { ...selected, local: true, origin: local.origin, localToken: local.token, actor: { ...actor }, member: now, active: latest };
     }); } catch (error) {
@@ -117,6 +119,46 @@ class WorkspaceLogin {
     let background;
     return { account: result.descriptor, runtime: result.runtime, local: true, origin: result.origin, localToken: result.localToken,
       actor: result.actor, afterView, discardCredentials: forget };
+  }
+  userEditing() { this.sequence++; this.passive?.abort(); }
+  resumeRemembered() {
+    if (this.remembering) return this.remembering;
+    this.remembering = this.remembered().catch(error => {
+      if ((['ACCOUNT_LOGIN_CANCELLED','ABORT_ERR'].includes(error.code) || error.name === 'AbortError') && !this.cancelled && !this.stopped()) return null; throw error;
+    }).finally(() => { this.remembering = null; }); return this.remembering;
+  }
+  async remembered() {
+    if (this.running) return null; this.assert(); const sequence = this.sequence;
+    const remembered = await this.workspace.metadata.read('workspace-last-login');
+    if (!remembered || remembered.format !== 2 || remembered.remember !== true || !Number.isSafeInteger(remembered.actorId) || remembered.actorId < 1) return null;
+    const member = await this.registry.member(remembered.actorId), active = await this.registry.current(); if (!member || !active) return null;
+    const selected = await this.workspace.actor(member.actor_id);
+    if (await signout.requirePassword(selected.runtime) || await selected.runtime.metadata.read(rejectionKey)) return null;
+    const target = this.createSession(selected.descriptor.partition), cookies = await withDeadline(() => target.cookies.get({ name: recaller }), 5000, 'تعذر قراءة جلسة الحساب.');
+    const saved = cookies.filter(cookie => authCookie(cookie, 'http://127.0.0.1:1', true) && cookie.name === recaller);
+    const current = () => !this.cancelled && !this.stopped() && sequence === this.sequence && !this.running;
+    if (saved.length !== 1 || !current()) return null;
+    const local = await this.workspace.start(); if (!current()) return null;
+    const controller = new AbortController(); this.passive = controller;
+    try { return await this.fresh(async (browser, signal) => {
+      const cookie = saved[0];
+      await browser.cookies.set({ url: local.origin + '/', name: cookie.name, value: cookie.value, path: '/', httpOnly: true,
+        secure: false, expirationDate: cookie.expirationDate, ...(cookie.sameSite ? { sameSite: cookie.sameSite } : {}) });
+      if (!current()) return null;
+      let proof;
+      try { proof = await this.verifyLocalSession({ browser, local, active }, { signal }); }
+      catch (error) { if ([401,403].includes(error.status)) return null; throw error; }
+      const now = await this.registry.current();
+      if (!current() || await signout.requirePassword(selected.runtime) || await selected.runtime.metadata.read(rejectionKey)) return null;
+      if (proof.actor_id !== member.actor_id || proof.role !== member.role || now.manifest.revision !== active.manifest.revision
+        || now.manifest.roster_sha256 !== active.manifest.roster_sha256) throw rejected();
+      await this.workspace.acceptSession({ actorId: proof.actor_id, role: proof.role }, proof);
+      const undo = await installCookies(browser, target, local.origin, true, { active: current });
+      if (!current() || await signout.requirePassword(selected.runtime)) { this.workspace.revokeSession(member.actor_id); await undo(); return null; }
+      return { account: selected.descriptor, runtime: selected.runtime, local: true, origin: local.origin, localToken: local.token,
+        actor: { actorId: member.actor_id, role: member.role }, afterView: async () => {}, discardCredentials: () => {} };
+    }, controller.signal);
+    } finally { controller.abort(); if (this.passive === controller) this.passive = null; }
   }
   async serverOnly(credentials, extra = {}) {
     const controller = new AbortController(), fallbackCredentials = { ...credentials, ...extra }; this.controllers.add(controller);

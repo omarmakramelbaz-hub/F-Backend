@@ -86,6 +86,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_workspace_command_authorities','desktop_dashboard_workspace_local_authority_history',
             'desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority','desktop_dashboard_refreshes','desktop_dashboard_local_state',
             'desktop_dashboard_workspace_members','desktop_dashboard_workspace_manifests','desktop_dashboard_workspaces',
+            'desktop_dashboard_entities','desktop_dashboard_commands','desktop_dashboard_devices','settings','user_address','orders',
             'role_has_permissions','model_has_roles','model_has_permissions','roles','permissions','go_stores','resturants','users']as$table)Schema::dropIfExists($table);
         Schema::enableForeignKeyConstraints();
     }
@@ -134,6 +135,34 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
     private function tableReads(array$queries,string$table):int
     {
         return count(array_filter($queries,fn($query)=>(bool)preg_match('~\bfrom\s+[`"]?'.preg_quote($table,'~').'[`"]?(?:\s|$)~i',$query['query'])));
+    }
+    private function moduleOwnerScope():\App\Services\Dashboard\DesktopDashboardWorkspaceScope
+    {
+        foreach(['setting-list','vendor-edit','order-list']as$index=>$name){
+            DB::table('permissions')->insert(['id'=>$index+1,'name'=>$name,'guard_name'=>'admin']);
+            DB::table('model_has_permissions')->insert(['permission_id'=>$index+1,'model_type'=>User::class,'model_id'=>1]);
+        }
+        require_once database_path('migrations/2026_10_08_130000_create_desktop_dashboard_journal.php');(new \CreateDesktopDashboardJournal)->up();
+        Schema::create('user_address',function(Blueprint$t){$t->id();$t->unsignedBigInteger('user_id');});
+        Schema::create('orders',function(Blueprint$t){$t->id();});
+        Schema::create('settings',function(Blueprint$t){$t->id();$t->string('group');$t->string('name');$t->boolean('locked')->default(false);$t->longText('payload');$t->timestamps();});
+        foreach(\App\Services\Dashboard\DesktopDashboardWorkspaceModuleCoverage::settingsNames()as$name)
+            DB::table('settings')->insert(['group'=>'general','name'=>$name,'locked'=>false,
+                'payload'=>json_encode($name==='site_active'?false:($name==='app_balance'?'123.45':($name==='advertise_resturant_id'?'100':'fixture'))),
+                'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        $this->ownerScope();$tables=[];$coverage=\App\Services\Dashboard\DesktopDashboardWorkspaceModuleCoverage::class;
+        foreach(array_unique([...$coverage::requiredTables('accounts'),...$coverage::requiredTables('settings'),'go_stores'])as$table){
+            $rows=DB::table($table)->get()->map(fn($row)=>(array)$row)->all();
+            $tables[$table]=['rows'=>$rows,'sha256'=>hash('sha256',\App\Services\Dashboard\DesktopDashboardBootstrap::json($rows)),
+                'ddl'=>'CREATE TABLE `'.$table.'` (`id` bigint)'];
+        }
+        $modules=$coverage::issue($this->manifest,1,$tables,$coverage::structural($tables));
+        $coverage::validateSnapshot(['workspace_manifest'=>$this->manifest,'tables'=>$tables,'coverage'=>['modules'=>$modules]]);
+        $this->assertArrayHasKey('accounts',$modules);$this->assertArrayHasKey('settings',$modules);
+        $this->record['snapshot']['coverage']=['workspace_protocol'=>2,'full_dashboard'=>false,'modules'=>$modules];
+        DB::table('desktop_dashboard_local_state')->update(['coverage'=>Authority::canonical($this->record['snapshot']['coverage'])]);
+        $this->writeRecord();$this->writeMembers();app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        return $this->local()->scopeForActor(1);
     }
     private function denied(callable$work,array$codes=[403,409,422,503]):void
     {
@@ -280,7 +309,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         \App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::run($scope,function()use($scope,$module){
             $this->assertSame($scope,$module->scope($scope,$this->actor(11)));
             $this->denied(fn()=>$module->scope($scope,$this->actor(11),['setting-list']),[403]);
-            $this->denied(fn()=>$module->scope($scope,$this->actor(11),[],true),[503]);
+            $this->denied(fn()=>$module->scope($scope,$this->actor(11),[],'accounts'),[503]);
             $this->denied(fn()=>$module->scope((object)['id'=>self::DEVICE,'actor_id'=>11],$this->actor(11)),[403]);
         });
         DB::table('desktop_dashboard_local_state')->update(['coverage'=>'{"workspace_protocol":2,"full_dashboard":true}']);
@@ -363,5 +392,64 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
             finally{$connection->setEventDispatcher($dispatcher);}
         });
         $this->assertSame(4,$calls);$this->assertFalse(Context::isReadOnly());
+    }
+    public function test_certified_module_datasets_allow_original_settings_accounts_and_name_permissions_without_full_dashboard():void
+    {
+        if($this->connection!=='mysql')$this->markTestSkipped('Original adapter engine/FK checks require isolated MySQL.');
+        $scope=$this->moduleOwnerScope();$this->actingAs($this->actor(1),'admin');
+        Context::run($scope,function()use($scope){DB::transaction(function()use($scope){
+            $settings=app(\App\Services\Dashboard\DesktopDashboardSettings::class);
+            $request=\Illuminate\Http\Request::create('/admin/settings/update','PUT',['site_name'=>'Module setting']);
+            $route=clone app('router')->getRoutes()->getByName('updateSetting');$route->bind($request);$request->setRouteResolver(fn()=>$route);
+            $payload=$settings->payload('updateSetting',$request,'33333333-3333-4333-8333-333333333333',$scope->actor(),$scope);
+            $this->assertSame(1,(int)$settings->authorize('updateSetting',$payload,$scope->actor(),$scope)->id);
+            $accounts=app(\App\Services\Dashboard\DesktopDashboardUserAccounts::class);$before=$accounts->staffState(11);
+            $this->assertSame(1,(int)$accounts->authorizeAccount('users.change-status',$before,$scope->actor(),$scope)->id);
+            $profiles=app(\App\Services\Dashboard\DesktopDashboardUserProfiles::class);
+            $profile=['parameters'=>['user'=>11],'values'=>['name'=>'Changed public name','account_type'=>'vendor',
+                'idempotency_key'=>'44444444-4444-4444-8444-444444444444'],'files'=>[],
+                'facts'=>['user_profile_before'=>['account'=>$before,'pending'=>null]]];
+            $profiles->authorize($profile,$scope->actor(),$scope);
+            $profiles->capture($profile,function(){
+                app(\App\Repositories\UserRepository::class)->updateUser(11,['name'=>'Changed public name','account_type'=>'vendor']);
+                return redirect('/admin/users/11/edit');
+            });
+            $this->assertSame('Changed public name',DB::table('users')->where('id',11)->value('name'));
+            $this->assertFalse(json_decode($scope->coverage,true)['full_dashboard']);
+        });});
+        auth()->forgetGuards();$branch=$this->local()->scopeForActor(11);
+        $this->assertSame('Changed public name',$branch->actor()->name);
+        Context::run($branch,function()use($branch){
+            $this->denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardWorkspaceModuleAuthority::class)
+                ->scope($branch,$branch->actor(),['setting-list'],'settings'),[403]);
+        });
+    }
+    public function test_assigned_role_guard_runs_before_business_sql_and_keeps_other_cached_accounts_usable():void
+    {
+        require_once database_path('migrations/2026_10_08_130000_create_desktop_dashboard_journal.php');(new \CreateDesktopDashboardJournal)->up();
+        DB::table('roles')->insert([['id'=>70,'name'=>'Cached member role','guard_name'=>'admin'],['id'=>71,'name'=>'Unused role','guard_name'=>'admin']]);
+        DB::table('model_has_roles')->insert(['role_id'=>70,'model_type'=>User::class,'model_id'=>11]);$scope=$this->ownerScope();
+        $membership=DB::transaction(fn()=>app(\App\Services\Dashboard\DesktopDashboardRoleFacts::class)->membershipHash(70));
+        $payload=['parameters'=>['role'=>70],'values'=>['name'=>'Forbidden local authority edit','permission'=>[]],
+            'files'=>[],'facts'=>['catalog_before'=>['row'=>['name'=>'Cached member role','guard_name'=>'admin'],
+                'permissions'=>[],'membership_sha256'=>$membership]]];
+        $journal=app(\App\Services\Dashboard\DesktopDashboardJournal::class);$called=false;
+        Context::run($scope,function()use($scope,$journal,$payload,&$called){
+            $this->denied(function()use($journal,$payload,&$called){
+                return $journal->execute(self::DEVICE,'55555555-5555-4555-8555-555555555555',1,'roles.update',$payload,[],
+                    function()use(&$called){$called=true;DB::table('roles')->where('id',70)->update(['name'=>'Changed']);return ['saved'=>true];});
+            },[501]);
+        });
+        $this->assertFalse($called);$this->assertSame('Cached member role',DB::table('roles')->where('id',70)->value('name'));
+        $this->assertSame(0,DB::table('desktop_dashboard_commands')->count());$this->assertSame(11,$this->local()->scopeForActor(11)->actor_id);
+        $payload['parameters']['role']=71;$payload['facts']['catalog_before']=['row'=>['name'=>'Unused role','guard_name'=>'admin'],
+            'permissions'=>[],'membership_sha256'=>hash('sha256','[]')];
+        $saved=Context::run($scope,fn()=>$journal->execute(self::DEVICE,'66666666-6666-4666-8666-666666666666',1,'roles.update',$payload,[],
+            function(){DB::table('roles')->where('id',71)->update(['name'=>'Changed unused role']);return ['saved'=>true];}));
+        $this->assertSame(['saved'=>true],$saved);$this->assertSame('Changed unused role',DB::table('roles')->where('id',71)->value('name'));
+        $this->assertSame(11,$this->local()->scopeForActor(11)->actor_id);
+        $payload['parameters']['role']=71;$payload['facts']['catalog_before']['membership_sha256']=hash('sha256','source-has-filtered-assignments');
+        $this->denied(fn()=>DB::transaction(fn()=>app(\App\Services\Dashboard\DesktopDashboardWorkspaceRoleMutationGuard::class)
+            ->beforeLocalWrite('roles.destroy',$payload)),[501]);
     }
 }

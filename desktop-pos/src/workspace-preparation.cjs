@@ -20,13 +20,14 @@ function origin(value) { const parsed = new URL(value); need(parsed.protocol ===
  * ordinary login, avoiding mutation/copy of the initiating actor's sessions.
  */
 class WorkspacePreparation {
-  constructor({ workspace, serverOrigin, challenge, enroll, download, migration, transition, relaunch, onState = () => {},
+  constructor({ workspace, serverOrigin, challenge, enroll, download, migration, migrationController, transition, relaunch, onState = () => {},
     allowPreview = false, now = () => performance.now() }) {
     need(workspace?.registry && typeof challenge === 'function' && typeof enroll === 'function' && typeof download === 'function'
       && typeof migration?.inspectAll === 'function' && typeof migration?.unchangedAndClean === 'function'
       && typeof transition === 'function' && typeof relaunch === 'function', 'CONFIGURATION_INVALID');
     Object.assign(this, { workspace, registry: workspace.registry, serverOrigin: origin(serverOrigin), challenge, enroll, download, migration,
       transition, relaunch, onState, allowPreview, now });
+    this.migrationController = migrationController;
     this.state = { phase: 'idle', progress: 0, error: '' }; this.started = null; this.finished = null;
   }
   timing() { return this.started === null ? null : { elapsed_ms: Math.max(0, Math.floor((this.finished ?? this.now()) - this.started)), running: this.finished === null }; }
@@ -38,13 +39,15 @@ class WorkspacePreparation {
     this.started = this.now(); this.finished = null;
     this.running = this.initialize(requestOrigin, csrf, signal).finally(() => {
       this.finished = this.now(); this.running = null; this.report({});
-    }); return this.running;
+    }).then(result => ({ ...result, setup_timing: this.timing() })); return this.running;
   }
   async initialize(requestOrigin, csrf, signal) {
     need(requestOrigin === this.serverOrigin, 'SESSION_INVALID');
     this.check(signal);
     if (await this.registry.current()) return this.status();
+    let migrationTicket;
     try {
+      if (this.migrationController) { this.report({ phase: 'draining', progress: 1, error: '' }); await this.migrationController.drain({ signal }); this.check(signal); }
       this.report({ phase: 'checking', progress: 2, error: '' });
       const inventory = await this.migration.inspectAll({ signal }); this.check(signal);
       const migrationState = WorkspaceMigrationInventory.publicState(inventory);
@@ -114,7 +117,9 @@ class WorkspacePreparation {
       await this.transition(async () => {
         this.check(signal);
         need(await this.migration.unchangedAndClean(inventory, { signal }) === true, 'LEGACY_WORK_CHANGED'); this.check(signal);
+        if (this.migrationController) { migrationTicket = await this.migrationController.seal(inventory, { signal }); this.check(signal); }
         await this.registry.activate(ticket, { signal, verifyCandidate: value => this.workspace.verifyCandidate(value, { signal }) });
+        if (migrationTicket) await this.migrationController.committed(migrationTicket);
         // Once the pointer is durable, do not cancel/delete the accepted new DB.
         // Stop physical children before relaunch even if a UI disconnects here.
         await this.workspace.stop();
@@ -124,6 +129,7 @@ class WorkspacePreparation {
       this.report({ phase: 'ready', progress: 100, error: '' });
       const result = await this.status(); await this.relaunch(); return result;
     } catch (error) {
+      if (migrationTicket && await this.registry.current() === null) await this.migrationController.release(migrationTicket);
       delete this.state.media;
       await this.workspace.stop().catch(() => {});
       this.report({ phase: 'failed', error: 'تعذر استكمال تجهيز الجهاز؛ البيانات الحالية محفوظة.' }); throw error;

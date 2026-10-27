@@ -119,6 +119,13 @@ class WorkspaceDelta {
     if (this.recovering) return this.recovering;
     this.recovering = this.recoverCheckpoint().finally(() => { this.recovering = null; }); return this.recovering;
   }
+  async recoverAccepted() {
+    // First view only waits for a durable source acceptance. An inactive
+    // capture/candidate owns no live fence and can be cleaned in background.
+    const intent = await this.metadata.read(INTENT), union = await this.metadata.read(UNION_INTENT);
+    if (intent === null && union === null) return;
+    return this.recover();
+  }
   async recoverCheckpoint() {
     const cp = await this.readCheckpoint(), intent = await this.intent();
     const union = await this.metadata.read(UNION_INTENT);

@@ -307,7 +307,8 @@ test('recovery rejects a substituted acceptance id or Registry ticket before tou
 
 test('nonempty catalog equality skips import and pointer writes using the private capture receipt and exact server bytes', async t => {
   const { catalogFixture } = require('./helpers/workspace-unchanged-fixture.cjs');
-  const value = await catalogFixture(), f = await setup(t, value), before = await f.registry.read(true);
+  const wire = require('../../tests/fixtures/workspace-catalog-wire-v2.json');
+  const value = await catalogFixture(wire.created_scopes_json), f = await setup(t, value), before = await f.registry.read(true);
   const result = await f.create().run(); assert.equal(result.unchanged, true);
   assert.equal(f.calls.includes('stage'), false); assert.equal(f.calls.some(call => call.startsWith('activate:')), false);
   assert.deepEqual(await f.registry.read(true), before); assert.equal(f.records.get(UNION_INTENT), null);
@@ -321,4 +322,21 @@ test('catalog bytes losing PHP integral floats and large integers force verified
   const f = await setup(t, value), result = await f.create().run();
   assert.notEqual(result.database, f.previous.candidate.database); assert.equal(f.calls.includes('stage'), true);
   assert.equal([...f.records.keys()].some(key => key.startsWith('workspace-union-checks/')), false);
+});
+
+test('startup recovery skips every unaccepted inactive checkpoint before the first view', async t => {
+  const f = await setup(t); f.records.set(KEY, { deliberately: 'unread inactive cleanup state' });
+  const before = [...f.calls]; await f.create({ download: async () => { throw Error('no startup download'); },
+    manifest: async () => { throw Error('no startup manifest'); } }).recoverAccepted();
+  assert.deepEqual(f.calls, before); assert.deepEqual(f.records.get(KEY), { deliberately: 'unread inactive cleanup state' });
+  assert.deepEqual(await f.registry.current(), f.previous);
+});
+
+test('startup recovery still settles a durable accepted source fence offline in its same generation', async t => {
+  const f = await setup(t); f.setFinalizeFailure(true); await assert.rejects(f.create().run());
+  const cp = f.records.get(KEY); f.setFinalizeFailure(false);
+  const result = await f.create({ download: async () => { throw Error('no startup download'); },
+    manifest: async () => { throw Error('no startup manifest'); } }).recoverAccepted();
+  assert.equal(result.generation, cp.candidateGeneration); assert.equal(f.records.get(INTENT), null);
+  assert.equal(f.calls.filter(call => call === 'stage').length, 1);
 });

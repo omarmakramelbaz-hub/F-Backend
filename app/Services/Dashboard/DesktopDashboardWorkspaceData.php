@@ -80,4 +80,43 @@ final class DesktopDashboardWorkspaceData
         return $rows;
     }
     public function pendingEligibility(array $queries,array $rows): ?array { return $this->legacy->pendingEligibility($queries,$rows); }
+
+    /** Certify module completeness during the source snapshot, never while opening a page. */
+    public function moduleCoverage(DesktopDashboardWorkspaceSnapshotAudience $audience,array $queries,array $tables): array
+    {
+        $this->authority->assertSnapshotAudience($audience);$manifest=$audience->manifest();$actors=$audience->actors();$witness=null;
+        foreach($manifest['members'] as $member){
+            $actor=$actors[$member['actor_id']]??null;
+            if($actor instanceof User&&$member['permissions']['super_admin']&&$this->legacy->allAdministration($actor)){
+                $witness=$member['actor_id'];break;
+            }
+        }
+        if($witness===null)return [];
+        $contract=DesktopDashboardWorkspaceModuleCoverage::class;
+        $required=array_values(array_unique([...$contract::requiredTables('accounts'),...$contract::requiredTables('settings')]));
+        $structural=[];foreach(['go_stores','pending_vendors'] as $table)if(isset($queries[$table]))$structural[]=$table;
+        // Address removal must account for every source FK child, including a
+        // table outside a known controller's current list of references.
+        $children=[];
+        foreach(DB::select('SELECT DISTINCT TABLE_NAME AS source_table FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=? AND REFERENCED_TABLE_NAME=?',
+            [DB::connection()->getDatabaseName(),'user_address']) as $reference)$children[]=$reference->source_table;
+        $children=array_values(array_unique($children));sort($children,SORT_STRING);
+        $candidates=array_values(array_unique([...$required,...$structural,...$children]));sort($candidates,SORT_STRING);$certified=[];
+        foreach($candidates as $table){
+            if(!isset($queries[$table],$tables[$table]))continue;
+            $intended=DB::table($table);
+            if($table==='settings')$intended->where('group','general')->whereIn('name',$contract::settingsNames());
+            $expected=$intended->count();
+            if((clone $queries[$table])->count()!==$expected||count($tables[$table]['rows'])!==$expected)continue;
+            if($table==='settings'){
+                $names=array_column($tables[$table]['rows'],'name');sort($names,SORT_STRING);$requiredNames=$contract::settingsNames();sort($requiredNames,SORT_STRING);
+                if($names!==$requiredNames)continue;
+            }
+            $certified[$table]=$tables[$table];
+        }
+        foreach(['users','resturants'] as $table)if(!isset($certified[$table]))return [];
+        foreach($structural as $table)if(!isset($certified[$table]))return [];
+        $addressChildren=array_diff($children,array_keys($certified))===[]?$children:null;
+        return $contract::issue($manifest,$witness,$certified,$contract::structural($certified),$addressChildren);
+    }
 }

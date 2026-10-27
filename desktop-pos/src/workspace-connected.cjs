@@ -6,10 +6,10 @@ const need = (value, code) => { if (!value) throw error(code); };
 const CENTRAL_KEY = 'workspace-central-mode';
 /** The central latch belongs to one physical workspace and one authenticated actor. */
 class WorkspaceConnected {
-  constructor({ workspace, actor, view, mode, generations, remoteState, remoteAttempts, probe, synchronize, guard, verifyReturn, onState = () => {} }) {
+  constructor({ workspace, actor, view, mode, generations, remoteState, remoteAttempts, probe, synchronize, guard, verifyReturn, canAuthenticateLocal = async () => false, authenticateLocal, onState = () => {} }) {
     need(workspace?.metadata && typeof view === 'function' && typeof mode === 'function' && typeof generations === 'function'
       && typeof probe === 'function' && typeof synchronize === 'function' && typeof guard === 'function' && typeof verifyReturn === 'function', 'CONFIGURATION_INVALID');
-    Object.assign(this, { workspace, actor, view, mode, generations, remoteState, remoteAttempts, probe, synchronize, guard, verifyReturn, onState });
+    Object.assign(this, { workspace, actor, view, mode, generations, remoteState, remoteAttempts, probe, synchronize, guard, verifyReturn, canAuthenticateLocal, authenticateLocal, onState });
     this.metadata = workspace.metadata; this.transitioning = false;
   }
   async binding() {
@@ -136,7 +136,8 @@ class WorkspaceConnected {
   local() {
     return this.mode().serialize('workspace-full-central-return', async () => {
       need(await this.workspace.isPrepared(), 'NOT_PREPARED');
-      need(this.actor.onlineOnly !== true || typeof this.actor.offlineAuthenticated === 'function' && await this.actor.offlineAuthenticated() === true, 'LOCAL_PASSWORD_REQUIRED');
+      need(this.actor.onlineOnly !== true || typeof this.actor.offlineAuthenticated === 'function' && await this.actor.offlineAuthenticated() === true
+        || await this.canAuthenticateLocal() === true && typeof this.authenticateLocal === 'function', 'LOCAL_PASSWORD_REQUIRED');
       if (this.view().current().local && !(await this.selected())) { this.view().reveal?.(); return { local: true }; }
       await this.idle(); const previous = await this.metadata.read(CENTRAL_KEY); if (previous) this.record(previous); this.transitioning = true;
       try {
@@ -148,6 +149,10 @@ class WorkspaceConnected {
           await this.remoteAttempts?.recover(); await this.guarded('central-return-handoff', await this.binding());
           await this.writeLatch('returning', await this.binding()); await this.mode().cancelHold();
           await this.remoteState.snapshot(() => this.generations().run());
+          if (this.actor.onlineOnly === true) {
+            need(typeof this.authenticateLocal === 'function' && await this.authenticateLocal() === true
+              && this.actor.onlineOnly !== true && await this.actor.offlineAuthenticated() === true, 'LOCAL_PASSWORD_REQUIRED');
+          }
           await this.sameActor(); await this.metadata.write(CENTRAL_KEY, null);
         }); this.onState(); return { local: true };
       } catch (cause) {

@@ -1,0 +1,73 @@
+'use strict';
+const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+const assert = require('node:assert/strict');
+const { valid: validSource, same: sameSource } = require('../../desktop-pos/src/dashboard-source.cjs');
+const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
+
+function verify(proof, expected) {
+  assert.equal(proof?.format, 2); assert.equal(proof.kind, 'go-erp-shared-workspace-native');
+  assert.equal(proof.sourceRevision, expected.sourceRevision); assert.equal(proof.electronVersion, expected.electronVersion);
+  assert.deepEqual(proof.sourceHashes, expected.sourceHashes);
+  for (const name of ['actualElectron', 'actualEncryptedMetadata', 'actualPhpMariaDB', 'productionFactory', 'syntheticPublication',
+    'onePreparation', 'zeroOfflineHttp', 'samePhysicalDatabase', 'aPendingVisibleToB', 'bWritesKeepOriginalActor',
+    'globalSequenceAThenB', 'actualProtectedView', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
+    'noHeavyLoginWork', 'retiredLegacyPreserved', 'lostAcceptedReplyRetriedSameUuid', 'noChildrenAfterStop', 'completed'])
+    assert.equal(proof[name], true, 'Native receipt is missing ' + name);
+  for (const name of ['productionMain', 'productionProfile']) assert.equal(proof[name], false, 'Native scope differs: ' + name);
+  assert.ok(uuid(proof.physicalWorkspaceId)); assert.match(proof.generation, /^[a-f0-9]{16}$/);
+  assert.equal(proof.database, 'fasakhansta_dashboard_stage_' + proof.generation);
+  assert.equal(proof.sourceSequence, 1); assert.ok(validSource(proof.sourceFingerprint));
+  assert.equal(sameSource(proof.sourceFingerprint, expected.sourceFingerprint), true);
+  assert.ok(Number.isSafeInteger(proof.certificateChecks) && proof.certificateChecks > 0);
+  assert.deepEqual(proof.firstEverOfflineActors, [11, 1, 10]); assert.equal(proof.loginStageCalls, 0);
+  assert.equal(proof.cachedLoginMilliseconds?.length, 3);
+  assert.ok(proof.cachedLoginMilliseconds.every(value => Number.isSafeInteger(value) && value >= 0 && value < 45000));
+  assert.equal(proof.setupTimer?.running, false); assert.ok(Number.isSafeInteger(proof.setupTimer.elapsed_ms) && proof.setupTimer.elapsed_ms > 0);
+  assert.equal(proof.originalCommandIds?.length, 2); assert.ok(proof.originalCommandIds.every(uuid));
+  const [a, b] = proof.originalCommandIds; assert.notEqual(a, b); assert.deepEqual(proof.commandAttempts, [a, a, b]);
+  assert.ok(Array.isArray(proof.nativePids) && proof.nativePids.length > 0 && proof.nativePids.every(value => Number.isSafeInteger(value) && value > 0));
+  assert.equal(new Set(proof.nativePids).size, proof.nativePids.length);
+  const server = proof.serverInspection;
+  assert.equal(server?.format, 2); assert.equal(server.kind, 'go-erp-workspace-native-server-inspection');
+  assert.equal(server.sourceRevision, expected.sourceRevision); assert.equal(sameSource(server.sourceFingerprint, expected.sourceFingerprint), true);
+  assert.equal(server.workspaceCount, 1); assert.equal(server.custodianActorId, 10); assert.equal(server.workspaces?.length, 1);
+  assert.equal(server.workspaces[0].workspace_id, proof.physicalWorkspaceId);
+  assert.match(server.workspaces[0].root_fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(server.commands?.length, 2);
+  // The original server execution journal retains its immutable pending row;
+  // the native outbox is acknowledged separately after the committed receipt.
+  assert.deepEqual(server.commands.map(row => [row.command_id, row.actor_id, row.route_name, row.status]),
+    [[a, 10, 'customers.save', 'pending'], [b, 11, 'customers.save', 'pending']]);
+  assert.ok(server.commands.every(row => Number.isSafeInteger(row.sequence) && row.sequence > 0));
+  assert.ok(server.commands[0].sequence < server.commands[1].sequence);
+  assert.equal(server.customers?.length, 2);
+  assert.deepEqual(server.customers.map(row => [row.phone_key, row.actor_id, row.branch]),
+    [['01012345671', 10, 'f:100'], ['01012345672', 11, 'f:100']]);
+  assert.equal(proof.requestCounts?.offlineRequests, 0);
+  assert.ok(Number.isSafeInteger(proof.requestCounts.totalRequests) && proof.requestCounts.totalRequests > 0);
+  assert.ok(Number.isSafeInteger(proof.requestCounts.publicationRequests) && proof.requestCounts.publicationRequests > 0);
+  return true;
+}
+
+function sourceFiles(repository) {
+  return [...fs.readdirSync(path.join(repository, 'desktop-pos/src')).filter(name => name.endsWith('.cjs') && (name.startsWith('workspace-')
+    || ['main.cjs', 'local-runtime.cjs', 'dashboard.cjs', 'account-login.cjs', 'account-signout.cjs', 'shutdown.cjs', 'runtime-archive.cjs'].includes(name)))
+    .map(name => 'desktop-pos/src/' + name), 'desktop-pos/test/workspace-runtime-native.cjs', 'desktop-pos/test/workspace-runtime-native-runner.cjs',
+    'tests/desktop_dashboard_runtime/workspace-native-server.php', 'tests/desktop_dashboard_runtime/workspace-native-router.php',
+    'tests/desktop_dashboard_runtime/workspace-native-fixture.php', 'tests/desktop_dashboard_runtime/full-schema.php',
+    'tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
+}
+
+if (require.main === module) {
+  assert.equal(process.platform, 'win32');
+  const [receipt, bundle] = process.argv.slice(2); assert.ok(receipt && bundle && process.env.GITHUB_SHA);
+  assert.ok(fs.statSync(receipt).size <= 1024 ** 2);
+  const repository = path.resolve(__dirname, '../..'), manifest = JSON.parse(fs.readFileSync(path.join(bundle, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.sourceRevision, process.env.GITHUB_SHA);
+  const hashes = Object.fromEntries(sourceFiles(repository).map(name => [name, crypto.createHash('sha256').update(fs.readFileSync(path.join(repository, name))).digest('hex')]));
+  const lock = JSON.parse(fs.readFileSync(path.join(repository, 'desktop-pos/package-lock.json'), 'utf8'));
+  verify(JSON.parse(fs.readFileSync(receipt, 'utf8')), { sourceRevision: process.env.GITHUB_SHA, sourceHashes: hashes,
+    electronVersion: lock.packages['node_modules/electron'].version, sourceFingerprint: manifest.sourceFingerprint });
+  process.stdout.write('SHARED_WORKSPACE_NATIVE_VERIFIED ' + process.env.GITHUB_SHA + '\n');
+}
+module.exports = { verify, sourceFiles };

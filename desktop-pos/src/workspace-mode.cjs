@@ -114,7 +114,14 @@ class WorkspaceMode {
     }
     await this.metadata.write(RETURN_KEY, null);
   }
-  recover() { return this.serialize('recover', async () => { await this.remoteState?.assertClean(); await this.guarded('recover', { root: rootBinding(await this.workspace.connection()) }); await this.cancelHold(); }); }
+  recover() { return this.serialize('recover', async () => {
+    await this.remoteState?.assertClean();
+    // Ordinary local A/B commands and print uncertainty do not prevent another
+    // account opening the same canonical DB. Only an actual owned return fence
+    // needs transition recovery; remote uncertainty remains a separate gate.
+    if (!await this.metadata.read(RETURN_KEY)) return;
+    await this.guarded('recover', { root: rootBinding(await this.workspace.connection()) }); await this.cancelHold();
+  }); }
   refresh({ stayLocal = false } = {}) {
     return this.serialize(stayLocal ? 'local-refresh' : 'refresh', async () => {
       try {

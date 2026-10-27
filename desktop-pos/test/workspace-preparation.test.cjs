@@ -52,7 +52,8 @@ async function setup(t) {
 
 test('one setup from an ordinary branch seals private enrollment, checks every legacy profile and commits before stopping/relaunching', async t => {
   const f = await setup(t), before = await fs.readFile(f.proofB), preparation = f.create(), status = await preparation.prepare(f.value.credential.serverOrigin, 'untrusted-page-csrf');
-  assert.equal(status.prepared, true); assert.equal(status.phase, 'ready');
+  assert.equal(status.prepared, true); assert.equal(status.phase, 'ready'); assert.equal(status.setup_timing.running, false);
+  assert.ok(status.setup_timing.elapsed_ms >= 0);
   assert.equal((await f.registry.current()).candidate.prepared.actorId, 101, 'The stable snapshot custody actor stays distinct from the initiating branch session.');
   assert.deepEqual(new Set(f.visited), new Set(['default', f.b.id])); assert.deepEqual(await fs.readFile(f.proofB), before);
   assert.deepEqual(f.calls, ['settings', 'challenge', 'enroll', 'download', 'start', 'stage', 'fence-enter', 'verify', 'stop', 'fence-exit', 'relaunch']);

@@ -101,7 +101,8 @@ class DesktopDashboardUserAccounts
     public function authorizeAccount(string $name,array $before,User $actor,object $scope): User
     {
         abort_unless(self::handles($name)||$name==='users.update',422);$this->ready();
-        $workspace=app(DesktopDashboardWorkspaceModuleAuthority::class)->scope($scope,$actor,[],true);
+        $workspace=app(DesktopDashboardWorkspaceModuleAuthority::class)->scope($scope,$actor,[],
+            $name==='useraddresses.destroy'?'account-addresses':'accounts');
         $fresh=User::withoutGlobalScopes()->whereKey($actor->id)->lockForUpdate()->first();
         abort_unless($fresh&&$fresh->account_type==='admin'&&empty($fresh->owner_resturant_id)&&!in_array($fresh->status,['disabled','declined'],true)
             &&(int)$scope->actor_id===(int)$fresh->id,403);abort_if(isset($scope->enabled)&&!$scope->enabled,401);

@@ -61,6 +61,16 @@ $link=$authority->enroll(['device_id'=>$id,'name'=>'One physical workspace','non
 $snapshot=app(Bootstrap::class)->export($authority->authenticate($link['token']));
 $check($snapshot['format']===2&&$snapshot['kind']==='initial-workspace-data'&&count($snapshot['tables'])===106,'group snapshot uses all original inspected production table validators');
 $check($snapshot['actor_id']===10&&array_column($snapshot['workspace_manifest']['members'],'actor_id')===[1,10,11,30],'branch custody does not select or impersonate the other cached members');
+$check(isset($snapshot['coverage']['modules']['accounts'],$snapshot['coverage']['modules']['settings'])
+    &&$snapshot['coverage']['full_dashboard']===false,'complete source administration emits only specific account and settings proofs');
+$check($snapshot['coverage']['modules']['settings']['structural_branches']===['f:100','f:101','f:999'],
+    'module structural cohort retains the disabled branch identity independently of cached sign-in members');
+$partial=DB::transaction(function()use($authority,$link,$snapshot){
+    $audience=$authority->snapshotAudience($authority->authenticate($link['token']));$data=app(\App\Services\Dashboard\DesktopDashboardWorkspaceData::class);
+    $queries=$data->queries($audience);$queries['users']=DB::table('users')->where('id',1);
+    return $data->moduleCoverage($audience,$queries,$snapshot['tables']);
+});
+$check($partial===[],'a global witness cannot certify a filtered account query as a complete source dataset');
 $userRows=array_column($snapshot['tables']['users']['rows'],null,'id');
 foreach([1,10,11,30] as $actor)$check($userRows[$actor]['password']===DB::table('users')->where('id',$actor)->value('password'),'member '.$actor.' keeps its own valid password verifier');
 foreach([20,40] as $actor)$check(str_starts_with($userRows[$actor]['password'],'!desktop-disabled'),'nonmember '.$actor.' never receives an offline verifier');
@@ -87,6 +97,14 @@ $reject(fn()=>app(Import::class)->verifyWorkspace($receipt,$badExpected),'native
 $switch($names['reject'],true);$bad=$expected;$bad['token_hash']=str_repeat('e',64);
 $reject(fn()=>app(Import::class)->importWorkspace($decoded,$bad,$hashes),'snapshot cannot supply its own trusted root bearer hash');
 $check(DB::select('SHOW TABLES')===[],'rejected private expectation creates no business or authority tables');
+foreach(['table','structural','witness'] as $change){
+    $badSnapshot=$decoded;
+    if($change==='table')$badSnapshot['coverage']['modules']['accounts']['tables']['users']['sha256']=str_repeat('e',64);
+    elseif($change==='structural')$badSnapshot['coverage']['modules']['settings']['structural_branches'][]='f:404';
+    else $badSnapshot['coverage']['modules']['accounts']['witness_actor_id']=10;
+    $reject(fn()=>app(Import::class)->importWorkspace($badSnapshot,$expected,$hashes),'module '.$change.' tampering is rejected before staging DDL');
+    $check(DB::select('SHOW TABLES')===[],'rejected module '.$change.' proof leaves the staging database untouched');
+}
 // The real original remote reservation engine retains B and fences every other actor.
 $switch($names['source'],false);$root=app(Authority::class)->authenticate($link['token']);$roster=app(Authority::class)->manifest($root);
 $members=array_column($roster['members'],null,'actor_id');$scopeB=app(Authority::class)->scope($root,11,$members[11]['grant'],$roster['revision']);

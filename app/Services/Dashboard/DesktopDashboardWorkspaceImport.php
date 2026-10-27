@@ -101,6 +101,7 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
         // Public index checks also validate the DDL/SQL types and EVERY member
         // verifier against its authenticated SHA256 binding. No hash API exposes it.
         $codec->index('users',$users['rows'],$users['ddl']);
+        if(array_key_exists('modules',$snapshot['coverage']))DesktopDashboardWorkspaceModuleCoverage::validateSnapshot($snapshot);
         return ['workspace_enrollment'=>$enrollment,'manifest'=>$manifest,
             'snapshot'=>['workspace_id'=>$snapshot['device_id'],'custodian_actor_id'=>$snapshot['actor_id'],
                 'snapshot_id'=>$snapshot['snapshot_id']??null,'schema_hash'=>$snapshot['schema_hash']??null,'source'=>$snapshot['source']??null,

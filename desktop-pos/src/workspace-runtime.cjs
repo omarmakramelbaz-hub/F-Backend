@@ -12,6 +12,7 @@ const media = require('./dashboard-media.cjs');
 const readSnapshot = require('./dashboard-download.cjs');
 const RuntimeArchive = require('./runtime-archive.cjs');
 const workspacePolicy = require('./workspace-policy.cjs');
+const { WorkspaceActor } = require('./workspace-actor.cjs');
 const failure = code => Object.assign(Error('The shared workspace runtime could not be verified.'), { code: 'WORKSPACE_RUNTIME_' + code });
 const need = (value, code) => { if (!value) throw failure(code); };
 const check = (owner, signal) => need(!owner.stopping && !signal?.aborted, 'CANCELLED');
@@ -45,8 +46,9 @@ class WorkspaceRuntime {
     Object.assign(this, { registry, safeStorage, authorizeSource, verifyActive, nativeRun, nativeFetch });
     const root = path.join(registry.workspaceProfile, 'dashboard');
     this.metadata = new WorkspaceMetadata(registry, new GenerationStore(root, safeStorage));
-    this.physical = new WorkspacePhysicalRuntime({ bundle, profile: registry.workspaceProfile, safeStorage, downloadMedia,
+    this.physicalOptions = Object.freeze({ bundle, profile: registry.workspaceProfile, safeStorage, downloadMedia,
       authorizeInstalled, platform, onFailure, onPhase, expectedDeviceId: registry.workspaceId, metadata: this.metadata });
+    this.physical = new WorkspacePhysicalRuntime(this.physicalOptions);
     this.stopping = false; this.actorFacades = new Map(); this.sessions = new Map();
   }
   async directories() { await this.registry.directory(this.registry.workspaceProfile, true); await this.registry.directory(this.physical.profile, true); }
@@ -66,24 +68,7 @@ class WorkspaceRuntime {
     const descriptor = await this.registry.actorSession(actorId), active = await this.registry.current();
     need(active && active.candidate.database === descriptor.database, 'STATE_CHANGED');
     let facade = this.actorFacades.get(actorId);
-    if (!facade) {
-      const owner = this, metadata = new GenerationStore(descriptor.profile, this.safeStorage);
-      facade = Object.freeze({ protocol: 2, metadata, workspaceMetadata: this.metadata,
-        start: () => owner.start(), isPrepared: () => owner.isPrepared(), connection: () => owner.connection(),
-        authority: async () => {
-          const member = await owner.registry.member(actorId), current = await owner.registry.current();
-          need(member && current, 'ACTOR_DENIED');
-          return { protocol: 2, workspaceId: owner.registry.workspaceId, actorId, role: member.role,
-            manifestRevision: current.manifest.revision, grant: member.grant, workspace: prepared.workspaceBinding(current.manifest) };
-        },
-        session: () => owner.registry.actorSession(actorId),
-        authenticated: () => owner.hasSession(actorId),
-        control: value => owner.actorControl(actorId, value),
-        printControl: value => owner.actorControl(actorId, value),
-        supportsPrintEffects: () => owner.physical.supportsPrintEffects(),
-        get origin() { return owner.physical.origin; }, get token() { return owner.physical.token; } });
-      this.actorFacades.set(actorId, facade);
-    }
+    if (!facade) { facade = new WorkspaceActor({ workspace: this, descriptor }); this.actorFacades.set(actorId, facade); }
     return { descriptor, runtime: facade };
   }
   async privateControl(value, capability) {
@@ -210,6 +195,22 @@ class WorkspaceRuntime {
       JSON.stringify({ receipt: c.receipt, expected_binding: prepared.expectedBinding(record.credential, record.manifest) }), 90000));
     check(this, signal); prepared.validate(c.prepared, result, record.manifest, record.credential, c);
     need(same(result, c.receipt), 'RECEIPT_CHANGED'); return true;
+  }
+  resetInactive() {
+    if (this.renewing) return this.renewing;
+    const task = (async () => {
+      need(await this.registry.current() === null && this.stopping && this.sessions.size === 0 && this.actorFacades.size === 0, 'RESTART_DENIED');
+      const previous = this.physical; need(previous.stopped && typeof previous.stopped.then === 'function', 'RESTART_DENIED');
+      await previous.stopped;
+      need(await this.registry.current() === null && this.physical === previous
+        && previous.children.every(child => !Number.isInteger(child.pid) || child.exitCode !== null || child.signalCode !== null), 'RESTART_DENIED');
+      // Only an unactivated preparation can replace a fully stopped supervisor.
+      // The same private credentials, retained archive, staged DB and sole
+      // Registry pointer remain on disk; no accepted active actor is rebound.
+      this.physical = new WorkspacePhysicalRuntime(this.physicalOptions);
+      this.starting = null; this.stopping = false; this.cancelReads = false; return true;
+    })().finally(() => { if (this.renewing === task) this.renewing = null; });
+    this.renewing = task; return task;
   }
   cancelStartup() {
     // Match the original supervisor: cancel optional reads immediately while
