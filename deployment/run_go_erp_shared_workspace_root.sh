@@ -5,9 +5,9 @@ umask 077
 test "$#" -eq 2
 go_workspace_operator=$1
 [[ "$go_workspace_operator" =~ ^[a-f0-9]{40}$ && "$2" = --complete ]]
-go_workspace_core=''
-go_workspace_seed=''
-go_workspace_web=''
+go_workspace_core='052e69008da7e330815b376824cd8afc18cf04c1'
+go_workspace_seed='dc06af6f8e4ef9ea03a3fb9c728d26acb2f8193a'
+go_workspace_web='052e69008da7e330815b376824cd8afc18cf04c1'
 for go_workspace_pin in "$go_workspace_core" "$go_workspace_seed" "$go_workspace_web"; do
     [[ "$go_workspace_pin" =~ ^[a-f0-9]{40}$ && "$go_workspace_pin" != 0000000000000000000000000000000000000000 ]] || {
         printf '%s\n' GO_ERP_SHARED_WORKSPACE_FINAL_PINS_UNAVAILABLE >&2
