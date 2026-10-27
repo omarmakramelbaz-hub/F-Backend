@@ -538,6 +538,15 @@ echo $wire;
     console.log('PASS real Windows startup source activation preserves the original scoped preview account, session, business rows and replay journal, then reopens the activated source without setup');
     console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
   } catch (error) {
+    // Windows can deliver the socket reset just before the owned child exit
+    // event. Await only that already failing service, with a fixed 500ms bound;
+    // no request is retried and no acceptance behavior changes.
+    if (['ECONNRESET', 'ERR_CONNECTION_RESET', 'UND_ERR_SOCKET'].includes(error.code)
+      || ['ECONNRESET', 'ERR_CONNECTION_RESET', 'UND_ERR_SOCKET'].includes(error.cause?.code)) {
+      const web = runtime.children[1];
+      if (web?.exitCode === null && web?.signalCode === null && web.completed)
+        await Promise.race([web.completed, new Promise(resolve => setTimeout(resolve, 500))]);
+    }
     // Capture fixed fault classes while the owned child is still alive. Never
     // print raw stderr: it can contain application paths, queries or credentials.
     const code = value => typeof value === 'string' && /^[A-Z0-9_]{1,64}$/.test(value) ? value : null;

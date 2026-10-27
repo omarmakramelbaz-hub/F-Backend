@@ -132,9 +132,14 @@ async function main() {
   await json(a, '/admin/customers/save', { branch: 'f:100', idempotency_key: keyA, name: 'A shared offline customer', phone: '01012345671', address: 'Synthetic branch address' });
   assert.equal((await host.workspace.control({ action: 'pending' })).counts.pending, 1);
   await stopHost(); host = await createHost();
-  nativeStage = 'offline-b-read-write'; let b = await work(() => host.login.authenticate(credentials(11))); await readActor(b); await show(b); await b.afterView();
+  nativeStage = 'offline-b-login'; let b = await work(() => host.login.authenticate(credentials(11)));
+  nativeStage = 'offline-b-identity'; await readActor(b);
+  nativeStage = 'offline-b-visible'; await show(b);
+  nativeStage = 'offline-b-after-view'; await b.afterView();
+  nativeStage = 'offline-b-shared-read';
   const visible = await json(b, '/admin/customers/data?branch=f%3A100&search=01012345671');
   assert.equal(visible.items.some(row => row.name === 'A shared offline customer'), true, 'B must see A current local commit before any server sync.');
+  nativeStage = 'offline-b-write';
   await json(b, '/admin/customers/save', { branch: 'f:100', idempotency_key: keyB, name: 'B shared offline customer', phone: '01012345672', address: 'Synthetic branch address' });
   const pending = await host.workspace.control({ action: 'pending' });
   assert.equal(pending.counts.pending, 2); assert.deepEqual(pending.commands.map(row => [row.command_id, row.actor_id]), [[keyA, 10]]);
@@ -224,7 +229,13 @@ function publicError(error) {
   return { report, sanitize };
 }
 async function diagnostics(error) {
-  const { report, sanitize } = publicError(error), physical = host?.workspace?.physical, logs = []; let pathBudget = null, credentialChecks = null;
+  const physical = host?.workspace?.physical;
+  // A network reset can arrive before libuv delivers the crashing Windows
+  // child's exit event. Observe that event for a bounded diagnostic interval;
+  // do not restart, retry the request or change any acceptance assertion.
+  if (/ERR_CONNECTION_RESET|ECONNRESET/.test(String(error?.code || '') + ' ' + String(error?.message || '')) && physical?.children[1])
+    await Promise.race([physical.children[1].completed, new Promise(resolve => setTimeout(resolve, 500))]);
+  const { report, sanitize } = publicError(error), logs = []; let pathBudget = null, credentialChecks = null;
   if (physical) {
     if (error?.code === 'ACCOUNT_CREDENTIALS_REJECTED' && /^offline-first-login-\d+$/.test(nativeStage)) {
       try {
@@ -272,8 +283,11 @@ async function diagnostics(error) {
       } catch {}
     }
     for (const [index, child] of physical.children.entries()) {
-      const raw = child.stderrTail?.(); if (raw) logs.push({ kind: index === 0 ? 'native-maria' : 'native-php',
-        exitCode: child.exitCode, lines: raw.split(/\r?\n/).filter(line => /error|Warning|Fatal|Uncaught|Exception|WORKSPACE_/i.test(line)).slice(-6).map(sanitize) });
+      if (!child) continue;
+      const raw = child.stderrTail?.() || ''; logs.push({ kind: index === 0 ? 'native-maria' : 'native-php',
+        exitCode: Number.isInteger(child.exitCode) ? child.exitCode : null,
+        signal: /^[A-Z0-9]{1,20}$/.test(child.signalCode || '') ? child.signalCode : null,
+        lines: raw.split(/\r?\n/).filter(line => /error|Warning|Fatal|Uncaught|Exception|WORKSPACE_/i.test(line)).slice(-6).map(sanitize) });
     }
   }
   return { ...report, stage: nativeStage, setupPhases: setupPhases.slice(-12), phases: phases.filter(value => typeof value === 'string' && /^[a-z-]{1,60}$/.test(value)).slice(-12),
