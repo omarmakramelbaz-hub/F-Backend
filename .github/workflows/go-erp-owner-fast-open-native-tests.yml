@@ -1,0 +1,37 @@
+name: GO ERP ordinary account opening regressions
+
+on:
+  push:
+    branches: ['codex/go-erp-owner-fast-open-native-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-account-opening:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Preserve the exact native source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact native checkout configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact native line-ending configuration failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          coverage: none
+      - name: Verify account opening, synchronization, accepted writes and offline printing
+        working-directory: desktop-pos
+        run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs

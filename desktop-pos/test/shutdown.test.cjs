@@ -86,8 +86,9 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   const app=new App();
   let finishCentralSelection,updaterStarts=0,updaterConstructions=0;
   class Updater {
-    constructor(){updaterConstructions++;this.state={status:'idle'};}
-    start(){updaterStarts++;return Promise.resolve(this.state);}
+    constructor(){updaterConstructions++;this.state={status:'idle'};events.push('updater-create');}
+    start(){updaterStarts++;events.push('updater-start');return Promise.resolve(this.state);}
+    async authorizeInstalled(){events.push('updater-authorize');return true;}
     stop(){}
   }
   class Window extends EventEmitter{
@@ -103,7 +104,7 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
   }
   const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>handlers.set(name,fn)},protocol:{registerSchemesAsPrivileged(){},handle(){}},net:{fetch:fetch||(async()=>new Response('{}'))},safeStorage:{decryptString:buffer=>buffer.toString(),isEncryptionAvailable:()=>true,encryptString:value=>Buffer.from(value)},dialog:{showErrorBox:(title,message)=>errors.push({title,message}),showSaveDialog:async()=>({canceled:true})}};
   class UnpreparedRuntime{
-    constructor(options={}){this.profile=options.profile;this.deviceId=randomUUID();this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async name=>{
+    constructor(options={}){this.profile=options.profile;this.authorizeInstalled=options.authorizeInstalled;this.deviceId=randomUUID();this.origin='http://127.0.0.1:45123';this.token='owned-local';this.metadata={read:async name=>{
       if(holdCentralSelection&&name==='central-mode')return new Promise(resolve=>finishCentralSelection=()=>resolve(null));
       return remoteDirty&&name==='remote-writes'?{format:1,dirty:true,pending:[]}:null;
     },write:async()=>{}};}
@@ -146,7 +147,7 @@ async function fixture(t,{paired=false,packaged=false,prepared=false,fetch,holdP
     run(){this.running=Promise.resolve().then(()=>deltaRun?deltaRun():{unchanged:true}).finally(()=>{this.running=null;});return this.running;}stop(){deltaStops++;}
   }
   const nativeDeadline=nativeClock?vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/native-deadline.cjs'),'utf8')+'\n;module.exports',{module:{exports:{}},setTimeout:(fn,delay)=>{nativeTimers.set(fn,delay);return fn;},clearTimeout:fn=>nativeTimers.delete(fn)}):require('../src/native-deadline.cjs');
-  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./account-profiles.cjs'?Profiles:name==='./account-login.cjs'?{AccountLogin:LoginBroker}:name==='./login-window.cjs'?loginUI:name==='./account-picker.cjs'?async()=>null:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./dashboard-updater.cjs'&&windowsHost?{DashboardUpdater:Updater}:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');options.onVisible?.();if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');options.onVisible?.();},isVisible:()=>true,reveal(){dashboardReveals++;options.onVisible?.();},publish(){},current:()=>({local}),switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile,platform:windowsHost?'win32':undefined},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
+  const mainState=vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/main.cjs'),'utf8')+'\n;({localOrders,notify,markInstallingUpdate(){installingUpdate=true;}})',{require:name=>name==='electron'?electron:name==='./account-profiles.cjs'?Profiles:name==='./account-login.cjs'?{AccountLogin:LoginBroker}:name==='./login-window.cjs'?loginUI:name==='./account-picker.cjs'?async()=>null:name==='./native-deadline.cjs'?nativeDeadline:name==='./store.cjs'?TrackedStore:name==='./sync-schedule.cjs'?ScheduledClock:name==='./dashboard-updater.cjs'&&windowsHost?{DashboardUpdater:Updater}:name==='./local-runtime.cjs'&&packaged?UnpreparedRuntime:name==='./dashboard-preparation.cjs'&&packaged?{DashboardPreparation:Preparation}:name==='./dashboard-delta.cjs'&&deltaBridge?{DashboardDelta:DeltaBridge}:name==='./dashboard.cjs'?options=>{dashboardOptions=options;let local=Boolean(options.localToken);return {cancelAuthentication:()=>{dashboardCancels++;},open:async()=>{dashboardOpens++;events.push('dashboard-open');options.onVisible?.();if(holdDashboardLoad)await new Promise(resolve=>{finishDashboardLoad=resolve;});events.push('dashboard-ready');options.onVisible?.();},isVisible:()=>true,reveal(){dashboardReveals++;options.onVisible?.();},publish(){},current:()=>({local}),refresh:async work=>{events.push('dashboard-refresh');return work();},switchTo:async(target,work=async()=>{})=>{await work();local=Boolean(target.localToken);localSwitches++;}};}:require(name.startsWith('./')?'../src/'+name.slice(2):name),__dirname:path.join(__dirname,'../src'),process:{env:{POS_TEST_PROFILE:profile},resourcesPath:profile,platform:windowsHost?'win32':undefined},URL,AbortController,AbortSignal,Response,Buffer,Promise,Set,console,setTimeout:(fn,delay)=>{timers.set(fn,delay);return fn;},clearTimeout:fn=>timers.delete(fn)});
   await settle();
   t.after(()=>{if(store?.db.isOpen)store.close();fs.rmSync(profile,{recursive:true,force:true});});
   return {app,get store(){return store;},get selectedLedgerFile(){return selectedLedgerFile;},get loginVisible(){return loginVisible;},get loginDisposals(){return loginDisposals;},get loginReveals(){return loginReveals;},get loginCancels(){return loginCancels;},get brokerCancels(){return brokerCancels;},get brokerStops(){return brokerStops;},get brokerHandoffs(){return brokerHandoffs;},get finishLogin(){return finishLogin;},get finishLoginHandoff(){return finishLoginHandoff;},get loginAdmission(){return loginAdmission;},get loginBrokerOptions(){return loginBrokerOptions;},profile,file,sale,order,windows,timers,nativeTimers,events,errors,get trace(){return JSON.parse(fs.readFileSync(path.join(profile,'lifecycle-trace.json'),'utf8'));},openLocalOrders:mainState.localOrders,notify:mainState.notify,markInstallingUpdate:mainState.markInstallingUpdate,get finishRuntimeStart(){return finishRuntimeStart;},get finishDashboardLoad(){return finishDashboardLoad;},get finishRuntimeStop(){return finishRuntimeStop;},get runtimeStarts(){return runtimeStarts;},get runtimeStops(){return runtimeStops;},get finishCentralSelection(){return finishCentralSelection;},get updaterStarts(){return updaterStarts;},get updaterConstructions(){return updaterConstructions;},async syncSlot(){assert.equal(timers.size,1);const [fn,delay]=[...timers][0];assert.equal(delay,30000);scheduleNow+=delay;timers.delete(fn);fn();await settle();},get localSwitches(){return localSwitches;},get dashboardOptions(){return dashboardOptions;},get preparationOptions(){return preparationOptions;},get deltaOptions(){return deltaOptions;},get deltaStops(){return deltaStops;},get dashboardOpens(){return dashboardOpens;},get dashboardReveals(){return dashboardReveals;},get dashboardCancels(){return dashboardCancels;},get printCallback(){return printCallback;},get finishLoad(){return finishLoad;},invoke:(name,...args)=>handlers.get('pos:'+name)({sender:windows[0].webContents,senderFrame:{url:'fasakhansta://pos/index.html'}},...args)};
@@ -478,6 +479,96 @@ test('the actual prepared packaged app opens local dashboard pages even when pro
   assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');assert.equal(f.dashboardOptions.localToken,'owned-local');
   assert.equal(f.dashboardOptions.serverOrigin,'https://fasakhaninja.com');assert.deepEqual(calls,[]);assert.equal(f.dashboardOpens,1);
   f.app.quit();await settle();assert.ok(f.app.exited);
+});
+
+test('a prepared Windows login opens its retained dashboard before optional installed-source work can start',async t=>{
+  const f=await fixture(t,{packaged:true,prepared:true,windowsHost:true,holdDashboardLoad:true});
+  assert.equal(f.dashboardOpens,1);assert.equal(f.loginVisible,false);assert.equal(f.loginDisposals,1);
+  assert.equal(f.dashboardOptions.origin,'http://127.0.0.1:45123');assert.equal(f.dashboardOptions.localToken,'owned-local');
+  assert.equal(f.updaterConstructions,0);assert.equal(f.updaterStarts,0);assert.equal(f.timers.size,0);
+  assert.equal(f.errors.length,0);
+  f.finishDashboardLoad();await settle();
+  assert.equal(f.trace.events.at(-1).phase,'startup-complete');
+  assert.equal(f.updaterConstructions,1);assert.equal(f.updaterStarts,1);assert.equal(f.timers.size,1);
+  assert.ok(f.events.indexOf('dashboard-ready')<f.events.indexOf('updater-create'));
+  f.app.quit();await settle();assert.equal(f.app.exited,true);assert.equal(f.runtimeStops,1);
+});
+
+test('the ordinary scheduled delta can upgrade retained source after login while slow preparation leaves the dashboard open',async t=>{
+  const network=[];
+  const f=await fixture(t,{packaged:true,prepared:true,windowsHost:true,fetch:async(url,options)=>{
+    network.push({url,options});assert.ok(url.endsWith('/api/desktop-dashboard/delta'));
+    return new Response(JSON.stringify(wire),{headers:{'Content-Type':'application/json'}});
+  }});
+  assert.equal(f.errors.length,0);assert.equal(f.dashboardOpens,1);assert.equal(f.loginVisible,false);
+  const runtime=f.loginAdmission.runtime,records=new Map(),steps=[];
+  const fingerprint=letter=>({format:1,files:20,sha256:letter.repeat(64),framework:'8.83.29'});
+  const previous={format:2,deviceId:runtime.deviceId,actorId:10,serverOrigin:'https://fasakhaninja.com',token:'a'.repeat(64),
+    schemaHash:'b'.repeat(64),snapshotId:randomUUID(),refreshId:randomUUID(),generation:'a'.repeat(16),
+    database:'fasakhansta_dashboard_stage_'+'a'.repeat(16),sourceRevision:'c'.repeat(40),sourceFingerprint:fingerprint('d'),
+    branches:['f:100'],fullCoverage:true,mediaVerified:true};
+  const manifest={format:1,platform:'win32-x64',sourceRevision:'e'.repeat(40),sourceFingerprint:fingerprint('f')};
+  const context={manifest,sourceFingerprint:manifest.sourceFingerprint};
+  const wire={format:1,kind:'dashboard-data-delta',device_id:previous.deviceId,actor_id:previous.actorId,
+    snapshot_id:randomUUID(),schema_hash:'1'.repeat(64),source:manifest.sourceFingerprint,branches:['f:100'],
+    coverage:{full_dashboard:true,media:true},media:[],media_issues:[],enrollment:{enrollment_hash:'2'.repeat(64),enrolled_at:'2026-10-23T00:00:00Z'},
+    created_scopes:[],delta_summary:{changed_tables:1,added_rows:1,removed_rows:0},
+    tables:{users:{ddl:'CREATE TABLE `users` (`id` bigint NOT NULL)',delta:{remove:{},add:[{id:10}],target_hash:'3'.repeat(64),count:1}}}};
+  records.set('prepared',structuredClone(previous));
+  runtime.metadata.read=async name=>structuredClone(records.get(name)||null);
+  runtime.metadata.write=async(name,value)=>{steps.push('write:'+name);records.set(name,structuredClone(value));};
+  runtime.metadata.clearIntent=async()=>{steps.push('clear-intent');records.delete('refresh');};
+  runtime.connection=()=>runtime.metadata.read('prepared');
+  let release,contextEntries=0,capture,candidate;
+  const preparing=new Promise(resolve=>release=resolve);
+  runtime.deltaContext=async active=>{
+    assert.deepEqual(active,previous);assert.equal(f.loginVisible,false);assert.ok(f.events.includes('dashboard-ready'));
+    assert.equal(await runtime.authorizeInstalled(manifest),true,'The ordinary updater authority is installed before the first sync slot.');
+    contextEntries++;await preparing;return context;
+  };
+  runtime.authorizeDeltaContext=async selected=>{assert.equal(selected,context);assert.equal(await runtime.authorizeInstalled(manifest),true);};
+  runtime.captureDelta=async(selected,active,id)=>{
+    steps.push('capture');assert.equal(selected,context);assert.deepEqual(active,previous);
+    capture={format:1,kind:'dashboard-delta-capture',capture_database:'fasakhansta_dashboard_stage_'+id,
+      source_database:active.database,capture_id:'4'.repeat(64),sequence:7,
+      replay:{format:1,source_database:active.database,sequence:7,rows:1,sha256:'7'.repeat(64)},
+      identity:{device_id:active.deviceId,actor_id:active.actorId,snapshot_id:active.snapshotId,schema_hash:active.schemaHash,
+        branches:active.branches,coverage:wire.coverage,source:active.sourceFingerprint,media:[],enrollment:wire.enrollment,created_scopes:[]},
+      index:{format:1,kind:'dashboard-delta-index',device_id:active.deviceId,actor_id:active.actorId,source:manifest.sourceFingerprint,
+        tables:{users:{schema_sha256:'5'.repeat(64),count:0,hashes:{}}}}};return capture;
+  };
+  runtime.stageDelta=async(selected,captured,delta,id)=>{
+    steps.push('stage');assert.equal(selected,context);assert.equal(captured,capture);assert.deepEqual(delta,wire);
+    const receipt={format:1,verified:true,device_id:wire.device_id,actor_id:wire.actor_id,snapshot_id:wire.snapshot_id,
+      schema_hash:wire.schema_hash,branches:wire.branches,coverage:wire.coverage,media:[],source:wire.source,
+      tables:1,rows:1,table_rows:{users:1},delta_replay:structuredClone(capture.replay)};
+    candidate={generation:id,database:'fasakhansta_dashboard_stage_'+id,receipt,sourceRevision:manifest.sourceRevision,
+      sourceFingerprint:manifest.sourceFingerprint,mediaVerified:true,mediaSeal:{format:1,manifest_sha256:'6'.repeat(64),files:[]},
+      archiveHandoff:{format:1,kind:'desktop-preverified-handoff',signature:'8'.repeat(64),payload:{database:'fasakhansta_dashboard_stage_'+id,
+        source_database:previous.database,source_identity:{snapshot_id:previous.snapshotId,schema_hash:previous.schemaHash},sequence:7,replay:structuredClone(capture.replay)}}};
+    return candidate;
+  };
+  runtime.control=async input=>{
+    if(input.action==='pending')return {commands:[],counts:{pending:0,conflicts:0}};
+    assert.equal(input.action,'refresh-begin');steps.push('fence');
+    return {held:true,device_id:previous.deviceId,actor_id:previous.actorId,snapshot_id:previous.snapshotId,
+      schema_hash:previous.schemaHash,refresh_id:input.refresh_id,fenced_sequence:7};
+  };
+  runtime.finalizeDelta=async selected=>{steps.push('finalize');assert.equal(selected,candidate);};
+  runtime.activate=async(next,commit)=>{steps.push('activate');await commit();};
+  runtime.releaseDeltaCapture=async()=>steps.push('release-capture');
+  runtime.releaseDeltaStage=async()=>steps.push('release-stage');
+  f.store.acknowledge(f.sale.id,{id:f.sale.id});
+  await f.syncSlot();assert.equal(contextEntries,1);assert.equal(steps.includes('capture'),false);
+  assert.deepEqual(records.get('prepared'),previous);assert.equal(f.dashboardOpens,1);assert.equal(f.loginVisible,false);assert.equal(network.length,0);
+  release();await settle();
+  assert.equal(network.length,1);assert.deepEqual(JSON.parse(network[0].options.body),capture.index);
+  assert.equal(records.get('prepared').sourceRevision,manifest.sourceRevision);assert.equal(records.has('refresh'),false);
+  assert.ok(f.events.includes('dashboard-refresh'),'The existing view refresh gate admits the original delta final handoff.');
+  for(const phase of ['capture','stage','fence','finalize','activate','clear-intent','release-stage','release-capture'])assert.ok(steps.includes(phase),phase);
+  assert.ok(steps.indexOf('stage')<steps.indexOf('fence'));assert.ok(steps.indexOf('finalize')<steps.indexOf('activate'));
+  assert.equal(f.dashboardOpens,1);assert.equal(f.errors.length,0);assert.equal(f.timers.size,1);
+  f.app.quit();await settle();assert.equal(f.app.exited,true);
 });
 test('the actual preparation handler switches local only after clearing the protected snapshot gate',async t=>{
   const f=await fixture(t,{packaged:true});assert.equal(f.preparationOptions.allowPreview,true);assert.equal(f.localSwitches,0);
