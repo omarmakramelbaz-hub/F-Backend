@@ -114,8 +114,8 @@ class WorkspaceAcceptance:
             and SHA.fullmatch(server['workspaces'][0]['root_fingerprint'])
             and isinstance(server.get('commands'),list) and len(server['commands'])==2
             and exact([[row.get('command_id'),row.get('actor_id'),row.get('route_name'),row.get('status')]
-                for row in server['commands']],[[value['originalCommandIds'][0],10,'customers.save','pending'],
-                    [value['originalCommandIds'][1],11,'customers.save','pending']])
+                for row in server['commands']],[[value['originalCommandIds'][0],10,'customers.save','acknowledged'],
+                    [value['originalCommandIds'][1],11,'customers.save','acknowledged']])
             and all(integer(row.get('sequence'),1) for row in server['commands'])
             and server['commands'][0]['sequence']<server['commands'][1]['sequence']
             and isinstance(server.get('customers'),list) and len(server['customers'])==2

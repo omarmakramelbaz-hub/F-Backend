@@ -30,8 +30,8 @@ def proof(hashes,fingerprint):
         'serverInspection':{'format':2,'kind':'go-erp-workspace-native-server-inspection','sourceRevision':CANDIDATE,
             'sourceFingerprint':fingerprint,'workspaceCount':1,'custodianActorId':10,
             'workspaces':[{'workspace_id':workspace,'root_fingerprint':'f'*64}],
-            'commands':[{'command_id':a,'actor_id':10,'route_name':'customers.save','status':'pending','sequence':1},
-                {'command_id':b,'actor_id':11,'route_name':'customers.save','status':'pending','sequence':2}],
+            'commands':[{'command_id':a,'actor_id':10,'route_name':'customers.save','status':'acknowledged','sequence':1},
+                {'command_id':b,'actor_id':11,'route_name':'customers.save','status':'acknowledged','sequence':2}],
             'customers':[{'phone_key':'01012345671','actor_id':10,'branch':'f:100'},
                 {'phone_key':'01012345672','actor_id':11,'branch':'f:100'}]},
         'requestCounts':{'offlineRequests':0,'totalRequests':5,'publicationRequests':1}}
@@ -152,6 +152,15 @@ class AcceptanceTests(unittest.TestCase):
         for mutate in mutations:
             value=copy.deepcopy(self.value);mutate(value)
             with self.assertRaises(subject.Stop):self.instance._validate(value,CANDIDATE,VERSION)
+
+    def test_both_original_command_rows_must_be_acknowledged_after_reconciliation(self):
+        self.instance._validate(self.value,CANDIDATE,VERSION)
+        for index in range(2):
+            for status in ('pending','cancelled',None,True):
+                value=copy.deepcopy(self.value)
+                value['serverInspection']['commands'][index]['status']=status
+                with self.subTest(index=index,status=status),self.assertRaisesRegex(subject.Stop,'ORIGINAL_ACTOR_AND_SHARED_DATABASE_PROOF_INVALID'):
+                    self.instance._validate(value,CANDIDATE,VERSION)
 
     def test_latest_failed_native_run_and_unknown_final_pins_cannot_accept(self):
         self.native_success=False
