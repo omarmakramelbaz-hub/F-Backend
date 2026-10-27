@@ -1,0 +1,85 @@
+name: GO ERP full SQL helper Laravel compatibility
+on:
+  push:
+    branches: ['codex/go-erp-schema-compat-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resumer-unit:
+    name: Guarded compatibility resumer checkpoints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source bindings, saved migration intent and resume boundaries
+        run: python3 -I -B tests/test_go_erp_schema_compat_resumer.py
+  full-helper:
+    name: Laravel ${{ matrix.framework }} - ${{ matrix.database.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: ['8.83.29', '12.70.0']
+        database:
+          - name: mysql8
+            image: mysql:8.0
+            health: 'mysqladmin ping -h 127.0.0.1 -ptest-only'
+          - name: mariadb11
+            image: mariadb:11.4
+            health: 'healthcheck.sh --connect --innodb_initialized'
+    services:
+      database:
+        image: ${{ matrix.database.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MARIADB_ROOT_PASSWORD: test-only
+          MYSQL_ROOT_HOST: '%'
+          MARIADB_ROOT_HOST: '%'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "${{ matrix.database.health }}"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      COMPOSER_NO_INTERACTION: 1
+      COMPOSER_NO_AUDIT: 1
+      COMPOSER_NO_SECURITY_BLOCKING: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, openssl, tokenizer, xml, ctype, curl, dom, fileinfo, gd, zip, intl, bcmath, exif
+          tools: composer:v2
+          coverage: none
+      - name: Load exact accepted Core migration and runtime dependency sources
+        run: git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin 052e69008da7e330815b376824cd8afc18cf04c1
+      - name: Prepare isolated framework fixture
+        run: python3 -I -B tests/shared_workspace_full_helper.py prepare --runtime "$RUNNER_TEMP/sql-compat-framework" --framework '${{ matrix.framework }}'
+      - name: Install exact framework test dependencies
+        run: composer install --working-dir "$RUNNER_TEMP/sql-compat-framework" --no-dev --no-scripts --no-interaction --prefer-dist --no-progress
+      - name: Lint actual helper and fixture bootstrap
+        run: |
+          php -l deployment/go_erp_shared_workspace_migration_compat.php
+          php -l tests/fixtures/shared_workspace_bootstrap.php
+          python3 -m py_compile tests/shared_workspace_full_helper.py
+      - name: Exercise complete guarded PHP helper on both timestamp profiles
+        run: >-
+          sudo env GITHUB_ACTIONS=true APP_ENV=testing GITHUB_SHA="$GITHUB_SHA"
+          GO_ERP_FIXTURE_PORT=3306
+          python3 -I -B tests/shared_workspace_full_helper.py execute
+          --runtime "$RUNNER_TEMP/sql-compat-framework" --framework '${{ matrix.framework }}'
+          --output "$RUNNER_TEMP/sql-compat-proof/full-helper.json"
+      - name: Retain source-bound actual database compatibility receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: sql-helper-${{ matrix.framework }}-${{ matrix.database.name }}
+          path: |
+            ${{ runner.temp }}/sql-compat-proof/full-helper.json
+            ${{ runner.temp }}/sql-compat-proof/resolved-composer.lock
+          if-no-files-found: error
+          retention-days: 14
