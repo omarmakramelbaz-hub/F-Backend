@@ -179,9 +179,25 @@ echo $wire;
       return Buffer.concat([iv, cipher.update(value), cipher.final(), cipher.getAuthTag()]); },
     decryptString(value) { const cipher = crypto.createDecipheriv('aes-256-gcm', key, value.subarray(0, 12));
       cipher.setAuthTag(value.subarray(-16)); return Buffer.concat([cipher.update(value.subarray(12, -16)), cipher.final()]).toString(); } };
-  const create = (installed = bundle) => new LocalRuntime({ bundle: installed, profile, safeStorage,
-    downloadMedia: ticket => fetch(mediaOrigin + '/image?ticket=' + encodeURIComponent(ticket), { headers: { Authorization: 'Bearer synthetic-device' }, redirect: 'error' }),
-    onFailure: error => failures.push(error) });
+  let diagnosticStage = 'preparation', diagnosticControl = null;
+  const mark = stage => { diagnosticStage = stage; diagnosticControl = null; console.log('NATIVE_GENERATION_STAGE ' + stage); };
+  const create = (installed = bundle) => {
+    const value = new LocalRuntime({ bundle: installed, profile, safeStorage,
+      downloadMedia: ticket => fetch(mediaOrigin + '/image?ticket=' + encodeURIComponent(ticket), { headers: { Authorization: 'Bearer synthetic-device' }, redirect: 'error' }),
+      onFailure: error => failures.push(error) });
+    const control = value.control.bind(value);
+    value.control = async request => {
+      // Only fixed operation names enter diagnostics. Tokens, values and server data never do.
+      const allowed = ['pending', 'failed', 'acknowledge', 'refresh-begin', 'refresh-status', 'refresh-cancel'];
+      diagnosticControl = allowed.includes(request?.action) ? request.action : 'other';
+      console.log('NATIVE_GENERATION_CONTROL ' + JSON.stringify({ stage: diagnosticStage, action: diagnosticControl, phase: 'begin' }));
+      const result = await control(request);
+      console.log('NATIVE_GENERATION_CONTROL ' + JSON.stringify({ stage: diagnosticStage, action: diagnosticControl, phase: 'complete' }));
+      diagnosticControl = null;
+      return result;
+    };
+    return value;
+  };
   let runtime = create();
   const php = async (code, input = {}, env = runtime.environment) => {
     const child = spawn(runtime.php, [...LocalRuntime.phpArguments(runtime), '-r', code], { cwd: runtime.application,
@@ -329,6 +345,7 @@ echo $wire;
     assert.deepEqual(await numericProbe(), { integralFloat: true, exactInteger: true, integerText: '9007199254740993' });
     console.log('PASS real Windows refresh preserves the PHP integral DOUBLE and exact 64-bit integer without rebuilding server table hashes in JavaScript');
     assert.equal(imageRequests, 4);
+    mark('refresh-readback');
     const refreshedTables = await php(bootstrap + captureTablesPhp + "echo json_encode($tables);");
     assert.deepEqual(refreshedTables, command.tables);
     assert.deepEqual(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE, 'app/public', imagePath)), imageBytes);
@@ -337,7 +354,9 @@ echo $wire;
     const archived = await php(bootstrap + "echo json_encode(['commands'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_commands')->where('status','acknowledged')->count(),'state'=>\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_local_state')->value('state')]);",
       {}, { ...runtime.environment, DB_DATABASE: initial.database });
     assert.deepEqual(archived, { commands: 1, state: 'held' });
+    mark('refresh-control-readback');
     assert.equal((await runtime.control({ action: 'pending' })).counts.pending, 0);
+    mark('refresh-archived-replay');
     const replay = await php(bootstrap + "try{app(\\App\\Services\\Dashboard\\DesktopDashboardJournal::class)->execute($input['device'],$input['id'],$input['actor'],'customers.save',['values'=>$input['values']],[],fn()=>throw new RuntimeException('Archived work ran again.'));echo json_encode(['status'=>200]);}catch(\\Symfony\\Component\\HttpKernel\\Exception\\HttpException $error){echo json_encode(['status'=>$error->getStatusCode()]);}",
       { device: snapshot.device_id, id: pending.commands[0].command_id, actor: snapshot.actor_id, values: command.values });
     assert.equal(replay.status, 409);
@@ -349,6 +368,7 @@ echo $wire;
     const remoteState = new DashboardRemoteState(runtime.metadata);
     const mode = new DashboardMode({ runtime, view, generations: coordinator(), remoteState,
       probe: async () => ({ actor_id: snapshot.actor_id, device_id: snapshot.device_id }) });
+    mark('mode-first-refresh');
     await updateSnapshot({ kind: 'id', id: crypto.randomUUID() }); await mode.refresh(); next = await runtime.connection();
     assert.equal(local, false); assert.ok(await runtime.metadata.read('return'));
     await assert.rejects(mode.local({ method: 'POST' }));
@@ -361,10 +381,12 @@ echo $wire;
     await assert.rejects(new DashboardRemoteState(runtime.metadata).assertClean());
     await remoteState.complete('native-http-operation');
     await assert.rejects(mode.local({ method: 'GET' }));
+    mark('mode-second-refresh');
     await updateSnapshot({ kind: 'id', id: crypto.randomUUID() }); await mode.refresh(); next = await runtime.connection();
     await remoteState.assertClean();
     await mode.local({ method: 'GET' }); assert.equal(local, true); assert.equal(await runtime.metadata.read('return'), null);
     assert.deepEqual(destinations, ['https://fixture.test', runtime.origin]);
+    mark('held-fence-restart');
     const intent = { format: 1, id: crypto.randomUUID(), token: 'd'.repeat(64), generation: 'e'.repeat(16), previous: next };
     await runtime.metadata.write('refresh', intent);
     await runtime.control({ action: 'refresh-begin', refresh_id: intent.id, token: intent.token });
@@ -515,6 +537,25 @@ echo $wire;
     console.log('GO_ERP_STARTUP_SOURCE_NATIVE '+JSON.stringify(startupProof));
     console.log('PASS real Windows startup source activation preserves the original scoped preview account, session, business rows and replay journal, then reopens the activated source without setup');
     console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');
+  } catch (error) {
+    // Capture fixed fault classes while the owned child is still alive. Never
+    // print raw stderr: it can contain application paths, queries or credentials.
+    const code = value => typeof value === 'string' && /^[A-Z0-9_]{1,64}$/.test(value) ? value : null;
+    const children = runtime.children.map((child, index) => {
+      if (!child) return null;
+      const tail = child.stderrTail?.() || '';
+      return { kind: index === 0 ? 'database' : 'web', exitCode: child.exitCode, signal: child.signalCode,
+        faultClasses: { phpFatal: /(?:PHP )?(?:Fatal|Parse) error:/i.test(tail),
+          outOfMemory: /Allowed memory size of \d+ bytes exhausted|Out of memory/i.test(tail),
+          opcodeAttach: /Unable to (?:reattach|map)|Cannot map|OPcache.*(?:failed|error)/i.test(tail) } };
+    }).filter(Boolean);
+    const frames = (error.stack || '').split(/\r?\n/).slice(1, 9).map(line => {
+      const match = line.match(/([^\\/():]+\.cjs):(\d+):(\d+)/);
+      return match ? { file: match[1], line: Number(match[2]), column: Number(match[3]) } : null;
+    }).filter(Boolean);
+    console.error('NATIVE_GENERATION_FAILURE ' + JSON.stringify({ stage: diagnosticStage, action: diagnosticControl,
+      code: code(error.code), cause: code(error.cause?.code), frames, children, failureCount: failures.length }));
+    throw error;
   } finally { await runtime.stop(); await new Promise(resolve => mediaServer.close(resolve)); await fs.rm(profile, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

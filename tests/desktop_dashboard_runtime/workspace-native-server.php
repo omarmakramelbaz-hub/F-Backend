@@ -52,10 +52,12 @@ if($action==='prepare'){
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         foreach([[1,'admin',null,'all'],[10,'vendor',null,'f:100'],[11,'resturant_owner',100,'f:100'],[12,'vendor',null,'f:101'],[30,'admin',null,'all']] as [$id,$role,$parent,$branch]){
             $email='workspace'.$id.'@test.invalid';$password='Workspace-fixture-'.$id;
+            $verifier=password_hash($password,PASSWORD_BCRYPT,['cost'=>4]);
             DB::table('users')->insert(['id'=>$id,'added_by'=>1,'name'=>'Workspace native '.$id,'email'=>$email,'mobile'=>(string)(1000000000+$id),
-                'password'=>password_hash($password,PASSWORD_BCRYPT,['cost'=>4]),'account_type'=>$role,'app_scope'=>'fasakhansta','status'=>'accepted',
+                'password'=>$verifier,'account_type'=>$role,'app_scope'=>'fasakhansta','status'=>'accepted',
                 'owner_resturant_id'=>$parent,'balance'=>0,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
-            $config['credentials'][]=['actorId'=>$id,'email'=>$email,'password'=>$password,'role'=>$role,'branch'=>$branch];
+            $config['credentials'][]=['actorId'=>$id,'email'=>$email,'password'=>$password,'role'=>$role,'branch'=>$branch,
+                'passwordSha256'=>hash('sha256',$verifier)];
         }
         foreach([[100,10],[101,12]] as [$id,$owner])DB::table('resturants')->insert(['id'=>$id,'added_by'=>1,'user_id'=>$owner,'name'=>'Workspace native branch '.$id,
             'status'=>'opened','parent_id'=>null,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);

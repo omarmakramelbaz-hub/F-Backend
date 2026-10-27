@@ -13,6 +13,9 @@ try{
         header('Content-Type: application/json');header('Cache-Control: no-store');echo '{"ok":true,"protocol":2}';return;
     }
     $kernel=$app->make(\Illuminate\Contracts\Http\Kernel::class);$request=\Illuminate\Http\Request::capture();
-    $response=$kernel->handle($request);$response->send();$kernel->terminate($request,$response);
+    $response=$kernel->handle($request);
+    if($request->isMethod('POST')&&$request->path()==='admin/signin')
+        WorkspaceNativeServerFixture::assertOnlinePasswordIntegrity($config);
+    $response->send();$kernel->terminate($request,$response);
 }catch(Throwable $error){http_response_code(503);header('Content-Type: application/json');header('Cache-Control: no-store');
     error_log('WORKSPACE_NATIVE_SERVER_ROUTER_FAILED '.get_class($error).' '.$error->getMessage());echo '{"error":"WORKSPACE_NATIVE_SERVER_ROUTER_FAILED"}';}

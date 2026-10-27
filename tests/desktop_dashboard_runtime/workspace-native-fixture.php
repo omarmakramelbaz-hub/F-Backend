@@ -92,13 +92,30 @@ final class WorkspaceNativeServerFixture
     public static function boot(array $config)
     {
         self::environment($config);$app=require $config['application'].'/desktop/bootstrap.php';
-        config(['desktop_dashboard.local'=>false,'auth.providers.admins.driver'=>'eloquent','app.url'=>$config['origin']]);
+        // The loopback server runs in the bundled Laravel 12 distribution, but
+        // represents the existing Laravel 8 web server. Laravel 8 does not
+        // automatically rewrite a password after a successful session login.
+        // Match that behavior without changing the original password provider,
+        // User plaintext mutator, stored verifiers or submitted credentials.
+        config(['desktop_dashboard.local'=>false,'auth.providers.admins.driver'=>'eloquent',
+            'hashing.rehash_on_login'=>false,'app.url'=>$config['origin']]);
         auth()->forgetGuards();return $app;
     }
     public static function pdo(array $config,bool $database=true): PDO
     {
         return new PDO('mysql:host=127.0.0.1;port='.$config['dbPort'].($database?';dbname='.$config['database']:'').';charset=utf8mb4',
             $config['environment']['DB_USERNAME'],$config['environment']['DB_PASSWORD'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    }
+    public static function assertOnlinePasswordIntegrity(array $config): void
+    {
+        // This invariant runs after the original HTTP signin, before any
+        // workspace export. The original server does not change a verifier on
+        // login; a fixture-only framework upgrade must not silently change it.
+        foreach($config['credentials'] as $expected){
+            $verifier=\Illuminate\Support\Facades\DB::table('users')->where('id',$expected['actorId'])->value('password');
+            self::need(is_string($verifier)&&hash_equals($expected['passwordSha256'],hash('sha256',$verifier))
+                &&password_verify($expected['password'],$verifier),'WORKSPACE_NATIVE_SOURCE_PASSWORD_CHANGED');
+        }
     }
     public static function assertDatabase(PDO $pdo,array $config): void
     {
