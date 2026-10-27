@@ -501,8 +501,15 @@ including an already-active resume, obtains a fresh HTTPS witness. The final pub
 marker appears only after those checks, reports the four additive tables, and confirms
 automatic updates remain disabled. No final user command is supplied while pins are null.
 
-The combined 192 tests include actual temporary source/environment/checkpoint inodes,
+The combined 194 tests include actual temporary source/environment/checkpoint inodes,
 mutation failures and resume, real original-template/native/manual byte derivation for
 both predecessors, pure PHP metadata fixtures, and the root loader driving actual
 activation/WAL code with injected fake PHP/FPM/HTTPS services. They execute no server,
 installer build or production SQL. The separate schema-export workflow is CI-only.
+
+The successful schema export is retained in `deployment/pins/` with its exact public
+run/job/artifact provenance, member/ZIP digests, migration/helper bytes and four-profile
+semantic schema digest. `shared_workspace_prerequisites_r13.json` materializes those
+accepted schemas and the exact five-program contract; final core/seed/web/native,
+source plans, routes and candidate acceptance pins remain explicitly null. Those
+prerequisites cannot enable either production entrypoint.

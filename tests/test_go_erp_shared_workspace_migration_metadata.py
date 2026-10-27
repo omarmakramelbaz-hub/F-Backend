@@ -11,7 +11,7 @@ PHP=shutil.which('php') or '/workspace/scratch/6c1b3b3f4a51/payroll-map/php-root
 
 @unittest.skipUnless(Path(PHP).is_file(),'PHP is required for pure deployed normalizer tests')
 class MigrationMetadataTests(unittest.TestCase):
-    def normalize(self,type_,default,extra='',maria=False):
+    def normalize(self,type_,default,extra='',maria=False,must_fail=False):
         raw=(ROOT/'deployment/go_erp_shared_workspace_migration.php').read_text()
         before,separator,_tail=raw.partition("try {\n    ini_set('display_errors','0');")
         self.assertTrue(separator)
@@ -19,6 +19,8 @@ class MigrationMetadataTests(unittest.TestCase):
         result=subprocess.run([PHP,'-n','-d','display_errors=0','-r',code],
             input=json.dumps([type_,default,extra,maria]).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,
             timeout=10,env={'PATH':'/usr/bin:/bin'})
+        if must_fail:
+            self.assertNotEqual(0,result.returncode);return None
         self.assertEqual(0,result.returncode,result.stderr.decode())
         return json.loads(result.stdout)
 
@@ -57,5 +59,10 @@ class MigrationMetadataTests(unittest.TestCase):
         self.assertEqual(self.normalize('tinyint(1)',True),self.normalize('tinyint(1)','1'))
         self.assertEqual('0',self.normalize('bigint(20) unsigned',0)['default'])
         self.assertEqual(0,self.normalize('varchar(100)',0)['default'])
+
+    def test_case_sensitive_enum_set_and_unreviewed_escape_defaults_are_refused(self):
+        self.normalize("enum('UPPER','lower')",None,must_fail=True)
+        self.normalize("set('UPPER','lower')",None,must_fail=True)
+        self.normalize('varchar(100)',"'escape\\value'",maria=True,must_fail=True)
 
 if __name__=='__main__':unittest.main()

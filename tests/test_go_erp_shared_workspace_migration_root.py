@@ -134,5 +134,24 @@ class MigrationActuatorTests(unittest.TestCase):
             self.instance.observe()
         self.assertFalse(self.instance.audit.exists()); self.assertEqual(self.php.calls, [])
 
+    def test_accepted_real_mysql_mariadb_schemas_use_the_same_owned_checkpoint_engine(self):
+        accepted=io.parse((ROOT/'deployment/pins/shared_workspace_schema_accepted_r13.json').read_bytes())
+        self.assertEqual(4,accepted['real_engine_profiles_verified'])
+        self.assertEqual(accepted['helper_sha256'],io.sha(self.template))
+        self.assertEqual(states.digest(accepted['schemas']),accepted['semantic_schemas_sha256'])
+        self.intent=states.migration_intent(accepted['source_revision'],'b'*64,'c'*64,
+            accepted['migration_hashes'],accepted['schemas'])
+        self.php=FakePHP(self.intent)
+        self.instance=subject.MigrationActuator(io,states,self.php,self.audit,self.intent,self.template,lambda:None,lambda:None)
+        self.instance.pins={'template_sha256':io.sha(self.template),
+            'program_sha256':io.sha(subject.materialize_program(io,self.template,self.instance.gate)),
+            'intent_sha256':states.digest(self.intent),'gate_sha256':io.sha(io.canonical(self.instance.gate)),
+            'resume_helper_sha256':'f'*64}
+        results=[self.instance.apply(self.parameters()) for _ in states.MIGRATIONS]
+        _,snapshot=self.instance.observe()
+        self.assertEqual('owned-complete',self.instance._checkpoint(snapshot)['state'])
+        self.assertEqual(4,sum(value['database_new_tables'] for value in results))
+        self.assertTrue(all(value['database_changed'] is True for value in results))
+
 
 if __name__ == '__main__': unittest.main()
