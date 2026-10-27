@@ -43,7 +43,7 @@ class HomeOverview
         if ($filters['branch'] !== '') { $branch = $this->access->branch($filters['branch'], $actor); abort_unless($branch['kind'] === 'f', 404); $branch['display_group']=$this->displayGroup($branch['name']); $selected = [$branch]; }
         return [$all,$filters,$selected];
     }
-    /** Current balances are deliberately computed only after the Owner asks to view them. */
+    /** Automatic background balance reads keep the initial overview responsive. */
     public function drawers(array $values, $actor): array
     {
         $actor=$this->access->actor($actor);

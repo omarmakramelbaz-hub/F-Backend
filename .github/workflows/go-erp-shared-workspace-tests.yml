@@ -158,6 +158,36 @@ jobs:
         working-directory: desktop-pos
         run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs
 
+  automatic-owner-balances-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install the isolated pinned browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/owner-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          if command -v google-chrome >/dev/null 2>&1; then
+            browser_path=$(command -v google-chrome)
+          elif test -x /opt/google/chrome/chrome; then
+            browser_path=/opt/google/chrome/chrome
+          else
+            "$RUNNER_TEMP/owner-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+            browser_path=
+          fi
+          if test -n "$browser_path"; then
+            "$browser_path" --version
+            printf 'DESKTOP_TEST_BROWSER_EXECUTABLE=%s\n' "$browser_path" >> "$GITHUB_ENV"
+          fi
+      - name: Verify automatic balances after successful sync and scoped background refresh
+        env:
+          NODE_PATH: ${{ runner.temp }}/owner-browser/node_modules
+        run: node tests/browser/owner-drawer-lazy.cjs
+
   actual-private-print-ledger:
     runs-on: ubuntu-latest
     timeout-minutes: 20

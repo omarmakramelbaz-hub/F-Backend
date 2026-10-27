@@ -1,4 +1,4 @@
-name: GO ERP owner opens without drawer report generation
+name: GO ERP automatic Owner balances after synchronization
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
           mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
           cp .env.example .env
           php artisan key:generate
-      - name: Verify overview access and on-demand Owner drawer balances
+      - name: Verify lightweight overview and background Owner balance reads
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
       - name: Verify unchanged cash formulas and closing guards
@@ -78,7 +78,7 @@ jobs:
             "$browser_path" --version
             printf 'DESKTOP_TEST_BROWSER_EXECUTABLE=%s\n' "$browser_path" >> "$GITHUB_ENV"
           fi
-      - name: Verify real Owner drawer click, refresh and navigation behavior
+      - name: Verify automatic Owner balances, synchronization and navigation
         env:
           NODE_PATH: ${{ runner.temp }}/owner-browser/node_modules
         run: node tests/browser/owner-drawer-lazy.cjs

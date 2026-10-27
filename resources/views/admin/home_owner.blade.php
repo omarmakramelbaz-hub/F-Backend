@@ -19,7 +19,7 @@
         <section class="ho-owner-column ho-owner-drawers" aria-labelledby="ho-drawers-title">
             <header><h2 id="ho-drawers-title"><i class="fas fa-cash-register" aria-hidden="true"></i> {{ __('home_overview.compact_drawer') }}</h2></header>
             <div class="ho-list-labels ho-caption">{{ __('home_overview.owner_only') }} · {{ __('home_overview.currency') }}</div>
-            <div class="ho-drawer-actions"><button type="button" class="ho-button" data-ho-load-drawers>{{ __('home_overview.load_drawers') }}</button><span role="status" aria-live="polite" data-ho-drawer-status>{{ __('home_overview.drawers_not_loaded') }}</span></div>
+            <div class="ho-drawer-actions"><span role="status" aria-live="polite" data-ho-drawer-status>{{ __('home_overview.drawers_loading') }}</span></div>
             <div class="ho-owner-list" data-ho-drawers tabindex="0" role="region" aria-label="{{ __('home_overview.compact_drawer') }}"></div>
             <div class="ho-list-totals"><span>{{ __('home_overview.total') }}</span><strong data-ho-drawer-total></strong></div>
         </section>

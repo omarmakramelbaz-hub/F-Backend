@@ -39,9 +39,10 @@ return [
  'drawer'=>'Expected drawer cash',
  'load_drawers'=>'View drawer balances',
  'refresh_drawers'=>'Refresh drawer balances',
- 'drawers_not_loaded'=>'Select to view current balances',
+ 'drawers_not_loaded'=>'Balances update automatically.',
  'drawers_loading'=>'Calculating drawer balances…',
- 'drawers_failed'=>'Unable to load drawer balances. Try again.',
+ 'drawers_failed'=>'Unable to refresh balances; retrying automatically.',
+ 'drawers_last_updated'=>'Last balance calculation',
  'owner_only'=>'Owner only · now',
  'drawer_note'=>'The next shift starts at zero after closing. Expected drawer cash uses the same shift-closing reconciliation, including recorded cash and app settlements, excluding delivery fees. Only the primary owner can view it.',
 
