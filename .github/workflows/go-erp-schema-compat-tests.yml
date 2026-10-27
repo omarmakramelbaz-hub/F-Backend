@@ -11,8 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - name: Verify source bindings, saved migration intent and resume boundaries
         run: python3 -I -B tests/test_go_erp_schema_compat_resumer.py
   full-helper:
@@ -48,8 +46,6 @@ jobs:
       COMPOSER_NO_SECURITY_BLOCKING: 1
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
