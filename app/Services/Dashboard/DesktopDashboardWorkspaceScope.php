@@ -7,7 +7,7 @@ use App\Models\User;
 final class DesktopDashboardWorkspaceScope
 {
     private function __construct(
-        private DesktopDashboardWorkspaceAuthority $issuer,
+        private DesktopDashboardWorkspaceIssuer $issuer,
         private object $capability,
         private object $physical,
         private User $effectiveActor,
@@ -15,17 +15,20 @@ final class DesktopDashboardWorkspaceScope
         private string $fingerprint,
         private int $revision,
         private ?array $acceptedMembership,
-        private ?int $acceptedRevision
+        private ?int $acceptedRevision,
+        private ?object $localState
     ) {}
 
     /** Only an issuing authority's private object capability can create this facade. */
-    public static function issue(DesktopDashboardWorkspaceAuthority $issuer, object $capability,
+    public static function issue(DesktopDashboardWorkspaceIssuer $issuer, object $capability,
         object $physical, User $actor, array $member, string $fingerprint, int $revision,
-        ?array $acceptedMembership = null, ?int $acceptedRevision = null): self
+        ?array $acceptedMembership = null, ?int $acceptedRevision = null, ?object $localState = null): self
     {
+        if (!$issuer instanceof DesktopDashboardWorkspaceAuthority && !$issuer instanceof DesktopDashboardWorkspaceLocalAuthority)
+            throw new \LogicException('Unsupported workspace issuer.');
         $issuer->assertIssuanceCapability($capability);
         return new self($issuer, $capability, clone $physical, clone $actor, $member, $fingerprint, $revision,
-            $acceptedMembership, $acceptedRevision);
+            $acceptedMembership, $acceptedRevision,$localState===null?null:clone $localState);
     }
 
     public function assertIssued(): void { $this->issuer->assertIssuanceCapability($this->capability); }
@@ -34,6 +37,9 @@ final class DesktopDashboardWorkspaceScope
     public function member(): array { $this->assertIssued(); return $this->membership; }
     public function rootFingerprint(): string { return $this->fingerprint; }
     public function manifestRevision(): int { return $this->revision; }
+    public function revalidated(): self { $this->assertIssued(); return $this->issuer->revalidateScope($this); }
+    public function isLocal(): bool { return $this->issuer instanceof DesktopDashboardWorkspaceLocalAuthority; }
+    public function localState(): ?object { $this->assertIssued(); return $this->localState===null?null:clone $this->localState; }
     public function acceptedMember(): ?array { $this->assertIssued(); return $this->acceptedMembership; }
     public function acceptedManifestRevision(): ?int { return $this->acceptedRevision; }
     public function branchGrants(): array
@@ -58,6 +64,8 @@ final class DesktopDashboardWorkspaceScope
         if ($name === 'branches') return DesktopDashboardWorkspaceAuthority::canonical($this->branchGrants());
         if ($name === 'workspace_protocol' || $name === 'protocol') return 2;
         if ($name === 'device_id' || $name === 'workspace_id') return $this->physical->id;
+        if ($this->localState!==null && in_array($name,['snapshot_id','schema_hash','coverage','state','refresh_id',
+            'refresh_token_hash','fenced_sequence','created_at','updated_at'],true)) return $this->localState->$name;
         if (in_array($name, ['id','name','enabled','enrollment_hash','token_hash','enrolled_at','custodian_actor_id'], true))
             return $this->physical->$name;
         throw new \LogicException('Unknown workspace authority field.');
@@ -65,7 +73,9 @@ final class DesktopDashboardWorkspaceScope
     public function __isset(string $name): bool
     {
         return in_array($name, ['actor_id','branches','workspace_protocol','protocol','device_id','workspace_id',
-            'id','name','enabled','enrollment_hash','token_hash','enrolled_at','custodian_actor_id'], true);
+            'id','name','enabled','enrollment_hash','token_hash','enrolled_at','custodian_actor_id'], true)
+            || ($this->localState!==null && in_array($name,['snapshot_id','schema_hash','coverage','state','refresh_id',
+                'refresh_token_hash','fenced_sequence','created_at','updated_at'],true));
     }
     public function __set(string $name, $value): void { throw new \LogicException('Workspace authority is immutable.'); }
     public function __unset(string $name): void { throw new \LogicException('Workspace authority is immutable.'); }

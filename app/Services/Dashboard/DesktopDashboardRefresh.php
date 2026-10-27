@@ -11,10 +11,12 @@ class DesktopDashboardRefresh
         if(!config('desktop_dashboard.local')||(string)config('desktop_dashboard.device_id')==='')return null;
         abort_unless((string)config('desktop_dashboard.device_id')===$device,403,'سجل العمليات يخص جهازًا آخر.');
         abort_unless(DB::transactionLevel()>0&&Schema::hasTable('desktop_dashboard_local_state'),503,'حالة بيانات الجهاز لم تُجهّز بعد.');
+        $workspace=app(DesktopDashboardWorkspaceLocalAuthority::class);$shared=$workspace->selected();
+        if($shared)$workspace->active();
         app(DesktopDashboardPrintLedger::class)->fence($device);
-        $row=DB::table('desktop_dashboard_local_state')->where('device_id',$device)->lockForUpdate()->first();
+        $row=$shared?$workspace->rootState($device,true):DB::table('desktop_dashboard_local_state')->where('device_id',$device)->lockForUpdate()->first();
         abort_unless($row,503,'حالة بيانات الجهاز لم تُجهّز بعد.');
-        return $row;
+        return $shared?($workspace->scopeForState($row)??$row):$row;
     }
 
     public function writable(string $device,int $actor): void

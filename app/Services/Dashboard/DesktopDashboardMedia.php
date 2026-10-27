@@ -164,9 +164,19 @@ class DesktopDashboardMedia
     public function manifest(array $dataset,object $device,User $actor,string $snapshot): array
     {
         $queries=$this->data->queries($device,$actor,$this->branches($device,$actor));
+        return $this->buildManifest($dataset,$queries,function(string $path,string $sha,int $bytes,string $mime,array $proof,string $area)use($device,$actor,$snapshot): string {
+            $namespace=$area==='private'?['area'=>'private']:[];
+            return Crypt::encryptString(DesktopDashboardBootstrap::json(['format'=>1,'device_id'=>$device->id,'actor_id'=>(int)$actor->id,
+                'enrollment_binding'=>$this->devices->enrollmentFingerprint($device),
+                'snapshot_id'=>$snapshot,'path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'proof'=>$proof,'expires_at'=>time()+3600]+$namespace));
+        });
+    }
+    /** Internal reuse only: callers expose an authenticated audience, never request-supplied queries. */
+    protected function buildManifest(array $dataset,array $queries,callable $issueTicket): array
+    {
         $owners=$this->ownerMembership($dataset['media']??[],$queries);
         $files=[];$issues=[];$total=0;
-        $add=function(string $path,array $proof,string $area='public',array $expected=[])use(&$files,&$issues,&$total,$device,$actor,$snapshot){
+        $add=function(string $path,array $proof,string $area='public',array $expected=[])use(&$files,&$issues,&$total,$issueTicket){
             $key=$area."\0".$path;
             try{
                 $file=self::file($path,$area);$extension=strtolower(pathinfo($path,PATHINFO_EXTENSION));
@@ -176,9 +186,7 @@ class DesktopDashboardMedia
                 if(isset($files[$key]))return;
                 abort_if(count($files)>=self::MAX_FILES||$total+$bytes>self::MAX_TOTAL,413);
                 $total+=$bytes;$namespace=$area==='private'?['area'=>'private']:[];
-                $ticket=Crypt::encryptString(DesktopDashboardBootstrap::json(['format'=>1,'device_id'=>$device->id,'actor_id'=>(int)$actor->id,
-                    'enrollment_binding'=>$this->devices->enrollmentFingerprint($device),
-                    'snapshot_id'=>$snapshot,'path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'proof'=>$proof,'expires_at'=>time()+3600]+$namespace));
+                $ticket=$issueTicket($path,$sha,$bytes,$mime,$proof,$area);
                 $files[$key]=['path'=>$path,'sha256'=>$sha,'bytes'=>$bytes,'mime'=>$mime,'ticket'=>$ticket]+$namespace;
             }catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$issues[]=['path'=>$path,
                 'reason'=>$error->getStatusCode()===413?'media-capacity-exceeded':'unavailable-or-unsupported']+($area==='private'?['area'=>'private']:[]);}
@@ -254,6 +262,11 @@ class DesktopDashboardMedia
         abort_unless(($value['format']??null)===1&&($value['device_id']??null)===$device->id
             &&is_string($value['enrollment_binding']??null)&&hash_equals($this->devices->enrollmentFingerprint($device),$value['enrollment_binding'])
             &&($value['actor_id']??null)===(int)$actor->id&&($value['expires_at']??0)>=time(),403);
+        return $this->downloadAuthorized($value,$queries);
+    }
+    /** Scope and ticket identity must be checked by the public entry before this shared file engine. */
+    protected function downloadAuthorized(array $value,array $queries): array
+    {
         $proof=$value['proof']??[];$path=$value['path']??'';$area=$value['area']??'public';
         abort_unless($area===(in_array($proof['kind']??'',['expense','employee-id'],true)?'private':'public'),403);
         switch($proof['kind']??''){

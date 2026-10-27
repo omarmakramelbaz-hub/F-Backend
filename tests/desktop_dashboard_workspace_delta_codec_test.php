@@ -4,6 +4,7 @@ function abort_unless($condition,$status,$message=''){if(!$condition)throw new R
 function abort_if($condition,$status,$message=''){abort_unless(!$condition,$status,$message);}
 require __DIR__.'/../app/Services/Dashboard/DesktopDashboardDeltaCodec.php';
 require __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceDeltaCodec.php';
+require __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceIssuer.php';
 use App\Services\Dashboard\DesktopDashboardDeltaCodec as Legacy;
 use App\Services\Dashboard\DesktopDashboardWorkspaceDeltaCodec as Codec;
 

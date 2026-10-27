@@ -10,12 +10,7 @@ class DesktopDashboardImport
     {
         abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
-        Validator::make(self::validationMetadata($snapshot,
-            ['format','kind','snapshot_id','device_id','actor_id','branches','schema_hash','tables','coverage'],['tables','coverage']),
-            ['format'=>'required|in:1','kind'=>'required|in:initial-dashboard-data',
-            'snapshot_id'=>'required|uuid','device_id'=>'required|uuid','actor_id'=>'required|integer|min:1',
-            'branches'=>'required|array|min:1','branches.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D','tables'=>'required|array',
-            'coverage'=>'required|array'])->validate();
+        $this->validateImportMetadata($snapshot);
         abort_unless($snapshot['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($snapshot['source']??null),409,'نسخة برنامج الجهاز لا تطابق بيانات السيرفر؛ النسخة الحالية وسجلاتها محفوظة.');
         abort_unless(DB::select('SHOW TABLES')===[],409,'قاعدة التجهيز ليست فارغة؛ بيانات الجهاز محفوظة.');
@@ -28,7 +23,7 @@ class DesktopDashboardImport
         abort_unless(!array_key_exists('catalog_scopes',$snapshot['coverage'])||in_array($snapshot['coverage']['catalog_scopes'],[0,1],true),422,'وصف تغطية نطاقات الكتالوج غير صالح.');
         $catalog=($snapshot['coverage']['catalog_scopes']??null)===1;
         $base=$snapshot['enrollment']['base_branches']??$snapshot['branches'];
-        Validator::make(['base'=>$base],['base'=>'required|array|min:1','base.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D']])->validate();
+        $this->validateBaseBranches($base);
         if($catalog){
             abort_unless(($snapshot['coverage']['print_protocol']??null)===1&&isset($snapshot['enrollment']['base_branches'])&&is_array($snapshot['created_scopes']??null)
                 &&hash_equals($snapshot['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['created_scopes'])))
@@ -119,7 +114,36 @@ class DesktopDashboardImport
             'branches'=>$snapshot['branches'],'table_rows'=>array_map(fn($part)=>count($part['rows']),$snapshot['tables']),'media'=>$media];
     }
 
-    private static function validationMetadata(array $snapshot,array $keys,array $containers=[]): array
+    protected function validateImportMetadata(array $snapshot): void
+    {
+        Validator::make(self::validationMetadata($snapshot,
+            ['format','kind','snapshot_id','device_id','actor_id','branches','schema_hash','tables','coverage'],['tables','coverage']),
+            ['format'=>'required|in:1','kind'=>'required|in:initial-dashboard-data',
+            'snapshot_id'=>'required|uuid','device_id'=>'required|uuid','actor_id'=>'required|integer|min:1',
+            'branches'=>'required|array|min:1','branches.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D','tables'=>'required|array',
+            'coverage'=>'required|array'])->validate();
+    }
+    protected function validateBaseBranches(array $base): void
+    {
+        Validator::make(['base'=>$base],['base'=>'required|array|min:1','base.*'=>['required','distinct','regex:/^(f|gs):[1-9][0-9]{0,18}$/D']])->validate();
+    }
+    protected function validateVerifyMetadata(array $receipt): void
+    {
+        Validator::make($receipt,['format'=>'required|in:1','snapshot_id'=>'required|uuid','device_id'=>'required|uuid',
+            'actor_id'=>'required|integer|min:1','schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D',
+            'branches'=>'required|array|min:1','coverage'=>'required|array','table_rows'=>'required|array|min:1',
+            'tables'=>'required|integer|min:1','rows'=>'required|integer|min:0'])->validate();
+    }
+    protected function assertReplayHistory(array $receipt): void
+    {
+        abort_unless(DB::table('desktop_dashboard_commands')->count()===0
+            &&DB::table('users')->where('id',$receipt['actor_id'])->exists()
+            &&!DB::table('desktop_dashboard_archived_commands')->where(function($q)use($receipt){
+                $q->where('device_id','<>',$receipt['device_id'])->orWhere('actor_id','<>',$receipt['actor_id']);
+            })->exists(),409);
+    }
+
+    protected static function validationMetadata(array $snapshot,array $keys,array $containers=[]): array
     {
         $data=array_intersect_key($snapshot,array_fill_keys($keys,true));
         // Laravel recursively copies validation data and its returned result.
@@ -134,10 +158,7 @@ class DesktopDashboardImport
     {
         abort_unless(config('desktop_dashboard.local')&&DB::connection()->getConfig('host')==='127.0.0.1'
             &&preg_match('/^fasakhansta_dashboard_stage_[a-f0-9]{16}$/D',DB::connection()->getDatabaseName()),403);
-        Validator::make($receipt,['format'=>'required|in:1','snapshot_id'=>'required|uuid','device_id'=>'required|uuid',
-            'actor_id'=>'required|integer|min:1','schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D',
-            'branches'=>'required|array|min:1','coverage'=>'required|array','table_rows'=>'required|array|min:1',
-            'tables'=>'required|integer|min:1','rows'=>'required|integer|min:0'])->validate();
+        $this->validateVerifyMetadata($receipt);
         abort_unless($receipt['device_id']===(string)config('desktop_dashboard.device_id'),403);
         abort_unless(app(DesktopDashboardSource::class)->matches($receipt['source']??null),409,'مصدر برنامج التجهيز لا يطابق النسخة المعتمدة.');
         $result=DB::transaction(function()use($receipt){
@@ -159,11 +180,7 @@ class DesktopDashboardImport
             abort_unless($source&&$source->snapshot_id===$receipt['snapshot_id']
                 &&hash_equals($source->sha256,hash('sha256',DesktopDashboardBootstrap::json($receipt['source'])))
                 &&json_decode($source->source,true)===$receipt['source'],409,'مصدر بيانات التجهيز لا يطابق النسخة المعتمدة.');
-            abort_unless(DB::table('desktop_dashboard_commands')->count()===0
-                &&DB::table('users')->where('id',$receipt['actor_id'])->exists()
-                &&!DB::table('desktop_dashboard_archived_commands')->where(function($q)use($receipt){
-                    $q->where('device_id','<>',$receipt['device_id'])->orWhere('actor_id','<>',$receipt['actor_id']);
-                })->exists(),409);
+            $this->assertReplayHistory($receipt);
             $rows=0;
             foreach($receipt['table_rows'] as $table=>$count){
                 abort_unless(in_array($table,DesktopDashboardSchema::TABLES,true)&&is_int($count)&&$count>=0,422);

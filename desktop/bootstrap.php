@@ -53,6 +53,8 @@ if (!class_exists('FasakhanstaDesktopRememberProvider', false)) {
                 ||!is_numeric($actor)||(int)$actor<1
                 ||!in_array($user->account_type,['admin','vendor','resturant_owner'],true)
                 ||in_array($user->status??null,['disabled','declined'],true))return null;
+            $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class);
+            if($workspace->selected())return $workspace->rememberBinding($user);
             $state=\Illuminate\Support\Facades\DB::table('desktop_dashboard_local_state')->where('device_id',$device)->first(['actor_id']);
             if(!$state||(int)$state->actor_id!==(int)$actor)return null;
             $password=$user->getAuthPassword();

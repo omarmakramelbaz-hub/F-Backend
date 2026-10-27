@@ -5,7 +5,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\{DB, Schema, Validator};
 
 /** Server-issued protocol-2 membership; the initiating actor is custody/audit only. */
-class DesktopDashboardWorkspaceAuthority
+class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIssuer
 {
     public const ROLES = ['admin','vendor','resturant_owner'];
     public const MAX_MEMBERS = 4096;
@@ -121,6 +121,19 @@ class DesktopDashboardWorkspaceAuthority
         });
     }
 
+    /** A predecessor comes from retained server history, never an uploaded client manifest. */
+    public function historicalManifest(object $authenticatedRoot, int $revision): array
+    {
+        abort_unless($revision>0 && $revision<=self::SAFE,422);
+        return $this->transaction(function() use ($authenticatedRoot,$revision) {
+            $root=$this->lockAuthenticated($authenticatedRoot);
+            $row=DB::table('desktop_dashboard_workspace_manifests')->where('workspace_id',$root->id)
+                ->where('revision',$revision)->lockForUpdate()->first();
+            abort_unless($row,409,'نسخة عضوية الجهاز السابقة غير متاحة.');
+            return $this->checkedManifest($row->manifest_json,$root,$revision);
+        });
+    }
+
     /** Fresh server facts, never caller-supplied roles, branch IDs or cached Spatie authority. */
     public function eligibleMembers(): array
     {
@@ -167,6 +180,31 @@ class DesktopDashboardWorkspaceAuthority
                 $scope->acceptedManifestRevision());
             abort_unless(self::canonical($old)===self::canonical($accepted) && $old['role']===$fresh['role'],403);
         }
+    }
+    public function revalidateScope(DesktopDashboardWorkspaceScope $scope): DesktopDashboardWorkspaceScope
+    {
+        $this->assertScope($scope); return $scope;
+    }
+    public function snapshotAudience(object $root): DesktopDashboardWorkspaceSnapshotAudience
+    {
+        abort_unless(DB::transactionLevel()>0,503);
+        $fresh=$this->lockAuthenticated($root); $manifest=$this->manifest($fresh); $actors=[];
+        foreach ($manifest['members'] as $member) $actors[$member['actor_id']]=$this->freshActor((object)['id'=>$member['actor_id']]);
+        return DesktopDashboardWorkspaceSnapshotAudience::issue($this,$this->issuanceCapability,$fresh,$manifest,$actors);
+    }
+    public function assertSnapshotAudience(DesktopDashboardWorkspaceSnapshotAudience $audience): void
+    {
+        abort_unless(DB::transactionLevel()>0,503); $audience->assertIssued();
+        $fresh=$this->manifest($audience->root());
+        abort_unless(self::canonical($fresh)===self::canonical($audience->manifest()),409,'عضوية مساحة العمل تغيرت أثناء تجهيز البيانات.');
+    }
+
+    /** Shared server/local grant validation facts. It signs nothing and cannot issue authority by itself. */
+    public function persistedMemberFacts(int $actorId): array
+    {
+        abort_unless(DB::transactionLevel()>0,503);
+        $facts=$this->memberFacts($this->freshActor((object)['id'=>$actorId]),$this->permissionFacts($actorId));
+        abort_unless($facts!==null,403); return $facts;
     }
 
     /** Historical proof is audit evidence, not permission to log in or execute a command today. */
@@ -291,7 +329,7 @@ class DesktopDashboardWorkspaceAuthority
         foreach ([$actor->email,$actor->mobile] as $value) {
             if (!is_string($value) || strlen($value)>1280 || preg_match('/[\x00-\x1f\x7f]/',$value)) continue;
             $value=mb_strtolower(trim($value),'UTF-8'); if (str_starts_with($value,'0')) $value=substr($value,1);
-            if ($value!=='' && mb_strlen($value,'UTF-8')<=320) $result[]=$value;
+            if ($value!=='' && $this->utf16Length($value)<=320) $result[]=$value;
         }
         return $this->set($result);
     }
@@ -374,13 +412,19 @@ class DesktopDashboardWorkspaceAuthority
     }
     private function set(array $values): array
     {
-        foreach ($values as $value) abort_unless(is_string($value) && $value!=='' && !preg_match('/[\x00-\x1f\x7f]/',$value),503);
+        foreach ($values as $value) abort_unless(is_string($value) && $value!=='' && $this->utf16Length($value)<=320
+            && !preg_match('/[\x00-\x1f\x7f]/',$value),503);
         $values=array_values(array_unique($values,SORT_STRING)); sort($values,SORT_STRING); return $values;
     }
     private function has(string $table, array $columns): bool
     {
         if (!isset($this->columns[$table])) $this->columns[$table]=Schema::hasTable($table)?Schema::getColumnListing($table):[];
         return !array_diff($columns,$this->columns[$table]);
+    }
+    private function utf16Length(string $value): int
+    {
+        abort_unless(mb_check_encoding($value,'UTF-8'),503);
+        return intdiv(strlen(mb_convert_encoding($value,'UTF-16BE','UTF-8')),2);
     }
     private function safeInteger($value, bool $zero=false): int
     {

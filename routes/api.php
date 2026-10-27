@@ -1,4 +1,5 @@
 <?php
+require __DIR__.'/desktop_workspace_api.php';
 \Illuminate\Support\Facades\Route::get('desktop-dashboard/update',[\App\Http\Controllers\Dashboard\DesktopDashboardUpdateController::class,'status'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::get('desktop-dashboard/update/installer/{sha}',[\App\Http\Controllers\Dashboard\DesktopDashboardUpdateController::class,'installer'])->where('sha','[a-f0-9]{64}')->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
 \Illuminate\Support\Facades\Route::post('desktop-dashboard/print-outcomes',[\App\Http\Controllers\Api\DesktopDashboardController::class,'printOutcome'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');

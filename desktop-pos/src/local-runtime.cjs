@@ -231,12 +231,15 @@ class LocalRuntime {
     if(Buffer.byteLength(input)>384*1024*1024)throw Error('بيانات تحديث الخلفية أكبر من الحد المسموح؛ العمل المحلي مستمر.');
     return input;
   }
-  constructor({ bundle, profile, safeStorage, downloadMedia, authorizeInstalled = async () => false, platform = process.platform, onFailure = () => {}, onPhase = () => {} }) {
+  constructor({ bundle, profile, safeStorage, downloadMedia, authorizeInstalled = async () => false, platform = process.platform, onFailure = () => {}, onPhase = () => {}, metadata, expectedDeviceId }) {
     this.installedBundle = bundle; this.bundle = bundle; this.stagedContexts = new Map(); this.profile = path.join(profile, 'dashboard');
     this.safeStorage = safeStorage; this.platform = platform; this.onFailure = onFailure;
     this.children = []; this.stopping = false; this.token = crypto.randomBytes(32).toString('hex');
     this.controlToken = crypto.randomBytes(32).toString('hex');
-    this.metadata = new GenerationStore(this.profile, safeStorage);
+    if (metadata !== undefined && (typeof metadata?.read !== 'function' || typeof metadata?.write !== 'function')) throw Error('Invalid native metadata adapter.');
+    if (expectedDeviceId !== undefined && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(expectedDeviceId)) throw Error('Invalid native physical device identity.');
+    this.metadata = metadata || new GenerationStore(this.profile, safeStorage);
+    this.expectedDeviceId = expectedDeviceId;
     this.downloadMedia = downloadMedia;
     this.authorizeInstalled = authorizeInstalled;
     this.onPhase = onPhase;
@@ -245,11 +248,15 @@ class LocalRuntime {
   async settings() {
     await fs.mkdir(this.profile, { recursive: true, mode: 0o700 });
     const file = path.join(this.profile, 'credentials.enc');
-    try { return JSON.parse(this.safeStorage.decryptString(await fs.readFile(file))); }
+    try {
+      const value = JSON.parse(this.safeStorage.decryptString(await fs.readFile(file)));
+      if (this.expectedDeviceId !== undefined && value.deviceId !== this.expectedDeviceId) throw Error('Physical device identity mismatch.');
+      return value;
+    }
     catch (error) {
       if (error.code !== 'ENOENT') throw Error('تعذر فتح بيانات الداشبورد المحلية؛ احتفظ بملفات الجهاز لاسترجاعها.');
       if (!this.safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية بيانات الداشبورد في حساب ويندوز الحالي.');
-      const value = { deviceId: crypto.randomUUID(), rootPassword: crypto.randomBytes(32).toString('hex'), appPassword: crypto.randomBytes(32).toString('hex'), appKey: 'base64:' + crypto.randomBytes(32).toString('base64') };
+      const value = { deviceId: this.expectedDeviceId || crypto.randomUUID(), rootPassword: crypto.randomBytes(32).toString('hex'), appPassword: crypto.randomBytes(32).toString('hex'), appKey: 'base64:' + crypto.randomBytes(32).toString('base64') };
       await fs.writeFile(file, this.safeStorage.encryptString(JSON.stringify(value)), { flag: 'wx', mode: 0o600 });
       return value;
     }
@@ -807,4 +814,7 @@ class LocalRuntime {
     return this.stopped;
   }
 }
+// Main-process-only fixed-script adapters reuse the original child drain/error path.
+// This function is never registered as an IPC handler.
+Object.defineProperty(LocalRuntime, 'runNative', { value: run });
 module.exports = LocalRuntime;

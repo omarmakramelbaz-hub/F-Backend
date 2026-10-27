@@ -1,5 +1,6 @@
 <?php
 // Disposable CLI interoperability boundary. Never boot Laravel or read application data.
+require_once __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceIssuer.php';
 require_once __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceAuthority.php';
 require_once __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceEnrollmentSeal.php';
 use App\Services\Dashboard\DesktopDashboardWorkspaceEnrollmentSeal as Seal;

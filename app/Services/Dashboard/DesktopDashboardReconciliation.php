@@ -25,6 +25,12 @@ class DesktopDashboardReconciliation
     }
     public function ingest(object $device,array $values): array
     {
+        if($device instanceof DesktopDashboardWorkspaceScope){
+            // Only the workspace envelope verifier can install this exact actor
+            // facade. A bearer token or a caller-supplied actor ID cannot do so.
+            abort_unless(DesktopDashboardWorkspaceExecutionContext::current()===$device,403);
+            $device->revalidated();
+        }
         $v=Validator::make($values,[
             'command_id'=>'required|uuid','actor_id'=>'required|integer|min:1','route_name'=>'required|string|max:150',
             'payload'=>'required|array','payload.values'=>'required|array','payload.parameters'=>'nullable|array','payload.files'=>'nullable|array','payload.facts'=>'nullable|array',

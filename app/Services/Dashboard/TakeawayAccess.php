@@ -14,6 +14,12 @@ class TakeawayAccess
     public function actor($actor): User
     {
         abort_unless($actor && $actor->id, 403);
+        if($scope=$this->workspaceScope($actor)){
+            $fresh=$scope->actor();$facts=$scope->permissionFacts();
+            if($fresh->account_type==='admin'&&empty($fresh->owner_resturant_id))
+                abort_unless($facts['super_admin']||in_array('order-list',$facts['names'],true),403);
+            return $fresh;
+        }
         if($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))return $current['actor'];
         $fresh = User::withoutGlobalScopes()->find($actor->id);
         abort_unless($fresh && in_array($fresh->account_type, ['admin', 'vendor', 'resturant_owner', 'delegate'], true), 403);
@@ -32,7 +38,9 @@ class TakeawayAccess
     public function branches($actor): array
     {
         $actor = $this->actor($actor);
-        if(($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))&&is_array($current['branches']))return $current['branches'];
+        $workspace=$this->workspaceScope($actor);
+        if(($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))&&is_array($current['branches']))
+            return $workspace?array_values(array_filter($current['branches'],fn($branch)=>in_array($branch['value'],$workspace->branchGrants(),true))):$current['branches'];
         $result = [];
         if ($this->has('resturants', 'user_id') && $actor->account_type !== 'delegate') {
             $query = DB::table('resturants');
@@ -63,12 +71,14 @@ class TakeawayAccess
             $base=app(DesktopDashboardDevices::class)->baseBranches((object)['id'=>(string)config('desktop_dashboard.device_id')]);
             $result=array_values(array_filter($result,fn($branch)=>in_array($branch['value'],$base,true)));
         }
+        if($workspace)$result=array_values(array_filter($result,fn($branch)=>in_array($branch['value'],$workspace->branchGrants(),true)));
         return $result;
     }
 
     public function branch(string $value, $actor, bool $lock = false): array
     {
         abort_unless(preg_match('/^(f|gs):([1-9][0-9]{0,18})$/D', $value, $match), 404);
+        if($workspace=$this->workspaceScope($actor))abort_unless(in_array($value,$workspace->branchGrants(),true),403,'الفرع خارج صلاحيات حساب مساحة العمل.');
         if(config('desktop_dashboard.local')===true&&app(DesktopDashboardCreatedScopes::class)->active())
             abort_unless(in_array($value,app(DesktopDashboardDevices::class)->baseBranches((object)['id'=>(string)config('desktop_dashboard.device_id')]),true),403,'الفرع غير مفعّل للعمليات المالية على هذا الجهاز.');
         $actor = $this->actor($actor);
@@ -102,6 +112,13 @@ class TakeawayAccess
     public function permissions($actor): array
     {
         $actor = $this->actor($actor);
+        if($scope=$this->workspaceScope($actor)){
+            $facts=$scope->permissionFacts();$has=fn(string $name)=>$facts['super_admin']||in_array($name,$facts['names'],true);
+            $manage=$actor->account_type==='admin'&&($has('order-edit')||$has('order-create'));
+            $write=$actor->account_type!=='admin'||!empty($actor->owner_resturant_id)||$manage||$has('order-list');
+            return ['can_checkout'=>$write,'can_manage_tables'=>$write,
+                'can_manage'=>$actor->account_type==='resturant_owner'||$manage,'can_reprint'=>$this->reprintRole($actor)];
+        }
         if($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))return $current['permissions']+['can_reprint'=>$this->reprintRole($actor)];
         $adminManage = $actor->account_type === 'admin' && ($this->superAdmin($actor)
             || $this->permission($actor, 'order-edit') || $this->permission($actor, 'order-create'));
@@ -155,6 +172,7 @@ class TakeawayAccess
 
     private function superAdmin(User $actor): bool
     {
+        if($scope=$this->workspaceScope($actor))return $scope->permissionFacts()['super_admin'];
         if ((int) $actor->id === 1) return true;
         if (!Schema::hasTable('roles') || !Schema::hasTable('model_has_roles')) return false;
         return $actor->roles()->where('guard_name', 'admin')->where('name', 'Super Admin')->exists();
@@ -170,8 +188,17 @@ class TakeawayAccess
 
     private function permission(User $actor, string $name): bool
     {
+        if($scope=$this->workspaceScope($actor)){
+            $facts=$scope->permissionFacts();return $facts['super_admin']||in_array($name,$facts['names'],true);
+        }
         // A partially restored database may have no permission catalog yet.
         if (!Schema::hasTable('permissions') || !DB::table('permissions')->where('guard_name', 'admin')->where('name', $name)->exists()) return false;
         return $actor->can($name);
+    }
+    private function workspaceScope($actor): ?DesktopDashboardWorkspaceScope
+    {
+        $scope=DesktopDashboardWorkspaceExecutionContext::current();if($scope===null)return null;
+        abort_unless($actor&&(int)($actor->id??0)===(int)$scope->actor_id,403,'هوية حساب مساحة العمل لا تطابق العملية.');
+        return $scope->revalidated();
     }
 }

@@ -42,7 +42,18 @@ final class DesktopDashboardCoreAuthority
             &&$context['format']===1&&is_string($context['route'])&&self::handles($context['route'])
             &&is_string($context['branch'])&&is_bool($context['bonus'])&&is_bool($context['approval'])&&is_bool($context['discount']),503,
             'صلاحيات نتيجة العملية المحفوظة غير مكتملة؛ راجعها على السيرفر قبل استكمال المزامنة.');
-        $route=$context['route'];[$actor,$permissions]=$this->identity((int)$device->actor_id);
+        $execution=DesktopDashboardWorkspaceExecutionContext::current();
+        if($execution!==null){
+            abort_unless($device instanceof DesktopDashboardWorkspaceScope&&$execution->id===$device->id
+                &&$execution->actor_id===$device->actor_id&&hash_equals($execution->rootFingerprint(),$device->rootFingerprint()),403,
+                'هوية حساب مساحة العمل لا تطابق العملية.');
+            // A refreshed local facade may be a new object. The request's original
+            // captured proof still supplies the effective replay intersection.
+            $device=$execution;
+        }
+        $route=$context['route'];
+        [$actor,$permissions]=$device instanceof DesktopDashboardWorkspaceScope
+            ?$this->workspaceIdentity($device->revalidated()):$this->identity((int)$device->actor_id);
         $central=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);
         $primary=(int)$actor->id===1&&$central;
         $policy=DesktopDashboardRemoteAttempts::CORE[$route];
@@ -107,6 +118,10 @@ final class DesktopDashboardCoreAuthority
     private function identity(int $id): array
     {
         abort_unless(DB::transactionLevel()>0,503);
+        if(($scope=DesktopDashboardWorkspaceExecutionContext::current())!==null){
+            abort_unless((int)$scope->actor_id===$id,403,'هوية حساب مساحة العمل لا تطابق العملية.');
+            return $this->workspaceIdentity($scope->revalidated());
+        }
         $actor=User::withoutGlobalScopes()->whereKey($id)->lockForUpdate()->first();
         abort_unless($actor&&in_array($actor->account_type,['admin','vendor','resturant_owner','delegate'],true)
             &&!in_array($actor->status??null,['disabled','declined'],true),403);
@@ -124,6 +139,17 @@ final class DesktopDashboardCoreAuthority
         $has=fn(string $name)=>$catalog->where('name',$name)->contains(fn($p)=>in_array($p->id,$ids));
         if($actor->account_type==='admin'&&empty($actor->owner_resturant_id))abort_unless($super||$has('order-list'),403);
         $manage=$actor->account_type==='admin'&&($super||$has('order-edit')||$has('order-create'));
+        $write=$actor->account_type!=='admin'||!empty($actor->owner_resturant_id)||$manage||$has('order-list');
+        return [$actor,['can_checkout'=>$write,'can_manage_tables'=>$write,'can_manage'=>$actor->account_type==='resturant_owner'||$manage]];
+    }
+    /** A replay keeps only authority held both when accepted and when executed. */
+    private function workspaceIdentity(DesktopDashboardWorkspaceScope $scope): array
+    {
+        abort_unless(DB::transactionLevel()>0,503);
+        $actor=$scope->actor();$facts=$scope->permissionFacts();
+        $has=fn(string $name)=>$facts['super_admin']||in_array($name,$facts['names'],true);
+        if($actor->account_type==='admin'&&empty($actor->owner_resturant_id))abort_unless($has('order-list'),403);
+        $manage=$actor->account_type==='admin'&&($has('order-edit')||$has('order-create'));
         $write=$actor->account_type!=='admin'||!empty($actor->owner_resturant_id)||$manage||$has('order-list');
         return [$actor,['can_checkout'=>$write,'can_manage_tables'=>$write,'can_manage'=>$actor->account_type==='resturant_owner'||$manage]];
     }

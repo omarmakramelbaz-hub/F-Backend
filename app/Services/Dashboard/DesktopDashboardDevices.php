@@ -32,6 +32,7 @@ class DesktopDashboardDevices
     /** These fields identify one authenticated enrollment, independently of mutable grants. */
     public function enrollmentFingerprint(object $device): string
     {
+        if($device instanceof DesktopDashboardWorkspaceScope){$device->assertIssued();return $device->rootFingerprint();}
         abort_unless(is_string($device->id??null)&&preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD',$device->id)
             &&(is_int($device->actor_id??null)||(is_string($device->actor_id??null)&&preg_match('/^[1-9][0-9]{0,18}$/D',$device->actor_id)))
             &&(int)$device->actor_id>0,401,'ربط الجهاز تغيّر؛ أعد ربطه بعد مراجعة العمليات المحفوظة.');
@@ -50,6 +51,7 @@ class DesktopDashboardDevices
     public function lockAuthenticated(object $authenticated): object
     {
         abort_unless(DB::transactionLevel()>0,503);
+        if($authenticated instanceof DesktopDashboardWorkspaceScope)return $authenticated->revalidated();
         $binding=$this->enrollmentFingerprint($authenticated);
         $fresh=DB::table('desktop_dashboard_devices')->where('id',$authenticated->id)->lockForUpdate()->first();
         abort_unless($fresh&&$fresh->enabled&&hash_equals($binding,$this->enrollmentFingerprint($fresh)),401,
@@ -57,13 +59,25 @@ class DesktopDashboardDevices
         return $fresh;
     }
     public function actor(object $device) {
+        if($device instanceof DesktopDashboardWorkspaceScope)return $device->revalidated()->actor();
         $actor=$this->access->actor((object)['id'=>$device->actor_id]);
         abort_if(in_array($actor->status??null,['disabled','declined'],true),403,'حساب الجهاز غير مفعّل.');return $actor;
     }
     /** Financial BASE is the persisted enrollment, even when callers pass effective local state. */
     public function baseBranches(object $device,bool $lock=false): array
     {
-        $id=$device->id??$device->device_id??null;$query=DB::table('desktop_dashboard_devices')->where('id',$id);
+        if($device instanceof DesktopDashboardWorkspaceScope)return $device->revalidated()->branchGrants();
+        $id=$device->id??$device->device_id??null;
+        $workspace=app(DesktopDashboardWorkspaceLocalAuthority::class);
+        if($workspace->selected()){
+            $workspace->active();
+            // Legacy callers often provide only the physical ID. Its custodian is
+            // audit metadata; the authenticated local account supplies all grants.
+            $scope=$workspace->scopeForState($workspace->rootState((string)$id,$lock));
+            abort_unless($scope,403,'حساب الداشبورد المحلية غير مسجل للدخول.');
+            return $scope->branchGrants();
+        }
+        $query=DB::table('desktop_dashboard_devices')->where('id',$id);
         if($lock)$query->lockForUpdate();$fresh=$query->first();
         if($fresh){abort_unless($fresh->enabled,401);return json_decode($fresh->branches,true,512,JSON_THROW_ON_ERROR);}
         // Legacy prepared generations did not transport enrollment. They cannot carry created grants.

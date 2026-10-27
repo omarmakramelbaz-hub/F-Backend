@@ -24,7 +24,7 @@ class DesktopDashboardBootstrap
         'branch_shift_sources'=>['closing_id','branch_shift_closings','id'],
         'phone_delivery_batch_items'=>['batch_id','phone_delivery_batches','id'],
     ];
-    private const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|partner_auth_email|fcm_id|verification_code|activation_code|mobile_code|email_code|otp_first_no)(?:$|_)/i';
+    protected const PRIVATE_COLUMN='/password|remember_token|(?:^|_)(?:token|secret|api_key|private_key|credential|partner_auth_email|fcm_id|verification_code|activation_code|mobile_code|email_code|otp_first_no)(?:$|_)/i';
     private const MEMORY_BUDGET=512*1024*1024;
     public function __construct(private DesktopDashboardDevices $devices,private DesktopDashboardData $data) {}
 
@@ -58,43 +58,7 @@ class DesktopDashboardBootstrap
             $snapshot=(string)Str::uuid();$media=app(DesktopDashboardMedia::class)->manifest($dataset,$fresh,$actor,$snapshot);
             $roleMemberships=app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]);
             $eligibility=$this->data->pendingEligibility($queries,$dataset);
-            $tables=[];$schema=[];$rows=0;$bytes=0;
-            foreach($queries as $table=>$query){
-                abort_unless(preg_match('/^[a-z][a-z0-9_]{0,63}$/D',$table),409);
-                $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
-                abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,409,'تجهيز الجهاز يتطلب جداول تدعم المعاملات.');
-                // SHOW CREATE reads structure only; it never reads triggers, environment files or a server dump.
-                $structure=(array)DB::selectOne('SHOW CREATE TABLE `'.$table.'`');$ddl=(string)array_values($structure)[1];
-                // Column defaults can contain credentials in legacy installations. Do not export such DDL.
-                $columns=[];
-                foreach(DB::select('SELECT COLUMN_NAME AS name,COLUMN_DEFAULT AS value,IS_NULLABLE AS nullable,DATA_TYPE AS type FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]) as $column){
-                    $columns[$column->name]=$column;
-                    $safeDefault=in_array($column->value,["''",'NULL','null',''],true)||(in_array($column->type,['tinyint','smallint','int','bigint'],true)&&in_array($column->value,['0','1'],true));
-                    abort_if(preg_match(self::PRIVATE_COLUMN,$column->name)&&$column->value!==null&&!$safeDefault,409,'مخطط بيانات الاعتماد يحتاج تنقية قبل تجهيز الجهاز.');
-                }
-                $data=[];$tableHash=hash_init('sha256');hash_update($tableHash,'[');$bytes+=2;
-                abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
-                foreach($dataset[$table] as $record){
-                    $row=$record;
-                    if($table==='settings'&&($row['name']??'')==='app_balance'&&(int)$actor->id!==1)$row['payload']=self::json('0');
-                    foreach($row as $column=>$value)if(preg_match(self::PRIVATE_COLUMN,$column)){
-                        // Cache only this account's password hash for the original offline login form.
-                        if($table==='users'&&$column==='password'&&(int)$row['id']===(int)$actor->id)continue;
-                        $row[$column]=$columns[$column]->nullable==='YES'?null:(in_array($columns[$column]->type,['tinyint','smallint','int','bigint'],true)?0:'');
-                        if($table==='users'&&$column==='password')$row[$column]='!desktop-disabled-'.Str::random(64);
-                    }
-                    foreach($row as $column=>$value)if(is_string($value)&&in_array($column,['payload','snapshot','data','metadata','custom_properties','responsive_images','context_snapshot'],true))$row[$column]=$this->redactJson($value);
-                    // Identical to json($data), without allocating a second
-                    // whole-table JSON string beside the raw and redacted rows.
-                    $encoded=self::json($row);$separator=$data===[]?'':',';
-                    $bytes+=strlen($separator)+strlen($encoded);abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
-                    hash_update($tableHash,$separator);hash_update($tableHash,$encoded);
-                    $data[]=$row;$rows++;abort_if($rows>500000,413,'البيانات تحتاج تجهيزًا على دفعات.');
-                }
-                hash_update($tableHash,']');unset($dataset[$table],$encoded,$record,$row);
-                $schema[$table]=hash('sha256',$ddl);$tables[$table]=['ddl'=>$ddl,'rows'=>$data,'sha256'=>hash_final($tableHash)];
-            }
-            ksort($schema);
+            [$tables,$schemaHash]=$this->transportTables($dataset,$queries,fn($table,$row,$columns)=>$this->redactRecord($table,$row,$columns,$actor));
             abort_unless(app(DesktopDashboardSource::class)->matches($source),409,'مصدر البرنامج تغير أثناء التجهيز؛ أعد المحاولة بعد اكتمال التحديث.');
             $coverage=['write_routes'=>array_merge(DesktopDashboardRoutes::WRITES,array_keys(DesktopDashboardLegacy::ROUTES)),
                 'role_memberships'=>$roleMemberships,'full_dashboard'=>false,'print_protocol'=>1,'catalog_scopes'=>$scopeGrants->available()?1:0,'media'=>$media['complete']];
@@ -107,12 +71,62 @@ class DesktopDashboardBootstrap
                 // These settings are diagnostic only; no hash or encoder setting changes.
                 'transport_php'=>['capture_scope'=>'snapshot_export','php_sapi'=>PHP_SAPI,'php_version'=>PHP_VERSION,
                     'serialize_precision'=>(string)ini_get('serialize_precision'),'precision'=>(string)ini_get('precision')],
-                'schema_hash'=>hash('sha256',self::json($schema)),'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
+                'schema_hash'=>$schemaHash,'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],
                 // A native client must not mark the entire dashboard prepared while these modules are uncovered.
                 'coverage'=>$coverage];
         });
     }
-    private function memoryBudget(): void
+    /** Shared bounded SQL/schema serializer. Its caller has already selected an authenticated audience. */
+    protected function transportTables(array &$dataset,array $queries,callable $redactor): array
+    {
+        $tables=[];$schema=[];$rows=0;$bytes=0;
+        foreach($queries as $table=>$query){
+            abort_unless(preg_match('/^[a-z][a-z0-9_]{0,63}$/D',$table),409);
+            $engine=DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]);
+            abort_unless($engine&&strcasecmp($engine->engine,'InnoDB')===0,409,'تجهيز الجهاز يتطلب جداول تدعم المعاملات.');
+            // SHOW CREATE reads structure only; it never reads triggers, environment files or a server dump.
+            $structure=(array)DB::selectOne('SHOW CREATE TABLE `'.$table.'`');$ddl=(string)array_values($structure)[1];
+            // Column defaults can contain credentials in legacy installations. Do not export such DDL.
+            $columns=[];
+            foreach(DB::select('SELECT COLUMN_NAME AS name,COLUMN_DEFAULT AS value,IS_NULLABLE AS nullable,DATA_TYPE AS type FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=?',[DB::connection()->getDatabaseName(),$table]) as $column){
+                $columns[$column->name]=$column;
+                $safeDefault=in_array($column->value,["''",'NULL','null',''],true)||(in_array($column->type,['tinyint','smallint','int','bigint'],true)&&in_array($column->value,['0','1'],true));
+                abort_if(preg_match(self::PRIVATE_COLUMN,$column->name)&&$column->value!==null&&!$safeDefault,409,'مخطط بيانات الاعتماد يحتاج تنقية قبل تجهيز الجهاز.');
+            }
+            $data=[];$tableHash=hash_init('sha256');hash_update($tableHash,'[');$bytes+=2;
+            abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
+            foreach($dataset[$table] as $record){
+                $row=$redactor($table,$record,$columns);
+                // Identical to json($data), without allocating a second
+                // whole-table JSON string beside the raw and redacted rows.
+                $encoded=self::json($row);$separator=$data===[]?'':',';
+                $bytes+=strlen($separator)+strlen($encoded);abort_if($bytes>256*1024*1024,413,'البيانات تحتاج تجهيزًا على دفعات.');
+                hash_update($tableHash,$separator);hash_update($tableHash,$encoded);
+                $data[]=$row;$rows++;abort_if($rows>500000,413,'البيانات تحتاج تجهيزًا على دفعات.');
+            }
+            hash_update($tableHash,']');unset($dataset[$table],$encoded,$record,$row);
+            $schema[$table]=hash('sha256',$ddl);$tables[$table]=['ddl'=>$ddl,'rows'=>$data,'sha256'=>hash_final($tableHash)];
+        }
+        ksort($schema);
+        return [$tables,hash('sha256',self::json($schema))];
+    }
+
+    /** Default protocol-one redaction retains only the actual actor's verifier. */
+    protected function redactRecord(string $table,array $record,array $columns,\App\Models\User $actor): array
+    {
+        $row=$record;
+        if($table==='settings'&&($row['name']??'')==='app_balance'&&(int)$actor->id!==1)$row['payload']=self::json('0');
+        foreach($row as $column=>$value)if(preg_match(self::PRIVATE_COLUMN,$column)){
+            // Cache only this account's password hash for the original offline login form.
+            if($table==='users'&&$column==='password'&&(int)$row['id']===(int)$actor->id)continue;
+            $row[$column]=$columns[$column]->nullable==='YES'?null:(in_array($columns[$column]->type,['tinyint','smallint','int','bigint'],true)?0:'');
+            if($table==='users'&&$column==='password')$row[$column]='!desktop-disabled-'.Str::random(64);
+        }
+        foreach($row as $column=>$value)if(is_string($value)&&in_array($column,['payload','snapshot','data','metadata','custom_properties','responsive_images','context_snapshot'],true))$row[$column]=$this->redactJson($value);
+        return $row;
+    }
+
+    protected function memoryBudget(): void
     {
         // The authenticated bootstrap request also serializes the returned
         // snapshot in its controller. Keep this request-local budget until PHP
@@ -127,7 +141,7 @@ class DesktopDashboardBootstrap
         if($before>=self::MEMORY_BUDGET)return;
         abort_unless(@ini_set('memory_limit','512M')!==false&&($quantity(ini_get('memory_limit'))??0)>=self::MEMORY_BUDGET,503,$message);
     }
-    private function redactJson(string $value): string
+    protected function redactJson(string $value): string
     {
         try{$decoded=json_decode($value,false,512,JSON_THROW_ON_ERROR);}catch(\JsonException $error){return $value;}
         $changed=false;$clean=function($item)use(&$clean,&$changed){

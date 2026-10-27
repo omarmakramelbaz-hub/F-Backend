@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { GenerationStore } = require('./dashboard-generation.cjs');
 const source = require('./dashboard-source.cjs');
+const workspacePrepared = require('./workspace-prepared.cjs');
 
 const MAX_BYTES = 64 * 1024 ** 2;
 const MAX_MANIFEST_BYTES = 16 * 1024 ** 2;
@@ -79,12 +80,13 @@ function record(value, workspaceId) {
   need(exact(credential, ['workspaceId', 'serverOrigin', 'token', 'enrollmentId']) && credential.workspaceId === workspaceId
     && hash(credential.token) && credential.enrollmentId === memberManifest.root_fingerprint, 'CREDENTIAL_INVALID');
   origin(credential.serverOrigin);
-  need(exact(candidate, ['workspaceId', 'database', 'generation', 'snapshotId', 'schemaHash', 'sourceRevision', 'sourceFingerprint', 'sourceSequence', 'manifestRevision', 'rosterSha256'])
+  need(exact(candidate, ['workspaceId', 'database', 'generation', 'snapshotId', 'schemaHash', 'sourceRevision', 'sourceFingerprint', 'sourceSequence', 'manifestRevision', 'rosterSha256', 'prepared', 'receipt'])
     && candidate.workspaceId === workspaceId && typeof candidate.generation === 'string' && /^[a-f0-9]{16}$/.test(candidate.generation)
     && candidate.database === 'fasakhansta_dashboard_stage_' + candidate.generation && uuid(candidate.snapshotId)
     && hash(candidate.schemaHash) && revision(candidate.sourceRevision) && source.valid(candidate.sourceFingerprint)
     && integer(candidate.sourceSequence) && candidate.manifestRevision === memberManifest.revision
     && candidate.rosterSha256 === memberManifest.roster_sha256, 'CANDIDATE_INVALID');
+  workspacePrepared.validate(candidate.prepared, candidate.receipt, memberManifest, credential, candidate);
   return structuredClone({ manifest: memberManifest, credential, candidate });
 }
 const memberFloor = value => ({ revision: value.manifest.revision, digest: digest(value.manifest) });
@@ -141,7 +143,9 @@ const writers = new Map();
  *
  * stage({manifest, credential, candidate}, {signal}) keeps a non-active ticket.
  * The candidate binds the physical workspace, staged DB/generation, snapshot,
- * schema/source and both publication sequence and member revision/digest.
+ * schema/source and both publication sequence and member revision/digest. The
+ * complete root prepared descriptor and independently verified import receipt
+ * move in that same encrypted record; no second prepared-file pointer exists.
  * activate(ticket, {signal, verifyCandidate}) requires the original import,
  * source and current-data/fence verification to have succeeded. A callback's
  * true result is a native trust boundary; it must never be backed by an IPC

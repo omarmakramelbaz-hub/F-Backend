@@ -2,6 +2,7 @@
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs/promises'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
 const { WorkspaceRegistry, manifest, digest, canonical } = require('../src/workspace-profile.cjs');
+const workspacePrepared = require('../src/workspace-prepared.cjs');
 const { GenerationStore } = require('../src/dashboard-generation.cjs');
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -22,11 +23,22 @@ function candidate({ revision = 1, sequence = 1, generation = 'a'.repeat(16), me
   ];
   const roster = { format: 2, kind: 'desktop-dashboard-workspace-members', workspace_id: workspaceId, revision,
     root_fingerprint: hash('public-root-fingerprint'), members, roster_sha256: digest(members), signature: hash('public-synthetic-signature-' + revision) };
-  return { manifest: roster, credential: { workspaceId, serverOrigin: 'https://dashboard.example.test', token: hash('public-synthetic-group-token'), enrollmentId: roster.root_fingerprint },
+  return bind({ manifest: roster, credential: { workspaceId, serverOrigin: 'https://dashboard.example.test', token: hash('public-synthetic-group-token'), enrollmentId: roster.root_fingerprint },
     candidate: { workspaceId, database: 'fasakhansta_dashboard_stage_' + generation, generation,
       snapshotId: '22222222-2222-4222-8222-222222222222', schemaHash: hash('schema'), sourceRevision: 'a'.repeat(40),
       sourceFingerprint: { format: 1, files: 42, sha256: hash('source'), framework: '8.83.29' }, sourceSequence: sequence,
-      manifestRevision: revision, rosterSha256: roster.roster_sha256 } };
+      manifestRevision: revision, rosterSha256: roster.roster_sha256 } });
+}
+function bind(value) {
+  const c = value.candidate, m = value.manifest;
+  c.receipt = { format: 2, kind: 'desktop-workspace-import-receipt', snapshot_id: c.snapshotId, device_id: workspaceId, actor_id: 101,
+    schema_hash: c.schemaHash, tables: 1, rows: 2, table_rows: { users: 2 }, source: c.sourceFingerprint,
+    branches: [...new Set(m.members.flatMap(member => member.branches))].sort(), media: [], verified: true,
+    coverage: { full_dashboard: true, media: true, workspace_protocol: 2, manifest_revision: m.revision,
+      roster_sha256: m.roster_sha256, root_fingerprint: m.root_fingerprint }, workspace: workspacePrepared.workspaceBinding(m) };
+  c.prepared = workspacePrepared.create({ credential: value.credential, manifest: m,
+    candidate: { ...c, mediaVerified: true }, refreshId: '33333333-3333-4333-8333-333333333333' });
+  return value;
 }
 async function fixture(t, verifyAuthority = async () => true) {
   const temporary = await fs.realpath(os.tmpdir());
@@ -93,12 +105,12 @@ test('membership and source high waters reject rollback, same-version replacemen
   await assert.rejects(f.registry.stage(candidate()), { code: 'WORKSPACE_MEMBERSHIP_ROLLBACK' });
   const changed = candidate({ revision: 2, sequence: 2 }); changed.manifest.members[1].permissions.names.push('stock-list');
   changed.manifest.roster_sha256 = digest(changed.manifest.members); changed.candidate.rosterSha256 = changed.manifest.roster_sha256;
-  await assert.rejects(f.registry.stage(changed), { code: 'WORKSPACE_MEMBERSHIP_ROLLBACK' });
+  await assert.rejects(f.registry.stage(bind(changed)), { code: 'WORKSPACE_MEMBERSHIP_ROLLBACK' });
   await assert.rejects(f.registry.stage(candidate({ revision: 3, sequence: 1 })), { code: 'WORKSPACE_SOURCE_ROLLBACK' });
   const sourceChanged = candidate({ revision: 3, sequence: 2 }); sourceChanged.candidate.sourceRevision = 'b'.repeat(40);
-  await assert.rejects(f.registry.stage(sourceChanged), { code: 'WORKSPACE_SOURCE_ROLLBACK' });
+  await assert.rejects(f.registry.stage(bind(sourceChanged)), { code: 'WORKSPACE_SOURCE_ROLLBACK' });
   const rootChanged = candidate({ revision: 3, sequence: 3 }); rootChanged.manifest.root_fingerprint = hash('other-root'); rootChanged.credential.enrollmentId = rootChanged.manifest.root_fingerprint;
-  await assert.rejects(f.registry.stage(rootChanged), { code: 'WORKSPACE_ROOT_CHANGED' });
+  await assert.rejects(f.registry.stage(bind(rootChanged)), { code: 'WORKSPACE_ROOT_CHANGED' });
   const mismatch = candidate({ revision: 3, sequence: 3 }); mismatch.candidate.rosterSha256 = '0'.repeat(64);
   await assert.rejects(f.registry.stage(mismatch), { code: 'WORKSPACE_CANDIDATE_INVALID' });
 });
@@ -224,7 +236,7 @@ test('nonfinancial accounts can retain an empty branch scope without gaining fin
   value.manifest.members.push({ actor_id: 303, role: 'admin', enabled: true, aliases: ['contracts@example.test'], branches: [],
     permissions: { super_admin: false, names: ['contract-list'], roles: ['Contracts admin'] }, password_binding: hash('nonfinancial-password'), grant: hash('nonfinancial-grant') });
   value.manifest.roster_sha256 = digest(value.manifest.members); value.candidate.rosterSha256 = value.manifest.roster_sha256;
-  await active(f.registry, value);
+  await active(f.registry, bind(value));
   assert.deepEqual((await f.registry.member(303)).branches, []); assert.equal((await f.registry.member(303)).permissions.super_admin, false);
   assert.equal((await f.registry.actorSession(303)).database, value.candidate.database);
 });

@@ -49,7 +49,8 @@ class DesktopDashboardJournal
             if(app(DesktopDashboardPrintLedger::class)->active($device)&&in_array($route,DesktopDashboardPrintLedger::ROUTES,true)&&!isset($payload['envelope']))
                 app(DesktopDashboardPrintLedger::class)->guardJournal($device,$actor,(string)($payload['values']['branch']??''),$route);
             if(config('desktop_dashboard.local')&&(string)config('desktop_dashboard.device_id')!==''&&DesktopDashboardCoreAuthority::handles($route)&&!isset($payload['envelope'])){
-                $scope=DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();
+                $workspace=app(DesktopDashboardWorkspaceLocalAuthority::class);
+                $scope=$workspace->selected()?$workspace->scopeForActor($actor):DB::table('desktop_dashboard_devices')->where('id',$device)->lockForUpdate()->first();
                 abort_unless($scope&&$scope->enabled&&(int)$scope->actor_id===$actor,403);
                 app(DesktopDashboardCoreAuthority::class)->authorize($route,$payload['values']??[],$scope);
             }
@@ -74,6 +75,7 @@ class DesktopDashboardJournal
             $old = DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$command)->lockForUpdate()->first();
             if ($old) {
                 abort_unless(hash_equals($old->request_hash,$hash),409,'رقم العملية محفوظ لبيانات مختلفة.');
+                app(DesktopDashboardWorkspaceCommandAuthorities::class)->assertExisting($device,$command,$actor,$old->request_hash);
                 $result=$this->saved($old->local_result_cipher)['result'];
                 if(DesktopDashboardCustomerDirectory::handles($route))app(DesktopDashboardCustomerDirectory::class)->authorizeSaved($route,$result,$payload,$device,$actor);
                 if($route==='branch-expenses.save')app(DesktopDashboardExpenseAttachments::class)->verifyResult($result,$payload['files']??$payload['envelope']['payload']['files']??[]);
@@ -120,6 +122,7 @@ class DesktopDashboardJournal
                 'local_result_cipher'=>Crypt::encryptString($this->json(['format'=>1,'result'=>$result,'references'=>$references])),
                 'dependencies'=>$this->json($dependencies),'status'=>'pending','attempts'=>0,'created_at'=>$occurred,'updated_at'=>$now,
             ]);
+            app(DesktopDashboardWorkspaceCommandAuthorities::class)->capture($device,$command,$actor,$hash);
             if(config('desktop_dashboard.local')===true&&$route===DesktopDashboardCreatedScopes::ROUTE)
                 app(DesktopDashboardCreatedScopes::class)->captureLocal($device,$command,$actor,$route,$payload,$result,$references);
             if(app(DesktopDashboardPrintLedger::class)->active($device)&&in_array($route,DesktopDashboardPrintLedger::ROUTES,true)&&!isset($payload['envelope']))
@@ -148,7 +151,7 @@ class DesktopDashboardJournal
             // Apply and confirm one command at a time. The next query sees acknowledged dependencies.
             break;
         }
-        return $ready;
+        return app(DesktopDashboardWorkspaceCommandAuthorities::class)->decorate($device,$ready);
     }
 
     public function acknowledge(string $device,string $command,array $receipt): void

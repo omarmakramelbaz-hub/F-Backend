@@ -56,10 +56,19 @@ jobs:
           php artisan key:generate
       - name: Verify server workspace authority and canonical native interoperation
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
-        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceAuthorityTest.php
+        run: |
+          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceAuthorityTest.php
+          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceLocalAuthorityTest.php
+          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceCoreBridgeTest.php
+          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceSnapshotTest.php
+          vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceMediaTest.php
       - name: Verify the independent SQL canonical workspace codec
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
-        run: php tests/desktop_dashboard_workspace_delta_codec_test.php
+        run: |
+          php tests/desktop_dashboard_workspace_delta_codec_test.php
+          php tests/desktop_dashboard_workspace_delta_server_test.php
+          php tests/desktop_dashboard_workspace_import_test.php
+          php tests/desktop_dashboard_workspace_media_test.php
       - name: Preserve original overview and financial scope
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
