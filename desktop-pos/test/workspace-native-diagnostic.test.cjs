@@ -25,3 +25,16 @@ test('only typed SQLSTATE and numeric driver errno cross the actual child diagno
     });
   }
 });
+
+
+test('driver context accepts only exact fixed classifications and never table/database literals or extra SQL', async () => {
+  const base = { phase: 'import', type: 'PDOException', file: 'DesktopDashboardWorkspaceLocalSchema.php', line: 40, status: null, sql_state: '42000', driver_errno: 1049 };
+  const allowed = { operation: 'create-table', table: 'workspace-command-authorities', target: 'expected' };
+  for (const [sql_context, valid] of [[allowed,true],[{ ...allowed, sql: 'PRIVATE_SQL' },false],[{ ...allowed, target: 'PRIVATE_DATABASE' },false],[{ ...allowed, table: 'PRIVATE_TABLE' },false]]) {
+    const raw = { ...base, sql_context }, program = 'process.stderr.write(' + JSON.stringify('DESKTOP_WORKSPACE_IMPORT_DIAGNOSTIC ' + JSON.stringify(raw) + '\n') + ');process.exit(1)';
+    await assert.rejects(Runtime.runNative(process.execPath, ['-e', program], {}, '', 5000), error => {
+      assert.deepEqual(error.cause.import, valid ? { ...base, sql_context: allowed } : base);
+      assert.equal(JSON.stringify(error.cause).includes('PRIVATE_'), false); return true;
+    });
+  }
+});

@@ -165,7 +165,7 @@ DB::transaction(fn()=>$catalog->captureCentral($creatorScope,
     $catalogPayload,$catalogResult,$catalogResult['references']));
 DB::transaction(fn()=>$catalog->catalog($creatorScope,'gs:1000',$creatorScope->actor()));
 $check(DB::table('desktop_dashboard_created_scopes')->count()===1
-    &&DB::table('desktop_dashboard_workspace_command_authorities')->where('command_id',$catalogCommand)->value('actor_id')==10,
+    &&DB::table('desktop_dashboard_ws_command_auth')->where('command_id',$catalogCommand)->value('actor_id')==10,
     'actual creator A catalog receipt retains the original accepted command authority');
 DB::table('go_stores')->where('user_id',1000)->update(['created_at'=>'2021-01-01 00:00:00']);
 $reject(fn()=>DB::transaction(fn()=>$catalog->catalog($creatorScope,'gs:1000',$creatorScope->actor())),'current catalog access still validates the real target identity and timestamp');

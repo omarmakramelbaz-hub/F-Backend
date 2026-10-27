@@ -115,7 +115,7 @@ class DesktopDashboardWorkspaceAuthorityTest extends TestCase
     private function dropFixtures(): void
     {
         Schema::disableForeignKeyConstraints();
-        foreach (array_merge(self::WORKSPACE_TABLES, ['desktop_dashboard_print_ownership','desktop_dashboard_workspace_command_authorities','desktop_dashboard_entities', 'desktop_dashboard_commands',
+        foreach (array_merge(self::WORKSPACE_TABLES, ['desktop_dashboard_print_ownership','desktop_dashboard_ws_command_auth','desktop_dashboard_entities', 'desktop_dashboard_commands',
             'desktop_dashboard_devices', 'role_has_permissions', 'model_has_roles', 'model_has_permissions',
             'roles', 'permissions', 'go_stores', 'resturants', 'users']) as $table) Schema::dropIfExists($table);
         Schema::enableForeignKeyConstraints();
@@ -470,7 +470,7 @@ class DesktopDashboardWorkspaceAuthorityTest extends TestCase
         $this->assertSame('review',$result['state']);$this->assertSame(11,json_decode(DB::table('desktop_dashboard_print_ownership')->value('outcome'),true)['actor_id']);
         $changed=$receipt;$changed['actor_id']=10;$this->denied(fn()=>$audit->outcome($root,$changed),[403]);
         $changed=$receipt;$changed['state']='invoked';$this->denied(fn()=>$audit->outcome($root,$changed),[409]);
-        DB::table('desktop_dashboard_workspace_command_authorities')->where('command_id',$command)->update(['proof_mac'=>str_repeat('0',64)]);
+        DB::table('desktop_dashboard_ws_command_auth')->where('command_id',$command)->update(['proof_mac'=>str_repeat('0',64)]);
         $this->denied(fn()=>$audit->outcome($root,$receipt),[503]);
         $this->assertSame(2,DB::table('desktop_dashboard_commands')->count());
     }

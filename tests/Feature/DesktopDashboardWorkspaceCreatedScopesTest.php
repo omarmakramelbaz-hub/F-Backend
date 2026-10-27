@@ -91,7 +91,7 @@ class DesktopDashboardWorkspaceCreatedScopesTest extends TestCase
     }
     private function dropFixtures(): void
     {
-        Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_created_scopes','desktop_dashboard_workspace_command_authorities',
+        Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_created_scopes','desktop_dashboard_ws_command_auth',
             'desktop_dashboard_ws_authority_history','desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority',
             'desktop_dashboard_refreshes','desktop_dashboard_local_state','desktop_dashboard_workspace_members','desktop_dashboard_workspace_manifests',
             'desktop_dashboard_workspaces','desktop_dashboard_entities','desktop_dashboard_commands','desktop_dashboard_devices',
@@ -169,7 +169,7 @@ class DesktopDashboardWorkspaceCreatedScopesTest extends TestCase
         DB::table('go_stores')->insert(['user_id'=>1000,'name'=>'Unproven store']);
         $this->denied(fn()=>$this->scope(32),[403]);
         DB::table('go_stores')->delete();DB::table('users')->where('id',1000)->delete();$this->create();
-        DB::table('desktop_dashboard_workspace_command_authorities')->update(['proof_mac'=>str_repeat('0',64)]);
+        DB::table('desktop_dashboard_ws_command_auth')->update(['proof_mac'=>str_repeat('0',64)]);
         $this->denied(fn()=>$this->scope(32),[503]);
     }
     public function test_catalog_tampering_and_same_id_recreation_fail_closed():void
@@ -186,7 +186,7 @@ class DesktopDashboardWorkspaceCreatedScopesTest extends TestCase
         Schema::drop('desktop_dashboard_created_scopes');$this->denied(fn()=>$this->create(),[503]);
         $this->assertFalse(DB::table('users')->where('id',1000)->exists());$this->assertSame(0,DB::table('go_stores')->count());
         $this->assertSame(0,DB::table('desktop_dashboard_commands')->count());
-        $this->assertSame(0,DB::table('desktop_dashboard_workspace_command_authorities')->count());
+        $this->assertSame(0,DB::table('desktop_dashboard_ws_command_auth')->count());
     }
     public function test_readonly_b_navigation_uses_no_for_update_and_stays_on_signed_financial_base():void
     {

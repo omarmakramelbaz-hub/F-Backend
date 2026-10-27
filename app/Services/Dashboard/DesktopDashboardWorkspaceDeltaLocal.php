@@ -8,7 +8,7 @@ final class DesktopDashboardWorkspaceDeltaLocal extends DesktopDashboardDeltaLoc
     public const STAGE_TABLE='desktop_dashboard_workspace_delta_stage';
     public const REPLAY_TABLE='desktop_dashboard_workspace_delta_replay';
     public const EVIDENCE_TABLE='desktop_dashboard_workspace_delta_authority';
-    private const AUTHORITY_TABLE='desktop_dashboard_workspace_command_authorities';
+    private const AUTHORITY_TABLE='desktop_dashboard_ws_command_auth';
     private const MAX_ROWS=500000;
     private const SIDE_FIELDS=['workspace_id','command_id','actor_id','root_fingerprint','manifest_revision',
         'grant_hash','request_hash','proof_json','proof_sha256','proof_mac','accepted_database','created_at'];

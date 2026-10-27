@@ -191,16 +191,26 @@ function publicError(error) {
       report.cause.import = { phase: detail.phase, type: detail.type, file: detail.file, line: detail.line, status: detail.status ?? null };
       if (/^[A-Z0-9]{5}$/.test(detail.sql_state || '') && Number.isInteger(detail.driver_errno) && detail.driver_errno > 0 && detail.driver_errno <= 65535) {
         report.cause.import.sql_state = detail.sql_state; report.cause.import.driver_errno = detail.driver_errno;
+        if (detail.sql_context) report.cause.import.sql_context = detail.sql_context;
       }
     }
   }
   return { report, sanitize };
 }
 async function diagnostics(error) {
-  const { report, sanitize } = publicError(error), physical = host?.workspace?.physical, logs = [];
+  const { report, sanitize } = publicError(error), physical = host?.workspace?.physical, logs = []; let pathBudget = null;
   if (physical) {
     const locations = new Set([physical.environment?.DESKTOP_DASHBOARD_STORAGE]);
-    try { const pending = await host.registry.metadata.read('workspace-preparation'); if (pending?.generation) locations.add(physical.storageFor({ generation: pending.generation })); } catch {}
+    try {
+      const pending = await host.registry.metadata.read('workspace-preparation');
+      if (/^[a-f0-9]{16}$/.test(pending?.generation || '')) {
+        locations.add(physical.storageFor({ generation: pending.generation }));
+        const databaseRoot = path.join(physical.profile, 'database', 'fasakhansta_dashboard_stage_' + pending.generation);
+        pathBudget = { databaseRoot: databaseRoot.length, historyFrm: path.join(databaseRoot, 'desktop_dashboard_ws_authority_history.frm').length,
+          commandAuthoritiesFrm: path.join(databaseRoot, 'desktop_dashboard_ws_command_auth.frm').length,
+          oldCommandAuthoritiesFrm: path.join(databaseRoot, 'desktop_dashboard_workspace_command_authorities.frm').length };
+      }
+    } catch {}
     for (const storage of locations) if (typeof storage === 'string') {
       try {
         const file = path.join(storage, 'logs/laravel.log'), stat = await fs.lstat(file);
@@ -216,7 +226,7 @@ async function diagnostics(error) {
     }
   }
   return { ...report, stage: nativeStage, setupPhases: setupPhases.slice(-12), phases: phases.filter(value => typeof value === 'string' && /^[a-z-]{1,60}$/.test(value)).slice(-12),
-    nativeFaults: nativeFaults.map(value => publicError(value).report), logs };
+    nativeFaults: nativeFaults.map(value => publicError(value).report), pathBudget, logs };
 }
 main().then(() => app.exit(0), async error => {
   const report = await diagnostics(error); quitting = true;

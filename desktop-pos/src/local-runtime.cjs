@@ -141,6 +141,13 @@ async function run(file, args, options, input = '', timeout = 90000, outputLimit
             if (typeof value.sql_state === 'string' && /^[A-Z0-9]{5}$/.test(value.sql_state)
               && Number.isInteger(value.driver_errno) && value.driver_errno > 0 && value.driver_errno <= 65535) {
               cause.import.sql_state = value.sql_state; cause.import.driver_errno = value.driver_errno;
+              const context = value.sql_context;
+              if (context && typeof context === 'object' && !Array.isArray(context)
+                && Object.keys(context).sort().join(',') === 'operation,table,target'
+                && ['create-table','alter-table','other'].includes(context.operation)
+                && ['workspace-command-authorities','workspace-authority-history','workspace-authority','workspace-members','other'].includes(context.table)
+                && ['expected','effects','command-table','default','other','not-reported'].includes(context.target))
+                cause.import.sql_context = { operation: context.operation, table: context.table, target: context.target };
             }
             const profiles = importPhpProfiles(value.php_profiles);
             if (profiles) cause.import.php_profiles = profiles;

@@ -96,7 +96,7 @@ class DesktopDashboardWorkspaceCoreBridgeTest extends TestCase
     private function dropFixtures(): void
     {
         Schema::disableForeignKeyConstraints();
-        foreach (['desktop_dashboard_workspace_command_authorities', 'desktop_dashboard_workspace_members',
+        foreach (['desktop_dashboard_ws_command_auth', 'desktop_dashboard_workspace_members',
             'desktop_dashboard_workspace_manifests', 'desktop_dashboard_workspaces',
             'desktop_dashboard_entities', 'desktop_dashboard_commands', 'desktop_dashboard_devices',
             'role_has_permissions', 'model_has_roles', 'model_has_permissions', 'roles', 'permissions',
@@ -221,7 +221,7 @@ class DesktopDashboardWorkspaceCoreBridgeTest extends TestCase
         $pending = Context::run($actorB, fn () => $journal->pending(self::DEVICE));
         $this->assertSame($second, $pending[0]['command_id']);
         $this->assertSame(10, $pending[0]['workspace_authority']['actor_id']);
-        $this->assertSame(2, DB::table('desktop_dashboard_workspace_command_authorities')->count());
+        $this->assertSame(2, DB::table('desktop_dashboard_ws_command_auth')->count());
     }
 
     public function test_missing_command_proof_rolls_back_business_work_and_cannot_return_an_old_success(): void
@@ -229,7 +229,7 @@ class DesktopDashboardWorkspaceCoreBridgeTest extends TestCase
         $journal = app(DesktopDashboardJournal::class); $scope = $this->scope();
         $command = '33333333-3333-4333-8333-333333333333';
         $payload = ['values' => ['idempotency_key' => $command]];
-        Schema::drop('desktop_dashboard_workspace_command_authorities');
+        Schema::drop('desktop_dashboard_ws_command_auth');
         $this->denied(fn () => Context::run($scope, fn () => $journal->execute(self::DEVICE, $command, 11,
             'bridge.fixture', $payload, [], function () {
                 DB::table('users')->where('id', 11)->update(['name' => 'Must roll back']); return ['saved' => true];
@@ -239,7 +239,7 @@ class DesktopDashboardWorkspaceCoreBridgeTest extends TestCase
         (new \CreateWorkspaceCommandAuthorities)->up();
         Context::run($scope, fn () => $journal->execute(self::DEVICE, $command, 11, 'bridge.fixture',
             $payload, [], fn () => ['saved' => true]));
-        DB::table('desktop_dashboard_workspace_command_authorities')->delete();
+        DB::table('desktop_dashboard_ws_command_auth')->delete();
         $this->denied(fn () => Context::run($scope, fn () => $journal->execute(self::DEVICE, $command, 11,
             'bridge.fixture', $payload, [], function () { throw new \RuntimeException('Never repeat the original work.'); })), [503]);
         $this->assertSame(1, DB::table('desktop_dashboard_commands')->count());
@@ -282,10 +282,10 @@ class DesktopDashboardWorkspaceCoreBridgeTest extends TestCase
         $journal=app(DesktopDashboardJournal::class);$scope=$this->scope();
         $command='33333333-3333-4333-8333-333333333333';$payload=['values'=>['idempotency_key'=>$command]];
         Context::run($scope,fn()=>$journal->execute(self::DEVICE,$command,11,'bridge.fixture',$payload,[],fn()=>['saved'=>true]));
-        $proof=DB::table('desktop_dashboard_workspace_command_authorities')->first();
+        $proof=DB::table('desktop_dashboard_ws_command_auth')->first();
         $changed=json_decode($proof->proof_json,true,16,JSON_THROW_ON_ERROR);$changed['actor_id']=10;
         $bytes=Authority::canonical($changed);
-        DB::table('desktop_dashboard_workspace_command_authorities')->update(['actor_id'=>10,
+        DB::table('desktop_dashboard_ws_command_auth')->update(['actor_id'=>10,
             'proof_json'=>$bytes,'proof_sha256'=>hash('sha256',$bytes)]);
         $this->denied(fn()=>$journal->pending(self::DEVICE),[503]);
         $this->denied(fn()=>Context::run($scope,fn()=>$journal->execute(self::DEVICE,$command,11,'bridge.fixture',

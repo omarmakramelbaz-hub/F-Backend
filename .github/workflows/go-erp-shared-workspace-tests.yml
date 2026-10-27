@@ -2,7 +2,7 @@ name: GO ERP shared workspace protocol foundations
 
 on:
   push:
-    branches: ['codex/go-erp-shared-device-offline-*']
+    branches: ['codex/go-erp-shared-device-offline-*', 'codex/go-erp-live-source-20261021']
   workflow_dispatch:
 
 permissions:

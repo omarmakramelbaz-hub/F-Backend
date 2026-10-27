@@ -35,7 +35,7 @@ final class DesktopDashboardWorkspaceLocalSchema
             $t->longText('record_json'); $t->longText('manifest_json'); $t->char('local_mac',64); $t->timestamps();
             $t->primary(['workspace_id','record_sha256'],'desktop_workspace_local_history_primary');
         });
-        if (!Schema::hasTable('desktop_dashboard_workspace_command_authorities')) {
+        if (!Schema::hasTable('desktop_dashboard_ws_command_auth')) {
             require_once database_path('migrations/2026_10_27_030010_create_workspace_command_authorities.php');
             (new \CreateWorkspaceCommandAuthorities)->up();
         }

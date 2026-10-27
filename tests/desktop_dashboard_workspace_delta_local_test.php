@@ -172,10 +172,10 @@ function fixture():array {
         'desktop_dashboard_media_manifest'=>[['device_id'=>DEVICE,'snapshot_id'=>SNAPSHOT,'sha256'=>hash('sha256','[]'),'files'=>'[]']],
         'desktop_dashboard_workspace_local_authority'=>[$recordRow],'desktop_dashboard_workspace_local_members'=>$memberRows,
         'desktop_dashboard_commands'=>[$live],'desktop_dashboard_archived_commands'=>[$archived],
-        'desktop_dashboard_workspace_command_authorities'=>[sidecar($archived,$manifest),sidecar($live,$manifest)],
+        'desktop_dashboard_ws_command_auth'=>[sidecar($archived,$manifest),sidecar($live,$manifest)],
     ],CAPTURE=>[],FINAL_DB=>[]];
     $db->ddl[ACTIVE]=['users'=>$f['users_ddl'],'settings'=>"CREATE TABLE `settings` (\n  `id` bigint unsigned NOT NULL,\n  `name` varchar(255) NOT NULL,\n  `payload` longtext NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-        'desktop_dashboard_workspace_command_authorities'=>"CREATE TABLE `desktop_dashboard_workspace_command_authorities` (\n  `workspace_id` char(36) NOT NULL,\n  `command_id` char(36) NOT NULL,\n  `actor_id` bigint unsigned NOT NULL,\n  `root_fingerprint` char(64) NOT NULL,\n  `manifest_revision` bigint unsigned NOT NULL,\n  `grant_hash` char(64) NOT NULL,\n  `request_hash` char(64) NOT NULL,\n  `proof_json` text NOT NULL,\n  `proof_sha256` char(64) NOT NULL,\n  `proof_mac` char(64) NOT NULL,\n  `accepted_database` varchar(100) NOT NULL,\n  `created_at` timestamp NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"];
+        'desktop_dashboard_ws_command_auth'=>"CREATE TABLE `desktop_dashboard_ws_command_auth` (\n  `workspace_id` char(36) NOT NULL,\n  `command_id` char(36) NOT NULL,\n  `actor_id` bigint unsigned NOT NULL,\n  `root_fingerprint` char(64) NOT NULL,\n  `manifest_revision` bigint unsigned NOT NULL,\n  `grant_hash` char(64) NOT NULL,\n  `request_hash` char(64) NOT NULL,\n  `proof_json` text NOT NULL,\n  `proof_sha256` char(64) NOT NULL,\n  `proof_mac` char(64) NOT NULL,\n  `accepted_database` varchar(100) NOT NULL,\n  `created_at` timestamp NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"];
     $runtime=['local'=>true,'host'=>'127.0.0.1','database'=>CAPTURE,'device_id'=>DEVICE,'source'=>$new];$GLOBALS['group_runtime']=$runtime;
     $input=['action'=>'capture','source_database'=>ACTIVE,'device_id'=>DEVICE,'actor_id'=>101,'snapshot_id'=>SNAPSHOT,'schema_hash'=>$state['schema_hash'],
         'source'=>$old,'capture_token'=>str_repeat('5',64),'expected_binding'=>expected($manifest)];
@@ -196,7 +196,7 @@ function importer(FakeDatabase $db,array &$calls):callable {
         foreach($snapshot['tables'] as $name=>$part){$db->data[FINAL_DB][$name]=$part['rows'];$db->ddl[FINAL_DB][$name]=$part['ddl'];}
         foreach(['desktop_dashboard_commands','desktop_dashboard_entities','desktop_dashboard_devices','desktop_dashboard_refreshes','desktop_dashboard_archived_commands',
             'desktop_dashboard_media_manifest','desktop_dashboard_source_manifest','desktop_dashboard_workspace_local_authority','desktop_dashboard_workspace_local_members',
-            'desktop_dashboard_ws_authority_history','desktop_dashboard_workspace_command_authorities'] as $name)$db->data[FINAL_DB][$name]=[];
+            'desktop_dashboard_ws_authority_history','desktop_dashboard_ws_command_auth'] as $name)$db->data[FINAL_DB][$name]=[];
         $db->data[FINAL_DB]['desktop_dashboard_local_state']=[['device_id'=>DEVICE,'actor_id'=>101,'snapshot_id'=>NEXT_SNAPSHOT,'state'=>'ready']];
         return ['format'=>2,'kind'=>'desktop-workspace-import-receipt','device_id'=>DEVICE,'actor_id'=>101,'snapshot_id'=>NEXT_SNAPSHOT,
             'source'=>$snapshot['source'],'coverage'=>$snapshot['coverage'],'workspace'=>workspace($snapshot['workspace_manifest']),
@@ -210,7 +210,7 @@ $tests['capture preserves B verifiers and captures all actor history without an 
     $capture=(new Local($db,$runtime))->run($input);check($capture['sequence']===7&&$capture['replay']['rows']===2,'consistent queue high water and both actors');
     check(count($db->data[CAPTURE]['settings'])===1&&count($db->data[ACTIVE]['settings'])===2,'source writes continue while private capture stays consistent');
     check($capture['index']['tables']['users']===(new Codec($manifest))->index('users',$original['users'],$db->ddl[ACTIVE]['users']),'group canonical index preserves B verifier');
-    check($db->data[CAPTURE]['desktop_dashboard_workspace_command_authorities']===$original['desktop_dashboard_workspace_command_authorities'],'exact sidecar MACs copied without minting');
+    check($db->data[CAPTURE]['desktop_dashboard_ws_command_auth']===$original['desktop_dashboard_ws_command_auth'],'exact sidecar MACs copied without minting');
     check(array_column($db->data[CAPTURE][Local::REPLAY_TABLE],'actor_id')===[202,101],'retired-capable B history is not custody filtered');
     check($capture['catalog']===['format'=>2,'workspace_id'=>DEVICE,'root_fingerprint'=>$manifest['root_fingerprint'],
         'snapshot_id'=>SNAPSHOT,'schema_hash'=>str_repeat('3',64),'sequence'=>7,'count'=>0,'sha256'=>hash('sha256','[]')],'empty catalog commitment binds source and full physical sequence');
@@ -259,8 +259,8 @@ $tests['source authority MAC member proof and native expected binding fail close
 };
 $tests['missing or forged historical sidecar is never synthesized']=function(){
     foreach(['missing','mac','actor','hash'] as $bad){[$db,$runtime,$input]=fixture();
-        if($bad==='missing')array_shift($db->data[ACTIVE]['desktop_dashboard_workspace_command_authorities']);
-        elseif($bad==='mac')$db->data[ACTIVE]['desktop_dashboard_workspace_command_authorities'][0]['proof_mac']=str_repeat('f',64);
+        if($bad==='missing')array_shift($db->data[ACTIVE]['desktop_dashboard_ws_command_auth']);
+        elseif($bad==='mac')$db->data[ACTIVE]['desktop_dashboard_ws_command_auth'][0]['proof_mac']=str_repeat('f',64);
         elseif($bad==='actor')$db->data[ACTIVE]['desktop_dashboard_archived_commands'][0]['actor_id']=101;
         else $db->data[ACTIVE]['desktop_dashboard_archived_commands'][0]['request_hash']=str_repeat('f',64);
         denied(fn()=>(new Local($db,$runtime))->run($input));noActiveWrites($db);
@@ -272,7 +272,7 @@ $tests['group reconstruction keeps stable custody all replay actors exact MACs a
     $receipt=(new Local($db,$runtime,importer($db,$calls)))->run(['action'=>'reconstruct','capture_database'=>CAPTURE,'capture_token'=>$input['capture_token'],'capture'=>$capture,'delta'=>$response,'expected_binding'=>expected($manifest)]);
     check(count($calls)===1&&$receipt['actor_id']===101,'one importer invocation keeps physical custody A');
     check($receipt['delta_replay']===$capture['replay']&&$receipt['delta_source_binding']===$input['expected_binding'],'replay and independently sealed source expectation preserved');
-    check($db->data[FINAL_DB]['desktop_dashboard_workspace_command_authorities']===$original['desktop_dashboard_workspace_command_authorities'],'stage preserves exact original sidecar MAC rows');
+    check($db->data[FINAL_DB]['desktop_dashboard_ws_command_auth']===$original['desktop_dashboard_ws_command_auth'],'stage preserves exact original sidecar MAC rows');
     check(array_column($db->data[FINAL_DB]['desktop_dashboard_archived_commands'],'actor_id')===[202,101],'all actor UUIDs preserved in final archive');
     check($calls[0]['tables']['users']['rows'][1]['password']===$original['users'][1]['password'],'B usable verifier survives reconstruction');
     $clean=(new Local($db,$runtime))->run(['action'=>'discard-stage','stage_database'=>FINAL_DB,'source_database'=>ACTIVE,'active_database'=>ACTIVE,'capture_token'=>$input['capture_token'],'receipt'=>$receipt]);
@@ -316,13 +316,13 @@ $tests['large shared replay history stays paged and every actor MAC reaches the 
         $history[]=$row;$authorities[]=sidecar($row,$manifest);
     }
     $db->data[ACTIVE]['desktop_dashboard_archived_commands']=$history;
-    $authorities[]=sidecar($db->data[ACTIVE]['desktop_dashboard_commands'][0],$manifest);$db->data[ACTIVE]['desktop_dashboard_workspace_command_authorities']=$authorities;
+    $authorities[]=sidecar($db->data[ACTIVE]['desktop_dashboard_commands'][0],$manifest);$db->data[ACTIVE]['desktop_dashboard_ws_command_auth']=$authorities;
     $capture=(new Local($db,$runtime))->run($input);check($capture['replay']['rows']===2202,'replay pages preserve every historic A/B and live UUID');
     $runtime['database']=FINAL_DB;$GLOBALS['group_runtime']=$runtime;$calls=[];
     $receipt=(new Local($db,$runtime,importer($db,$calls)))->run(['action'=>'reconstruct','capture_database'=>CAPTURE,'capture_token'=>$input['capture_token'],
         'capture'=>$capture,'delta'=>delta($db,$runtime,$capture,$manifest,$coverage),'expected_binding'=>expected($manifest)]);
     check($receipt['delta_replay']===$capture['replay']&&count($db->data[FINAL_DB]['desktop_dashboard_archived_commands'])===2202,'large captured replay digest survives reconstruction unchanged');
-    $sourceMap=array_column($authorities,'proof_mac','command_id');$targetMap=array_column($db->data[FINAL_DB]['desktop_dashboard_workspace_command_authorities'],'proof_mac','command_id');
+    $sourceMap=array_column($authorities,'proof_mac','command_id');$targetMap=array_column($db->data[FINAL_DB]['desktop_dashboard_ws_command_auth'],'proof_mac','command_id');
     ksort($sourceMap);ksort($targetMap);check($sourceMap===$targetMap,'every exact original history MAC remains bound to its command');
     foreach($db->log as $sql)if(str_contains($sql,'`command_id` IN ('))check(substr_count($sql,'?')<=1001,'sidecar pages are bounded to1000 commands');
     noActiveWrites($db);

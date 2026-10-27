@@ -8,6 +8,7 @@ namespace {
     function storage_path($path){return $GLOBALS['update_storage'].'/'.$path;}
     function base_path($path=''){return $GLOBALS['update_storage'].($path!==''?'/'.$path:'');}
     function response(){return new UpdateResponse;}
+    function app($class){if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)return $GLOBALS['update_workspace_authority'];throw new \RuntimeException('Unexpected fixture service.');}
     class UpdateResponse {
         public $data;public array $headers=[];public $callback;
         public function json($data){$this->data=$data;return $this;}
@@ -15,10 +16,17 @@ namespace {
         public function stream($callback,$status,$headers){$this->callback=$callback;$this->headers=$headers;return $this;}
     }
 }
-namespace Illuminate\Http {class Request {public function __construct(private string $token){}public function bearerToken(){return $this->token;}}}
+namespace Illuminate\Http {class Request {
+    private array $headers=[];
+    public function __construct(private string $token,array $headers=[]){foreach($headers as$key=>$value)$this->headers[strtolower($key)]=$value;}
+    public function bearerToken(){return $this->token;}
+    public function hasHeader($name){return array_key_exists(strtolower($name),$this->headers);}
+    public function header($name,$default=null){return $this->headers[strtolower($name)]??$default;}
+}}
 namespace App\Http\Controllers {class Controller {}}
 namespace App\Services\Dashboard {
     class DesktopDashboardDevices {public int $calls=0;public function device(string $token): object{$this->calls++;\abort_unless($token==='fixture-token',401);return (object)['id'=>'device'];}}
+    class DesktopDashboardWorkspaceAuthority {public int $calls=0;public function authenticate(string $token): object{$this->calls++;\abort_unless($token==='workspace-fixture-token',401);return(object)['id'=>'workspace'];}}
 }
 namespace {
     require __DIR__.'/../app/Services/Dashboard/DesktopDashboardSource.php';
@@ -118,6 +126,15 @@ namespace {
         $response=$controller->status(new \Illuminate\Http\Request('fixture-token'),$devices,$updates);check($response->data['state']==='ready'&&$response->headers['Cache-Control']==='private, no-store','feed response private and uncached');
         $response=$controller->installer(new \Illuminate\Http\Request('fixture-token'),$sha,$devices,$updates);ob_start();($response->callback)();$bytes=ob_get_clean();check($bytes===$fileBytes&&$response->headers['Content-Length']===(string)strlen($fileBytes),'authenticated descriptor streamed exactly');
         check(!array_key_exists('Authorization',$response->headers),'no token in response metadata');
+        $GLOBALS['update_workspace_authority']=new \App\Services\Dashboard\DesktopDashboardWorkspaceAuthority;
+        $legacyCalls=$devices->calls;$headers=['x-fasakhansta-update-protocol'=>'2'];
+        $response=$controller->status(new \Illuminate\Http\Request('workspace-fixture-token',$headers),$devices,$updates);
+        check($response->data['state']==='ready'&&$devices->calls===$legacyCalls,'workspace feed uses only its root credential');
+        $response=$controller->installer(new \Illuminate\Http\Request('workspace-fixture-token',$headers),$sha,$devices,$updates);
+        ob_start();($response->callback)();check(ob_get_clean()===$fileBytes,'workspace root downloads the unchanged published descriptor');
+        blocked(fn()=>$controller->status(new \Illuminate\Http\Request('fixture-token',$headers),$devices,$updates),401,'legacy token cannot authenticate a workspace request');
+        blocked(fn()=>$controller->status(new \Illuminate\Http\Request('workspace-fixture-token'),$devices,$updates),401,'workspace token cannot fall back to legacy enrollment');
+        blocked(fn()=>$controller->status(new \Illuminate\Http\Request('workspace-fixture-token',['X-Fasakhansta-Update-Protocol'=>'02']),$devices,$updates),422,'noncanonical workspace protocol is rejected');
         $routes=file_get_contents(__DIR__.'/../routes/api.php');check(str_contains($routes,"->where('sha','[a-f0-9]{64}')"),'route constrains installer hash');
         echo "GO_ERP_UPDATE_FEED_TESTS_OK checks=$checks\n";
     }finally{removeFixture($root);}

@@ -18,8 +18,10 @@ class IsAdmin
         if (Auth::guard('admin')->check()) {
             session()->put('guard', 'admin');
             session()->put('id_user', Auth::guard('admin')->id());
-            return app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)
-                ->run($request,fn()=>$next($request));
+            if(config('desktop_dashboard.local')===true&&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true')
+                return app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)
+                    ->run($request,fn()=>$next($request));
+            return $next($request);
         }else{
             return redirect(url('admin/login'));
         }

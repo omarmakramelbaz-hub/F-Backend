@@ -109,7 +109,24 @@ final class DesktopImportDiagnostic
             $info=$current->errorInfo;
             if(is_string($info[0]??null)&&preg_match('/^[A-Z0-9]{5}$/D',$info[0])
                 &&is_int($info[1]??null)&&$info[1]>0&&$info[1]<=65535){
-                $report['sql_state']=$info[0];$report['driver_errno']=$info[1];break;
+                $report['sql_state']=$info[0];$report['driver_errno']=$info[1];
+                $operation='other';$table='other';$target='not-reported';
+                $sql=method_exists($current,'getSql')?$current->getSql():null;
+                if(is_string($sql)&&preg_match('/^\s*(create|alter)\s+table\s+`?([A-Za-z0-9_]+)`?/i',$sql,$ddl)){
+                    $operation=strtolower($ddl[1]).'-table';
+                    $table=match($ddl[2]){
+                        'desktop_dashboard_workspace_command_authorities','desktop_dashboard_ws_command_authorities','desktop_dashboard_ws_command_auth'=>'workspace-command-authorities',
+                        'desktop_dashboard_workspace_local_authority_history','desktop_dashboard_ws_authority_history'=>'workspace-authority-history',
+                        'desktop_dashboard_workspace_local_authority'=>'workspace-authority',
+                        'desktop_dashboard_workspace_local_members'=>'workspace-members',default=>'other'};
+                }
+                if($info[1]===1049&&is_string($info[2]??null)&&preg_match("/Unknown database '([^']{1,100})'/",$info[2],$name)){
+                    $target=$name[1]===getenv('DB_DATABASE')?'expected':match($name[1]){
+                        'fasakhansta_dashboard_effects'=>'effects',
+                        'desktop_dashboard_workspace_command_authorities','desktop_dashboard_ws_command_authorities','desktop_dashboard_ws_command_auth'=>'command-table',
+                        'forge','homestead'=>'default',default=>'other'};
+                }
+                $report['sql_context']=['operation'=>$operation,'table'=>$table,'target'=>$target];break;
             }
         }
         $report['php_profiles']=self::profiles($snapshot);

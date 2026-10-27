@@ -8,7 +8,7 @@ class CreateWorkspaceCommandAuthorities extends Migration
 {
     public function up(): void
     {
-        Schema::create('desktop_dashboard_workspace_command_authorities',function(Blueprint $t) {
+        Schema::create('desktop_dashboard_ws_command_auth',function(Blueprint $t) {
             $t->engine='InnoDB'; $t->uuid('workspace_id'); $t->uuid('command_id');
             $t->unsignedBigInteger('actor_id'); $t->char('root_fingerprint',64);
             $t->unsignedBigInteger('manifest_revision'); $t->char('grant_hash',64);
@@ -17,5 +17,5 @@ class CreateWorkspaceCommandAuthorities extends Migration
             $t->primary(['workspace_id','command_id'],'desktop_workspace_command_authority_primary');
         });
     }
-    public function down(): void { Schema::dropIfExists('desktop_dashboard_workspace_command_authorities'); }
+    public function down(): void { Schema::dropIfExists('desktop_dashboard_ws_command_auth'); }
 }

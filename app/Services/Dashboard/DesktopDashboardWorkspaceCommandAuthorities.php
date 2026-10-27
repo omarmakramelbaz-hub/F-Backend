@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\{DB,Schema};
 /** A command keeps its actual actor and original grant across account switches and generation refreshes. */
 final class DesktopDashboardWorkspaceCommandAuthorities
 {
-    public const TABLE='desktop_dashboard_workspace_command_authorities';
+    public const TABLE='desktop_dashboard_ws_command_auth';
     private const ERROR='دليل صلاحيات العملية المحفوظة غير مكتمل؛ بيانات الجهاز محفوظة وتحتاج مراجعة.';
     private const FIELDS=['format','workspace_id','root_fingerprint','actor_id','manifest_revision','grant','command_sha256'];
 
