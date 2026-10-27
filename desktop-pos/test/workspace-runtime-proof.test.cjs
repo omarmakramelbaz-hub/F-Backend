@@ -1,6 +1,6 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const { verify } = require('../../.github/scripts/verify-workspace-runtime-native.cjs');
+const { verify, sourceFiles, fixturePaths } = require('../../.github/scripts/verify-workspace-runtime-native.cjs');
 
 function fixture() {
   const a = '11111111-1111-4111-8111-111111111111', b = '22222222-2222-4222-8222-222222222222';
@@ -61,4 +61,29 @@ test('missing or false cold-CLI and persistent-web opcode evidence cannot satisf
       assert.throws(() => verify(proof, expected));
     }
   }
+});
+
+
+test('runner preflight resolves the actual PHP entry and shares the exact verifier source roster', () => {
+  const fs = require('node:fs'), path = require('node:path'), repository = path.resolve(__dirname,'../..');
+  const files = fixturePaths(repository), roster = sourceFiles(repository);
+  assert.equal(files.fixture, path.join(repository,'tests/desktop_dashboard_runtime/workspace-native-server.php'));
+  assert.equal(files.router, path.join(repository,'tests/desktop_dashboard_runtime/workspace-native-router.php'));
+  for (const name of ['desktop-pos/test/local-runtime-import.test.cjs','desktop-pos/test/local-runtime-opcode.test.cjs',
+    'tests/desktop_dashboard_runtime/workspace-native-server.php']) assert.equal(roster.filter(value => value === name).length, 1);
+  assert.equal(new Set(roster).size, roster.length);
+  assert.equal(roster.every(value => fs.lstatSync(path.join(repository,value)).isFile()), true);
+  const runner = fs.readFileSync(path.join(__dirname,'workspace-runtime-native-runner.cjs'),'utf8');
+  assert.match(runner, /const \{ sourceFiles, fixturePaths \} = require/);
+  assert.match(runner, /fixturePaths\(repository\)/); assert.match(runner, /sourceFiles\(repository\)\.map/);
+});
+
+test('preflight refuses a directory in place of the PHP entry before any process is started', t => {
+  const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
+  const repository = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()),'workspace-fixture-preflight-'));
+  t.after(() => fs.rmSync(repository,{recursive:true,force:true}));
+  const directory = path.join(repository,'tests/desktop_dashboard_runtime'); fs.mkdirSync(directory,{recursive:true});
+  fs.mkdirSync(path.join(directory,'workspace-native-server.php'));
+  for (const name of ['workspace-native-router.php','workspace-native-fixture.php']) fs.writeFileSync(path.join(directory,name),'<?php // disposable fixture');
+  assert.throws(() => fixturePaths(repository), /regular file/);
 });

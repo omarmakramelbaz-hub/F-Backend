@@ -59,6 +59,19 @@ function sourceFiles(repository) {
     'tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
 }
 
+/** Resolve only the three source-bound PHP fixture files; hash rosters are not path components. */
+function fixturePaths(repository) {
+  const fixture = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-server.php');
+  const router = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-router.php');
+  const helper = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-fixture.php');
+  for (const file of [fixture, router, helper]) {
+    const info = fs.lstatSync(file);
+    assert.ok(info.isFile() && !info.isSymbolicLink() && info.nlink === 1 && info.size > 0 && info.size <= 1024 ** 2,
+      'The source-bound PHP fixture must be a regular file.');
+  }
+  return { fixture, router };
+}
+
 if (require.main === module) {
   assert.equal(process.platform, 'win32');
   const [receipt, bundle] = process.argv.slice(2); assert.ok(receipt && bundle && process.env.GITHUB_SHA);
@@ -71,4 +84,4 @@ if (require.main === module) {
     electronVersion: lock.packages['node_modules/electron'].version, sourceFingerprint: manifest.sourceFingerprint });
   process.stdout.write('SHARED_WORKSPACE_NATIVE_VERIFIED ' + process.env.GITHUB_SHA + '\n');
 }
-module.exports = { verify, sourceFiles };
+module.exports = { verify, sourceFiles, fixturePaths };

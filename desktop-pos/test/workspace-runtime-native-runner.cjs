@@ -8,8 +8,8 @@ const [bundleArg, portArg, outputArg] = process.argv.slice(2); if (!bundleArg ||
 const bundle = fs.realpathSync.native(path.resolve(bundleArg)), dbPort = Number(portArg), output = path.resolve(outputArg), repository = path.resolve(__dirname, '../..');
 assert.ok(Number.isInteger(dbPort) && dbPort >= 1024 && dbPort <= 65535);
 const php = path.join(bundle, 'php/php.exe'), electron = path.resolve(__dirname, '../node_modules/electron/dist/electron.exe');
-const fixture = path.join(repository, 'desktop-pos/test/local-runtime-import.test.cjs', 'desktop-pos/test/local-runtime-opcode.test.cjs',
-    'tests/desktop_dashboard_runtime/workspace-native-server.php'), router = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-router.php');
+const { sourceFiles, fixturePaths } = require('../../.github/scripts/verify-workspace-runtime-native.cjs');
+const { fixture, router } = fixturePaths(repository);
 const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
 const manifest = JSON.parse(fs.readFileSync(path.join(bundle, 'manifest.json'), 'utf8')); assert.equal(manifest.sourceRevision, sourceRevision);
 if (process.env.GITHUB_SHA) assert.equal(sourceRevision, process.env.GITHUB_SHA);
@@ -22,13 +22,7 @@ const certificateFingerprint = new crypto.X509Certificate(certificate).fingerpri
 const counts = { totalRequests: 0, offlineRequests: 0, publicationRequests: 0 };
 const count = () => fs.writeFileSync(path.join(root, 'request-counts.json'), JSON.stringify(counts) + '\n'); count();
 const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const sourceFiles = [...fs.readdirSync(path.join(repository, 'desktop-pos/src')).filter(name => name.endsWith('.cjs') && (name.startsWith('workspace-')
-  || ['main.cjs','local-runtime.cjs','dashboard.cjs','account-login.cjs','account-signout.cjs','shutdown.cjs','runtime-archive.cjs'].includes(name))).map(name => 'desktop-pos/src/' + name),
-  'desktop-pos/test/workspace-runtime-native.cjs','desktop-pos/test/workspace-runtime-native-runner.cjs',
-  'tests/desktop_dashboard_runtime/workspace-native-server.php','tests/desktop_dashboard_runtime/workspace-native-router.php',
-  'tests/desktop_dashboard_runtime/workspace-native-fixture.php','tests/desktop_dashboard_runtime/full-schema.php',
-  'tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
-const sourceHashes = Object.fromEntries(sourceFiles.map(file => [file, sha(path.join(repository, file))]));
+const sourceHashes = Object.fromEntries(sourceFiles(repository).map(file => [file, sha(path.join(repository, file))]));
 let phpServer, tls, child, prepared = false, phpError = '', childDiagnostic = '', privateServerConfig;
 const phpEvents = [], cliFailures = [];
 function sanitizedPhp(text) {
