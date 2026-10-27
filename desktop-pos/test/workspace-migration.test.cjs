@@ -11,8 +11,10 @@ function encryption() {
 }
 function state(prepared = true) { return { prepared, counts: Object.fromEntries(COUNTS.map(key => [key, 0])), holds: Object.fromEntries(HOLDS.map(key => [key, false])) }; }
 async function fixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-migration-')), profiles = new AccountProfiles({ root, safeStorage: encryption() });
+  const temporary = await fs.realpath(os.tmpdir());
+  const root = await fs.mkdtemp(path.join(temporary, 'workspace-migration-')), profiles = new AccountProfiles({ root, safeStorage: encryption() });
   t.after(() => fs.rm(root, { recursive: true, force: true }));
+  assert.equal(await fs.realpath(root), root, 'The fixture uses the canonical Windows path, not the 8.3 temporary-directory alias.');
   await profiles.bind('default', { actorId: 101, serverOrigin: 'https://dashboard.example.test' });
   const b = await profiles.create(); await profiles.bind(b.id, { actorId: 202, serverOrigin: 'https://dashboard.example.test' });
   const a = await profiles.account('default');

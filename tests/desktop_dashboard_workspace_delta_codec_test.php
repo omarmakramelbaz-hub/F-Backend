@@ -11,7 +11,7 @@ function check($condition,string $message): void {if(!$condition)throw new Runti
 function refused(callable $work): void {try{$work();}catch(Throwable $error){return;}throw new RuntimeException('Invalid workspace delta input was accepted.');}
 function canonical($value): string {
     if(is_array($value)){if($value!==[]&&array_keys($value)!==range(0,count($value)-1))ksort($value,SORT_STRING);foreach($value as &$item)$item=json_decode(canonical($item),true,512,JSON_THROW_ON_ERROR);unset($item);}
-    return json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+    return json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_LINE_TERMINATORS|JSON_THROW_ON_ERROR);
 }
 function signFixture(array $manifest): array {$manifest['roster_sha256']=hash('sha256',canonical($manifest['members']));return $manifest;}
 function verifier(string $name): string {return password_hash('workspace-fixture-only-'.$name,PASSWORD_BCRYPT,['cost'=>4]);}
@@ -124,6 +124,8 @@ $cases['duplicate-row-multiplicities-and-empty-tables-survive']=static function(
     check(array_sum($delta['remove'])===1&&count($delta['add'])===1,'Duplicate pivot rows were collapsed.');
     sameRows($codec,'product_features',$two,$codec->apply('product_features',$one,$ddl,$delta),$ddl);
     foreach(['users'=>usersDdl(),'products'=>productDdl()] as $table=>$schema){$empty=$codec->index($table,[],$schema);$delta=$codec->delta($table,[],$schema,$empty);check($codec->apply($table,[],$schema,$delta)===[],'Empty workspace table did not remain empty.');}
+    refused(fn()=>$codec->index('users',[],productDdl()));
+    refused(fn()=>$codec->index('products',[],usersDdl()));
 };
 $cases['indexes-are-bound-to-workspace-root-revision-and-roster']=static function(): void {
     $manifest=fixtureManifest();$codec=new Codec($manifest);$index=$codec->index('products',productRows(),productDdl());
@@ -156,6 +158,19 @@ $cases['schema-replacement-requires-verified-complete-removal']=static function(
     refused(fn()=>$codec->apply('products',$rows,productDdl(),$delta));
     $same=$codec->delta('products',$rows,productDdl(),$before);$same['replace']=true;refused(fn()=>$codec->applyReplacement('products',$same['add'],productDdl(),$same,$before));
 };
+$cases['forward-replacement-strips-excluded-private-projection-fields']=static function(): void {
+    $old=new Codec(fixtureManifest());$next=new Codec(fixtureManifest(2));
+    $ddl="CREATE TABLE `pending_vendors` (\n  `id` bigint unsigned NOT NULL,\n  `profession_key` varchar(50) NOT NULL,\n  `type` varchar(50) NOT NULL,\n  `status` varchar(50) NOT NULL,\n  `source_app` varchar(50) NOT NULL,\n  `full_name` varchar(100) NOT NULL,\n  `mobile` varchar(50) NOT NULL,\n  `other_field` varchar(100) DEFAULT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+    $coverage=['pending_vendor_eligibility'=>['kind'=>'go-store-owner-only','source_fields'=>['id','profession_key','type','status','source_app'],'redacted_required_fields'=>['full_name','mobile']]];
+    $projection=Legacy::projection('pending_vendors',$coverage);
+    $beforeRows=[['id'=>1,'profession_key'=>'fixture','type'=>'fixture','status'=>'accepted','source_app'=>'fixture','full_name'=>'PRIVATE previous name','mobile'=>'PRIVATE previous number','other_field'=>'PRIVATE previous field']];
+    $target=[['id'=>1,'profession_key'=>'fixture','type'=>'fixture','status'=>'accepted','source_app'=>'fixture','full_name'=>'','mobile'=>'']];
+    $before=$old->index('pending_vendors',$beforeRows,$ddl);
+    $delta=$next->delta('pending_vendors',$target,$ddl,$before,$projection,$old);
+    $delta['add'][0]['other_field']='PRIVATE forged field outside projection';
+    $result=$next->applyReplacement('pending_vendors',$delta['add'],$ddl,$delta,$before,$projection,$old);
+    check($result===$target&&!str_contains(json_encode($result),'PRIVATE'),'A field excluded from the authenticated projection survived workspace replacement.');
+};
 $cases['malformed-or-cross-scope-deltas-cannot-be-applied']=static function(): void {
     $codec=new Codec(fixtureManifest());$one=productRows();$two=$one;$two[0]['amount']='11.500';$delta=$codec->delta('products',$two,productDdl(),$codec->index('products',$one,productDdl()));
     foreach(['kind'=>'dashboard-data-delta','format'=>1,'revision'=>2,'workspace_id'=>'22222222-2222-4222-8222-222222222222',
@@ -177,6 +192,20 @@ $cases['manifest-schema-membership-and-roster-integrity-are-checked']=static fun
     $bad=$base;$bad['members'][]=$bad['members'][1];refused(fn()=>new Codec(signFixture($bad)));
     $bad=$base;$bad['revision']=1.0;refused(fn()=>new Codec($bad));
     $bad=$base;$bad['members'][1]['branches']=['f:9999999999999999'];refused(fn()=>new Codec(signFixture($bad)));
+};
+$cases['unicode-field-budgets-match-native-manifest-validation']=static function(): void {
+    $manifest=fixtureManifest();$manifest['members'][1]['aliases']=[str_repeat('ب',200)];
+    $manifest['members'][1]['permissions']['roles']=[str_repeat('م',200)];$manifest=signFixture($manifest);
+    $codec=new Codec($manifest);$codec->index('products',productRows(),productDdl());
+    $manifest['members'][1]['aliases']=[str_repeat('😀',160)];new Codec(signFixture($manifest));
+    $manifest['members'][1]['aliases']=[str_repeat('😀',161)];refused(fn()=>new Codec(signFixture($manifest)));
+};
+$cases['unicode-line-separator-canonicalization-matches-javascript']=static function(): void {
+    require_once __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceAuthority.php';
+    $manifest=fixtureManifest();$manifest['members'][1]['aliases']=["a\u{2028}b\u{2029}c"];
+    $manifest=signFixture($manifest);$codec=new Codec($manifest);
+    check($codec->context()['roster_sha256']===hash('sha256',\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::canonical($manifest['members'])),
+        'PHP codec and native JSON line-terminator encodings differ.');
 };
 $cases['mixed-member-and-nonmember-round-trips-preserve-multisets']=static function(): void {
     global $hashC;$codec=new Codec(fixtureManifest());mt_srand(20261027);
@@ -208,6 +237,10 @@ $cases['shared-canonical-fixture-agrees-with-server-authority']=static function(
     $codec=new Codec($manifest);
     check($codec->index('users',$fixture['users'],$fixture['users_ddl'])===$fixture['users_index'],
         'The cross-language workspace fixture table binding changed.');
+    $native=json_decode(file_get_contents(__DIR__.'/../desktop-pos/test/fixtures/workspace-members-v2.json'),true,512,JSON_THROW_ON_ERROR);
+    $nativeCodec=new Codec($native['manifest']);
+    check($nativeCodec->context()['roster_sha256']===$native['members_sha256'],
+        'The actual native manifest fixture differs from the workspace codec contract.');
 };
 $cases['original-codec-remains-unchanged-and-rejects-v2-envelopes']=static function(): void {
     $codec=new Codec(fixtureManifest());$index=$codec->index('products',productRows(),productDdl());

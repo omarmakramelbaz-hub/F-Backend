@@ -29,8 +29,10 @@ function candidate({ revision = 1, sequence = 1, generation = 'a'.repeat(16), me
       manifestRevision: revision, rosterSha256: roster.roster_sha256 } };
 }
 async function fixture(t, verifyAuthority = async () => true) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-profile-')), safeStorage = encryption();
+  const temporary = await fs.realpath(os.tmpdir());
+  const root = await fs.mkdtemp(path.join(temporary, 'workspace-profile-')), safeStorage = encryption();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
+  assert.equal(await fs.realpath(root), root, 'The fixture uses the canonical Windows path, not the 8.3 temporary-directory alias.');
   const create = () => new WorkspaceRegistry({ root, workspaceId, safeStorage, verifyAuthority });
   return { root, safeStorage, create, registry: create() };
 }
@@ -198,7 +200,7 @@ test('a different staged candidate cannot replace the first ticket and identical
 
 test('malicious actor directories and registry symlinks are rejected before an actor descriptor is returned', async t => {
   const f = await fixture(t); await active(f.registry);
-  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-outside-')); t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  const outside = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'workspace-outside-')); t.after(() => fs.rm(outside, { recursive: true, force: true }));
   const actors = path.join(f.root, 'workspace-actors', workspaceId); await fs.mkdir(actors, { recursive: true });
   try { await fs.symlink(outside, path.join(actors, '202'), 'junction'); }
   catch (error) { if (process.platform === 'win32' && error.code === 'EPERM') return t.skip('Windows host does not permit test symlink creation.'); throw error; }

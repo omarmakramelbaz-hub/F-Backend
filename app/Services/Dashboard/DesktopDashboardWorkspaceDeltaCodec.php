@@ -33,11 +33,11 @@ final class DesktopDashboardWorkspaceDeltaCodec
             self::need(is_array($member)&&self::exact($member,['actor_id','role','enabled','aliases','branches','permissions','password_binding','grant'])
                 &&self::positive($member['actor_id'])&&$member['actor_id']>$last
                 &&in_array($member['role'],['admin','vendor','resturant_owner'],true)&&$member['enabled']===true
-                &&self::strings($member['aliases'],320,16)&&count($member['aliases'])>0
+                &&self::aliases($member['aliases'])&&count($member['aliases'])>0
                 &&self::strings($member['branches'],40,10000)&&self::hash($member['password_binding'])&&self::hash($member['grant'])
                 &&is_array($member['permissions'])&&self::exact($member['permissions'],['super_admin','names','roles'])
-                &&is_bool($member['permissions']['super_admin'])&&self::strings($member['permissions']['names'],320,4096)
-                &&self::strings($member['permissions']['roles'],320,4096));
+                &&is_bool($member['permissions']['super_admin'])&&self::strings($member['permissions']['names'],4096,4096)
+                &&self::strings($member['permissions']['roles'],4096,4096));
             foreach($member['branches'] as $branch)self::need((bool)preg_match('/^(?:f|gs):[1-9][0-9]{0,15}$/D',$branch)
                 &&self::actor(substr($branch,strpos($branch,':')+1))!==null);
             $this->passwordBindings[$member['actor_id']]=$member['password_binding'];$last=$member['actor_id'];
@@ -64,18 +64,27 @@ final class DesktopDashboardWorkspaceDeltaCodec
 
     public function index(string $table,array $rows,string $ddl,?array $projection=null): array
     {
+        return $this->indexed($table,$rows,$ddl,$projection)[0];
+    }
+    private function indexed(string $table,array $rows,string $ddl,?array $projection): array
+    {
         $this->table($table);self::need(count($rows)<=DesktopDashboardDeltaCodec::MAX_ROWS);
-        [$buckets,$actors]=$this->buckets($table,$rows,$projection);$hashes=[];
+        // Even an empty users table must validate its DDL against the named
+        // table; it otherwise has no member bucket to call the original codec.
+        $empty=DesktopDashboardDeltaCodec::index($table,[],1,$ddl,$projection);
+        [$buckets,$actors]=$this->buckets($table,$rows,$projection);$hashes=[];$parts=[];
         foreach($buckets as $key=>$bucket){
             $part=DesktopDashboardDeltaCodec::index($table,$bucket,$actors[$key],$ddl,$projection);
+            $parts[$key]=$part;
             foreach($part['hashes'] as $digest=>$count)$hashes[$digest]=($hashes[$digest]??0)+$count;
         }
-        ksort($hashes,SORT_STRING);$schema=self::schemaHash($ddl);
+        ksort($hashes,SORT_STRING);$schema=$empty['schema_sha256'];
         $base=['schema_sha256'=>$schema,'count'=>count($rows),'hashes'=>$hashes];
         DesktopDashboardDeltaCodec::validateIndex($base);
         $rowset=DesktopDashboardDeltaCodec::tableHash($hashes);
-        return ['format'=>2,'kind'=>'desktop-workspace-table-index']+$this->context+['table'=>$table]+$base
+        $index=['format'=>2,'kind'=>'desktop-workspace-table-index']+$this->context+['table'=>$table]+$base
             +['rowset_sha256'=>$rowset,'table_sha256'=>$this->tableHash($table,$schema,$rowset,count($rows))];
+        return [$index,$buckets,$actors,$parts];
     }
 
     /**
@@ -102,13 +111,22 @@ final class DesktopDashboardWorkspaceDeltaCodec
     public function delta(string $table,array $rows,string $ddl,array $before,?array $projection=null,?self $previous=null): array
     {
         $base=$this->validateIndex($table,$before,$previous);
-        $after=$this->index($table,$rows,$ddl,$projection);$replace=$previous!==null||$base['schema_sha256']!==$after['schema_sha256'];
-        [$buckets,$actors]=$this->buckets($table,$rows,$projection);$add=[];
+        [$after,$buckets,$actors,$parts]=$this->indexed($table,$rows,$ddl,$projection);
+        $replace=$previous!==null||$base['schema_sha256']!==$after['schema_sha256'];$add=[];
         $empty=['schema_sha256'=>$after['schema_sha256'],'count'=>0,'hashes'=>[]];
         foreach($buckets as $key=>$bucket){
             // SQL types, canonical transport floats and existing password
             // handling are all delegated to the original reviewed codec.
-            $part=DesktopDashboardDeltaCodec::delta($table,$bucket,$actors[$key],$ddl,$replace?$empty:$base,$projection);
+            // A bucket needs only old digests that still occur in that target
+            // bucket to decide additions. Global removals are computed once
+            // below. Passing the whole baseline per member is quadratic.
+            $bucketBefore=$empty;
+            if(!$replace){
+                foreach($parts[$key]['hashes'] as $digest=>$unused)if(isset($base['hashes'][$digest]))
+                    $bucketBefore['hashes'][$digest]=$base['hashes'][$digest];
+                $bucketBefore['count']=array_sum($bucketBefore['hashes']);
+            }
+            $part=DesktopDashboardDeltaCodec::delta($table,$bucket,$actors[$key],$ddl,$bucketBefore,$projection);
             foreach($part['add'] as $row)$add[]=$row;
         }
         $remove=[];
@@ -159,7 +177,15 @@ final class DesktopDashboardWorkspaceDeltaCodec
             &&($previous!==null||$base['schema_sha256']!==$delta['schema_sha256']));
         $expected=$base['hashes'];$removed=$delta['remove'];ksort($expected,SORT_STRING);ksort($removed,SORT_STRING);
         self::need($expected===$removed);$this->incoming($table,$rows,$projection);
-        $this->verifyTarget($table,$rows,$ddl,$delta,$projection);return $rows;
+        // Reuse original safeRow/projection handling, including columns that
+        // are deliberately excluded from an authenticated table projection.
+        [$buckets,$actors]=$this->buckets($table,$rows,$projection);$result=[];
+        foreach($buckets as $key=>$bucket){
+            $index=DesktopDashboardDeltaCodec::index($table,$bucket,$actors[$key],$ddl,$projection);
+            $legacy=['remove'=>[],'add'=>$bucket,'target_hash'=>DesktopDashboardDeltaCodec::tableHash($index['hashes']),'count'=>count($bucket)];
+            foreach(DesktopDashboardDeltaCodec::apply($table,[],$actors[$key],$ddl,$legacy,$projection) as $row)$result[]=$row;
+        }
+        $this->verifyTarget($table,$result,$ddl,$delta,$projection);return $result;
     }
 
     private function source(?self $previous): self
@@ -248,6 +274,16 @@ final class DesktopDashboardWorkspaceDeltaCodec
         if(!self::list($values)||count($values)>$count)return false;$last=null;
         foreach($values as $value){if(!is_string($value)||$value===''||strlen($value)>$length||preg_match('/[\x00-\x1f\x7f]/',$value)||$last!==null&&strcmp($last,$value)>=0)return false;$last=$value;}return true;
     }
+    /** Match native JavaScript's 320 UTF-16-unit alias budget, not UTF-8 bytes. */
+    private static function aliases($values): bool
+    {
+        if(!self::strings($values,1280,2))return false;
+        foreach($values as $value){
+            $characters=preg_match_all('/./us',$value);$extra=preg_match_all('/[\x{10000}-\x{10FFFF}]/u',$value);
+            if($characters===false||$extra===false||$characters+$extra>320)return false;
+        }
+        return true;
+    }
     private static function hash($value): bool {return is_string($value)&&(bool)preg_match('/^[a-f0-9]{64}$/D',$value);}
     private static function uuid($value): bool {return is_string($value)&&(bool)preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D',$value);}
     private static function positive($value): bool {return is_int($value)&&$value>0&&$value<=self::SAFE;}
@@ -258,7 +294,7 @@ final class DesktopDashboardWorkspaceDeltaCodec
             if(is_array($item)){if(!self::list($item))ksort($item,SORT_STRING);foreach($item as &$child)$child=$sort($child,$depth+1);unset($child);return $item;}
             self::need($item===null||is_string($item)||is_int($item)||is_bool($item));return $item;
         };
-        return json_encode($sort($value),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+        return json_encode($sort($value),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_LINE_TERMINATORS|JSON_THROW_ON_ERROR);
     }
     private static function need(bool $value): void {abort_unless($value,422,'وصف مزامنة مساحة عمل الجهاز غير صالح؛ البيانات المحفوظة لم تتغير.');}
 }
