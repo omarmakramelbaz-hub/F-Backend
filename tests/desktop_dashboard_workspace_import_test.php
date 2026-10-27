@@ -2,6 +2,8 @@
 // Pure trust-boundary tests. SQL/FK/media execution is covered by the runtime fixture, not these stubs.
 namespace Illuminate\Support\Facades {
     class DB {
+        public static int $level=0;public static function transactionLevel(){return self::$level;}
+        public static function transaction($work){self::$level++;try{return $work();}finally{self::$level--;}}
         public static function connection(){return new class {function getConfig($key){return '127.0.0.1';}function getDatabaseName(){return 'fasakhansta_dashboard_stage_0123456789abcdef';}};}
         public static function table($name){return new class($name){function __construct(private string $name){}function where(...$args){return $this;}function count(){return 0;}function exists(){return $this->name==='users';}};}
     }
@@ -12,13 +14,15 @@ namespace App\Services\Dashboard {
     class DesktopDashboardImport {
         public static int $imports=0;
         public function import(array $snapshot,?array $hashes=null):array{
-            $this->validateImportMetadata($snapshot);$this->validateBaseBranches($snapshot['branches']);
+            $this->validateImportMetadata($snapshot);$this->validateBaseBranches($snapshot['branches']);$this->assertPrincipalRows($snapshot['tables']['users']['rows'],$snapshot);$this->validateCatalogEnvelope($snapshot,$snapshot['branches']);
             \abort_unless($snapshot['source']===\source(),409);$schema=[];
             foreach($snapshot['tables'] as $table=>$part){\abort_unless($part['sha256']===($hashes[$table]??hash('sha256',DesktopDashboardBootstrap::json($part['rows']))),422);$schema[$table]=hash('sha256',$part['ddl']);}
             ksort($schema);\abort_unless($snapshot['schema_hash']===hash('sha256',DesktopDashboardBootstrap::json($schema)),422);self::$imports++;
+            if($snapshot['coverage']['catalog_scopes']===1)$this->restoreCatalogSnapshot($snapshot);
             return array_intersect_key($snapshot,array_flip(['snapshot_id','device_id','actor_id','branches','source','schema_hash','coverage']))+['format'=>1,'tables'=>count($snapshot['tables']),'rows'=>count($snapshot['tables']['users']['rows']),'table_rows'=>['users'=>count($snapshot['tables']['users']['rows'])],'media'=>[]];
         }
-        public function verify(array $receipt,?array $seal=null):array{$this->validateVerifyMetadata($receipt);$this->assertReplayHistory($receipt);return $receipt+['verified'=>true];}
+        public function verify(array $receipt,?array $seal=null):array{$this->validateVerifyMetadata($receipt);if($receipt['coverage']['catalog_scopes']===1)$this->verifyCatalogReceipt($receipt);$this->assertReplayHistory($receipt);return $receipt+['verified'=>true];}
+        protected function validateCatalogEnvelope(array $snapshot,array $base):void{\abort_unless($snapshot['created_scopes']===[]&&$base===$snapshot['branches'],422);}
         protected static function validationMetadata(array $snapshot,array $keys,array $containers=[]):array{return array_intersect_key($snapshot,array_flip($keys));}
     }
     class DesktopDashboardWorkspaceLocalAuthority {
@@ -28,12 +32,18 @@ namespace App\Services\Dashboard {
         public function verifyImport($receipt,$expected):array{\abort_unless($receipt['manifest_sha256']===hash('sha256',DesktopDashboardWorkspaceAuthority::canonical($this->manifest))&&$expected['revision']===$this->manifest['revision'],422);return $this->manifest;}
     }
     class DesktopDashboardPrintLedger {public function bind($device):void{\check(isset($GLOBALS['installed_context'])&&$GLOBALS['installed_context']['snapshot']['workspace_id']===$device,'Print binding preceded verified local authority.');}}
+    class DesktopDashboardWorkspaceCreatedScopes {
+        public array $formats=[];public bool $restored=false;
+        public function validateSnapshotCatalog($snapshot,$manifest):void{$this->formats[]=$snapshot['format'];\abort_unless($snapshot['format']===2&&$snapshot['kind']==='initial-workspace-data'&&$snapshot['device_id']===$manifest['workspace_id'],422);}
+        public function restoreWorkspace($snapshot,DesktopDashboardWorkspaceImportProvenance $proof):void{$proof->assertVerified();\check(\Illuminate\Support\Facades\DB::transactionLevel()>0&&isset($GLOBALS['installed_context'])&&$snapshot['format']===2,'Catalog restore ran before verified local authority or used internal v1 header.');$this->restored=true;}
+        public function verifyWorkspaceCatalog($receipt,$root):void{\check($this->restored&&$receipt['workspace']['root_fingerprint']===$root,'Catalog receipt verification lost the physical root.');}
+    }
 }
 namespace {
     function abort_unless($condition,$status,$message=''){if(!$condition)throw new RuntimeException('FIXED_'.$status);}
     function abort_if($condition,$status,$message=''){abort_unless(!$condition,$status,$message);}
     function config($key){return $key==='desktop_dashboard.device_id'?'11111111-1111-4111-8111-111111111111':true;}
-    function app($class){if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)return $GLOBALS['authority'];if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class)return $GLOBALS['localAuthority'];if($class===\App\Services\Dashboard\DesktopDashboardPrintLedger::class)return new $class;throw new RuntimeException('Unexpected synthetic service.');}
+    function app($class){if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)return $GLOBALS['authority'];if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class)return $GLOBALS['localAuthority'];if($class===\App\Services\Dashboard\DesktopDashboardWorkspaceCreatedScopes::class)return $GLOBALS['catalog'];if($class===\App\Services\Dashboard\DesktopDashboardPrintLedger::class)return new $class;throw new RuntimeException('Unexpected synthetic service.');}
     function source():array{return ['format'=>1,'files'=>1,'framework'=>'8.83.29','sha256'=>str_repeat('f',64)];}
     function check($condition,$message){if(!$condition)throw new RuntimeException($message);}
     function refused(callable $work):void{try{$work();}catch(Throwable $error){return;}throw new RuntimeException('Invalid workspace import was accepted.');}
@@ -45,7 +55,7 @@ namespace {
     require __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceImport.php';
     use App\Services\Dashboard\{DesktopDashboardWorkspaceAuthority as Authority,DesktopDashboardWorkspaceImport as Import,DesktopDashboardImport as Legacy};
     function environment():array{
-        putenv('DESKTOP_DASHBOARD_LOCAL=true');putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL=true');$GLOBALS['authority']=new Authority;$GLOBALS['localAuthority']=new \App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority;
+        putenv('DESKTOP_DASHBOARD_LOCAL=true');putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL=true');$GLOBALS['authority']=new Authority;$GLOBALS['localAuthority']=new \App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority;$GLOBALS['catalog']=new \App\Services\Dashboard\DesktopDashboardWorkspaceCreatedScopes;
         $manifest=json_decode(file_get_contents(__DIR__.'/fixtures/desktop-workspace-delta-codec-v2.json'),true,64,JSON_THROW_ON_ERROR)['manifest'];
         $a=password_hash('synthetic-A',PASSWORD_BCRYPT,['cost'=>4]);$b=password_hash('synthetic-B',PASSWORD_BCRYPT,['cost'=>4]);
         $manifest['members'][0]['password_binding']=hash('sha256',$a);$manifest['members'][1]['password_binding']=hash('sha256',$b);
@@ -69,6 +79,22 @@ namespace {
         check($import->verifyWorkspace($receipt,$expected)['verified']===true,'Independent workspace receipt verification failed.');};
     $cases['native-expectations-cannot-be-replaced-by-snapshot-fields']=function(){foreach(['workspace_id','root_fingerprint','revision','roster_sha256','manifest_sha256','token_hash'] as $key){[$import,$snapshot,$expected]=environment();
         $expected[$key]=$key==='revision'?2:($key==='workspace_id'?'33333333-3333-4333-8333-333333333333':str_repeat('b',64));refused(fn()=>$import->importWorkspace($snapshot,$expected));check(Legacy::$imports===0,'Mismatched native expectation reached SQL.');}};
+    $cases['catalog-validation-retains-v2-envelope-through-internal-v1-SQL-engine']=function(){[$import,$snapshot,$expected]=environment();
+        $snapshot['coverage']['catalog_scopes']=1;$snapshot['coverage']['catalog_grants_sha256']=hash('sha256','[]');
+        $snapshot['coverage']['catalog_structural_branches']=$snapshot['branches'];
+        foreach(['base_branches_sha256','catalog_branches_sha256'] as $key)$snapshot['coverage'][$key]=hash('sha256',\App\Services\Dashboard\DesktopDashboardBootstrap::json($snapshot['branches']));
+        $receipt=$import->importWorkspace($snapshot,$expected);
+        check($GLOBALS['catalog']->formats===[2,2]&&$GLOBALS['catalog']->restored,'Strict catalog validator received the converted legacy header.');
+        check($import->verifyWorkspace($receipt,$expected)['verified']===true,'Catalog protocol-two receipt failed separate verification.');};
+    $cases['absent-nonmember-custodian-is-audit-only-with-no-synthesized-user']=function(){[$import,$snapshot,$expected]=environment();
+        $snapshot['actor_id']=404;$snapshot['workspace_enrollment']['custodian_actor_id']=404;
+        $root=(object)$snapshot['workspace_enrollment'];$root->id=$root->workspace_id;
+        $fingerprint=$GLOBALS['authority']->rootFingerprint($root);$snapshot['workspace_manifest']['root_fingerprint']=$fingerprint;
+        $snapshot['coverage']['root_fingerprint']=$fingerprint;$expected['root_fingerprint']=$fingerprint;
+        $expected['manifest_sha256']=hash('sha256',Authority::canonical($snapshot['workspace_manifest']));
+        $before=$snapshot['tables']['users']['rows'];$receipt=$import->importWorkspace($snapshot,$expected);
+        check($receipt['actor_id']===404&&$import->verifyWorkspace($receipt,$expected)['verified']===true,'Deleted custodian prevented valid members from importing.');
+        check($before===$snapshot['tables']['users']['rows']&&!in_array(404,array_column($before,'id'),true),'Deleted custody user was fabricated or rebound.');};
     $cases['compound-root-custody-date-and-nonce-are-bound']=function(){foreach(['custodian_actor_id','enrollment_hash','enrolled_at'] as $key){[$import,$snapshot,$expected]=environment();$snapshot['workspace_enrollment'][$key]=$key==='custodian_actor_id'?101:($key==='enrolled_at'?'2026-10-28 12:00:00':str_repeat('e',64));refused(fn()=>$import->importWorkspace($snapshot,$expected));check(Legacy::$imports===0,'Changed physical custody root reached SQL.');}};
     $cases['member-B-hash-plaintext-role-removal-and-nonmember-verifier-refused']=function(){foreach(['hash','plaintext','role','missing','foreign'] as $change){[$import,$snapshot,$expected]=environment();$rows=&$snapshot['tables']['users']['rows'];
         if($change==='hash')$rows[1]['password']=password_hash('wrong-B',PASSWORD_BCRYPT,['cost'=>4]);elseif($change==='plaintext')$rows[1]['password']='PRIVATE password';elseif($change==='role')$rows[1]['account_type']='admin';elseif($change==='missing')array_splice($rows,1,1);else $rows[2]['password']=password_hash('foreign',PASSWORD_BCRYPT,['cost'=>4]);

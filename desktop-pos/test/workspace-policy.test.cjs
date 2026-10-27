@@ -4,8 +4,9 @@ const policy = require('../src/workspace-policy.cjs');
 
 test('the workspace installer gate cannot be enabled by renderer/env/cached booleans and does no optional startup verification', async () => {
   let invoked = false;
-  assert.equal(policy.available(), false);
-  assert.equal(await policy.accepted(async () => { invoked = true; return { protocol: 2, enabled: true, verified: true }; }), false);
+  const disabled = compiled(null);
+  assert.equal(disabled.available(), false);
+  assert.equal(await disabled.accepted(async () => { invoked = true; return { protocol: 2, enabled: true, verified: true }; }), false);
   assert.equal(invoked, false);
 });
 
@@ -19,7 +20,9 @@ test('all five fixed group entrypoints must have verified manifest hashes before
 
 test('the actual main-process workspace factory is a side-effect-free null while the immutable acceptance policy is absent', async () => {
   let called = false;
-  const result = await require('../src/workspace-native.cjs').createWorkspaceNative({
+  const file=path.join(__dirname,'../src/workspace-native.cjs'),module={exports:{}},localRequire=createRequire(file);
+  vm.runInNewContext(syncFs.readFileSync(file,'utf8'),{module,require:name=>name==='./workspace-policy.cjs'?compiled(null):localRequire(name),process,Buffer,AbortController,AbortSignal});
+  const result = await module.exports.createWorkspaceNative({
     verifyRuntimePolicy: async () => { called = true; throw Error('Optional source verification must not hold the normal login.'); },
     ownRuntime() { throw Error('No children may be owned while disabled.'); }
   });
@@ -33,8 +36,8 @@ const policyId = 'historical-baseline-v2-native-close-reopen-program-contract-sh
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 function compiled(contractSha) {
   const file = path.join(__dirname, '../src/workspace-policy.cjs'), module = { exports: {} }, localRequire = createRequire(file);
-  const code = syncFs.readFileSync(file, 'utf8').replace('const ACCEPTED_POLICY = null;', 'const ACCEPTED_POLICY = ' + JSON.stringify(policyId) + ';')
-    .replace('const ACCEPTED_CONTRACT_SHA256 = null;', 'const ACCEPTED_CONTRACT_SHA256 = ' + JSON.stringify(contractSha) + ';');
+  const code = syncFs.readFileSync(file, 'utf8').replace(/^const ACCEPTED_POLICY = .*;$/m, 'const ACCEPTED_POLICY = ' + JSON.stringify(contractSha === null ? null : policyId) + ';')
+    .replace(/^const ACCEPTED_CONTRACT_SHA256 = .*;$/m, 'const ACCEPTED_CONTRACT_SHA256 = ' + JSON.stringify(contractSha) + ';');
   vm.runInNewContext(code, { module, require: localRequire, process, Buffer, TextDecoder, Object, JSON, Error, BigInt }); return module.exports;
 }
 async function bundleFixture(t, rawTransform = value => canonical(value) + '\n') {

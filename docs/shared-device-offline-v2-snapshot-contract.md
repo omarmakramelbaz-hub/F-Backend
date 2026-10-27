@@ -8,7 +8,7 @@ interfaces do not alter protocol-one imports, table digests or financial rules.
 The initial payload has `format:2`, `kind:initial-workspace-data` and the
 original top-level `tables`, source, schema, media and coverage fields.
 `device_id` is the immutable physical workspace UUID. `actor_id` is the
-initiating custodian for the physical ledger's audit FK; it is never reassigned
+initiating custodian for the physical ledger's audit identity; it is never reassigned
 to the account opening the application.
 
 `workspace_manifest` is the authority's complete signed member manifest.
@@ -27,7 +27,9 @@ original query/FK policy. Notifications and permission pivots cover all members.
 Only current members retain valid password verifiers; each must match its signed
 `password_binding`. Other credential columns and nested secrets use the
 original redactor. Custody and retired-creator audit rows do not grant media or
-business access. Their verifiers remain disabled.
+business access. Their verifiers remain disabled. An already deleted nonmember
+custodian is retained only as immutable metadata; the importer never fabricates
+a user row.
 
 ## Native expectations and import
 
@@ -80,6 +82,14 @@ command UUID plus its exact immutable sidecar MAC. Retired actors' accepted
 history is not filtered by the current roster. Reconstructed receipts retain
 separate `delta_source_identity` and `delta_source_binding`; target membership
 cannot substitute for the independently pinned source membership.
+
+The private capture also commits a bounded catalog count/digest against the
+same root, source snapshot/schema and physical sequence. The digest uses the
+exact public `descriptor`/`creation` wire-array bytes, shared with server
+coverage. Native compares the exact raw `created_scopes` JSON slice, preserving
+tokens such as `1.0` and large integers. An unchanged nonempty catalog therefore
+does not cause another import or Registry pointer write. Private ciphertext,
+import provenance and fresh media tickets do not change this public digest.
 
 Full verification creates a private `desktop-workspace-preverified-handoff`
 proof before the active write fence. `workspace-archive.php` accepts exactly

@@ -45,7 +45,7 @@ class DesktopDashboardImport
         }
         ksort($schema);abort_unless(hash_equals($snapshot['schema_hash'],hash('sha256',DesktopDashboardBootstrap::json($schema))),422,'بصمة مخطط التجهيز مختلفة.');
         $users=$snapshot['tables']['users']['rows']??[];
-        abort_unless(count(array_filter($users,fn($row)=>(int)($row['id']??0)===(int)$snapshot['actor_id']))===1,422,'بيانات حساب مستخدم الجهاز مفقودة أو مكررة.');
+        $this->assertPrincipalRows($users,$snapshot);
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         try{
             foreach($snapshot['tables'] as $part)DB::unprepared($part['ddl']);
@@ -117,6 +117,10 @@ class DesktopDashboardImport
                 &&hash_equals($snapshot['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($base)))
                 &&hash_equals($snapshot['coverage']['catalog_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['branches']))),422,'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.');
         }else abort_unless($base===$snapshot['branches']&&empty($snapshot['created_scopes']),422,'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.');
+    }
+    protected function assertPrincipalRows(array $users,array $snapshot): void
+    {
+        abort_unless(count(array_filter($users,fn($row)=>(int)($row['id']??0)===(int)$snapshot['actor_id']))===1,422,'بيانات حساب مستخدم الجهاز مفقودة أو مكررة.');
     }
     protected function restoreCatalogSnapshot(array $snapshot): void
     {

@@ -21,8 +21,9 @@ final class DesktopDashboardWorkspaceData
             $ids[]=$id;$branches=array_merge($branches,$member['branches']);
             // Select a real validated administrator if one is present. The
             // enrolling custodian is audit information, never an authority proxy.
-            if($chosen===null||(!$all&&$member['permissions']['super_admin']))$chosen=$actor;
-            $all=$all||$member['permissions']['super_admin'];
+            $global=!$all&&$member['permissions']['super_admin']&&$this->legacy->allAdministration($actor);
+            if($chosen===null||$global)$chosen=$actor;
+            $all=$all||$global;
             if($actor->account_type==='admin'&&empty($actor->owner_resturant_id)
                 &&array_intersect(['contract-list','contract-edit'],$member['permissions']['names']))$contracts=true;
             if($actor->account_type==='admin'&&empty($actor->owner_resturant_id)

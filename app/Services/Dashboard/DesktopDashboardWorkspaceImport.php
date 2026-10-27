@@ -140,11 +140,24 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
     }
 
     /** Empty financial branch union is valid only after typed workspace preflight. */
+    protected function assertPrincipalRows(array $users,array $snapshot): void
+    {
+        self::need($this->verifiedContext!==null);$counts=[];
+        foreach($users as $row){$id=(int)($row['id']??0);$counts[$id]=($counts[$id]??0)+1;}
+        foreach($this->verifiedContext['manifest']['members'] as $member)self::need(($counts[$member['actor_id']]??0)===1);
+        // An absent/retired custodian is audit metadata, never a fabricated
+        // authentication principal. Actual members were hash-verified before DDL.
+    }
     protected function validateCatalogEnvelope(array $snapshot,array $base): void
     {
         self::need($this->verifiedContext!==null&&$base===$snapshot['branches']);
-        if(($snapshot['coverage']['catalog_scopes']??null)===1)
-            app(DesktopDashboardWorkspaceCreatedScopes::class)->validateSnapshotCatalog($snapshot,$this->verifiedContext['manifest']);
+        if(($snapshot['coverage']['catalog_scopes']??null)===1){
+            // The original engine receives an internal v1 header only to reuse
+            // its SQL/FK importer. Restore the already-preflighted workspace
+            // envelope for the strict group catalog validator.
+            $workspace=$snapshot;$workspace['format']=2;$workspace['kind']='initial-workspace-data';
+            app(DesktopDashboardWorkspaceCreatedScopes::class)->validateSnapshotCatalog($workspace,$this->verifiedContext['manifest']);
+        }
         else parent::validateCatalogEnvelope($snapshot,$base);
     }
     protected function restoreCatalogSnapshot(array $snapshot): void
@@ -186,7 +199,9 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
     protected function assertReplayHistory(array $receipt): void
     {
         self::need($this->verifiedContext!==null);
-        abort_unless(DB::table('desktop_dashboard_commands')->count()===0&&DB::table('users')->where('id',$receipt['actor_id'])->exists()
+        // verifyWorkspace already checks every actual member and verifier via
+        // LocalAuthority. Historical custody need not have a current users row.
+        abort_unless(DB::table('desktop_dashboard_commands')->count()===0
             &&!DB::table('desktop_dashboard_archived_commands')->where('device_id','<>',$receipt['device_id'])->exists(),409);
         // Empty initial staging imports need no historical proof. Refreshes
         // retain every actor and validate immutable captured command authority.

@@ -44,12 +44,33 @@ class DesktopDashboardWorkspaceReadAuthorityTest extends TestCase
         Schema::create('go_stores',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id')->unique();$t->string('name');$t->timestamps();});
         Schema::create('resturant_products',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->unsignedBigInteger('product_id')->nullable();});
         Schema::create('resturant_areas',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->unsignedBigInteger('area_id')->nullable();});
+        // The real user Blade calls the cancellation-count accessor, whose OrderScope
+        // reads these columns even though this suite does not create business orders.
+        Schema::create('orders',function(Blueprint $t){
+            $t->id();$t->unsignedBigInteger('user_id');$t->unsignedBigInteger('resturant_id');
+            $t->string('type')->default('current');$t->boolean('shipping_cancelled_block')->nullable();$t->timestamps();
+        });
         Schema::create('pending_vendors',function(Blueprint $t){$t->id();$t->string('full_name');$t->string('mobile');$t->string('email');$t->string('type');$t->string('status');$t->timestamps();});
         Schema::create('media',function(Blueprint $t){$t->id();$t->string('model_type');$t->unsignedBigInteger('model_id');$t->string('collection_name');$t->unsignedInteger('order_column')->nullable();});
         Schema::create('advertisings',function(Blueprint $t){$t->id();$t->unsignedBigInteger('resturant_id');$t->string('name')->nullable();$t->timestamps();});
         Schema::create('wallets',function(Blueprint $t){$t->id();$t->unsignedBigInteger('from_user')->nullable();$t->unsignedBigInteger('to_user')->nullable();$t->string('type');$t->string('payment');$t->string('status');$t->decimal('amount',15,2);$t->timestamps();});
         Schema::create('crm_customers',function(Blueprint $t){$t->id();$t->string('name');$t->string('phone_key');$t->boolean('service_consent')->default(false);$t->boolean('marketing_consent')->default(false);$t->timestamp('opted_out_at')->nullable();$t->timestamps();});
         Schema::create('crm_customer_sources',function(Blueprint $t){$t->id();$t->unsignedBigInteger('customer_id');$t->string('branch');$t->string('channel');});
+        // BranchOperations deliberately requires both production prerequisites for
+        // customer reads too. Keep that readiness check active in the HTTP fixture.
+        Schema::create('branch_operation_commands',function(Blueprint $t){
+            $t->id();$t->string('branch',30);$t->unsignedBigInteger('actor_id');$t->uuid('request_key');
+            $t->string('request_hash',64);$t->string('kind',40);$t->longText('result');$t->timestamps();
+            $t->unique(['branch','actor_id','request_key'],'branch_operation_request_unique');
+        });
+        Schema::create('branch_payrolls',function(Blueprint $t){
+            $t->id();$t->string('branch',30);$t->unsignedBigInteger('employee_id');$t->string('month',7);
+            $t->bigInteger('net_cents');$t->longText('snapshot');$t->string('status',20)->default('closed');
+            $t->unsignedInteger('revision')->default(1);$t->unsignedBigInteger('actor_id');
+            $t->timestamp('paid_at')->nullable();$t->unsignedBigInteger('paid_by')->nullable();
+            $t->string('payment_method',30)->nullable();$t->string('payment_reference',150)->nullable();
+            $t->timestamps();$t->unique(['employee_id','month']);$t->index(['branch','month']);
+        });
         foreach(['2022_08_05_174522_create_permission_tables.php'=>'CreatePermissionTables',
             '2026_10_08_130000_create_desktop_dashboard_journal.php'=>'CreateDesktopDashboardJournal',
             '2026_10_08_160000_create_desktop_dashboard_local_state.php'=>'CreateDesktopDashboardLocalState',
@@ -114,7 +135,15 @@ class DesktopDashboardWorkspaceReadAuthorityTest extends TestCase
         // SQLite has no SET TRANSACTION READ ONLY. All other actual HTTP middleware remains active.
         if($this->connection==='sqlite')$this->withoutMiddleware(\App\Http\Middleware\DesktopDashboardJournal::class);
         app('view')->getFinder()->prependLocation(base_path('tests/fixtures/workspace-read-views'));
-        $this->app->instance(GeneralSettings::class,(new \ReflectionClass(GeneralSettings::class))->newInstanceWithoutConstructor());
+        // Keep the actual page and error Blades: their typed settings must be
+        // initialized even when the unrelated persistent settings store is omitted.
+        $settingsClass=new \ReflectionClass(GeneralSettings::class);
+        $settings=$settingsClass->newInstanceWithoutConstructor();
+        foreach($settingsClass->getProperties(\ReflectionProperty::IS_PUBLIC)as$property)
+            if(!$property->isStatic()&&$property->getDeclaringClass()->getName()===GeneralSettings::class)
+                $property->setValue($settings,$property->getType()?->getName()==='bool'?true:'');
+        $settings->site_name='Workspace read fixture';$settings->shipping_cancelled_block_no='5';
+        $this->app->instance(GeneralSettings::class,$settings);
     }
 
     protected function tearDown(): void
@@ -127,7 +156,8 @@ class DesktopDashboardWorkspaceReadAuthorityTest extends TestCase
         Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_workspace_command_authorities','desktop_dashboard_workspace_local_authority_history',
             'desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority','desktop_dashboard_refreshes','desktop_dashboard_local_state',
             'desktop_dashboard_workspace_members','desktop_dashboard_workspace_manifests','desktop_dashboard_workspaces','desktop_dashboard_entities','desktop_dashboard_commands','desktop_dashboard_devices',
-            'role_has_permissions','model_has_roles','model_has_permissions','roles','permissions','crm_customer_sources','crm_customers','wallets','advertisings','media','pending_vendors','resturant_areas','resturant_products','go_stores','resturants','users']as$table)Schema::dropIfExists($table);
+            'role_has_permissions','model_has_roles','model_has_permissions','roles','permissions','branch_payrolls','branch_operation_commands',
+            'crm_customer_sources','crm_customers','wallets','advertisings','media','pending_vendors','orders','resturant_areas','resturant_products','go_stores','resturants','users']as$table)Schema::dropIfExists($table);
         Schema::enableForeignKeyConstraints();
     }
     private function actor(int$id):User{return User::withoutGlobalScopes()->findOrFail($id);}
@@ -135,7 +165,8 @@ class DesktopDashboardWorkspaceReadAuthorityTest extends TestCase
     private function signIn(int$id):void{$this->actingAs($this->actor($id),'admin');}
     private function forbidden(string$url,array$headers=[]):void
     {
-        $response=$this->withHeaders($headers)->get($url);$this->assertContains($response->status(),[403,404]);
+        $response=$this->withHeaders($headers)->get($url);
+        $this->assertContains($response->status(),[403,404],$url.' HTTP '.$response->status().': '.substr($response->getContent(),0,8000));
         foreach(['OWNER_PRIVATE_SENTINEL','owner-secret@example.test','987654.32','FOREIGN_APPLICATION_SENTINEL','876543.21']as$secret)$response->assertDontSee($secret,false);
     }
 
@@ -211,7 +242,8 @@ class DesktopDashboardWorkspaceReadAuthorityTest extends TestCase
     {
         $this->signIn(10);
         $this->get('/admin/roles')->assertOk()->assertSee('GLOBAL_ROLE_CATALOG_ONE')->assertSee('GLOBAL_ROLE_CATALOG_TWO');
-        $response=$this->getJson('/admin/customers/data?branch=f:100')->assertOk();
+        $response=$this->getJson('/admin/customers/data?branch=f:100');
+        $this->assertSame(200,$response->status(),substr($response->getContent(),0,8000));
         $items=collect($response->json('items'))->keyBy('id');
         $this->assertSame('GLOBAL_DIRECTORY_SENTINEL',$items[1]['name']);
         $this->assertFalse($items[1]['can_edit_profile']);

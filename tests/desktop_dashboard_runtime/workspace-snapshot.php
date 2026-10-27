@@ -11,7 +11,7 @@ $password=getenv('DESKTOP_WORKSPACE_TEST_DB_PASSWORD')?:'';
 $profile=sys_get_temp_dir().'/desktop-workspace-snapshot-'.bin2hex(random_bytes(8));
 foreach(['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private'] as $dir)mkdir($profile.'/'.$dir,0700,true);
 $names=['source'=>'desktop_workspace_test_'.bin2hex(random_bytes(8))];
-foreach(['stage','retired','zero','reject'] as $name)$names[$name]='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
+foreach(['stage','retired','missing','zero','reject'] as $name)$names[$name]='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
 $pdo=new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4','root',$password,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 foreach($names as $name)$pdo->exec('CREATE DATABASE `'.$name.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 $completed=false;$checks=0;
@@ -115,6 +115,62 @@ $retiredWire=Json::json($retired);$retiredHashes=DesktopSnapshotRowHashes::fromJ
 $switch($names['retired'],true);$retiredReceipt=app(Import::class)->importWorkspace($retired,$retiredExpected,$retiredHashes);
 $check(app(Import::class)->verifyWorkspace($retiredReceipt,$retiredExpected)['verified']===true,'real shared import/print binding accepts an audit-only disabled original preparer');
 $check(app(LocalAuthority::class)->scopeForActor(11)->actor_id===11,'B keeps its actual scope after the original preparer is retired');
+// Create legitimate A-owned catalog evidence, then delete its target and A
+// without breaking a production FK. Its immutable receipt remains audit data.
+$switch($names['source'],false);DB::table('users')->where('id',10)->update(['status'=>'accepted','account_type'=>'admin']);
+foreach(['resturant-list','resturant-create','resturant-edit'] as $permission){
+    $permissionId=DB::table('permissions')->where('name',$permission)->where('guard_name','admin')->value('id');
+    if(!$permissionId)$permissionId=DB::table('permissions')->insertGetId(['name'=>$permission,'guard_name'=>'admin']);
+    DB::table('model_has_permissions')->insert(['model_type'=>User::class,'model_id'=>10,'permission_id'=>$permissionId]);
+}
+app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+$creatorManifest=app(Authority::class)->manifest($root);$creatorMember=array_column($creatorManifest['members'],null,'actor_id')[10];
+$creatorScope=app(Authority::class)->scope($root,10,$creatorMember['grant'],$creatorManifest['revision']);
+require_once $application.'/database/migrations/2026_10_27_030010_create_workspace_command_authorities.php';(new CreateWorkspaceCommandAuthorities)->up();
+$catalogCommand=(string)\Illuminate\Support\Str::uuid();$catalogPayload=['parameters'=>[],'values'=>['idempotency_key'=>$catalogCommand],'files'=>[],'facts'=>[]];
+$catalogResult=\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::run($creatorScope,
+    fn()=>app(\App\Services\Dashboard\DesktopDashboardJournal::class)->execute($id,$catalogCommand,10,'go-stores.store',$catalogPayload,[],function()use($catalogCommand){
+        DB::table('users')->insert(['id'=>1000,'added_by'=>10,'name'=>'Audit store owner','email'=>'audit-store@test.invalid','mobile'=>'1100001000',
+            'password'=>password_hash('Audit-store-fixture',PASSWORD_BCRYPT,['cost'=>4]),'account_type'=>'vendor','app_scope'=>'go_partner','status'=>'accepted',
+            'balance'=>0,'created_at'=>'2026-10-27 09:00:00','updated_at'=>'2026-10-27 09:00:00']);
+        DB::table('go_stores')->insert(['user_id'=>1000,'name'=>'Audit store','kind'=>'supermarket','address'=>'Fixture address','revision'=>1,
+            'created_at'=>'2026-10-27 09:00:00','updated_at'=>'2026-10-27 09:00:00']);
+        return ['http'=>['status'=>302,'content'=>'','type'=>'text/html','location'=>'/admin/go-stores/1000'],'success'=>'created',
+            'after'=>['owner'=>(array)DB::table('users')->where('id',1000)->first(['id','added_by','name','mobile','email','account_type','app_scope','status','balance','delegate_fees','created_at','updated_at','email_verified_at','pending_vendor_id','owner_resturant_id']),
+                'profile'=>(array)DB::table('go_stores')->where('user_id',1000)->first(['user_id','name','kind','address','revision','created_at','updated_at'])],
+            'references'=>['menu_store_owner'=>1000,'wallet_account'=>1000,'dashboard_user'=>1000],
+            'created_scope'=>['kind'=>'gs','entity'=>'menu_store_owner','id'=>1000,'command_id'=>$catalogCommand]];
+    }));
+$catalog=app(\App\Services\Dashboard\DesktopDashboardWorkspaceCreatedScopes::class);
+DB::transaction(fn()=>$catalog->captureCentral($creatorScope,
+    ['route_name'=>'go-stores.store','command_id'=>$catalogCommand,'local_result'=>$catalogResult,'local_references'=>$catalogResult['references']],
+    $catalogPayload,$catalogResult,$catalogResult['references']));
+DB::transaction(fn()=>$catalog->catalog($creatorScope,'gs:1000',$creatorScope->actor()));
+$check(DB::table('desktop_dashboard_created_scopes')->count()===1
+    &&DB::table('desktop_dashboard_workspace_command_authorities')->where('command_id',$catalogCommand)->value('actor_id')==10,
+    'actual creator A catalog receipt retains the original accepted command authority');
+DB::table('go_stores')->where('user_id',1000)->update(['created_at'=>'2021-01-01 00:00:00']);
+$reject(fn()=>DB::transaction(fn()=>$catalog->catalog($creatorScope,'gs:1000',$creatorScope->actor())),'current catalog access still validates the real target identity and timestamp');
+DB::table('go_stores')->where('user_id',1000)->update(['created_at'=>'2026-10-27 09:00:00']);
+$currentB=app(Authority::class)->scope($root,11,array_column($creatorManifest['members'],null,'actor_id')[11]['grant'],$creatorManifest['revision']);
+$reject(fn()=>DB::transaction(fn()=>$catalog->catalog($currentB,'gs:1000',$currentB->actor())),'shared catalog history does not add catalog permissions to B');
+DB::table('go_stores')->where('user_id',1000)->delete();DB::table('users')->where('id',1000)->delete();
+DB::table('resturants')->where('user_id',10)->update(['user_id'=>11]);DB::table('users')->where('id',10)->delete();
+$missing=app(Bootstrap::class)->export($root);$missingRows=array_column($missing['tables']['users']['rows'],null,'id');
+$check($missing['actor_id']===10&&!isset($missingRows[10])&&count($missing['created_scopes'])===1
+    &&$missing['created_scopes'][0]['descriptor']['actor_id']===10,'deleted creator and custodian stays audit-only without a synthesized user');
+$check($missing['workspace_manifest']['root_fingerprint']===$expected['root_fingerprint'],'deleting A cannot rewrite the physical root fingerprint');
+$missingExpected=['workspace_id'=>$id,'root_fingerprint'=>$missing['workspace_manifest']['root_fingerprint'],'revision'=>$missing['workspace_manifest']['revision'],
+    'roster_sha256'=>$missing['workspace_manifest']['roster_sha256'],'manifest_sha256'=>hash('sha256',Authority::canonical($missing['workspace_manifest'])),'token_hash'=>hash('sha256',$link['token'])];
+$missingWire=Json::json($missing);$missingHashes=DesktopSnapshotRowHashes::fromJson($missingWire);$missing=json_decode($missingWire,true,512,JSON_THROW_ON_ERROR);unset($missingWire);
+$switch($names['missing'],true);$missingReceipt=app(Import::class)->importWorkspace($missing,$missingExpected,$missingHashes);
+$check(app(Import::class)->verifyWorkspace($missingReceipt,$missingExpected)['verified']===true
+    &&!DB::table('users')->where('id',10)->exists(),'actual shared import and native verification accept an absent nonmember custodian');
+$check(app(LocalAuthority::class)->scopeForActor(11)->actor_id===11&&DB::table('desktop_dashboard_created_scopes')->count()===1,
+    'B opens normally while original A creation history remains in the shared overlay');
+$switch($names['source'],false);$goneTerminal=$remote->settleWorkspace($root,$proofA,$attemptA);
+$check($goneTerminal['actor_id']===10&&$goneTerminal['status']==='cancelled'&&$goneTerminal['capability']===null,
+    'terminal bookkeeping validates historical A proof even after its user row is deleted');
 // A valid nonfinancial administrator may prepare without any branch ledger.
 $switch($names['source'],false);DB::table('users')->whereIn('id',[1,10,11])->update(['status'=>'disabled']);
 $zeroId=(string)\Illuminate\Support\Str::uuid();$zeroLink=app(Authority::class)->enroll(['device_id'=>$zeroId,'name'=>'Nonfinancial workspace','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(30));

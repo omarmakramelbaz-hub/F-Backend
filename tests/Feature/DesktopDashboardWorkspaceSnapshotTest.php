@@ -104,6 +104,18 @@ class DesktopDashboardWorkspaceSnapshotTest extends TestCase
         $this->assertSame([1,10,11,30],array_column($rows['notifications'],'notifiable_id'));
         $this->assertContains(20,array_column($rows['users'],'id'));
     }
+    public function test_vendor_super_admin_role_does_not_replace_the_original_global_administration_criteria(): void
+    {
+        DB::table('roles')->insert(['id'=>9,'name'=>'Super Admin','guard_name'=>'admin']);
+        DB::table('model_has_roles')->insert(['model_type'=>User::class,'model_id'=>10,'role_id'=>9]);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        [$manifest,$rows]=$this->selections($this->root());$members=array_column($manifest['members'],null,'actor_id');
+        $this->assertTrue($members[10]['permissions']['super_admin']);
+        $this->assertSame('vendor',$members[10]['role']);
+        $this->assertSame([10,11,30],array_column($rows['users'],'id'),'A vendor role shortcut suppressed the other current members.');
+        $this->assertSame([30],array_column($rows['model_has_permissions'],'model_id'));
+        $this->assertSame([1],array_column($rows['contracts'],'id'));
+    }
     public function test_audience_batches_actual_member_models_and_refreshes_status_and_password_facts(): void
     {
         $root=$this->root();$armed=false;$hydrations=[];
