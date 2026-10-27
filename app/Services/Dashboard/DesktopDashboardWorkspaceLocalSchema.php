@@ -30,7 +30,7 @@ final class DesktopDashboardWorkspaceLocalSchema
             $t->unsignedBigInteger('manifest_revision'); $t->longText('member_json'); $t->char('local_mac',64); $t->timestamps();
             $t->primary(['workspace_id','actor_id'],'desktop_workspace_local_member_primary');
         });
-        if (!Schema::hasTable('desktop_dashboard_workspace_local_authority_history')) Schema::create('desktop_dashboard_workspace_local_authority_history',function(Blueprint $t) {
+        if (!Schema::hasTable('desktop_dashboard_ws_authority_history')) Schema::create('desktop_dashboard_ws_authority_history',function(Blueprint $t) {
             $t->engine='InnoDB'; $t->uuid('workspace_id'); $t->char('record_sha256',64);
             $t->longText('record_json'); $t->longText('manifest_json'); $t->char('local_mac',64); $t->timestamps();
             $t->primary(['workspace_id','record_sha256'],'desktop_workspace_local_history_primary');

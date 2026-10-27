@@ -189,6 +189,9 @@ function publicError(error) {
     const detail = cause.import;
     if (detail && /^[A-Za-z0-9_\\]{1,160}$/.test(detail.type || '') && /^[A-Za-z0-9_.-]{1,120}$/.test(detail.file || '')) {
       report.cause.import = { phase: detail.phase, type: detail.type, file: detail.file, line: detail.line, status: detail.status ?? null };
+      if (/^[A-Z0-9]{5}$/.test(detail.sql_state || '') && Number.isInteger(detail.driver_errno) && detail.driver_errno > 0 && detail.driver_errno <= 65535) {
+        report.cause.import.sql_state = detail.sql_state; report.cause.import.driver_errno = detail.driver_errno;
+      }
     }
   }
   return { report, sanitize };

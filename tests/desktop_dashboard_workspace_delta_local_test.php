@@ -196,7 +196,7 @@ function importer(FakeDatabase $db,array &$calls):callable {
         foreach($snapshot['tables'] as $name=>$part){$db->data[FINAL_DB][$name]=$part['rows'];$db->ddl[FINAL_DB][$name]=$part['ddl'];}
         foreach(['desktop_dashboard_commands','desktop_dashboard_entities','desktop_dashboard_devices','desktop_dashboard_refreshes','desktop_dashboard_archived_commands',
             'desktop_dashboard_media_manifest','desktop_dashboard_source_manifest','desktop_dashboard_workspace_local_authority','desktop_dashboard_workspace_local_members',
-            'desktop_dashboard_workspace_local_authority_history','desktop_dashboard_workspace_command_authorities'] as $name)$db->data[FINAL_DB][$name]=[];
+            'desktop_dashboard_ws_authority_history','desktop_dashboard_workspace_command_authorities'] as $name)$db->data[FINAL_DB][$name]=[];
         $db->data[FINAL_DB]['desktop_dashboard_local_state']=[['device_id'=>DEVICE,'actor_id'=>101,'snapshot_id'=>NEXT_SNAPSHOT,'state'=>'ready']];
         return ['format'=>2,'kind'=>'desktop-workspace-import-receipt','device_id'=>DEVICE,'actor_id'=>101,'snapshot_id'=>NEXT_SNAPSHOT,
             'source'=>$snapshot['source'],'coverage'=>$snapshot['coverage'],'workspace'=>workspace($snapshot['workspace_manifest']),

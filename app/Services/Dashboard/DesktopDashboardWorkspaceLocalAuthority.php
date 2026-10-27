@@ -85,7 +85,7 @@ final class DesktopDashboardWorkspaceLocalAuthority implements DesktopDashboardW
                     && $previous['manifest_revision']<=$record['manifest_revision'],409,'هوية صلاحيات النسخة المحلية تغيرت.');
                 if ($previous['manifest_revision']===$record['manifest_revision'])
                     abort_unless($previous['manifest_sha256']===$record['manifest_sha256'],409,'لا يمكن استبدال سجل عضوية بنفس النسخة.');
-                DB::table('desktop_dashboard_workspace_local_authority_history')->insertOrIgnore([
+                DB::table('desktop_dashboard_ws_authority_history')->insertOrIgnore([
                     'workspace_id'=>$root->id,'record_sha256'=>hash('sha256',$old->record_json),'record_json'=>$old->record_json,
                     'manifest_json'=>$old->manifest_json,'local_mac'=>$old->local_mac,'created_at'=>$now,'updated_at'=>$now]);
             }

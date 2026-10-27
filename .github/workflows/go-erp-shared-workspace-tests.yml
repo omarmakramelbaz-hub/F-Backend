@@ -87,6 +87,9 @@ jobs:
       - name: Verify shared remote attempt execution and historical terminal recovery
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: php tests/desktop_dashboard_workspace_remote_attempts_test.php
+      - name: Preserve original connected password role and identity updates
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' && matrix.database == 'mysql' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceConnectedUserUpdateTest.php
       - name: Verify shared workspace delta codec
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: php tests/desktop_dashboard_workspace_delta_codec_test.php

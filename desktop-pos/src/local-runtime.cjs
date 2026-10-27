@@ -138,6 +138,10 @@ async function run(file, args, options, input = '', timeout = 90000, outputLimit
               && (value.status === null || Number.isInteger(value.status) && value.status >= 400 && value.status <= 599)) {
             cause.import = { phase: value.phase, type: value.type, file: value.file, line: value.line, status: value.status };
             if (importMessages[value.file]?.[value.status]?.includes(value.message)) cause.import.message = value.message;
+            if (typeof value.sql_state === 'string' && /^[A-Z0-9]{5}$/.test(value.sql_state)
+              && Number.isInteger(value.driver_errno) && value.driver_errno > 0 && value.driver_errno <= 65535) {
+              cause.import.sql_state = value.sql_state; cause.import.driver_errno = value.driver_errno;
+            }
             const profiles = importPhpProfiles(value.php_profiles);
             if (profiles) cause.import.php_profiles = profiles;
             const comparison = Object.hasOwn(value, 'php_profiles') ? profiles && importPhpComparison(profiles) : importPhpComparison(value.php_comparison);

@@ -92,7 +92,7 @@ class DesktopDashboardWorkspaceCreatedScopesTest extends TestCase
     private function dropFixtures(): void
     {
         Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_created_scopes','desktop_dashboard_workspace_command_authorities',
-            'desktop_dashboard_workspace_local_authority_history','desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority',
+            'desktop_dashboard_ws_authority_history','desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority',
             'desktop_dashboard_refreshes','desktop_dashboard_local_state','desktop_dashboard_workspace_members','desktop_dashboard_workspace_manifests',
             'desktop_dashboard_workspaces','desktop_dashboard_entities','desktop_dashboard_commands','desktop_dashboard_devices',
             'role_has_permissions','model_has_roles','model_has_permissions','roles','permissions','go_stores','resturants','users']as$table)Schema::dropIfExists($table);

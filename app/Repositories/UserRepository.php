@@ -182,6 +182,13 @@ class UserRepository implements UserRepositoryInterface
             DB::table('model_has_roles')->where('model_id',$get_user->id)->delete();
             $get_user->assignRole($newDetails['roles_name']);
         }
+        // Role pivots are authoritative. Older schemas also retain the form's
+        // JSON display value; never pass its PHP array directly to PDO.
+        if(array_key_exists('roles_name',$newDetails)){
+            if(\Illuminate\Support\Facades\Schema::hasColumn($get_user->getTable(),'roles_name'))
+                $newDetails['roles_name']=json_encode($newDetails['roles_name'],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+            else unset($newDetails['roles_name']);
+        }
         
         
         // ===========pending_vendor=============

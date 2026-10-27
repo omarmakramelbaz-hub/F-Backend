@@ -386,7 +386,7 @@ final class DesktopDashboardWorkspaceDeltaLocal extends DesktopDashboardDeltaLoc
         foreach($tables as $name)$this->need(in_array($name,DesktopDashboardSchema::TABLES,true),'DISCARD_TABLES');
         return array_merge($tables,['desktop_dashboard_commands','desktop_dashboard_entities','desktop_dashboard_devices','desktop_dashboard_local_state',
             'desktop_dashboard_refreshes','desktop_dashboard_archived_commands','desktop_dashboard_media_manifest','desktop_dashboard_source_manifest',
-            'desktop_dashboard_workspace_local_authority','desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority_history',self::AUTHORITY_TABLE,self::STAGE_TABLE]);
+            'desktop_dashboard_workspace_local_authority','desktop_dashboard_workspace_local_members','desktop_dashboard_ws_authority_history',self::AUTHORITY_TABLE,self::STAGE_TABLE]);
     }
     protected function fail(string $reason): never {throw new \RuntimeException('DESKTOP_WORKSPACE_DELTA_'.$reason);}
 }

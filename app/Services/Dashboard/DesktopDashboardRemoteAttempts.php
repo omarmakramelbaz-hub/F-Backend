@@ -280,7 +280,13 @@ class DesktopDashboardRemoteAttempts
                 &&hash_equals($this->capability($row),$capability),403);
             $actor=DesktopDashboardCoreAuthority::handles($name)?app(DesktopDashboardCoreAuthority::class)->actor((int)$device->actor_id):$this->devices->actor($device);abort_unless((int)auth('admin')->id()===(int)$actor->id,403);
             $reviewPayload=null;$wishlistPayload=null;$flagPayload=null;$walletPayload=null;$accountPayload=null;$boardPayload=null;$settingsPayload=null;$settingsResult=null;
-            if($userAccount){
+            $originalUserUpdate=$this->originalUserUpdate($request,$actor,$device,$row);
+            if($originalUserUpdate!==null)$userAccount=false;
+            if($originalUserUpdate!==null){
+                // The connected workspace extension has checked the original
+                // target and permissions. It does not issue a local profile capability.
+            }
+            elseif($userAccount){
                 $adapter=app(DesktopDashboardUserProfiles::handles($name)?DesktopDashboardUserProfiles::class:DesktopDashboardUserAccounts::class);$operation=$adapter->command($request);
                 $savedRow=$row->status==='committed'?$row:DB::table('desktop_dashboard_remote_attempts')->where('device_id',$device->id)->where('operation_id',$operation)->lockForUpdate()->first();
                 $savedFacts=null;
@@ -390,6 +396,7 @@ class DesktopDashboardRemoteAttempts
             else $checkMiddleware();
             abort_if($row->status==='cancelled',409,'الطلب السابق أُلغي قبل تنفيذه؛ أعد المحاولة كعملية جديدة.');
             $operation=match(true){
+                $originalUserUpdate!==null=>app(DesktopDashboardUserAccounts::class)->command($request),
                 $userAccount=>app(DesktopDashboardUserProfiles::handles($name)?DesktopDashboardUserProfiles::class:DesktopDashboardUserAccounts::class)->command($request),
                 $board=>app(DesktopDashboardOrderBoard::class)->command($request),
                 $settings=>app(DesktopDashboardSettings::class)->command($request),
@@ -417,6 +424,13 @@ class DesktopDashboardRemoteAttempts
                 Validator::make($values,['ids'=>'required|array|min:1|max:200','ids.*'=>'required|integer|min:1|distinct'])->validate();
             }
             $fingerprintValues=['route'=>$request->route()->getName(),'path'=>$v['path'],'method'=>$request->method(),'values'=>$values];
+            if($originalUserUpdate!==null&&array_key_exists('password',$values)){
+                // Passwords reach only the original validated controller. Even
+                // the durable request digest must not become an offline password oracle.
+                abort_unless($values['password']===null||is_string($values['password']),422);
+                $fingerprintValues['values']['password']=['hmac_sha256'=>hash_hmac('sha256',
+                    'desktop-workspace-connected-user-password\0'.($values['password']??''),(string)config('app.key'))];
+            }
             if($files)$fingerprintValues['files']=$files;
             $fingerprint=app(DesktopDashboardJournal::class)->fingerprint($fingerprintValues);
             if($row->status==='committed'){
@@ -471,6 +485,7 @@ class DesktopDashboardRemoteAttempts
             }else $response=$next($request);
             if($response->getStatusCode()>=400||($request->hasSession()&&in_array('errors',$request->session()->get('_flash.new',[]),true)))
                 throw new \Illuminate\Http\Exceptions\HttpResponseException($response);
+            if($originalUserUpdate!==null)$response=$this->verifyOriginalUserUpdateResponse($request,$response,$originalUserUpdate);
             // Unhandled exceptions roll back both original rows and the result. Recovery can then cancel the reservation.
             abort_if(strlen($response->getContent())>1024*1024,413);
             if($goCreation)app(DesktopDashboardGoStoreCreation::class)->verifyResult($flagResult);
@@ -481,6 +496,7 @@ class DesktopDashboardRemoteAttempts
             elseif($productCrud)app(DesktopDashboardProductImages::class)->verifyResult($flagResult,$files);
             elseif($files)app(DesktopDashboardExpenseAttachments::class)->verifyResult(json_decode($response->getContent(),true,512,JSON_THROW_ON_ERROR),$files);
             $saved=['enrollment_binding'=>$this->context($row)['enrollment_binding'],'operation'=>$operation,'status'=>$response->getStatusCode(),'content'=>$response->getContent(),'type'=>$response->headers->get('Content-Type'),'location'=>$response->headers->get('Location')];
+            if($originalUserUpdate!==null){$saved['workspace_user_update']=$originalUserUpdate;$saved['workspace_user_update_success']=session('success');}
             if(DesktopDashboardCoreAuthority::handles($name))$saved['core_authority']=app(DesktopDashboardCoreAuthority::class)->context($name,$values);
             if($board)$saved['order_board_payload']=$boardPayload;
             if($userAccount){$saved['user_account_route']=$name;$saved['user_account_payload']=$accountPayload;$saved['user_account_success']=session('success');}
@@ -516,6 +532,10 @@ class DesktopDashboardRemoteAttempts
     {
         $device=DB::table('desktop_dashboard_devices')->where('id',$candidate->device_id)->first();abort_unless($device,401);return $device;
     }
+    /** Legacy devices always retain the reviewed NAME-only profile adapter. */
+    protected function originalUserUpdate(Request $request,\App\Models\User $actor,object $device,object $row): ?array {return null;}
+    protected function originalUserUpdateReply(string $route,array $saved,\App\Models\User $actor,object $device): bool {return false;}
+    protected function verifyOriginalUserUpdateResponse(Request $request,$response,array $binding) {return $response;}
     private function coreRoute(string $method,string $path): ?string
     {
         try{$name=app('router')->getRoutes()->match(Request::create($path,$method))->getName();}
@@ -548,6 +568,7 @@ class DesktopDashboardRemoteAttempts
     }
     private function accountReply(string $route,array $saved,\App\Models\User $actor,object $device): void
     {
+        if($this->originalUserUpdateReply($route,$saved,$actor,$device))return;
         abort_unless((DesktopDashboardUserAccounts::handles($route)||DesktopDashboardUserProfiles::handles($route))&&($saved['user_account_route']??null)===$route
             &&is_array($saved['user_account_payload']??null)&&($saved['user_account_payload']['values']['idempotency_key']??null)===($saved['operation']??null),503);
         if(DesktopDashboardUserProfiles::handles($route))app(DesktopDashboardUserProfiles::class)->authorize($saved['user_account_payload'],$actor,$device);else app(DesktopDashboardUserAccounts::class)->authorize($route,$saved['user_account_payload'],$actor,$device);
@@ -583,6 +604,7 @@ class DesktopDashboardRemoteAttempts
         if(isset($saved['review_facts'],$saved['review_success']))session()->flash('success',$saved['review_success']);
         if(isset($saved['wishlist_facts'],$saved['wishlist_success']))session()->flash('success',$saved['wishlist_success']);
         if(isset($saved['user_account_payload'],$saved['user_account_success']))session()->flash('success',$saved['user_account_success']);
+        if(isset($saved['workspace_user_update'],$saved['workspace_user_update_success'])&&is_string($saved['workspace_user_update_success']))session()->flash('success',$saved['workspace_user_update_success']);
         if(isset($saved['settings_payload'],$saved['settings_success']))session()->flash('success',$saved['settings_success']);
         if(isset($saved['wallet_cash_payload'],$saved['wallet_cash_success']))session()->flash('success',$saved['wallet_cash_success']);
         if(isset($saved['go_store_create_facts'],$saved['go_store_create_success']))session()->flash('success',$saved['go_store_create_success']);

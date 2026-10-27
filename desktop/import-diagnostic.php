@@ -103,6 +103,15 @@ final class DesktopImportDiagnostic
             'type'=>$type,'file'=>$location['file'],'line'=>$location['line'],'status'=>$status];
         if($status!==null&&in_array($error->getMessage(),self::MESSAGES[$location['file']][$status]??[],true))
             $report['message']=$error->getMessage();
+        // Driver identity only: SQL, bindings and the driver's message stay private.
+        for($current=$error;$current!==null;$current=$current->getPrevious()){
+            if(!$current instanceof \PDOException||!is_array($current->errorInfo??null))continue;
+            $info=$current->errorInfo;
+            if(is_string($info[0]??null)&&preg_match('/^[A-Z0-9]{5}$/D',$info[0])
+                &&is_int($info[1]??null)&&$info[1]>0&&$info[1]<=65535){
+                $report['sql_state']=$info[0];$report['driver_errno']=$info[1];break;
+            }
+        }
         $report['php_profiles']=self::profiles($snapshot);
         $server=$report['php_profiles']['server']??null;$desktop=$report['php_profiles']['desktop']??null;
         // Preserve the previous diagnostic contract for paired valid profiles.

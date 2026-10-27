@@ -83,7 +83,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
     }
     private function dropFixtures(): void
     {
-        Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_workspace_command_authorities','desktop_dashboard_workspace_local_authority_history',
+        Schema::disableForeignKeyConstraints();foreach(['desktop_dashboard_workspace_command_authorities','desktop_dashboard_ws_authority_history',
             'desktop_dashboard_workspace_local_members','desktop_dashboard_workspace_local_authority','desktop_dashboard_refreshes','desktop_dashboard_local_state',
             'desktop_dashboard_workspace_members','desktop_dashboard_workspace_manifests','desktop_dashboard_workspaces',
             'desktop_dashboard_entities','desktop_dashboard_commands','desktop_dashboard_devices','settings','user_address','orders',
