@@ -35,7 +35,10 @@ function sanitizedPhp(text) {
     ...Object.entries(privateServerConfig?.environment || {}).filter(([name]) => /KEY|PASSWORD|TOKEN|SECRET/.test(name)).map(([, value]) => value)];
   let value = String(text); for (const secret of secrets) if (typeof secret === 'string' && secret.length >= 4) value = value.split(secret).join('[redacted]');
   return value.replace(/base64:[A-Za-z0-9+/=]+/g, '[redacted-key]').replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]')
-    .replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]').replace(/https?:\/\/[^\s"']+/g, '[redacted-url]').slice(0, 1200);
+    .replace(/\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}/g, '[redacted-verifier]')
+      .replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[redacted-verifier]')
+      .replace(/\b[A-Za-z0-9+/]{64,}={0,2}\b/g, '[redacted-token]')
+      .replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]').replace(/https?:\/\/[^\s"']+/g, '[redacted-url]').slice(0, 1200);
 }
 const phpArguments = ['-c', path.join(bundle, 'php/php.ini')];
 const environment = { ...process.env, PHP_INI_SCAN_DIR: path.join(bundle, 'php/conf.d'), DESKTOP_WORKSPACE_NATIVE_FIXTURE_CONFIG: serverConfig };

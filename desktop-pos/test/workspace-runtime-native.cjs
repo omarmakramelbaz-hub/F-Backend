@@ -172,6 +172,9 @@ function publicError(error) {
     let text = String(input || '');
     for (const secret of secrets) if (typeof secret === 'string' && secret.length >= 4) text = text.split(secret).join('[redacted]');
     return text.replace(/base64:[A-Za-z0-9+/=]+/g, '[redacted-key]').replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]')
+      .replace(/\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}/g, '[redacted-verifier]')
+      .replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[redacted-verifier]')
+      .replace(/\b[A-Za-z0-9+/]{64,}={0,2}\b/g, '[redacted-token]')
       .replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]').replace(/https?:\/\/[^\s"']+/g, '[redacted-url]')
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').slice(0, 1200);
   };

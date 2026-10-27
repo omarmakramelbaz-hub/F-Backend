@@ -66,12 +66,14 @@ test('an absent legacy ledger is known clean without creating a SQLite file, das
 });
 
 test('actual SQLite readOnly inspection counts unacknowledged errors and open orders without Store DDL or changing accepted DB/WAL bytes', async t => {
-  const f = await fixture(t), file = path.join(f.root, 'fasakhansta-pos.sqlite'), db = ledger(file, { wal: true }); t.after(() => db.close());
-  db.exec("INSERT INTO outbox VALUES(1,'a',0,NULL),(2,'b',0,'conflict'),(3,'c',1,NULL);INSERT INTO orders VALUES('a','draft'),('b','paid'),('c','cancelled')");
-  const before = { db: await fs.readFile(file), wal: await fs.readFile(file + '-wal') }, result = await f.create().inspectProfile(f.account);
-  assert.equal(result.counts.legacyPending, 2); assert.equal(result.counts.legacyConflicts, 1); assert.equal(result.counts.openOrders, 1);
-  assert.deepEqual(await fs.readFile(file), before.db); assert.deepEqual(await fs.readFile(file + '-wal'), before.wal);
-  assert.deepEqual(f.calls, []);
+  const f = await fixture(t), file = path.join(f.root, 'fasakhansta-pos.sqlite'), db = ledger(file, { wal: true });
+  try {
+    db.exec("INSERT INTO outbox VALUES(1,'a',0,NULL),(2,'b',0,'conflict'),(3,'c',1,NULL);INSERT INTO orders VALUES('a','draft'),('b','paid'),('c','cancelled')");
+    const before = { db: await fs.readFile(file), wal: await fs.readFile(file + '-wal') }, result = await f.create().inspectProfile(f.account);
+    assert.equal(result.counts.legacyPending, 2); assert.equal(result.counts.legacyConflicts, 1); assert.equal(result.counts.openOrders, 1);
+    assert.deepEqual(await fs.readFile(file), before.db); assert.deepEqual(await fs.readFile(file + '-wal'), before.wal);
+    assert.deepEqual(f.calls, []);
+  } finally { db.close(); }
 });
 
 test('an orphan WAL or malformed existing database is unknown and never replaced by a clean empty ledger', async t => {

@@ -174,6 +174,36 @@ function phpRelativePath(application, file) {
   return relative.replaceAll('\\', '/');
 }
 
+async function opcodeCacheFor(profile, revision) {
+    if (!/^[a-f0-9]{40}$/.test(revision || '') || typeof profile !== 'string' || !path.isAbsolute(profile) || path.resolve(profile) !== profile)
+      throw Error('مسار ذاكرة تشغيل PHP غير صالح؛ البيانات محفوظة.');
+    const identity = value => [value.dev, value.ino, value.mode].join(':');
+    let cursor = path.parse(profile).root; const proof = [];
+    for (const component of ['', ...profile.slice(cursor.length).split(path.sep).filter(Boolean)]) {
+      if (component) cursor = path.join(cursor, component);
+      const value = await fs.lstat(cursor); if (!value.isDirectory() || value.isSymbolicLink()) throw Error('مسار ذاكرة تشغيل PHP غير صالح؛ البيانات محفوظة.');
+      proof.push({ file: cursor, identity: identity(value) });
+    }
+    // Native-owned Windows TEMP/APPDATA may be an 8.3 alias. Resolve only after
+    // proving each node is a directory, then bind the same physical identity.
+    const canonical = await fs.realpath(profile);
+    if (identity(await fs.lstat(canonical)) !== proof.at(-1).identity) throw Error('مسار ذاكرة تشغيل PHP تغير؛ البيانات محفوظة.');
+    let directory = canonical;
+    for (const component of ['opcode-cache', revision]) {
+      directory = path.join(directory, component);
+      try { await fs.mkdir(directory, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+      const value = await fs.lstat(directory);
+      if (!value.isDirectory() || value.isSymbolicLink() || process.platform !== 'win32' && (value.mode & 0o077))
+        throw Error('مسار ذاكرة تشغيل PHP غير آمن؛ البيانات محفوظة.');
+      proof.push({ file: directory, identity: identity(value) });
+    }
+    const real = await fs.realpath(directory), normalize = value => process.platform === 'win32' ? path.normalize(value).toLowerCase() : path.normalize(value);
+    if (normalize(real) !== normalize(directory) || /["\r\n\0]|\$\{/.test(real)) throw Error('مسار ذاكرة تشغيل PHP غير صالح؛ البيانات محفوظة.');
+    for (const item of proof) if (identity(await fs.lstat(item.file)) !== item.identity) throw Error('مسار ذاكرة تشغيل PHP تغير؛ البيانات محفوظة.');
+    await fs.access(real, require('node:fs').constants.R_OK | require('node:fs').constants.W_OK);
+    return { directory: real.replaceAll('\\', '/'), id: crypto.createHash('sha256').update('go-erp-opcache-v1\0' + real).digest('hex') };
+}
+
 async function phpIniFor(bundle,manifest,profile) {
     // The installed directory can disappear after an update. Resolve PHP extensions inside
     // the retained version, rather than any absolute paths copied from the build host.
@@ -193,8 +223,9 @@ async function phpIniFor(bundle,manifest,profile) {
     const caPath = caFile.replaceAll('\\', '/');
     const phpIni = path.join(profile, 'php-' + manifest.sourceRevision + '.ini');
     // The bundled CLI server is a long-lived foreground PHP process. Load only
-    // its freshly verified bundled opcode extension; never a global DLL or a
-    // persistent bytecode cache from another installed/retained application.
+    // its freshly verified bundled opcode extension. Windows ASLR may prevent
+    // reattaching to shared memory; the private per-profile/source file cache
+    // is its documented fallback, never a builder/global/other-source cache.
     const opcode = path.join(extensionDirectory, 'php_opcache.dll');
     const hasOpcode = extensionLines.some(match => match[1] === 'zend_extension'
       && /(?:^|[\\/])(?:php_)?opcache(?:\.dll)?$/i.test(match[2].trim().replace(/^['"]|['"]$/g, '')));
@@ -204,6 +235,7 @@ async function phpIniFor(bundle,manifest,profile) {
         phpConfiguration += '\nzend_extension="' + phpRelativePath(application, opcode) + '"\n';
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
+    const opcodeCache = await opcodeCacheFor(profile, manifest.sourceRevision);
     const compactConfiguration = manifest.compactVendor?.kind === 'go-erp-compact-vendor'
       ? '\nphar.readonly=1\nphar.require_hash=1\nphar.cache_list="google-services.phar"\n' : '\nphar.cache_list=\n';
     // Keep the original expense form's upload limit in both active and staged runtimes.
@@ -212,7 +244,7 @@ async function phpIniFor(bundle,manifest,profile) {
       // Do not inherit the builder's 256 MiB JIT buffer and native compilation
       // settings in a retained Windows runtime; validate ordinary PHP execution.
       + '"\ncurl.cainfo="' + caPath + '"\nopenssl.cafile="' + caPath
-      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\nopcache.enable=1\nopcache.enable_cli=1\nopcache.validate_timestamps=1\nopcache.revalidate_freq=0\nopcache.revalidate_path=1\nopcache.use_cwd=1\nopcache.enable_file_override=0\nopcache.file_cache=\nopcache.file_cache_only=0\nopcache.jit=0\nopcache.jit_buffer_size=0\n' + compactConfiguration, { mode: 0o600 });
+      + '"\nupload_max_filesize=5M\npost_max_size=12M\nmemory_limit=256M\nopcache.enable=1\nopcache.enable_cli=1\nopcache.validate_timestamps=1\nopcache.revalidate_freq=0\nopcache.revalidate_path=1\nopcache.use_cwd=1\nopcache.enable_file_override=0\nopcache.file_cache="' + opcodeCache.directory + '"\nopcache.file_cache_only=0\nopcache.file_cache_fallback=1\nopcache.file_cache_consistency_checks=1\nopcache.validate_permission=1\nopcache.cache_id="' + opcodeCache.id + '"\nopcache.jit=0\nopcache.jit_buffer_size=0\n' + compactConfiguration, { mode: 0o600 });
     return phpIni;
 }
 
