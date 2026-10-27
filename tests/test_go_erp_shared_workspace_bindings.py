@@ -91,6 +91,30 @@ class SeedBindingTests(unittest.TestCase):
         self.assertIn('app/New',plan['new_directories']);self.assertNotIn('tests/branch-only.php',plan['paths'])
         self.assertEqual(2,len([name for name in plan['paths'] if name.startswith('database/')]))
 
+    def test_historical_executable_git_blob_requires_nonexecutable_regular_target(self):
+        self.write('config/desktop_dashboard.php',b"<?php return ['workspace_enabled'=>env('DESKTOP_DASHBOARD_WORKSPACE_ENABLED', false)];")
+        self.write('app/Existing.php',b'<?php // historical executable Git blob')
+        (self.root/'app/Existing.php').chmod(0o755)
+        baseline=self.commit()
+        self.assertEqual(('100755','blob'),self.reader.files(baseline)['app/Existing.php'][:2])
+        self.write('app/Existing.php',b'<?php // reviewed nonexecutable replacement')
+        (self.root/'app/Existing.php').chmod(0o644)
+        for name,tables in subject.module('go_erp_shared_workspace_plan.py').MIGRATIONS.items():
+            self.write(name,b'<?php\n'+b'\n'.join(b"Schema::create('"+table.encode()+b"', function(){});" for table in tables))
+        web=self.commit();plan=subject.source_plan(self.reader,baseline,web)
+        self.assertEqual(subject.sha(self.reader.file('app/Existing.php',baseline)),plan['paths']['app/Existing.php']['before'])
+        real_files=self.reader.files
+        for revision,mode,kind in ((baseline,'120000','blob'),(baseline,'160000','commit'),
+                (web,'100755','blob'),(web,'120000','blob')):
+            def changed(value):
+                files=real_files(value)
+                if value==revision:
+                    files['app/Existing.php']=(mode,kind,files['app/Existing.php'][2])
+                return files
+            with self.subTest(revision=revision,mode=mode,kind=kind),patch.object(self.reader,'files',side_effect=changed):
+                with self.assertRaisesRegex(subject.Stop,'SOURCE_MODE_CHANGED'):
+                    subject.source_plan(self.reader,baseline,web)
+
 class ProofAndSafetyTests(unittest.TestCase):
     def test_route_inventory_tracks_exact_provider_includes_methods_and_controller_namespace(self):
         files={'app/Providers/RouteServiceProvider.php':b"Route::middleware('api')->prefix('api')->group(base_path('routes/api.php'));\nRoute::middleware('web')->group(base_path('routes/desktop_dashboard.php'));"}

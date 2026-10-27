@@ -100,7 +100,11 @@ def source_plan(git,baseline,web):
         # is ever installed into the web root by this source transaction.
         if not name.startswith(('app/','bootstrap/','config/','database/','desktop/','public/','resources/','routes/')) and name!='artisan':continue
         plan.path_scope(name);need(name in after,'PRODUCTION_SOURCE_DELETION')
-        need(after[name][:2]==('100644','blob') and (name not in before or before[name][:2]==('100644','blob')),'SOURCE_MODE_CHANGED')
+        # Historical PHP/view Git blobs include executable bits. Only the
+        # reviewed new blob must be nonexecutable; deployment independently
+        # captures and preserves the live file's validated 0640/0644 mode.
+        need(after[name][:2]==('100644','blob') and (name not in before
+            or before[name][:2] in (('100644','blob'),('100755','blob'))),'SOURCE_MODE_CHANGED')
         paths[name]={'before':None if name not in before else sha(git.file(name,baseline)),'after':sha(git.file(name,web))}
     need(set(name for name in paths if name.startswith('database/'))==set(plan.MIGRATIONS)
         and all(paths[name]['before'] is None for name in plan.MIGRATIONS),'EXACT_ADDITIVE_MIGRATIONS_REQUIRED')
