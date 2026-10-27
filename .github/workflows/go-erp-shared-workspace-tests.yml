@@ -1,0 +1,94 @@
+name: GO ERP shared workspace protocol foundations
+
+on:
+  push:
+    branches: ['codex/go-erp-shared-device-offline-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authority-and-financial-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, mysql]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: takeaway_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: ${{ matrix.database }}
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: takeaway_test
+      DB_USERNAME: root
+      DB_PASSWORD: test-only
+      TAKEAWAY_TEST_CONNECTION: ${{ matrix.database }}
+      CACHE_DRIVER: array
+      SESSION_DRIVER: array
+      MAIL_MAILER: log
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, pdo_mysql, gd, zip
+          ini-values: memory_limit=256M
+          coverage: none
+      - name: Install isolated existing application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare only the isolated test application
+        id: isolated_app
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Verify server workspace authority and canonical native interoperation
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DesktopDashboardWorkspaceAuthorityTest.php
+      - name: Verify the independent SQL canonical workspace codec
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: php tests/desktop_dashboard_workspace_delta_codec_test.php
+      - name: Preserve original overview and financial scope
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
+      - name: Preserve original closing and cash formulas
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
+  windows-native-regressions:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Preserve exact source bytes
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          if ($LASTEXITCODE -ne 0) { throw 'Exact source configuration failed.' }
+          git config --global core.eol lf
+          if ($LASTEXITCODE -ne 0) { throw 'Exact line-ending configuration failed.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2.34'
+          extensions: pdo_mysql, pdo_sqlite, sqlite3, mbstring, exif, gd, fileinfo, intl, curl, openssl, sodium
+          ini-values: opcache.jit=0, opcache.jit_buffer_size=0
+          coverage: none
+      - name: Verify shared registry migration and all existing account/printing contracts
+        working-directory: desktop-pos
+        run: node --test test/*.test.cjs ../tests/desktop_dashboard_runtime/protocol/offline-print-interleavings.test.cjs

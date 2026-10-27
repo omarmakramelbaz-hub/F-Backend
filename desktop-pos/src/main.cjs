@@ -19,8 +19,6 @@ const {DashboardLiveSocial}=require('./dashboard-live-social.cjs');
 const {DashboardUpdater}=require('./dashboard-updater.cjs');
 const createUpdateInstall=require('./update-install.cjs');
 const RuntimeArchive=require('./runtime-archive.cjs');
-const {upgradeStartupSource}=require('./startup-source-upgrade.cjs');
-const {inspectStartupIdle}=require('./startup-source-idle.cjs');
 const readSnapshot=require('./dashboard-download.cjs');
 const {withDeadline,printOnce}=require('./native-deadline.cjs');
 const LifecycleTrace=require('./lifecycle-trace.cjs');
@@ -411,41 +409,9 @@ app.whenReady().then(async()=>{
       if(quitting)return;
       if(remote.dirty||remote.pending.length||centralSelected){dashboardOrigin=(await localRuntime.connection()).serverOrigin;localToken='';}
       else {dashboardOrigin=local.origin;localToken=local.token;}
-      // Upgrade an older retained source through the original generation/delta
-      // protocol before a business view exists. Later opens of the same source
-      // do not contact the server or capture the database here.
-      if(localToken){
-        connectUpdater(profile);
-        if(updater){
-          const controller=new AbortController();requests.add(controller);
-          try{
-            await shutdown.run(async()=>{
-              const metadata=localRuntime.metadata;
-              const recovery=new DashboardGeneration({runtime:localRuntime,metadata,
-                download:()=>dashboardRequest(null,true),
-                allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion())});
-              const installedManifest=await new RuntimeArchive(profile,metadata).manifest(localRuntime.installedBundle);
-              // Use the original capabilities to recover an interrupted local
-              // return before a new generation is considered. The normal
-              // dashboard recovery below remains authoritative on every path.
-              await recovery.recover();
-              const startupMode=new DashboardMode({runtime:localRuntime,generations:recovery,remoteState,remoteAttempts});
-              await startupMode.recover();
-              if(quitting)return;
-              startupPhase('source-upgrade-check');
-              const result=await upgradeStartupSource({runtime:localRuntime,metadata,installedManifest,
-                online:()=>net.isOnline(),viewAbsent:()=>!dashboard&&!startupComplete&&!quitting,
-                inspectIdle:()=>inspectStartupIdle({store,runtime:localRuntime,metadata}),remoteState,
-                authorizeInstalled:(manifest,options)=>updater.authorizeInstalled(manifest,options),
-                download:dashboardDeltaRequest,recover:()=>recovery.recover(),signal:controller.signal,
-                allowPreview:app.isPackaged&&/-preview\.[1-9][0-9]*$/.test(app.getVersion()),
-                onState:value=>startupPhase('source-upgrade-'+value.phase)});
-              startupPhase('source-upgrade-'+result.status);
-              dashboardOrigin=localRuntime.origin;localToken=localRuntime.token;
-            });
-          }finally{requests.delete(controller);}
-        }
-      }
+      // Open the verified retained dashboard first. Installed-source upgrades
+      // use the existing incoming delta cycle and its settled-page handoff;
+      // runtime copying and account-wide staging must not hold the login form.
     }
   }
   if(quitting)return;
@@ -494,7 +460,10 @@ app.whenReady().then(async()=>{
   }
   startupPhase('dashboard-navigation');
   await dashboard.open();if(quitting)return;
-  startupPhase('dashboard-open-settled');hideStartup();startupPhase('startup-complete');startupComplete=true;syncSchedule.start();connectUpdater(profile);
+  startupPhase('dashboard-open-settled');hideStartup();startupPhase('startup-complete');startupComplete=true;
+  // The first document has settled before either updater work or the original
+  // synchronization schedule can admit an optional source replacement.
+  connectUpdater(profile);syncSchedule.start();
 }).catch(error=>{if(!quitting){startupPhase('startup-failed');dialog.showErrorBox('تعذر فتح برنامج GO ERP',error.message);app.quit();}});
 // Opening GO ERP again must not expose the hidden POS bridge or a blank first
 // dashboard document while the verified local services are still starting.

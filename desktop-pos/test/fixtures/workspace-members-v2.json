@@ -1,0 +1,64 @@
+{
+  "format": 1,
+  "kind": "go-erp-workspace-members-canonical-fixture",
+  "manifest": {
+    "format": 2,
+    "kind": "desktop-dashboard-workspace-members",
+    "workspace_id": "11111111-1111-4111-8111-111111111111",
+    "revision": 1,
+    "root_fingerprint": "0946b0a2d5e379a455b577eeb569bded11bc4939790efd9fc09a987c5e95c3cd",
+    "members": [
+      {
+        "actor_id": 101,
+        "role": "admin",
+        "enabled": true,
+        "aliases": [
+          "owner@example.test"
+        ],
+        "branches": [
+          "f:100",
+          "f:101"
+        ],
+        "permissions": {
+          "super_admin": true,
+          "names": [
+            "expenses-approve",
+            "orders-list"
+          ],
+          "roles": [
+            "owner"
+          ]
+        },
+        "password_binding": "13faf909d1e8bc91d278040bf1a8f333517c035efb820953b2c554082895213f",
+        "grant": "678b67d00324d1ad65ac30f345179916f07602cc7867e0595a02a4e22067b56f"
+      },
+      {
+        "actor_id": 202,
+        "role": "vendor",
+        "enabled": true,
+        "aliases": [
+          "0branch",
+          "branch@example.test"
+        ],
+        "branches": [
+          "f:100"
+        ],
+        "permissions": {
+          "super_admin": false,
+          "names": [
+            "orders-list"
+          ],
+          "roles": [
+            "مدير فرع"
+          ]
+        },
+        "password_binding": "2a220dbec216f18ba61c1902a77a0bfa64a97c5f23415c96e3b8d91efb8f970f",
+        "grant": "126a162a29a61313d93ebd564431e04036d5a00db4c9e88f785bf969f19d1a71"
+      }
+    ],
+    "roster_sha256": "f3eeeef6133dbf55f9b58b441cf91b1a698348f4d4cccd1949cf04cdfd9d33a1",
+    "signature": "174ff5cabdc3cf8d038159e0495d19d6cf354cdcf26a7a61b0014a57024bee92"
+  },
+  "members_sha256": "f3eeeef6133dbf55f9b58b441cf91b1a698348f4d4cccd1949cf04cdfd9d33a1",
+  "manifest_body_sha256": "618a7bb3ff5dfa877745d3b55717144bac90503d6d8a6a9c0d3ed1bb2822a4b9"
+}
