@@ -245,8 +245,22 @@ echo $wire;
       { upload: '5M', post: '12M', memory: '256M', jit: '0', jitBuffer: '0',
         extensions: extensionDirectory, curlCA: certificateFile, opensslCA: certificateFile });
     const initial = await runtime.connection();
-    const opcode = await php("echo json_encode(['loaded'=>extension_loaded('Zend OPcache'),'cli'=>ini_get('opcache.enable_cli'),'enabled'=>ini_get('opcache.enable'),'validate'=>ini_get('opcache.validate_timestamps'),'revalidate'=>ini_get('opcache.revalidate_freq'),'fileCache'=>ini_get('opcache.file_cache'),'fileOverride'=>ini_get('opcache.enable_file_override')]);");
-    assert.deepEqual(opcode, { loaded: true, cli: '1', enabled: '1', validate: '1', revalidate: '0', fileCache: '', fileOverride: '0' });
+    const opcode = await php("echo json_encode(['loaded'=>extension_loaded('Zend OPcache'),'cli'=>ini_get('opcache.enable_cli'),'attached'=>function_exists('opcache_get_status')&&opcache_get_status(false)!==false,'enabled'=>ini_get('opcache.enable'),'validate'=>ini_get('opcache.validate_timestamps'),'revalidate'=>ini_get('opcache.revalidate_freq'),'revalidatePath'=>ini_get('opcache.revalidate_path'),'useCwd'=>ini_get('opcache.use_cwd'),'fileCache'=>str_replace(chr(92),'/',realpath(ini_get('opcache.file_cache'))),'fallback'=>ini_get('opcache.file_cache_fallback'),'consistency'=>ini_get('opcache.file_cache_consistency_checks'),'permission'=>ini_get('opcache.validate_permission'),'fileOverride'=>ini_get('opcache.enable_file_override')]);");
+    const cacheDirectory = path.join(profile, 'opcode-cache', runtime.manifest.sourceRevision);
+    for (const directory of [path.dirname(cacheDirectory), cacheDirectory]) {
+      const info = await fs.lstat(directory);
+      assert.equal(info.isDirectory(), true); assert.equal(info.isSymbolicLink(), false);
+      assert.equal((await fs.realpath(directory)).toLowerCase(), directory.toLowerCase());
+    }
+    assert.deepEqual(opcode, { loaded: true, cli: '0', attached: false, enabled: '1', validate: '1', revalidate: '0',
+      revalidatePath: '1', useCwd: '1', fileCache: (await fs.realpath(cacheDirectory)).replaceAll('\\', '/'), fallback: '1',
+      consistency: '1', permission: '1', fileOverride: '0' });
+    const web = runtime.children.find(child => child.spawnargs?.includes('-S'));
+    assert.ok(web, 'The prepared supervisor must own its persistent PHP web process.');
+    assert.equal(web.exitCode, null);
+    const webOverrides = Object.fromEntries(web.spawnargs.flatMap((argument, index) => argument === '-d'
+      ? [web.spawnargs[index + 1].split(/=(.*)/s).slice(0, 2)] : []));
+    assert.equal(webOverrides['opcache.enable_cli'], '1', 'Only the persistent web process attaches opcode caching.');
     const verifyNativeMedia = active => RuntimeMedia.verify({ active, sourceFingerprint: runtime.sourceFingerprint,
       storage: runtime.environment.DESKTOP_DASHBOARD_STORAGE,
       readBinding: (code, binding) => php(code, binding) });
@@ -259,7 +273,7 @@ echo $wire;
       await php(bootstrap + "\\Illuminate\\Support\\Facades\\DB::table('desktop_dashboard_source_manifest')->where('device_id',$input['device'])->update(['sha256'=>$input['sha256']]);echo '{}';", { device: initial.deviceId, sha256: sourceRecord.sha256 });
     }
     assert.deepEqual(await verifyNativeMedia(initial), { verified: true, files: 2 });
-    console.log('PASS real Windows native PDO media verification reads the bound active database without Laravel bootstrap, rejects a changed source receipt, hashes public/private bytes, and enables validated in-memory PHP opcode caching');
+    console.log('PASS real Windows native PDO media verification reads the bound active database without Laravel bootstrap, rejects a changed source receipt, hashes public/private bytes, and separates cold CLI from validated persistent-web opcode caching');
     assert.equal(initial.fullCoverage, false); assert.equal(initial.previewOnly, true);
     assert.deepEqual(initial.coverage, snapshot.coverage);
     assert.equal(await runtime.isPrepared(), true);
