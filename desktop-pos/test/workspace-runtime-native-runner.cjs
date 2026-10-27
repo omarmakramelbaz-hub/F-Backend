@@ -119,7 +119,9 @@ async function main() {
       }); check.on('error', () => response.destroy());
     });
     await new Promise(resolve => tls.listen(tlsPort, '127.0.0.1', resolve));
-    child = spawn(electron, [path.join(__dirname, 'workspace-runtime-native.cjs'), runnerConfig], { cwd: repository, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    // This child proves a real visible GUI. libuv's windowsHide also supplies
+    // SW_HIDE for a GUI process's first ShowWindow; keep only PHP children hidden.
+    child = spawn(electron, [path.join(__dirname, 'workspace-runtime-native.cjs'), runnerConfig], { cwd: repository, windowsHide: false, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', bytes => process.stdout.write(bytes)); child.stderr.on('data', bytes => { childDiagnostic = (childDiagnostic + bytes.toString()).slice(-8192); process.stderr.write(bytes); });
     const timeout = setTimeout(() => child.kill(), 15 * 60 * 1000);
     let status; try { status = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }); } finally { clearTimeout(timeout); }
