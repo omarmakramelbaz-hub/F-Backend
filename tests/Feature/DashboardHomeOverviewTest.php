@@ -44,6 +44,7 @@ class DashboardHomeOverviewTest extends TestCase
     }
     private function actor(int $id=1): User {return User::withoutGlobalScopes()->findOrFail($id);}
     private function overview(array $filters=[],int $actor=1): array {return app(HomeOverview::class)->data($filters,$this->actor($actor));}
+    private function drawers(array $filters=[],int $actor=1): array {return app(HomeOverview::class)->drawers($filters,$this->actor($actor));}
     private function denied(callable $fn,int $code): void {try{$fn();$this->fail('Expected denial');}catch(HttpException $e){$this->assertSame($code,$e->getStatusCode());}}
     private function sale(int $id,string $branch='f:100',string $channel='takeaway',int $gross=10000,int $delivery=0,string $day='2026-10-05'): void
     {
@@ -158,8 +159,9 @@ class DashboardHomeOverviewTest extends TestCase
     public function test_only_primary_owner_sees_live_cash_using_the_existing_shift_formula(): void
     {
         $this->sale(1);DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>123450]);DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>76500,'tax_bps'=>0,'revision'=>1]);
-        $owner=$this->overview();$this->assertTrue($owner['owner_drawer']['ready']);$this->assertSame(199950,$owner['owner_drawer']['total_cents']);$this->assertSame(123450,$owner['owner_drawer']['branches']['f:100']['expected_cents']);
-        $this->assertSame(123450,$this->overview(['branch'=>'f:100'])['owner_drawer']['total_cents']);
+        $unloaded=$this->overview()['owner_drawer'];$this->assertFalse($unloaded['loaded']);$this->assertFalse($unloaded['ready']);$this->assertNull($unloaded['total_cents']);$this->assertSame([],$unloaded['branches']);
+        $owner=$this->drawers();$this->assertTrue($owner['owner_drawer']['loaded']);$this->assertTrue($owner['owner_drawer']['ready']);$this->assertSame(199950,$owner['owner_drawer']['total_cents']);$this->assertSame(123450,$owner['owner_drawer']['branches']['f:100']['expected_cents']);
+        $this->assertSame(123450,$this->drawers(['branch'=>'f:100'])['owner_drawer']['total_cents']);
         foreach([4,10,12] as $id){$this->assertArrayNotHasKey('owner_platform',$this->overview([],$id));$this->assertArrayNotHasKey('owner_drawer',$this->overview([],$id));$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$this->actor($id)),403);}
         $spoof=$this->actor(10);$spoof->id=10;$spoof->account_type='admin';$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$spoof),403);
     }
@@ -171,7 +173,7 @@ class DashboardHomeOverviewTest extends TestCase
         DB::table('takeaway_tills')->where('id',$till->id)->update(['balance_cents'=>148450]);
         DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>'f:100','actor_id'=>10,'order_id'=>1,'request_key'=>'00000000-0000-4000-8000-000000000001','request_hash'=>str_repeat('a',64),'kind'=>'sale','amount_cents'=>25000,'balance_cents'=>148450,'business_date'=>'2026-10-05','note'=>'Cash sale','created_at'=>'2026-10-05 05:00:00']);
         $this->order(1,['transfer_price_by'=>'vendor']);
-        $r=$this->overview(['branch'=>'f:100']);
+        $r=$this->drawers(['branch'=>'f:100']);
         $this->assertSame(154950,$r['owner_drawer']['total_cents']);
         $this->assertSame(148450,(int)DB::table('takeaway_tills')->value('balance_cents'));
     }
@@ -244,9 +246,69 @@ class DashboardHomeOverviewTest extends TestCase
     {
         DB::table('resturants')->where('id',100)->update(['name'=>'المنصورة ستور']);DB::table('resturants')->where('id',101)->update(['name'=>'فرع شبرا']);DB::table('resturants')->where('id',102)->update(['name'=>'Cairo Store']);
         $this->sale(90,'f:100','takeaway',50000);$this->sale(91,'f:101','takeaway',10000);$this->sale(92,'f:102','takeaway',30000);
-        $r=$this->overview();$this->assertSame(['f:101','f:100','f:102'],array_column($r['branches'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_column($r['branch_cards'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_keys($r['owner_drawer']['branches']));
+        $r=$this->overview();$this->assertSame(['f:101','f:100','f:102'],array_column($r['branches'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_column($r['branch_cards'],'value'));$this->assertSame([],$r['owner_drawer']['branches']);
+        $this->assertSame(['f:101','f:100','f:102'],array_keys($this->drawers()['owner_drawer']['branches']));
         $this->assertSame(['f:101','f:100','f:102'],array_column($r['ranking'],'branch'));$this->assertSame([3,1,2],array_column($r['ranking'],'sales_rank'));$this->assertSame('store',$r['branch_cards'][1]['display_group']);
         $this->assertSame(['f:100'],array_column($this->overview(['branch'=>'f:100'])['branch_cards'],'value'));
+    }
+
+    public function test_initial_and_periodic_owner_overview_never_reconstruct_shift_drawers(): void
+    {
+        $shift=\Mockery::mock(BranchShiftClosing::class);$shift->shouldNotReceive('ownerBalances');
+        $this->app->instance(BranchShiftClosing::class,$shift);
+        foreach([[],['branch'=>'f:100'],['period'=>'week'],['period'=>'custom','from'=>'2026-10-01','to'=>'2026-10-05']] as $filters){
+            $data=$this->overview($filters);$this->assertSame(['ready'=>false,'loaded'=>false,'total_cents'=>null,'branches'=>[]],$data['owner_drawer']);
+            $this->assertArrayHasKey('sales',$data);$this->assertArrayHasKey('inventory',$data);$this->assertArrayHasKey('owner_platform',$data);
+        }
+        $this->actingAs($this->actor(1),'admin');
+        $this->getJson('/admin/dashboard/overview?branch=f:100')->assertOk()->assertJsonPath('owner_drawer.loaded',false)
+            ->assertJsonPath('owner_drawer.ready',false)->assertJsonPath('owner_drawer.total_cents',null);
+    }
+
+    public function test_explicit_owner_drawer_read_uses_unchanged_current_formula_without_writes(): void
+    {
+        $this->sale(1,'f:100','phone',25000,5000);DB::table('takeaway_orders')->where('id',1)->update(['payment_method'=>'cash']);
+        DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>148450]);
+        DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>-500,'tax_bps'=>0,'revision'=>1]);
+        $this->order(1,['transfer_price_by'=>'vendor']);
+        $expected=app(BranchShiftClosing::class)->ownerBalances(['f:100','f:101','f:102'],$this->actor());
+        $tables=['takeaway_tills','takeaway_till_entries','branch_shift_closings','branch_shift_sources','branch_expenses','branch_expense_commands','orders'];
+        $before=[];foreach($tables as $table)$before[$table]=DB::table($table)->orderBy('id')->get()->toArray();
+        $this->actingAs($this->actor(1),'admin');DB::enableQueryLog();DB::flushQueryLog();
+        $response=$this->getJson('/admin/dashboard/overview?section=drawers')->assertOk()->assertHeader('Cache-Control','no-store, private')
+            ->assertJsonPath('owner_drawer.loaded',true)->assertJsonPath('owner_drawer.ready',true);
+        foreach(DB::getQueryLog() as $query)$this->assertDoesNotMatchRegularExpression('/^\s*(insert|update|delete|replace|create|alter|drop|truncate)\b/i',$query['query']);
+        DB::disableQueryLog();$actual=$response->json('owner_drawer');
+        $this->assertSame($expected,$actual['branches']);$this->assertSame(array_sum(array_column($expected,'expected_cents')),$actual['total_cents']);
+        $this->assertSame(-500,$actual['branches']['f:101']['expected_cents']);
+        foreach($tables as $table)$this->assertEquals($before[$table],DB::table($table)->orderBy('id')->get()->toArray());
+        $this->getJson('/admin/dashboard/overview?section=drawers&branch=f:100&period=week')->assertOk()->assertJsonPath('filters.branch','f:100')
+            ->assertJsonPath('owner_drawer.total_cents',$expected['f:100']['expected_cents']);
+        $filtered=$this->drawers(['branch'=>'f:101','period'=>'custom','from'=>'2026-10-01','to'=>'2026-10-04']);
+        $this->assertSame(['f:101'],array_keys($filtered['owner_drawer']['branches']));$this->assertSame(-500,$filtered['owner_drawer']['total_cents']);
+        DB::table('takeaway_tills')->where('branch','f:101')->update(['balance_cents'=>76500]);
+        $this->assertSame(76500,$this->drawers(['branch'=>'f:101'])['owner_drawer']['total_cents'],'A second explicit read uses current cash rather than a cached balance.');
+        $this->getJson('/admin/dashboard/overview?section=drawers&branch=f:999')->assertNotFound();
+        $this->getJson('/admin/dashboard/overview?section=drawers&period=custom&from=2026-10-05&to=2026-10-06')->assertStatus(422);
+        $this->getJson('/admin/dashboard/overview?section=drawers&period=custom&from=2026-10-05&to=2026-10-04')->assertStatus(422);
+    }
+
+    public function test_drawer_endpoint_rejects_guests_admins_and_branch_accounts_without_disclosing_cash(): void
+    {
+        $this->getJson('/admin/dashboard/overview?section=drawers')->assertRedirect('/admin/login');
+        foreach([4,10,11,12,20,30] as $id){
+            $this->actingAs($this->actor($id),'admin');$this->getJson('/admin/dashboard/overview?section=drawers&branch=f:100&owner=1&can_view_financials=1')->assertForbidden();
+            $this->denied(fn()=>$this->drawers([], $id),403);
+        }
+        $spoof=$this->actor(10);$spoof->account_type='admin';
+        $this->denied(fn()=>app(HomeOverview::class)->drawers([],$spoof),403);
+    }
+
+    public function test_missing_drawer_schema_is_unavailable_and_never_becomes_zero(): void
+    {
+        Schema::drop('branch_shift_sources');$this->actingAs($this->actor(1),'admin');
+        $this->getJson('/admin/dashboard/overview?section=drawers&branch=f:100')->assertOk()->assertJsonPath('owner_drawer.loaded',true)
+            ->assertJsonPath('owner_drawer.ready',false)->assertJsonPath('owner_drawer.total_cents',null)->assertJsonPath('owner_drawer.branches',[]);
     }
 
 }

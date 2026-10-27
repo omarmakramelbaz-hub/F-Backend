@@ -72,6 +72,7 @@ class HomeController extends Controller
     {
         $boot=['initial'=>$overview->data($request->query(),auth('admin')->user()),
             'url'=>route('dashboard.overview'),'locale'=>app()->getLocale(),'labels'=>__('home_overview')];
+        if(isset($boot['initial']['owner_drawer']))$boot['drawer_url']=route('dashboard.overview',['section'=>'drawers']);
         // The GO control room plays its start-up sequence once per sign-in (sign-out clears the session).
         $boot['intro']=!$request->session()->has('go_hud_intro');$request->session()->put('go_hud_intro',true);
         $boot['hud_links']=\App\Services\Dashboard\HomeHudLinks::for(auth('admin')->user());
@@ -80,7 +81,10 @@ class HomeController extends Controller
 
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
-        return response()->json($overview->data($request->query(),auth('admin')->user()))->header('Cache-Control','private, no-store');
+        $data=$request->query('section')==='drawers'
+            ?$overview->drawers($request->query(),auth('admin')->user())
+            :$overview->data($request->query(),auth('admin')->user());
+        return response()->json($data)->header('Cache-Control','private, no-store');
     }
 
     public function loginPage(GeneralSettings $settings){

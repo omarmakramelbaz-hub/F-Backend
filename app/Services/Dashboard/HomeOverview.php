@@ -33,14 +33,37 @@ class HomeOverview
         return ['count'=>0, 'gross_cents'=>0, 'delivery_cents'=>0, 'expenses_cents'=>0, 'net_cents'=>0,
             'channels'=>array_fill_keys(self::CHANNELS, ['count'=>0, 'gross_cents'=>0, 'delivery_cents'=>0])];
     }
-    public function data(array $values, $actor): array
+    /** The same validated restaurant scope is used by the overview and explicit drawer read. */
+    private function selection(array $values, $actor): array
     {
-        $actor = $this->access->actor($actor);
         $all = array_values(array_filter($this->access->branches($actor), fn($b)=>$b['kind'] === 'f'));
         foreach($all as &$entry)$entry['display_group']=$this->displayGroup($entry['name']);unset($entry);
         usort($all,fn($a,$b)=>[$a['display_group']==='store'?1:0,$a['id']]<=>[$b['display_group']==='store'?1:0,$b['id']]);
         $filters = $this->range($values); $selected = $all;
         if ($filters['branch'] !== '') { $branch = $this->access->branch($filters['branch'], $actor); abort_unless($branch['kind'] === 'f', 404); $branch['display_group']=$this->displayGroup($branch['name']); $selected = [$branch]; }
+        return [$all,$filters,$selected];
+    }
+    /** Current balances are deliberately computed only after the Owner asks to view them. */
+    public function drawers(array $values, $actor): array
+    {
+        $actor=$this->access->actor($actor);
+        abort_unless((int)$actor->id===1&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+        [, $filters, $selected]=$this->selection($values,$actor);
+        $ready=$this->has('orders',['resturant_id','type','status','created_at','updated_at'])
+            &&$this->has('takeaway_orders',['branch','business_date','channel','total_cents','delivery_cents','created_at'])
+            &&$this->has('branch_expenses',['branch','occurred_on','status','amount_cents'])
+            &&$this->has('carts',['order_id','price','qty'])&&$this->has('settings',['name','payload'])
+            &&$this->has('branch_shift_closings',['snapshot','sequence','expected_cents'])
+            &&$this->has('branch_shift_sources',['source','source_id'])
+            &&$this->has('branch_expense_commands',['snapshot','branch'])&&$this->access->ready();
+        $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances(array_column($selected,'value'),$actor):[];
+        return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'filters'=>$filters,
+            'owner_drawer'=>['ready'=>$ready,'loaded'=>true,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts]];
+    }
+    public function data(array $values, $actor): array
+    {
+        $actor = $this->access->actor($actor);
+        [$all,$filters,$selected]=$this->selection($values,$actor);
         $centralAccount = $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
         $owner = (int)$actor->id === 1 && $centralAccount;
         // Order-management grants do not grant central admins access to sales amounts.
@@ -150,9 +173,9 @@ class HomeOverview
         foreach($trend['points'] as &$point)if(!$finance)unset($point['amount_cents']);unset($point);
         $drawer=$centralAccount?['owner_platform'=>$this->platformCounts(),'expenses_cents'=>$sales['expenses_cents']]:[];
         if($owner){
-            $ready=$modules['app']&&$modules['pos']&&$modules['expenses']&&$this->has('carts',['order_id','price','qty'])&&$this->has('settings',['name','payload'])&&$this->has('branch_shift_closings',['snapshot','sequence','expected_cents'])&&$this->has('branch_shift_sources',['source','source_id'])&&$this->has('branch_expense_commands',['snapshot','branch'])&&$this->access->ready();
-            $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances($keys,$actor):[];
-            $drawer['owner_drawer']=['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts];
+            // Opening and periodically refreshing home never reconstructs every shift.
+            // Null means not requested; it must not be displayed as a zero balance.
+            $drawer['owner_drawer']=['ready'=>false,'loaded'=>false,'total_cents'=>null,'branches'=>[]];
         }
         return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'operating_day'=>OperatingDay::metadata(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
             'branch_home'=>!$centralAccount,'today_expenses'=>!$centralAccount?$this->todayExpenses($keys,$modules['expenses']):null,

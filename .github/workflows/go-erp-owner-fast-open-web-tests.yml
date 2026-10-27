@@ -1,0 +1,78 @@
+name: GO ERP owner opens without drawer report generation
+
+on:
+  push:
+    branches: ['codex/go-erp-owner-fast-open-web-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  php-owner-financial-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      TAKEAWAY_TEST_CONNECTION: sqlite
+      CACHE_DRIVER: array
+      SESSION_DRIVER: array
+      MAIL_MAILER: log
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          ini-values: memory_limit=256M
+          coverage: none
+      - name: Install the existing locked application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the isolated CI application
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Verify overview access and on-demand Owner drawer balances
+        run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
+      - name: Verify unchanged cash formulas and closing guards
+        run: vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
+      - name: Verify bounded cart reads and exact financial parity
+        run: vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php --filter test_batch_
+      - name: Verify original SPA fragments for every role
+        run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
+      - name: Compile actual Blade templates
+        run: php artisan view:cache
+  browser-owner-drawer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install the isolated pinned browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/owner-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          if command -v google-chrome >/dev/null 2>&1; then
+            browser_path=$(command -v google-chrome)
+          elif test -x /opt/google/chrome/chrome; then
+            browser_path=/opt/google/chrome/chrome
+          else
+            "$RUNNER_TEMP/owner-browser/node_modules/.bin/playwright" install --with-deps chromium --only-shell
+            browser_path=
+          fi
+          if test -n "$browser_path"; then
+            "$browser_path" --version
+            printf 'DESKTOP_TEST_BROWSER_EXECUTABLE=%s\n' "$browser_path" >> "$GITHUB_ENV"
+          fi
+      - name: Verify real Owner drawer click, refresh and navigation behavior
+        env:
+          NODE_PATH: ${{ runner.temp }}/owner-browser/node_modules
+        run: node tests/browser/owner-drawer-lazy.cjs
