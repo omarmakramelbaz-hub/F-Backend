@@ -19,8 +19,8 @@ function fixture() {
     serverInspection: { format: 2, kind: 'go-erp-workspace-native-server-inspection', sourceRevision: expected.sourceRevision,
       sourceFingerprint: source, workspaceCount: 1, custodianActorId: 10,
       workspaces: [{ workspace_id: workspace, root_fingerprint: 'e'.repeat(64) }],
-      commands: [{ command_id: a, actor_id: 10, route_name: 'customers.save', status: 'pending', sequence: 1 },
-        { command_id: b, actor_id: 11, route_name: 'customers.save', status: 'pending', sequence: 2 }],
+      commands: [{ command_id: a, actor_id: 10, route_name: 'customers.save', status: 'acknowledged', sequence: 1 },
+        { command_id: b, actor_id: 11, route_name: 'customers.save', status: 'acknowledged', sequence: 2 }],
       customers: [{ phone_key: '01012345671', actor_id: 10, branch: 'f:100' }, { phone_key: '01012345672', actor_id: 11, branch: 'f:100' }] } };
   for (const name of ['actualElectron', 'actualEncryptedMetadata', 'actualPhpMariaDB', 'productionFactory', 'syntheticPublication',
     'onePreparation', 'zeroOfflineHttp', 'samePhysicalDatabase', 'aPendingVisibleToB', 'bWritesKeepOriginalActor',
@@ -54,6 +54,15 @@ test('re-preparation during cached login and an unfinished or fictitious setup t
   const changes = [p => { p.loginStageCalls = 1; }, p => { p.cachedLoginMilliseconds[0] = 45000; },
     p => { p.setupTimer.running = true; }, p => { p.setupTimer.elapsed_ms = 0; }, p => { p.sourceSequence = 0; }];
   for (const change of changes) { const { proof, expected } = fixture(); change(proof); assert.throws(() => verify(proof, expected)); }
+});
+
+test('both real server commands must be acknowledged after committed original reconciliation', () => {
+  for (const status of ['pending','conflict','failed','ACKNOWLEDGED']) {
+    for (const index of [0,1]) {
+      const { proof, expected } = fixture(); proof.serverInspection.commands[index].status = status;
+      assert.throws(() => verify(proof, expected));
+    }
+  }
 });
 
 

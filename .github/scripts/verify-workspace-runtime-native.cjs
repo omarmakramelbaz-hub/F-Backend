@@ -43,10 +43,11 @@ function verify(proof, expected) {
   assert.equal(server.workspaces[0].workspace_id, proof.physicalWorkspaceId);
   assert.match(server.workspaces[0].root_fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(server.commands?.length, 2);
-  // The original server execution journal retains its immutable pending row;
-  // the native outbox is acknowledged separately after the committed receipt.
+  // Original Reconciliation::ingest acknowledges the server execution row in
+  // its commit transaction. Native outbox acknowledgment is a separate step;
+  // both original server rows must already be committed and acknowledged here.
   assert.deepEqual(server.commands.map(row => [row.command_id, row.actor_id, row.route_name, row.status]),
-    [[a, 10, 'customers.save', 'pending'], [b, 11, 'customers.save', 'pending']]);
+    [[a, 10, 'customers.save', 'acknowledged'], [b, 11, 'customers.save', 'acknowledged']]);
   assert.ok(server.commands.every(row => Number.isSafeInteger(row.sequence) && row.sequence > 0));
   assert.ok(server.commands[0].sequence < server.commands[1].sequence);
   assert.equal(server.customers?.length, 2);
