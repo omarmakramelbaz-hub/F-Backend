@@ -41,6 +41,10 @@ class DesktopDashboardRefresh
             abort_unless($row->state==='ready',409);
             // Check every device row in this private database, not just a sendable outbox page.
             abort_if(DB::table('desktop_dashboard_commands')->where('status','!=','acknowledged')->exists(),409,'توجد عمليات معلقة أو متعارضة؛ بيانات الجهاز لم تتغير.');
+            if(app(DesktopDashboardWorkspaceLocalAuthority::class)->selected()){
+                $printing=app(DesktopDashboardPrintEffects::class)->workspaceStateLocked($device);
+                abort_unless(array_sum($printing)===0,409,'توجد طباعة لم تُحسم نتيجتها؛ نسخة بيانات الجهاز محفوظة.');
+            }
             $sequence=(int)(DB::table('desktop_dashboard_commands')->max('sequence')??0);
             DB::table('desktop_dashboard_local_state')->where('device_id',$device)->update([
                 'state'=>'held','refresh_id'=>$id,'refresh_token_hash'=>hash('sha256',$token),

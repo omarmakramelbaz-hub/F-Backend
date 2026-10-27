@@ -3,24 +3,16 @@
 // Native protocol-2 pointer validation. Shape checks do not replace the trusted
 // PHP import/source/media/current-work verification required before activation.
 const crypto = require('node:crypto');
+const { object, exact, hash, uuid, canonical, digest } = require('./workspace-protocol.cjs');
 const coverage = require('./dashboard-coverage.cjs');
 const source = require('./dashboard-source.cjs');
 const media = require('./dashboard-media.cjs');
-const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const exact = (value, required, optional = []) => object(value) && required.every(key => Object.hasOwn(value, key))
-  && Object.keys(value).every(key => required.includes(key) || optional.includes(key));
-const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const count = value => Number.isSafeInteger(value) && value >= 0;
+const database = value => typeof value === 'string' && /^(?:fasakhansta_dashboard|fasakhansta_dashboard_stage_[a-f0-9]{16})$/.test(value);
+const stageDatabase = value => typeof value === 'string' && /^fasakhansta_dashboard_stage_[a-f0-9]{16}$/.test(value);
+const DELTA_FIELDS = Object.freeze(['delta_stage', 'delta_replay', 'delta_source_identity', 'delta_source_binding']);
 const need = value => { if (!value) throw Object.assign(Error('The shared prepared workspace could not be verified.'), { code: 'WORKSPACE_PREPARED_INVALID' }); };
-function canonical(value) {
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
-  if (object(value)) return '{' + Object.keys(value).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
-    .map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
-  return JSON.stringify(value);
-}
-const digest = value => crypto.createHash('sha256').update(canonical(value)).digest('hex');
 const same = (a, b) => canonical(a) === canonical(b);
 function workspaceBinding(manifest) {
   return { workspace_id: manifest.workspace_id, root_fingerprint: manifest.root_fingerprint,
@@ -36,8 +28,45 @@ function branches(value) {
   return Array.isArray(value) && value.length <= 10000 && value.every(item => typeof item === 'string' && /^(?:f|gs):[1-9][0-9]{0,18}$/.test(item))
     && value.every((item, index) => index === 0 || Buffer.compare(Buffer.from(value[index - 1]), Buffer.from(item)) < 0);
 }
+/** Native framing checks complement the PHP MACs; no caller-supplied digest authenticates a stage. */
+function deltaReceipt(value, memberManifest, candidate, credential) {
+  need(object(value) && object(memberManifest) && object(candidate));
+  if (!DELTA_FIELDS.some(key => Object.hasOwn(value, key))) return null;
+  need(DELTA_FIELDS.every(key => Object.hasOwn(value, key)));
+  const binding = value.delta_source_binding, identity = value.delta_source_identity, replay = value.delta_replay, stage = value.delta_stage;
+  need(exact(binding, ['workspace_id', 'root_fingerprint', 'revision', 'roster_sha256', 'manifest_sha256', 'token_hash'])
+    && uuid(binding.workspace_id) && binding.workspace_id === memberManifest.workspace_id && binding.root_fingerprint === memberManifest.root_fingerprint
+    && positive(binding.revision) && positive(memberManifest.revision) && binding.revision <= memberManifest.revision
+    && hash(memberManifest.roster_sha256)
+    && ['root_fingerprint', 'roster_sha256', 'manifest_sha256', 'token_hash'].every(key => hash(binding[key])));
+  if (binding.revision === memberManifest.revision)
+    need(binding.roster_sha256 === memberManifest.roster_sha256 && binding.manifest_sha256 === digest(memberManifest));
+  if (credential) need(binding.token_hash === expectedBinding(credential, memberManifest).token_hash);
+  const targetWorkspace = workspaceBinding(memberManifest);
+  need(exact(value.workspace, Object.keys(targetWorkspace)) && same(value.workspace, targetWorkspace));
+  const sourceWorkspace = { workspace_id: binding.workspace_id, root_fingerprint: binding.root_fingerprint,
+    manifest_revision: binding.revision, roster_sha256: binding.roster_sha256, manifest_sha256: binding.manifest_sha256 };
+  need(exact(identity, ['snapshot_id', 'schema_hash', 'workspace']) && uuid(identity.snapshot_id) && hash(identity.schema_hash)
+    && exact(identity.workspace, Object.keys(sourceWorkspace)) && same(identity.workspace, sourceWorkspace));
+  need(exact(replay, ['format', 'workspace_id', 'root_fingerprint', 'source_database', 'sequence', 'rows', 'sha256'])
+    && replay.format === 2 && replay.workspace_id === memberManifest.workspace_id && replay.root_fingerprint === memberManifest.root_fingerprint
+    && database(replay.source_database) && replay.source_database !== candidate.database
+    && count(replay.sequence) && count(replay.rows) && hash(replay.sha256));
+  need(exact(stage, ['format', 'kind', 'stage_id', 'stage_database', 'source_database', 'capture_database', 'capture_id',
+    'device_id', 'actor_id', 'snapshot_id', 'workspace', 'receipt_sha256'])
+    && stage.format === 2 && stage.kind === 'desktop-workspace-delta-stage' && hash(stage.stage_id) && hash(stage.capture_id)
+    && stageDatabase(candidate.database) && stage.stage_database === candidate.database
+    && stage.source_database === replay.source_database && stageDatabase(stage.capture_database)
+    && stage.capture_database !== stage.stage_database && stage.capture_database !== stage.source_database
+    && stage.device_id === value.device_id && stage.device_id === memberManifest.workspace_id
+    && positive(stage.actor_id) && stage.actor_id === value.actor_id && uuid(stage.snapshot_id) && stage.snapshot_id === value.snapshot_id
+    && same(stage.workspace, value.workspace) && hash(stage.receipt_sha256));
+  // receipt_sha256 was produced from PHP's exact JSON bytes before adding the
+  // stage marker, php_profiles and verified flag. PHP verifies that commitment.
+  return value;
+}
 function receipt(value, memberManifest, candidate) {
-  need(exact(value, ['format', 'kind', 'snapshot_id', 'device_id', 'actor_id', 'schema_hash', 'tables', 'rows', 'coverage', 'source', 'branches', 'table_rows', 'media', 'workspace', 'verified'], ['php_profiles'])
+  need(exact(value, ['format', 'kind', 'snapshot_id', 'device_id', 'actor_id', 'schema_hash', 'tables', 'rows', 'coverage', 'source', 'branches', 'table_rows', 'media', 'workspace', 'verified'], ['php_profiles', ...DELTA_FIELDS])
     && value.format === 2 && value.kind === 'desktop-workspace-import-receipt' && value.verified === true
     && uuid(value.snapshot_id) && value.snapshot_id === candidate.snapshotId && value.device_id === memberManifest.workspace_id
     && positive(value.actor_id) && value.schema_hash === candidate.schemaHash && hash(value.schema_hash)
@@ -53,6 +82,7 @@ function receipt(value, memberManifest, candidate) {
   // lacks download tickets and may contain no other per-file fields.
   for (const item of value.media) need(exact(item, ['path', 'sha256', 'bytes', 'mime'], ['area']) && item.area !== 'public');
   media.manifest(value.media.map(item => ({ ...item, ticket: 'native-receipt-validation' })));
+  deltaReceipt(value, memberManifest, candidate);
   return value;
 }
 function validate(value, checkedReceipt, memberManifest, credential, candidate) {
@@ -67,6 +97,7 @@ function validate(value, checkedReceipt, memberManifest, credential, candidate) 
     && same(value.branches, checkedReceipt.branches) && same(value.workspace, workspaceBinding(memberManifest))
     && value.importReceiptSha256 === digest(checkedReceipt));
   receipt(checkedReceipt, memberManifest, candidate);
+  deltaReceipt(checkedReceipt, memberManifest, candidate, credential);
   if (value.fullCoverage === true) {
     need(checkedReceipt.coverage.full_dashboard === true && !['previewOnly', 'coverage', 'mediaManifestHash', 'coverageBinding'].some(key => Object.hasOwn(value, key)));
   } else {
@@ -90,4 +121,4 @@ function create({ credential, manifest, candidate, refreshId, sourceManifest, al
   if (value.previewOnly) value.coverageBinding = coverage.binding(value);
   return validate(value, checked, manifest, credential, candidate);
 }
-module.exports = { workspaceBinding, expectedBinding, receipt, validate, create };
+module.exports = { workspaceBinding, expectedBinding, receipt, deltaReceipt, validate, create };

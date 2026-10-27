@@ -15,7 +15,9 @@ const adminRecallerName='remember_admin_'+crypto.createHash('sha1').update('Illu
 module.exports = function dashboard({ origin, serverOrigin = null, offline, offlineWindow, quitting, quit, printer, localToken = '', partition = 'persist:fasakhansta-dashboard',
   prepare, connected, reauthenticate, localMode, reviewCentral, browse, remoteState, remoteAttempts, archive, selectPrinter, reviewSync, updateStatus, printControl, printMetadata, liveSocial, switchAccount,
   onVisible = () => {}, onNavigation = () => {}, beforeLogout = async () => {}, status = async () => ({ available: false }), synchronize = async () => {}, accepted = fn => fn() }) {
-  if(typeof partition!=='string'||!/^persist:fasakhansta-dashboard(?:-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$/.test(partition))throw Error('ملف جلسة الداشبورد غير صالح.');
+  const workspacePartition=typeof partition==='string'&&/^persist:go-erp-workspace-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-([1-9][0-9]{0,15})$/.exec(partition);
+  if(typeof partition!=='string'||!/^persist:fasakhansta-dashboard(?:-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?$/.test(partition)
+    &&!(workspacePartition&&Number.isSafeInteger(Number(workspacePartition[1]))))throw Error('ملف جلسة الداشبورد غير صالح.');
   let home = origin + '/admin/dashboard';
   if (!serverOrigin && !localToken) serverOrigin = origin;
   let window, presentationReady = false, loading = false, refreshing = false, printing = 0, authentication = null, loggingOut = false;
@@ -297,11 +299,15 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       const attempt=remoteAttempts?crypto.randomUUID():null;let response,html,nativeMarker;
       const proof=attempt?await remoteAttempts.begin(attempt,{url:url.href,method:'GET'}):{};
       const printHeaders={Accept:'text/html',...proof};
-      if(proof['X-Fasakhansta-Connected-Device']&&proof['X-Fasakhansta-Connected-Token']){
+      const groupNames=require('./workspace-protocol.cjs').WORKSPACE_HEADERS;
+      const groupProof=groupNames.every(name=>typeof proof[name]==='string'&&proof[name].length>0)
+        &&Object.keys(proof).every(name=>groupNames.includes(name)||['X-Fasakhansta-Workspace-Attempt','X-Fasakhansta-Workspace-Capability'].includes(name))
+        &&Boolean(proof['X-Fasakhansta-Workspace-Attempt'])===Boolean(proof['X-Fasakhansta-Workspace-Capability']);
+      if(groupProof||proof['X-Fasakhansta-Connected-Device']&&proof['X-Fasakhansta-Connected-Token']){
         // Only this native fetch can retain its paired actor proof through the
         // shared interceptor. The one-use marker never leaves this process.
         nativeMarker=crypto.randomBytes(32).toString('hex');
-        nativeConnectedPrints.set(nativeMarker,{url:url.href,proof});
+        nativeConnectedPrints.set(nativeMarker,{url:url.href,method:'GET',proof});
         printHeaders['X-Fasakhansta-Connected-Request']=nativeMarker;
       }
       try{
@@ -391,8 +397,8 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             const headers = { ...details.requestHeaders };
             const supplied = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-fasakhansta-desktop')?.[1];
             const nativeMarker=Object.entries(headers).find(([name])=>name.toLowerCase()==='x-fasakhansta-connected-request')?.[1];
-            const connectedSupplied=Object.keys(headers).some(name=>/^x-fasakhansta-connected-(?:device|token|request)$/i.test(name));
-            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability|connected-device|connected-token|connected-request)$/i.test(name)) delete headers[name];
+            const connectedSupplied=Object.keys(headers).some(name=>/^x-fasakhansta-(?:connected-(?:device|token|request)|workspace-.+)$/i.test(name));
+            for (const name of Object.keys(headers)) if (/^x-fasakhansta-(?:desktop|control|remote-attempt|remote-capability|connected-.+|workspace-.+)$/i.test(name)) delete headers[name];
             if(authentication&&authentication.contentsId===details.webContentsId){
               if(!authentication.finishing&&!authentication.checking&&authentication.allowed(details.url,details.method)
                 &&!(authentication.submitted&&String(details.method).toUpperCase()==='POST')){
@@ -445,7 +451,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             if (!localToken) {
               if (refreshing || quitting()) { callback({ cancel: true }); return; }
               const nativePrint=nativeConnectedPrints.get(nativeMarker);
-              if((details.webContentsId==null||details.webContentsId<=0)&&String(details.method).toUpperCase()==='GET'&&nativePrint?.url===details.url){
+              if((details.webContentsId==null||details.webContentsId<=0)&&String(details.method).toUpperCase()===nativePrint?.method&&nativePrint?.url===details.url){
                 nativeConnectedPrints.delete(nativeMarker);callback({requestHeaders:{...headers,...nativePrint.proof}});return;
               }
               // A failed native binding must never become an unguarded original

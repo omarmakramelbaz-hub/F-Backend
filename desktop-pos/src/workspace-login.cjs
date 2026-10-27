@@ -56,17 +56,17 @@ class WorkspaceLogin {
       // The trusted caller runs original server password authentication and
       // installs only that authenticated actor's server cookies. A missing
       // cached grant prevents local access, never ordinary online sign-in.
-      const controller = new AbortController(); this.controllers.add(controller);
-      try {
-        const result = await this.onlineFallback({ ...credentials }, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]) });
-        this.assert(); if (result?.local !== false || active && result.origin !== active.credential.serverOrigin) throw rejected(); return result;
-      } finally { controller.abort(); this.controllers.delete(controller); credentials.password = ''; this.pendingCredentials.delete(credentials); }
+      return this.serverOnly(credentials);
     }
     // Lookup is only a proposed identity. No actor directory or persistent
     // cookie exists until PHP accepts the actual password and native context.
     const local = await this.workspace.start(); this.assert();
-    const result = await this.fresh(async (browser, signal) => {
-      const actor = await originalSignin({ browser, origin: local.origin, localToken: local.token, ...credentials, signal }); this.assert(signal);
+    let result;
+    try { result = await this.fresh(async (browser, signal) => {
+      let actor;
+      try { actor = await originalSignin({ browser, origin: local.origin, localToken: local.token, ...credentials, signal }); }
+      catch (error) { if (error.code === 'ACCOUNT_CREDENTIALS_REJECTED') error.workspaceLocalPasswordRejected = true; throw error; }
+      this.assert(signal);
       if (!currentMember(member, actor)) throw rejected();
       const proof = await this.verifyLocalSession({ browser, local, actor, active }, { signal }); this.assert(signal);
       const latest = await this.registry.current(), now = await this.registry.member(actor.actorId);
@@ -79,19 +79,29 @@ class WorkspaceLogin {
       const refused = await selected.runtime.metadata.read(rejectionKey);
       if (refused) {
         if (refused.format !== 2 || refused.kind !== 'workspace-server-rejection' || refused.actorId !== actor.actorId) throw rejected();
-        // A known explicit refusal cannot be turned into offline fallback.
-        if (this.online() === false) throw rejected();
-        if (await this.serverAuthenticate(credentials, { member: now, active: latest, selected, signal }) !== true) throw rejected(); this.assert(signal);
+        // A freshly imported, independently verified changed verifier plus
+        // its actual successful password POST can retire an older refusal.
+        // A network failure against the same cached verifier cannot do so.
+        if (refused.passwordBinding !== now.password_binding && Number.isSafeInteger(refused.manifestRevision)
+          && refused.manifestRevision < latest.manifest.revision) await selected.runtime.metadata.write(rejectionKey, null);
+        else {
+          if (this.online() === false) throw rejected();
+          if (await this.serverAuthenticate(credentials, { member: now, active: latest, selected, signal }) !== true) throw rejected(); this.assert(signal);
+        }
       }
+      await this.workspace.acceptSession(actor, proof); this.assert(signal);
       const target = this.createSession(selected.descriptor.partition), activeLogin = () => !this.cancelled && !this.stopped() && !signal.aborted;
       const undo = await installCookies(browser, target, local.origin, true, { active: activeLogin });
       try {
         await signout.signedIn(selected.runtime, { active: activeLogin }); this.assert(signal);
         await selected.runtime.metadata.write('workspace-login', { format: 2, kind: 'workspace-login', actorId: actor.actorId,
           manifestRevision: latest.manifest.revision, remember: credentials.remember }); this.assert(signal);
-      } catch (error) { await undo(); throw error; }
+      } catch (error) { this.workspace.revokeSession(actor.actorId); await undo(); throw error; }
       return { ...selected, local: true, origin: local.origin, localToken: local.token, actor: { ...actor }, member: now, active: latest };
-    });
+    }); } catch (error) {
+      if (error.workspaceLocalPasswordRejected === true && this.online() !== false) return this.serverOnly(credentials, { cachedPasswordRejected: true });
+      throw error;
+    }
     let started = false;
     const forget = () => { credentials.password = ''; this.pendingCredentials.delete(credentials); };
     const afterView = () => {
@@ -107,6 +117,14 @@ class WorkspaceLogin {
     let background;
     return { account: result.descriptor, runtime: result.runtime, local: true, origin: result.origin, localToken: result.localToken,
       actor: result.actor, afterView, discardCredentials: forget };
+  }
+  async serverOnly(credentials, extra = {}) {
+    const controller = new AbortController(), fallbackCredentials = { ...credentials, ...extra }; this.controllers.add(controller);
+    try {
+      const active = await this.registry.current();
+      const result = await this.onlineFallback(fallbackCredentials, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]) });
+      this.assert(); if (result?.local !== false || active && result.origin !== active.credential.serverOrigin) throw rejected(); return result;
+    } finally { controller.abort(); this.controllers.delete(controller); fallbackCredentials.password = ''; credentials.password = ''; this.pendingCredentials.delete(credentials); }
   }
   async serverAuthenticate(credentials, { member, active, selected, signal }) {
     return this.fresh(async (browser, requestSignal) => {
@@ -127,6 +145,7 @@ class WorkspaceLogin {
     }, signal);
   }
   async lock(selected, member, active, reason) {
+    this.workspace.revokeSession(member.actor_id);
     // Persist before UI lock/cleanup. Lost replies cannot erase a refusal.
     await selected.runtime.metadata.write(rejectionKey, { format: 2, kind: 'workspace-server-rejection', actorId: member.actor_id,
       manifestRevision: active.manifest.revision, passwordBinding: member.password_binding, reason });

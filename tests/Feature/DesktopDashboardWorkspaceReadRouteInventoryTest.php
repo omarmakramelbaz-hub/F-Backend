@@ -28,12 +28,12 @@ class DesktopDashboardWorkspaceReadRouteInventoryTest extends TestCase
     }
     public function test_new_action_alias_or_method_cannot_inherit_an_existing_read_policy():void
     {
-        foreach([new Route(['GET','HEAD'],'admin/accidental-private-page',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@index']),
-            new Route(['GET','HEAD'],'admin/users',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@newUnionDump']),
-            new Route(['GET','HEAD'],'admin/users/{different_binding}',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@show']),
-            new Route(['GET','HEAD','POST'],'admin/users',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@index'])]as$route)
+        foreach([new Route(['GET','HEAD'],'admin/accidental-private-page',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@index','controller'=>'App\\Http\\Controllers\\Dashboard\\UserController@index']),
+            new Route(['GET','HEAD'],'admin/users',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@newUnionDump','controller'=>'App\\Http\\Controllers\\Dashboard\\UserController@newUnionDump']),
+            new Route(['GET','HEAD'],'admin/users/{different_binding}',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@show','controller'=>'App\\Http\\Controllers\\Dashboard\\UserController@show']),
+            new Route(['GET','HEAD','POST'],'admin/users',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@index','controller'=>'App\\Http\\Controllers\\Dashboard\\UserController@index'])]as$route)
             $this->assertNull(Reads::classify($route));
-        $route=new Route(['GET','HEAD'],'admin/users',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@index']);
+        $route=new Route(['GET','HEAD'],'admin/users',['uses'=>'App\\Http\\Controllers\\Dashboard\\UserController@index','controller'=>'App\\Http\\Controllers\\Dashboard\\UserController@index']);
         $this->assertSame('typed-target',Reads::classify($route));
     }
 
@@ -44,7 +44,7 @@ class DesktopDashboardWorkspaceReadRouteInventoryTest extends TestCase
         try{
             foreach([['admin/private-unreviewed','App\\Http\\Controllers\\Dashboard\\UserController@unreviewed',503],
                 ['admin/env-setting','App\\Http\\Controllers\\Dashboard\\SettingsController@enviroSetting',501]]as[$uri,$action,$status]){
-                $route=new Route(['GET','HEAD'],$uri,['uses'=>$action]);
+                $route=new Route(['GET','HEAD'],$uri,['uses'=>$action,'controller'=>$action]);
                 $request=\Illuminate\Http\Request::create('/'.$uri,'GET');$request->setRouteResolver(fn()=>$route);
                 $caught=null;
                 try{app(\App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class)->handle($request,

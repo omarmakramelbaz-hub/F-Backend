@@ -817,4 +817,5 @@ class LocalRuntime {
 // Main-process-only fixed-script adapters reuse the original child drain/error path.
 // This function is never registered as an IPC handler.
 Object.defineProperty(LocalRuntime, 'runNative', { value: run });
+Object.defineProperty(LocalRuntime, 'phpIniFor', { value: phpIniFor });
 module.exports = LocalRuntime;

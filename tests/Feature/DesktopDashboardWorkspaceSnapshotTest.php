@@ -83,7 +83,7 @@ class DesktopDashboardWorkspaceSnapshotTest extends TestCase
         $root=$this->root();DB::table('users')->where('id',10)->update(['status'=>'disabled']);
         [$manifest,$rows]=$this->selections($root);
         $this->assertSame([11,30],array_column($manifest['members'],'actor_id'));
-        $this->assertSame([10,11,30],array_column($rows['users'],'id'));
+        $this->assertSame([11,30],array_column($rows['users'],'id'));
         $this->assertSame([11,30],array_column($rows['notifications'],'notifiable_id'));
         $this->assertSame([101],array_column($rows['takeaway_orders'],'id'));
         $this->assertSame(10,(int)$root->custodian_actor_id);
@@ -103,6 +103,30 @@ class DesktopDashboardWorkspaceSnapshotTest extends TestCase
         $this->assertSame([1,10,11,30],array_column($manifest['members'],'actor_id'));
         $this->assertSame([1,10,11,30],array_column($rows['notifications'],'notifiable_id'));
         $this->assertContains(20,array_column($rows['users'],'id'));
+    }
+    public function test_audience_batches_actual_member_models_and_refreshes_status_and_password_facts(): void
+    {
+        $root=$this->root();$armed=false;$hydrations=[];
+        DB::listen(function($query)use(&$armed,&$hydrations){
+            if(!$armed)return;$sql=strtolower(str_replace(['`','"'],['',''],$query->sql));
+            if(preg_match('/^select\s+\*\s+from\s+users\s+where\s+(?:users\.)?id\s*(?:in\s*\(|=)/',$sql))$hydrations[]=$sql;
+        });
+        $authority=app(Authority::class);$armed=true;
+        try{$audience=DB::transaction(fn()=>$authority->snapshotAudience($root));}finally{$armed=false;}
+        $this->assertCount(1,$hydrations,'A union audience must hydrate its actual member models in one query.');
+        $this->assertStringContainsString('id in (',$hydrations[0]);
+        $this->assertSame([10,11,30],array_keys($audience->actors()));
+        $old=$audience->actors()[10]->getAuthPassword();
+        $rotated=password_hash('rotated-fixture-password',PASSWORD_BCRYPT,['cost'=>4]);
+        DB::table('users')->where('id',10)->update(['password'=>$rotated]);
+        DB::table('users')->where('id',11)->update(['status'=>'disabled']);
+        $fresh=DB::transaction(fn()=>$authority->snapshotAudience($root));
+        $this->assertSame([10,30],array_keys($fresh->actors()));
+        $this->assertSame($rotated,$fresh->actors()[10]->getAuthPassword());
+        $this->assertSame($old,$audience->actors()[10]->getAuthPassword(),'An issued audience must not mutate when a later roster is built.');
+        $member=array_column($fresh->manifest()['members'],null,'actor_id')[10];
+        $this->assertSame(hash('sha256',$rotated),$member['password_binding']);
+        $this->assertGreaterThan($audience->manifest()['revision'],$fresh->manifest()['revision']);
     }
     public function test_mysql_snapshot_keeps_all_member_verifiers_but_no_foreign_hash_or_recaller_secret(): void
     {

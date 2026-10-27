@@ -71,6 +71,10 @@ final class DesktopDashboardWorkspaceRemoteAttempts extends DesktopDashboardRemo
                 DB::table('desktop_dashboard_remote_attempts')->where('id',$row->id)->update(['status'=>'cancelled','updated_at'=>now('UTC')]);$row->status='cancelled';
             }
             abort_unless(in_array($row->status,['committed','cancelled'],true),503);
+            if($row->status==='committed')abort_unless(is_string($row->request_hash??null)&&preg_match('/^[a-f0-9]{64}$/D',$row->request_hash)
+                &&is_int($saved['status']??null)&&$saved['status']>=200&&$saved['status']<400
+                &&is_string($saved['operation']??null)&&preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD',$saved['operation'])
+                &&is_string($saved['content']??null)&&strlen($saved['content'])<=1024*1024,503);
             // No business callback, response body, new execution capability or
             // replacement actor is produced by terminal recovery.
             return ['format'=>2,'kind'=>'desktop-workspace-remote-attempt','id'=>$row->id,'device_id'=>$row->device_id,
@@ -101,6 +105,18 @@ final class DesktopDashboardWorkspaceRemoteAttempts extends DesktopDashboardRemo
             if($row->status==='ready')$this->settledOthers($scope->id,$id);
         });
         return parent::handle($request,$next);
+    }
+
+    /** Pair-free browsing/provider traffic cannot bypass an already uncertain workspace write. */
+    public function authorizeDirect(DesktopDashboardWorkspaceScope $scope,Request $request): void
+    {
+        $this->serverScope($scope);
+        // Ending this actor's own browser session does not settle or erase any
+        // physical-workspace uncertainty, and must remain available during it.
+        if(ltrim((string)$request->route()?->getActionName(),'\\')===\App\Http\Controllers\Dashboard\HomeController::class.'@adminLogout')return;
+        abort_if(DesktopDashboardRoutes::journaled($request->route()?->getName()),422,
+            'العملية تحتاج حجز نتيجتها من جسر البرنامج قبل إرسالها.');
+        DB::transaction(function()use($scope){$this->authority->assertScope($scope);$this->settledOthers($scope->id,'');});
     }
 
     protected function attemptHeaders(Request $request): array

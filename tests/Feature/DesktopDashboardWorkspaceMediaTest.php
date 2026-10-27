@@ -60,10 +60,10 @@ class DesktopDashboardWorkspaceMediaTest extends TestCase
         ]);
         foreach([[1,100,'a.png'],[2,101,'b.png'],[3,999,'c.png']] as [$id,$owner,$name]){
             DB::table('media')->insert(['id'=>$id,'model_type'=>'App\\Models\\Resturant','model_id'=>$owner,'file_name'=>$name,'disk'=>'public','conversions_disk'=>'public']);
-            $this->put('app/public/'.$id.'/'.$name,$this->png());
+            $this->putAsset('app/public/'.$id.'/'.$name,$this->png());
         }
-        $this->put('app/public/2/conversions/thumb.png',$this->png());
-        $this->put('app/branch-expenses/b.pdf',$this->pdf());
+        $this->putAsset('app/public/2/conversions/thumb.png',$this->png());
+        $this->putAsset('app/branch-expenses/b.pdf',$this->pdf());
         DB::table('branch_expenses')->insert(['id'=>27,'branch'=>'f:101','attachment_path'=>'branch-expenses/b.pdf',
             'attachment_hash'=>hash('sha256',$this->pdf()),'attachment_mime'=>'application/pdf']);
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
@@ -82,7 +82,7 @@ class DesktopDashboardWorkspaceMediaTest extends TestCase
     }
     private function png(): string {return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB5kAAAAASUVORK5CYII=');}
     private function pdf(): string {return "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n";}
-    private function put(string $path,string $bytes): void {$name=storage_path($path);if(!is_dir(dirname($name)))mkdir(dirname($name),0700,true);file_put_contents($name,$bytes);}
+    private function putAsset(string $path,string $bytes): void {$name=storage_path($path);if(!is_dir(dirname($name)))mkdir(dirname($name),0700,true);file_put_contents($name,$bytes);}
     private function erase(string $path): void
     {
         if(is_link($path)||is_file($path)){unlink($path);return;}
@@ -133,9 +133,9 @@ class DesktopDashboardWorkspaceMediaTest extends TestCase
         DB::table('branch_expenses')->where('id',27)->update(['branch'=>'f:999']);
         $this->refused(fn()=>app(Media::class)->downloadWorkspace($root,$file['ticket']),403);
         DB::table('branch_expenses')->where('id',27)->update(['branch'=>'f:101']);
-        $this->put('app/branch-expenses/b.pdf',$this->pdf().' changed');
+        $this->putAsset('app/branch-expenses/b.pdf',$this->pdf().' changed');
         $this->refused(fn()=>app(Media::class)->downloadWorkspace($root,$file['ticket']),409);
-        $this->put('app/branch-expenses/b.pdf',$this->pdf());
+        $this->putAsset('app/branch-expenses/b.pdf',$this->pdf());
         DB::table('desktop_dashboard_workspaces')->where('id',self::WORKSPACE)->update(['enrollment_hash'=>str_repeat('c',64)]);
         $this->refused(fn()=>app(Media::class)->downloadWorkspace($root,$file['ticket']),401);
     }

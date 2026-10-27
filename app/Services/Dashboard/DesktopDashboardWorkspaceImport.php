@@ -21,6 +21,8 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
             $receipt=parent::import($legacy,$rowHashes);
             $proof=DesktopDashboardWorkspaceImportProvenance::issue($this,$this->issuanceCapability,$this->verifiedContext);
             $binding=app(DesktopDashboardWorkspaceLocalAuthority::class)->install($proof);
+            if(($snapshot['coverage']['catalog_scopes']??null)===1)
+                DB::transaction(fn()=>app(DesktopDashboardWorkspaceCreatedScopes::class)->restoreWorkspace($snapshot,$proof));
             // The physical print scope is bound only after actual rows and the
             // private local root authority exist. Custody does not grant prints.
             app(DesktopDashboardPrintLedger::class)->bind($snapshot['device_id']);
@@ -81,7 +83,9 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
             &&($snapshot['enrollment']['enrollment_hash']??null)===$enrollment['enrollment_hash']
             &&($snapshot['enrollment']['enrolled_at']??null)===$enrollment['enrolled_at']);
         $this->coverage($snapshot['coverage']??null,$manifest);$this->branches($snapshot['branches']??null,$manifest);
-        self::need(($snapshot['enrollment']['base_branches']??null)===$snapshot['branches']&&($snapshot['created_scopes']??null)===[]);
+        self::need(($snapshot['enrollment']['base_branches']??null)===$snapshot['branches']);
+        if($snapshot['coverage']['catalog_scopes']===1)app(DesktopDashboardWorkspaceCreatedScopes::class)->validateSnapshotCatalog($snapshot,$manifest);
+        else self::need(($snapshot['created_scopes']??null)===[]);
         $users=$snapshot['tables']['users']??null;
         self::need(is_array($users)&&is_array($users['rows']??null)&&is_string($users['ddl']??null));
         $members=[];foreach($manifest['members'] as $member)$members[$member['actor_id']]=$member;
@@ -118,7 +122,7 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
             &&($coverage['manifest_revision']??null)===$manifest['revision']
             &&($coverage['roster_sha256']??null)===$manifest['roster_sha256']
             &&($coverage['root_fingerprint']??null)===$manifest['root_fingerprint']
-            &&($coverage['print_protocol']??null)===1&&($coverage['catalog_scopes']??null)===0
+            &&($coverage['print_protocol']??null)===1&&in_array($coverage['catalog_scopes']??null,[0,1],true)
             &&($coverage['full_dashboard']??null)===false);
     }
     private function branches($branches,array $manifest): void
@@ -136,6 +140,24 @@ final class DesktopDashboardWorkspaceImport extends DesktopDashboardImport
     }
 
     /** Empty financial branch union is valid only after typed workspace preflight. */
+    protected function validateCatalogEnvelope(array $snapshot,array $base): void
+    {
+        self::need($this->verifiedContext!==null&&$base===$snapshot['branches']);
+        if(($snapshot['coverage']['catalog_scopes']??null)===1)
+            app(DesktopDashboardWorkspaceCreatedScopes::class)->validateSnapshotCatalog($snapshot,$this->verifiedContext['manifest']);
+        else parent::validateCatalogEnvelope($snapshot,$base);
+    }
+    protected function restoreCatalogSnapshot(array $snapshot): void
+    {
+        // Deferred until typed local authority exists; legacy restore expects a
+        // single current custodian and cannot import retired creators' history.
+        self::need($this->verifiedContext!==null);
+    }
+    protected function verifyCatalogReceipt(array $receipt): void
+    {
+        self::need($this->verifiedContext!==null);
+        app(DesktopDashboardWorkspaceCreatedScopes::class)->verifyWorkspaceCatalog($receipt,$this->verifiedContext['manifest']['root_fingerprint']);
+    }
     protected function provisionPrintLedger(array $snapshot): void
     {
         self::need($this->verifiedContext!==null);

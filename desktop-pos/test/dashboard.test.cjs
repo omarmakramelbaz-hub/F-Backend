@@ -986,3 +986,32 @@ test('shutdown login cancellation settles when Chromium never returns cookie cle
   lateCookies([{name:'newer-session',path:'/'}]);await new Promise(resolve=>setImmediate(resolve));
   assert.equal(removed.length,0,'a late cleanup read must not remove a later session after its deadline');
 });
+
+
+test('a typed workspace actor partition is isolated and only a safe canonical UUID/actor tuple is admitted',async t=>{
+  const prefix='persist:go-erp-workspace-11111111-1111-4111-8111-111111111111-';
+  const f=fixture(t,{partition:prefix+'202'});await f.dashboard.open();assert.equal(f.windows[0].options.webPreferences.partition,prefix+'202');
+  for(const suffix of ['0','0202','-1','9007199254740992','202/foreign','202?x=1'])assert.throws(()=>fixture(t,{partition:prefix+suffix}),/ملف جلسة/);
+});
+
+test('native workspace print proof is bound to the exact URL/method and used once while every renderer spoof is stripped',async t=>{
+  const proof={'X-Fasakhansta-Workspace-Device':'11111111-1111-4111-8111-111111111111',
+    'X-Fasakhansta-Workspace-Token':'a'.repeat(64),'X-Fasakhansta-Workspace-Actor':'202',
+    'X-Fasakhansta-Workspace-Revision':'2','X-Fasakhansta-Workspace-Grant':'b'.repeat(64),
+    'X-Fasakhansta-Workspace-Root':'c'.repeat(64),'X-Fasakhansta-Workspace-Attempt':'22222222-2222-4222-8222-222222222222',
+    'X-Fasakhansta-Workspace-Capability':'d'.repeat(64)};
+  const f=fixture(t,{remoteAttempts:{begin:async()=>proof,complete:async()=>{},failed(){}}});await f.dashboard.open();
+  f.session.fetch=async(url,request)=>{let result;const base={url,webContentsId:-1,requestHeaders:request.headers};
+    f.session.webRequest.headers({...base,id:1101,method:'POST'},value=>result=value);assert.equal(result.cancel,true);
+    f.session.webRequest.headers({...base,id:1102,method:'GET',url:url.replace('/20/','/21/')},value=>result=value);assert.equal(result.cancel,true);
+    f.session.webRequest.headers({...base,id:1103,method:'GET'},value=>result=value);assert.ok(result.requestHeaders);
+    for(const [name,value] of Object.entries(proof))assert.equal(result.requestHeaders[name],value);
+    assert.equal(Object.keys(result.requestHeaders).some(name=>/Connected-Request/i.test(name)),false);
+    f.session.webRequest.headers({...base,id:1104,method:'GET'},value=>result=value);assert.equal(result.cancel,true);
+    return new Response('<html data-dashboard-receipt="takeaway"><head></head><body>receipt</body></html>',{headers:{'content-type':'text/html'}});
+  };
+  const sender=f.windows[0].webContents,result=await f.handlers.get('dashboard:print-receipt')({sender,senderFrame:{url:sender.getURL()}},policy.DEFAULT_ORIGIN+'/admin/takeaway/receipts/20/print');
+  assert.equal(result.ok,true);
+  let outgoing;f.session.webRequest.headers({id:1105,url:policy.DEFAULT_ORIGIN+'/admin/dashboard',method:'GET',webContentsId:sender.id,requestHeaders:proof},value=>outgoing=value);
+  assert.equal(Object.keys(outgoing.requestHeaders).some(name=>/^x-fasakhansta-workspace-/i.test(name)),false);
+});

@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const LocalRuntime = require('./local-runtime.cjs');
 const { GenerationStore, generation } = require('./dashboard-generation.cjs');
@@ -10,10 +11,13 @@ const source = require('./dashboard-source.cjs');
 const media = require('./dashboard-media.cjs');
 const readSnapshot = require('./dashboard-download.cjs');
 const RuntimeArchive = require('./runtime-archive.cjs');
+const workspacePolicy = require('./workspace-policy.cjs');
 const failure = code => Object.assign(Error('The shared workspace runtime could not be verified.'), { code: 'WORKSPACE_RUNTIME_' + code });
 const need = (value, code) => { if (!value) throw failure(code); };
 const check = (owner, signal) => need(!owner.stopping && !signal?.aborted, 'CANCELLED');
 const same = (left, right) => canonical(left) === canonical(right);
+const ROOT_ACTIONS = new Set(['pending', 'acknowledge', 'failed', 'refresh-begin', 'refresh-cancel', 'refresh-status', 'print-audit', 'print-outcomes', 'print-acknowledge']);
+const ACTOR_ACTIONS = new Set(['outbox-review', 'outbox-retry', 'print-list', 'print-prepare', 'print-burn', 'print-outcome', 'print-review', 'print-resolve']);
 
 /** One prepared pointer: all physical-runtime reads derive from Registry.active. */
 class WorkspaceMetadata {
@@ -35,15 +39,15 @@ class WorkspacePhysicalRuntime extends LocalRuntime {
  */
 class WorkspaceRuntime {
   constructor({ registry, bundle, safeStorage, downloadMedia, authorizeSource, verifyActive, authorizeInstalled,
-    platform = process.platform, onFailure, onPhase, nativeRun = LocalRuntime.runNative }) {
+    platform = process.platform, onFailure, onPhase, nativeRun = LocalRuntime.runNative, nativeFetch = fetch }) {
     need(registry && typeof registry.current === 'function' && typeof registry.directory === 'function'
-      && typeof authorizeSource === 'function' && typeof verifyActive === 'function' && typeof nativeRun === 'function', 'CONFIGURATION_INVALID');
-    Object.assign(this, { registry, safeStorage, authorizeSource, verifyActive, nativeRun });
+      && typeof authorizeSource === 'function' && typeof verifyActive === 'function' && typeof nativeRun === 'function' && typeof nativeFetch === 'function', 'CONFIGURATION_INVALID');
+    Object.assign(this, { registry, safeStorage, authorizeSource, verifyActive, nativeRun, nativeFetch });
     const root = path.join(registry.workspaceProfile, 'dashboard');
     this.metadata = new WorkspaceMetadata(registry, new GenerationStore(root, safeStorage));
     this.physical = new WorkspacePhysicalRuntime({ bundle, profile: registry.workspaceProfile, safeStorage, downloadMedia,
       authorizeInstalled, platform, onFailure, onPhase, expectedDeviceId: registry.workspaceId, metadata: this.metadata });
-    this.stopping = false; this.actorFacades = new Map();
+    this.stopping = false; this.actorFacades = new Map(); this.sessions = new Map();
   }
   async directories() { await this.registry.directory(this.registry.workspaceProfile, true); await this.registry.directory(this.physical.profile, true); }
   async settings() { await this.directories(); return this.physical.settings(); }
@@ -72,11 +76,61 @@ class WorkspaceRuntime {
           return { protocol: 2, workspaceId: owner.registry.workspaceId, actorId, role: member.role,
             manifestRevision: current.manifest.revision, grant: member.grant, workspace: prepared.workspaceBinding(current.manifest) };
         },
-        session: () => owner.registry.actorSession(actorId) });
+        session: () => owner.registry.actorSession(actorId),
+        authenticated: () => owner.hasSession(actorId),
+        control: value => owner.actorControl(actorId, value),
+        printControl: value => owner.actorControl(actorId, value),
+        supportsPrintEffects: () => owner.physical.supportsPrintEffects(),
+        get origin() { return owner.physical.origin; }, get token() { return owner.physical.token; } });
       this.actorFacades.set(actorId, facade);
     }
     return { descriptor, runtime: facade };
   }
+  async privateControl(value, capability) {
+    check(this); const active = await this.registry.current();
+    need(active && this.physical.origin && value && typeof value === 'object' && !Array.isArray(value), 'CONTROL_REJECTED');
+    const body = { ...value }; delete body.native_session; delete body.workspace_actor;
+    if (capability) body.native_session = capability;
+    const input = JSON.stringify(body); need(Buffer.byteLength(input) <= 20 * 1024 ** 2, 'INPUT_TOO_LARGE');
+    const response = await this.nativeFetch(this.physical.origin + '/_desktop/workspace-control', { method: 'POST', redirect: 'error',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Fasakhansta-Desktop': this.physical.token,
+        'X-Fasakhansta-Control': this.physical.controlToken, Authorization: 'Bearer ' + active.credential.token },
+      body: input, signal: AbortSignal.timeout(25000) });
+    const result = await readSnapshot(response, 20 * 1024 ** 2);
+    if (!response.ok) throw Object.assign(failure('CONTROL_REJECTED'), { status: response.status });
+    return result;
+  }
+  control(value) {
+    need(ROOT_ACTIONS.has(value?.action), 'ROOT_ACTION_DENIED');
+    need(!Object.hasOwn(value, 'native_session') && !Object.hasOwn(value, 'workspace_actor'), 'CONTROL_REJECTED');
+    return this.privateControl(value);
+  }
+  async actorControl(actorId, value) {
+    need(ACTOR_ACTIONS.has(value?.action) && await this.hasSession(actorId), 'ACTOR_ACTION_DENIED');
+    return this.privateControl({ ...value, actor_id: actorId }, this.sessions.get(actorId));
+  }
+  async acceptSession(actor, proof) {
+    const active = await this.registry.current(), member = await this.registry.member(actor.actorId), value = proof?.native_session;
+    const keys = ['format', 'kind', 'workspace_id', 'root_fingerprint', 'actor_id', 'manifest_revision', 'password_binding',
+      'snapshot_id', 'schema_hash', 'control_binding', 'nonce', 'mac'];
+    need(active && member && member.role === actor.role && value && Object.keys(value).sort().join(',') === keys.sort().join(',')
+      && value.format === 2 && value.kind === 'desktop-workspace-native-session' && value.workspace_id === this.registry.workspaceId
+      && value.root_fingerprint === active.manifest.root_fingerprint && value.actor_id === actor.actorId
+      && value.manifest_revision === active.manifest.revision && value.password_binding === member.password_binding
+      && value.snapshot_id === active.candidate.snapshotId && value.schema_hash === active.candidate.schemaHash
+      && value.control_binding === crypto.createHash('sha256').update(this.physical.controlToken).digest('hex')
+      && /^[a-f0-9]{64}$/.test(value.nonce || '') && /^[a-f0-9]{64}$/.test(value.mac || ''), 'SESSION_REJECTED');
+    // Only WorkspaceLogin calls this after actual password + pinned endpoint.
+    // The PHP private-control service independently verifies the MAC again.
+    this.sessions.set(actor.actorId, structuredClone(value)); return true;
+  }
+  async hasSession(actorId) {
+    const active = await this.registry.current(), member = await this.registry.member(actorId), value = this.sessions.get(actorId);
+    return Boolean(active && member && value && value.manifest_revision === active.manifest.revision
+      && value.password_binding === member.password_binding && value.snapshot_id === active.candidate.snapshotId
+      && value.schema_hash === active.candidate.schemaHash && value.root_fingerprint === active.manifest.root_fingerprint);
+  }
+  revokeSession(actorId) { this.sessions.delete(actorId); }
   static importInput(snapshot, binding) {
     const header = canonical({ format: 2, kind: 'desktop-workspace-import-input', expected_binding: binding });
     const body = readSnapshot.input(snapshot);
@@ -94,7 +148,7 @@ class WorkspaceRuntime {
       && digest({ format: 2, kind: 'desktop-dashboard-workspace-root', workspace_id: root.workspace_id,
         custodian_actor_id: root.custodian_actor_id, enrollment_hash: root.enrollment_hash, token_hash: root.token_hash, enrolled_at: root.enrolled_at }) === binding.root_fingerprint, 'SNAPSHOT_REJECTED');
     media.manifest(snapshot.media);
-    const runtime = this.physical, context = await runtime.candidate(snapshot); check(this, signal);
+    const runtime = this.physical, context = await runtime.candidate(snapshot); check(this, signal); workspacePolicy.programs(context.manifest);
     const approved = await this.authorizeSource({ snapshot, context, credential, manifest: m }, { signal }); check(this, signal);
     need(Number.isSafeInteger(approved?.sequence) && approved.sequence > 0 && approved.sourceRevision === context.manifest.sourceRevision
       && source.same(approved.sourceFingerprint, context.sourceFingerprint) && source.same(snapshot.source, context.sourceFingerprint), 'SOURCE_REJECTED');
@@ -126,6 +180,18 @@ class WorkspaceRuntime {
     runtime.stagedContexts.set(id, context);
     return { ...candidate, receipt: checked, mediaVerified: true, sourceManifest: context.manifest };
   }
+  async restoreStage(record, { signal } = {}) {
+    check(this, signal); const c = record.candidate;
+    prepared.validate(c.prepared, c.receipt, record.manifest, record.credential, c);
+    const archive = new RuntimeArchive(this.physical.profile, this.metadata, { stopped: () => this.stopping || signal?.aborted });
+    const bundle = await archive.select(this.physical.installedBundle, c.prepared), manifest = await archive.manifest(bundle); workspacePolicy.programs(manifest);
+    const fingerprint = await archive.sourceFingerprint(bundle); check(this, signal);
+    need(manifest.sourceRevision === c.sourceRevision && source.same(fingerprint, c.sourceFingerprint), 'SOURCE_REJECTED');
+    const application = path.join(bundle, 'application'), context = { bundle, manifest, application, sourceFingerprint: fingerprint,
+      php: path.join(bundle, 'php', 'php.exe'), phpIni: await LocalRuntime.phpIniFor(bundle, manifest, this.physical.profile) };
+    await this.registry.directory(this.physical.storageFor(c.prepared), false);
+    this.physical.stagedContexts.set(c.generation, context); return true;
+  }
   async verifyCandidate(record, { signal } = {}) {
     check(this, signal);
     const c = record.candidate, context = this.physical.stagedContexts.get(c.generation);
@@ -134,12 +200,23 @@ class WorkspaceRuntime {
     await archive.verify(context.bundle, await this.metadata.read('runtimes/' + c.sourceRevision));
     need(source.same(await archive.sourceFingerprint(context.bundle), c.sourceFingerprint), 'SOURCE_REJECTED');
     check(this, signal);
+    const approved = await this.authorizeSource({ snapshot: { source: c.sourceFingerprint }, context,
+      credential: record.credential, manifest: record.manifest }, { signal });
+    need(approved?.sequence === c.sourceSequence && approved.sourceRevision === c.sourceRevision
+      && source.same(approved.sourceFingerprint, c.sourceFingerprint), 'PUBLICATION_CHANGED');
+    check(this, signal);
     const result = JSON.parse(await this.nativeRun(context.php, [...LocalRuntime.phpArguments(context), path.join(context.application, 'desktop/workspace-verify.php')],
       { env: LocalRuntime.contextEnvironment(context, this.physical.environmentFor(c.prepared)), cwd: context.application, ...(signal ? { signal } : {}) },
       JSON.stringify({ receipt: c.receipt, expected_binding: prepared.expectedBinding(record.credential, record.manifest) }), 90000));
     check(this, signal); prepared.validate(c.prepared, result, record.manifest, record.credential, c);
     need(same(result, c.receipt), 'RECEIPT_CHANGED'); return true;
   }
-  async stop() { this.stopping = true; this.physical.cancelStartup(); return this.physical.stop(); }
+  cancelStartup() {
+    // Match the original supervisor: cancel optional reads immediately while
+    // already accepted active-database/print/fenced-cutover work drains.
+    this.cancelReads = true; this.physical.cancelStartup();
+    if (!this.physical.started) this.stopping = true;
+  }
+  async stop() { this.stopping = true; this.sessions.clear(); this.physical.cancelStartup(); return this.physical.stop(); }
 }
-module.exports = { WorkspaceRuntime, WorkspaceMetadata };
+module.exports = { WorkspaceRuntime, WorkspaceMetadata, ROOT_ACTIONS, ACTOR_ACTIONS };

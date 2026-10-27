@@ -48,7 +48,10 @@ final class DesktopDashboardWorkspaceNativeSessions
                 &&hash_equals($scope->member()['password_binding'],$value['password_binding'])
                 &&$state->snapshot_id===$value['snapshot_id']&&$state->schema_hash===$value['schema_hash'],403);
             return DesktopDashboardWorkspaceExecutionContext::run($scope,fn()=>$work($scope));
-        }finally{if($previous)$guard->setUser($previous);else $guard->forgetUser();}
+        }finally{
+            if($previous)$guard->setUser($previous);
+            else auth()->forgetGuards();
+        }
     }
     private function controlBinding(): string
     {

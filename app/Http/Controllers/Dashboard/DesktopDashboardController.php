@@ -102,6 +102,16 @@ class DesktopDashboardController extends Controller
     private function programAccess(TakeawayAccess $access): void
     {
         abort_unless(config('desktop_dashboard.enabled')===true||config('desktop_dashboard.local')===true,404);
+        if(config('desktop_dashboard.workspace_enabled')===true){
+            $actor=auth('admin')->user();abort_unless($actor,403);
+            $local=app(\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class);
+            if($local->selected()){$local->currentScope($actor);return;}
+            if(config('desktop_dashboard.local')!==true){
+                \Illuminate\Support\Facades\DB::transaction(fn()=>app(\App\Services\Dashboard\DesktopDashboardWorkspaceAuthority::class)
+                    ->persistedMemberFacts((int)$actor->id));
+                return;
+            }
+        }
         abort_unless($access->canAccess(auth('admin')->user()),403);
     }
     public function enroll(Request $request,DesktopDashboardDevices $devices)

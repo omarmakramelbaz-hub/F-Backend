@@ -77,13 +77,37 @@ final class DesktopDashboardWorkspaceDeltaLocal extends DesktopDashboardDeltaLoc
             $this->execute('INSERT INTO `'.$target.'`.`'.self::EVIDENCE_TABLE.'` (`capture_id`,`evidence`) VALUES (?,?)',[$plan['capture_id'],self::json($evidence)]);
             $this->captureWorkspaceReplays($source,$target,$input['device_id'],$codec->context()['root_fingerprint'],$sequence);
             $replay=$this->workspaceReplayProof($target,self::REPLAY_TABLE,$input['device_id'],$codec->context()['root_fingerprint'],$source,$sequence);
+            $catalog=$this->captureCatalog($source,$identity,$sequence);
             $receipt=['format'=>2,'kind'=>'desktop-workspace-delta-capture','capture_database'=>$target,'source_database'=>$source,
-                'capture_id'=>$plan['capture_id'],'sequence'=>$sequence,'identity'=>$identity,'index'=>$index,'replay'=>$replay];
+                'capture_id'=>$plan['capture_id'],'sequence'=>$sequence,'identity'=>$identity,'index'=>$index,'replay'=>$replay,'catalog'=>$catalog];
             $this->execute('UPDATE `'.$target.'`.`'.self::RECEIPT_TABLE.'` SET `receipt`=? WHERE `capture_id`=? AND `token_hash`=?',
                 [self::json($receipt),$receipt['capture_id'],hash('sha256',$input['capture_token'])]);
             $this->pdo->commit();return $receipt;
         }catch(\Throwable $error){if($this->pdo->inTransaction())$this->pdo->rollBack();throw $error;}
         finally{$this->pdo->exec('SET FOREIGN_KEY_CHECKS=1');}
+    }
+
+    private function captureCatalog(string $source,array $identity,int $sequence): array
+    {
+        $table=DesktopDashboardWorkspaceCreatedScopes::TABLE;$present=in_array($table,$this->tables($source),true);
+        $this->need($present||($identity['coverage']['catalog_scopes']??null)!==1,'SOURCE_CATALOG_MISSING');
+        $rows=$present?$this->execute('SELECT * FROM `'.$source.'`.`'.$table.'` WHERE `device_id`=? AND `enrollment_id`=? ORDER BY `grant_id` LIMIT 1001',
+            [$identity['device_id'],$identity['workspace']['root_fingerprint']])->fetchAll(\PDO::FETCH_ASSOC):[];
+        $catalog=app(DesktopDashboardWorkspaceCreatedScopes::class);
+        $lookup=function(string $table,array $where)use($source): ?object {
+            $this->need(in_array($table,['desktop_dashboard_commands',self::AUTHORITY_TABLE,'desktop_dashboard_remote_attempts',
+                'desktop_dashboard_source_manifest','desktop_dashboard_local_state'],true),'CATALOG_LOOKUP');
+            $clauses=[];$values=[];foreach($where as $column=>$value){
+                $this->need(in_array($column,['device_id','workspace_id','command_id','id'],true),'CATALOG_LOOKUP');
+                $clauses[]='`'.$column.'`=?';$values[]=$value;
+            }
+            $this->need($clauses!==[],'CATALOG_LOOKUP');
+            $row=$this->one('SELECT * FROM `'.$source.'`.`'.$table.'` WHERE '.implode(' AND ',$clauses),$values);
+            return $row===null?null:(object)$row;
+        };
+        $items=$catalog->capturePublicItems($rows,$identity['device_id'],$identity['workspace']['root_fingerprint'],$lookup);
+        return ['format'=>2,'workspace_id'=>$identity['device_id'],'root_fingerprint'=>$identity['workspace']['root_fingerprint'],
+            'snapshot_id'=>$identity['snapshot_id'],'schema_hash'=>$identity['schema_hash'],'sequence'=>$sequence]+$catalog->publicItemsDigest($items);
     }
 
     protected function activeIdentity(string $database,array $input): array

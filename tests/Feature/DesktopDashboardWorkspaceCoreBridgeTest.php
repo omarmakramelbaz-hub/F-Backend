@@ -344,4 +344,43 @@ class DesktopDashboardWorkspaceCoreBridgeTest extends TestCase
         $this->getJson('/api/desktop-dashboard/workspace/manifest')->assertStatus(503);
         $this->assertSame(1,DB::table('desktop_dashboard_workspaces')->count());
     }
+
+    public function test_program_preparation_page_accepts_a_valid_nonfinancial_account_without_owner_selection(): void
+    {
+        DB::table('model_has_permissions')->where('model_type',User::class)->where('model_id',30)->delete();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $updates=\Mockery::mock(\App\Services\Dashboard\DesktopDashboardUpdates::class);
+        $updates->shouldReceive('status')->andReturn(['state'=>'unavailable']);
+        $updates->shouldReceive('publishedDownloads')->andReturn(['current'=>null,'previous'=>null]);
+        $this->app->instance(\App\Services\Dashboard\DesktopDashboardUpdates::class,$updates);
+        app('view')->getFinder()->prependLocation(base_path('tests/fixtures/workspace-read-views'));
+        $this->actingAs(User::withoutGlobalScopes()->findOrFail(30),'admin');
+        $this->get('/admin/desktop-dashboard')->assertOk()->assertSee('SHARED_DEVICE_PREPARATION_AVAILABLE');
+        config(['desktop_dashboard.workspace_enabled'=>false]);
+        $this->get('/admin/desktop-dashboard')->assertStatus(403);
+    }
+
+    public function test_shared_control_dispatch_preserves_legacy_shape_and_rejects_an_unverified_group_context(): void
+    {
+        $oldToken=getenv('DESKTOP_DASHBOARD_CONTROL_TOKEN');$oldNative=getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL');
+        $oldHeader=$_SERVER['HTTP_X_FASAKHANSTA_CONTROL']??null;
+        putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('a',64));putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL');
+        $_SERVER['HTTP_X_FASAKHANSTA_CONTROL']=str_repeat('a',64);
+        config(['desktop_dashboard.local'=>true,'desktop_dashboard.device_id'=>self::LEGACY]);
+        try{
+            $control=app(\App\Services\Dashboard\DesktopDashboardControl::class);
+            $this->assertSame(['commands'=>[],'counts'=>['pending'=>0,'conflicts'=>0,'acknowledged'=>0],'print_protocol'=>0],
+                $control->dispatch(self::LEGACY,['action'=>'pending']));
+            $this->denied(fn()=>$control->dispatch(self::LEGACY,['action'=>'unknown']),[422]);
+            unset($_SERVER['HTTP_X_FASAKHANSTA_CONTROL']);
+            $this->denied(fn()=>$control->dispatch(self::LEGACY,['action'=>'pending']),[403]);
+            $_SERVER['HTTP_X_FASAKHANSTA_CONTROL']=str_repeat('a',64);
+            putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL=true');config(['desktop_dashboard.device_id'=>self::DEVICE]);
+            $this->denied(fn()=>$control->dispatch(self::DEVICE,['action'=>'pending']),[403]);
+        }finally{
+            putenv($oldToken===false?'DESKTOP_DASHBOARD_CONTROL_TOKEN':'DESKTOP_DASHBOARD_CONTROL_TOKEN='.$oldToken);
+            putenv($oldNative===false?'DESKTOP_DASHBOARD_WORKSPACE_LOCAL':'DESKTOP_DASHBOARD_WORKSPACE_LOCAL='.$oldNative);
+            if($oldHeader===null)unset($_SERVER['HTTP_X_FASAKHANSTA_CONTROL']);else $_SERVER['HTTP_X_FASAKHANSTA_CONTROL']=$oldHeader;
+        }
+    }
 }

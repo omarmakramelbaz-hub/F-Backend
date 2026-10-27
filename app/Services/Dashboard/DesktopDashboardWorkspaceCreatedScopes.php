@@ -127,7 +127,7 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
     {
         $structural=$base;foreach($items as $item)$structural[]=$item['descriptor']['branch'];
         $structural=array_values(array_unique($structural));sort($structural,SORT_STRING);
-        return ['catalog_scopes'=>1,'catalog_grants_sha256'=>hash('sha256',DesktopDashboardBootstrap::json($items)),
+        return ['catalog_scopes'=>1,'catalog_grants_sha256'=>$this->publicItemsDigest($items)['sha256'],
             'catalog_structural_branches'=>$structural,'base_branches_sha256'=>hash('sha256',DesktopDashboardBootstrap::json($base)),
             'catalog_branches_sha256'=>hash('sha256',DesktopDashboardBootstrap::json($base))];
     }
@@ -150,6 +150,30 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
         foreach($this->coverage($snapshot['branches'],$snapshot['created_scopes']) as $key=>$expected)
             abort_unless(($snapshot['coverage'][$key]??null)===$expected,422,'بيانات نطاق كتالوج مساحة العمل غير متطابقة.');
     }
+    /** Exact public wire-array bytes, shared by server coverage and private source capture. */
+    public function publicItemsDigest(array $items): array
+    {
+        abort_unless(array_is_list($items)&&count($items)<=1000,413);
+        return ['count'=>count($items),'sha256'=>hash('sha256',DesktopDashboardBootstrap::json($items))];
+    }
+
+    /**
+     * Private capture adapter. The caller has verified the source local MAC and
+     * reads these rows and their proof dependencies from one RR PDO snapshot.
+     * Its lookup is internal, never supplied by an HTTP/renderer request.
+     */
+    public function capturePublicItems(array $rows,string $workspace,string $root,callable $lookup): array
+    {
+        DesktopDashboardWorkspaceLocalSchema::assertNativeCli();
+        abort_unless(array_is_list($rows)&&count($rows)<=1000,413);$items=[];$previous=null;
+        foreach($rows as $row){
+            abort_unless(is_array($row)&&is_string($row['grant_id']??null)
+                &&($previous===null||strcmp($previous,$row['grant_id'])<0),422);$previous=$row['grant_id'];
+            $items[]=$this->publicItem($this->readItemWithLookup((object)$row,$workspace,$root,$lookup));
+        }
+        return $items;
+    }
+
     /** The importer verifies local authority first; this independently checks retained catalog evidence. */
     public function verifyWorkspaceCatalog(array $receipt,string $root): void
     {
@@ -231,6 +255,12 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
     }
     private function readItem(object $row,string $workspace,string $root): array
     {
+        return $this->readItemWithLookup($row,$workspace,$root,function(string $table,array $where): ?object {
+            return $this->locking(DB::table($table)->where($where))->first();
+        });
+    }
+    private function readItemWithLookup(object $row,string $workspace,string $root,callable $lookup): array
+    {
         abort_unless(is_string($row->evidence_cipher??null)&&strlen($row->evidence_cipher)<=65536,503,self::ERROR);
         try{$value=json_decode(Crypt::decryptString($row->evidence_cipher),true,64,JSON_THROW_ON_ERROR);}
         catch(\Throwable $error){abort(503,self::ERROR);}
@@ -240,8 +270,8 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
         foreach(self::COLUMNS as $column)abort_unless((string)$row->$column===(string)$descriptor[$column],503,self::ERROR);
         $kind=$value['provenance']['kind']??null;
         if($kind==='journal'){
-            $entry=$this->locking(DB::table('desktop_dashboard_commands')->where('device_id',$workspace)->where('command_id',$descriptor['command_id']))->first();
-            $authority=$this->locking(DB::table(DesktopDashboardWorkspaceCommandAuthorities::TABLE)->where('workspace_id',$workspace)->where('command_id',$descriptor['command_id']))->first();
+            $entry=$lookup('desktop_dashboard_commands',['device_id'=>$workspace,'command_id'=>$descriptor['command_id']]);
+            $authority=$lookup(DesktopDashboardWorkspaceCommandAuthorities::TABLE,['workspace_id'=>$workspace,'command_id'=>$descriptor['command_id']]);
             abort_unless($entry&&$authority&&(int)$entry->actor_id===$descriptor['actor_id']&&$entry->route_name===self::ROUTE
                 &&hash_equals($entry->request_hash,$authority->request_hash),503,self::ERROR);
             $proof=app(DesktopDashboardWorkspaceCommandAuthorities::class)->assertHistoryRow((array)$authority,$workspace,$root);
@@ -252,7 +282,7 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
             abort_unless(hash_equals($descriptor['result_sha256'],$this->hash($this->creationReceipt($workspace,$descriptor['actor_id'],
                 $descriptor['command_id'],$saved,$descriptor['creator_created_at']))),503,self::ERROR);
         }elseif($kind==='remote-attempt'){
-            $entry=$this->locking(DB::table('desktop_dashboard_remote_attempts')->where('device_id',$workspace)->where('id',$value['provenance']['attempt_id']??null))->first();
+            $entry=$lookup('desktop_dashboard_remote_attempts',['device_id'=>$workspace,'id'=>$value['provenance']['attempt_id']??null]);
             abort_unless($entry&&$entry->status==='committed'&&(int)$entry->actor_id===$descriptor['actor_id']
                 &&$entry->operation_id===$descriptor['command_id']&&$entry->method==='POST'&&$entry->path==='/admin/go-stores',503,self::ERROR);
             try{$saved=json_decode(Crypt::decryptString($entry->response_cipher),true,512,JSON_THROW_ON_ERROR);}
@@ -262,8 +292,8 @@ final class DesktopDashboardWorkspaceCreatedScopes extends DesktopDashboardCreat
                     $descriptor['command_id'],$saved['go_store_create_result']??[],$descriptor['creator_created_at']))),503,self::ERROR);
         }else{
             abort_unless($kind==='bootstrap'&&config('desktop_dashboard.local')===true,503,self::ERROR);
-            $source=$this->locking(DB::table('desktop_dashboard_source_manifest')->where('device_id',$workspace))->first();
-            $state=$this->locking(DB::table('desktop_dashboard_local_state')->where('device_id',$workspace))->first();
+            $source=$lookup('desktop_dashboard_source_manifest',['device_id'=>$workspace]);
+            $state=$lookup('desktop_dashboard_local_state',['device_id'=>$workspace]);
             abort_unless($source&&$state&&$source->snapshot_id===$value['provenance']['snapshot_id']&&$state->snapshot_id===$value['provenance']['snapshot_id']
                 &&hash_equals($source->sha256,$value['provenance']['source_hash'])&&$state->schema_hash===$value['provenance']['schema_hash'],503,self::ERROR);
         }

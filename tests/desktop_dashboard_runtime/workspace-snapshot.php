@@ -11,7 +11,7 @@ $password=getenv('DESKTOP_WORKSPACE_TEST_DB_PASSWORD')?:'';
 $profile=sys_get_temp_dir().'/desktop-workspace-snapshot-'.bin2hex(random_bytes(8));
 foreach(['app/public','framework/cache/data','framework/sessions','framework/views','logs','bootstrap/cache','private'] as $dir)mkdir($profile.'/'.$dir,0700,true);
 $names=['source'=>'desktop_workspace_test_'.bin2hex(random_bytes(8))];
-foreach(['stage','zero','reject'] as $name)$names[$name]='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
+foreach(['stage','retired','zero','reject'] as $name)$names[$name]='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
 $pdo=new PDO('mysql:host=127.0.0.1;port='.$port.';charset=utf8mb4','root',$password,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 foreach($names as $name)$pdo->exec('CREATE DATABASE `'.$name.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
 $completed=false;$checks=0;
@@ -40,6 +40,8 @@ $switch=function(string $database,bool $local)use($serverKey,$nativeKey){
 require __DIR__.'/full-schema.php';$report=json_decode(file_get_contents(__DIR__.'/fixtures/deployed-schema-20261008.json'),true,512,JSON_THROW_ON_ERROR);
 DesktopFullSchemaFixture::create($report['tables']);
 require_once $application.'/database/migrations/2026_10_08_130000_create_desktop_dashboard_journal.php';(new CreateDesktopDashboardJournal)->up();
+require_once $application.'/database/migrations/2026_10_08_210000_create_desktop_dashboard_remote_attempts.php';(new CreateDesktopDashboardRemoteAttempts)->up();
+require_once $application.'/database/migrations/2026_10_20_000002_create_desktop_dashboard_created_scopes.php';(new CreateDesktopDashboardCreatedScopes)->up();
 require_once $application.'/database/migrations/2026_10_27_030000_create_desktop_dashboard_workspaces.php';(new CreateDesktopDashboardWorkspaces)->up();
 DB::statement('SET FOREIGN_KEY_CHECKS=0');
 foreach([[1,'admin','accepted'],[10,'vendor','accepted'],[11,'vendor','accepted'],[20,'user','accepted'],[30,'admin','accepted'],[40,'vendor','disabled']] as [$id,$type,$status])
@@ -71,6 +73,7 @@ $check($snapshot['workspace_enrollment']['enrollment_hash']!==$expected['root_fi
 require_once $application.'/desktop/snapshot-row-hashes.php';$wire=Json::json($snapshot);$hashes=DesktopSnapshotRowHashes::fromJson($wire);$decoded=json_decode($wire,true,512,JSON_THROW_ON_ERROR);unset($wire);
 $switch($names['stage'],true);config(['desktop_dashboard.device_id'=>$id]);putenv('DESKTOP_DASHBOARD_DEVICE_ID='.$id);
 $receipt=app(Import::class)->importWorkspace($decoded,$expected,$hashes);
+$check($receipt['coverage']['catalog_scopes']===1,'typed group import restores the exact initial catalog overlay without changing financial BASE');
 $check($serverKey!==$nativeKey&&$receipt['workspace']['manifest_sha256']===$expected['manifest_sha256'],'typed staging import installs a local MAC without the server signing key');
 $verified=app(Import::class)->verifyWorkspace($receipt,$expected);
 $check($verified['verified']===true&&$verified['actor_id']===10,'independent actual SQL/source/media verification retains the physical custodian');
@@ -84,6 +87,34 @@ $reject(fn()=>app(Import::class)->verifyWorkspace($receipt,$badExpected),'native
 $switch($names['reject'],true);$bad=$expected;$bad['token_hash']=str_repeat('e',64);
 $reject(fn()=>app(Import::class)->importWorkspace($decoded,$bad,$hashes),'snapshot cannot supply its own trusted root bearer hash');
 $check(DB::select('SHOW TABLES')===[],'rejected private expectation creates no business or authority tables');
+// The real original remote reservation engine retains B and fences every other actor.
+$switch($names['source'],false);$root=app(Authority::class)->authenticate($link['token']);$roster=app(Authority::class)->manifest($root);
+$members=array_column($roster['members'],null,'actor_id');$scopeB=app(Authority::class)->scope($root,11,$members[11]['grant'],$roster['revision']);
+$remote=app(\App\Services\Dashboard\DesktopDashboardWorkspaceRemoteAttempts::class);
+$attemptB=['id'=>(string)\Illuminate\Support\Str::uuid(),'method'=>'POST','path'=>'/admin/read/all/notification'];
+$reservation=$remote->decideWorkspace($scopeB,$attemptB,false);
+$check($reservation['actor_id']===11&&$reservation['device_id']===$id&&$reservation['status']==='ready','actual original remote reservation keeps B under branch-A physical custody');
+$scopeA=app(Authority::class)->scope($root,10,$members[10]['grant'],$roster['revision']);$attemptA=$attemptB;$attemptA['id']=(string)\Illuminate\Support\Str::uuid();
+$reject(fn()=>$remote->decideWorkspace($scopeA,$attemptA,false),'B unknown result fences another account on the same physical root');
+$proofB=['actor_id'=>11,'manifest_revision'=>$roster['revision'],'grant'=>$members[11]['grant']];
+$check($remote->settleWorkspace($root,$proofB,$attemptB)['status']==='cancelled','root authenticated terminal settlement cancels an unexecuted B reservation');
+$remote->decideWorkspace($scopeA,$attemptA,false);$proofA=['actor_id'=>10,'manifest_revision'=>$roster['revision'],'grant'=>$members[10]['grant']];
+DB::table('users')->whereIn('id',[1,10])->update(['status'=>'disabled']);app(Authority::class)->manifest($root);
+$terminal=$remote->settleWorkspace($root,$proofA,$attemptA);
+$check($terminal['actor_id']===10&&$terminal['status']==='cancelled'&&$terminal['capability']===null
+    &&$terminal['workspace']['manifest_revision']===$proofA['manifest_revision'],'retired A terminal recovery preserves its original grant revision and cannot mint an execution capability');
+$lost=$attemptA;$lost['id']=(string)\Illuminate\Support\Str::uuid();
+$check($remote->settleWorkspace($root,$proofA,$lost)['status']==='cancelled','lost reservation replies receive a durable cancellation tombstone using historical A authority');
+// A disabled preparer remains audit custody while B can import/open the same root.
+$retired=app(Bootstrap::class)->export($root);$retiredRows=array_column($retired['tables']['users']['rows'],null,'id');
+$check($retired['actor_id']===10&&array_column($retired['workspace_manifest']['members'],'actor_id')===[11,30]
+    &&str_starts_with($retiredRows[10]['password'],'!desktop-disabled'),'retired custodian audit row is retained without its login verifier');
+$retiredExpected=['workspace_id'=>$id,'root_fingerprint'=>$retired['workspace_manifest']['root_fingerprint'],'revision'=>$retired['workspace_manifest']['revision'],
+    'roster_sha256'=>$retired['workspace_manifest']['roster_sha256'],'manifest_sha256'=>hash('sha256',Authority::canonical($retired['workspace_manifest'])),'token_hash'=>hash('sha256',$link['token'])];
+$retiredWire=Json::json($retired);$retiredHashes=DesktopSnapshotRowHashes::fromJson($retiredWire);$retired=json_decode($retiredWire,true,512,JSON_THROW_ON_ERROR);unset($retiredWire);
+$switch($names['retired'],true);$retiredReceipt=app(Import::class)->importWorkspace($retired,$retiredExpected,$retiredHashes);
+$check(app(Import::class)->verifyWorkspace($retiredReceipt,$retiredExpected)['verified']===true,'real shared import/print binding accepts an audit-only disabled original preparer');
+$check(app(LocalAuthority::class)->scopeForActor(11)->actor_id===11,'B keeps its actual scope after the original preparer is retired');
 // A valid nonfinancial administrator may prepare without any branch ledger.
 $switch($names['source'],false);DB::table('users')->whereIn('id',[1,10,11])->update(['status'=>'disabled']);
 $zeroId=(string)\Illuminate\Support\Str::uuid();$zeroLink=app(Authority::class)->enroll(['device_id'=>$zeroId,'name'=>'Nonfinancial workspace','nonce'=>bin2hex(random_bytes(32))],User::withoutGlobalScopes()->findOrFail(30));

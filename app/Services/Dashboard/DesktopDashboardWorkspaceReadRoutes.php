@@ -15,7 +15,7 @@ final class DesktopDashboardWorkspaceReadRoutes
     public static function desktop(Route $route): bool
     {
         return $route->uri()==='admin'||str_starts_with($route->uri(),'admin/')
-            || str_starts_with($route->getActionName(),'App\\Http\\Controllers\\Dashboard\\')
+            || str_starts_with(ltrim($route->getActionName(),'\\'),'App\\Http\\Controllers\\Dashboard\\')
             || preg_match('#^api/desktop-(?:dashboard|pos)(?:/|$)#D',$route->uri())===1
             || in_array('IsAdmin',$route->middleware(),true)
             || in_array($route->uri(),['clear-cache-admin','clear-cache','clear-compiled','linkstoragse','send_order_email','test-test','broadcasting/auth'],true);
@@ -24,7 +24,7 @@ final class DesktopDashboardWorkspaceReadRoutes
     {
         if (!self::isRead($route)) return null;
         if (!self::desktop($route)) return 'outside-desktop';
-        $uri=self::uri($route->uri());$action=$route->getActionName();
+        $uri=self::uri($route->uri());$action=ltrim($route->getActionName(),'\\');
         foreach (self::reviewed() as $entry) {
             if ($entry['action']===$action && in_array($uri,$entry['uris'],true)
                 && $route->methods()===$entry['methods']) return $entry['policy'];
@@ -55,6 +55,7 @@ final class DesktopDashboardWorkspaceReadRoutes
             $add($controller,'index',[$path],$policy);$add($controller,'create',[$path.'/create'],$controller==='PendingVendorController'?'unavailable':$policy);
             $add($controller,'show',[$path.'/{'.$parameter.'}'],$policy);$add($controller,'edit',[$path.'/{'.$parameter.'}/edit'],$policy);
         };
+        $add('MetaReplyController','temporaryMedia',['api/meta/messaging/media/{ticket}'],'connected-only');
         foreach(['index'=>'admin/dashboard','overview'=>'admin/dashboard/overview','notifications'=>'admin/notifications',
             'chooseType'=>'admin/choose_type','chooseTypeChange'=>'admin/choose_type/change','loginPage'=>'admin/login',
             'adminLogout'=>'admin/adminLogout','changeLang'=>'change-language/{lang}']as$method=>$uri)

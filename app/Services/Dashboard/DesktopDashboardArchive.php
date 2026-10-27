@@ -13,6 +13,11 @@ class DesktopDashboardArchive
             abort_unless($archiveHandoff!==null&&$handoffToken!==null&&$mediaSeal!==null,403);
             $preverified=app(DesktopDashboardHandoff::class)->verify($receipt,$mediaSeal,$archiveHandoff,$handoffToken,$source,$sourceIdentity);
         }else app(DesktopDashboardImport::class)->verify($receipt,$mediaSeal);
+        return $this->archiveVerified($receipt,$source,$id,$token,$sourceIdentity,$preverified);
+    }
+    /** Only an independently verified private handoff may select the bounded cutover branch. */
+    protected function archiveVerified(array $receipt,string $source,string $id,string $token,?array $sourceIdentity,?array $preverified): array
+    {
         Validator::make(['id'=>$id,'token'=>$token],['id'=>'required|uuid','token'=>'required|regex:/^[a-f0-9]{64}$/D'])->validate();
         if($sourceIdentity!==null)Validator::make($sourceIdentity,['snapshot_id'=>'required|uuid','schema_hash'=>'required|regex:/^[a-f0-9]{64}$/D'])->validate();
         abort_unless(preg_match('/^fasakhansta_dashboard(?:_stage_[a-f0-9]{16})?$/D',$source)

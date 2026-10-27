@@ -24,12 +24,7 @@ class DesktopDashboardImport
         $catalog=($snapshot['coverage']['catalog_scopes']??null)===1;
         $base=$snapshot['enrollment']['base_branches']??$snapshot['branches'];
         $this->validateBaseBranches($base);
-        if($catalog){
-            abort_unless(($snapshot['coverage']['print_protocol']??null)===1&&isset($snapshot['enrollment']['base_branches'])&&is_array($snapshot['created_scopes']??null)
-                &&hash_equals($snapshot['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['created_scopes'])))
-                &&hash_equals($snapshot['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($base)))
-                &&hash_equals($snapshot['coverage']['catalog_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['branches']))),422,'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.');
-        }else abort_unless($base===$snapshot['branches']&&empty($snapshot['created_scopes']),422,'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.');
+        $this->validateCatalogEnvelope($snapshot,$base);
         $media=DesktopDashboardMedia::receipt($snapshot['media']??[]);
         $allowed=DesktopDashboardSchema::TABLES;
         $schema=[];$rowCount=0;
@@ -106,13 +101,35 @@ class DesktopDashboardImport
             'coverage'=>DesktopDashboardBootstrap::json($snapshot['coverage']),'state'=>'ready',
             'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
         ]);
-        if($catalog)DB::transaction(fn()=>app(DesktopDashboardCreatedScopes::class)->restore($snapshot));
+        if($catalog)DB::transaction(fn()=>$this->restoreCatalogSnapshot($snapshot));
         return ['format'=>1,'snapshot_id'=>$snapshot['snapshot_id'],'device_id'=>$snapshot['device_id'],'actor_id'=>$snapshot['actor_id'],
             'schema_hash'=>$snapshot['schema_hash'],'tables'=>count($schema),'rows'=>$rowCount,'coverage'=>$snapshot['coverage'],
             'source'=>$snapshot['source'],
             'branches'=>$snapshot['branches'],'table_rows'=>array_map(fn($part)=>count($part['rows']),$snapshot['tables']),'media'=>$media];
     }
 
+    protected function validateCatalogEnvelope(array $snapshot,array $base): void
+    {
+        $catalog=($snapshot['coverage']['catalog_scopes']??null)===1;
+        if($catalog){
+            abort_unless(($snapshot['coverage']['print_protocol']??null)===1&&isset($snapshot['enrollment']['base_branches'])&&is_array($snapshot['created_scopes']??null)
+                &&hash_equals($snapshot['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['created_scopes'])))
+                &&hash_equals($snapshot['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($base)))
+                &&hash_equals($snapshot['coverage']['catalog_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($snapshot['branches']))),422,'بيانات نطاقات الكتالوج أو فروع الجهاز غير متطابقة.');
+        }else abort_unless($base===$snapshot['branches']&&empty($snapshot['created_scopes']),422,'فروع نسخة التجهيز أو نطاقاتها غير متطابقة.');
+    }
+    protected function restoreCatalogSnapshot(array $snapshot): void
+    {
+        app(DesktopDashboardCreatedScopes::class)->restore($snapshot);
+    }
+    protected function verifyCatalogReceipt(array $receipt): void
+    {
+        $device=DB::table('desktop_dashboard_devices')->where('id',$receipt['device_id'])->lockForUpdate()->first();$actor=\App\Models\User::withoutGlobalScopes()->whereKey($receipt['actor_id'])->lockForUpdate()->firstOrFail();
+        $grants=app(DesktopDashboardCreatedScopes::class)->export($device,$actor);
+        abort_unless(hash_equals($receipt['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($grants)))
+            &&hash_equals($receipt['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json(json_decode($device->branches,true))))
+            &&app(DesktopDashboardCreatedScopes::class)->effective($device,$actor)===$receipt['branches'],409);
+    }
     protected function validateImportMetadata(array $snapshot): void
     {
         Validator::make(self::validationMetadata($snapshot,
@@ -173,13 +190,7 @@ class DesktopDashboardImport
                 &&json_decode($state->branches,true)===$receipt['branches']
                 &&json_decode($state->coverage,true)===$receipt['coverage'],409,'قاعدة التجهيز لا تطابق النسخة المعتمدة.');
             if(($receipt['coverage']['print_protocol']??null)===1)app(DesktopDashboardPrintLedger::class)->verifyEnrollment($receipt['device_id']);
-            if(($receipt['coverage']['catalog_scopes']??null)===1){
-                $device=DB::table('desktop_dashboard_devices')->where('id',$receipt['device_id'])->lockForUpdate()->first();$actor=\App\Models\User::withoutGlobalScopes()->whereKey($receipt['actor_id'])->lockForUpdate()->firstOrFail();
-                $grants=app(DesktopDashboardCreatedScopes::class)->export($device,$actor);
-                abort_unless(hash_equals($receipt['coverage']['catalog_grants_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json($grants)))
-                    &&hash_equals($receipt['coverage']['base_branches_sha256']??'',hash('sha256',DesktopDashboardBootstrap::json(json_decode($device->branches,true))))
-                    &&app(DesktopDashboardCreatedScopes::class)->effective($device,$actor)===$receipt['branches'],409);
-            }
+            if(($receipt['coverage']['catalog_scopes']??null)===1)$this->verifyCatalogReceipt($receipt);
             $source=DB::table('desktop_dashboard_source_manifest')->where('device_id',$receipt['device_id'])->first();
             abort_unless($source&&$source->snapshot_id===$receipt['snapshot_id']
                 &&hash_equals($source->sha256,hash('sha256',DesktopDashboardBootstrap::json($receipt['source'])))

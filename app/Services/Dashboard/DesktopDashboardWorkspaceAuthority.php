@@ -188,8 +188,18 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
     public function snapshotAudience(object $root): DesktopDashboardWorkspaceSnapshotAudience
     {
         abort_unless(DB::transactionLevel()>0,503);
-        $fresh=$this->lockAuthenticated($root); $manifest=$this->manifest($fresh); $actors=[];
-        foreach ($manifest['members'] as $member) $actors[$member['actor_id']]=$this->freshActor((object)['id'=>$member['actor_id']]);
+        $fresh=$this->lockAuthenticated($root);$manifest=$this->manifest($fresh);$actors=[];
+        $members=array_column($manifest['members'],null,'actor_id');
+        $persisted=User::withoutGlobalScopes()->whereIn('id',array_keys($members))->orderBy('id')->lockForUpdate()->get();
+        abort_unless(count($persisted)===count($members),409,'حسابات تجهيز مساحة العمل تغيرت.');
+        foreach($persisted as$actor){
+            $id=$this->safeInteger($actor->id);$member=$members[$id]??null;$password=$actor->getAuthPassword();
+            abort_unless($member!==null&&$actor->account_type===$member['role']
+                &&in_array($actor->account_type,self::ROLES,true)&&!in_array($actor->status??null,['disabled','declined'],true)
+                &&$this->usablePassword($password)&&hash_equals($member['password_binding'],hash('sha256',$password))
+                &&$this->aliases($actor)===$member['aliases'],409,'بيانات حساب تجهيز مساحة العمل تغيرت.');
+            $actors[$id]=$actor;
+        }
         return DesktopDashboardWorkspaceSnapshotAudience::issue($this,$this->issuanceCapability,$fresh,$manifest,$actors);
     }
     public function assertSnapshotAudience(DesktopDashboardWorkspaceSnapshotAudience $audience): void
@@ -202,9 +212,16 @@ class DesktopDashboardWorkspaceAuthority implements DesktopDashboardWorkspaceIss
     /** Shared server/local grant validation facts. It signs nothing and cannot issue authority by itself. */
     public function persistedMemberFacts(int $actorId, bool $lock=true): array
     {
+        return $this->persistedActorFacts($actorId,$lock)['member'];
+    }
+
+    /** One real persisted actor supplies both its membership facts and the issued facade. */
+    public function persistedActorFacts(int $actorId, bool $lock=true): array
+    {
         abort_unless(DB::transactionLevel()>0,503);
-        $facts=$this->memberFacts($this->freshActor((object)['id'=>$actorId],$lock),$this->permissionFacts($actorId,$lock),$lock);
-        abort_unless($facts!==null,403); return $facts;
+        $actor=$this->freshActor((object)['id'=>$actorId],$lock);
+        $facts=$this->memberFacts($actor,$this->permissionFacts($actorId,$lock),$lock);
+        abort_unless($facts!==null,403); return ['actor'=>$actor,'member'=>$facts];
     }
 
     /** Historical proof is audit evidence, not permission to log in or execute a command today. */

@@ -5,30 +5,18 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { GenerationStore } = require('./dashboard-generation.cjs');
 const source = require('./dashboard-source.cjs');
+const { object, exact, uuid, hash, integer, compare, canonical, digest } = require('./workspace-protocol.cjs');
 const workspacePrepared = require('./workspace-prepared.cjs');
 
 const MAX_BYTES = 64 * 1024 ** 2;
 const MAX_MANIFEST_BYTES = 16 * 1024 ** 2;
 const ROLES = new Set(['admin', 'vendor', 'resturant_owner']);
-const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const exact = (value, keys) => object(value) && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
-const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
-const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const revision = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
-const integer = value => Number.isSafeInteger(value) && value > 0;
 const text = (value, maximum = 320) => typeof value === 'string' && value.length > 0 && value.length <= maximum
   && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value);
-const compare = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 const invalid = code => Object.assign(Error('The shared workspace could not be verified.'), { code: 'WORKSPACE_' + code });
 const need = (value, code = 'STATE_INVALID') => { if (!value) throw invalid(code); };
 const running = signal => need(!signal?.aborted, 'CANCELLED');
-const canonical = value => JSON.stringify(sortValue(value));
-function sortValue(value) {
-  if (Array.isArray(value)) return value.map(sortValue);
-  if (object(value)) return Object.fromEntries(Object.keys(value).sort(compare).map(key => [key, sortValue(value[key])]));
-  return value;
-}
-const digest = value => crypto.createHash('sha256').update(canonical(value)).digest('hex');
 const stable = value => [value.dev, value.ino, value.mode, value.nlink, value.size, value.mtimeMs, value.ctimeMs].join(':');
 const normalized = value => process.platform === 'win32' ? path.normalize(value).toLowerCase() : path.normalize(value);
 const aliases = value => text(value) && value === value.toLowerCase();

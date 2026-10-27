@@ -47,3 +47,59 @@ test('workspace importer preserves exact raw snapshot numeric bytes in its secon
   assert.equal(framed.slice(newline + 1), input);
   assert.deepEqual(JSON.parse(framed.slice(0, newline)), { format: 2, kind: 'desktop-workspace-import-input', expected_binding: { token_hash: '1'.repeat(64) } });
 });
+
+test('actor control requires the actual password-established private capability and overwrites supplied actor/proof fields', async t => {
+  const f = await fixture(t), calls = [], owner = new WorkspaceRuntime({ registry: f.registry, bundle: path.join(f.root, 'unused'), safeStorage: f.safeStorage,
+    authorizeSource: async () => false, verifyActive: async () => true, nativeFetch: async (url, options) => {
+      calls.push({ url, options, body: JSON.parse(options.body) }); return new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } });
+    } });
+  owner.physical.origin = 'http://127.0.0.1:32113'; const b = await owner.actor(202);
+  await assert.rejects(b.runtime.control({ action: 'print-list' }), { code: 'WORKSPACE_RUNTIME_ACTOR_ACTION_DENIED' }); assert.equal(calls.length, 0);
+  const member = await f.registry.member(202), cap = { format: 2, kind: 'desktop-workspace-native-session', workspace_id: f.registry.workspaceId,
+    root_fingerprint: f.value.manifest.root_fingerprint, actor_id: 202, manifest_revision: 1, password_binding: member.password_binding,
+    snapshot_id: f.value.candidate.snapshotId, schema_hash: f.value.candidate.schemaHash,
+    control_binding: require('node:crypto').createHash('sha256').update(owner.physical.controlToken).digest('hex'), nonce: '1'.repeat(64), mac: '2'.repeat(64) };
+  await owner.acceptSession({ actorId: 202, role: 'vendor' }, { native_session: cap });
+  await b.runtime.control({ action: 'print-list', actor_id: 101, native_session: { actor_id: 101 }, workspace_actor: { grant: 'forged' } });
+  assert.equal(calls[0].body.actor_id, 202); assert.deepEqual(calls[0].body.native_session, cap); assert.equal(calls[0].body.workspace_actor, undefined);
+  assert.equal(calls[0].url, owner.physical.origin + '/_desktop/workspace-control');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer ' + f.value.credential.token);
+  await owner.control({ action: 'pending' }); assert.equal(calls[1].body.native_session, undefined);
+  assert.throws(() => owner.control({ action: 'print-list' }), { code: 'WORKSPACE_RUNTIME_ROOT_ACTION_DENIED' });
+  assert.throws(() => owner.control({ action: 'pending', native_session: cap }), { code: 'WORKSPACE_RUNTIME_CONTROL_REJECTED' });
+  await assert.rejects(b.runtime.control({ action: 'refresh-begin' }), { code: 'WORKSPACE_RUNTIME_ACTOR_ACTION_DENIED' });
+  owner.revokeSession(202); await assert.rejects(b.runtime.control({ action: 'print-list' }), { code: 'WORKSPACE_RUNTIME_ACTOR_ACTION_DENIED' });
+  assert.equal(calls.length, 2);
+});
+
+test('a private capability from a previous native process cannot authorize a new physical control token', async t => {
+  const f = await fixture(t), owner = create(f), other = create(f), member = await f.registry.member(202);
+  const cap = { format: 2, kind: 'desktop-workspace-native-session', workspace_id: f.registry.workspaceId,
+    root_fingerprint: f.value.manifest.root_fingerprint, actor_id: 202, manifest_revision: 1, password_binding: member.password_binding,
+    snapshot_id: f.value.candidate.snapshotId, schema_hash: f.value.candidate.schemaHash,
+    control_binding: require('node:crypto').createHash('sha256').update(owner.physical.controlToken).digest('hex'), nonce: '1'.repeat(64), mac: '2'.repeat(64) };
+  await assert.rejects(other.acceptSession({ actorId: 202, role: 'vendor' }, { native_session: cap }), { code: 'WORKSPACE_RUNTIME_SESSION_REJECTED' });
+  assert.equal(await other.hasSession(202), false);
+});
+
+test('A B and Owner reuse the hot physical start without import, publication, generation, roster scan or optional source upgrade', async t => {
+  const f = await fixture(t), owner = create(f); let starts = 0, checks = 0;
+  owner.verifyActive = async record => { checks++; assert.equal(record.candidate.prepared.workspaceProtocol, 2); return true; };
+  for (const name of ['verifyCandidate', 'restoreStage', 'stage']) owner[name] = async () => { throw Error('Heavy inactive preparation must not run on login.'); };
+  owner.authorizeSource = async () => { throw Error('Publication HTTP must not run on login.'); };
+  owner.physical.candidate = async () => { throw Error('Installed source staging must not run on login.'); };
+  owner.physical.start = async () => { starts++; return { origin: 'http://127.0.0.1:32122', token: 'private' }; };
+  for (const actorId of [101, 202, 101]) { const actor = await owner.actor(actorId); await actor.runtime.start(); }
+  assert.equal(starts, 1); assert.equal(checks, 1);
+});
+
+test('shutdown cancellation leaves an already-started physical generation available for accepted cutover/print settlement until final stop', async t => {
+  const f = await fixture(t), owner = create(f); owner.physical.started = true;
+  owner.sessions.set(202, { retained: 'accepted-private-capability' });
+  owner.cancelStartup();
+  assert.equal(owner.cancelReads, true); assert.equal(owner.physical.cancelReads, true);
+  assert.equal(owner.stopping, false); assert.equal(owner.physical.stopping, false);
+  assert.equal(owner.sessions.has(202), true);
+  owner.physical.stop = async () => {};
+  await owner.stop(); assert.equal(owner.stopping, true); assert.equal(owner.sessions.size, 0);
+});

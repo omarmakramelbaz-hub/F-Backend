@@ -48,6 +48,7 @@ class DesktopDashboardJournal
                 abort_unless($scope&&!$scope->isLocal()&&(int)auth('admin')->id()===$scope->actor_id,403);
                 if($request->hasHeader('X-Fasakhansta-Workspace-Attempt')||$request->hasHeader('X-Fasakhansta-Workspace-Capability'))
                     return app(\App\Services\Dashboard\DesktopDashboardWorkspaceRemoteAttempts::class)->handle($request,$next);
+                app(\App\Services\Dashboard\DesktopDashboardWorkspaceRemoteAttempts::class)->authorizeDirect($scope,$request);
                 return $next($request);
             }
             if($request->hasHeader('X-Fasakhansta-Connected-Device')||$request->hasHeader('X-Fasakhansta-Connected-Token')){
@@ -89,7 +90,8 @@ class DesktopDashboardJournal
             // Some legacy GET actions write data. HTTP reads must never silently commit
             // a business change without a corresponding reconciled command.
             abort_unless(DB::transactionLevel()===0,503);
-            DB::statement('SET TRANSACTION READ ONLY');
+            DB::statement(app(\App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority::class)->selected()
+                ?'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY':'SET TRANSACTION READ ONLY');
             try{return DB::transaction(fn()=>\App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::readOnly(fn()=>$next($request)));}
             catch(\Illuminate\Database\QueryException $error){
                 if((int)($error->errorInfo[1]??0)===1792)abort(501,'هذه الصفحة طلبت تعديلًا لم تُجهّز مزامنته؛ لم تُنفّذ العملية.');

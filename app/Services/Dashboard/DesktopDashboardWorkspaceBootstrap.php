@@ -25,7 +25,8 @@ final class DesktopDashboardWorkspaceBootstrap extends DesktopDashboardBootstrap
             $manifest=$audience->manifest();$actors=$audience->actors();$this->memoryBudget();
             $branches=[];foreach($manifest['members'] as $member)$branches=array_merge($branches,$member['branches']);
             $branches=array_values(array_unique($branches));sort($branches,SORT_STRING);
-            $queries=$this->workspaceData->queries($audience);$dataset=$this->workspaceData->rows($queries);
+            $catalog=app(DesktopDashboardWorkspaceCreatedScopes::class);$created=$catalog->exportAudience($audience);
+            $queries=$this->workspaceData->queries($audience);$dataset=$this->workspaceData->rows($queries,$audience);
             $snapshot=(string)Str::uuid();
             $media=$this->workspaceMedia->manifestForAudience($dataset,$audience,$snapshot);
             $roleMemberships=app(DesktopDashboardRoleFacts::class)->manifest($dataset['roles']??[]);
@@ -50,11 +51,12 @@ final class DesktopDashboardWorkspaceBootstrap extends DesktopDashboardBootstrap
                 'role_memberships'=>$roleMemberships,'full_dashboard'=>false,'print_protocol'=>1,'catalog_scopes'=>0,'media'=>$media['complete'],
                 'workspace_protocol'=>2,'manifest_revision'=>$manifest['revision'],'roster_sha256'=>$manifest['roster_sha256'],
                 'root_fingerprint'=>$manifest['root_fingerprint']];
+            if($catalog->available())$coverage=array_merge($coverage,$catalog->coverage($branches,$created));
             if($eligibility!==null)$coverage['pending_vendor_eligibility']=$eligibility;
             return ['format'=>2,'kind'=>'initial-workspace-data','snapshot_id'=>$snapshot,'device_id'=>$fresh->id,
                 'actor_id'=>(int)$fresh->custodian_actor_id,'branches'=>$branches,
                 'enrollment'=>['enrollment_hash'=>$fresh->enrollment_hash,'enrolled_at'=>(string)$fresh->enrolled_at,'base_branches'=>$branches],
-                'created_scopes'=>[],'generated_at'=>now('UTC')->toIso8601String(),'source'=>$source,
+                'created_scopes'=>$created,'generated_at'=>now('UTC')->toIso8601String(),'source'=>$source,
                 'transport_php'=>['capture_scope'=>'snapshot_export','php_sapi'=>PHP_SAPI,'php_version'=>PHP_VERSION,
                     'serialize_precision'=>(string)ini_get('serialize_precision'),'precision'=>(string)ini_get('precision')],
                 'schema_hash'=>$schemaHash,'tables'=>$tables,'media'=>$media['files'],'media_issues'=>$media['issues'],'coverage'=>$coverage,

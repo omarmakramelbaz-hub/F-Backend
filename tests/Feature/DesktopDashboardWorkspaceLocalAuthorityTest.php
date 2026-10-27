@@ -5,6 +5,7 @@ use App\Models\User;
 use App\Services\Dashboard\DesktopDashboardWorkspaceAuthority as Authority;
 use App\Services\Dashboard\DesktopDashboardWorkspaceLocalAuthority as LocalAuthority;
 use App\Services\Dashboard\DesktopDashboardWorkspaceLocalSchema as LocalSchema;
+use App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext as Context;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\{DB,Schema};
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -69,10 +70,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
             'schema_hash'=>str_repeat('b',64),'branches'=>'["f:100","f:101"]','coverage'=>'{"workspace_protocol":2}',
             'state'=>'ready','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
         $this->writeRecord();
-        foreach($this->manifest['members']as$member)DB::table('desktop_dashboard_workspace_local_members')->insert([
-            'workspace_id'=>self::DEVICE,'actor_id'=>$member['actor_id'],'manifest_revision'=>$this->manifest['revision'],
-            'member_json'=>Authority::canonical($member),'local_mac'=>$this->mac('member',[
-                'record_sha256'=>hash('sha256',Authority::canonical($this->record)),'member'=>$member]),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        $this->writeMembers();
         $this->expected=['workspace_id'=>self::DEVICE,'root_fingerprint'=>$this->record['root_fingerprint'],
             'revision'=>$this->record['manifest_revision'],'roster_sha256'=>$this->record['roster_sha256'],
             'manifest_sha256'=>$this->record['manifest_sha256'],'token_hash'=>$root->token_hash];
@@ -101,6 +99,41 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         DB::table('desktop_dashboard_workspace_local_authority')->updateOrInsert(['workspace_id'=>self::DEVICE],[
             'record_json'=>Authority::canonical($this->record),'manifest_json'=>Authority::canonical($this->manifest),
             'local_mac'=>$this->mac('record',$this->record),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    }
+    private function writeMembers():void
+    {
+        foreach($this->manifest['members']as$member)DB::table('desktop_dashboard_workspace_local_members')->updateOrInsert(
+            ['workspace_id'=>self::DEVICE,'actor_id'=>$member['actor_id']],['manifest_revision'=>$this->manifest['revision'],
+                'member_json'=>Authority::canonical($member),'local_mac'=>$this->mac('member',[
+                    'record_sha256'=>hash('sha256',Authority::canonical($this->record)),'member'=>$member]),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    }
+    /** A complete, locally sealed owner fixture gives query counts a realistic multi-branch cost. */
+    private function ownerScope():\App\Services\Dashboard\DesktopDashboardWorkspaceScope
+    {
+        DB::table('users')->insert(['id'=>1,'name'=>'Owner fixture','email'=>'owner@example.test','mobile'=>'1000000001',
+            'password'=>password_hash('owner-fixture',PASSWORD_BCRYPT,['cost'=>4]),'account_type'=>'admin','app_scope'=>'fasakhansta',
+            'status'=>'accepted','created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        $branches=[];for($id=200;$id<240;$id++)$branches[]=['id'=>$id,'user_id'=>10,'name'=>'Owner branch '.$id];
+        DB::table('resturants')->insert($branches);$members=[];
+        DB::transaction(function()use(&$members){foreach([1,10,11]as$id)$members[]=app(Authority::class)->persistedMemberFacts($id)
+            +['grant'=>hash('sha256','public-local-owner-fixture-'.$id)];});
+        $this->manifest['members']=$members;$this->manifest['revision']++;
+        $this->manifest['roster_sha256']=hash('sha256',Authority::canonical($members));
+        $this->record['manifest_revision']=$this->manifest['revision'];$this->record['member_count']=count($members);
+        $this->record['roster_sha256']=$this->manifest['roster_sha256'];
+        $this->record['manifest_sha256']=hash('sha256',Authority::canonical($this->manifest));
+        $this->record['snapshot']['branches']=$members[0]['branches'];
+        DB::table('desktop_dashboard_local_state')->update(['branches'=>Authority::canonical($members[0]['branches'])]);
+        $this->writeRecord();$this->writeMembers();return $this->local()->scopeForActor(1);
+    }
+    private function snapshotRead(callable$work,bool$newFrame=true)
+    {
+        if($this->connection==='mysql')DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+        return DB::transaction(fn()=>$newFrame?Context::readOnly($work):$work());
+    }
+    private function tableReads(array$queries,string$table):int
+    {
+        return count(array_filter($queries,fn($query)=>(bool)preg_match('~\bfrom\s+[`"]?'.preg_quote($table,'~').'[`"]?(?:\s|$)~i',$query['query'])));
     }
     private function denied(callable$work,array$codes=[403,409,422,503]):void
     {
@@ -212,7 +245,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('c',64));
         $sessions=app(\App\Services\Dashboard\DesktopDashboardWorkspaceNativeSessions::class);$scope=$this->local()->scopeForActor(11);
         $this->denied(fn()=>$sessions->issue($scope),[403]);
-        $this->actingAs($this->actor(11),'admin');$capability=$sessions->issue($scope);auth('admin')->forgetUser();
+        $this->actingAs($this->actor(11),'admin');$capability=$sessions->issue($scope);auth()->forgetGuards();
         $this->assertNull(auth('admin')->id());
         $this->assertSame(11,$sessions->withSession($capability,function($current){
             $this->assertSame(11,(int)auth('admin')->id());
@@ -230,7 +263,7 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
     {
         putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('c',64));$this->actingAs($this->actor(11),'admin');
         $sessions=app(\App\Services\Dashboard\DesktopDashboardWorkspaceNativeSessions::class);
-        $capability=$sessions->issue($this->local()->currentScope($this->actor(11)));auth('admin')->forgetUser();
+        $capability=$sessions->issue($this->local()->currentScope($this->actor(11)));auth()->forgetGuards();
         foreach(['actor_id'=>10,'root_fingerprint'=>str_repeat('0',64),'manifest_revision'=>2,'password_binding'=>str_repeat('0',64),
             'snapshot_id'=>'33333333-3333-4333-8333-333333333333','schema_hash'=>str_repeat('0',64)]as$key=>$value){
             $changed=$capability;$changed[$key]=$value;$this->denied(fn()=>$sessions->withSession($changed,fn()=>null),[403]);
@@ -252,5 +285,83 @@ class DesktopDashboardWorkspaceLocalAuthorityTest extends TestCase
         });
         DB::table('desktop_dashboard_local_state')->update(['coverage'=>'{"workspace_protocol":2,"full_dashboard":true}']);
         $this->denied(fn()=>$this->local()->scopeForActor(11),[503]);
+    }
+    public function test_owner_and_branch_read_validation_load_actual_actor_permissions_and_branches_once_per_snapshot():void
+    {
+        $owner=$this->ownerScope();
+        foreach([$owner,$this->local()->scopeForActor(11)]as$scope)Context::run($scope,function()use($scope){
+            $this->snapshotRead(function()use($scope){
+                DB::flushQueryLog();DB::enableQueryLog();
+                try{
+                    $first=$scope->revalidated();$model=$first->actor();$model->name='Presenter-only change';
+                    for($repeat=0;$repeat<5;$repeat++){
+                        $this->local()->assertScope($scope);$fresh=$scope->revalidated();
+                        $this->assertSame($scope->actor_id,$this->local()->scopeForActor($scope->actor_id)->actor_id);
+                        $this->assertNotSame('Presenter-only change',$fresh->actor()->name);
+                    }
+                    $queries=DB::getQueryLog();
+                }finally{DB::disableQueryLog();}
+                $this->assertSame(1,$this->tableReads($queries,'resturants'),'Layouts must not enumerate owner branches repeatedly.');
+                $this->assertSame(1,$this->tableReads($queries,'model_has_roles'),'Role pivots belong to one current actor read.');
+                $this->assertSame(1,$this->tableReads($queries,'users'),'The facade reuses the actual validated User model.');
+                foreach($queries as$query)$this->assertStringNotContainsString('for update',strtolower($query['query']));
+            });
+        });
+    }
+    public function test_new_read_blocks_and_write_validations_always_reload_current_authority():void
+    {
+        $scope=$this->ownerScope();Context::run($scope,function()use($scope){
+            $this->snapshotRead(fn()=>$scope->revalidated());
+            DB::table('users')->where('id',1)->update(['status'=>'disabled']);
+            $this->denied(fn()=>$this->snapshotRead(fn()=>$scope->revalidated()),[403]);
+            $this->denied(fn()=>$scope->revalidated(),[403]);
+            DB::table('users')->where('id',1)->update(['status'=>'accepted']);
+            DB::flushQueryLog();DB::enableQueryLog();
+            try{$scope->revalidated();$scope->revalidated();$queries=DB::getQueryLog();}finally{DB::disableQueryLog();}
+            $this->assertSame(2,$this->tableReads($queries,'resturants'),'Write authority cannot reuse the read memo.');
+            if($this->connection==='mysql')$this->assertNotEmpty(array_filter($queries,fn($query)=>str_contains(strtolower($query['query']),'for update')));
+        });
+        $this->assertFalse(Context::isReadOnly());$this->assertNull(Context::current());
+    }
+    public function test_transaction_epochs_in_one_read_frame_cannot_reuse_authority_from_a_finished_snapshot():void
+    {
+        $scope=$this->local()->scopeForActor(11);
+        Context::run($scope,fn()=>Context::readOnly(function()use($scope){
+            $this->snapshotRead(fn()=>$scope->revalidated(),false);
+            DB::table('users')->where('id',11)->update(['status'=>'disabled']);
+            $this->denied(fn()=>$this->snapshotRead(fn()=>$scope->revalidated(),false),[403]);
+        }));
+        $this->assertFalse(Context::isReadOnly());
+    }
+    public function test_nested_read_frames_and_exceptions_restore_the_outer_snapshot_without_leaking_memo():void
+    {
+        $scope=$this->ownerScope();
+        Context::run($scope,function()use($scope){$this->snapshotRead(function()use($scope){
+            DB::flushQueryLog();DB::enableQueryLog();
+            try{
+                $scope->revalidated();
+                try{Context::readOnly(function()use($scope){$scope->revalidated();throw new \RuntimeException('Nested read failure');});}
+                catch(\RuntimeException$error){$this->assertSame('Nested read failure',$error->getMessage());}
+                $this->assertTrue(Context::isReadOnly());$scope->revalidated();
+                $this->assertSame(2,$this->tableReads(DB::getQueryLog(),'resturants'),'Each nested frame validates once and restores its parent memo.');
+                DB::transaction(fn()=>$scope->revalidated());$scope->revalidated();
+                $this->assertGreaterThanOrEqual(3,$this->tableReads(DB::getQueryLog(),'resturants'),'A savepoint epoch cannot revive an older cache key.');
+            }finally{DB::disableQueryLog();}
+        });});
+        $this->assertFalse(Context::isReadOnly());$this->assertNull(Context::current());
+        DB::table('users')->where('id',1)->update(['status'=>'disabled']);
+        $this->denied(fn()=>$this->snapshotRead(fn()=>$scope->revalidated()),[403]);
+    }
+    public function test_read_memo_requires_an_active_observable_pdo_transaction():void
+    {
+        $calls=0;$load=function()use(&$calls){return ++$calls;};
+        Context::readOnly(function()use($load){Context::memoizedRead('not-in-a-transaction',$load);Context::memoizedRead('not-in-a-transaction',$load);});
+        $this->assertSame(2,$calls);
+        $this->snapshotRead(function()use(&$calls,$load){
+            $connection=DB::connection();$dispatcher=$connection->getEventDispatcher();$connection->unsetEventDispatcher();
+            try{Context::memoizedRead('no-events',$load);Context::memoizedRead('no-events',$load);}
+            finally{$connection->setEventDispatcher($dispatcher);}
+        });
+        $this->assertSame(4,$calls);$this->assertFalse(Context::isReadOnly());
     }
 }

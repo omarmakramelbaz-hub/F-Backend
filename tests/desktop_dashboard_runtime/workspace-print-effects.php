@@ -30,7 +30,7 @@ config(['desktop_dashboard.enabled'=>true,'desktop_dashboard.workspace_enabled'=
 $group=app(WorkspaceAuthority::class)->enroll(['device_id'=>$workspace,'name'=>'Shared fixture','nonce'=>str_repeat('6',64)],User::withoutGlobalScopes()->findOrFail(10));
 $physical=app(WorkspaceAuthority::class)->authenticate($group['token']);$manifest=$group['manifest'];
 putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL=true');config(['desktop_dashboard.local'=>true,'desktop_dashboard.device_id'=>$workspace]);
-auth('admin')->forgetUser();WorkspaceSchema::ensure();
+auth()->forgetGuards();WorkspaceSchema::ensure();
 $snapshot=['workspace_id'=>$workspace,'custodian_actor_id'=>10,'snapshot_id'=>(string)Str::uuid(),'schema_hash'=>str_repeat('7',64),
     'source'=>['format'=>1,'files'=>10,'sha256'=>str_repeat('8',64),'framework'=>app()->version()],
     'branches'=>['f:100','f:101'],'coverage'=>['workspace_protocol'=>2,'print_protocol'=>1]];
@@ -106,6 +106,43 @@ $ack=array_intersect_key($bReceipt,array_flip(['effect_id','invocation_id','stat
 WorkspaceContext::rootControl($workspace,fn()=>$groupEffects->acknowledge($workspace,$ack));
 check(!in_array($bIntent['effect_id'],array_column(WorkspaceContext::rootControl($workspace,fn()=>$groupEffects->pendingOutcomes($workspace))['outcomes'],'effect_id'),true),
     'root metadata acknowledgement clears only the exact original durable outcome');
+$previousControlToken=getenv('DESKTOP_DASHBOARD_CONTROL_TOKEN');$previousControlHeader=$_SERVER['HTTP_X_FASAKHANSTA_CONTROL']??null;
+putenv('DESKTOP_DASHBOARD_CONTROL_TOKEN='.str_repeat('9',64));$_SERVER['HTTP_X_FASAKHANSTA_CONTROL']=str_repeat('9',64);
+$nativeControl=app(\App\Services\Dashboard\DesktopDashboardWorkspaceControl::class);
+$rootPending=$nativeControl->dispatch(['action'=>'pending'],$group['token']);
+check($rootPending['print_state']===['prepared'=>0,'uncertain'=>1,'unacknowledged'=>0],
+    'shared native control dispatcher returns complete root print facts without choosing a user');
+auth('admin')->setUser(User::withoutGlobalScopes()->findOrFail(1));
+$nativeCapability=app(\App\Services\Dashboard\DesktopDashboardWorkspaceNativeSessions::class)->issue($local->currentScope(auth('admin')->user()));
+auth()->forgetGuards();
+$controlled=$nativeControl->dispatch(['action'=>'print-list','include_manual'=>true,'actor_id'=>1,'native_session'=>$nativeCapability],$group['token']);
+check(!in_array($aIntent['effect_id'],array_column($controlled['effects'],'effect_id'),true)&&auth('admin')->getUser()===null,
+    'shared native actor dispatch uses the actual password-session capability and restores the empty guard');
+denied(fn()=>$nativeControl->dispatch(['action'=>'print-list','actor_id'=>10,'native_session'=>$nativeCapability],$group['token']),403,
+    'command dispatch cannot substitute the enrollment custodian for the authenticated user');
+// The recent audit page is presentation only: an older A burn must remain counted
+// even when more than one page of legitimate B reprint claims was prepared later.
+for($groupPrintIndex=0;$groupPrintIndex<101;$groupPrintIndex++){
+    $reprint=WorkspaceContext::run($actorB,fn()=>$groupEffects->resolve($workspace,[
+        'path'=>'/admin/takeaway/receipts/'.$bResult['receipt']['id'].'/print','query'=>[],
+        'request_id'=>(string)Str::uuid(),'explicit_reprint'=>true]));
+    WorkspaceContext::run($actorB,fn()=>$groupEffects->prepare($workspace,[
+        'effect_id'=>$reprint['effect_id'],'claim_token'=>(string)Str::uuid(),'native_session_id'=>(string)Str::uuid()]));
+}
+$printing=WorkspaceContext::rootControl($workspace,fn()=>$groupEffects->workspaceState($workspace));
+check($printing===['prepared'=>101,'uncertain'=>1,'unacknowledged'=>0],
+    'physical print summary counts every actor and reprint beyond the bounded recent audit');
+$auditBefore=WorkspaceContext::rootControl($workspace,fn()=>$groupEffects->audit($workspace));
+check(count($auditBefore['audit'])===100&&!in_array($aIntent['effect_id'],array_column($auditBefore['audit'],'effect_id'),true),
+    'hidden older A uncertainty remains counted when it is outside the latest audit page');
+foreach([$aValues['idempotency_key'],$bValues['idempotency_key']]as$acceptedCommand)
+    $groupJournal->acknowledge($workspace,$acceptedCommand,['device_id'=>$workspace,'command_id'=>$acceptedCommand,'committed'=>true]);
+WorkspaceContext::rootControl($workspace,function()use($workspace){
+    denied(fn()=>app(\App\Services\Dashboard\DesktopDashboardRefresh::class)->begin($workspace,(string)Str::uuid(),bin2hex(random_bytes(32))),409,
+        'generation fence atomically refuses old foreign uncertainty and all prepared print claims');
+});
+check(DB::table('desktop_dashboard_local_state')->where('device_id',$workspace)->value('state')==='ready',
+    'rejected print fence never changes the active generation state');
 // A retained permanent effect must survive physical generation replacement and source removal.
 $sourceDatabase=DB::connection()->getDatabaseName();$replacement='fasakhansta_dashboard_stage_'.bin2hex(random_bytes(8));
 $pdo->exec('CREATE DATABASE `'.$replacement.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
@@ -119,4 +156,6 @@ $pdo->exec('DROP DATABASE `'.$sourceDatabase.'`');
 $auditAfter=WorkspaceContext::rootControl($workspace,fn()=>$groupEffects->audit($workspace));
 check($auditBefore===$auditAfter,'all-actor immutable print audit and unknown burns survive generation replacement and original database removal');
 check($groupLedger->bind($workspace)===$printIdentity,'a replacement generation keeps the original shared print namespace');
+putenv($previousControlToken===false?'DESKTOP_DASHBOARD_CONTROL_TOKEN':'DESKTOP_DASHBOARD_CONTROL_TOKEN='.$previousControlToken);
+if($previousControlHeader===null)unset($_SERVER['HTTP_X_FASAKHANSTA_CONTROL']);else $_SERVER['HTTP_X_FASAKHANSTA_CONTROL']=$previousControlHeader;
 putenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL');

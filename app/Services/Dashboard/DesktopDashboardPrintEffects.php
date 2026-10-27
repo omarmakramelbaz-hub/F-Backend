@@ -127,6 +127,24 @@ final class DesktopDashboardPrintEffects
             return ['outcomes'=>$outcomes,'pending'=>$this->attempts($device)->where('a.server_ack_hash','')->where('a.outcome_cipher','!=','')->count()];
         },false,false);
     }
+
+    /** Full physical-workspace counts; a bounded audit page cannot prove the absence of uncertainty. */
+    public function workspaceState(string $device): array
+    {
+        abort_unless(app(DesktopDashboardWorkspacePrintAuthority::class)->selected(),403);
+        return $this->transaction($device,fn()=>$this->workspaceStateLocked($device),false,false);
+    }
+    /** Called under the same fixed print scope lock as the generation fence. */
+    public function workspaceStateLocked(string $device): array
+    {
+        abort_unless(app(DesktopDashboardWorkspacePrintAuthority::class)->selected()&&DB::transactionLevel()>0
+            &&(DesktopDashboardWorkspaceExecutionContext::isRootControl($device)||PHP_SAPI==='cli'),403);
+        $this->ledger->fence($device);
+        $all=$this->attempts($device,true);
+        return ['prepared'=>(int)(clone $all)->where('a.state','claimed')->count(),
+            'uncertain'=>(int)(clone $all)->whereIn('a.state',['burnt','review'])->where('a.server_ack_hash','')->count(),
+            'unacknowledged'=>(int)(clone $all)->where('a.outcome_cipher','!=','')->where('a.server_ack_hash','')->count()];
+    }
     public function acknowledge(string $device,array $receipt): array
     {
         Validator::make($receipt,['effect_id'=>'required|regex:/^[a-f0-9]{64}$/D','invocation_id'=>'required|uuid','state'=>'required|in:invoked,review','receipt_sha256'=>'required|regex:/^[a-f0-9]{64}$/D'])->validate();
@@ -197,7 +215,7 @@ final class DesktopDashboardPrintEffects
         $rootAudit=app(DesktopDashboardWorkspacePrintAuthority::class)->selected()&&DesktopDashboardWorkspaceExecutionContext::isRootControl($device);
         return $this->transaction($device,function($actor)use($device,$rootAudit){
             $audit=[];
-            foreach($this->attempts($device,true)->orderByDesc('a.updated_at')->limit(100)->get(['a.*']) as $row){
+            foreach($this->attempts($device,true)->orderByDesc('a.updated_at')->orderBy('a.effect_id')->limit(100)->get(['a.*']) as $row){
                 if(app(DesktopDashboardWorkspacePrintAuthority::class)->selected()&&!$rootAudit && (int)$row->actor_id!==(int)$actor->id)continue;
                 $intent=$this->descriptor($device,$row->effect_id);if(!$rootAudit && (int)$intent['actor_id']!==(int)$actor->id)continue;
                 $audit[]=['effect_id'=>$row->effect_id,'kind'=>$intent['kind'],'branch'=>$intent['branch'],'reprint'=>!empty($intent['reprint']),

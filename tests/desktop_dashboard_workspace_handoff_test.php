@@ -1,6 +1,7 @@
 <?php
 // Actual v2 handoff, replay normalizer, sidecar MACs and media seal; isolated synthetic SQL adapters.
 namespace Illuminate\Support\Facades {
+    final class Validator {public static function make($data,$rules){return new class($data){public function __construct(private array $data){}public function validate(){return $this->data;}};}}
     final class Schema {public static function hasTable($name){return array_key_exists($name,DB::$tables);}}
     final class DB {
         public static array $tables=[],$queries=[],$identity=[],$sourceIdentity=[],$sourceExpected=[];
@@ -15,6 +16,9 @@ namespace Illuminate\Support\Facades {
         public static function transaction($work){self::$level++;try{return $work();}finally{self::$level--;}}
         public static function table($name){return new \WorkspaceHandoffQuery($name);}
         public static function selectOne($sql,$bindings=[]){
+            if(preg_match('/^SELECT \* FROM `fasakhansta_dashboard(?:_stage_[a-f0-9]{16})?`\.`desktop_dashboard_local_state` WHERE device_id=\? FOR UPDATE$/D',$sql)){
+                self::$queries[]=$sql;return clone self::$sourceState;
+            }
             if(self::$fenced)throw new \RuntimeException('Source inspection inside the cutover fence.');
             self::$queries[]=$sql;
             if(str_contains($sql,'desktop_dashboard_workspace_local_authority'))return clone self::$sourceRecord;
@@ -118,6 +122,8 @@ namespace {
     require __DIR__.'/../app/Services/Dashboard/DesktopDashboardDeltaLocal.php';
     require __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceDeltaLocal.php';
     require __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceHandoff.php';
+    require __DIR__.'/../app/Services/Dashboard/DesktopDashboardArchive.php';
+    require __DIR__.'/../app/Services/Dashboard/DesktopDashboardWorkspaceArchive.php';
     $GLOBALS['workspace_handoff_checks']=0;$GLOBALS['workspace_handoff_hashes']=0;$GLOBALS['workspace_handoff_services']=[];
     $GLOBALS['workspace_handoff_local']=true;$GLOBALS['workspace_handoff_enabled']=true;
     $GLOBALS['workspace_handoff_id']=$workspace='11111111-1111-4111-8111-111111111111';
@@ -182,6 +188,20 @@ namespace {
         check($payload['replay']['rows']===5001&&$payload['sequence']===5100,'Private cutover returns the exact full group replay sequence/count');
         check($calls===app(\App\Services\Dashboard\DesktopDashboardWorkspaceImport::class)->calls&&$reads===DB::$replayReads&&$hashes===$GLOBALS['workspace_handoff_hashes'],'Cutover performs no full member/source/history verification or attachment hashing');
         check(!array_filter(DB::$queries,fn($sql)=>str_contains($sql,'archived_commands')||str_contains($sql,Commands::TABLE)),'Cutover uses no replay or sidecar SQL');
+        $savedSource=clone DB::$sourceState;$refreshId='55555555-5555-4555-8555-555555555555';$refreshToken=str_repeat('e',64);
+        DB::$sourceState->state='held';DB::$sourceState->refresh_id=$refreshId;DB::$sourceState->refresh_token_hash=hash('sha256',$refreshToken);DB::$sourceState->fenced_sequence=5100;
+        $archive=new \App\Services\Dashboard\DesktopDashboardWorkspaceArchive;$beforeArchiveReads=DB::$replayReads;
+        $sealed=$archive->sealWorkspace($checked,$expected,$source,$refreshId,$refreshToken,$sourceIdentity,$seal,$proof,$token);
+        check($sealed===['archived_commands'=>5001],'Group archive retains all retired-B UUIDs through the original bounded source CAS');
+        check($archive->sealWorkspace($checked,$expected,$source,$refreshId,$refreshToken,$sourceIdentity,$seal,$proof,$token)===$sealed,'Identical archive retry is idempotent after a lost native reply');
+        check(DB::$replayReads===$beforeArchiveReads&&$hashes===$GLOBALS['workspace_handoff_hashes'],'Archive retry performs no replay scan, MAC scan or full file hash under the global fence');
+        refused(fn()=>$archive->seal($checked,$source,$refreshId,$refreshToken,$sourceIdentity,$seal,$proof,$token),'Generic v1 archive entry cannot receive a group receipt');
+        refused(fn()=>$archive->sealWorkspace($checked,$expected,$source,$refreshId,str_repeat('0',64),$sourceIdentity,$seal,$proof,$token),'Wrong held refresh token');
+        DB::$sourceState->fenced_sequence=5101;
+        refused(fn()=>$archive->sealWorkspace($checked,$expected,$source,$refreshId,$refreshToken,$sourceIdentity,$seal,$proof,$token),'Concurrent shared queue sequence invalidates cutover');DB::$sourceState->fenced_sequence=5100;
+        DB::$sourceState->actor_id=9;
+        refused(fn()=>$archive->sealWorkspace($checked,$expected,$source,$refreshId,$refreshToken,$sourceIdentity,$seal,$proof,$token),'Physical custody cannot be rebound to current B');
+        DB::$sourceState=$savedSource;
         $reordered=$checked;$reorderedProof=$proof;$reorderedExpected=$expected;$reorderedIdentity=$sourceIdentity;
         ksort($reordered['workspace']);ksort($reordered['delta_source_identity']['workspace']);ksort($reordered['delta_source_binding']);
         ksort($reorderedProof['payload']['workspace']);ksort($reorderedExpected);ksort($reorderedIdentity['workspace']);

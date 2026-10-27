@@ -1,6 +1,6 @@
 <?php
 // Native supervisor endpoint. Its credential is distinct from the browser asset credential.
-use App\Services\Dashboard\{DesktopDashboardJournal,DesktopDashboardRefresh,DesktopDashboardOutboxReview};
+use App\Services\Dashboard\DesktopDashboardControl;
 
 try {
     if(($_SERVER['REQUEST_METHOD']??'')!=='POST'
@@ -15,27 +15,7 @@ try {
     // A shared workspace uses the separate root/session capability protocol.
     abort_if(getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true',403);
     $device=(string)config('desktop_dashboard.device_id');
-    $journal=$app->make(DesktopDashboardJournal::class);
-    switch($value['action']??''){
-        case 'outbox-review':$result=$app->make(DesktopDashboardOutboxReview::class)->inspect($device);break;
-        case 'outbox-retry':$result=$app->make(DesktopDashboardOutboxReview::class)->retry($device,(string)($value['command_id']??''),(string)($value['review_token']??''));break;
-        case 'print-audit':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->audit($device);break;
-        case 'print-review':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->review($device,$value);break;
-        case 'print-outcomes':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->pendingOutcomes($device);break;
-        case 'print-acknowledge':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->acknowledge($device,(array)($value['receipt']??[]));break;
-        case 'print-list':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->listing($device,$value);break;
-        case 'print-prepare':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->prepare($device,$value);break;
-        case 'print-burn':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->burn($device,$value);break;
-        case 'print-outcome':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->outcome($device,$value);break;
-        case 'print-resolve':$result=$app->make(\App\Services\Dashboard\DesktopDashboardPrintEffects::class)->resolve($device,$value);break;
-        case 'pending':$result=['commands'=>$journal->pending($device),'counts'=>$journal->counts($device),'print_protocol'=>$app->make(\App\Services\Dashboard\DesktopDashboardPrintLedger::class)->active($device)?1:0];break;
-        case 'acknowledge':$journal->acknowledge($device,(string)($value['command_id']??''),(array)($value['receipt']??[]));$result=['counts'=>$journal->counts($device)];break;
-        case 'failed':$journal->failed($device,(string)($value['command_id']??''),(string)($value['message']??''),($value['conflict']??false)===true);$result=['counts'=>$journal->counts($device)];break;
-        case 'refresh-begin':$result=$app->make(DesktopDashboardRefresh::class)->begin($device,(string)($value['refresh_id']??''),(string)($value['token']??''));break;
-        case 'refresh-cancel':$result=$app->make(DesktopDashboardRefresh::class)->cancel($device,(string)($value['refresh_id']??''),(string)($value['token']??''));break;
-        case 'refresh-status':$result=$app->make(DesktopDashboardRefresh::class)->inspect($device,(string)($value['refresh_id']??''),(string)($value['token']??''));break;
-        default:abort(422,'أمر التشغيل المحلي غير معروف.');
-    }
+    $result=$app->make(DesktopDashboardControl::class)->dispatch($device,$value);
     header('Content-Type: application/json');header('Cache-Control: no-store');
     echo json_encode($result,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
 }catch(Throwable $error){

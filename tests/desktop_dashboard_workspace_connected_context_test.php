@@ -17,7 +17,7 @@ namespace App\Services\Dashboard {
         public function assertScope(DesktopDashboardWorkspaceScope $scope):void{$this->checks++;$scope->assertIssued();\abort_unless(!$this->revoked,403);}
         public function revalidateScope(DesktopDashboardWorkspaceScope $scope):DesktopDashboardWorkspaceScope{$this->assertScope($scope);return $scope;}
     }
-    class DesktopDashboardWorkspaceRemoteAttempts {public function handle($request,$next){\check(DesktopDashboardWorkspaceExecutionContext::current()->actor_id===202,'Group dispatcher lost B context.');return 'group-remote';}}
+    class DesktopDashboardWorkspaceRemoteAttempts {public function handle($request,$next){\check(DesktopDashboardWorkspaceExecutionContext::current()->actor_id===202,'Group dispatcher lost B context.');return 'group-remote';}public function authorizeDirect($scope,$request):void{\check(DesktopDashboardWorkspaceExecutionContext::current()->actor_id===$scope->actor_id,'Direct request lost typed scope.');}}
 }
 namespace {
     const ID='11111111-1111-4111-8111-111111111111';

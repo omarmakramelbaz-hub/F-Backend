@@ -2,6 +2,10 @@
 // Actual group PDO/codec/local-MAC/history engines; SQL I/O and the final importer are synthetic.
 namespace Illuminate\Support\Facades {
     final class DB {public static function connection(){return new class {public function getDriverName(){return 'mysql';}public function getConfig($key){return '127.0.0.1';}public function getDatabaseName(){return $GLOBALS['group_runtime']['database'];}};}}
+    final class Crypt {
+        public static function encryptString($plain){return base64_encode($plain).'.'.hash_hmac('sha256',$plain,'synthetic-catalog-key');}
+        public static function decryptString($value){$parts=explode('.',$value);$plain=base64_decode($parts[0]??'',true);if(count($parts)!==2||!is_string($plain)||!hash_equals(hash_hmac('sha256',$plain,'synthetic-catalog-key'),$parts[1]))throw new \RuntimeException('Synthetic cipher refused');return $plain;}
+    }
 }
 namespace App\Services\Dashboard {class DesktopDashboardBootstrap {public static function json($value):string{return json_encode($value,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR);}}}
 namespace {
@@ -13,7 +17,8 @@ function app($key=null){if($key===null)return new class {function environment($n
 $base=dirname(__DIR__);
 foreach(['DesktopDashboardSchema','DesktopDashboardDeltaCodec','DesktopDashboardWorkspaceDeltaCodec','DesktopDashboardWorkspaceIssuer','DesktopDashboardWorkspaceAuthority',
     'DesktopDashboardWorkspaceLocalSchema','DesktopDashboardWorkspaceLocalAuthority',
-    'DesktopDashboardWorkspaceCommandAuthorities','DesktopDashboardDeltaLocal','DesktopDashboardWorkspaceDeltaLocal'] as $class)require $base.'/app/Services/Dashboard/'.$class.'.php';
+    'DesktopDashboardWorkspaceCommandAuthorities','DesktopDashboardCreatedScopes','DesktopDashboardWorkspaceCreatedScopes',
+    'DesktopDashboardDeltaLocal','DesktopDashboardWorkspaceDeltaLocal'] as $class)require $base.'/app/Services/Dashboard/'.$class.'.php';
 use App\Services\Dashboard\{DesktopDashboardWorkspaceDeltaLocal as Local,DesktopDashboardWorkspaceDeltaCodec as Codec,
     DesktopDashboardWorkspaceAuthority as Authority,DesktopDashboardBootstrap as Json};
 const ACTIVE='fasakhansta_dashboard_stage_aaaaaaaaaaaaaaaa';
@@ -82,6 +87,11 @@ function denied($work,$reason=''){try{$work();}catch(Throwable $error){if($reaso
                 $rows=$this->transaction&&$m[1]===ACTIVE?($this->snapshot[$m[1]][$m[2]]??[]):($this->data[$m[1]][$m[2]]??[]);
                 return new Result(array_values(array_filter($rows,fn($row)=>$row['workspace_id']===$bindings[0]&&in_array($row['command_id'],array_slice($bindings,1),true))));
             }
+            if(preg_match('/^SELECT \* FROM `([^`]+)`\.`desktop_dashboard_created_scopes` WHERE `device_id`=\? AND `enrollment_id`=\? ORDER BY `grant_id` LIMIT 1001$/D',$sql,$m)){
+                $rows=$this->transaction&&$m[1]===ACTIVE?($this->snapshot[$m[1]]['desktop_dashboard_created_scopes']??[]):($this->data[$m[1]]['desktop_dashboard_created_scopes']??[]);
+                $rows=array_values(array_filter($rows,fn($row)=>$row['device_id']===$bindings[0]&&$row['enrollment_id']===$bindings[1]));
+                usort($rows,fn($a,$b)=>strcmp($a['grant_id'],$b['grant_id']));return new Result(array_slice($rows,0,1001));
+            }
             if(preg_match('/^SELECT (.+) FROM `([^`]+)`\.`([^`]+)` WHERE /',$sql,$m)&&str_contains($sql,'`device_id`<>? OR `actor_id`<>?')){
                 $rows=$this->transaction&&$m[2]===ACTIVE?($this->snapshot[$m[2]][$m[3]]??[]):($this->data[$m[2]][$m[3]]??[]);
                 return new Result([['total'=>count(array_filter($rows,fn($row)=>$row['device_id']!==$bindings[0]||(string)$row['actor_id']!==(string)$bindings[1]))]]);
@@ -109,6 +119,10 @@ function denied($work,$reason=''){try{$work();}catch(Throwable $error){if($reaso
         public function rollBack(): bool{$this->log[]='ROLLBACK';$this->transaction=false;return true;}
     }
 function canonical($value){return Authority::canonical($value);}
+final class CatalogFixtureCodec extends \App\Services\Dashboard\DesktopDashboardCreatedScopes {
+    public function encode(array $value):string{return $this->json($value);}
+    public function digest(array $value):string{return $this->hash($value);}
+}
 function localMac(string $domain,array $value):string{return hash_hmac('sha256',"desktop-workspace-local-v2\0".$domain."\0".canonical($value),str_repeat('k',32));}
 function expected(array $manifest):array{return ['workspace_id'=>DEVICE,'root_fingerprint'=>$manifest['root_fingerprint'],'revision'=>$manifest['revision'],
     'roster_sha256'=>$manifest['roster_sha256'],'manifest_sha256'=>hash('sha256',canonical($manifest)),'token_hash'=>str_repeat('8',64)];}
@@ -198,7 +212,41 @@ $tests['capture preserves B verifiers and captures all actor history without an 
     check($capture['index']['tables']['users']===(new Codec($manifest))->index('users',$original['users'],$db->ddl[ACTIVE]['users']),'group canonical index preserves B verifier');
     check($db->data[CAPTURE]['desktop_dashboard_workspace_command_authorities']===$original['desktop_dashboard_workspace_command_authorities'],'exact sidecar MACs copied without minting');
     check(array_column($db->data[CAPTURE][Local::REPLAY_TABLE],'actor_id')===[202,101],'retired-capable B history is not custody filtered');
+    check($capture['catalog']===['format'=>2,'workspace_id'=>DEVICE,'root_fingerprint'=>$manifest['root_fingerprint'],
+        'snapshot_id'=>SNAPSHOT,'schema_hash'=>str_repeat('3',64),'sequence'=>7,'count'=>0,'sha256'=>hash('sha256','[]')],'empty catalog commitment binds source and full physical sequence');
     $wire=Json::json($capture);foreach($original['users'] as $row)check(!str_contains($wire,$row['password']),'capture index does not expose any verifier');noActiveWrites($db);
+};
+$tests['nonempty catalog wire commitment shares the source snapshot and private receipt ownership']=function(){
+    [$db,$runtime,$input,$manifest,$coverage]=fixture();$legacy=new CatalogFixtureCodec;
+    $wire=json_decode(file_get_contents(__DIR__.'/fixtures/workspace-catalog-wire-v2.json'),true,64,JSON_THROW_ON_ERROR);
+    $public=json_decode($wire['created_scopes_json'],true,64,JSON_THROW_ON_ERROR)[0];
+    $public['descriptor']['enrollment_id']=$manifest['root_fingerprint'];$public['descriptor']['workspace_authority']['root_fingerprint']=$manifest['root_fingerprint'];
+    $descriptor=&$public['descriptor'];$descriptor['grant_id']=$legacy->digest(['workspace-catalog-created-scope:2',DEVICE,$manifest['root_fingerprint'],
+        $descriptor['command_id'],$descriptor['actor_id'],'menu_store_owner',$descriptor['origin_entity_id']]);unset($descriptor);
+    $public=json_decode($legacy->encode($public),true,64,JSON_THROW_ON_ERROR);$public=['descriptor'=>$public['descriptor'],'creation'=>$public['creation']];
+    $catalog=app(\App\Services\Dashboard\DesktopDashboardWorkspaceCreatedScopes::class);
+    $coverage=array_merge($coverage,$catalog->coverage(['f:100'],[$public]));
+    $db->data[ACTIVE]['desktop_dashboard_local_state'][0]['coverage']=Json::json($coverage);
+    $record=&$db->data[ACTIVE]['desktop_dashboard_workspace_local_authority'][0];$body=json_decode($record['record_json'],true,64,JSON_THROW_ON_ERROR);
+    $body['snapshot']['coverage']=$coverage;$record['record_json']=canonical($body);$record['local_mac']=localMac('record',$body);
+    foreach($db->data[ACTIVE]['desktop_dashboard_workspace_local_members'] as &$member){$facts=json_decode($member['member_json'],true,64,JSON_THROW_ON_ERROR);
+        $member['local_mac']=localMac('member',['record_sha256'=>hash('sha256',$record['record_json']),'member'=>$facts]);}unset($member,$record);
+    $value=$public+['provenance'=>['kind'=>'bootstrap','snapshot_id'=>SNAPSHOT,'schema_hash'=>str_repeat('3',64),
+        'source_hash'=>$db->data[ACTIVE]['desktop_dashboard_source_manifest'][0]['sha256']]];
+    $row=array_intersect_key($public['descriptor'],array_flip(['grant_id','device_id','enrollment_id','command_id','actor_id','route_name','capability','entity','entity_id','origin_entity_id','branch']));
+    $row['descriptor_hash']=$legacy->digest($value);$row['evidence_cipher']=\Illuminate\Support\Facades\Crypt::encryptString($legacy->encode($value));
+    $db->data[ACTIVE]['desktop_dashboard_created_scopes']=[$row];
+    $db->onStart=function($db)use($row){$later=$row;$later['grant_id']=str_repeat('f',64);$db->data[ACTIVE]['desktop_dashboard_created_scopes'][]=$later;};
+    $capture=(new Local($db,$runtime))->run($input);
+    check($capture['catalog']['count']===1&&count($db->data[ACTIVE]['desktop_dashboard_created_scopes'])===2,'catalog commitment uses the same pre-concurrency RR snapshot');
+    check($capture['catalog']['sha256']===$coverage['catalog_grants_sha256']&&str_contains(Json::json([$public]),'"balance":1.0'),'capture/public wire/server coverage preserve fractional tokens and one digest');
+    $stored=json_decode($db->data[CAPTURE][Local::RECEIPT_TABLE][0]['receipt'],true,128,JSON_THROW_ON_ERROR);
+    check($stored['catalog']===$capture['catalog'],'private catalog commitment is inside the token-owned capture receipt');
+    $bad=$capture;$bad['catalog']['sha256']=str_repeat('0',64);$response=delta($db,$runtime,$capture,$manifest,$coverage);
+    $runtime['database']=FINAL_DB;$GLOBALS['group_runtime']=$runtime;
+    denied(fn()=>(new Local($db,$runtime))->run(['action'=>'reconstruct','capture_database'=>CAPTURE,'capture'=>$bad,'capture_token'=>$input['capture_token'],
+        'delta'=>$response,'expected_binding'=>expected($manifest)]),'CAPTURE_RECEIPT');
+    noActiveWrites($db);
 };
 $tests['source authority MAC member proof and native expected binding fail closed before cloning']=function(){
     foreach(['record','member','expected','state'] as $bad){[$db,$runtime,$input]=fixture();
