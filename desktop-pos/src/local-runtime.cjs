@@ -268,7 +268,9 @@ class LocalRuntime {
         ? { DESKTOP_DASHBOARD_VENDOR_PHAR: path.join(context.application || path.join(context.bundle, 'application'), 'google-services.phar') } : {}) };
   }
   static phpArguments(context) {
-    return ['-c', phpRelativePath(context.application, context.phpIni)];
+    // Fixed one-shot CLI helpers never attach to the long-lived web cache.
+    // Windows may map extension/opcode addresses differently in each process.
+    return ['-c', phpRelativePath(context.application, context.phpIni), '-d', 'opcache.enable_cli=0'];
   }
   static deltaInput(capture,delta,token) {
     const input='{"action":"reconstruct","capture_database":'+JSON.stringify(capture.capture_database)
@@ -492,7 +494,7 @@ class LocalRuntime {
   async startWeb() {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     const php = this.php, application = this.application, runtimeEnvironment = this.environment;
-    const phpArgs = LocalRuntime.phpArguments(this);
+    const phpArgs = [...LocalRuntime.phpArguments(this), '-d', 'opcache.enable_cli=1'];
     const web = startChild(php, [...phpArgs, '-S', `127.0.0.1:${this.httpPort}`, '-t', path.join(application, 'public'), path.join(application, 'desktop', 'router.php')], { env: runtimeEnvironment, cwd: application });
     web.stdin.end(); this.children[1] = web;
     const webDeadline = Date.now() + 20000;

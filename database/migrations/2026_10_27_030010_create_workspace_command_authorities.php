@@ -13,7 +13,7 @@ class CreateWorkspaceCommandAuthorities extends Migration
             $t->unsignedBigInteger('actor_id'); $t->char('root_fingerprint',64);
             $t->unsignedBigInteger('manifest_revision'); $t->char('grant_hash',64);
             $t->char('request_hash',64); $t->text('proof_json'); $t->char('proof_sha256',64);
-            $t->char('proof_mac',64); $t->string('accepted_database',100); $t->timestamp('created_at');
+            $t->char('proof_mac',64); $t->string('accepted_database',100); $t->timestamp('created_at')->useCurrent();
             $t->primary(['workspace_id','command_id'],'desktop_workspace_command_authority_primary');
         });
     }

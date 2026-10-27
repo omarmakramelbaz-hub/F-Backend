@@ -8,7 +8,8 @@ const [bundleArg, portArg, outputArg] = process.argv.slice(2); if (!bundleArg ||
 const bundle = fs.realpathSync.native(path.resolve(bundleArg)), dbPort = Number(portArg), output = path.resolve(outputArg), repository = path.resolve(__dirname, '../..');
 assert.ok(Number.isInteger(dbPort) && dbPort >= 1024 && dbPort <= 65535);
 const php = path.join(bundle, 'php/php.exe'), electron = path.resolve(__dirname, '../node_modules/electron/dist/electron.exe');
-const fixture = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-server.php'), router = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-router.php');
+const fixture = path.join(repository, 'desktop-pos/test/local-runtime-import.test.cjs', 'desktop-pos/test/local-runtime-opcode.test.cjs',
+    'tests/desktop_dashboard_runtime/workspace-native-server.php'), router = path.join(repository, 'tests/desktop_dashboard_runtime/workspace-native-router.php');
 const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim();
 const manifest = JSON.parse(fs.readFileSync(path.join(bundle, 'manifest.json'), 'utf8')); assert.equal(manifest.sourceRevision, sourceRevision);
 if (process.env.GITHUB_SHA) assert.equal(sourceRevision, process.env.GITHUB_SHA);

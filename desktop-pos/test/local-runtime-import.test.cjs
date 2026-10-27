@@ -65,7 +65,7 @@ async function fixture(t, respond, options) {
   return { ...loaded, runtime, snapshot, checked, retained };
 }
 
-test('actual staging uncaps only import while database, archive, verify and web retain their normal PHP arguments', async t => {
+test('actual staging keeps one-shot opcode caching off, persistent web caching on, and only import memory uncapped', async t => {
   let f;
   f = await fixture(t, ({ args }) => ({ stdout: ['import.php', 'verify.php'].includes(scriptName(args)) ? JSON.stringify(f.checked) : '', hold: args.includes('-S') }));
   const staged = await f.runtime.stage(f.snapshot, '1'.repeat(16), { previous: { database: 'active', snapshotId: 'old', schemaHash: 'old-schema' }, id: 'refresh', token: 'SYNTHETIC_ARCHIVE_TOKEN' });
@@ -77,10 +77,12 @@ test('actual staging uncaps only import while database, archive, verify and web 
     assert.equal(call.args[0], '-c');
     assert.equal(call.options.shell, false);
     assert.equal(call.args.filter(value => value === 'memory_limit=-1').length, scriptName(call.args) === 'import.php' ? 1 : 0);
-    assert.equal(call.args.includes('-d'), scriptName(call.args) === 'import.php');
+    const iniOverrides = Object.fromEntries(call.args.flatMap((argument, index) => argument === '-d'
+      ? [call.args[index + 1].split(/=(.*)/s).slice(0, 2)] : []));
+    assert.equal(iniOverrides['opcache.enable_cli'], scriptName(call.args) === 'router.php' ? '1' : '0');
   }
   const imported = f.calls.find(call => scriptName(call.args) === 'import.php');
-  assert.deepEqual(imported.args.slice(2, 4), ['-d', 'memory_limit=-1']);
+  assert.equal(imported.args[imported.args.indexOf('memory_limit=-1') - 1], '-d');
   assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
   f.runtime.stopping = true; f.runtime.children[1].kill();
 });

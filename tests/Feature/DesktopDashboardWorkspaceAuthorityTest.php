@@ -474,4 +474,51 @@ class DesktopDashboardWorkspaceAuthorityTest extends TestCase
         $this->denied(fn()=>$audit->outcome($root,$receipt),[503]);
         $this->assertSame(2,DB::table('desktop_dashboard_commands')->count());
     }
+    public function test_legacy_timestamp_defaults_cannot_rewrite_enrollment_or_command_acceptance_time(): void
+    {
+        // Build the ACTUAL migrations with the legacy server mode responsible
+        // for silently adding ON UPDATE to the first non-null TIMESTAMP.
+        $setting=null;$clock=Carbon::getTestNow();
+        try{
+            if($this->connection==='mysql'){
+                $setting=(int)DB::selectOne('SELECT @@SESSION.explicit_defaults_for_timestamp AS value')->value;
+                DB::statement('SET SESSION explicit_defaults_for_timestamp=OFF');
+            }
+            (new \CreateDesktopDashboardWorkspaces)->down();(new \CreateDesktopDashboardWorkspaces)->up();
+            require_once database_path('migrations/2026_10_27_030010_create_workspace_command_authorities.php');
+            (new \CreateWorkspaceCommandAuthorities)->up();
+            $accepted='2001-02-03 04:05:06';Carbon::setTestNow(Carbon::parse($accepted,'UTC'));
+            $enrolled=$this->enroll();$root=$this->root($enrolled);$fingerprint=$this->authority()->rootFingerprint($root);
+            $this->assertSame($accepted,$root->enrolled_at);
+            $this->assertSame($enrolled['manifest']['root_fingerprint'],$fingerprint);
+            DB::table('desktop_dashboard_workspaces')->where('id',self::DEVICE)->update(['name'=>'Changed public device name']);
+            $this->assertSame($accepted,DB::table('desktop_dashboard_workspaces')->where('id',self::DEVICE)->value('enrolled_at'));
+            $this->assertSame($fingerprint,$this->authority()->rootFingerprint($this->root($enrolled)));
+            DB::table('users')->where('id',11)->update(['status'=>'disabled']);
+            $manifest=$this->authority()->manifest($root);$this->assertGreaterThan($enrolled['manifest']['revision'],$manifest['revision']);
+            $this->assertSame($accepted,DB::table('desktop_dashboard_workspaces')->where('id',self::DEVICE)->value('enrolled_at'));
+            $this->assertSame($fingerprint,$manifest['root_fingerprint']);
+            $member=$this->member($manifest,10);$scope=$this->authority()->scope($root,10,$member['grant'],$manifest['revision']);
+            $command='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+            \App\Services\Dashboard\DesktopDashboardWorkspaceExecutionContext::run($scope,
+                fn()=>app(\App\Services\Dashboard\DesktopDashboardJournal::class)->execute(self::DEVICE,$command,10,'fixture.acceptance-time',
+                    ['fixed'=>true],[],fn()=>['committed'=>true]));
+            $table=\App\Services\Dashboard\DesktopDashboardWorkspaceCommandAuthorities::TABLE;
+            $this->assertSame($accepted,DB::table($table)->where('command_id',$command)->value('created_at'));
+            // Deliberate raw fixture mutation exercises the database's update
+            // semantics. It is never passed back as valid authority evidence.
+            DB::table($table)->where('command_id',$command)->update(['accepted_database'=>'timestamp_regression_fixture']);
+            $this->assertSame($accepted,DB::table($table)->where('command_id',$command)->value('created_at'));
+            if($this->connection==='mysql')foreach([['desktop_dashboard_workspaces','enrolled_at'],[$table,'created_at']]as[$name,$column]){
+                $metadata=DB::selectOne('SELECT COLUMN_DEFAULT AS default_value, EXTRA AS extra, IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?',
+                    [DB::connection()->getDatabaseName(),$name,$column]);
+                $this->assertNotNull($metadata);$this->assertSame('NO',$metadata->nullable);
+                $this->assertStringContainsString('CURRENT_TIMESTAMP',strtoupper((string)$metadata->default_value));
+                $this->assertStringNotContainsString('ON UPDATE',strtoupper($metadata->extra));
+            }
+        }finally{
+            Carbon::setTestNow($clock);
+            if($setting!==null)DB::statement('SET SESSION explicit_defaults_for_timestamp='.(int)$setting);
+        }
+    }
 }

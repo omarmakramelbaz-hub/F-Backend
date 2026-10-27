@@ -22,7 +22,7 @@ function fixture() {
       customers: [{ phone_key: '01012345671', actor_id: 10, branch: 'f:100' }, { phone_key: '01012345672', actor_id: 11, branch: 'f:100' }] } };
   for (const name of ['actualElectron', 'actualEncryptedMetadata', 'actualPhpMariaDB', 'productionFactory', 'syntheticPublication',
     'onePreparation', 'zeroOfflineHttp', 'samePhysicalDatabase', 'aPendingVisibleToB', 'bWritesKeepOriginalActor',
-    'globalSequenceAThenB', 'actualProtectedView', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
+    'globalSequenceAThenB', 'actualProtectedView', 'fixedCliOpcodeDisabled', 'fixedCliNotAttached', 'persistentWebOpcodeEnabled', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
     'noHeavyLoginWork', 'retiredLegacyPreserved', 'lostAcceptedReplyRetriedSameUuid', 'noChildrenAfterStop', 'completed']) proof[name] = true;
   return { proof, expected };
 }
@@ -51,4 +51,14 @@ test('re-preparation during cached login and an unfinished or fictitious setup t
   const changes = [p => { p.loginStageCalls = 1; }, p => { p.cachedLoginMilliseconds[0] = 45000; },
     p => { p.setupTimer.running = true; }, p => { p.setupTimer.elapsed_ms = 0; }, p => { p.sourceSequence = 0; }];
   for (const change of changes) { const { proof, expected } = fixture(); change(proof); assert.throws(() => verify(proof, expected)); }
+});
+
+
+test('missing or false cold-CLI and persistent-web opcode evidence cannot satisfy native release acceptance', () => {
+  for (const name of ['fixedCliOpcodeDisabled','fixedCliNotAttached','persistentWebOpcodeEnabled']) {
+    for (const value of [undefined,false,'true']) {
+      const { proof, expected } = fixture(); if (value === undefined) delete proof[name]; else proof[name] = value;
+      assert.throws(() => verify(proof, expected));
+    }
+  }
 });

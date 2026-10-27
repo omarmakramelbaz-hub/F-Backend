@@ -13,7 +13,7 @@ class CreateDesktopDashboardWorkspaces extends Migration
             $t->string('name',100); $t->char('enrollment_hash',64); $t->char('token_hash',64)->unique();
             $t->boolean('enabled')->default(true); $t->unsignedBigInteger('manifest_revision')->default(0);
             $t->char('membership_fingerprint',64)->nullable(); $t->longText('manifest_json')->nullable();
-            $t->timestamp('enrolled_at'); $t->timestamps();
+            $t->timestamp('enrolled_at')->useCurrent(); $t->timestamps();
         });
         Schema::create('desktop_dashboard_workspace_members', function (Blueprint $t) {
             $t->engine='InnoDB'; $t->uuid('workspace_id'); $t->unsignedBigInteger('actor_id');

@@ -13,7 +13,7 @@ const { AccountLogin } = requireNative('account-login.cjs'), Profiles = requireN
 const { WorkspaceLegacyInspector } = requireNative('workspace-legacy-inspector.cjs'), LocalRuntime = requireNative('local-runtime.cjs');
 const { WorkspaceSync } = requireNative('workspace-sync.cjs'), signout = requireNative('account-signout.cjs');
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
-let quitting = false, online = true, browser, host, dropReply = false, certificates = 0, stageCalls = 0;
+let quitting = false, online = true, browser, host, dropReply = false, certificates = 0, stageCalls = 0, webOpcodeEnabled = false;
 const owned = new Set(), accepted = new Set(), observedPids = new Set(), commandRequests = [], phases = [], setupPhases = [], nativeFaults = [];
 let nativeStage = 'initializing';
 app.setPath('userData', path.join(root, 'electron-profile'));
@@ -26,7 +26,13 @@ app.on('session-created', value => value.setCertificateVerifyProc((request, call
 const work = async fn => { const task = Promise.resolve().then(fn); accepted.add(task); try { return await task; } finally { accepted.delete(task); } };
 async function stopHost() {
   if (!host) return;
-  for (const child of host.workspace.physical.children) if (Number.isInteger(child.pid)) observedPids.add(child.pid);
+  for (const child of host.workspace.physical.children) {
+    if (Number.isInteger(child.pid)) observedPids.add(child.pid);
+    if (child.spawnargs?.includes('-S')) {
+      const overrides = Object.fromEntries(child.spawnargs.flatMap((argument, index) => argument === '-d' ? [child.spawnargs[index + 1].split(/=(.*)/s).slice(0,2)] : []));
+      assert.equal(overrides['opcache.enable_cli'], '1'); webOpcodeEnabled = true;
+    }
+  }
   await Promise.allSettled([...accepted]); await host.stop(); host = null;
 }
 async function createHost() {
@@ -137,6 +143,11 @@ async function main() {
   const bAgain = await host.login.authenticate(credentials(11)); bAgain.discardCredentials();
   assert.equal(await signout.requirePassword(bAgain.runtime), false);
   const offlineCounts = JSON.parse(await fs.readFile(path.join(root, 'request-counts.json'), 'utf8')); assert.equal(offlineCounts.offlineRequests, 0);
+  const activePhysical = host.workspace.physical;
+  const opcode = JSON.parse(await LocalRuntime.runNative(activePhysical.php, [...LocalRuntime.phpArguments(activePhysical), '-r',
+    "echo json_encode(['extension'=>extension_loaded('Zend OPcache'),'cli'=>ini_get('opcache.enable_cli'),'attached'=>function_exists('opcache_get_status')&&opcache_get_status(false)!==false,'memory'=>ini_get('memory_limit')],JSON_THROW_ON_ERROR);"],
+    { cwd: activePhysical.application, env: activePhysical.environment }));
+  assert.deepEqual(opcode, { extension: true, cli: '0', attached: false, memory: '256M' });
   assert.equal(stageCalls, 0); assert.equal(Math.max(...loginMs) < 45000, true, 'Cached local opening must stay within the real initial document deadline.');
   assert.deepEqual((await host.registry.current()).candidate, bound); assert.equal((await fs.readdir(path.join(profile, 'workspaces'))).length, 1);
   assert.deepEqual(await fs.readFile(path.join(profile, 'legacy-accepted-sentinel.bin')), sentinel);
@@ -151,13 +162,13 @@ async function main() {
     physicalWorkspaceId: bound.workspaceId, database: bound.database, generation: bound.generation, sourceFingerprint: bound.sourceFingerprint,
     sourceSequence: bound.sourceSequence, onePreparation: true, firstEverOfflineActors: opened.map(value => value.actor.actorId), zeroOfflineHttp: true,
     samePhysicalDatabase: true, aPendingVisibleToB: true, bWritesKeepOriginalActor: true, globalSequenceAThenB: true,
-    actualProtectedView: true, cachedRememberedCloseReopen: true, explicitLogoutRequiresPassword: true,
+    actualProtectedView: true, fixedCliOpcodeDisabled: true, fixedCliNotAttached: true, persistentWebOpcodeEnabled: true, cachedRememberedCloseReopen: true, explicitLogoutRequiresPassword: true,
     noHeavyLoginWork: true, loginStageCalls: stageCalls, cachedLoginMilliseconds: loginMs, retiredLegacyPreserved: true,
     originalCommandIds: [keyA, keyB], commandAttempts: commandRequests, lostAcceptedReplyRetriedSameUuid: true,
     setupTimer: { elapsed_ms: ready.setup_timing.elapsed_ms, running: false }, productionProfile: false, completed: false };
   nativeStage = 'teardown'; assert.equal(nativeFaults.length, 0);
   await stopHost(); for (const owner of owned) await owner.stop();
-  assert.equal([...observedPids].every(pid => !alive(pid)), true); proof.noChildrenAfterStop = true; proof.nativePids = [...observedPids]; proof.completed = true;
+  assert.equal(webOpcodeEnabled, true); assert.equal([...observedPids].every(pid => !alive(pid)), true); proof.noChildrenAfterStop = true; proof.nativePids = [...observedPids]; proof.completed = true;
   const bytes = await fs.readFile(path.join(profile, 'workspace-registry.enc'));
   assert.equal(bytes.includes(Buffer.from(prepared.credential.token)), false, 'The durable native root bearer remains DPAPI sealed.');
   await fs.writeFile(config.proof, JSON.stringify(proof, null, 2) + '\n', { flag: 'wx' });

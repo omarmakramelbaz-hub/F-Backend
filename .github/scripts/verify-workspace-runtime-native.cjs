@@ -10,7 +10,7 @@ function verify(proof, expected) {
   assert.deepEqual(proof.sourceHashes, expected.sourceHashes);
   for (const name of ['actualElectron', 'actualEncryptedMetadata', 'actualPhpMariaDB', 'productionFactory', 'syntheticPublication',
     'onePreparation', 'zeroOfflineHttp', 'samePhysicalDatabase', 'aPendingVisibleToB', 'bWritesKeepOriginalActor',
-    'globalSequenceAThenB', 'actualProtectedView', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
+    'globalSequenceAThenB', 'actualProtectedView', 'fixedCliOpcodeDisabled', 'fixedCliNotAttached', 'persistentWebOpcodeEnabled', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
     'noHeavyLoginWork', 'retiredLegacyPreserved', 'lostAcceptedReplyRetriedSameUuid', 'noChildrenAfterStop', 'completed'])
     assert.equal(proof[name], true, 'Native receipt is missing ' + name);
   for (const name of ['productionMain', 'productionProfile']) assert.equal(proof[name], false, 'Native scope differs: ' + name);
@@ -53,6 +53,7 @@ function sourceFiles(repository) {
   return [...fs.readdirSync(path.join(repository, 'desktop-pos/src')).filter(name => name.endsWith('.cjs') && (name.startsWith('workspace-')
     || ['main.cjs', 'local-runtime.cjs', 'dashboard.cjs', 'account-login.cjs', 'account-signout.cjs', 'shutdown.cjs', 'runtime-archive.cjs'].includes(name)))
     .map(name => 'desktop-pos/src/' + name), 'desktop-pos/test/workspace-runtime-native.cjs', 'desktop-pos/test/workspace-runtime-native-runner.cjs',
+    'desktop-pos/test/local-runtime-import.test.cjs', 'desktop-pos/test/local-runtime-opcode.test.cjs',
     'tests/desktop_dashboard_runtime/workspace-native-server.php', 'tests/desktop_dashboard_runtime/workspace-native-router.php',
     'tests/desktop_dashboard_runtime/workspace-native-fixture.php', 'tests/desktop_dashboard_runtime/full-schema.php',
     'tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
