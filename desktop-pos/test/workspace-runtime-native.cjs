@@ -120,10 +120,13 @@ async function main() {
   host = await createHost();
   const opened = [], loginMs = [];
   for (const id of [11, 1, 10]) {
+    nativeStage = 'offline-first-login-' + id;
+    process.stdout.write('NATIVE_WORKSPACE_ACTOR ' + JSON.stringify({ actorId: id, phase: 'password' }) + '\n');
     await assert.rejects(fs.lstat(path.join(profile, 'workspace-actors', prepared.manifest.workspace_id, String(id))), { code: 'ENOENT' });
     const start = Date.now(), result = await work(() => host.login.authenticate(credentials(id))); loginMs.push(Date.now() - start);
     assert.equal(result.local, true); assert.equal(result.actor.actorId, id); assert.equal((await result.runtime.connection()).database, bound.database);
     assert.equal((await result.runtime.authority()).actorId, id); await readActor(result); await show(result); await result.afterView(); opened.push(result);
+    process.stdout.write('NATIVE_WORKSPACE_ACTOR ' + JSON.stringify({ actorId: id, phase: 'visible' }) + '\n');
   }
   nativeStage = 'offline-a-write'; const a = opened.at(-1), keyA = crypto.randomUUID(), keyB = crypto.randomUUID();
   await json(a, '/admin/customers/save', { branch: 'f:100', idempotency_key: keyA, name: 'A shared offline customer', phone: '01012345671', address: 'Synthetic branch address' });
@@ -221,8 +224,33 @@ function publicError(error) {
   return { report, sanitize };
 }
 async function diagnostics(error) {
-  const { report, sanitize } = publicError(error), physical = host?.workspace?.physical, logs = []; let pathBudget = null;
+  const { report, sanitize } = publicError(error), physical = host?.workspace?.physical, logs = []; let pathBudget = null, credentialChecks = null;
   if (physical) {
+    if (error?.code === 'ACCOUNT_CREDENTIALS_REJECTED' && /^offline-first-login-\d+$/.test(nativeStage)) {
+      try {
+        // Read-only diagnostics for this disposable fixture. Only fixed booleans
+        // and public actor IDs leave PHP; no rows, passwords or verifiers do.
+        const code = "$input=json_decode(stream_get_contents(STDIN),true,16,JSON_THROW_ON_ERROR);"
+          + "$app=require getcwd().'/desktop/bootstrap.php';$out=[];$provider=auth('admin')->getProvider();"
+          + "foreach($input as $expected){$row=\\Illuminate\\Support\\Facades\\DB::table('users')->where('id',$expected['actorId'])->first();"
+          + "$model=\\App\\Models\\User::where('email',$expected['email'])->first();"
+          + "$credentials=['mobile'=>$row->mobile??'', 'password'=>$expected['password'], 'account_type'=>$row->account_type??''];"
+          + "$candidate=$provider->retrieveByCredentials($credentials);"
+          + "$out[]=['actorId'=>$expected['actorId'],'rowExists'=>$row!==null,'emailMatches'=>$row!==null&&hash_equals($expected['email'],(string)$row->email),"
+          + "'roleMatches'=>$row!==null&&$row->account_type===$expected['role'],'statusAccepted'=>$row!==null&&$row->status==='accepted',"
+          + "'passwordMatches'=>$row!==null&&password_verify($expected['password'],(string)$row->password),"
+          + "'modelMatches'=>$model!==null&&(int)$model->id===$expected['actorId'],"
+          + "'providerMatches'=>$candidate!==null&&(int)$candidate->id===$expected['actorId'],"
+          + "'providerPasswordMatches'=>$candidate!==null&&$provider->validateCredentials($candidate,$credentials)];}"
+          + "echo json_encode($out,JSON_THROW_ON_ERROR);";
+        credentialChecks = JSON.parse(await LocalRuntime.runNative(physical.php, [...LocalRuntime.phpArguments(physical), '-r', code],
+          { cwd: physical.application, env: physical.environment }, JSON.stringify(server.credentials.map(row => ({ actorId: row.actorId, email: row.email, password: row.password, role: row.role }))), 10000, 8192));
+        const keys = ['rowExists','emailMatches','roleMatches','statusAccepted','passwordMatches','modelMatches','providerMatches','providerPasswordMatches'];
+        assert.ok(Array.isArray(credentialChecks) && credentialChecks.length === server.credentials.length);
+        for (const row of credentialChecks) assert.ok(Object.keys(row).length === keys.length + 1
+          && Number.isSafeInteger(row.actorId) && row.actorId > 0 && keys.every(key => typeof row[key] === 'boolean'));
+      } catch { credentialChecks = { unavailable: true }; }
+    }
     const locations = new Set([physical.environment?.DESKTOP_DASHBOARD_STORAGE]);
     try {
       const pending = await host.registry.metadata.read('workspace-preparation');
@@ -249,7 +277,7 @@ async function diagnostics(error) {
     }
   }
   return { ...report, stage: nativeStage, setupPhases: setupPhases.slice(-12), phases: phases.filter(value => typeof value === 'string' && /^[a-z-]{1,60}$/.test(value)).slice(-12),
-    nativeFaults: nativeFaults.map(value => publicError(value).report), pathBudget, logs };
+    nativeFaults: nativeFaults.map(value => publicError(value).report), pathBudget, credentialChecks, logs };
 }
 main().then(() => app.exit(0), async error => {
   const report = await diagnostics(error); quitting = true;
