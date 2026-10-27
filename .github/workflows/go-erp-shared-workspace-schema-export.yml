@@ -1,0 +1,115 @@
+name: GO ERP exact shared workspace migration metadata
+
+on:
+  push:
+    branches: ['codex/go-erp-shared-workspace-rollout-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-migration-schemas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [mysql, mariadb]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: workspace_schema_bootstrap_ci
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -ptest-only" --health-interval=5s --health-timeout=5s --health-retries=30
+      mariadb:
+        image: mariadb:11.4.13
+        env:
+          MARIADB_ROOT_PASSWORD: test-only
+          MARIADB_DATABASE: workspace_schema_bootstrap_ci
+        ports: ['3307:3306']
+        options: --health-cmd="mariadb-admin ping -h localhost -ptest-only" --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      APP_ENV: testing
+      DB_HOST: 127.0.0.1
+      DB_PORT: ${{ matrix.engine == 'mysql' && '3306' || '3307' }}
+      DB_USERNAME: root
+      DB_PASSWORD: test-only
+      DB_DATABASE: workspace_schema_bootstrap_ci
+      CACHE_DRIVER: array
+      SESSION_DRIVER: array
+      MAIL_MAILER: log
+      SOURCE_REVISION: 73bf0c716566f59f4a10e83b1732000a2366aa18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: operator
+      - uses: actions/checkout@v4
+        with:
+          ref: 73bf0c716566f59f4a10e83b1732000a2366aa18
+          path: source
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, gd, zip
+          coverage: none
+      - name: Install exact source dependencies in disposable CI
+        working-directory: source
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Export actual semantic schemas under both timestamp profiles
+        run: |
+          helper_sha=$(sha256sum operator/deployment/go_erp_shared_workspace_migration.php | cut -d' ' -f1)
+          php operator/tests/export_go_erp_shared_workspace_schema.php "$PWD/source" \
+            "$PWD/operator/deployment/go_erp_shared_workspace_migration.php" "$SOURCE_REVISION" \
+            "$helper_sha" "$PWD/workspace-schemas-${{ matrix.engine }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shared-workspace-schemas-${{ matrix.engine }}
+          path: workspace-schemas-${{ matrix.engine }}.json
+          if-no-files-found: error
+
+  compare-semantic-schemas:
+    needs: exact-migration-schemas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shared-workspace-schemas-*
+          path: schema-exports
+      - name: Require exact agreement across real MySQL and MariaDB metadata
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          def canonical(value):return json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()+b'\n'
+          root=pathlib.Path('schema-exports')
+          expected={root/('shared-workspace-schemas-'+engine)/('workspace-schemas-'+engine+'.json') for engine in ('mysql','mariadb')}
+          assert {path for path in root.rglob('*') if path.is_file()}==expected
+          values=[json.loads(path.read_bytes()) for path in sorted(expected)]
+          for value in values:
+              assert type(value['format']) is int and value['format']==1
+              assert value['kind']=='go-erp-shared-workspace-schema-export'
+              assert value['source_revision']=='73bf0c716566f59f4a10e83b1732000a2366aa18'
+              assert value['operator_revision']==os.environ['GITHUB_SHA']
+              assert value['timestamp_profiles']==[0,1]
+              assert hashlib.sha256(canonical(value['schemas'])).hexdigest()==value['semantic_schemas_sha256']
+          for name in ('helper_sha256','migration_hashes','schemas','semantic_schemas_sha256'):
+              assert canonical(values[0][name])==canonical(values[1][name]),name
+          accepted={**values[0],'kind':'go-erp-shared-workspace-schema-accepted',
+              'server_versions':[value['server_version'] for value in values],'real_engine_profiles_verified':4}
+          del accepted['server_version']
+          pathlib.Path('workspace-schemas-accepted.json').write_bytes(canonical(accepted))
+          print('GO_ERP_SHARED_WORKSPACE_EXACT_SEMANTIC_SCHEMAS_ACCEPTED')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shared-workspace-schemas-accepted
+          path: workspace-schemas-accepted.json
+          if-no-files-found: error

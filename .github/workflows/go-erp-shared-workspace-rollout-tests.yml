@@ -1,0 +1,54 @@
+name: GO ERP shared workspace rollout engines
+
+on:
+  push:
+    branches: ['codex/go-erp-shared-workspace-rollout-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-checkpoints-and-pure-states:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load exact immutable predecessor test fixtures
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          12d74b4f35737a2b1e271657b159137538c3edaf
+          56c8680ac8d3d5cb68eaebd623daeba897cc3a48
+          419d2b9aefba7001f63cd9f999343d7c444f064a
+          deaa588337a84521eb7a6201066df3156991af64
+          0adf41c64aa587b495a55b7ec058bf5cc54d1e2a
+          baa2157fea6f943c55597c924447cc574d9fcef2
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+          02411715ca112f3d4393f1ca1b83d377aa253786
+          5becb9bab38a91998d1b1341670b2b398e4ba70f
+          33e08c9fec93501d2376eb88d9fd402043f8d792
+          df1860734942b5fcb95cbc634e95c4c0b3cca03c
+          6c867ad6c79b27ace92ab3a256e01b13e41137d8
+          8db5adb538834a2152f74f6e55336223a4c95908
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Check concrete wrapper and reviewed PHP syntax
+        run: |
+          bash -n deployment/run_go_erp_shared_workspace_root.sh
+          php -n -l deployment/go_erp_shared_workspace_migration.php
+          php -n -l tests/export_go_erp_shared_workspace_schema.php
+      - name: Verify real root-owned disposable source transaction and pure checkpoints
+        run: |
+          sudo env PYTHONDONTWRITEBYTECODE=1 \
+            GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0 \
+            "$pythonLocation/bin/python" -m unittest discover -s tests -p 'test_go_erp_shared_workspace*.py' -v
