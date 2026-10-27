@@ -166,7 +166,16 @@ class DesktopDashboardWorkspaceReadAuthorityTest extends TestCase
     private function forbidden(string$url,array$headers=[]):void
     {
         $response=$this->withHeaders($headers)->get($url);
-        $this->assertContains($response->status(),[403,404],$url.' HTTP '.$response->status().': '.substr($response->getContent(),0,8000));
+        $diagnostic='';
+        if(!in_array($response->status(),[403,404],true)){
+            // Retry only this isolated, read-only fixture request to retain the
+            // originating exception instead of Laravel's generic error page.
+            try{$this->withoutExceptionHandling()->withHeaders($headers)->get($url);}
+            catch(\Throwable$error){$diagnostic=get_class($error).': '.$error->getMessage()."\n".$error->getTraceAsString();}
+            finally{$this->withExceptionHandling();}
+        }
+        $this->assertContains($response->status(),[403,404],$url.' HTTP '.$response->status().': '
+            .substr($diagnostic!==''?$diagnostic:$response->getContent(),0,12000));
         foreach(['OWNER_PRIVATE_SENTINEL','owner-secret@example.test','987654.32','FOREIGN_APPLICATION_SENTINEL','876543.21']as$secret)$response->assertDontSee($secret,false);
     }
 

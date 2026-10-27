@@ -119,6 +119,12 @@ jobs:
       - name: Preserve original closing and cash formulas
         if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
+      - name: Preserve bounded Owner balance reads and exact financial amounts
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php
+      - name: Preserve fast navigation fragment and permission boundaries
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
+        run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php
   windows-native-regressions:
     runs-on: windows-latest
     timeout-minutes: 20
