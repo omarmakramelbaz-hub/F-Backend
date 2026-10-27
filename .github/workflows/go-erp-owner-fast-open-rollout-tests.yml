@@ -1,0 +1,85 @@
+name: GO ERP owner fast-open rollout contracts
+
+on:
+  push:
+    branches: ['codex/go-erp-owner-fast-open-rollout-*']
+  pull_request:
+    paths:
+      - 'deployment/*go_erp_owner_fast_open*'
+      - 'tests/*go_erp_owner_fast_open*'
+      - '.github/workflows/go-erp-owner-fast-open-rollout-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guarded-rollout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Load exact predecessor transactions and accepted 59 source
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=1 --no-tags --no-recurse-submodules origin
+          12d74b4f35737a2b1e271657b159137538c3edaf
+          56c8680ac8d3d5cb68eaebd623daeba897cc3a48
+          419d2b9aefba7001f63cd9f999343d7c444f064a
+          deaa588337a84521eb7a6201066df3156991af64
+          0adf41c64aa587b495a55b7ec058bf5cc54d1e2a
+          baa2157fea6f943c55597c924447cc574d9fcef2
+          47f0448a22cf807baae3a215cf6f0842cc74ecd7
+          5628a33525e2af63b221f044eb0e650cb6a2b790
+          2d9e23a5157782882382c797a44ad15c317ae845
+          02411715ca112f3d4393f1ca1b83d377aa253786
+          5becb9bab38a91998d1b1341670b2b398e4ba70f
+          33e08c9fec93501d2376eb88d9fd402043f8d792
+          df1860734942b5fcb95cbc634e95c4c0b3cca03c
+          6c867ad6c79b27ace92ab3a256e01b13e41137d8
+      - name: Load final native core and its exact three-file policy seed
+        run: >-
+          git -c gc.auto=0 fetch --quiet --depth=16 --no-tags --no-recurse-submodules origin
+          0885a3b550f92df2b74bcd2c16d27954d8b44b7b
+          b199706b24146c85760b673448cb2e8bcd1f7812
+          be797004831cbd8ccfb7c011aac855d6c2964829
+          f3a8b4af4ec27042a93328c1fde200cfd8fe1da3
+      - name: Verify root command syntax
+        run: bash -n deployment/run_go_erp_owner_fast_open_root.sh
+      - name: Verify seed policy and exact final lineage as the checkout owner
+        run: |
+          python3 -B - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import subprocess
+          import tempfile
+          import unittest
+          with tempfile.TemporaryDirectory(prefix='go-erp-navigation-seed-policy-') as folder:
+              for name in ('deployment/verify_go_erp_preview31_seed.py', 'tests/test_go_erp_preview31_seed.py'):
+                  target = Path(folder) / name
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(subprocess.check_output(['git', 'show',
+                      'f3a8b4af4ec27042a93328c1fde200cfd8fe1da3:' + name]))
+              path = Path(folder) / 'deployment/verify_go_erp_preview31_seed.py'
+              spec = importlib.util.spec_from_file_location('navigation_seed_policy', path)
+              policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
+              proof = policy.validate_seed(Path.cwd(), 'f3a8b4af4ec27042a93328c1fde200cfd8fe1da3')
+              assert proof['core'] == '9867dc29357e16290b3a1eeda996d916af701915'
+              assert policy.POLICY == 'native-close-reopen-program-contract-direct-login-accounts-v5'
+              suite = unittest.defaultTestLoader.discover(str(Path(folder) / 'tests'), pattern='test_go_erp_preview31_seed.py')
+              assert unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+              print(proof)
+          PY
+      - name: Verify accepted proof retention, fresh source capture and original 60 creation
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_owner_fast_open_*.py' -v
+      - name: Keep every original navigation and same-artifact recovery contract
+        run: >-
+          sudo -n -- env PYTHONDONTWRITEBYTECODE=1
+          GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"
+          GIT_CONFIG_KEY_1=gc.auto GIT_CONFIG_VALUE_1=0
+          python3 -B -m unittest discover -s tests -p 'test_go_erp_navigation_*.py' -v
