@@ -4,6 +4,8 @@ require __DIR__.'/workspace-native-fixture.php';
 use Illuminate\Support\Facades\{DB,Schema};
 use WorkspaceNativeServerFixture as Fixture;
 
+$phase='arguments';$application=null;register_shutdown_function([Fixture::class,'fatal']);
+try{
 Fixture::need(PHP_SAPI==='cli');$action=$argv[1]??'';
 if($action==='prepare'){
     Fixture::need(count($argv)===7);$application=realpath($argv[2]);$port=filter_var($argv[3],FILTER_VALIDATE_INT);
@@ -29,7 +31,8 @@ if($action==='prepare'){
     Fixture::need((int)$query->fetchColumn()===0,'WORKSPACE_NATIVE_DATABASE_ALREADY_EXISTS');
     $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
     try{
-        Fixture::boot($config);
+        $phase='prepare-bootstrap';Fixture::boot($config);
+        $phase='prepare-schema';
         DB::statement('CREATE TABLE go_erp_workspace_native_fixture (root_sha256 CHAR(64) NOT NULL,marker_sha256 CHAR(64) NOT NULL,source_revision CHAR(40) NOT NULL) ENGINE=InnoDB');
         DB::table('go_erp_workspace_native_fixture')->insert(['root_sha256'=>hash('sha256',$root),'marker_sha256'=>hash('sha256',Fixture::MARKER),'source_revision'=>$revision]);
         require __DIR__.'/full-schema.php';$report=json_decode(file_get_contents(__DIR__.'/fixtures/deployed-schema-20261008.json'),true,512,JSON_THROW_ON_ERROR);
@@ -44,6 +47,7 @@ if($action==='prepare'){
         ] as $file=>$class){require_once $application.'/database/migrations/'.$file;(new $class)->up();}
         DB::statement('ALTER TABLE branch_operation_commands ADD UNIQUE KEY branch_operation_request_unique (branch,actor_id,request_key)');
         DB::statement('ALTER TABLE branch_customers ADD UNIQUE KEY branch_customer_phone_unique (branch,phone_key)');
+        $phase='prepare-seed';
         // Seed only synthetic credentials and original relationships. Foreign keys remain enabled.
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
         foreach([[1,'admin',null,'all'],[10,'vendor',null,'f:100'],[11,'resturant_owner',100,'f:100'],[12,'vendor',null,'f:101'],[30,'admin',null,'all']] as [$id,$role,$parent,$branch]){
@@ -66,16 +70,16 @@ if($action==='prepare'){
             DB::table('settings')->insert(['group'=>'general','name'=>$name,'locked'=>false,'payload'=>json_encode($value,JSON_UNESCAPED_UNICODE|JSON_PRESERVE_ZERO_FRACTION|JSON_THROW_ON_ERROR)]);
         }
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
-        $config['sourceFingerprint']=app(\App\Services\Dashboard\DesktopDashboardSource::class)->fingerprint();
+        $phase='prepare-source';$config['sourceFingerprint']=app(\App\Services\Dashboard\DesktopDashboardSource::class)->fingerprint();
         $handle=fopen($root.'/server-config.json','xb');Fixture::need(is_resource($handle));@chmod($root.'/server-config.json',0600);
         try{$bytes=json_encode($config,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR)."\n";
             Fixture::need(fwrite($handle,$bytes)===strlen($bytes)&&fflush($handle));}finally{fclose($handle);}
         echo json_encode(['ok'=>true,'config'=>$root.'/server-config.json','database'=>$database,'sourceFingerprint'=>$config['sourceFingerprint']],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
-    }catch(Throwable $error){$pdo->exec('DROP DATABASE `'.$database.'`');Fixture::removeStorage($config);throw $error;}
+    }catch(Throwable $error){Fixture::diagnostic($error,$phase,$application);$pdo->exec('DROP DATABASE `'.$database.'`');Fixture::removeStorage($config);throw $error;}
     exit;
 }
-Fixture::need(count($argv)===3&&in_array($action,['inspect','cleanup'],true));$config=Fixture::config($argv[2]);
-$pdo=Fixture::pdo($config);Fixture::assertDatabase($pdo,$config);
+$phase='read-config';Fixture::need(count($argv)===3&&in_array($action,['inspect','cleanup'],true));$config=Fixture::config($argv[2]);
+$application=$config['application'];$phase='inspect-database';$pdo=Fixture::pdo($config);Fixture::assertDatabase($pdo,$config);
 if($action==='cleanup'){
     $pdo=null;$admin=Fixture::pdo($config,false);$admin->exec('DROP DATABASE `'.$config['database'].'`');Fixture::removeStorage($config);
     echo json_encode(['ok'=>true,'database_removed'=>true,'storage_removed'=>true],JSON_THROW_ON_ERROR).PHP_EOL;exit;
@@ -91,3 +95,5 @@ echo json_encode(['format'=>2,'kind'=>'go-erp-workspace-native-server-inspection
     'customers'=>DB::table('branch_customers')->orderBy('id')->get(['id','actor_id','phone_key','name','branch'])->map(fn($r)=>
         ['id'=>(int)$r->id,'actor_id'=>(int)$r->actor_id,'phone_key'=>$r->phone_key,'name'=>$r->name,'branch'=>$r->branch])->all(),
     'sourceRevision'=>$config['sourceRevision'],'sourceFingerprint'=>$config['sourceFingerprint']],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL;
+
+}catch(Throwable $error){Fixture::diagnostic($error,$phase,$application);exit(1);}

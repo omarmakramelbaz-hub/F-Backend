@@ -38,3 +38,22 @@ test('driver context accepts only exact fixed classifications and never table/da
     });
   }
 });
+
+
+test('the actual PHP fixture emits only one typed preparation report without exception text or private paths', t => {
+  const { spawnSync } = require('node:child_process'), path = require('node:path');
+  const php = process.env.DESKTOP_TEST_PHP || process.env.WORKSPACE_TEST_PHP || 'php';
+  const options = { encoding: 'utf8', timeout: 10000, windowsHide: true };
+  const available = spawnSync(php, ['-n','-r','exit(0);'], options);
+  if (available.error?.code === 'ENOENT') { t.skip('PHP is unavailable for the real fixed diagnostic producer.'); return; }
+  assert.equal(available.status, 0);
+  const script = 'require $argv[1];WorkspaceNativeServerFixture::diagnostic(new RuntimeException("PRIVATE_PASSWORD_SQL_AND_TOKEN"),"prepare-bootstrap",$argv[2]);'
+    + 'WorkspaceNativeServerFixture::diagnostic(new RuntimeException("SECOND_PRIVATE_VALUE"),"private-phase",$argv[2]);';
+  const result = spawnSync(php, ['-n','-r',script,path.join(__dirname,'../../tests/desktop_dashboard_runtime/workspace-native-fixture.php'),path.join(__dirname,'../..')], options);
+  assert.equal(result.status, 0); assert.equal(result.stdout, '');
+  const lines = result.stderr.trim().split(/\r?\n/); assert.equal(lines.length, 1); assert.ok(lines[0].startsWith('NATIVE_SERVER_PHP_DIAGNOSTIC '));
+  const report = JSON.parse(lines[0].slice('NATIVE_SERVER_PHP_DIAGNOSTIC '.length));
+  assert.equal(report.type, 'RuntimeException'); assert.equal(report.phase, 'prepare-bootstrap');
+  assert.match(report.file, /^[A-Za-z0-9_.-]{1,120}$/); assert.ok(report.line > 0); assert.equal(result.stderr.includes('PRIVATE_'), false);
+  assert.equal(Object.hasOwn(report,'message'), false); assert.equal(Object.hasOwn(report,'trace'), false);
+});

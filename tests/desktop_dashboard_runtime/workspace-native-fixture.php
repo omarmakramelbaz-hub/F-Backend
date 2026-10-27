@@ -5,6 +5,35 @@ final class WorkspaceNativeServerFixture
     public const MARKER="GO_ERP_DISPOSABLE_SHARED_WORKSPACE_ONLY\n";
     public const MARKER_FILE='disposable-workspace-native.marker';
 
+    private static bool $diagnosed=false;
+    public static function diagnostic(Throwable $error,string $phase,?string $application=null): void
+    {
+        if(self::$diagnosed)return;self::$diagnosed=true;
+        $type=get_class($error);if(!preg_match('/^[A-Za-z0-9_\\\\]{1,160}$/D',$type))$type='Throwable';
+        $file=basename(str_replace('\\','/',$error->getFile()));if(!preg_match('/^[A-Za-z0-9_.-]{1,120}$/D',$file))$file='unknown.php';
+        $report=['phase'=>preg_match('/^[a-z-]{1,60}$/D',$phase)?$phase:'unknown','type'=>$type,'file'=>$file,'line'=>max(1,$error->getLine())];
+        if(is_string($application)&&is_file($application.'/desktop/import-diagnostic.php')){
+            require_once $application.'/desktop/import-diagnostic.php';
+            $safe=DesktopImportDiagnostic::report($error,'import',$application);
+            foreach(['type','file','line','status','sql_state','driver_errno','sql_context'] as $key)if(array_key_exists($key,$safe))$report[$key]=$safe[$key];
+        }
+        $report['frames']=[];
+        foreach(array_slice($error->getTrace(),0,10) as $frame){
+            if(!is_string($frame['file']??null)||!is_int($frame['line']??null))continue;
+            $name=basename(str_replace('\\','/',$frame['file']));
+            if(preg_match('/^[A-Za-z0-9_.-]{1,120}$/D',$name)&&$frame['line']>0)$report['frames'][]=['file'=>$name,'line'=>$frame['line']];
+        }
+        fwrite(STDERR,'NATIVE_SERVER_PHP_DIAGNOSTIC '.json_encode($report,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR).PHP_EOL);
+    }
+    public static function fatal(): void
+    {
+        $last=error_get_last();
+        if(self::$diagnosed||!is_array($last)||!in_array($last['type']??null,[E_ERROR,E_PARSE,E_CORE_ERROR,E_COMPILE_ERROR,E_USER_ERROR,E_RECOVERABLE_ERROR],true))return;
+        $file=basename(str_replace('\\','/',(string)($last['file']??'')));if(!preg_match('/^[A-Za-z0-9_.-]{1,120}$/D',$file))$file='unknown.php';
+        fwrite(STDERR,'NATIVE_SERVER_PHP_DIAGNOSTIC '.json_encode(['phase'=>'fatal','type'=>'PHPFatal','error_type'=>$last['type'],
+            'file'=>$file,'line'=>is_int($last['line']??null)&&$last['line']>0?$last['line']:1],JSON_THROW_ON_ERROR).PHP_EOL);
+    }
+
     public static function need(bool $ok,string $code='WORKSPACE_NATIVE_FIXTURE_INVALID'): void
     {
         if(!$ok)throw new RuntimeException($code);

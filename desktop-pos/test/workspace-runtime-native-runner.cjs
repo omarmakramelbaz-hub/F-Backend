@@ -30,7 +30,7 @@ const sourceFiles = [...fs.readdirSync(path.join(repository, 'desktop-pos/src'))
   'tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
 const sourceHashes = Object.fromEntries(sourceFiles.map(file => [file, sha(path.join(repository, file))]));
 let phpServer, tls, child, prepared = false, phpError = '', childDiagnostic = '', privateServerConfig;
-const phpEvents = [];
+const phpEvents = [], cliFailures = [];
 function sanitizedPhp(text) {
   const secrets = [...(privateServerConfig?.credentials || []).flatMap(row => [row.email, row.password]),
     ...Object.entries(privateServerConfig?.environment || {}).filter(([name]) => /KEY|PASSWORD|TOKEN|SECRET/.test(name)).map(([, value]) => value)];
@@ -44,8 +44,40 @@ function sanitizedPhp(text) {
 const phpArguments = ['-c', path.join(bundle, 'php/php.ini')];
 const environment = { ...process.env, PHP_INI_SCAN_DIR: path.join(bundle, 'php/conf.d'), DESKTOP_WORKSPACE_NATIVE_FIXTURE_CONFIG: serverConfig };
 const cli = args => {
-  const result = spawnSync(php, [...phpArguments, fixture, ...args], { cwd: repository, env: environment, encoding: 'utf8', windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 ** 2 });
-  assert.equal(result.status, 0, 'The private real PHP fixture failed: ' + String(result.stderr).slice(-1000)); return result.stdout;
+  const result = spawnSync(php, [...phpArguments, '-d', 'opcache.enable_cli=0', fixture, ...args], { cwd: repository, env: environment, encoding: 'utf8', windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 ** 2 });
+  if (result.status !== 0) {
+    for (const line of String(result.stderr || '').split(/\r?\n/)) if (line.startsWith('NATIVE_SERVER_PHP_DIAGNOSTIC ')) {
+      // The source-bound PHP producer emits only typed public location/code
+      // fields; no original stdout or exception/SQL message is forwarded.
+      try {
+        const report = JSON.parse(line.slice('NATIVE_SERVER_PHP_DIAGNOSTIC '.length));
+        if (report && /^[A-Za-z0-9_\\]{1,160}$/.test(report.type || '') && /^[A-Za-z0-9_.-]{1,120}$/.test(report.file || '')
+          && Number.isInteger(report.line) && report.line > 0) {
+          const safe = { type: report.type, file: report.file, line: report.line,
+            phase: /^[a-z-]{1,60}$/.test(report.phase || '') ? report.phase : 'unknown' };
+          if (Number.isInteger(report.status) && report.status >= 400 && report.status <= 599) safe.status = report.status;
+          if (/^[A-Z0-9]{5}$/.test(report.sql_state || '') && Number.isInteger(report.driver_errno) && report.driver_errno > 0 && report.driver_errno <= 65535) {
+            safe.sql_state = report.sql_state; safe.driver_errno = report.driver_errno;
+            const context = report.sql_context;
+            if (context && ['create-table','alter-table','other'].includes(context.operation)
+              && ['workspace-command-authorities','workspace-authority-history','workspace-authority','workspace-members','other'].includes(context.table)
+              && ['expected','effects','command-table','default','other','not-reported'].includes(context.target))
+              safe.sql_context = { operation: context.operation, table: context.table, target: context.target };
+          }
+          safe.frames = (Array.isArray(report.frames) ? report.frames : []).filter(value => /^[A-Za-z0-9_.-]{1,120}$/.test(value?.file || '')
+            && Number.isInteger(value.line) && value.line > 0).slice(0,10).map(value => ({ file: value.file, line: value.line }));
+          if ([1,4,16,64,256,4096].includes(report.error_type)) safe.error_type = report.error_type;
+          const safeLine = 'NATIVE_SERVER_PHP_DIAGNOSTIC ' + JSON.stringify(safe);
+          phpEvents.push(safeLine); process.stderr.write(safeLine + '\n');
+        }
+      } catch {}
+    }
+    const failure = { action: ['prepare','inspect','cleanup'].includes(args[0]) ? args[0] : 'unknown', status: result.status ?? null, signal: result.signal || null,
+      code: /^[A-Z0-9_]{1,80}$/.test(result.error?.code || '') ? result.error.code : null,
+      stdoutBytes: Buffer.byteLength(result.stdout || ''), stderrBytes: Buffer.byteLength(result.stderr || '') };
+    cliFailures.push(failure); process.stderr.write('NATIVE_SERVER_CLI_FAILED ' + JSON.stringify(failure) + '\n');
+  }
+  assert.equal(result.status, 0, 'The private real PHP fixture failed.'); return result.stdout;
 };
 const freePort = async () => { const value = net.createServer(); await new Promise(resolve => value.listen(0, '127.0.0.1', resolve)); const port = value.address().port; await new Promise(resolve => value.close(resolve)); return port; };
 const ready = async port => { const until = Date.now() + 15000; while (Date.now() < until) {
@@ -61,7 +93,7 @@ async function main() {
     const publicationVersion = JSON.parse(fs.readFileSync(path.join(repository, 'desktop-pos/package.json'), 'utf8')).version;
     fs.writeFileSync(runnerConfig, JSON.stringify({ format: 2, kind: 'go-erp-workspace-native-runner', root, bundle, serverConfig, codeRoot: path.join(repository, 'desktop-pos/src'),
       proof: childProof, certificateFingerprint, sourceHashes, publicationVersion }) + '\n', { flag: 'wx' });
-    phpServer = spawn(php, [...phpArguments, '-S', '127.0.0.1:' + phpPort, router], { cwd: path.join(bundle, 'application'), env: environment,
+    phpServer = spawn(php, [...phpArguments, '-d', 'opcache.enable_cli=0', '-S', '127.0.0.1:' + phpPort, router], { cwd: path.join(bundle, 'application'), env: environment,
       windowsHide: true, shell: false, stdio: ['ignore', 'ignore', 'pipe'] });
     phpServer.stderr.on('data', bytes => { phpError = (phpError + bytes.toString()).slice(-4096);
       for (const line of bytes.toString().split(/\r?\n/)) if (/WORKSPACE_NATIVE_SERVER_ROUTER_FAILED|PHP (?:Fatal|Warning|Parse)|Uncaught|SQLSTATE/.test(line)) {
@@ -110,7 +142,7 @@ async function main() {
     console.log('SHARED_WORKSPACE_NATIVE_RUNNER_COMPLETE ' + JSON.stringify({ sourceRevision, productionProfile: false }));
   } catch (error) {
     const diagnostic = { format: 2, kind: 'go-erp-workspace-native-diagnostic', sourceRevision, counts,
-      native: childDiagnostic.split(/\r?\n/).filter(line => line.startsWith('NATIVE_SHARED_WORKSPACE_FAILED ')).slice(-1),
+      cliFailures, native: childDiagnostic.split(/\r?\n/).filter(line => line.startsWith('NATIVE_SHARED_WORKSPACE_FAILED ')).slice(-1),
       phpDiagnostics: phpEvents,
       code: /^[A-Z0-9_]{1,100}$/.test(error.code || '') ? error.code : 'NATIVE_ASSERTION_FAILED' };
     fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(path.join(path.dirname(output), 'workspace-native-diagnostic.json'), JSON.stringify(diagnostic, null, 2) + '\n'); throw error;
