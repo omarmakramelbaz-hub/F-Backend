@@ -13,6 +13,13 @@ use Tests\TestCase;
 /** Real persisted users, role pivots and isolated SQL; no HTTP or production data. */
 class DesktopDashboardWorkspaceAuthorityTest extends TestCase
 {
+    public function test_protocol_canonical_json_keeps_unicode_line_terminators_like_native_json(): void
+    {
+        $text="line\u{2028}paragraph\u{2029}end";
+        $this->assertSame('{"a":"'.$text.'"}',Authority::canonical(['a'=>$text]));
+        $this->assertStringNotContainsString('\\u2028',Authority::canonical(['a'=>$text]));
+        $this->assertStringNotContainsString('\\u2029',Authority::canonical(['a'=>$text]));
+    }
     private string $connection = 'sqlite';
     private const DEVICE = '11111111-1111-4111-8111-111111111111';
     private const LEGACY = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

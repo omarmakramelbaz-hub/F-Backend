@@ -232,7 +232,7 @@ class DesktopDashboardWorkspaceAuthority
             if (is_float($item)) throw new \InvalidArgumentException('Workspace protocol numbers must be integers.');
             return $item;
         };
-        return json_encode($sort($value),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+        return json_encode($sort($value),JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_LINE_TERMINATORS|JSON_THROW_ON_ERROR);
     }
     private function checkedStoredManifest(object $root): array
     {
