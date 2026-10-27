@@ -12,7 +12,9 @@ function fixture() {
     generation: 'd'.repeat(16), database: 'fasakhansta_dashboard_stage_' + 'd'.repeat(16), sourceSequence: 1,
     sourceFingerprint: source, certificateChecks: 5, firstEverOfflineActors: [11, 1, 10], loginStageCalls: 0,
     cachedLoginMilliseconds: [200, 100, 100], setupTimer: { elapsed_ms: 1000, running: false },
-    originalCommandIds: [a, b], commandAttempts: [a, a, b], nativePids: [100, 101],
+    originalCommandIds: [a, b], commandAttempts: [a, a, b], nativePids: [100, 101, 102, 103, 104],
+    webOpcodeLaunches: [1,2,3,4].map(value => ({ pid: 100 + value, cacheId: 'go-erp-web-' + String(value).padStart(48,'0'),
+      enableCli: '1', fileCache: '', fileCacheOnly: '0' })),
     requestCounts: { offlineRequests: 0, totalRequests: 20, publicationRequests: 1 },
     serverInspection: { format: 2, kind: 'go-erp-workspace-native-server-inspection', sourceRevision: expected.sourceRevision,
       sourceFingerprint: source, workspaceCount: 1, custodianActorId: 10,
@@ -22,7 +24,8 @@ function fixture() {
       customers: [{ phone_key: '01012345671', actor_id: 10, branch: 'f:100' }, { phone_key: '01012345672', actor_id: 11, branch: 'f:100' }] } };
   for (const name of ['actualElectron', 'actualEncryptedMetadata', 'actualPhpMariaDB', 'productionFactory', 'syntheticPublication',
     'onePreparation', 'zeroOfflineHttp', 'samePhysicalDatabase', 'aPendingVisibleToB', 'bWritesKeepOriginalActor',
-    'globalSequenceAThenB', 'actualProtectedView', 'fixedCliOpcodeDisabled', 'fixedCliNotAttached', 'persistentWebOpcodeEnabled', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
+    'globalSequenceAThenB', 'actualProtectedView', 'fixedCliOpcodeDisabled', 'fixedCliNotAttached', 'persistentWebOpcodeEnabled',
+    'freshWebOpcodeNamespaces', 'noSharedWebFileCache', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
     'noHeavyLoginWork', 'retiredLegacyPreserved', 'lostAcceptedReplyRetriedSameUuid', 'noChildrenAfterStop', 'completed']) proof[name] = true;
   return { proof, expected };
 }
@@ -55,12 +58,21 @@ test('re-preparation during cached login and an unfinished or fictitious setup t
 
 
 test('missing or false cold-CLI and persistent-web opcode evidence cannot satisfy native release acceptance', () => {
-  for (const name of ['fixedCliOpcodeDisabled','fixedCliNotAttached','persistentWebOpcodeEnabled']) {
+  for (const name of ['fixedCliOpcodeDisabled','fixedCliNotAttached','persistentWebOpcodeEnabled','freshWebOpcodeNamespaces','noSharedWebFileCache']) {
     for (const value of [undefined,false,'true']) {
       const { proof, expected } = fixture(); if (value === undefined) delete proof[name]; else proof[name] = value;
       assert.throws(() => verify(proof, expected));
     }
   }
+});
+
+test('reused web namespaces, shared file blobs and missing actual launch evidence cannot satisfy native acceptance', () => {
+  const changes = [p => { delete p.webOpcodeLaunches; }, p => { p.webOpcodeLaunches = p.webOpcodeLaunches.slice(0,3); },
+    p => { p.webOpcodeLaunches[1].cacheId = p.webOpcodeLaunches[0].cacheId; },
+    p => { p.webOpcodeLaunches[0].cacheId = 'a'.repeat(64); }, p => { p.webOpcodeLaunches[0].pid = 999; },
+    p => { p.webOpcodeLaunches[0].enableCli = '0'; }, p => { p.webOpcodeLaunches[0].fileCache = 'C:/old-cache'; },
+    p => { p.webOpcodeLaunches[0].fileCacheOnly = '1'; }, p => { p.webOpcodeLaunches[0].unreviewed = true; }];
+  for (const change of changes) { const { proof, expected } = fixture(); change(proof); assert.throws(() => verify(proof, expected)); }
 });
 
 

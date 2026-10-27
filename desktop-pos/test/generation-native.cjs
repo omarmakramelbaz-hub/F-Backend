@@ -180,11 +180,27 @@ echo $wire;
     decryptString(value) { const cipher = crypto.createDecipheriv('aes-256-gcm', key, value.subarray(0, 12));
       cipher.setAuthTag(value.subarray(-16)); return Buffer.concat([cipher.update(value.subarray(12, -16)), cipher.final()]).toString(); } };
   let diagnosticStage = 'preparation', diagnosticControl = null;
+  const webCacheNamespaces = new Set();
   const mark = stage => { diagnosticStage = stage; diagnosticControl = null; console.log('NATIVE_GENERATION_STAGE ' + stage); };
   const create = (installed = bundle) => {
     const value = new LocalRuntime({ bundle: installed, profile, safeStorage,
       downloadMedia: ticket => fetch(mediaOrigin + '/image?ticket=' + encodeURIComponent(ticket), { headers: { Authorization: 'Bearer synthetic-device' }, redirect: 'error' }),
       onFailure: error => failures.push(error) });
+    const startWeb = value.startWeb.bind(value);
+    value.startWeb = async (...args) => {
+      await startWeb(...args);
+      const web = value.children[1];
+      assert.ok(web, 'The real supervisor must own its started web process.');
+      const overrides = Object.fromEntries(web.spawnargs.flatMap((argument, index) => argument === '-d'
+        ? [web.spawnargs[index + 1].split(/=(.*)/s).slice(0, 2)] : []));
+      assert.equal(overrides['opcache.enable_cli'], '1');
+      assert.equal(overrides['opcache.file_cache'], '', 'A restarted Windows web process must not deserialize another process opcode files.');
+      assert.equal(overrides['opcache.file_cache_only'], '0');
+      const namespace = overrides['opcache.cache_id'];
+      assert.match(namespace, /^go-erp-web-[a-f0-9]{48}$/);
+      assert.equal(webCacheNamespaces.has(namespace), false, 'Every actual web restart must own a fresh SHM namespace.');
+      webCacheNamespaces.add(namespace);
+    };
     const control = value.control.bind(value);
     value.control = async request => {
       // Only fixed operation names enter diagnostics. Tokens, values and server data never do.
@@ -525,6 +541,7 @@ echo $wire;
     assert.equal(await fs.readFile(path.join(runtime.environment.DESKTOP_DASHBOARD_STORAGE,'framework/sessions/supervisor-fixture-session'),'utf8'),'synthetic preserved session');
     assert.deepEqual(await php(bootstrap+"echo json_encode(['version'=>\\App\\Services\\Dashboard\\DesktopUpgradeFixture::VERSION]);"),{version:3});
     assert.equal(failures.length,0);
+    assert.ok(webCacheNamespaces.size >= 3, 'The real protected runtime must survive multiple isolated web restarts.');
     startupProof.restartRetainsActivatedSource=true;
     startupProof.sourceRevision=installedManifest.sourceRevision;
     startupProof.sourceHashes={

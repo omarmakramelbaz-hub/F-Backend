@@ -495,6 +495,14 @@ class LocalRuntime {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     const php = this.php, application = this.application, runtimeEnvironment = this.environment;
     const phpArgs = [...LocalRuntime.phpArguments(this), '-d', 'opcache.enable_cli=1'];
+    if (process.platform === 'win32') {
+      // Each web launch owns its in-memory cache. Reusing serialized opcodes
+      // from another Windows process can reset the first real Laravel request.
+      // A fresh namespace cannot attach to the previous process's ASLR mapping;
+      // leave file caching off so random namespaces never accumulate disk data.
+      phpArgs.push('-d', 'opcache.cache_id=go-erp-web-' + crypto.randomBytes(24).toString('hex'),
+        '-d', 'opcache.file_cache=', '-d', 'opcache.file_cache_only=0');
+    }
     const web = startChild(php, [...phpArgs, '-S', `127.0.0.1:${this.httpPort}`, '-t', path.join(application, 'public'), path.join(application, 'desktop', 'router.php')], { env: runtimeEnvironment, cwd: application });
     web.stdin.end(); this.children[1] = web;
     const webDeadline = Date.now() + 20000;

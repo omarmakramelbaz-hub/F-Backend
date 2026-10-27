@@ -11,7 +11,7 @@ const scriptName = args => args.find(value => typeof value === 'string' && value
 
 // Exercise the exported supervisor and its real run()/error path. Only the
 // child boundary is spied here; generation-native.cjs also runs bundled PHP.
-function loadRuntime(respond, { timeout = false } = {}) {
+function loadRuntime(respond, { timeout = false, platform = process.platform } = {}) {
   const calls = [];
   const spawn = (file, args, options) => {
     calls.push({ file, args: Array.from(args), options });
@@ -35,7 +35,7 @@ function loadRuntime(respond, { timeout = false } = {}) {
   const context = vm.createContext({
     module: { exports: {} }, __dirname: path.dirname(runtimeFile),
     require: name => name === 'node:child_process' ? { spawn } : localRequire(name),
-    Buffer, process, Error, JSON, URL, AbortSignal, console,
+    Buffer, process: new Proxy(process, { get: (target, key) => key === 'platform' ? platform : Reflect.get(target, key) }), Error, JSON, URL, AbortSignal, console,
     fetch: async () => ({ ok: true }),
     setTimeout: (fn, milliseconds) => setTimeout(fn, timeout && milliseconds >= 90000 ? 1 : milliseconds),
     clearTimeout
@@ -350,4 +350,43 @@ test('timeout and overflow failures keep their guards and leave the active state
     assert.equal(f.runtime.stagedContexts.size, 0);
     assert.equal(await fs.readFile(f.retained, 'utf8'), 'SYNTHETIC_ENCRYPTED_ACTIVE_STATE');
   }
+});
+
+
+test('Windows web restarts own fresh in-memory caches and never reuse persistent opcode files', async t => {
+  const f = await fixture(t, () => ({ hold: true }), { platform: 'win32' });
+  const overrides = call => Object.fromEntries(call.args.flatMap((argument, index) => argument === '-d'
+    ? [call.args[index + 1].split(/=(.*)/s).slice(0, 2)] : []));
+  await fs.mkdir(path.dirname(f.runtime.phpIni), { recursive: true });
+  const reviewedIni = 'opcache.file_cache=reviewed-persistent-base\nopcache.cache_id=reviewed-base\nopcache.jit=0\n';
+  await fs.writeFile(f.runtime.phpIni, reviewedIni);
+  await f.runtime.startWeb();
+  const first = f.runtime.children[1];
+  await f.runtime.drainWeb();
+  assert.notEqual(first.signalCode, null, 'The old owned child must close before another web launch.');
+  await f.runtime.startWeb();
+  const launches = f.calls.filter(call => call.args.includes('-S'));
+  assert.equal(launches.length, 2);
+  const ids = launches.map(call => {
+    const value = overrides(call);
+    assert.equal(value['opcache.enable_cli'], '1');
+    assert.equal(value['opcache.file_cache'], '');
+    assert.equal(value['opcache.file_cache_only'], '0');
+    assert.match(value['opcache.cache_id'], /^go-erp-web-[a-f0-9]{48}$/);
+    return value['opcache.cache_id'];
+  });
+  assert.notEqual(ids[0], ids[1]);
+  assert.equal(await fs.readFile(f.runtime.phpIni, 'utf8'), reviewedIni, 'Web-only overrides preserve reviewed cold helper configuration.');
+  assert.equal(overrides({ args: f.Runtime.phpArguments(f.runtime) })['opcache.enable_cli'], '0');
+  f.runtime.stopping = true; await f.runtime.drainWeb();
+});
+
+test('other platforms retain their reviewed opcode configuration', async t => {
+  const f = await fixture(t, () => ({ hold: true }), { platform: 'linux' });
+  await f.runtime.startWeb();
+  const web = f.calls.find(call => call.args.includes('-S'));
+  assert.ok(web);
+  assert.equal(web.args.some(value => value.startsWith('opcache.cache_id=')), false);
+  assert.equal(web.args.some(value => value.startsWith('opcache.file_cache=')), false);
+  f.runtime.stopping = true; await f.runtime.drainWeb();
 });

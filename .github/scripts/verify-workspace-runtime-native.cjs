@@ -10,7 +10,8 @@ function verify(proof, expected) {
   assert.deepEqual(proof.sourceHashes, expected.sourceHashes);
   for (const name of ['actualElectron', 'actualEncryptedMetadata', 'actualPhpMariaDB', 'productionFactory', 'syntheticPublication',
     'onePreparation', 'zeroOfflineHttp', 'samePhysicalDatabase', 'aPendingVisibleToB', 'bWritesKeepOriginalActor',
-    'globalSequenceAThenB', 'actualProtectedView', 'fixedCliOpcodeDisabled', 'fixedCliNotAttached', 'persistentWebOpcodeEnabled', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
+    'globalSequenceAThenB', 'actualProtectedView', 'fixedCliOpcodeDisabled', 'fixedCliNotAttached', 'persistentWebOpcodeEnabled',
+    'freshWebOpcodeNamespaces', 'noSharedWebFileCache', 'cachedRememberedCloseReopen', 'explicitLogoutRequiresPassword',
     'noHeavyLoginWork', 'retiredLegacyPreserved', 'lostAcceptedReplyRetriedSameUuid', 'noChildrenAfterStop', 'completed'])
     assert.equal(proof[name], true, 'Native receipt is missing ' + name);
   for (const name of ['productionMain', 'productionProfile']) assert.equal(proof[name], false, 'Native scope differs: ' + name);
@@ -27,6 +28,14 @@ function verify(proof, expected) {
   const [a, b] = proof.originalCommandIds; assert.notEqual(a, b); assert.deepEqual(proof.commandAttempts, [a, a, b]);
   assert.ok(Array.isArray(proof.nativePids) && proof.nativePids.length > 0 && proof.nativePids.every(value => Number.isSafeInteger(value) && value > 0));
   assert.equal(new Set(proof.nativePids).size, proof.nativePids.length);
+  assert.ok(Array.isArray(proof.webOpcodeLaunches) && proof.webOpcodeLaunches.length >= 4);
+  for (const launch of proof.webOpcodeLaunches) {
+    assert.deepEqual(Object.keys(launch).sort(), ['cacheId','enableCli','fileCache','fileCacheOnly','pid']);
+    assert.ok(Number.isSafeInteger(launch.pid) && launch.pid > 0 && proof.nativePids.includes(launch.pid));
+    assert.match(launch.cacheId, /^go-erp-web-[a-f0-9]{48}$/);
+    assert.equal(launch.enableCli, '1'); assert.equal(launch.fileCache, ''); assert.equal(launch.fileCacheOnly, '0');
+  }
+  assert.equal(new Set(proof.webOpcodeLaunches.map(value => value.cacheId)).size, proof.webOpcodeLaunches.length);
   const server = proof.serverInspection;
   assert.equal(server?.format, 2); assert.equal(server.kind, 'go-erp-workspace-native-server-inspection');
   assert.equal(server.sourceRevision, expected.sourceRevision); assert.equal(sameSource(server.sourceFingerprint, expected.sourceFingerprint), true);

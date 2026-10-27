@@ -15,6 +15,7 @@ const { WorkspaceSync } = requireNative('workspace-sync.cjs'), signout = require
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 let quitting = false, online = true, browser, host, dropReply = false, certificates = 0, stageCalls = 0, webOpcodeEnabled = false;
 const owned = new Set(), accepted = new Set(), observedPids = new Set(), commandRequests = [], phases = [], setupPhases = [], nativeFaults = [];
+const observedWebChildren = new WeakSet(), webOpcodeLaunches = [];
 let nativeStage = 'initializing';
 app.setPath('userData', path.join(root, 'electron-profile'));
 app.on('window-all-closed', () => {});
@@ -24,14 +25,25 @@ app.on('session-created', value => value.setCertificateVerifyProc((request, call
   if (allowed) certificates++; callback(allowed ? 0 : -2);
 }));
 const work = async fn => { const task = Promise.resolve().then(fn); accepted.add(task); try { return await task; } finally { accepted.delete(task); } };
+function observeWeb(child) {
+  assert.ok(child?.spawnargs?.includes('-S'));
+  if (observedWebChildren.has(child)) return;
+  const overrides = Object.fromEntries(child.spawnargs.flatMap((argument, index) => argument === '-d' ? [child.spawnargs[index + 1].split(/=(.*)/s).slice(0,2)] : []));
+  assert.equal(overrides['opcache.enable_cli'], '1');
+  assert.match(overrides['opcache.cache_id'], /^go-erp-web-[a-f0-9]{48}$/);
+  assert.equal(overrides['opcache.file_cache'], '');
+  assert.equal(overrides['opcache.file_cache_only'], '0');
+  assert.equal(webOpcodeLaunches.some(value => value.cacheId === overrides['opcache.cache_id']), false,
+    'Every actual web launch must get a new shared-memory opcode namespace.');
+  assert.ok(Number.isSafeInteger(child.pid) && child.pid > 0);
+  observedWebChildren.add(child); observedPids.add(child.pid); webOpcodeEnabled = true;
+  webOpcodeLaunches.push({ pid: child.pid, cacheId: overrides['opcache.cache_id'], enableCli: '1', fileCache: '', fileCacheOnly: '0' });
+}
 async function stopHost() {
   if (!host) return;
   for (const child of host.workspace.physical.children) {
     if (Number.isInteger(child.pid)) observedPids.add(child.pid);
-    if (child.spawnargs?.includes('-S')) {
-      const overrides = Object.fromEntries(child.spawnargs.flatMap((argument, index) => argument === '-d' ? [child.spawnargs[index + 1].split(/=(.*)/s).slice(0,2)] : []));
-      assert.equal(overrides['opcache.enable_cli'], '1'); webOpcodeEnabled = true;
-    }
+    if (child.spawnargs?.includes('-S')) observeWeb(child);
   }
   await Promise.allSettled([...accepted]); await host.stop(); host = null;
 }
@@ -60,6 +72,13 @@ async function createHost() {
     onFailure: error => { nativeFaults.push(error); }, onLocked: () => { throw Error('The actual authenticated actor was locked.'); },
     canApplyUpdate: async () => false, applyUpdate: async () => { throw Error('A disposable acceptance fixture never installs updates.'); }, allowPreview: true });
   assert.ok(value, 'Compile the reviewed contract pins in the acceptance candidate; a disabled factory cannot satisfy the native proof.');
+  // Observe the real supervisor after each successful start, including the
+  // preparation cutover. The original method still owns process startup and
+  // readiness; this wrapper only asserts its actual child argv and identity.
+  const physical = value.workspace.physical, startWeb = physical.startWeb;
+  physical.startWeb = async function (...args) {
+    const result = await startWeb.apply(this, args); observeWeb(this.children[1]); return result;
+  };
   if (await value.registry.current()) for (const name of ['stage', 'verifyCandidate', 'restoreStage']) value.workspace[name] = async () => {
     stageCalls++; throw Error('Heavy preparation must not run during cached login.');
   };
@@ -182,12 +201,14 @@ async function main() {
     physicalWorkspaceId: bound.workspaceId, database: bound.database, generation: bound.generation, sourceFingerprint: bound.sourceFingerprint,
     sourceSequence: bound.sourceSequence, onePreparation: true, firstEverOfflineActors: opened.map(value => value.actor.actorId), zeroOfflineHttp: true,
     samePhysicalDatabase: true, aPendingVisibleToB: true, bWritesKeepOriginalActor: true, globalSequenceAThenB: true,
-    actualProtectedView: true, fixedCliOpcodeDisabled: true, fixedCliNotAttached: true, persistentWebOpcodeEnabled: true, cachedRememberedCloseReopen: true, explicitLogoutRequiresPassword: true,
+    actualProtectedView: true, fixedCliOpcodeDisabled: true, fixedCliNotAttached: true, persistentWebOpcodeEnabled: true,
+    freshWebOpcodeNamespaces: true, noSharedWebFileCache: true, cachedRememberedCloseReopen: true, explicitLogoutRequiresPassword: true,
     noHeavyLoginWork: true, loginStageCalls: stageCalls, cachedLoginMilliseconds: loginMs, retiredLegacyPreserved: true,
     originalCommandIds: [keyA, keyB], commandAttempts: commandRequests, lostAcceptedReplyRetriedSameUuid: true,
     setupTimer: { elapsed_ms: ready.setup_timing.elapsed_ms, running: false }, productionProfile: false, completed: false };
   nativeStage = 'teardown'; assert.equal(nativeFaults.length, 0);
   await stopHost(); for (const owner of owned) await owner.stop();
+  assert.ok(webOpcodeLaunches.length >= 4); proof.webOpcodeLaunches = webOpcodeLaunches;
   assert.equal(webOpcodeEnabled, true); assert.equal([...observedPids].every(pid => !alive(pid)), true); proof.noChildrenAfterStop = true; proof.nativePids = [...observedPids]; proof.completed = true;
   const bytes = await fs.readFile(path.join(profile, 'workspace-registry.enc'));
   assert.equal(bytes.includes(Buffer.from(prepared.credential.token)), false, 'The durable native root bearer remains DPAPI sealed.');
