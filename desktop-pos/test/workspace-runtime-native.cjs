@@ -88,9 +88,21 @@ async function show(result) {
   window.webContents.session.webRequest.onBeforeSendHeaders({ urls: [result.origin + '/*'] }, (details, callback) =>
     callback({ requestHeaders: { ...details.requestHeaders, 'X-Fasakhansta-Desktop': result.localToken } }));
   await window.loadURL(result.origin + '/admin/choose_type', { extraHeaders: 'X-Fasakhansta-Desktop: ' + result.localToken + '\r\n' });
+  const loadedURL = window.webContents.getURL(); assert.equal(loadedURL, result.origin + '/admin/choose_type');
   assert.equal(await window.webContents.executeJavaScript('typeof window.require'), 'undefined');
   assert.equal(await window.webContents.executeJavaScript('document.body.dataset.dashboardActor'), result.actor.actorId + ':' + result.actor.role);
-  window.show(); assert.equal(window.isVisible(), true); window.destroy();
+  // Windows dispatches native visibility after show() returns. Preserve the
+  // real visible-view proof while allowing that event loop transition.
+  let shown = false; window.once('show', () => { shown = true; });
+  window.show();
+  try {
+    const deadline = Date.now() + 5000;
+    while ((!shown || !window.isVisible()) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(shown, true, 'The actual protected window must emit its native show event.');
+    assert.equal(window.isVisible(), true, 'The actual protected window must become visible within five seconds.');
+    assert.equal(window.webContents.getURL(), loadedURL);
+    assert.equal(await window.webContents.executeJavaScript('document.body.dataset.dashboardActor'), result.actor.actorId + ':' + result.actor.role);
+  } finally { window.destroy(); }
 }
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function main() {
