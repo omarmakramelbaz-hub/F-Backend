@@ -65,10 +65,18 @@ class DashboardHomeOverviewTest extends TestCase
             $this->assertCount(1,$r['today_expenses']['items']);$this->assertSame('5.25',$r['inventory']['items'][0]['quantity']);
         }
         $this->assertFalse($this->overview()['branch_home']);
+        // The real home controller also builds HUD links through the persisted
+        // permission catalog. This branch has no central account grants.
+        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php');(new \CreatePermissionTables)->up();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         $this->actingAs($this->actor(10),'admin');
         // Isolate view selection from the global site's unrelated settings/header.
         $factory=\Mockery::mock(\Illuminate\Contracts\Routing\ResponseFactory::class);
-        $factory->shouldReceive('view')->once()->with('admin.home_branch',\Mockery::on(fn($data)=>$data['boot']['initial']['branch_home']&&$data['boot']['initial']['today_expenses']['total_cents']===1500))->andReturn(new \Illuminate\Http\Response(''));
+        $factory->shouldReceive('view')->once()->with('admin.home_branch',\Mockery::on(function($data){
+            $this->assertFalse($this->actor(10)->can('delegate-list'));$this->assertFalse($this->actor(10)->can('pending_vendor-list'));
+            foreach(['go-stores','go-partners','pending'] as $key)$this->assertArrayNotHasKey($key,$data['boot']['hud_links']);
+            return $data['boot']['initial']['branch_home']&&$data['boot']['initial']['today_expenses']['total_cents']===1500;
+        }))->andReturn(new \Illuminate\Http\Response(''));
         $this->app->instance(\Illuminate\Contracts\Routing\ResponseFactory::class,$factory);
         // A direct controller call must carry the session normally installed by StartSession.
         $request=\Illuminate\Http\Request::create('/admin');$request->setLaravelSession(app('session')->driver());

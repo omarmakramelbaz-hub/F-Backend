@@ -33,19 +33,25 @@ jobs:
       - name: Install the existing locked application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
       - name: Prepare the isolated CI application
+        id: isolated_app
         run: |
           mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
           cp .env.example .env
           php artisan key:generate
       - name: Verify overview access and on-demand Owner drawer balances
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardHomeOverviewTest.php
       - name: Verify unchanged cash formulas and closing guards
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardBranchShiftTest.php
       - name: Verify bounded cart reads and exact financial parity
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardOwnerBalanceBatchTest.php --filter test_batch_
       - name: Verify original SPA fragments for every role
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: vendor/bin/phpunit tests/Feature/DashboardNavigationFragmentTest.php --filter test_navigation_
       - name: Compile actual Blade templates
+        if: ${{ !cancelled() && steps.isolated_app.outcome == 'success' }}
         run: php artisan view:cache
   browser-owner-drawer:
     runs-on: ubuntu-latest
