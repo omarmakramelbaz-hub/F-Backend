@@ -246,7 +246,7 @@ echo $wire;
         extensions: extensionDirectory, curlCA: certificateFile, opensslCA: certificateFile });
     const initial = await runtime.connection();
     const opcode = await php("echo json_encode(['loaded'=>extension_loaded('Zend OPcache'),'cli'=>ini_get('opcache.enable_cli'),'attached'=>function_exists('opcache_get_status')&&opcache_get_status(false)!==false,'enabled'=>ini_get('opcache.enable'),'validate'=>ini_get('opcache.validate_timestamps'),'revalidate'=>ini_get('opcache.revalidate_freq'),'revalidatePath'=>ini_get('opcache.revalidate_path'),'useCwd'=>ini_get('opcache.use_cwd'),'fileCache'=>str_replace(chr(92),'/',realpath(ini_get('opcache.file_cache'))),'fallback'=>ini_get('opcache.file_cache_fallback'),'consistency'=>ini_get('opcache.file_cache_consistency_checks'),'permission'=>ini_get('opcache.validate_permission'),'fileOverride'=>ini_get('opcache.enable_file_override')]);");
-    const cacheDirectory = path.join(profile, 'opcode-cache', runtime.manifest.sourceRevision);
+    const cacheDirectory = path.join(runtime.profile, 'opcode-cache', runtime.manifest.sourceRevision);
     for (const directory of [path.dirname(cacheDirectory), cacheDirectory]) {
       const info = await fs.lstat(directory);
       assert.equal(info.isDirectory(), true); assert.equal(info.isSymbolicLink(), false);
