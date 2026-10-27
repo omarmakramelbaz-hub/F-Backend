@@ -42,7 +42,7 @@ go_workspace_git() {
 /usr/bin/git -c core.hooksPath=/dev/null init --bare --quiet "$go_workspace_stage/release.git"
 go_workspace_refs=(
     "$go_workspace_operator" "$go_workspace_core" "$go_workspace_seed" "$go_workspace_web"
-    # ACCEPTED_FOCUSED_CI_HEAD
+    3e997647e9e767a774e7c62e68f562e1f1a36416
     18e13894c1afcc9f3daa61df2446b02cf806cb7a
     2d9e23a5157782882382c797a44ad15c317ae845
     12d74b4f35737a2b1e271657b159137538c3edaf
