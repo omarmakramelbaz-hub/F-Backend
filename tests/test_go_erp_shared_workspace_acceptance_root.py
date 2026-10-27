@@ -25,6 +25,8 @@ def proof(hashes,fingerprint):
         'sourceSequence':1,'sourceFingerprint':fingerprint,'certificateChecks':1,'firstEverOfflineActors':[11,1,10],
         'loginStageCalls':0,'cachedLoginMilliseconds':[2,3,4],'setupTimer':{'running':False,'elapsed_ms':10},
         'originalCommandIds':[a,b],'commandAttempts':[a,a,b],'nativePids':[100,101],
+        'webOpcodeLaunches':[{'cacheId':'go-erp-web-'+str(index)*48,'enableCli':'1','fileCache':'',
+            'fileCacheOnly':'0','pid':100+index%2} for index in range(4)],
         'serverInspection':{'format':2,'kind':'go-erp-workspace-native-server-inspection','sourceRevision':CANDIDATE,
             'sourceFingerprint':fingerprint,'workspaceCount':1,'custodianActorId':10,
             'workspaces':[{'workspace_id':workspace,'root_fingerprint':'f'*64}],
@@ -119,6 +121,28 @@ class AcceptanceTests(unittest.TestCase):
             for bad in (False,1):
                 self.value=copy.deepcopy(original);self.value[name]=bad
                 with self.subTest(name=name,bad=bad),self.assertRaises(subject.Stop):self.instance._validate(self.value,CANDIDATE,VERSION)
+
+    def test_each_restarted_web_launch_has_a_fresh_native_memory_namespace_without_shared_file_cache(self):
+        mutations=(lambda v:v.pop('webOpcodeLaunches'),lambda v:v.update(webOpcodeLaunches=[]),
+            lambda v:v.update(webOpcodeLaunches=v['webOpcodeLaunches'][:3]),
+            lambda v:v['webOpcodeLaunches'].__setitem__(0,None),
+            lambda v:v['webOpcodeLaunches'][0].update(pid=999),
+            lambda v:v['webOpcodeLaunches'][0].update(pid=True),
+            lambda v:v['webOpcodeLaunches'][0].update(cacheId='go-erp-web-short'),
+            lambda v:v['webOpcodeLaunches'][0].update(cacheId='go-erp-web-'+'G'*48),
+            lambda v:v['webOpcodeLaunches'][0].update(enableCli='0'),
+            lambda v:v['webOpcodeLaunches'][0].update(enableCli=1),
+            lambda v:v['webOpcodeLaunches'][0].update(fileCache='shared-serialized-cache'),
+            lambda v:v['webOpcodeLaunches'][0].update(fileCacheOnly='1'),
+            lambda v:v['webOpcodeLaunches'][0].update(unboundExtra=True))
+        for index,mutate in enumerate(mutations):
+            value=copy.deepcopy(self.value);mutate(value)
+            with self.subTest(mutation=index),self.assertRaisesRegex(subject.Stop,'WEB_OPCODE_LAUNCH_PROOF_INVALID'):
+                self.instance._validate(value,CANDIDATE,VERSION)
+        value=copy.deepcopy(self.value)
+        value['webOpcodeLaunches'][1]['cacheId']=value['webOpcodeLaunches'][0]['cacheId']
+        with self.assertRaisesRegex(subject.Stop,'WEB_OPCODE_NAMESPACE_REUSED'):
+            self.instance._validate(value,CANDIDATE,VERSION)
 
     def test_relabelled_production_main_wrong_actor_retry_sequence_or_offline_http_fails(self):
         mutations=(lambda v:v.update(productionMain=True),lambda v:v['serverInspection']['commands'][1].update(actor_id=10),

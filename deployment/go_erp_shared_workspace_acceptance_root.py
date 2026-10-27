@@ -30,7 +30,8 @@ TRUE_FIELDS = ('actualElectron','actualEncryptedMetadata','actualPhpMariaDB','pr
     'onePreparation','zeroOfflineHttp','samePhysicalDatabase','aPendingVisibleToB','bWritesKeepOriginalActor',
     'globalSequenceAThenB','actualProtectedView','cachedRememberedCloseReopen','explicitLogoutRequiresPassword',
     'noHeavyLoginWork','retiredLegacyPreserved','lostAcceptedReplyRetriedSameUuid','noChildrenAfterStop',
-    'fixedCliOpcodeDisabled','fixedCliNotAttached','persistentWebOpcodeEnabled','completed')
+    'fixedCliOpcodeDisabled','fixedCliNotAttached','persistentWebOpcodeEnabled',
+    'freshWebOpcodeNamespaces','noSharedWebFileCache','completed')
 SAFE = 9007199254740991
 PROGRAMS = frozenset(('desktop/workspace-archive.php','desktop/workspace-control.php',
     'desktop/workspace-delta.php','desktop/workspace-import.php','desktop/workspace-verify.php'))
@@ -95,6 +96,14 @@ class WorkspaceAcceptance:
             and isinstance(value.get('nativePids'),list) and value['nativePids']
             and all(integer(item,1) for item in value['nativePids']) and len(set(value['nativePids']))==len(value['nativePids']),
             'INSTALLED_WORKSPACE_LIFECYCLE_PROOF_INVALID')
+        launches=value.get('webOpcodeLaunches')
+        need(isinstance(launches,list) and len(launches)>=4 and all(isinstance(row,dict)
+            and set(row)=={'cacheId','enableCli','fileCache','fileCacheOnly','pid'}
+            and integer(row.get('pid'),1) and row['pid'] in value['nativePids']
+            and isinstance(row.get('cacheId'),str) and re.fullmatch(r'go-erp-web-[a-f0-9]{48}',row['cacheId'])
+            and row.get('enableCli')=='1' and row.get('fileCache')=='' and row.get('fileCacheOnly')=='0'
+            for row in launches),'WEB_OPCODE_LAUNCH_PROOF_INVALID')
+        need(len({row['cacheId'] for row in launches})==len(launches),'WEB_OPCODE_NAMESPACE_REUSED')
         server=value.get('serverInspection')
         need(isinstance(server,dict) and integer(server.get('format'),2,2)
             and server.get('kind')=='go-erp-workspace-native-server-inspection' and server.get('sourceRevision')==candidate
