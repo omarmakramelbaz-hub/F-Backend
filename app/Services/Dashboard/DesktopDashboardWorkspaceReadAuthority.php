@@ -35,9 +35,10 @@ final class DesktopDashboardWorkspaceReadAuthority
 
     public function isRead(Request $request): bool
     {
-        if ($request->route()?->getActionName()==='App\\Http\\Controllers\\Dashboard\\HomeController@adminLogout') return false;
+        $action=ltrim($request->route()?->getActionName()??'','\\');
+        if ($action==='App\\Http\\Controllers\\Dashboard\\HomeController@adminLogout') return false;
         if ($request->isMethod('GET') || $request->isMethod('HEAD')) return true;
-        return $request->isMethod('POST') && in_array($request->route()?->getActionName(),[
+        return $request->isMethod('POST') && in_array($action,[
             'App\\Http\\Controllers\\Dashboard\\ProductController@fetchFeature',
             'App\\Http\\Controllers\\Dashboard\\ProductController@fetchProduct',
             'App\\Http\\Controllers\\Dashboard\\ProductController@fetchSubcategory',
@@ -115,7 +116,7 @@ final class DesktopDashboardWorkspaceReadAuthority
     public function authorizeRequest(Request $request): void
     {
         if (!$this->selected()) return;
-        $action=$request->route()?->getActionName()??'';
+        $action=ltrim($request->route()?->getActionName()??'','\\');
         $prefix='App\\Http\\Controllers\\Dashboard\\';
         if (!str_starts_with($action,$prefix)) return;
         [$controller,$method]=array_pad(explode('@',substr($action,strlen($prefix)),2),2,'');
