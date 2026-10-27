@@ -5,6 +5,8 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const ROOT=path.resolve(__dirname,'../..'),MARKER='GO_ERP_STARTUP_SOURCE_NATIVE ';
 const SOURCES=Object.freeze({helper:'desktop-pos/src/startup-source-upgrade.cjs',fixture:'desktop-pos/test/generation-native.cjs',
   nativeModule:'desktop-pos/test/startup-source-upgrade-native.cjs'});
+const PACKAGED_SOURCES=Object.freeze(Object.fromEntries(fs.readdirSync(path.join(ROOT,'desktop-pos/src'))
+  .filter(name=>name.endsWith('.cjs')).sort().map(name=>[name,'desktop-pos/src/'+name])));
 const TRUE_FLAGS=Object.freeze(['actualWindows','actualPhp','actualMariaDB','actualDeltaCapture','actualDeltaStage','actualDeltaFinalize',
   'actualDeltaActivate','sourceFingerprintChanged','preparedDataPreserved','originalUsersPreserved','originalSessionBytesPreserved',
   'historicalReplayPreserved','originalPreviousDatabaseRetained','originalCoveragePreserved','offlineZeroHttp','sameSourceZeroHttp',
@@ -18,7 +20,7 @@ function validate(proof,{root=ROOT,revision=process.env.GITHUB_SHA,installedAsar
   assert.equal(typeof revision,'string');assert.match(revision,/^[a-f0-9]{40}$/);
   assert.equal(proof.sourceRevision,revision,'Startup source proof belongs to another captured revision.');
   assert.equal(proof.installedAsarCode,installedAsarCode,'Startup source ASAR execution scope differs.');
-  assert.deepEqual(Object.keys(proof).sort(),['format','kind','sourceRevision','sourceHashes','installedAsarCode',...TRUE_FLAGS,...FALSE_FLAGS].sort(),
+  assert.deepEqual(Object.keys(proof).sort(),['format','kind','sourceRevision','sourceHashes','packagedNativeHashes','installedAsarCode',...TRUE_FLAGS,...FALSE_FLAGS].sort(),
     'Startup source proof fields changed.');
   for(const name of TRUE_FLAGS)assert.equal(proof[name],true,'Missing actual startup source acceptance: '+name);
   for(const name of FALSE_FLAGS)assert.equal(proof[name],false,'Startup source fixture scope changed: '+name);
@@ -27,6 +29,10 @@ function validate(proof,{root=ROOT,revision=process.env.GITHUB_SHA,installedAsar
     assert.equal(typeof proof.sourceHashes[name],'string');assert.match(proof.sourceHashes[name],/^[a-f0-9]{64}$/);
     assert.equal(proof.sourceHashes[name],hash(fs.readFileSync(path.join(root,file))),'Startup source proof code changed: '+file);
   }
+  assert.ok(object(proof.packagedNativeHashes));
+  assert.deepEqual(Object.keys(proof.packagedNativeHashes).sort(),Object.keys(PACKAGED_SOURCES).sort());
+  for(const [name,file]of Object.entries(PACKAGED_SOURCES))
+    assert.equal(proof.packagedNativeHashes[name],hash(fs.readFileSync(path.join(root,file))),'Packaged native code changed: '+file);
   return proof;
 }
 function parse(output,options={}){
@@ -49,4 +55,4 @@ if(require.main===module){
   verify(process.argv[2],process.argv[3]);
   console.log('PASS exact Windows PHP/MariaDB startup delta activation, preserved data, restart and synthetic authority scope');
 }
-module.exports={validate,parse,verify,SOURCES,TRUE_FLAGS,FALSE_FLAGS};
+module.exports={validate,parse,verify,SOURCES,PACKAGED_SOURCES,TRUE_FLAGS,FALSE_FLAGS};

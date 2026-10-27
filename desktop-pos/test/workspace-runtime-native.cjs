@@ -13,8 +13,9 @@ const { AccountLogin } = requireNative('account-login.cjs'), Profiles = requireN
 const { WorkspaceLegacyInspector } = requireNative('workspace-legacy-inspector.cjs'), LocalRuntime = requireNative('local-runtime.cjs');
 const { WorkspaceSync } = requireNative('workspace-sync.cjs'), signout = requireNative('account-signout.cjs');
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
-let quitting = false, online = true, browser, host, dropReply = false, certificates = 0;
-const owned = new Set(), accepted = new Set(), observedPids = new Set(), commandRequests = [], phases = [];
+let quitting = false, online = true, browser, host, dropReply = false, certificates = 0, stageCalls = 0;
+const owned = new Set(), accepted = new Set(), observedPids = new Set(), commandRequests = [], phases = [], setupPhases = [], nativeFaults = [];
+let nativeStage = 'initializing';
 app.setPath('userData', path.join(root, 'electron-profile'));
 app.on('window-all-closed', () => {});
 app.on('session-created', value => value.setCertificateVerifyProc((request, callback) => {
@@ -48,10 +49,14 @@ async function createHost() {
     currentVersion: config.publicationVersion, online: () => online, stopped: () => quitting,
     ownRuntime: owner => owned.add(owner), inspectLegacyProfile: (account, options) => inspector.inspectProfile(account, options),
     transition: fn => work(fn), accepted: work, relaunch: async () => { phases.push('preparation-relaunch-requested'); },
-    onPhase: phase => phases.push(typeof phase === 'string' ? phase : phase.phase), onState: () => {},
-    onFailure: () => { throw Error('The actual native supervisor failed.'); }, onLocked: () => { throw Error('The actual authenticated actor was locked.'); },
+    onPhase: phase => { const name = typeof phase === 'string' ? phase : phase.phase; phases.push(name); process.stdout.write('NATIVE_WORKSPACE_PHASE ' + JSON.stringify({ phase: name }) + '\n'); },
+    onState: value => { if (typeof value?.phase === 'string' && setupPhases.at(-1) !== value.phase) { setupPhases.push(value.phase); process.stdout.write('NATIVE_WORKSPACE_SETUP ' + JSON.stringify({ phase: value.phase }) + '\n'); } },
+    onFailure: error => { nativeFaults.push(error); }, onLocked: () => { throw Error('The actual authenticated actor was locked.'); },
     canApplyUpdate: async () => false, applyUpdate: async () => { throw Error('A disposable acceptance fixture never installs updates.'); }, allowPreview: true });
   assert.ok(value, 'Compile the reviewed contract pins in the acceptance candidate; a disabled factory cannot satisfy the native proof.');
+  if (await value.registry.current()) for (const name of ['stage', 'verifyCandidate', 'restoreStage']) value.workspace[name] = async () => {
+    stageCalls++; throw Error('Heavy preparation must not run during cached login.');
+  };
   return value;
 }
 function credentials(id) { const value = server.credentials.find(row => row.actorId === id); assert.ok(value); return { email: value.email, password: value.password, remember: true }; }
@@ -87,15 +92,14 @@ async function main() {
   assert.equal(await fs.realpath(root), root); assert.equal(await fs.readFile(path.join(root, 'disposable-workspace-native.marker'), 'utf8'), 'GO_ERP_DISPOSABLE_SHARED_WORKSPACE_ONLY\n');
   await fs.mkdir(profile, { recursive: false });
   const sentinel = crypto.randomBytes(128); await fs.writeFile(path.join(profile, 'legacy-accepted-sentinel.bin'), sentinel, { flag: 'wx' });
-  host = await createHost(); const original = await host.login.authenticate(credentials(10)); browser = session.fromPartition(original.account.partition);
-  assert.equal(original.local, false); const ready = await work(() => host.preparation.prepare(server.origin, 'page-token-is-not-native-authority'));
+  nativeStage = 'initial-online-login'; host = await createHost(); const original = await host.login.authenticate(credentials(10)); browser = session.fromPartition(original.account.partition);
+  assert.equal(original.local, false); nativeStage = 'one-preparation'; const ready = await work(() => host.preparation.prepare(server.origin, 'page-token-is-not-native-authority'));
   assert.equal(ready.prepared, true); assert.equal(ready.setup_timing.running, false); assert.ok(ready.setup_timing.elapsed_ms > 0); assert.equal(phases.filter(value => value === 'preparation-relaunch-requested').length, 1);
   const prepared = await host.registry.current(), bound = prepared.candidate;
   assert.equal(bound.prepared.actorId, 10); assert.equal(bound.workspaceId, prepared.manifest.workspace_id);
   await stopHost();
-  online = false; await fs.writeFile(path.join(root, 'offline.marker'), 'offline\n', { flag: 'wx' });
-  host = await createHost(); let stageCalls = 0;
-  for (const name of ['stage', 'verifyCandidate', 'restoreStage']) host.workspace[name] = async () => { stageCalls++; throw Error('Heavy preparation must not run during cached login.'); };
+  nativeStage = 'offline-first-logins'; online = false; await fs.writeFile(path.join(root, 'offline.marker'), 'offline\n', { flag: 'wx' });
+  host = await createHost();
   const opened = [], loginMs = [];
   for (const id of [11, 1, 10]) {
     await assert.rejects(fs.lstat(path.join(profile, 'workspace-actors', prepared.manifest.workspace_id, String(id))), { code: 'ENOENT' });
@@ -103,11 +107,11 @@ async function main() {
     assert.equal(result.local, true); assert.equal(result.actor.actorId, id); assert.equal((await result.runtime.connection()).database, bound.database);
     assert.equal((await result.runtime.authority()).actorId, id); await readActor(result); await show(result); await result.afterView(); opened.push(result);
   }
-  const a = opened.at(-1), keyA = crypto.randomUUID(), keyB = crypto.randomUUID();
+  nativeStage = 'offline-a-write'; const a = opened.at(-1), keyA = crypto.randomUUID(), keyB = crypto.randomUUID();
   await json(a, '/admin/customers/save', { branch: 'f:100', idempotency_key: keyA, name: 'A shared offline customer', phone: '01012345671', address: 'Synthetic branch address' });
   assert.equal((await host.workspace.control({ action: 'pending' })).counts.pending, 1);
   await stopHost(); host = await createHost();
-  const b = await work(() => host.login.authenticate(credentials(11))); await readActor(b); await show(b); await b.afterView();
+  nativeStage = 'offline-b-read-write'; let b = await work(() => host.login.authenticate(credentials(11))); await readActor(b); await show(b); await b.afterView();
   const visible = await json(b, '/admin/customers/data?branch=f%3A100&search=01012345671');
   assert.equal(visible.items.some(row => row.name === 'A shared offline customer'), true, 'B must see A current local commit before any server sync.');
   await json(b, '/admin/customers/save', { branch: 'f:100', idempotency_key: keyB, name: 'B shared offline customer', phone: '01012345672', address: 'Synthetic branch address' });
@@ -121,8 +125,10 @@ async function main() {
     { cwd: physical.application, env: physical.environment }));
   assert.deepEqual(journalRows.map(row => [row.command_id, Number(row.actor_id)]), [[keyA, 10], [keyB, 11]]);
   assert.ok(Number(journalRows[0].sequence) < Number(journalRows[1].sequence));
-  const remembered = await host.login.resumeRemembered(); assert.equal(remembered.actor.actorId, 11); assert.equal(remembered.local, true);
-  await signout.signedOut(b.runtime); host.workspace.revokeSession(11);
+  await stopHost(); host = await createHost();
+  nativeStage = 'remembered-reopen'; const remembered = await host.login.resumeRemembered(); assert.equal(remembered.actor.actorId, 11); assert.equal(remembered.local, true);
+  b = remembered;
+  nativeStage = 'explicit-logout'; await signout.signedOut(b.runtime); host.workspace.revokeSession(11);
   const loggedOut = await session.fromPartition(b.account.partition).fetch(b.origin + '/admin/adminLogout', {
     method: 'GET', headers: { 'X-Fasakhansta-Desktop': b.localToken }, redirect: 'manual' });
   assert.ok([200,302,303].includes(loggedOut.status)); await loggedOut.body?.cancel();
@@ -134,7 +140,7 @@ async function main() {
   assert.equal(stageCalls, 0); assert.equal(Math.max(...loginMs) < 45000, true, 'Cached local opening must stay within the real initial document deadline.');
   assert.deepEqual((await host.registry.current()).candidate, bound); assert.equal((await fs.readdir(path.join(profile, 'workspaces'))).length, 1);
   assert.deepEqual(await fs.readFile(path.join(profile, 'legacy-accepted-sentinel.bin')), sentinel);
-  online = true; await fs.unlink(path.join(root, 'offline.marker'));
+  nativeStage = 'original-sync-lost-reply'; online = true; await fs.unlink(path.join(root, 'offline.marker'));
   const sync = new WorkspaceSync({ workspace: host.workspace, remote: (command, credential) => host.http.root('commands', command, credential) });
   dropReply = true; await work(() => sync.run()); assert.equal((await host.workspace.control({ action: 'pending' })).counts.pending, 2);
   await work(() => sync.run()); assert.equal((await host.workspace.control({ action: 'pending' })).counts.pending, 0); sync.stop();
@@ -149,6 +155,7 @@ async function main() {
     noHeavyLoginWork: true, loginStageCalls: stageCalls, cachedLoginMilliseconds: loginMs, retiredLegacyPreserved: true,
     originalCommandIds: [keyA, keyB], commandAttempts: commandRequests, lostAcceptedReplyRetriedSameUuid: true,
     setupTimer: { elapsed_ms: ready.setup_timing.elapsed_ms, running: false }, productionProfile: false, completed: false };
+  nativeStage = 'teardown'; assert.equal(nativeFaults.length, 0);
   await stopHost(); for (const owner of owned) await owner.stop();
   assert.equal([...observedPids].every(pid => !alive(pid)), true); proof.noChildrenAfterStop = true; proof.nativePids = [...observedPids]; proof.completed = true;
   const bytes = await fs.readFile(path.join(profile, 'workspace-registry.enc'));
@@ -156,9 +163,58 @@ async function main() {
   await fs.writeFile(config.proof, JSON.stringify(proof, null, 2) + '\n', { flag: 'wx' });
   process.stdout.write('NATIVE_SHARED_WORKSPACE_COMPLETE ' + JSON.stringify({ sourceRevision: server.sourceRevision, actors: proof.firstEverOfflineActors, processes: proof.nativePids.length }) + '\n');
 }
+function publicError(error) {
+  const secrets = [...server.credentials.flatMap(row => [row.email, row.password]),
+    ...Object.entries(server.environment || {}).filter(([name]) => /KEY|PASSWORD|TOKEN|SECRET/.test(name)).map(([, value]) => value),
+    ...Object.entries(host?.workspace?.physical?.environment || {}).filter(([name]) => /KEY|PASSWORD|TOKEN|SECRET/.test(name)).map(([, value]) => value),
+    host?.workspace?.physical?.token, host?.workspace?.physical?.controlToken];
+  const sanitize = input => {
+    let text = String(input || '');
+    for (const secret of secrets) if (typeof secret === 'string' && secret.length >= 4) text = text.split(secret).join('[redacted]');
+    return text.replace(/base64:[A-Za-z0-9+/=]+/g, '[redacted-key]').replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]')
+      .replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]').replace(/https?:\/\/[^\s"']+/g, '[redacted-url]')
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ' ').slice(0, 1200);
+  };
+  const frames = String(error?.stack || '').split('\n').slice(1).map(line => {
+    const match = /(?:[\\/])([^\\/:()]+\.(?:c?js|php)):(\d+)(?::\d+)?\)?$/.exec(line.trim());
+    return match ? { file: match[1], line: Number(match[2]) } : null;
+  }).filter(Boolean).slice(0, 10);
+  const cause = error?.cause, report = { type: error?.name || 'Error', code: /^[A-Z0-9_]{1,100}$/.test(error?.code || '') ? error.code : null,
+    message: sanitize(error?.message), frames };
+  if (cause && typeof cause === 'object') {
+    report.cause = { exitCode: Number.isInteger(cause.exitCode) ? cause.exitCode : null, timedOut: cause.timedOut === true, overflow: cause.overflow === true };
+    const detail = cause.import;
+    if (detail && /^[A-Za-z0-9_\\]{1,160}$/.test(detail.type || '') && /^[A-Za-z0-9_.-]{1,120}$/.test(detail.file || '')) {
+      report.cause.import = { phase: detail.phase, type: detail.type, file: detail.file, line: detail.line, status: detail.status ?? null };
+    }
+  }
+  return { report, sanitize };
+}
+async function diagnostics(error) {
+  const { report, sanitize } = publicError(error), physical = host?.workspace?.physical, logs = [];
+  if (physical) {
+    const locations = new Set([physical.environment?.DESKTOP_DASHBOARD_STORAGE]);
+    try { const pending = await host.registry.metadata.read('workspace-preparation'); if (pending?.generation) locations.add(physical.storageFor({ generation: pending.generation })); } catch {}
+    for (const storage of locations) if (typeof storage === 'string') {
+      try {
+        const file = path.join(storage, 'logs/laravel.log'), stat = await fs.lstat(file);
+        if (stat.isFile() && !stat.isSymbolicLink() && stat.size <= 2 * 1024 ** 2) {
+          const raw = await fs.readFile(file, 'utf8'); logs.push({ kind: 'laravel', lines: raw.slice(-12000).split(/\r?\n/)
+            .filter(line => /ERROR|Exception|SQLSTATE|WORKSPACE_/.test(line)).slice(-6).map(sanitize) });
+        }
+      } catch {}
+    }
+    for (const [index, child] of physical.children.entries()) {
+      const raw = child.stderrTail?.(); if (raw) logs.push({ kind: index === 0 ? 'native-maria' : 'native-php',
+        exitCode: child.exitCode, lines: raw.split(/\r?\n/).filter(line => /error|Warning|Fatal|Uncaught|Exception|WORKSPACE_/i.test(line)).slice(-6).map(sanitize) });
+    }
+  }
+  return { ...report, stage: nativeStage, setupPhases: setupPhases.slice(-12), phases: phases.filter(value => typeof value === 'string' && /^[a-z-]{1,60}$/.test(value)).slice(-12),
+    nativeFaults: nativeFaults.map(value => publicError(value).report), logs };
+}
 main().then(() => app.exit(0), async error => {
-  quitting = true; try { await stopHost(); for (const owner of owned) await owner.stop(); } catch {}
-  process.stderr.write('NATIVE_SHARED_WORKSPACE_FAILED ' + JSON.stringify({ code: /^[A-Z0-9_]{1,100}$/.test(error.code || '') ? error.code : 'NATIVE_ASSERTION_FAILED',
-    type: error.name, frame: String(error.stack || '').split('\n').find(line => /workspace-runtime-native\.cjs:\d+/.test(line))?.trim() || null,
-    phases: phases.filter(value => typeof value === 'string' && /^[a-z-]{1,60}$/.test(value)).slice(-12) }) + '\n'); app.exit(1);
+  const report = await diagnostics(error); quitting = true;
+  process.stderr.write('NATIVE_SHARED_WORKSPACE_FAILED ' + JSON.stringify(report) + '\n');
+  try { await stopHost(); for (const owner of owned) await owner.stop(); } catch {}
+  app.exit(1);
 });

@@ -90,7 +90,8 @@ function startChild(file, args, options, capture = false) {
 }
 // A short, data-free reason shown with the failure so a support report names the real step and cause.
 function failureReason(args, cause, text) {
-  const scripts = ['database.php', 'import.php', 'verify.php', 'verify-media.php', 'archive.php', 'delta.php'];
+  const scripts = ['database.php', 'import.php', 'verify.php', 'verify-media.php', 'archive.php', 'delta.php',
+    'workspace-import.php', 'workspace-verify.php', 'workspace-delta.php', 'workspace-archive.php'];
   const script = args.filter(value => typeof value === 'string').map(value => value.split(/[\\/]/).pop()).reverse()
     .find(value => scripts.includes(value));
   const step = script ? ' [' + script + ']' : '';
@@ -126,10 +127,11 @@ async function run(file, args, options, input = '', timeout = 90000, outputLimit
     if (child.exitCode !== 0 || overflow) {
       await stopChild(child);
       const cause = { exitCode: child.exitCode, overflow, timedOut: result instanceof Error && /timed out/.test(result.message) };
-      const report = child.stderrTail().split(/\r?\n/).find(line => line.startsWith('DESKTOP_IMPORT_DIAGNOSTIC '));
+      const prefixes = ['DESKTOP_IMPORT_DIAGNOSTIC ', 'DESKTOP_WORKSPACE_IMPORT_DIAGNOSTIC '];
+      const report = child.stderrTail().split(/\r?\n/).find(line => prefixes.some(prefix => line.startsWith(prefix)));
       if (report) {
         try {
-          const value = JSON.parse(report.slice('DESKTOP_IMPORT_DIAGNOSTIC '.length));
+          const value = JSON.parse(report.slice(prefixes.find(prefix => report.startsWith(prefix)).length));
           if (['input', 'json', 'bootstrap', 'import'].includes(value.phase)
               && /^[a-zA-Z0-9_\\\\]{1,160}$/.test(value.type) && /^[a-zA-Z0-9_.-]{1,120}$/.test(value.file)
               && Number.isSafeInteger(value.line) && value.line > 0

@@ -495,6 +495,9 @@ echo $wire;
       helper:crypto.createHash('sha256').update(await fs.readFile(path.join(codeRoot,'startup-source-upgrade.cjs'))).digest('hex'),
       fixture:crypto.createHash('sha256').update(await fs.readFile(__filename)).digest('hex'),
       nativeModule:crypto.createHash('sha256').update(await fs.readFile(path.join(__dirname,'startup-source-upgrade-native.cjs'))).digest('hex')};
+    startupProof.packagedNativeHashes={};
+    for(const name of (await fs.readdir(codeRoot)).filter(name=>name.endsWith('.cjs')).sort())
+      startupProof.packagedNativeHashes[name]=crypto.createHash('sha256').update(await fs.readFile(path.join(codeRoot,name))).digest('hex');
     console.log('GO_ERP_STARTUP_SOURCE_NATIVE '+JSON.stringify(startupProof));
     console.log('PASS real Windows startup source activation preserves the original scoped preview account, session, business rows and replay journal, then reopens the activated source without setup');
     console.log('PASS real Windows supervisor prepares account data, Arabic images and private expense PDFs, fences server return, resumes local work, preserves journals and sessions, and recovers a held fence after restart');

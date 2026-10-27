@@ -1,13 +1,14 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const {spawnSync}=require('node:child_process');
-const {validate,parse,verify,SOURCES,TRUE_FLAGS,FALSE_FLAGS}=require('../../.github/scripts/verify-startup-source-native.cjs');
+const {validate,parse,verify,SOURCES,PACKAGED_SOURCES,TRUE_FLAGS,FALSE_FLAGS}=require('../../.github/scripts/verify-startup-source-native.cjs');
 const repository=path.resolve(__dirname,'../..'),revision='7'.repeat(40),hash=raw=>crypto.createHash('sha256').update(raw).digest('hex');
 function fixture(t){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'go-erp-startup-proof-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const proof={format:1,kind:'go-erp-startup-source-native',sourceRevision:revision,installedAsarCode:false,
     ...Object.fromEntries(TRUE_FLAGS.map(name=>[name,true])),...Object.fromEntries(FALSE_FLAGS.map(name=>[name,false])),
-    sourceHashes:Object.fromEntries(Object.entries(SOURCES).map(([name,file])=>[name,hash(fs.readFileSync(path.join(repository,file)))]))};
+    sourceHashes:Object.fromEntries(Object.entries(SOURCES).map(([name,file])=>[name,hash(fs.readFileSync(path.join(repository,file)))])),
+    packagedNativeHashes:Object.fromEntries(Object.entries(PACKAGED_SOURCES).map(([name,file])=>[name,hash(fs.readFileSync(path.join(repository,file)))]))};
   const line=value=>'GO_ERP_STARTUP_SOURCE_NATIVE '+JSON.stringify(value);
   const log='PASS existing original generation assertion\r\n'+line(proof)+'\r\nPASS existing supervisor restart assertion\r\n';
   const file=path.join(root,'native.log'),receipt=path.join(root,'native.json');fs.writeFileSync(file,log);
@@ -51,10 +52,17 @@ test('omitted, extra, stale or physically changed helper and fixture source hash
   }
   const extra=structuredClone(f.proof);extra.sourceHashes.other='0'.repeat(64);assert.throws(()=>validate(extra,f.options));
   const checkout=path.join(f.root,'checkout');
-  for(const file of Object.values(SOURCES)){const target=path.join(checkout,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(path.join(repository,file),target);}
+  for(const file of [...Object.values(SOURCES),...Object.values(PACKAGED_SOURCES)]){const target=path.join(checkout,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(path.join(repository,file),target);}
   assert.doesNotThrow(()=>validate(f.proof,{root:checkout,revision}));
   fs.appendFileSync(path.join(checkout,SOURCES.helper),'\n// changed after native receipt\n');
   assert.throws(()=>validate(f.proof,{root:checkout,revision}),/code changed/);
+});
+test('the installed ASAR receipt must bind every native module, including the compiled workspace gate',t=>{
+  const f=fixture(t);assert.ok(Object.hasOwn(PACKAGED_SOURCES,'workspace-policy.cjs'));
+  for(const name of ['workspace-policy.cjs','workspace-runtime.cjs','workspace-login.cjs','main.cjs']){
+    const missing=structuredClone(f.proof);delete missing.packagedNativeHashes[name];assert.throws(()=>validate(missing,f.options));
+    const changed=structuredClone(f.proof);changed.packagedNativeHashes[name]='0'.repeat(64);assert.throws(()=>validate(changed,f.options));
+  }
 });
 test('the standalone CLI creates one strict proof and cannot overwrite a prior proof or accept an old source',t=>{
   const f=fixture(t),helper=path.join(repository,'.github/scripts/verify-startup-source-native.cjs');

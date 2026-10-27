@@ -28,7 +28,15 @@ const sourceFiles = [...fs.readdirSync(path.join(repository, 'desktop-pos/src'))
   'tests/desktop_dashboard_runtime/workspace-native-fixture.php','tests/desktop_dashboard_runtime/full-schema.php',
   'tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json'];
 const sourceHashes = Object.fromEntries(sourceFiles.map(file => [file, sha(path.join(repository, file))]));
-let phpServer, tls, child, prepared = false, phpError = '', childDiagnostic = '';
+let phpServer, tls, child, prepared = false, phpError = '', childDiagnostic = '', privateServerConfig;
+const phpEvents = [];
+function sanitizedPhp(text) {
+  const secrets = [...(privateServerConfig?.credentials || []).flatMap(row => [row.email, row.password]),
+    ...Object.entries(privateServerConfig?.environment || {}).filter(([name]) => /KEY|PASSWORD|TOKEN|SECRET/.test(name)).map(([, value]) => value)];
+  let value = String(text); for (const secret of secrets) if (typeof secret === 'string' && secret.length >= 4) value = value.split(secret).join('[redacted]');
+  return value.replace(/base64:[A-Za-z0-9+/=]+/g, '[redacted-key]').replace(/Bearer\s+[^\s"']+/gi, 'Bearer [redacted]')
+    .replace(/\b[a-f0-9]{32,}\b/gi, '[redacted-token]').replace(/https?:\/\/[^\s"']+/g, '[redacted-url]').slice(0, 1200);
+}
 const phpArguments = ['-c', path.join(bundle, 'php/php.ini')];
 const environment = { ...process.env, PHP_INI_SCAN_DIR: path.join(bundle, 'php/conf.d'), DESKTOP_WORKSPACE_NATIVE_FIXTURE_CONFIG: serverConfig };
 const cli = args => {
@@ -45,13 +53,17 @@ async function main() {
   try {
     const tlsPort = await freePort(), phpPort = await freePort(), origin = 'https://127.0.0.1:' + tlsPort;
     cli(['prepare', path.join(bundle, 'application'), String(dbPort), root, origin, sourceRevision]); prepared = true;
-    const config = JSON.parse(fs.readFileSync(serverConfig, 'utf8')); assert.equal(config.origin, origin); assert.equal(config.sourceRevision, sourceRevision);
+    const config = privateServerConfig = JSON.parse(fs.readFileSync(serverConfig, 'utf8')); assert.equal(config.origin, origin); assert.equal(config.sourceRevision, sourceRevision);
     const publicationVersion = JSON.parse(fs.readFileSync(path.join(repository, 'desktop-pos/package.json'), 'utf8')).version;
     fs.writeFileSync(runnerConfig, JSON.stringify({ format: 2, kind: 'go-erp-workspace-native-runner', root, bundle, serverConfig, codeRoot: path.join(repository, 'desktop-pos/src'),
       proof: childProof, certificateFingerprint, sourceHashes, publicationVersion }) + '\n', { flag: 'wx' });
     phpServer = spawn(php, [...phpArguments, '-S', '127.0.0.1:' + phpPort, router], { cwd: path.join(bundle, 'application'), env: environment,
       windowsHide: true, shell: false, stdio: ['ignore', 'ignore', 'pipe'] });
-    phpServer.stderr.on('data', bytes => { phpError = (phpError + bytes.toString()).slice(-4096); }); await ready(phpPort);
+    phpServer.stderr.on('data', bytes => { phpError = (phpError + bytes.toString()).slice(-4096);
+      for (const line of bytes.toString().split(/\r?\n/)) if (/WORKSPACE_NATIVE_SERVER_ROUTER_FAILED|PHP (?:Fatal|Warning|Parse)|Uncaught|SQLSTATE/.test(line)) {
+        phpEvents.push(sanitizedPhp(line)); if (phpEvents.length > 10) phpEvents.shift();
+      }
+    }); await ready(phpPort);
     const proxy = (request, response) => {
       const target = http.request({ hostname: '127.0.0.1', port: phpPort, method: request.method, path: request.url,
         headers: { ...request.headers, host: new URL(origin).host } }, incoming => { response.writeHead(incoming.statusCode, incoming.headers); incoming.pipe(response); });
@@ -95,7 +107,7 @@ async function main() {
   } catch (error) {
     const diagnostic = { format: 2, kind: 'go-erp-workspace-native-diagnostic', sourceRevision, counts,
       native: childDiagnostic.split(/\r?\n/).filter(line => line.startsWith('NATIVE_SHARED_WORKSPACE_FAILED ')).slice(-1),
-      phpLines: phpError.split(/\r?\n/).map(line => /\b(?:Fatal error|Uncaught|Parse error)\b/.test(line) ? 'PHP_ERROR' : null).filter(Boolean).slice(-8),
+      phpDiagnostics: phpEvents,
       code: /^[A-Z0-9_]{1,100}$/.test(error.code || '') ? error.code : 'NATIVE_ASSERTION_FAILED' };
     fs.mkdirSync(path.dirname(output), { recursive: true }); fs.writeFileSync(path.join(path.dirname(output), 'workspace-native-diagnostic.json'), JSON.stringify(diagnostic, null, 2) + '\n'); throw error;
   } finally {
