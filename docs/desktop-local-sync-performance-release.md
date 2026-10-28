@@ -1,6 +1,6 @@
 # Local dashboard responsiveness release candidate
 
-This prepares `0.4.4-preview.61` from `f182ca39e0a093f068913db858624d251db33abe`. It is not a production deployment or evidence of improved timing on an owner's computer.
+This prepares `0.4.4-preview.61` from `11c739039e5c6320b3542d414682d755c7902790`. It is not a production deployment or evidence of improved timing on an owner's computer.
 
 The changes avoid a document reload after an unchanged data check, admit a settled application order board to the existing guarded data handoff, bound safe navigation and order-feed reads, preserve body cancellation, distinguish actual changed select values from implicit HTML defaults, and show incoming-data freshness separately from upload connectivity. Original command identities, mutation transports, printing effects, authority checks and data cutover fences remain in force.
 
@@ -14,4 +14,4 @@ This derivation does not attest that those bytes have already been installed on 
 
 Production rollout also requires a reviewed manual worker seed/cohort upgrade covering the changed native files. The completed shared-workspace activation operator is not an upgrade operator for this release. Keep automatic updates disabled, preserve the active database/outbox and original recovery records, and do not run a schema migration for this frontend/native patch.
 
-Local validation at `f182ca39` passed 267 tests with one PHP-only test skipped because PHP was unavailable. The separate Windows workflows provide native/runtime evidence; their result must be checked for the exact final release source. No installed-device startup improvement, complete offline route parity or incremental change-journal protocol is claimed. The unbounded external-script initialization path remains separate work.
+Local validation at `11c73903` passed 271 tests with one PHP-only test skipped because PHP was unavailable. The separate Windows workflows provide native/runtime evidence; their result must be checked for the exact final release source. No installed-device startup improvement, complete offline route parity or incremental change-journal protocol is claimed. The unbounded external-script initialization path remains separate work.
