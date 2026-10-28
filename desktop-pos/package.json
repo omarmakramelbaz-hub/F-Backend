@@ -1,6 +1,6 @@
 {
   "name": "fasakhansta-desktop-pos",
-  "version": "0.4.4-preview.60",
+  "version": "0.4.4-preview.62",
   "description": "GO ERP desktop dashboard with durable offline branch orders",
   "main": "src/main.cjs",
   "author": "GO ERP",
