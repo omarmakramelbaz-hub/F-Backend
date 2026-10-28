@@ -65,7 +65,9 @@ test('prepared section reports actual connection, refresh time and updater state
 test('unknown updater status, invalid version and invented refresh time are never displayed', async () => {
   const f = fixture(); await f.ready();
   f.state({ available: true, prepared: true, phase: '__proto__', online: false, refreshedAt: '<private>', update: { status: '<private>', version: '<img src=x>' } });
-  assert.equal(f.current.controls.refreshed.textContent, ''); assert.doesNotMatch(f.current.controls.update.textContent, /private|img|object/);
+  assert.match(f.current.controls.refreshed.textContent, /لم يتأكد تحديث بيانات الجهاز من السيرفر بعد/);
+  assert.doesNotMatch(f.current.controls.refreshed.textContent, /private|آخر تحديث|img|object/);
+  assert.doesNotMatch(f.current.controls.update.textContent, /private|img|object/);
   assert.match(f.current.controls.connection.textContent, /لم يتأكد/); assert.match(f.current.controls.description.textContent, /يحتاج تجهيز/);
 });
 test('SPA leaving and remounting disposes native subscriptions and timers and ignores old callbacks', async () => {
@@ -87,3 +89,4 @@ test('authenticated server controller offers only the validated GO ERP publicati
   if (check.error?.code === 'ENOENT' && !process.env.DESKTOP_TEST_PHP) { t.skip('PHP not installed'); return; }
   assert.equal(check.status, 0, check.stdout + check.stderr); assert.match(check.stdout, /PASS 18 modern program controller checks/);
 });
+

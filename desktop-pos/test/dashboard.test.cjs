@@ -701,7 +701,9 @@ test('focused or changed home fields and visible dialogs defer snapshots while s
   dialogs=[{closest:()=>({}),getClientRects:()=>[{}]}];assert.equal(await f.dashboard.canRefresh(),true);
   dialogs=[{closest:()=>null,getClientRects:()=>[]}];assert.equal(await f.dashboard.canRefresh(),true);dialogs=[];
   fields=[{tagName:'INPUT',type:'text',value:'changed',defaultValue:''}];assert.equal(await f.dashboard.canRefresh(),false);
-  fields=[{tagName:'SELECT',options:[{selected:true,defaultSelected:false}]}];assert.equal(await f.dashboard.canRefresh(),false);
+  // With no selected attribute, HTML selects the first enabled option by default.
+  fields=[{tagName:'SELECT',options:[{selected:true,defaultSelected:false}]}];assert.equal(await f.dashboard.canRefresh(),true);
+  fields=[{tagName:'SELECT',options:[{selected:false,defaultSelected:true},{selected:true,defaultSelected:false}]}];assert.equal(await f.dashboard.canRefresh(),false);
   fields=[];document.readyState='loading';assert.equal(await f.dashboard.canRefresh(),false);
 });
 test('business routes require their scoped idle proof while status and home pages accept settled content',async t=>{
@@ -1015,3 +1017,4 @@ test('native workspace print proof is bound to the exact URL/method and used onc
   let outgoing;f.session.webRequest.headers({id:1105,url:policy.DEFAULT_ORIGIN+'/admin/dashboard',method:'GET',webContentsId:sender.id,requestHeaders:proof},value=>outgoing=value);
   assert.equal(Object.keys(outgoing.requestHeaders).some(name=>/^x-fasakhansta-workspace-/i.test(name)),false);
 });
+
