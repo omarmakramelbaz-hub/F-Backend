@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import stat
+from types import SimpleNamespace
 
 CORE = '052e69008da7e330815b376824cd8afc18cf04c1'
 SEED = 'dc06af6f8e4ef9ea03a3fb9c728d26acb2f8193a'
@@ -215,7 +216,11 @@ def observe(operator, payload_helper, *, verify_locks):
         native[name] = raw
     need(sha(read(SYSTEMD / 'go-erp-live-updates.service', 65536, (0o644,))) == cohort['unit_sha256'],
          'CURRENT_NATIVE_UNIT_CHANGED')
-    env_raw = operator.io.read(ROOT / '.env', 1001, 1003, limit=2 * 1024**2)[0]
+    # The general source reader intentionally excludes private mode 0600.
+    # Reuse the pinned activation reader's original environment policy without
+    # constructing an activation adapter or changing any file permissions.
+    env_raw, _env_info = operator.modules['activation'].Activation._read(
+        SimpleNamespace(io=operator.io), ROOT / '.env')
     env_hash = sha(env_raw)
     need(env_hash == flow['prepared']['binding']['env_enabled_sha256'], 'CURRENT_ENABLED_ENV_CHANGED')
     private_hashes[str(ROOT / '.env')] = env_hash

@@ -1,5 +1,6 @@
 import copy
 from contextlib import contextmanager
+import hashlib
 import importlib.util
 import json
 import os
@@ -23,6 +24,21 @@ def load(name, path):
 current = load('current_for_test', 'go_erp_desktop_performance_current.py')
 payloads = load('payloads_for_current_test', 'go_erp_desktop_performance_payloads.py')
 NEXT_SEED = '11c739039e5c6320b3542d414682d755c7902790'
+
+
+def pinned_fixture(name, digest):
+    path = ROOT / 'tests/fixtures/go_erp_desktop_performance' / name
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != digest:
+        raise AssertionError('The legacy reader fixture differs from its approved public bytes')
+    spec = importlib.util.spec_from_file_location('legacy_performance_test_' + path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+legacy_source = pinned_fixture('source_root.py', '0e6cade4b9fd20a6a73ce7a79a587e67c69b9cecb1b6c852a62c531fcd2c5375')
+legacy_activation = pinned_fixture('activation_root.py', 'ce2894a4369d0896de323ad99d92e5bad2c48c3d986053586b16d13d0f4b013f')
 
 
 def target():
@@ -104,10 +120,20 @@ class Fixture:
                                       units=lambda _path: self.units,
                                       atomic_write=self.forbidden, run=self.forbidden)
         self.operator = SimpleNamespace(pins=self.pins, engine=self.engine,
-            io=SimpleNamespace(parse=lambda raw: json.loads(raw), read=lambda *_args, **_kwargs: (self.env, None)),
+            io=SimpleNamespace(parse=lambda raw: json.loads(raw), read=self.forbidden),
             template=SimpleNamespace(quiet=lambda _engine: None), _load=lambda: copy.deepcopy(self.flow),
             _native_configuration=self.factory,
             package=SimpleNamespace(repository=Path('/private/existing-release.git'), revision='1e651117deabb4c6935933ee424237d82bd316cb'))
+        self.env_reader_calls = 0
+        fixture = self
+        class EnvironmentReader:
+            @staticmethod
+            def _read(scope, path):
+                if scope.io is not fixture.operator.io or path != current.ROOT / '.env':
+                    raise AssertionError('The pinned environment-reader delegation changed')
+                fixture.env_reader_calls += 1
+                return fixture.env, None
+        self.operator.modules = {'activation': SimpleNamespace(Activation=EnvironmentReader)}
 
     def forbidden(self, *_args, **_kwargs):
         raise AssertionError('A read-only preflight must never mutate a file or service')
@@ -153,6 +179,7 @@ class CurrentCohort(unittest.TestCase):
         self.assertEqual(result['profile']['job_prefix'], 'shared-workspace-')
         self.assertEqual(result['profile']['seed'], current.SEED)
         self.assertEqual(fixture.factory_calls, 1)
+        self.assertEqual(fixture.env_reader_calls, 1)
         self.assertTrue(all(call[-1] is False for call in fixture.directory_calls))
         serialized = json.dumps(current.record(result))
         self.assertNotIn('PRIVATE_CONFIG_TOKEN', serialized)
@@ -289,6 +316,129 @@ class CurrentCohort(unittest.TestCase):
                         self.fail('Missing original lock must not be created')
             self.assertFalse((private / 'worker.lock').exists())
             self.assertGreater(len(calls), 1)
+
+
+class RealPinnedEnvironmentReader(unittest.TestCase):
+    """Exercise the exact approved reader against real filesystem metadata.
+
+    Only the deployment root/application identity is mapped to the temporary
+    test directory/current account. Both legacy fixture source files remain
+    byte-identical to their compiled public pins.
+    """
+    @contextmanager
+    def isolated(self, mode=0o600):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment = root / '.env'
+            fixture = Fixture()
+            environment.write_bytes(fixture.env)
+            environment.chmod(mode)
+            before = current.ROOT / 'storage/app/desktop-updates/current.json'
+            fixture.files[root / 'storage/app/desktop-updates/current.json'] = fixture.files.pop(before)
+            fixture.operator.io = legacy_source
+            fixture.operator.modules['activation'] = legacy_activation
+            with fixture.bound(), patch.object(current, 'ROOT', root), \
+                    patch.object(legacy_activation, 'ROOT', root), \
+                    patch.object(legacy_activation, 'APP_UID', os.geteuid()), \
+                    patch.object(legacy_activation, 'APP_GID', os.getegid()):
+                yield fixture, environment
+
+    @contextmanager
+    def forbid_writes(self):
+        original_open = os.open
+        original_fdopen = os.fdopen
+        opened = []
+        write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+
+        def readonly_open(path, flags, *args, **kwargs):
+            self.assertEqual(flags & write_flags, 0, 'Environment verification opened a writable descriptor')
+            opened.append((path, flags))
+            return original_open(path, flags, *args, **kwargs)
+
+        def readonly_fdopen(fd, mode='r', *args, **kwargs):
+            self.assertFalse(any(part in mode for part in ('w', 'a', '+', 'x')))
+            return original_fdopen(fd, mode, *args, **kwargs)
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError('A permission regression must not repair or rewrite the environment')
+
+        with patch.object(os, 'open', readonly_open), patch.object(os, 'fdopen', readonly_fdopen), \
+                patch.object(os, 'chmod', forbidden), patch.object(os, 'chown', forbidden), \
+                patch.object(os, 'write', forbidden), patch.object(Path, 'write_bytes', forbidden), \
+                patch.object(Path, 'write_text', forbidden):
+            yield opened
+
+    def snapshot(self, path):
+        value = path.lstat()
+        return ((value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+                 value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns), path.read_bytes())
+
+    def test_original_reader_accepts_private_and_public_approved_modes_without_repairs(self):
+        for mode in (0o600, 0o640, 0o644):
+            with self.subTest(mode=oct(mode)), self.isolated(mode) as (fixture, environment):
+                before = self.snapshot(environment)
+                with self.forbid_writes() as opened:
+                    observation = fixture.observe()
+                self.assertGreater(len(opened), 0)
+                self.assertEqual(observation['private_hashes'][str(environment)], current.sha(fixture.env))
+                self.assertEqual(self.snapshot(environment), before)
+
+    def test_general_public_source_reader_remains_strict_about_0600(self):
+        with self.isolated(0o600) as (_fixture, environment):
+            before = self.snapshot(environment)
+            with self.forbid_writes(), self.assertRaisesRegex(legacy_source.Stop, 'FILE_UNSAFE'):
+                legacy_source.read(environment, os.geteuid(), os.getegid())
+            self.assertEqual(self.snapshot(environment), before)
+
+    def test_original_reader_rejects_symlink_and_hardlink_without_repair(self):
+        for kind in ('symlink', 'hardlink'):
+            with self.subTest(kind=kind), self.isolated(0o600) as (fixture, environment):
+                retained = environment.with_name('retained-environment')
+                environment.rename(retained)
+                if kind == 'symlink':
+                    environment.symlink_to(retained)
+                else:
+                    os.link(retained, environment)
+                before = self.snapshot(environment)
+                retained_before = self.snapshot(retained)
+                with self.forbid_writes(), self.assertRaisesRegex(legacy_activation.Stop, 'FILE_UNSAFE'):
+                    fixture.observe()
+                self.assertEqual(self.snapshot(environment), before)
+                self.assertEqual(self.snapshot(retained), retained_before)
+
+    def test_original_reader_rejects_writable_unapproved_modes_without_chmod(self):
+        for mode in (0o602, 0o664, 0o666):
+            with self.subTest(mode=oct(mode)), self.isolated(mode) as (fixture, environment):
+                before = self.snapshot(environment)
+                with self.forbid_writes(), self.assertRaisesRegex(legacy_activation.Stop, 'FILE_UNSAFE'):
+                    fixture.observe()
+                self.assertEqual(self.snapshot(environment), before)
+
+    def test_original_reader_rejects_foreign_file_owner_metadata(self):
+        with self.isolated(0o600) as (fixture, environment):
+            # Managed/id-mapped filesystems can reject chown even for UID0.
+            # Read the real inode, then fault-inject only its returned owner
+            # metadata; all reader code and filesystem access remain original.
+            original_stat = os.stat
+            def foreign_owner(path, *args, **kwargs):
+                value = original_stat(path, *args, **kwargs)
+                if path == '.env' and 'dir_fd' in kwargs:
+                    fields = {name: getattr(value, name) for name in dir(value) if name.startswith('st_')}
+                    fields.update(st_uid=12345, st_gid=12345)
+                    return SimpleNamespace(**fields)
+                return value
+            before = self.snapshot(environment)
+            with patch.object(os, 'stat', foreign_owner), self.forbid_writes(), self.assertRaisesRegex(legacy_activation.Stop, 'FILE_UNSAFE'):
+                fixture.observe()
+            self.assertEqual(self.snapshot(environment), before)
+
+    def test_accepted_0600_file_still_requires_exact_enabled_environment_hash(self):
+        with self.isolated(0o600) as (fixture, environment):
+            environment.write_bytes(fixture.env + b'UNREVIEWED_PRIVATE_CHANGE=1\n')
+            before = self.snapshot(environment)
+            with self.forbid_writes(), self.assertRaisesRegex(current.Stop, 'CURRENT_ENABLED_ENV_CHANGED'):
+                fixture.observe()
+            self.assertEqual(self.snapshot(environment), before)
 
 
 if __name__ == '__main__':
