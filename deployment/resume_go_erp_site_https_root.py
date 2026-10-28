@@ -22,6 +22,7 @@ COMPAT_SHA = '224c5a123edad1b17eccaed671a3a4e8cb0f418b0ef49cf600334245317fd389'
 ACTIVATION_SHA = 'ce2894a4369d0896de323ad99d92e5bad2c48c3d986053586b16d13d0f4b013f'
 ADDRESS = '187.127.92.124'
 USERDATA = Path('/var/cpanel/userdata/fasakha/fasakhaninja.com')
+PRIOR_ADAPTER_SHA = 'b98ff39b304f658c25b7882830c61dc86040c29fb5026dc65e3bb1b8be831401'
 
 
 class Stop(Exception):
@@ -75,27 +76,42 @@ def compile_method(source, namespace):
     return functions[0]
 
 
+def pending_probe(actor, module, action, folder, program_code):
+    pending = actor._load(folder / 'pending.json')
+    need(actor._load(folder / 'complete.json') is None, 'COMPLETED_ACTION_IMMUTABLE')
+    need(isinstance(pending, dict) and pending.get('action_sha256') == module.digest(action)
+         and isinstance(pending.get('name'), str)
+         and re.fullmatch(r'go-erp-readiness-[a-f0-9]{32}\.php', pending['name'])
+         and all(isinstance(pending.get(k), str) and re.fullmatch(r'[a-f0-9]{64}', pending[k])
+                 for k in ('token', 'nonce')),
+         'STALE_PROBE_INTENT_CHANGED')
+    scope = {'ROOT': module.ROOT, 'sha': module.sha, 'pending': pending}
+    exec(program_code, scope)
+    return pending, module.sha(scope['program'])
+
+
+def check_owned(owned, program_sha):
+    need(isinstance(owned, dict) and set(owned) == {'inode', 'sha256'}
+         and owned['sha256'] == program_sha
+         and isinstance(owned['inode'], list) and len(owned['inode']) == 2
+         and all(type(x) is int for x in owned['inode']), 'STALE_PROBE_OWNERSHIP_CHANGED')
+
+
+def absent_probe_paths(module, pending):
+    for parent in (module.ROOT, module.ROOT / 'public'):
+        need(not os.path.lexists(parent / pending['name']), 'EXISTING_PROBE_REVIEW_REQUIRED')
+
+
 def retire_stale_probe(actor, module, action, folder, program_code):
     """Retire ownership only: never remove a probe file, pending action or receipt."""
     owned_path = folder / 'probe.json'
     original = actor.io.read(owned_path, 0, 0, optional=True, private=True)
     if original is None:
         return
+    pending, program_sha = pending_probe(actor, module, action, folder, program_code)
     owned = actor._load(owned_path)
-    pending = actor._load(folder / 'pending.json')
-    need(actor._load(folder / 'complete.json') is None, 'COMPLETED_ACTION_IMMUTABLE')
-    need(isinstance(pending, dict) and pending.get('action_sha256') == module.digest(action)
-         and re.fullmatch(r'go-erp-readiness-[a-f0-9]{32}\.php', pending.get('name', ''))
-         and all(re.fullmatch(r'[a-f0-9]{64}', pending.get(k, '')) for k in ('token', 'nonce')),
-         'STALE_PROBE_INTENT_CHANGED')
-    scope = {'ROOT': module.ROOT, 'sha': module.sha, 'pending': pending}
-    exec(program_code, scope)
-    need(isinstance(owned, dict) and set(owned) == {'inode', 'sha256'}
-         and owned['sha256'] == module.sha(scope['program'])
-         and isinstance(owned['inode'], list) and len(owned['inode']) == 2
-         and all(type(x) is int for x in owned['inode']), 'STALE_PROBE_OWNERSHIP_CHANGED')
-    for parent in (module.ROOT, module.ROOT / 'public'):
-        need(not os.path.lexists(parent / pending['name']), 'EXISTING_PROBE_REVIEW_REQUIRED')
+    check_owned(owned, program_sha)
+    absent_probe_paths(module, pending)
     need(actor.verify_locks() is not False, 'ORIGINAL_LOCKS_REQUIRED')
     # Preserve a root-private copy before retiring this one stale ownership file.
     actor._save(folder / ('site-retired-probe-' + module.sha(original[0]) + '.json'), owned)
@@ -109,6 +125,33 @@ def retire_stale_probe(actor, module, action, folder, program_code):
     finally:
         os.close(parent)
     print('GO_ERP_SITE_HTTPS_STALE_PROBE_RECORD_RETIRED', flush=True)
+    return module.sha(original[0])
+
+
+def authorize_https_retry(actor, module, action, folder, program_code, adapter_sha, retired_sha=None):
+    """Only recreate a reversible, previously owned HTTPS witness; no other effect."""
+    need(action.get('name') == 'activation_https', 'ONLY_HTTPS_RETRY_ALLOWED')
+    pending, program_sha = pending_probe(actor, module, action, folder, program_code)
+    absent_probe_paths(module, pending)
+    need(actor._load(folder / 'probe.json') is None, 'RETRY_PROBE_RECORD_NOT_RETIRED')
+    archives = list(folder.glob('site-retired-probe-*.json'))
+    need(0 < len(archives) <= 128, 'RETRY_OWNERSHIP_ARCHIVE_REQUIRED')
+    evidence = []
+    for path in sorted(archives):
+        match = re.fullmatch(r'site-retired-probe-([a-f0-9]{64})\.json', path.name)
+        need(match is not None, 'RETRY_ARCHIVE_NAME_INVALID')
+        raw, _info = actor.io.read(path, 0, 0, private=True)
+        owned = actor._load(path)
+        need(module.sha(raw) == match[1], 'RETRY_ARCHIVE_DIGEST_CHANGED')
+        check_owned(owned, program_sha)
+        evidence.append(match[1])
+    need(actor.verify_locks() is not False, 'ORIGINAL_LOCKS_REQUIRED')
+    need(retired_sha is None or retired_sha in evidence, 'RETRY_ARCHIVE_DIGEST_CHANGED')
+    record = {'format': 1, 'kind': 'go-erp-owned-https-witness-retry',
+        'adapter_sha256': adapter_sha, 'action_sha256': module.digest(action),
+        'pending_sha256': module.digest(pending), 'program_sha256': program_sha,
+        'archived_ownership_sha256': retired_sha or evidence[0], 'other_activation_effects_replayed': False}
+    actor._save(folder / ('site-https-retry-' + module.digest(record) + '.json'), record)
 
 
 def install_adapter(operator, raw, adapter_sha, address):
@@ -151,6 +194,21 @@ def install_adapter(operator, raw, adapter_sha, address):
             'sni': 'fasakhaninja.com', 'documentroot': root,
             'probe_directory': str(module.ROOT / 'public'), 'routing': before}
 
+    def bind_provenance(actor, folder, expected, *, creating):
+        path = folder / 'site-https-adapter.json'
+        prior = actor._load(path)
+        if prior is None:
+            need(creating, 'COMPLETED_HTTPS_ADAPTER_BINDING_CHANGED')
+            actor._save(path, expected)
+        elif prior != expected:
+            # Accept only the exact published predecessor with all routing,
+            # handler and action fields unchanged. Preserve its original record.
+            historical = {**expected, 'adapter_sha256': PRIOR_ADAPTER_SHA}
+            need(prior == historical, 'COMPLETED_HTTPS_ADAPTER_BINDING_CHANGED')
+            upgrade = {'format': 1, 'kind': 'go-erp-site-https-adapter-upgrade',
+                'predecessor_record_sha256': module.digest(prior), 'current': expected}
+            actor._save(folder / ('site-https-adapter-upgrade-' + adapter_sha + '.json'), upgrade)
+
     original_perform = module.Activation._perform
 
     def site_perform(actor, action, recovering):
@@ -160,15 +218,20 @@ def install_adapter(operator, raw, adapter_sha, address):
             actor._approved(action)
             folder = actor._folder(action)
             if actor._load(folder / 'complete.json') is not None:
-                need(actor._load(folder / 'site-https-adapter.json') == provenance(actor, action),
-                     'COMPLETED_HTTPS_ADAPTER_BINDING_CHANGED')
+                bind_provenance(actor, folder, provenance(actor, action), creating=False)
         return original_perform(actor, action, recovering)
 
     def site_https(actor, action, folder, recovering):
+        need(not recovering or action.get('name') == 'activation_https', 'ONLY_HTTPS_RETRY_ALLOWED')
         record = provenance(actor, action)
         before = record['routing']
-        actor._save(folder / 'site-https-adapter.json', record)
-        retire_stale_probe(actor, module, action, folder, program_code)
+        bind_provenance(actor, folder, record, creating=True)
+        retired_sha = retire_stale_probe(actor, module, action, folder, program_code)
+        if recovering:
+            authorize_https_retry(actor, module, action, folder, program_code, adapter_sha, retired_sha)
+            # Only this validation step gets a new O_EXCL witness. The original
+            # method still verifies the enabled env/cache/source and handler.
+            recovering = False
         finish = actor._finish
         prior_override = actor.__dict__.get('_finish')
 
@@ -219,11 +282,26 @@ def main():
     compat.main()
 
 
+def failure_codes(error):
+    """Only public identifiers/line numbers; never messages, paths or locals."""
+    code = str(error)
+    if re.fullmatch(r'GO_ERP_[A-Z0-9_]{1,160}', code):
+        return [code]
+    kind = re.sub(r'[^A-Z0-9_]', '', type(error).__name__.upper())[:60] or 'UNKNOWN'
+    result = ['GO_ERP_SITE_HTTPS_ERROR_' + kind]
+    frames = []
+    tb = error.__traceback__
+    while tb is not None:
+        name = re.sub(r'[^A-Z0-9_]', '', tb.tb_frame.f_code.co_name.upper())[:60] or 'MODULE'
+        frames.append('GO_ERP_SITE_HTTPS_FRAME_' + name + '_LINE_' + str(tb.tb_lineno))
+        tb = tb.tb_next
+    return result + frames[-8:]
+
+
 if __name__ == '__main__':
     try:
         main()
     except BaseException as error:
-        code = str(error)
-        print(code if re.fullmatch(r'GO_ERP_[A-Z0-9_]{1,160}', code)
-              else 'GO_ERP_SITE_HTTPS_PRIVATE_FAILURE', flush=True)
+        for code in failure_codes(error):
+            print(code, flush=True)
         raise SystemExit(1)

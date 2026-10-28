@@ -9,7 +9,7 @@ go_site_adapter=$1
 [[ "$go_site_adapter" = /* ]]
 test -f "$go_site_adapter"
 test ! -L "$go_site_adapter"
-printf '%s  %s\n' b98ff39b304f658c25b7882830c61dc86040c29fb5026dc65e3bb1b8be831401 "$go_site_adapter" | sha256sum --check --status
+printf '%s  %s\n' 67e873e8c535832f7d56ceaff5f90a306b8f07cf02a07aebf177f04dc040e1a0 "$go_site_adapter" | sha256sum --check --status
 
 go_site_revision=1e651117deabb4c6935933ee424237d82bd316cb
 go_site_candidate=d1976ce02c553939032241e7e724d26a9bbe7190
@@ -19,6 +19,21 @@ with open('/var/lib/go-erp-live-updates/state/current.json') as stream:
     desired = json.load(stream).get('desired') or {}
 if desired.get('commit') != sys.argv[1] or desired.get('version') != '0.4.4-preview.60':
     raise SystemExit('GO_ERP_SITE_HTTPS_CANDIDATE_NOT_PREVIEW_60')
+with open('/var/lib/go-erp-manual-updates/private/shared-workspace-root-052e69008da7e330815b376824cd8afc18cf04c1.json') as stream:
+    flow = json.load(stream)
+phase = (flow.get('activation') or {}).get('phase')
+known = ('prepared', 'gates-accepted', 'handler-verified', 'flag-write-pending',
+         'flag-written', 'cache-build-pending', 'cache-built',
+         'route-cache-build-pending', 'cache-ready', 'fpm-reload-pending',
+         'fpm-ready', 'active')
+print('GO_ERP_SITE_HTTPS_CURRENT_PHASE_' +
+      (phase.upper().replace('-', '_') if phase in known else 'UNKNOWN'), flush=True)
+pending = flow.get('pending_activation')
+if (phase not in ('fpm-ready', 'active')
+    or (pending is not None and (not isinstance(pending, dict)
+                                or pending.get('name') != 'activation_https'))
+    or (phase == 'active' and pending is not None)):
+    raise SystemExit('GO_ERP_SITE_HTTPS_LATE_ACTIVATION_STATE_REVIEW_REQUIRED')
 PY
 
 go_site_runner=$(mktemp /var/tmp/go-erp-site-https-runner.XXXXXXXX)
