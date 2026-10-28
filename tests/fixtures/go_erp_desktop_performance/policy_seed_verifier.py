@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 import types
 
-CORE = '43b1498938d4550a4c63c267dbcde12b0bab7e81'
+CORE = 'b5503e21e3af32eecaf0d2f9d68eee7d21be7439'
 LEGACY_BASES = frozenset((
     '75c3fe50b3609ef5822904a23d7c4ed0afd07eff',
     '7523ff6888a6e3d0a6f5b7712c553909f12c043b',

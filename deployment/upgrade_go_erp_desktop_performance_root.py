@@ -17,11 +17,12 @@ import os
 import sys
 from types import SimpleNamespace
 
-CORE = '43b1498938d4550a4c63c267dbcde12b0bab7e81'
+FAILED_CORE = '43b1498938d4550a4c63c267dbcde12b0bab7e81'
+CORE = 'b5503e21e3af32eecaf0d2f9d68eee7d21be7439'
 BAD_SEED = '11c739039e5c6320b3542d414682d755c7902790'
-SEED = '78f862c63d0ee75871417c286512e81f962934d6'
+SEED = 'd15942c947ac31c21a90b53856084a5de35d3cc3'
 WEB_RELEASE = BAD_SEED
-POLICY_VERIFIER_SHA256 = '42c91abce041d42a61b4f0db70294b7912f44afdbcf8dad8cd0d018e98b3831f'
+POLICY_VERIFIER_SHA256 = '2de7ec3884760a2b566f45469aa7aa1d2b31d6a605be16fe496af9b998ce15bc'
 BAD_RUNTIME = 'policy-9d1cd8162a2a2a4a1de4acab091454d547a42696e11e35d9253dd5da5fc43397'
 ROOT_RELEASE = '1e651117deabb4c6935933ee424237d82bd316cb'
 EXPECTED_INVENTORY = '531ba5ab285bafc999930a78b9212640cf3c13fe83365da260ace931b49964b7'
@@ -31,6 +32,7 @@ WORK = Path('/var/lib/go-erp-live-updates')
 PRIVATE = Path('/var/lib/go-erp-manual-updates/private')
 AUDIT = PRIVATE / 'audits' / ('desktop-performance-' + CORE)
 JOURNAL = PRIVATE / ('desktop-performance-' + CORE + '.json')
+FAILED_JOURNAL = PRIVATE / ('desktop-performance-' + FAILED_CORE + '.json')
 NATIVE_CHANGES = {
     'main.cjs': '1ae3aa1056918dc7a34271a2da914dd2b737aa01d7c9134cfe14f9ee253184c2',
     'dashboard.cjs': '57cd03e330d4748a4d20134a75308b59b2e59f1e9566a40d528cf4d4eb6c1381',
@@ -65,8 +67,8 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() + b'\n'
 
 
-def binding(operator, source, *, seed=None, native_pins=None):
-    return {'format':1,'kind':'go-erp-desktop-performance-binding','core':CORE,'seed':SEED if seed is None else seed,
+def binding(operator, source, *, core=None, seed=None, native_pins=None):
+    return {'format':1,'kind':'go-erp-desktop-performance-binding','core':CORE if core is None else core,'seed':SEED if seed is None else seed,
             'web_release':WEB_RELEASE,'original_release':ROOT_RELEASE,
             'original_pins_sha256':sha(canonical(operator.pins)),
             'source_plan_sha256':sha(canonical(source.PINS)),
@@ -137,7 +139,7 @@ class Rollout:
         for name in ('go_erp_live_source.py','go_erp_live_updates.py'):
             self.values[name]=payloads.rebind_seed(self.values[name],BAD_SEED,SEED)
         self.derived_pins={name:(payloads.blob(raw),len(raw),sha(raw)) for name,raw in self.values.items()}
-        self.bad_binding=binding(operator,source,seed=BAD_SEED,native_pins=DERIVED_PINS)
+        self.bad_binding=binding(operator,source,core=FAILED_CORE,seed=BAD_SEED,native_pins=DERIVED_PINS)
         self.bind=binding(operator,source,native_pins=self.derived_pins)
         self.bind_sha=sha(canonical(self.bind))
         self.manual_previous_pins=None
@@ -161,6 +163,10 @@ class Rollout:
         need(verifier.CORE==CORE,'POLICY_SEED_CORE_CHANGED')
         proof=verifier.validate_seed(self.package.repository,SEED,core=CORE)
         need(proof.get('seed')==SEED and proof.get('core')==CORE,'POLICY_SEED_LINEAGE_CHANGED')
+        package=self.io.parse(self.package.file('desktop-pos/package.json',SEED))
+        lock=self.io.parse(self.package.file('desktop-pos/package-lock.json',SEED))
+        need(package.get('version')==lock.get('version')==lock.get('packages',{}).get('',{}).get('version')
+             ==self.current.VERSION,'POLICY_SEED_VERSION_BASELINE_CHANGED')
         p=self.acceptance_pins
         need(self.package.git('diff-tree','-r','--no-commit-id','--name-only','--no-renames','--no-ext-diff',
              WEB_RELEASE,CORE,'--',*self.native.BACKEND)==b'','CORE_BACKEND_DIFFERS_FROM_REVIEWED_WEB')
@@ -293,7 +299,7 @@ class Rollout:
         if saved is not None:
             self.flow=saved['performance_journal']
         else:
-            raw=self.e.read_file(JOURNAL,16*1024**2,uid=0,modes=(0o600,))[0]
+            raw=self.e.read_file(FAILED_JOURNAL,16*1024**2,uid=0,modes=(0o600,))[0]
             self.flow=self.io.parse(raw)
         need(self.flow.get('binding_sha256')==sha(canonical(self.bad_binding)),'FAILED_BINDING_CHANGED')
         self.o.flow=self.o._load()

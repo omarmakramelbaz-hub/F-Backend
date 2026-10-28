@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Pure plan for the one rejected, unallocated performance seed transaction.
+"""Pure source-adoption plan for one rejected, unallocated performance seed.
 
 This module performs no filesystem, service, Git or application operations.
 Its caller must read the supplied private records with the original no-follow
 readers while holding all original locks, reprove the committed source WAL and
 installed manual/runtime bytes, and prove the replacement policy seed before
-applying a separately journaled correction. This plan is never a publication or
+creating a separately journaled adoption. Both old journals remain unchanged;
+the original native Context alone creates the new native job. This plan is never a publication or
 counter-allocation permit. No private record belongs in public diagnostic output.
 """
 import copy
@@ -13,9 +14,10 @@ import hashlib
 import json
 import re
 
-CORE='43b1498938d4550a4c63c267dbcde12b0bab7e81'
+OLD_CORE='43b1498938d4550a4c63c267dbcde12b0bab7e81'
+CORE='b5503e21e3af32eecaf0d2f9d68eee7d21be7439'
 BAD_SEED='11c739039e5c6320b3542d414682d755c7902790'
-NEW_SEED='78f862c63d0ee75871417c286512e81f962934d6'
+NEW_SEED='d15942c947ac31c21a90b53856084a5de35d3cc3'
 OLD_BINDING_SHA256='1ed9f2aeae05e6ad8196926de079192835422f76f0d998d2a4b3b2a3b8235242'
 SOURCE_PLAN_SHA256='0db4906a3792068774a18b79c550697cfa5fca6b35160dec70bd7a3ce214a9d2'
 BAD_MANUAL_RUNTIME='64c479503f586268c4d191f2b85a2963d6e0473933cfea4cf09411f90bb189ea'
@@ -86,12 +88,13 @@ def plan(*,old_binding,new_binding,performance_journal,performance_checkpoint_ra
          pending_program_hold_raw,staged_checkout_head,staged_verifier_core,
          source_commit,source_plan_sha256,bad_manual_pins,manual_receipt,
          expected_bad_manual_unit_hashes):
-    """Return exact before/after values, refusing every consumed or mixed case."""
+    """Return one new performance journal, refusing consumed or mixed cases."""
     need(isinstance(old_binding,dict) and sha(canonical(old_binding))==OLD_BINDING_SHA256
-         and old_binding.get('core')==CORE
+         and old_binding.get('core')==OLD_CORE
          and old_binding.get('seed')==BAD_SEED and old_binding.get('web_release')==BAD_SEED,
          'OLD_BINDING_CHANGED')
-    need(isinstance(new_binding,dict) and changed(old_binding,new_binding)=={'seed','native_payloads'}
+    need(isinstance(new_binding,dict) and changed(old_binding,new_binding)=={'core','seed','native_payloads'}
+         and new_binding['core']==CORE
          and new_binding['seed']==NEW_SEED,'REPLACEMENT_BINDING_CHANGED')
     old_pins,new_pins=old_binding['native_payloads'],new_binding['native_payloads']
     need(changed(old_pins,new_pins)=={'go_erp_live_source.py','go_erp_live_updates.py'},
@@ -111,7 +114,10 @@ def plan(*,old_binding,new_binding,performance_journal,performance_checkpoint_ra
          and old_observation['profile']['seed']==CURRENT_SEED,'CURRENT_OBSERVATION_CHANGED')
     hashes=old_observation['private_hashes']
     need(sha(native_state_raw)==hashes[WORK+'/state/current.json']
-         and native_state_raw==previous_state_raw
+         # The worker writes UTF-8 JSON (ensure_ascii=False). The frozen
+         # Context writes this parsed audit with engine.canonical, whose
+         # ensure_ascii=True escapes the same Unicode source path names.
+         and previous_state_raw==canonical(parse(native_state_raw))
          and sha(config_raw)==hashes[CONFIG]
          and native_unit_sha256==hashes[UNIT],'ORIGINAL_NATIVE_SLOTS_CHANGED')
     state,config=parse(native_state_raw),parse(config_raw)
@@ -126,7 +132,7 @@ def plan(*,old_binding,new_binding,performance_journal,performance_checkpoint_ra
     need(isinstance(native_job,dict) and set(native_job)==JOB_KEYS
          and type(native_job.get('format')) is int and native_job['format']==1
          and native_job['kind']=='go-erp-warm-start-rollout'
-         and native_job['core']==CORE and native_job['seed']==BAD_SEED and native_job['runtime']==old_runtime
+         and native_job['core']==OLD_CORE and native_job['seed']==BAD_SEED and native_job['runtime']==old_runtime
          and native_job['phase']=='preparing' and native_job['prepare_started'] is False
          and all(native_job[name] is None for name in ('candidate','version','baseline_candidate',
                                                        'baseline_counter','baseline_remote'))
@@ -188,19 +194,19 @@ def plan(*,old_binding,new_binding,performance_journal,performance_checkpoint_ra
          and set(expected_bad_manual_unit_hashes)=={'go-erp-manual-updates.path','go-erp-manual-updates.service'}
          and all(isinstance(value,str) and SHA.fullmatch(value) for value in expected_bad_manual_unit_hashes.values()),
          'FAILED_MANUAL_RECEIPT_CHANGED')
-    next_job=copy.deepcopy(native_job);next_job.update(seed=new_binding['seed'],runtime=new_runtime)
     next_performance=copy.deepcopy(performance_journal)
     next_performance['binding_sha256']=sha(canonical(new_binding))
-    need(changed(native_job,next_job)=={'seed','runtime'}
-         and changed(performance_journal,next_performance)=={'binding_sha256'},'CORRECTION_SCOPE_CHANGED')
-    return {'format':1,'kind':'go-erp-desktop-performance-unallocated-seed-correction',
-        'core':CORE,'from_seed':BAD_SEED,'to_seed':new_binding['seed'],
-        'native_job_before_sha256':sha(canonical(native_job)),'native_job_after':next_job,
+    need(changed(performance_journal,next_performance)=={'binding_sha256'},'CORRECTION_SCOPE_CHANGED')
+    return {'format':1,'kind':'go-erp-desktop-performance-owned-source-adoption',
+        'core':CORE,'from_core':OLD_CORE,'from_seed':BAD_SEED,'to_seed':new_binding['seed'],
+        'native_job_before_sha256':sha(canonical(native_job)),
         'performance_before_sha256':sha(canonical(performance_journal)),'performance_after':next_performance,
         'old_binding_sha256':sha(canonical(old_binding)),'new_binding_sha256':sha(canonical(new_binding)),
         'manual_receipt_before_sha256':sha(canonical(manual_receipt)),
         'failed_report_sha256':sha(canonical(failed_report)),
+        'captured_metadata_sha256':sha(captured_metadata_raw),
         'manual_restore_required':False,'manual_transition_owned':True,
+        'old_records_unchanged':True,'new_native_job_owned_by_original':True,
         'counter_allocation_allowed':False,'database_changed':False}
 
 

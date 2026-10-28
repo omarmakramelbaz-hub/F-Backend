@@ -15,7 +15,7 @@ if r.sha(r.canonical(OLD))!=r.OLD_BINDING_SHA256:raise AssertionError('Failed pu
 
 
 def fixture():
-    new=copy.deepcopy(OLD);new['seed']=r.NEW_SEED
+    new=copy.deepcopy(OLD);new['core']=r.CORE;new['seed']=r.NEW_SEED
     for index,name in enumerate(('go_erp_live_source.py','go_erp_live_updates.py'),1):
         new['native_payloads'][name]=[str(index)*40,OLD['native_payloads'][name][1],str(index)*64]
     state={'format':1,'base_revision':r.CURRENT_SEED,'counter':60,'last_remote_sha':r.CURRENT_CANDIDATE,
@@ -33,7 +33,7 @@ def fixture():
         'current':current,'predecessor':{'predecessor':{'counter':60,'candidate':r.CURRENT_CANDIDATE},
             'private_hashes':{r.PRIVATE+'/shared-workspace-'+r.CURRENT_CORE+'.json':previous_hash}},
         'captured_metadata_sha256':r.sha(metadata_raw),'invariants':{'preserved':'exact'}}
-    job={'format':1,'kind':'go-erp-warm-start-rollout','core':r.CORE,'seed':r.BAD_SEED,
+    job={'format':1,'kind':'go-erp-warm-start-rollout','core':r.OLD_CORE,'seed':r.BAD_SEED,
         'runtime':r.runtime_name(OLD['native_payloads']),
         'source':{'format':1,'files':100,'framework':'8.83.29','sha256':'c'*64},
         'inventory':r.INVENTORY,'published_inventory_at_entry':r.CURRENT_INVENTORY,
@@ -64,12 +64,15 @@ def fixture():
 
 
 class PureCorrection(unittest.TestCase):
-    def test_exact_unallocated_case_changes_only_seed_runtime_and_binding(self):
+    def test_exact_unallocated_case_adopts_source_without_changing_old_native_job(self):
         data=fixture();before=copy.deepcopy(data);plan=r.plan(**data)
         self.assertEqual(data,before)
-        self.assertEqual(r.changed(data['native_job'],plan['native_job_after']),{'seed','runtime'})
+        self.assertNotIn('native_job_after',plan)
+        self.assertEqual(plan['native_job_before_sha256'],r.sha(r.canonical(data['native_job'])))
         self.assertEqual(r.changed(data['performance_journal'],plan['performance_after']),{'binding_sha256'})
+        self.assertEqual(plan['core'],r.CORE);self.assertEqual(plan['from_core'],r.OLD_CORE)
         self.assertEqual(plan['to_seed'],r.NEW_SEED)
+        self.assertTrue(plan['old_records_unchanged']);self.assertTrue(plan['new_native_job_owned_by_original'])
         self.assertTrue(plan['manual_transition_owned']);self.assertFalse(plan['manual_restore_required'])
         self.assertFalse(plan['counter_allocation_allowed']);self.assertFalse(plan['database_changed'])
         self.assertNotIn('SYNTHETIC_PRIVATE_TOKEN',json.dumps(plan))
@@ -104,6 +107,46 @@ class PureCorrection(unittest.TestCase):
         for key in ('native_state_raw','config_raw','previous_state_raw','native_unit_sha256'):
             data=fixture();data[key]=b'{}\n' if key.endswith('_raw') else 'f'*64
             with self.subTest(key=key),self.assertRaises(r.Stop):r.plan(**data)
+
+    def unicode_state(self):
+        data=fixture()
+        state=json.loads(data['native_state_raw'])
+        # These three en-dash paths occur in the actual captured inventory.
+        state['observed']={'inventory':{name:{'sha256':'a'*64,'present':True} for name in (
+            'public/site/images/Cart – 1.png','public/site/images/Register – 2.png',
+            'public/site/images/Search – 2.png')}}
+        data['native_state_raw']=json.dumps(state,ensure_ascii=False,sort_keys=True,
+            separators=(',',':')).encode('utf8')+b'\n'
+        data['previous_state_raw']=r.canonical(state)
+        flow=data['performance_journal']
+        flow['current']['private_hashes'][r.WORK+'/state/current.json']=r.sha(data['native_state_raw'])
+        data['performance_checkpoint_raw']=r.canonical(flow)
+        return data
+
+    def test_worker_utf8_state_matches_the_exact_escaped_engine_audit(self):
+        data=self.unicode_state()
+        self.assertNotEqual(data['native_state_raw'],data['previous_state_raw'])
+        self.assertIn('–'.encode(),data['native_state_raw'])
+        self.assertIn(b'\\u2013',data['previous_state_raw'])
+        self.assertEqual(json.loads(data['native_state_raw']),json.loads(data['previous_state_raw']))
+        result=r.plan(**data)
+        self.assertEqual(result['performance_after']['binding_sha256'],r.sha(r.canonical(data['new_binding'])))
+
+    def test_unicode_serialization_does_not_allow_state_or_audit_tampering(self):
+        for changed in ('current','audit','audit_format'):
+            data=self.unicode_state()
+            if changed=='current':
+                state=json.loads(data['native_state_raw']);state['counter']=61
+                data['native_state_raw']=json.dumps(state,ensure_ascii=False,sort_keys=True,
+                    separators=(',',':')).encode()+b'\n'
+                data['previous_state_raw']=r.canonical(state)
+            elif changed=='audit':
+                state=json.loads(data['previous_state_raw']);state['counter']=61
+                data['previous_state_raw']=r.canonical(state)
+            else:
+                data['previous_state_raw']=json.dumps(json.loads(data['previous_state_raw']),indent=2).encode()+b'\n'
+            with self.subTest(changed=changed),self.assertRaisesRegex(r.Stop,'ORIGINAL_NATIVE_SLOTS_CHANGED'):
+                r.plan(**data)
 
     def test_another_failure_or_exchange_intent_or_pending_hold_is_refused(self):
         for key,value in [('phase','PATH_SWITCH'),('reason','PRIVATE_FAILURE'),('rollback_complete',False),

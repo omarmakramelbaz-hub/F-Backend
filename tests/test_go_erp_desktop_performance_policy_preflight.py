@@ -28,7 +28,7 @@ if roll.sha(root_raw) != '90d9dff5ff0fcadb4854f5f0dc2103dcfe8b9b25ef9922164fba1b
     raise AssertionError('Frozen original module-loader fixture changed')
 root_api = load('performance_policy_original_loader', FIXTURES / 'root_operator.py')
 VERIFIER = (FIXTURES / 'policy_seed_verifier.py').read_bytes()
-if roll.sha(VERIFIER) != '42c91abce041d42a61b4f0db70294b7912f44afdbcf8dad8cd0d018e98b3831f':
+if roll.sha(VERIFIER) != '2de7ec3884760a2b566f45469aa7aa1d2b31d6a605be16fe496af9b998ce15bc':
     raise AssertionError('Proper published policy verifier fixture changed')
 
 
@@ -43,11 +43,13 @@ def git(directory, *arguments):
 
 
 class PolicyPreflight(unittest.TestCase):
-    def fixture(self, temporary, *, wrong_core=False, extra=None):
+    def fixture(self, temporary, *, wrong_core=False, extra=None, baseline='0.4.4-preview.60'):
         work = Path(temporary) / 'work'
         work.mkdir()
         git(work, 'init', '--quiet', '--initial-branch=main')
         files = {'desktop/program.php': b'<?php // public fixture\n',
+            'desktop-pos/package.json': roll.canonical({'version': baseline}),
+            'desktop-pos/package-lock.json': roll.canonical({'version': baseline, 'packages': {'': {'version': baseline}}}),
             'desktop-pos/src/main.cjs': b'PUBLIC_FIXTURE = true;\n',
             '.github/workflows/native.yml': b'name: native fixture\n',
             '.github/workflows/foundation.yml': b'name: foundation fixture\n',
@@ -87,6 +89,7 @@ class PolicyPreflight(unittest.TestCase):
         rollout = roll.Rollout.__new__(roll.Rollout)
         rollout.package, rollout.root_api = package, root_api
         rollout.io = SimpleNamespace(parse=json.loads)
+        rollout.current = SimpleNamespace(VERSION='0.4.4-preview.60')
         rollout.native = SimpleNamespace(BACKEND=('app', 'bootstrap', 'config', 'database', 'desktop',
             'public', 'resources', 'routes', 'artisan', 'composer.json', 'composer.lock'))
         rollout.o = SimpleNamespace(modules={'acceptance': SimpleNamespace(NATIVE_WORKFLOW='native.yml',
@@ -136,6 +139,15 @@ class PolicyPreflight(unittest.TestCase):
                     self.assertRaisesRegex(root_api.Stop, 'MODULE_PIN_CHANGED'):
                 rollout._reviewed_code()
             self.assertEqual(reads, [('deployment/verify_go_erp_preview31_seed.py', seed)])
+
+    def test_unpublished_review_version_cannot_be_used_as_the_seed_baseline(self):
+        with tempfile.TemporaryDirectory(prefix='performance-policy-version-') as temporary:
+            rollout, core, seed, verifier, reads = self.fixture(temporary, baseline='0.4.4-preview.61')
+            with patch.multiple(roll, CORE=core, SEED=seed, WEB_RELEASE=core,
+                                POLICY_VERIFIER_SHA256=roll.sha(verifier)), \
+                    self.assertRaisesRegex(roll.Stop, 'POLICY_SEED_VERSION_BASELINE_CHANGED'):
+                rollout._reviewed_code()
+            self.assertNotIn(('desktop/workspace-contract.json', core), reads)
 
 
 if __name__ == '__main__':
