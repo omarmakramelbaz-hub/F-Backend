@@ -113,7 +113,7 @@ function relaunchWorkspace(){
   catch(error){shutdown.cancelRelaunch();profileSwitching=false;throw error;}
 }
 function workspaceView(){
-  const names=['current','refresh','switchTo','canRefresh','recoverPrintEffects','open','reveal','reauthenticate'];
+  const names=['current','refresh','withUpdateIdle','switchTo','canRefresh','recoverPrintEffects','open','reveal','reauthenticate'];
   return Object.fromEntries(names.map(name=>[name,(...args)=>dashboard[name](...args)]));
 }
 function connectWorkspaceServices(result){

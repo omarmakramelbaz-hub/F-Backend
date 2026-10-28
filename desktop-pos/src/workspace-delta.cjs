@@ -250,7 +250,12 @@ class WorkspaceDelta {
       need(await this.current(cp.previous), 'POINTER_CHANGED');
       return { unchanged: true, verifiedUnion: audit };
     };
-    const result = options.managedHandoff ? await cutover() : await this.handoff(() => this.view.refresh(cutover));
+    // A verified unchanged union retains the same physical database and source.
+    // Hold the original input/request idle gate for its short fence settlement,
+    // but keep the current document alive instead of blanking and reloading it.
+    const settleView = () => typeof this.view.withUpdateIdle === 'function'
+      ? this.view.withUpdateIdle(cutover) : this.view.refresh(cutover);
+    const result = options.managedHandoff ? await cutover() : await this.handoff(settleView);
     if (result?.deferred) return this.deferred();
     this.report({ phase: 'ready', deferred: false, error: '' }); return result;
   }

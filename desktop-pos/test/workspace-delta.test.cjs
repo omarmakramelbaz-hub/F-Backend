@@ -340,3 +340,80 @@ test('startup recovery still settles a durable accepted source fence offline in 
   assert.equal(result.generation, cp.candidateGeneration); assert.equal(f.records.get(INTENT), null);
   assert.equal(f.calls.filter(call => call === 'stage').length, 1);
 });
+
+test('an unchanged background union retains its document through the existing nonretiring idle gate', async t => {
+  const value = require('./helpers/workspace-unchanged-fixture.cjs').fixture();
+  const f = await setup(t, value), before = await f.registry.read(true);
+  f.view.withUpdateIdle = async work => { f.calls.push('view-idle'); return work(); };
+  const result = await f.create().run();
+  assert.equal(result.unchanged, true);
+  assert.equal(f.calls.filter(call => call === 'view-idle').length, 1);
+  assert.equal(f.calls.includes('view'), false, 'unchanged data must not retire/reload the page');
+  assert.ok(f.calls.indexOf('handoff') < f.calls.indexOf('view-idle'));
+  assert.ok(f.calls.indexOf('view-idle') < f.calls.indexOf('refresh-begin'));
+  assert.equal(f.calls.includes('stage'), false);
+  assert.equal(f.calls.some(call => call.startsWith('activate:')), false);
+  assert.deepEqual(await f.registry.read(true), before);
+  assert.deepEqual(f.records.get('workspace-union-checks/' + result.verifiedUnion.id), result.verifiedUnion);
+  assert.equal(f.records.get(UNION_INTENT), null);
+});
+
+test('a busy document defers an unchanged union without a fence, certificate, or retiring fallback', async t => {
+  const f = await setup(t, require('./helpers/workspace-unchanged-fixture.cjs').fixture());
+  f.view.withUpdateIdle = async () => { f.calls.push('view-idle'); return { deferred: true }; };
+  assert.deepEqual(await f.create().run(), { deferred: true });
+  assert.equal(f.calls.includes('view-idle'), true);
+  assert.equal(f.calls.includes('view'), false);
+  assert.equal(f.calls.includes('refresh-begin'), false);
+  assert.equal([...f.records.keys()].some(key => key.startsWith('workspace-union-checks/')), false);
+  assert.deepEqual(await f.registry.current(), f.previous);
+});
+
+test('new work admitted at the nonretiring gate still invalidates the captured unchanged union', async t => {
+  const f = await setup(t, require('./helpers/workspace-unchanged-fixture.cjs').fixture());
+  f.view.withUpdateIdle = async work => { f.calls.push('view-idle'); f.setSequence(8); return work(); };
+  assert.deepEqual(await f.create().run(), { deferred: true });
+  assert.equal(f.calls.includes('view'), false);
+  assert.equal(f.calls.includes('refresh-begin'), true);
+  assert.equal(f.calls.includes('refresh-cancel'), true);
+  assert.equal(f.held(), null);
+  assert.equal([...f.records.keys()].some(key => key.startsWith('workspace-union-checks/')), false);
+  assert.deepEqual(await f.registry.current(), f.previous);
+});
+
+test('real data replacement still retires the document even when a nonretiring idle gate exists', async t => {
+  const f = await setup(t);
+  f.view.withUpdateIdle = async () => { throw Error('changed data must use the retiring refresh gate'); };
+  const result = await f.create().run();
+  assert.notEqual(result.database, f.previous.candidate.database);
+  assert.equal(f.calls.filter(call => call === 'view').length, 1);
+  assert.equal(f.calls.filter(call => call.startsWith('activate:')).length, 1);
+});
+
+test('an advanced approved source sequence still requires a retiring verified transition despite unchanged rows', async t => {
+  const value = require('./helpers/workspace-unchanged-fixture.cjs').fixture();
+  value.context.workspaceApproval.sequence++;
+  const f = await setup(t, value);
+  f.view.withUpdateIdle = async () => { throw Error('a new publication must not use the unchanged idle gate'); };
+  const result = await f.create().run();
+  assert.notEqual(result.database, f.previous.candidate.database);
+  assert.equal(result.sourceRevision, f.previous.candidate.sourceRevision);
+  assert.equal((await f.registry.current()).candidate.sourceSequence, value.context.workspaceApproval.sequence);
+  assert.equal(f.calls.filter(call => call === 'view').length, 1);
+  assert.equal(f.calls.includes('stage'), true);
+});
+
+test('the native workspace view forwards the nonretiring gate separately from full refresh', async () => {
+  const fs = require('node:fs/promises'), path = require('node:path'), vm = require('node:vm');
+  const main = await fs.readFile(path.join(__dirname, '../src/main.cjs'), 'utf8');
+  const functionSource = /function workspaceView\(\)\{[\s\S]*?\n\}/.exec(main)?.[0];
+  assert.ok(functionSource);
+  const calls = [], dashboard = {
+    withUpdateIdle: async work => { calls.push('idle'); return work(); },
+    refresh: async work => { calls.push('retire'); return work(); }
+  };
+  const view = vm.runInNewContext('(' + functionSource + ')()', { dashboard });
+  assert.equal(await view.withUpdateIdle(async () => 'verified unchanged union'), 'verified unchanged union');
+  assert.equal(await view.refresh(async () => 'activated replacement'), 'activated replacement');
+  assert.deepEqual(calls, ['idle', 'retire']);
+});
