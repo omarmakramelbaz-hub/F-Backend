@@ -1,0 +1,13 @@
+# Current desktop performance rollout
+
+The pinned launcher upgrades only the already published shared-workspace preview 60 on srv1836524. It builds the next preview 61 from the actual captured server inventory and the reviewed native seed `11c739039e5c6320b3542d414682d755c7902790`. Core `43b1498938d4550a4c63c267dbcde12b0bab7e81` supplies the immutable acceptance sources. The review candidate is not substituted for a fresh server capture.
+
+The original root package at `1e651117deabb4c6935933ee424237d82bd316cb` is verified from a retained root-owned package, copied without hard links, and supplied with the two pinned public commits. All four bundled helper hashes are checked before any helper executes. The original locks, native transaction, single-version allocation, canonical branch lease, Windows installer acceptance, retained employee/program receipts and publisher remain required.
+
+The only web source changes are dashboard-spa.js, desktop-client.js and order-board.js under public/dashboard/js. Native main.cjs, dashboard.cjs and workspace-delta.cjs change through the independently pinned worker transformation. Database schema, business records, the enabled workspace environment value, Laravel caches and PHP handler configuration are preserved and checked. Automatic software updates remain disabled. Business synchronization retains its existing 30-second schedule.
+
+The upgrade is resumable. The original source WAL verifies its before-images, current bytes and owned inodes on each resume. The coordinator separately checks the captured inventory and environment/cache/handler invariants. Repeating the same pinned launcher continues the retained operation rather than allocating another version. Incomplete packages are retained; successful runs remove only the launcher's temporary package copy. No existing database, outbox or recovery record is deleted.
+
+The command can wait while the exact newly generated candidate completes Windows CI. Progress uses fixed public status codes. A failed gate remains a failure and does not grant publication. Source-branch tests and an installer from another commit do not replace this acceptance.
+
+Validation: 66 operator tests passed, including the original source WAL, actual local Git copies, and the actual frozen configured Context release bridge. New Python files parse with Python 3.9 grammar. No owner-device performance improvement or successful deployment is claimed before the real rollout and subsequent installed-device verification.
