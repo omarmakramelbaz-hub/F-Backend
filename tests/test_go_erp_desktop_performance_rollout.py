@@ -181,6 +181,7 @@ class OriginalExecution(unittest.TestCase):
         r.io=SimpleNamespace();r.root_api=SimpleNamespace(verify_outer_locks=verify_outer)
         r.flow={'phase':'prepared'};r.invariant=Mock()
         r.prepare_source=Mock(return_value={'verified':'old-cohort'})
+        r.correct_pending=Mock()
         r.package=SimpleNamespace(repository='/private/release.git',revision=roll.ROOT_RELEASE)
         proof={'installed_asar_accepted':True,'original_program_gate_accepted':True,'employee_acceptance_accepted':True}
         r.acceptance_pins={'contract_sha256':'c'*64}

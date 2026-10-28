@@ -62,6 +62,14 @@ class Launcher(unittest.TestCase):
         self.assertEqual(result['code'], 'GO_ERP_DESKTOP_PERFORMANCE_UPGRADE_FAILURE')
         self.assertEqual(result['phase'], 'upgrade')
 
+    def test_frozen_native_public_reason_is_preserved_without_raw_exception_text(self):
+        result = entry.failure(RuntimeError('NATIVE_TRANSACTION_SEED_CORE_MISMATCH'), 'upgrade')
+        self.assertEqual(result['code'],
+            'GO_ERP_DESKTOP_PERFORMANCE_NATIVE_TRANSACTION_SEED_CORE_MISMATCH')
+        for text in ('NATIVE_TRANSACTION_SECRET with spaces', 'NATIVE_TRANSACTION_' + 'X' * 71):
+            self.assertEqual(entry.failure(RuntimeError(text), 'upgrade')['code'],
+                'GO_ERP_DESKTOP_PERFORMANCE_UPGRADE_FAILURE')
+
     def test_host_and_argument_guards_precede_helpers_or_git(self):
         for uid, host, argv in ((1000, 'srv1836524', ['run.py']),
             (0, 'other-host', ['run.py']), (0, 'srv1836524', ['run.py', '--apply'])):
@@ -80,7 +88,8 @@ class Launcher(unittest.TestCase):
         for value, error in ((None, RuntimeError('SECRET')), ({**public(), 'published': False}, None)):
             run = Mock(return_value=value, side_effect=error)
             modules = {'coordinator': SimpleNamespace(run=run), 'current': object(),
-                       'payloads': object(), 'source': object()}
+                       'payloads': object(), 'source': object(), 'recovery_plan': object(),
+                       'recovery_evidence': object(), 'recovery_effects': object()}
             package, operator = object(), object()
             original = SimpleNamespace(Package=Mock(return_value=package),
                 Operator=Mock(return_value=operator), PINS=object())
@@ -96,7 +105,9 @@ class Launcher(unittest.TestCase):
                     patch.object(entry.shutil, 'rmtree') as remove, redirect_stdout(out):
                 self.assertEqual(entry.main(), 1)
             remove.assert_not_called()
-            run.assert_called_once_with(package, operator, modules['current'], modules['payloads'], modules['source'])
+            run.assert_called_once_with(package, operator, modules['current'], modules['payloads'], modules['source'],
+                recovery={'plan': modules['recovery_plan'], 'evidence': modules['recovery_evidence'],
+                          'effects': modules['recovery_effects']})
             lines = out.getvalue().splitlines()
             self.assertEqual(len(lines), 3)
             self.assertEqual(lines[0], 'GO_ERP_DESKTOP_PERFORMANCE_PACKAGE_PREPARING')

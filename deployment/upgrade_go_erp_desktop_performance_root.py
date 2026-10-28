@@ -18,8 +18,11 @@ import sys
 from types import SimpleNamespace
 
 CORE = '43b1498938d4550a4c63c267dbcde12b0bab7e81'
-SEED = '11c739039e5c6320b3542d414682d755c7902790'
-WEB_RELEASE = SEED
+BAD_SEED = '11c739039e5c6320b3542d414682d755c7902790'
+SEED = '78f862c63d0ee75871417c286512e81f962934d6'
+WEB_RELEASE = BAD_SEED
+POLICY_VERIFIER_SHA256 = '42c91abce041d42a61b4f0db70294b7912f44afdbcf8dad8cd0d018e98b3831f'
+BAD_RUNTIME = 'policy-9d1cd8162a2a2a4a1de4acab091454d547a42696e11e35d9253dd5da5fc43397'
 ROOT_RELEASE = '1e651117deabb4c6935933ee424237d82bd316cb'
 EXPECTED_INVENTORY = '531ba5ab285bafc999930a78b9212640cf3c13fe83365da260ace931b49964b7'
 VERSION = '0.4.4-preview.61'
@@ -62,13 +65,13 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() + b'\n'
 
 
-def binding(operator, source):
-    return {'format':1,'kind':'go-erp-desktop-performance-binding','core':CORE,'seed':SEED,
+def binding(operator, source, *, seed=None, native_pins=None):
+    return {'format':1,'kind':'go-erp-desktop-performance-binding','core':CORE,'seed':SEED if seed is None else seed,
             'web_release':WEB_RELEASE,'original_release':ROOT_RELEASE,
             'original_pins_sha256':sha(canonical(operator.pins)),
             'source_plan_sha256':sha(canonical(source.PINS)),
             'inventory_sha256':EXPECTED_INVENTORY,'native_changes':NATIVE_CHANGES,
-            'native_payloads':{name:list(row) for name,row in DERIVED_PINS.items()}}
+            'native_payloads':{name:list(row) for name,row in (DERIVED_PINS if native_pins is None else native_pins).items()}}
 
 
 def _environment_invariants(operator):
@@ -109,12 +112,13 @@ def _reconstruct(operator, current, payloads, saved, verify):
 
 
 class Rollout:
-    def __init__(self,package,operator,current,payloads,source):
+    def __init__(self,package,operator,current,payloads,source,recovery=None):
         self.package,self.o,self.current,self.payloads,self.source=package,operator,current,payloads,source
         self.e,self.io=operator.engine,operator.io
         need(package.revision==operator.package.revision==ROOT_RELEASE,'ORIGINAL_PACKAGE_RELEASE_CHANGED')
         need(source.RELEASE==WEB_RELEASE and source.ROOT==ROOT,'SOURCE_BINDING_CHANGED')
-        self.bind=binding(operator,source);self.bind_sha=sha(canonical(self.bind));self.flow=None
+        self.recovery=recovery
+        self.flow=None
         self.root_api=sys.modules[operator.__class__.__module__]
         # Separate module: the frozen current factory still needs its historical
         # PROFILES entries to reconstruct the retained current manual helpers.
@@ -128,8 +132,35 @@ class Rollout:
         self.public_payloads={name:package.file(name,WEB_RELEASE) for name in source.PINS}
         source.checked_plan(self.io,self.public_payloads)
         self._reviewed_code()
+        self.bad_values=self._failed_payloads()
+        self.values=copy.deepcopy(self.bad_values)
+        for name in ('go_erp_live_source.py','go_erp_live_updates.py'):
+            self.values[name]=payloads.rebind_seed(self.values[name],BAD_SEED,SEED)
+        self.derived_pins={name:(payloads.blob(raw),len(raw),sha(raw)) for name,raw in self.values.items()}
+        self.bad_binding=binding(operator,source,seed=BAD_SEED,native_pins=DERIVED_PINS)
+        self.bind=binding(operator,source,native_pins=self.derived_pins)
+        self.bind_sha=sha(canonical(self.bind))
+        self.manual_previous_pins=None
+
+    def _failed_payloads(self):
+        runtime=self.o.template.NATIVE_RELEASES/BAD_RUNTIME
+        folder=self.o.utility.Directory(runtime,0o755)
+        try:
+            self.o.utility.validate_runtime(folder,{name:row[0] for name,row in DERIVED_PINS.items()})
+            values={name:self.e.read_file(runtime/name,2*1024**2,uid=0,modes=(0o644,))[0]
+                    for name in DERIVED_PINS}
+        finally:
+            folder.close()
+        need({name:(self.payloads.blob(raw),len(raw),sha(raw)) for name,raw in values.items()}==DERIVED_PINS,
+             'FAILED_NATIVE_BYTES_CHANGED')
+        return values
 
     def _reviewed_code(self):
+        verifier=self.root_api.load(self.package.file('deployment/verify_go_erp_preview31_seed.py',SEED),
+            'performance_policy_seed',POLICY_VERIFIER_SHA256)
+        need(verifier.CORE==CORE,'POLICY_SEED_CORE_CHANGED')
+        proof=verifier.validate_seed(self.package.repository,SEED,core=CORE)
+        need(proof.get('seed')==SEED and proof.get('core')==CORE,'POLICY_SEED_LINEAGE_CHANGED')
         p=self.acceptance_pins
         need(self.package.git('diff-tree','-r','--no-commit-id','--name-only','--no-renames','--no-ext-diff',
              WEB_RELEASE,CORE,'--',*self.native.BACKEND)==b'','CORE_BACKEND_DIFFERS_FROM_REVIEWED_WEB')
@@ -236,13 +267,11 @@ class Rollout:
         print('GO_ERP_DESKTOP_PERFORMANCE_SOURCE_PREPARED',flush=True)
         return observation
 
-    def configure(self,observation,verify,acceptance):
-        target=copy.deepcopy(self.payloads.CURRENT_NATIVE_HASHES);target.update(NATIVE_CHANGES)
-        values=self.payloads.native(observation['_native_payloads'],seed=SEED,packaged_native_hashes=target)
-        need({name:(self.payloads.blob(raw),len(raw),sha(raw)) for name,raw in values.items()}==DERIVED_PINS,
-             'DERIVED_SERVER_PROOF_CHANGED')
+    def manual_values(self,observation,seed):
+        need(seed in (BAD_SEED,SEED),'MANUAL_SEED_CHANGED')
+        values=self.bad_values if seed==BAD_SEED else self.values
         runtime=self.o.template.NATIVE_RELEASES/self.o.utility.runtime_name(values)
-        cohort={'seed':SEED,'policy':self.current.POLICY,'runtime':runtime,
+        cohort={'seed':seed,'policy':self.current.POLICY,'runtime':runtime,
                 'unit_sha256':sha(self.o.utility.service_unit(runtime)),
                 'pins':{name:(self.payloads.blob(raw),len(raw),sha(raw)) for name,raw in values.items()}}
         previous=self.current.cohort_from_tick(observation['_manual_payloads']['go_erp_manual_tick_root.py'])
@@ -251,13 +280,45 @@ class Rollout:
             self.package.file('deployment/go_erp_owner_fast_open_manual_root.py',self.root_api.LEGACY_RELEASE),
             previous=previous,new=cohort)
         manual['go_erp_published_download_root.py']=observation['_manual_payloads']['go_erp_published_download_root.py']
+        return manual
+
+    def correct_pending(self,verify):
+        need(isinstance(self.recovery,dict) and set(self.recovery)=={'plan','evidence','effects'},
+             'CORRECTION_HELPERS_REQUIRED')
+        effects=self.recovery['effects']
+        saved=effects.read_saved(self,self.recovery['plan'],verify)
+        if saved is not None and saved['completed']:
+            self.manual_previous_pins=effects.recover(self,self.recovery['plan'],verify)
+            return
+        if saved is not None:
+            self.flow=saved['performance_journal']
+        else:
+            raw=self.e.read_file(JOURNAL,16*1024**2,uid=0,modes=(0o600,))[0]
+            self.flow=self.io.parse(raw)
+        need(self.flow.get('binding_sha256')==sha(canonical(self.bad_binding)),'FAILED_BINDING_CHANGED')
+        self.o.flow=self.o._load()
+        self.invariant()
+        observation=_reconstruct(self.o,self.current,self.payloads,self.flow['current'],verify)
+        self.native.PROFILES[60]=copy.deepcopy(observation['profile'])
+        bad_manual=self.manual_values(observation,BAD_SEED)
+        evidence=self.recovery['evidence'].collect(self,observation,bad_manual,verify,saved=saved)
+        self.manual_previous_pins=effects.recover(self,self.recovery['plan'],verify,evidence=evidence)
+
+    def configure(self,observation,verify,acceptance):
+        target=copy.deepcopy(self.payloads.CURRENT_NATIVE_HASHES);target.update(NATIVE_CHANGES)
+        bad=self.payloads.native(observation['_native_payloads'],seed=BAD_SEED,packaged_native_hashes=target)
+        need(bad==self.bad_values,'FAILED_DERIVATION_CHANGED')
+        values=self.payloads.native(observation['_native_payloads'],seed=SEED,packaged_native_hashes=target)
+        need(values==self.values and {name:(self.payloads.blob(raw),len(raw),sha(raw)) for name,raw in values.items()}==self.derived_pins,
+             'DERIVED_SERVER_PROOF_CHANGED')
+        manual=self.manual_values(observation,SEED)
         paths={'go_erp_manual_tick_root.py':'deployment/go_erp_shared_workspace_tick_root.py',
                'go_erp_manual_updates_root.py':'deployment/go_erp_shared_workspace_manual_root.py',
                'go_erp_published_download_root.py':'deployment/go_erp_published_download_root.py'}
         pins={'core':CORE,'seed':SEED,'web_release':WEB_RELEASE,'policy':self.current.POLICY,
               'inventory_sha256':EXPECTED_INVENTORY,'contract_sha256':self.acceptance_pins['contract_sha256'],
               'context_sha256':self.o.pins['helpers']['native'],
-              'native_payloads':{name:{'blob':row[0],'size':row[1],'sha256':row[2]} for name,row in DERIVED_PINS.items()},
+              'native_payloads':{name:{'blob':row[0],'size':row[1],'sha256':row[2]} for name,row in self.derived_pins.items()},
               'manual_programs':{name:{'path':paths[name],'sha256':sha(raw)} for name,raw in manual.items()},
               'predecessor':self.flow['predecessor']['predecessor']}
         def transform(payloads):
@@ -266,12 +327,21 @@ class Rollout:
             self.package.file('deployment/upgrade_go_erp_warm_start_root.py',self.native.TEMPLATE_RELEASE),
             self.package,self.e,pins=pins,package_payloads=manual,native_transform=transform,
             verify_locks=verify,workspace_acceptance=acceptance)
+        need(isinstance(self.manual_previous_pins,dict),'OWNED_MANUAL_TRANSITION_REQUIRED')
+        need(sha(canonical(dict(sorted(self.manual_previous_pins.items()))))==
+             '64c479503f586268c4d191f2b85a2963d6e0473933cfea4cf09411f90bb189ea',
+             'OWNED_MANUAL_PINS_CHANGED')
+        # Only frozen manual() consumes this global. Previous native/runtime
+        # and employee acceptance remain bound to the unchanged current profile.
+        configured.OLD_MANUAL_PINS=copy.deepcopy(self.manual_previous_pins)
         return self.current.bind_configured_release(configured,observation)
 
     def run(self):
         # Only the original held scope stops the manual request path. The
         # automatic timer remains disabled throughout this explicit operation.
         with self.o.held() as held:
+            self.correct_pending(held)
+            print('GO_ERP_DESKTOP_PERFORMANCE_OWNED_SEED_CORRECTION_COMPLETE',flush=True)
             observation=self.prepare_source(held)
         def verify():
             self.root_api.verify_outer_locks(self.io)
@@ -317,9 +387,9 @@ class Rollout:
                 'financial_data_changed':False,'credentials_disclosed':False}
 
 
-def run(package,old_operator,current_helper,payload_helper,source_helper):
+def run(package,old_operator,current_helper,payload_helper,source_helper,*,recovery=None):
     need(os.geteuid()==0 and socket.gethostname().split('.')[0]=='srv1836524','ROOT_HOST_REQUIRED')
-    return Rollout(package,old_operator,current_helper,payload_helper,source_helper).run()
+    return Rollout(package,old_operator,current_helper,payload_helper,source_helper,recovery).run()
 
 
 if __name__=='__main__':
