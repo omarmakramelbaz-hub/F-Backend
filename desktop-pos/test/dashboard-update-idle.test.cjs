@@ -89,6 +89,78 @@ function originalLogin(f) {
   return {form,fields};
 }
 
+test('a settled order board uses the same two-phase business idle gate for a real data refresh', async () => {
+  const f = fixture({ localToken: 'private-local-test-token' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders');
+  f.page.DashboardSPA = { isIdle: () => true };
+  assert.equal(await f.dashboard.canRefresh(), true);
+  const before = f.windows[0].loads.length;
+  assert.equal(await f.dashboard.refresh(async () => 'new verified generation'), 'new verified generation');
+  assert.deepEqual(f.windows[0].loads.slice(before), ['about:blank', policy.DEFAULT_ORIGIN + '/admin/applies-orders']);
+  assert.equal(f.listenerCount(), 0);
+});
+
+test('an order board with an action, incomplete initialization or changed form remains fenced', async () => {
+  for (const reason of ['no-idle-contract', 'active-action', 'edited-form', 'filter-choice', 'request']) {
+    const f = fixture({ localToken: 'private-local-test-token' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders');
+    if (reason !== 'no-idle-contract') f.page.DashboardSPA = { isIdle: () => reason !== 'active-action' };
+    if (reason === 'edited-form') f.document.querySelectorAll = selector => selector.startsWith('.modal') ? []
+      : [{ tagName: 'INPUT', value: 'unsaved edit', defaultValue: '', type: 'text' }];
+    if (reason === 'filter-choice') f.document.querySelectorAll = selector => selector.startsWith('.modal') ? []
+      : [{ tagName: 'SELECT', options: [{ selected: false, defaultSelected: true }, { selected: true, defaultSelected: false }] }];
+    if (reason === 'request') f.session.webRequest.headers({ id: 70, url: f.windows[0].url,
+      method: 'GET', webContentsId: f.windows[0].webContents.id, requestHeaders: {} }, () => {});
+    let applied = false;
+    assert.equal((await f.dashboard.refresh(async () => { applied = true; })).deferred, true, reason);
+    assert.equal(applied, false); assert.equal(f.windows[0].loads.length, 1);
+  }
+});
+
+test('an order action arriving after the first board idle probe is preserved at the final gate', async () => {
+  const f = fixture({ localToken: 'private-local-test-token' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders');
+  let idle = true; f.page.DashboardSPA = { isIdle: () => idle }; f.race(() => { idle = false; });
+  let applied = false;
+  assert.equal((await f.dashboard.refresh(async () => { applied = true; })).deferred, true);
+  assert.equal(applied, false); assert.equal(f.windows[0].loads.length, 1); assert.equal(f.listenerCount(), 0);
+});
+
+test('native idle probes recognize the original HTML select defaults without exempting selections', async () => {
+  const option = (selected, defaultSelected = false, extra = {}) => ({ selected, defaultSelected, ...extra });
+  const examples = [
+    ['implicit first single option', { size: 0, options: [option(true), option(false)] }],
+    ['disabled first option', { size: 1, options: [option(false, false, { disabled: true }), option(true)] }],
+    ['disabled optgroup', { size: 1, options: [option(false, false, { parentElement: { tagName: 'OPTGROUP', disabled: true } }), option(true)] }],
+    ['last explicit single default', { size: 1, options: [option(false, true), option(true, true)] }],
+    ['single listbox without explicit defaults', { size: 4, options: [option(false), option(false)] }],
+    ['multiple explicit defaults', { multiple: true, options: [option(true, true), option(false)] }],
+    ['multiple without defaults', { multiple: true, options: [option(false), option(false)] }]
+  ];
+  for (const [label, properties] of examples) {
+    const f = fixture({ localToken: 'local' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders');
+    f.page.DashboardSPA = { isIdle: () => true };
+    const select = { tagName: 'SELECT', multiple: false, ...properties };
+    f.document.querySelectorAll = selector => selector.startsWith('.modal') ? [] : [select];
+    assert.equal(await f.dashboard.canRefresh(), true, label);
+    assert.equal(await f.dashboard.withUpdateIdle(async () => 'verified'), 'verified', label + ' final probe');
+    select.options[0].selected = !select.options[0].selected;
+    assert.equal(await f.dashboard.canRefresh(), false, label + ' changed selection');
+    let applied = false;
+    assert.equal((await f.dashboard.withUpdateIdle(async () => { applied = true; })).deferred, true, label);
+    assert.equal(applied, false); assert.equal(f.windows[0].loads.length, 1);
+  }
+});
+
+test('a changed single-select arriving between native probes still preserves the board form', async () => {
+  const f = fixture({ localToken: 'local' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders');
+  f.page.DashboardSPA = { isIdle: () => true };
+  const select = { tagName: 'SELECT', size: 0, multiple: false,
+    options: [{ selected: true, defaultSelected: false }, { selected: false, defaultSelected: false }] };
+  f.document.querySelectorAll = selector => selector.startsWith('.modal') ? [] : [select];
+  f.race(() => { select.options[0].selected = false; select.options[1].selected = true; });
+  let applied = false;
+  assert.equal((await f.dashboard.withUpdateIdle(async () => { applied = true; })).deferred, true);
+  assert.equal(applied, false); assert.equal(f.listenerCount(), 0); assert.equal(f.windows[0].loads.length, 1);
+});
+
 test('explicit account switching fences a filled original login form without reading credentials while automatic updates stay deferred',async()=>{
   const f=fixture();await f.dashboard.open(policy.DEFAULT_ORIGIN+'/admin/login');originalLogin(f);
   assert.equal(await f.dashboard.canSwitchAccount(),true);assert.equal(await f.dashboard.canRefresh(),false);

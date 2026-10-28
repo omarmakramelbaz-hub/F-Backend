@@ -9,6 +9,7 @@
     const updateLabels = { idle: 'فحص التحديثات تلقائي', checking: 'جارٍ فحص تحديث البرنامج', current: 'البرنامج محدّث',
         downloading: 'جارٍ تنزيل تحديث البرنامج', staged: 'التحديث جاهز وينتظر انتهاء العمليات الجارية والمزامنة',
         installing: 'جارٍ تثبيت تحديث البرنامج', unavailable: 'لم تُنشر نسخة متوافقة جديدة بعد', error: 'تعذر فحص التحديث حاليًا؛ سيحاول البرنامج تلقائيًا' };
+    const incomingActive = new Set(['checking', 'capturing', 'downloading', 'staging', 'activating']);
     let mounted = null, cleanup = () => {};
     function mount() {
         const root = document.querySelector('[data-desktop-program]');
@@ -35,13 +36,24 @@
                 + (waiting ? ' · ' + waiting + ' عملية تنتظر المزامنة' : '')
                 + (conflicts ? ' · ' + conflicts + ' عملية تحتاج مراجعة' : '')
                 + (state.sync_queued ? ' · طلب المزامنة في الدورة القادمة' : '');
-            connection.textContent = typeof state.online === 'boolean' ? (state.online ? 'حالة آخر اتصال بالمزامنة: متصل' : 'حالة آخر اتصال بالمزامنة: لم يتأكد الاتصال بالسيرفر') : '';
+            connection.textContent = typeof state.online === 'boolean' ? (state.online ? 'آخر اتصال لمزامنة العمليات بالسيرفر: متصل' : 'آخر اتصال لمزامنة العمليات بالسيرفر: لم يتأكد الاتصال بعد') : '';
             const at = typeof state.refreshedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(state.refreshedAt) ? new Date(state.refreshedAt) : null;
-            refreshed.textContent = at && Number.isFinite(at.getTime()) && at.toISOString() === state.refreshedAt
-                ? 'آخر تحديث لبيانات الجهاز من السيرفر: ' + at.toLocaleString('ar-EG') : '';
+            const confirmedAt = at && Number.isFinite(at.getTime()) && at.toISOString() === state.refreshedAt ? at : null;
+            const incoming = state.data_refresh && typeof state.data_refresh === 'object' ? state.data_refresh : {};
+            const incomingError = state.prepared === true ? text(incoming.error) : '';
+            const freshness = [];
+            if (state.prepared === true) {
+                if (incomingError || incoming.phase === 'failed') freshness.push('تعذر تحديث بيانات الجهاز من السيرفر');
+                else if (incoming.deferred === true || ['waiting', 'deferred'].includes(incoming.phase)) freshness.push('تحديث البيانات ينتظر جاهزية الصفحة أو انتهاء العمليات');
+                else if (incomingActive.has(incoming.phase) || state.refresh_running === true) freshness.push('جارٍ تحديث بيانات الجهاز من السيرفر');
+                else if (state.refresh_deferred === true || waiting || conflicts) freshness.push('تحديث البيانات ينتظر جاهزية الصفحة أو انتهاء العمليات');
+                else if (!confirmedAt) freshness.push('لم يتأكد تحديث بيانات الجهاز من السيرفر بعد');
+            }
+            if (confirmedAt) freshness.push('آخر تحديث ناجح لبيانات الجهاز من السيرفر: ' + confirmedAt.toLocaleString('ar-EG'));
+            refreshed.textContent = freshness.join(' · ');
             progress.value = Math.max(0, Math.min(100, Number(state.progress) || 0));
             progress.hidden = state.prepared === true || ['idle', 'failed'].includes(state.phase);
-            error.textContent = text(state.error);
+            error.textContent = [...new Set([text(state.error), incomingError].filter(Boolean))].join(' · ');
             action.disabled = busy || !['idle', 'failed', 'ready'].includes(state.phase) || Boolean(state.sync_queued || state.sync_running);
             action.textContent = state.prepared ? (state.sync_running ? 'جارٍ المزامنة' : state.sync_queued ? 'بانتظار الدورة القادمة' : 'طلب مزامنة') : 'تجهيز الجهاز أول مرة';
             review.hidden = state.prepared !== true || typeof native.reviewSync !== 'function'; review.disabled = busy;

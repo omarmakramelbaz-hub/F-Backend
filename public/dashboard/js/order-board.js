@@ -244,10 +244,10 @@
         return payload.message || translated('error');
     }
 
-    async function readJson(response) {
+    async function readJson(response, readBody) {
         var payload;
         var parsed = false;
-        try { payload = await response.json(); parsed = true; } catch (_) { payload = {}; }
+        try { payload = await (readBody ? readBody(response) : response.json()); parsed = true; } catch (_) { payload = {}; }
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) { payload = {}; parsed = false; }
         if (response.ok && !parsed) throw new Error(translated('error'));
         if (!response.ok || payload.success === false || payload.status === 'Error') {
@@ -256,6 +256,43 @@
             throw error;
         }
         return payload;
+    }
+
+    async function readFeed(endpoint, controller) {
+        var reader = null, timer, expired = false, cancel;
+        var stopped = new Promise(function (_resolve, reject) {
+            cancel = function () {
+                reject(expired ? new Error(translated('loading_failed')) : new DOMException('The read was cancelled', 'AbortError'));
+                if (reader) reader.cancel().catch(function () {});
+            };
+            controller.signal.addEventListener('abort', cancel, { once: true });
+            timer = setTimeout(function () { expired = true; controller.abort(); }, 15000);
+        });
+        var reading = (async function () {
+            if (controller.signal.aborted) throw new DOMException('The read was cancelled', 'AbortError');
+            var response = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', cache: 'no-store',
+                signal: controller.signal, headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (controller.signal.aborted) {
+                if (response.body) response.body.cancel().catch(function () {});
+                throw new DOMException('The read was cancelled', 'AbortError');
+            }
+            return readJson(response, async function (value) {
+                if (!value.body || typeof value.body.getReader !== 'function') return value.json();
+                reader = value.body.getReader();
+                var decoder = new TextDecoder(), text = '';
+                try {
+                    while (true) {
+                        var part = await reader.read();
+                        if (controller.signal.aborted) throw new DOMException('The read was cancelled', 'AbortError');
+                        if (part.done) break;
+                        text += decoder.decode(part.value, { stream: true });
+                    }
+                    return JSON.parse(text + decoder.decode());
+                } finally { reader.releaseLock(); reader = null; }
+            });
+        })();
+        try { return await Promise.race([reading, stopped]); }
+        finally { clearTimeout(timer); controller.signal.removeEventListener('abort', cancel); }
     }
 
     async function refresh(force) {
@@ -278,13 +315,7 @@
         endpoint.search = query;
         setLive('updating');
         try {
-            var response = await fetch(endpoint.toString(), {
-                credentials: 'same-origin',
-                cache: 'no-store',
-                signal: controller.signal,
-                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            var payload = await readJson(response);
+            var payload = await readFeed(endpoint.toString(), controller);
             if (disposed || currentGeneration !== generation || query !== filters().toString() || pendingAction) return;
             var html = payload.html !== undefined ? payload.html : payload.view;
             if (typeof html !== 'string') throw new Error(translated('loading_failed'));
@@ -314,7 +345,7 @@
         event.preventDefault();
         // The shared footer replaces all submit-button labels; this AJAX form owns its UI.
         event.stopImmediatePropagation();
-        clearTimeout(searchTimer);
+        clearTimeout(searchTimer); searchTimer = null;
         resetPages();
         rememberFilters();
         refresh(true);
@@ -335,7 +366,7 @@
     }
     form.querySelector('[name="search"]').addEventListener('input', function () {
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(function () { resetPages(); rememberFilters(); refresh(true); }, 450);
+        searchTimer = setTimeout(function () { searchTimer = null; resetPages(); rememberFilters(); refresh(true); }, 450);
     });
     board.querySelector('[data-board-reset]').addEventListener('click', function (event) {
         event.preventDefault();
@@ -481,6 +512,45 @@
     window.addEventListener('online', function () { refresh(false); });
     interval = setInterval(function () { refresh(false); }, 10000);
     window.addEventListener('pagehide', function () { clearInterval(interval); if (activeFeed) activeFeed.abort(); });
+    if (window.DashboardSPA && window.DashboardSPA.onIdle) window.DashboardSPA.onIdle(function () {
+        if (disposed || pendingAction || pendingKeys.size || activeFeed || searchTimer || reconcileTimer
+            || reconcileNeeded || reconcileUrgent || modalIsOpen()) return false;
+        try {
+            var target = new URL(form.getAttribute('action'), window.location.href);
+            if (form.id !== 'ob-filters' || String(form.method).toUpperCase() !== 'GET'
+                || target.origin !== window.location.origin || target.pathname !== '/admin/applies-orders'
+                || target.search || target.hash) return false;
+            var entries = function (value) {
+                var params = new URLSearchParams(value);
+                Array.from(params.entries()).forEach(function (entry) {
+                    if (!entry[1] || (/^page_/.test(entry[0]) && entry[1] === '1')) params.delete(entry[0]);
+                });
+                return JSON.stringify(Array.from(params.entries()).sort());
+            };
+            var current = filters(), query = new URLSearchParams(window.location.search);
+            var names = Array.from(new Set(Array.from(current.keys())));
+            for (var index = 0; index < names.length; index++) {
+                var name = names[index];
+                if (query.has(name)) continue;
+                var fields = Array.from(form.elements || []).filter(function (field) { return field.name === name; });
+                if (fields.length !== 1 || current.getAll(name).length !== 1) return false;
+                var field = fields[0], original;
+                if (field.tagName === 'SELECT') {
+                    if (field.multiple) return false;
+                    var defaults = Array.from(field.options).filter(function (option) { return option.defaultSelected; });
+                    var option = defaults[defaults.length - 1];
+                    if (!option && !(Number(field.size) > 1)) option = Array.from(field.options).find(function (candidate) {
+                        var group = candidate.parentElement;
+                        return !candidate.disabled && !(group && group.tagName === 'OPTGROUP' && group.disabled);
+                    });
+                    original = option ? option.value : '';
+                } else original = field.defaultValue;
+                if (typeof original !== 'string' || current.get(name) !== original) return false;
+                current.delete(name);
+            }
+            return entries(current) === entries(query);
+        } catch (_) { return false; }
+    });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () {
         disposed = true; generation++;
         clearInterval(interval); clearTimeout(searchTimer); clearTimeout(messageTimer); clearTimeout(reconcileTimer);

@@ -181,7 +181,17 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
       if(retained.length)headers[name]=retained.join('; ');else delete headers[name];
     }
   }
-  const businessPage = url => ['/admin/takeaway','/admin/branch-expenses','/admin/branch-stock','/admin/branch-shifts'].includes(new URL(url).pathname);
+  function selectChanged(field) {
+    const options = Array.from(field.options), defaults = options.filter(option => option.defaultSelected);
+    if (field.multiple) return options.some(option => option.selected !== option.defaultSelected);
+    let original = defaults[defaults.length - 1];
+    if (!original && !(Number(field.size) > 1)) original = options.find(option => {
+      const group = option.parentElement;
+      return !option.disabled && !(group?.tagName === 'OPTGROUP' && group.disabled);
+    });
+    return options.some(option => option.selected !== (option === original));
+  }
+  const businessPage = url => ['/admin/takeaway','/admin/applies-orders','/admin/branch-expenses','/admin/branch-stock','/admin/branch-shifts'].includes(new URL(url).pathname);
   const idlePage = url => ['/admin/dashboard','/admin/desktop-dashboard'].includes(new URL(url).pathname) || businessPage(url);
   const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
     available:()=>Boolean(localToken) && !refreshing && !quitting(),prepareDocument:prepareEffectDocument}) : null;
@@ -673,6 +683,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     // actions. Renderer failures always defer the short final handoff.
     try {
       return await window.webContents.executeJavaScript(`(() => {
+        const selectChanged = (${selectChanged.toString()});
         if (document.readyState !== 'complete') return false;
         const form = ${login} ? document.querySelector('form[data-dashboard-login]') : null;
         const originalLogin = ${login} && form && String(form.method).toUpperCase() === 'POST'
@@ -688,7 +699,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         return !Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
           if (loginField(field)) return false;
           if (field.disabled || field.readOnly) return false;
-          if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
+          if (field.tagName === 'SELECT') return selectChanged(field);
           if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
           return field.value !== field.defaultValue;
         });
@@ -730,6 +741,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     contents.on('before-input-event', blockInput);
     try {
       const held = await contents.executeJavaScript(`(() => {
+        const selectChanged = (${selectChanged.toString()});
         const id = ${JSON.stringify(id)}, expectedURL = ${JSON.stringify(currentURL)};
         const key = '__goErpUpdateIdleGuard';
         if (window[key]) return false;
@@ -762,7 +774,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             || Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
               if (loginField(field)) return false;
               if (field.disabled || field.readOnly) return false;
-              if (field.tagName === 'SELECT') return Array.from(field.options).some(option => option.selected !== option.defaultSelected);
+              if (field.tagName === 'SELECT') return selectChanged(field);
               if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
               return field.value !== field.defaultValue;
             })) { release(); return false; }
