@@ -191,6 +191,40 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     });
     return options.some(option => option.selected !== (option === original));
   }
+  function settledBoardFilters() {
+    const none = () => new Set(), current = new URL(window.location.href);
+    if (current.pathname !== '/admin/applies-orders') return none();
+    const form = document.querySelector('form#ob-filters');
+    if (!form || form.id !== 'ob-filters' || String(form.method).toUpperCase() !== 'GET'
+        || (form.target && form.target !== '_self')) return none();
+    const target = new URL(form.getAttribute('action'), current);
+    if (target.origin !== current.origin || target.pathname !== current.pathname
+        || target.username || target.password || target.search || target.hash) return none();
+    const fields = new Set(), names = new Set();
+    for (const field of Array.from(form.elements)) {
+      if (!field.name) continue;
+      if (field.form !== form || names.has(field.name)) return none();
+      names.add(field.name);
+      if (/^page_(?:new|preparing|courier|completed)$/.test(field.name)) {
+        if (field.tagName !== 'INPUT' || field.type !== 'hidden') return none();
+      } else if (['app', 'branch'].includes(field.name)) {
+        if (field.tagName !== 'SELECT' || field.multiple || Number(field.size) > 1) return none();
+        fields.add(field);
+      } else if (['search', 'date'].includes(field.name)) {
+        if (field.tagName !== 'INPUT' || field.type !== field.name) return none();
+        fields.add(field);
+      } else return none();
+    }
+    if (!['search', 'app', 'date'].every(name => names.has(name))) return none();
+    const query = current.searchParams, submitted = new URLSearchParams(new FormData(form));
+    for (const params of [query, submitted]) if (Array.from(params.keys()).some(name => !names.has(name))
+        || Array.from(params.keys()).length !== new Set(params.keys()).size) return none();
+    const canonical = params => JSON.stringify(Array.from(params.entries()).filter(([name, value]) => value
+      && !(/^page_(?:new|preparing|courier|completed)$/.test(name) && value === '1')).sort());
+    // Only already-applied GET filters may differ from their original HTML
+    // defaults. Every order-action/editor field keeps the normal draft guard.
+    return canonical(submitted) === canonical(query) ? fields : none();
+  }
   const businessPage = url => ['/admin/takeaway','/admin/applies-orders','/admin/branch-expenses','/admin/branch-stock','/admin/branch-shifts'].includes(new URL(url).pathname);
   const idlePage = url => ['/admin/dashboard','/admin/desktop-dashboard'].includes(new URL(url).pathname) || businessPage(url);
   const effects = printControl && printMetadata ? new DashboardPrintEffects({control:printControl,metadata:printMetadata,
@@ -684,6 +718,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     try {
       return await window.webContents.executeJavaScript(`(() => {
         const selectChanged = (${selectChanged.toString()});
+        const settledBoardFilters = (${settledBoardFilters.toString()});
         if (document.readyState !== 'complete') return false;
         const form = ${login} ? document.querySelector('form[data-dashboard-login]') : null;
         const originalLogin = ${login} && form && String(form.method).toUpperCase() === 'POST'
@@ -692,12 +727,13 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
         const loginField = field => originalLogin && field?.form === form && field.tagName === 'INPUT'
           && ['email','password','remember','_token'].includes(field.name);
         if (${businessPage(current)} && window.DashboardSPA?.isIdle?.() !== true) return false;
+        const appliedFilters = ${new URL(current).pathname === '/admin/applies-orders'} ? settledBoardFilters() : new Set();
         const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
         if (document.activeElement?.matches(editable) && !loginField(document.activeElement)) return false;
         if (Array.from(document.querySelectorAll('.modal.show,.modal.in,.swal2-container,[role="dialog"][aria-modal="true"],dialog[open]'))
           .some(element => !element.closest('[hidden]') && element.getClientRects().length > 0)) return false;
         return !Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
-          if (loginField(field)) return false;
+          if (loginField(field) || appliedFilters.has(field)) return false;
           if (field.disabled || field.readOnly) return false;
           if (field.tagName === 'SELECT') return selectChanged(field);
           if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
@@ -742,6 +778,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
     try {
       const held = await contents.executeJavaScript(`(() => {
         const selectChanged = (${selectChanged.toString()});
+        const settledBoardFilters = (${settledBoardFilters.toString()});
         const id = ${JSON.stringify(id)}, expectedURL = ${JSON.stringify(currentURL)};
         const key = '__goErpUpdateIdleGuard';
         if (window[key]) return false;
@@ -763,6 +800,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
             && new URL(form.action, window.location.href).href === new URL('/admin/signin', window.location.href).href;
           const loginField = field => originalLogin && field?.form === form && field.tagName === 'INPUT'
             && ['email','password','remember','_token'].includes(field.name);
+          const appliedFilters = ${new URL(currentURL).pathname === '/admin/applies-orders'} ? settledBoardFilters() : new Set();
           const editable = 'input,textarea,select,[contenteditable]:not([contenteditable="false"])';
           if (window.location.href !== expectedURL || document.readyState !== 'complete'
             || (${Boolean(login)} && !originalLogin)
@@ -772,7 +810,7 @@ module.exports = function dashboard({ origin, serverOrigin = null, offline, offl
               .some(element => !element.closest('[hidden]') && element.getClientRects().length > 0)
             || document.querySelector('[contenteditable]:not([contenteditable="false"])')
             || Array.from(document.querySelectorAll('input:not([type="hidden"]),textarea,select')).some(field => {
-              if (loginField(field)) return false;
+              if (loginField(field) || appliedFilters.has(field)) return false;
               if (field.disabled || field.readOnly) return false;
               if (field.tagName === 'SELECT') return selectChanged(field);
               if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;

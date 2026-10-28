@@ -15,10 +15,16 @@ function fixture(options = {}) {
     onBeforeSendHeaders(_filter, work) { this.headers = work; },
     onCompleted(_filter, work) { this.completed = work; }, onErrorOccurred(_filter, work) { this.error = work; }
   }, setPermissionCheckHandler() {}, setPermissionRequestHandler() {} };
-  const page = { location: { get href() { return windows[0].url; } },
+  const page = { location: { get href() { return windows[0].url; },
+      get origin() { return new URL(windows[0].url).origin; }, get search() { return new URL(windows[0].url).search; } },
     addEventListener(name, work) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(work); },
     removeEventListener(name, work) { listeners.get(name)?.delete(work); } };
-  const renderer = vm.createContext({ window: page, document, URL });
+  class FormData {
+    constructor(form) { this.entries = Array.from(form.elements).filter(field => field.name && !field.disabled)
+      .map(field => [field.name, field.value]); }
+    [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
+  }
+  const renderer = vm.createContext({ window: page, document, URL, URLSearchParams, FormData });
   class Window extends EventEmitter {
     constructor(configuration) {
       super(); this.options = configuration; this.destroyed = false; this.loads = []; this.prints = 0; this.reloads = 0;
@@ -97,6 +103,116 @@ test('a settled order board uses the same two-phase business idle gate for a rea
   assert.equal(await f.dashboard.refresh(async () => 'new verified generation'), 'new verified generation');
   assert.deepEqual(f.windows[0].loads.slice(before), ['about:blank', policy.DEFAULT_ORIGIN + '/admin/applies-orders']);
   assert.equal(f.listenerCount(), 0);
+});
+
+function originalBoardFilters(f, values = {}) {
+  const input = (name, value = '') => ({ name, tagName: 'INPUT', type: name, value, defaultValue: '' });
+  const select = (name, selected = '') => {
+    const choices = name === 'app' ? ['', 'fasakhansta', 'go'] : ['', 'f:100', 'f:101'];
+    const options = choices.map(value => ({ value, selected: value === selected, defaultSelected: false }));
+    return { name, tagName: 'SELECT', multiple: false, size: 0, options,
+      get value() { return options.find(option => option.selected)?.value || ''; },
+      set value(value) { options.forEach(option => { option.selected = option.value === value; }); } };
+  };
+  const fields = [input('search', values.search), select('app', values.app), select('branch', values.branch), input('date', values.date)];
+  for (const stage of ['new', 'preparing', 'courier', 'completed']) fields.push({ name: 'page_' + stage,
+    tagName: 'INPUT', type: 'hidden', value: values['page_' + stage] || '1', defaultValue: '1' });
+  const form = { id: 'ob-filters', method: 'get', target: '', action: policy.DEFAULT_ORIGIN + '/admin/applies-orders', elements: fields,
+    getAttribute(name) { return name === 'action' ? this.action : null; } };
+  fields.forEach(field => { field.form = form; });
+  const filters = () => {
+    const params = new URLSearchParams(form.elements.filter(field => field.name && !field.disabled).map(field => [field.name, field.value]));
+    for (const [name, value] of Array.from(params.entries())) if (!value || /^page_/.test(name) && value === '1') params.delete(name);
+    return params;
+  };
+  let idle;
+  f.page.DashboardSPA = { onIdle: callback => { idle = callback; }, isIdle: () => idle() };
+  f.document.querySelector = selector => selector === 'form#ob-filters' ? form : null;
+  const observedFields = fields.filter(field => field.type !== 'hidden');
+  f.document.querySelectorAll = selector => selector.startsWith('.modal') ? [] : observedFields;
+  const board = fs.readFileSync(path.join(__dirname, '../../public/dashboard/js/order-board.js'), 'utf8');
+  const start = board.indexOf('    if (window.DashboardSPA && window.DashboardSPA.onIdle)'),
+    end = board.indexOf('\n    if (window.DashboardSPA) window.DashboardSPA.onCleanup', start);
+  assert.ok(start >= 0 && end > start, 'Exercise the production board idle observation alongside both native probes.');
+  vm.runInNewContext(board.slice(start, end), { window: f.page, form, filters, URL, URLSearchParams, JSON,
+    disposed: false, pendingAction: 0, pendingKeys: new Set(), activeFeed: null, searchTimer: null,
+    reconcileTimer: null, reconcileNeeded: false, reconcileUrgent: false, modalIsOpen: () => false });
+  return { form, fields, observedFields, filters, boardIdle: () => idle(), field: name => fields.find(field => field.name === name) };
+}
+
+test('applied order-board search, date, app and branch filters admit incoming data without changing field defaults', async () => {
+  for (const values of [{ search: 'paid' }, { date: '2026-10-28' }, { app: 'go' }, { branch: 'f:101' },
+    { search: 'paid', page_new: '2' }, { search: 'طلب جديد', date: '2026-10-28', app: 'fasakhansta', branch: 'f:100' }]) {
+    const f = fixture({ localToken: 'private-local-test-token' });
+    const query = new URLSearchParams(values).toString(); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders?' + query);
+    const board = originalBoardFilters(f, values), defaults = board.fields.map(field => field.defaultValue ?? field.options.map(option => option.defaultSelected));
+    assert.equal(board.boardIdle(), true, query); assert.equal(await f.dashboard.canRefresh(), true, query);
+    assert.equal(await f.dashboard.withUpdateIdle(async () => 'verified data'), 'verified data', query + ' final input fence');
+    const loads = f.windows[0].loads.length;
+    assert.equal(await f.dashboard.refresh(async () => 'activated data'), 'activated data');
+    assert.deepEqual(f.windows[0].loads.slice(loads), ['about:blank', policy.DEFAULT_ORIGIN + '/admin/applies-orders?' + query]);
+    assert.deepEqual(board.fields.map(field => field.defaultValue ?? field.options.map(option => option.defaultSelected)), defaults);
+    assert.equal(f.listenerCount(), 0);
+  }
+});
+
+test('unapplied order-board filters, focused controls and nonfilter edits still defer incoming data', async () => {
+  for (const reason of ['unapplied-search', 'unapplied-date', 'unapplied-branch', 'focused-filter', 'cash-draft', 'other-form']) {
+    const f = fixture({ localToken: 'local' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders?search=paid');
+    const board = originalBoardFilters(f, { search: 'paid' });
+    if (reason === 'unapplied-search') board.field('search').value = 'new search';
+    if (reason === 'unapplied-date') board.field('date').value = '2026-10-29';
+    if (reason === 'unapplied-branch') board.field('branch').value = 'f:100';
+    if (reason === 'focused-filter') f.document.activeElement = { matches: () => true, form: board.form };
+    if (reason === 'cash-draft' || reason === 'other-form') board.observedFields.push({ name: 'cash_received', tagName: 'INPUT', type: 'text',
+      value: '500', defaultValue: '', form: reason === 'other-form' ? {} : null });
+    let applied = false;
+    assert.equal((await f.dashboard.withUpdateIdle(async () => { applied = true; })).deferred, true, reason);
+    assert.equal(applied, false); assert.equal(f.listenerCount(), 0); assert.equal(f.windows[0].loads.length, 1);
+  }
+});
+
+test('the board filter exemption rejects altered forms, unknown fields, duplicate query keys and other routes', async () => {
+  for (const reason of ['post', 'foreign-action', 'query-action', 'hash-action', 'other-action', 'target',
+    'unknown-field', 'duplicate-field', 'wrong-input-type', 'multiple-select', 'duplicate-query', 'other-route']) {
+    const f = fixture({ localToken: 'local' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders?search=paid');
+    const board = originalBoardFilters(f, { search: 'paid' });
+    if (reason === 'post') board.form.method = 'post';
+    if (reason === 'foreign-action') board.form.action = 'https://foreign.test/admin/applies-orders';
+    if (reason === 'query-action') board.form.action += '?search=paid';
+    if (reason === 'hash-action') board.form.action += '#filter';
+    if (reason === 'other-action') board.form.action = policy.DEFAULT_ORIGIN + '/admin/order-board/legacy/1/action';
+    if (reason === 'target') board.form.target = '_blank';
+    if (reason === 'unknown-field') board.fields.push({ name: 'cash_received', tagName: 'INPUT', type: 'text', value: '500', defaultValue: '500', form: board.form });
+    if (reason === 'duplicate-field') board.fields.push({ ...board.field('search'), form: board.form });
+    if (reason === 'wrong-input-type') board.field('search').type = 'text';
+    if (reason === 'multiple-select') board.field('app').multiple = true;
+    if (reason === 'duplicate-query') f.windows[0].url += '&search=paid';
+    if (reason === 'other-route') f.windows[0].url = policy.DEFAULT_ORIGIN + '/admin/takeaway?search=paid';
+    let applied = false;
+    assert.equal((await f.dashboard.withUpdateIdle(async () => { applied = true; })).deferred, true, reason);
+    assert.equal(applied, false); assert.equal(f.listenerCount(), 0);
+  }
+});
+
+test('a filter edit or form alteration arriving between native probes is rechecked under the final fence', async () => {
+  for (const reason of ['search', 'date', 'app', 'branch', 'method', 'action', 'cash-draft']) {
+    const f = fixture({ localToken: 'local' }); await f.dashboard.open(policy.DEFAULT_ORIGIN + '/admin/applies-orders?search=paid');
+    const board = originalBoardFilters(f, { search: 'paid' });
+    assert.equal(await f.dashboard.canRefresh(), true);
+    f.race(() => {
+      if (reason === 'search') board.field('search').value = 'new search';
+      if (reason === 'date') board.field('date').value = '2026-10-29';
+      if (reason === 'app') board.field('app').value = 'go';
+      if (reason === 'branch') board.field('branch').value = 'f:100';
+      if (reason === 'method') board.form.method = 'post';
+      if (reason === 'action') board.form.action += '?changed=1';
+      if (reason === 'cash-draft') board.observedFields.push({ name: 'cash_received', tagName: 'INPUT', type: 'text', value: '500', defaultValue: '', form: null });
+    });
+    let applied = false;
+    assert.equal((await f.dashboard.withUpdateIdle(async () => { applied = true; })).deferred, true, reason);
+    assert.equal(applied, false); assert.equal(f.listenerCount(), 0);
+  }
 });
 
 test('an order board with an action, incomplete initialization or changed form remains fenced', async () => {
