@@ -28,6 +28,27 @@ FAILED_CI_RUN = 40764223785
 FAILED_CI_JOB = 123084808821
 VERSION = '0.4.4-preview.62'
 REV = re.compile(r'[a-f0-9]{40}\Z')
+PHP_HANDLER_RELEASE = '8db5adb538834a2152f74f6e55336223a4c95908'
+PHP_HANDLER_ORIGINAL_SHA = 'dc26aa53fb8c2636ff079a43d0f8062e75b837154315a7a3693b1e1e18828634'
+PHP_HANDLER_DERIVED_SHA = '8f4d740fc56e5352d35c3d7439521f7a29262c2f0e65bec845ecf3c848353b21'
+PHP_SOCKET_BEFORE = b"""            need(re.fullmatch(r'[1-9][0-9]*', parts[6]))
+            # Linux copies a listening stream's address to its accepted peers.
+            # Those rows may share this pathname, but cannot prove a listener.
+            if parts[3] == '00000000':
+                need(parts[4] == '0001' and parts[5] in ('01', '02', '03', '04'))
+                continue
+            need(parts[3] == '00010000' and parts[4] == '0001' and parts[5] == '01')
+"""
+PHP_SOCKET_AFTER = b"""            # Linux copies a listening stream's address to its accepted peers.
+            # Queued peers can have inode zero before accept grafts a socket.
+            # They cannot prove a listener or satisfy the master's FD check.
+            if parts[3] == '00000000':
+                need(re.fullmatch(r'(?:0|[1-9][0-9]*)', parts[6])
+                    and parts[4] == '0001' and parts[5] in ('01', '02', '03', '04'))
+                continue
+            need(re.fullmatch(r'[1-9][0-9]*', parts[6]))
+            need(parts[3] == '00010000' and parts[4] == '0001' and parts[5] == '01')
+"""
 
 
 class Stop(Exception):
@@ -47,6 +68,16 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() + b'\n'
 
 
+def php_handler_bytes(raw):
+    """Derive one reviewed peer-row correction; preserve every other proof."""
+    need(isinstance(raw, bytes) and sha(raw) == PHP_HANDLER_ORIGINAL_SHA,
+         'PHP_HANDLER_ORIGINAL_CHANGED')
+    need(raw.count(PHP_SOCKET_BEFORE) == 1, 'PHP_HANDLER_SOCKET_CONTEXT_CHANGED')
+    result = raw.replace(PHP_SOCKET_BEFORE, PHP_SOCKET_AFTER)
+    need(sha(result) == PHP_HANDLER_DERIVED_SHA, 'PHP_HANDLER_DERIVATION_CHANGED')
+    return result
+
+
 class Successor:
     def __init__(self, package, operator, modules):
         self.package, self.o, self.modules = package, operator, modules
@@ -63,7 +94,25 @@ class Successor:
         self.pins = None
         self.context = None
         self.holder = {}
+        self._install_php_handler()
         self._review_seed()
+
+    def _install_php_handler(self):
+        # This is an instance-local attestation adapter. The frozen root and
+        # original seven bundled modules retain their independently pinned bytes.
+        need(self.old.root_api.LEGACY_RELEASE == PHP_HANDLER_RELEASE
+             and self.old.root_api.PHP_HANDLER_SHA == PHP_HANDLER_ORIGINAL_SHA,
+             'PHP_HANDLER_ROOT_BINDING_CHANGED')
+        raw = self.package.file('deployment/go_erp_navigation_php_root.py', PHP_HANDLER_RELEASE)
+        module = self.old.root_api.load(php_handler_bytes(raw),
+            'audit_successor_php_handler', PHP_HANDLER_DERIVED_SHA)
+        def handler():
+            try:
+                return module.verify(self.e)
+            except module.Stop as error:
+                need(str(error) == 'PHP_HANDLER_REVIEW_REQUIRED', 'PHP_HANDLER_ERROR_CODE_CHANGED')
+                raise Stop('GO_ERP_DESKTOP_AUDIT_SUCCESSOR_PHP_HANDLER_REVIEW_REQUIRED') from None
+        self.o._handler = handler
 
     def read(self, path, *, optional=False, modes=(0o600,), limit=16*1024**2):
         result = self.e.read_file(path, limit, uid=0, modes=modes, optional=optional)
