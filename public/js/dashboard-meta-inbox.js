@@ -44,7 +44,10 @@
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
         var channel = ['messenger', 'instagram'].indexOf(config.hub_chat ? '' : config.initial_channel) !== -1 ? config.initial_channel : '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
         var total = 0;
-        var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = 1000, denied = false;
+        // Every poll cycle sends several requests; once a second kept a PHP worker busy per open inbox.
+        var pollDelay = Math.max(1000, Math.min(15000, Number(config.poll_interval_ms) || 5000));
+        var unreadCheckedAt = 0, unreadDirty = true, threadSignature = null, UNREAD_REFRESH_MS = 30000;
+        var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = pollDelay, denied = false;
         var threadLoading = false, messageLoading = false, projectionWarning = false;
 
         panel.querySelectorAll('[data-meta-channel]').forEach(function (button) { button.setAttribute('aria-pressed', (button.dataset.metaChannel || '') === channel ? 'true' : 'false'); });
@@ -339,6 +342,7 @@
             ids.forEach(function (id) { url.searchParams.append('ids[]', String(id)); });
             return request(url.href, 'unread').then(function (data) {
                 if (closed || denied) return;
+                unreadCheckedAt = Date.now(); unreadDirty = false;
                 (data.conversations || []).forEach(function (row) { unreadMap.set(Number(row.id), Number(row.unread_count) || 0); });
                 var total = Number(data.total_unread) || 0;
                 unreadTotal.textContent = (config.unread_label || '') + ': ' + total; unreadTotal.hidden = !total;
@@ -386,6 +390,13 @@
                 projectionWarning = Boolean(data.projection_warning);
                 // Refresh keeps older explicitly loaded pages, updating only current rows.
                 (data.conversations || []).forEach(function (thread) { threadMap.set(Number(thread.id), thread); });
+                if (!previous) {
+                    // A new message changes its conversation row; only then is a fresh unread count needed.
+                    var signature = (data.conversations || []).map(function (thread) {
+                        return thread.id + ':' + (thread.last_message_at || '') + ':' + (thread.preview || '');
+                    }).join('|');
+                    if (signature !== threadSignature) { threadSignature = signature; unreadDirty = true; }
+                }
                 total = Number(data.total) || 0; count.textContent = String(total);
                 if (previous || !nextCursor || threadMap.size <= 25) nextCursor = data.next_cursor || null;
                 more.hidden = !nextCursor; renderThreads();
@@ -489,7 +500,7 @@
         }
         function success() {
             if (closed || denied) return;
-            retryDelay = 1000; notice(projectionWarning ? labels.projection_warning : '', projectionWarning);
+            retryDelay = pollDelay; notice(projectionWarning ? labels.projection_warning : '', projectionWarning);
             connection.textContent = labels.connected + ' · ' + new Date().toLocaleTimeString(document.documentElement.lang || 'ar',
                 {hour: '2-digit', minute: '2-digit'});
         }
@@ -497,11 +508,16 @@
             clearTimeout(timer);
             if (!closed && !denied && config.available && !document.hidden && navigator.onLine !== false) timer = setTimeout(poll, retryDelay);
         }
+        function refreshUnread() {
+            // The unread count scans the whole inbox; repeat it only after activity or every 30 seconds.
+            if (!unreadDirty && Date.now() - unreadCheckedAt < UNREAD_REFRESH_MS) return Promise.resolve();
+            return loadUnread();
+        }
         function poll() {
             if (pollBusy) { pollAgain = true; return; }
             if (closed || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
             pollBusy = true; refresh.disabled = true;
-            Promise.all([loadThreads(false), loadMessages(chosen && lastId ? 'newer' : 'initial')]).then(loadUnread).then(success).catch(unavailable)
+            Promise.all([loadThreads(false), loadMessages(chosen && lastId ? 'newer' : 'initial')]).then(refreshUnread).then(success).catch(unavailable)
                 .finally(function () {
                     pollBusy = false; if (!closed) refresh.disabled = false;
                     if (pollAgain && !closed && !denied && !document.hidden && navigator.onLine !== false) { pollAgain = false; poll(); }

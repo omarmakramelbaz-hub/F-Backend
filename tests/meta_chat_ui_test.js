@@ -202,6 +202,17 @@ async function richInboxRenderingAndActions() {
     assert.strictEqual(test.elements['[data-wa-messages]'].children[0].dataset.waMessageId,'1','Delete preserves message boundary ID');
     test.state.cleanup(); assert.strictEqual(test.elements['[data-wa-messages]'].textContent,''); assert.strictEqual(test.timers.size,0); assert.strictEqual(test.document.listeners.keydown.length,0);
 }
+async function metaUnreadFollowsActivity() {
+    const test=inboxFixture(true); await settle();
+    const unreadCalls=()=>test.state.calls.filter(c=>new URL(c.url).pathname.endsWith('/unread')).length;
+    const initial=unreadCalls(); assert(initial>=1,'Opening the inbox loads the unread count once');
+    inboxClick(test,'data-wa-refresh'); await settle(); inboxClick(test,'data-wa-refresh'); await settle();
+    assert.strictEqual(unreadCalls(),initial,'Quiet polls reuse the recent unread count instead of rescanning the inbox');
+    test.state.threads=[{id:1,name:'Customer',channel:'messenger',last_message_at:'2026-10-29T12:00:00Z',preview:'New message'}];
+    inboxClick(test,'data-wa-refresh'); await settle();
+    assert.strictEqual(unreadCalls(),initial+1,'A changed conversation list refreshes the unread count on the same poll');
+    test.state.cleanup();
+}
 async function forwardAccountIsolation() {
     const test=inboxFixture(); await settle();
     test.state.threads=[{id:1,name:'Origin',channel:'messenger',account_key:'ACCOUNT_A'}, {id:2,name:'Allowed',channel:'messenger',account_key:'ACCOUNT_A'}, {id:3,name:'Other business',channel:'messenger',account_key:'ACCOUNT_B'}, {id:4,name:'Other channel',channel:'instagram',account_key:'ACCOUNT_A'}, {id:5,name:'Missing account',channel:'messenger'}];
@@ -451,7 +462,7 @@ async function attachmentAndForwardExplicitSend() {
     const noInbound=repliesFixture(); noInbound.state.canReply=false; noInbound.state.reason='NO_INBOUND'; select(noInbound,1); await replySettle(); assert.strictEqual(noInbound.elements['[data-wa-reply-status]'].textContent,'NO_INBOUND'); noInbound.state.cleanup[0]();
 }
 (async()=>{
- await richInboxRenderingAndActions(); await forwardAccountIsolation();
+ await richInboxRenderingAndActions(); await metaUnreadFollowsActivity(); await forwardAccountIsolation();
  await acceptedAndSingleSend(); await unknownDoesNotRetry(); await staleSwitchAndExpiry(); await voicePreviewAndLifecycle(); await voiceFormatLimitsAndCancel(); await cancelledMicrophoneGrant(); await trustedPreclaimFailure(); await attachmentAndForwardExplicitSend();
  console.log('META_CHAT_UI_PASS safe media, account-scoped forward preview, hide tombstones, explicit file/voice sends, unknown reconciliation and SPA privacy');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

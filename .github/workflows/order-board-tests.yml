@@ -136,6 +136,7 @@ on:
       - 'public/dashboard/js/order-board-menu.js'
       - 'public/dashboard/js/dashboard-navigation.js'
       - 'public/dashboard/js/dashboard-*.js'
+      - 'tests/order_alerts_shared_feed_test.js'
       - 'public/dashboard/css/dashboard-*.css'
       - 'public/dashboard/css/order-board-menu.css'
       - 'public/dashboard/js/takeaway-pos.js'
@@ -208,6 +209,7 @@ jobs:
           node --check public/dashboard/js/branch-operations.js
           node --check public/dashboard/js/dashboard-location-picker.js
           node --check public/dashboard/js/print-settings.js
+          node tests/order_alerts_shared_feed_test.js
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh
           bash tests/deployment/dashboard_scheduler.sh

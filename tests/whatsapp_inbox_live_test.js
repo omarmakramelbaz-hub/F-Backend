@@ -254,6 +254,19 @@ async function unreadCountsCustomers() {
     assert.deepStrictEqual(badges.map(element => element.attributes['aria-label']), ['Unread conversation', 'Unread conversation'], 'Screen readers count one conversation per row, rather than21 messages as21 conversations');
     assert.strictEqual(test.state.calls.filter(call => call.request.method === 'POST').length, 0, 'Rendering a list never marks history read'); close(test);
 }
+async function unreadAggregateFollowsActivity() {
+    const test = fixture(); await settle();
+    const unreadCalls = () => test.state.calls.filter(call => call.pathname.endsWith('/unread')).length;
+    const initial = unreadCalls(); assert(initial >= 1, 'Opening the inbox loads the unread count once');
+    await scheduledPoll(test); await scheduledPoll(test);
+    assert.strictEqual(unreadCalls(), initial, 'Quiet polls reuse the recent unread count instead of rescanning the inbox');
+    test.state.threads.push({id: 3, name: 'New customer', last_message_at: '2026-10-29T12:00:00Z'});
+    await scheduledPoll(test);
+    assert.strictEqual(unreadCalls(), initial + 1, 'A changed conversation list refreshes the unread count on the same poll');
+    const realNow = Date.now; Date.now = () => realNow() + 31000;
+    try { await scheduledPoll(test); } finally { Date.now = realNow; }
+    assert.strictEqual(unreadCalls(), initial + 2, 'The unread count still refreshes every 30 seconds without activity'); close(test);
+}
 async function authenticatedMediaAndStableNodes() {
     const test = fixture(); test.state.raw[2] = message(12, {type: 'image', text: 'Caption <script>', media: {type: 'image', url: '/admin/whatsapp/conversations/1/messages/12/media'}});
     test.state.raw[3] = message(13, {type: 'image', media: {type: 'image', url: 'https://attacker.test/private'}});
@@ -538,7 +551,7 @@ async function lateHistorySelectionCannotLeak() {
 
 (async () => {
     const cases = [infiniteThreadsAndCursor, historyAnchoringAndNewIndicator, pollingDoesNotOverlap, autonomousPollFindsNativeMessagesAndCustomers,
-        autonomousPollRefreshesAcceptedRepliesAndRetainsHistory, delayedRecentPollCannotCrossCustomerScope, unreadCountsCustomers, authenticatedMediaAndStableNodes,
+        autonomousPollRefreshesAcceptedRepliesAndRetainsHistory, delayedRecentPollCannotCrossCustomerScope, unreadCountsCustomers, unreadAggregateFollowsActivity, authenticatedMediaAndStableNodes,
         copyQuoteAndReaction, forwardNeedsExplicitTargetAndConfirmation, staleActionsNeverSend, unknownIsNeverRetried, selectionSnapshotExcludesFutureRows,
         individualSelectionAndLifecycle, apiReplyActionsUseScopedAuditIds, singleDeleteIsLocalAndConfirmed, apiImageScopeAndNativeEchoDeduplication,
         delayedOldMessagesNeverLeak, networkUncertaintyNeverResends, selectAllCoversWholeLargeConversation, lateEchoKeepsSnapshotSelectionAndDedupe,

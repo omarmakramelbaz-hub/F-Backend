@@ -494,7 +494,10 @@ class LocalRuntime {
   async startWeb() {
     if (this.stopping) throw Error('البرنامج يُغلق الآن.');
     const php = this.php, application = this.application, runtimeEnvironment = this.environment;
-    const phpArgs = [...LocalRuntime.phpArguments(this), '-d', 'opcache.enable_cli=1'];
+    // Bundled code changes only through a new generation, which restarts this process. Checking every
+    // included file's timestamp and permission on each request made every page slower on Windows.
+    const phpArgs = [...LocalRuntime.phpArguments(this), '-d', 'opcache.enable_cli=1',
+      '-d', 'opcache.revalidate_freq=60', '-d', 'opcache.validate_permission=0'];
     if (process.platform === 'win32') {
       // Each web launch owns its in-memory cache. Reusing serialized opcodes
       // from another Windows process can reset the first real Laravel request.

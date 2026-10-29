@@ -33,6 +33,8 @@ function observeWeb(child) {
   assert.match(overrides['opcache.cache_id'], /^go-erp-web-[a-f0-9]{48}$/);
   assert.equal(overrides['opcache.file_cache'], '');
   assert.equal(overrides['opcache.file_cache_only'], '0');
+  assert.equal(overrides['opcache.revalidate_freq'], '60');
+  assert.equal(overrides['opcache.validate_permission'], '0');
   assert.equal(webOpcodeLaunches.some(value => value.cacheId === overrides['opcache.cache_id']), false,
     'Every actual web launch must get a new shared-memory opcode namespace.');
   assert.ok(Number.isSafeInteger(child.pid) && child.pid > 0);

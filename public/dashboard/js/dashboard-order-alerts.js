@@ -5,6 +5,7 @@
     var preference = 'soundEnabled', actor = script && script.dataset.soundActor || 'dashboard';
     var leaseKey = 'dashboardOrderSound:' + actor, ackKey = leaseKey + ':ack', tab = Date.now() + ':' + Math.random();
     var pendingKey = leaseKey + ':pending', feedUrl = script && script.dataset.soundFeed;
+    var feedKey = leaseKey + ':feed', sharedKey = leaseKey + ':orders', stamps = [], sharedId = '';
     var enabled = read(preference) !== 'false', playing = false, starting = false, unlocked = false, blocked = false;
     var generation = 0, testTimer = null, audio = null, stopped = false, feedTimer = null, feedController = null, signalController = null;
     try { JSON.parse(sessionStorage.getItem(pendingKey) || '[]').forEach(function (key) { pending.set(String(key), new Set(['restored'])); }); } catch (_) {}
@@ -19,6 +20,33 @@
         return true;
     }
     function release() { var owner = lease(); if (owner && owner.tab === tab) write(leaseKey, 'null'); }
+    // One tab per user asks the server for pending orders; the other tabs apply its result.
+    function feedOwner() { try { return JSON.parse(read(feedKey) || 'null'); } catch (_) { return null; } }
+    function leadsFeed() {
+        var owner = feedOwner(), now = Date.now();
+        // A lease further ahead than one term comes from a changed clock and is not honoured.
+        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 20000) return false;
+        write(feedKey, JSON.stringify({ tab: tab, until: now + 20000 }));
+        return true;
+    }
+    function releaseFeed() { var owner = feedOwner(); if (owner && owner.tab === tab) write(feedKey, 'null'); }
+    function mark() {
+        var now = Date.now(); stamps.push([++sequence, now]);
+        while (stamps[0][1] < now - 60000) stamps.shift();
+        return sequence;
+    }
+    // A shared result shows the server as it was when that request started; later changes in this tab still win.
+    function sequenceAt(time) {
+        for (var i = stamps.length - 1; i >= 0; i--) if (stamps[i][1] <= time) return stamps[i][0];
+        return stamps.length ? stamps[0][0] - 1 : sequence;
+    }
+    function applyShared(value) {
+        var result; try { result = JSON.parse(value || 'null'); } catch (_) { return; }
+        if (stopped || !result || result.tab === tab || !Array.isArray(result.keys) || typeof result.at !== 'number') return;
+        var id = result.tab + ':' + result.at;
+        if (id === sharedId || Math.abs(Date.now() - result.at) > 30000 || document.getElementById('order-board')) return;
+        sharedId = id; reconcileApp(result.keys, sequenceAt(result.at));
+    }
     function pause() {
         generation++; starting = false; playing = false; clearTimeout(testTimer); testTimer = null;
         if (audio) { audio.pause(); try { audio.currentTime = 0; } catch (_) {} }
@@ -79,17 +107,17 @@
         if (!key) return;
         key = String(key); scope = scope || 'live';
         if (/^(legacy|store|service|partner_service):[1-9][0-9]*$/.test(key) && feedUrl) {
-            arrivals.set(key, ++sequence); acknowledgements.delete(key);
+            arrivals.set(key, mark()); acknowledgements.delete(key);
             confirmAppSignal(); return;
         }
-        arrivals.set(key, ++sequence); acknowledgements.delete(key);
+        arrivals.set(key, mark()); acknowledgements.delete(key);
         if (!pending.has(key)) pending.set(key, new Set()); pending.get(key).add(scope);
         blocked = false; reconcile();
     }
     function acknowledge(key, remote) {
         if (!key) return;
         key = String(key);
-        acknowledgements.set(key, ++sequence);
+        acknowledgements.set(key, mark());
         var existed = pending.delete(key); scopes.forEach(function (keys) { keys.delete(key); });
         if (existed && !remote) write(ackKey, JSON.stringify({ key: key, tab: tab, at: Date.now() }));
         reconcile();
@@ -136,15 +164,20 @@
     async function pollOrders() {
         if (stopped || !feedUrl || typeof window.fetch !== 'function') return;
         // The board owns its own polling while mounted. Other dashboard pages still ring.
-        if (!document.getElementById('order-board')) {
+        if (document.getElementById('order-board')) releaseFeed();
+        else if (!leadsFeed()) applyShared(read(sharedKey));
+        else {
             var controller = new AbortController(); feedController = controller;
-            var before = sequence;
+            var before = sequence, startedAt = Date.now();
             var timeout = setTimeout(function () { controller.abort(); }, 15000);
             try {
                 var response = await window.fetch(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal, headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
                 if (!response.ok) throw new Error('Order feed unavailable');
                 var payload = await response.json(), html = payload.html !== undefined ? payload.html : payload.view;
-                if (!stopped && Array.isArray(payload.pending_alert_keys)) reconcileApp(payload.pending_alert_keys, before);
+                if (!stopped && Array.isArray(payload.pending_alert_keys)) {
+                    reconcileApp(payload.pending_alert_keys, before);
+                    if (leadsFeed()) write(sharedKey, JSON.stringify({ tab: tab, at: startedAt, keys: payload.pending_alert_keys }));
+                }
                 else if (!stopped && typeof html === 'string') observeApp(html);
             } catch (_) { /* Keep existing alerts while the network or session recovers. */ }
             finally { clearTimeout(timeout); if (feedController === controller) feedController = null; }
@@ -176,6 +209,7 @@
     window.addEventListener('storage', function (event) {
         if (event.key === preference) { enabled = read(preference) !== 'false'; reconcile(); }
         if (event.key === leaseKey) reconcile();
+        if (event.key === sharedKey) applyShared(event.newValue);
         if (event.key === ackKey) {
             try { var ack = JSON.parse(event.newValue); if (ack && ack.tab !== tab) acknowledge(ack.key, true); } catch (_) {}
         }
@@ -190,7 +224,7 @@
     }
     var heartbeat = setInterval(tick, 2000);
     window.addEventListener('pagehide', function () {
-        stopped = true; pause(); clearInterval(heartbeat); clearTimeout(feedTimer);
+        stopped = true; pause(); releaseFeed(); clearInterval(heartbeat); clearTimeout(feedTimer);
         if (feedController) feedController.abort();
         if (signalController) signalController.abort();
     });
