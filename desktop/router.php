@@ -1,4 +1,7 @@
 <?php
+// Bundled code only changes with a new generation, which restarts this server. Re-checking the
+// timestamps of the ~1,500 PHP files each request includes made every page slower on Windows.
+ini_set('opcache.revalidate_freq', '60');
 // PHP's built-in server is bound to loopback. Every request also needs the app-only header.
 $origin = getenv('DESKTOP_DASHBOARD_ORIGIN');
 $token = getenv('DESKTOP_DASHBOARD_TOKEN');

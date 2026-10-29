@@ -372,8 +372,6 @@ test('Windows web restarts own fresh in-memory caches and never reuse persistent
     assert.equal(value['opcache.enable_cli'], '1');
     assert.equal(value['opcache.file_cache'], '');
     assert.equal(value['opcache.file_cache_only'], '0');
-    assert.equal(value['opcache.revalidate_freq'], '60', 'Unchanged bundle files are not re-checked on every request.');
-    assert.equal(value['opcache.validate_permission'], '0', 'A private per-launch cache needs no per-request permission checks.');
     assert.match(value['opcache.cache_id'], /^go-erp-web-[a-f0-9]{48}$/);
     return value['opcache.cache_id'];
   });
@@ -390,7 +388,5 @@ test('other platforms retain their reviewed opcode configuration', async t => {
   assert.ok(web);
   assert.equal(web.args.some(value => value.startsWith('opcache.cache_id=')), false);
   assert.equal(web.args.some(value => value.startsWith('opcache.file_cache=')), false);
-  assert.ok(web.args.includes('opcache.revalidate_freq=60') && web.args.includes('opcache.validate_permission=0'),
-    'Every platform skips per-request file checks for the bundled code.');
   f.runtime.stopping = true; await f.runtime.drainWeb();
 });

@@ -137,6 +137,10 @@ on:
       - 'public/dashboard/js/dashboard-navigation.js'
       - 'public/dashboard/js/dashboard-*.js'
       - 'tests/order_alerts_shared_feed_test.js'
+      - 'desktop/router.php'
+      - 'tests/desktop_router_opcache_test.php'
+      - 'deployment/apply_go_erp_speed_release_root.py'
+      - 'tests/test_go_erp_speed_release_root.py'
       - 'public/dashboard/css/dashboard-*.css'
       - 'public/dashboard/css/order-board-menu.css'
       - 'public/dashboard/js/takeaway-pos.js'
@@ -210,6 +214,8 @@ jobs:
           node --check public/dashboard/js/dashboard-location-picker.js
           node --check public/dashboard/js/print-settings.js
           node tests/order_alerts_shared_feed_test.js
+          php tests/desktop_router_opcache_test.php
+          python3 -B -m unittest tests/test_go_erp_speed_release_root.py
           bash -n deployment/apply_order_board.sh
           bash -n deployment/apply_dashboard_runtime_root.sh
           bash tests/deployment/dashboard_scheduler.sh
