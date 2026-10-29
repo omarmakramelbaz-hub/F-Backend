@@ -111,9 +111,13 @@ class SpeedReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(operator.Stop, 'APP_UPDATE_IN_PROGRESS'):
             self.run_operator('apply')
         (self.manual / 'shared/status.json').write_text(json.dumps({'state': 'ready'}))
-        (self.manual / 'requests/request.json').write_text('{}')
+        (self.manual / 'requests/pending.json').write_text('{}')
         with self.assertRaisesRegex(operator.Stop, 'APP_UPDATE_REQUEST_WAITING'):
             self.run_operator('apply')
+
+    def test_the_kept_record_of_an_earlier_request_does_not_block(self):
+        (self.manual / 'requests/last-request.json').write_text('{}')
+        self.assertEqual(self.run_operator('plan')['result'], 'GO_ERP_SPEED_RELEASE_PLAN')
 
     def test_a_busy_update_worker_is_never_raced(self):
         held = os.open(str(self.lock), os.O_RDWR)

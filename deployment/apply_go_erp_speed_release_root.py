@@ -179,11 +179,8 @@ def release_idle(manual):
     status = read_json(manual / 'shared/status.json')
     state = status.get('state') if isinstance(status, dict) else None
     need(state not in ACTIVE, 'APP_UPDATE_IN_PROGRESS_RETRY_AFTER_IT_FINISHES')
-    try:
-        pending = [name for name in os.listdir(str(manual / 'requests')) if not name.startswith('.')]
-    except FileNotFoundError:
-        pending = []
-    need(not pending, 'APP_UPDATE_REQUEST_WAITING_RETRY_AFTER_IT_FINISHES')
+    # The web page keeps last-request.json for good; only pending.json means a build is about to start.
+    need(not os.path.lexists(str(manual / 'requests/pending.json')), 'APP_UPDATE_REQUEST_WAITING_RETRY_AFTER_IT_FINISHES')
     return state
 
 
