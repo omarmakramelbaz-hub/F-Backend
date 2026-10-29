@@ -26,7 +26,11 @@ let appOutput = ''; // the app's own console output, also for the failure report
 async function startServer() {
   server = spawn('php', ['-S', `127.0.0.1:${PORT}`, '-t', path.join(ROOT, 'public'), path.join(__dirname, 'router.php')], { stdio: 'ignore', env: PHP_ENV });
   await until(async () => {
-    try { await fetch(SERVER + '/api/desktop-sync/v1/sync', { method: 'POST' }); return true; } catch { return false; }
+    try {
+      const response = await fetch(SERVER + '/api/desktop-sync/v1/sync', { method: 'POST' });
+      await response.arrayBuffer(); // read it fully so no half-read connection is left open
+      return true;
+    } catch { return false; }
   }, 'local dashboard starts', 15000);
 }
 
@@ -53,7 +57,10 @@ async function until(check, label, timeout = 20000) {
   }
 }
 
-async function launch(userData, executablePath = require(path.join(APP, 'node_modules', 'electron')), args = [APP]) {
+// Resolving the path downloads Electron on first use; done once, before any server starts.
+const ELECTRON = require(path.join(APP, 'node_modules', 'electron'));
+
+async function launch(userData, executablePath = ELECTRON, args = [APP]) {
   const app = await electron.launch({ executablePath, args: [...args, '--no-sandbox', '--disable-gpu'], cwd: APP,
     env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData } });
   const keep = (chunk) => { appOutput = (appOutput + chunk).slice(-3000); };
