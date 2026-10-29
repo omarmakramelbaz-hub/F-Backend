@@ -64,6 +64,7 @@ class Bundle(unittest.TestCase):
             'd15942c947ac31c21a90b53856084a5de35d3cc3',
             '766f9d2d101fd639ffea8905e5b309f03eab8759',
             '6e39001095dbf5909c7b58cff69914c50da0f200',
+            'f9c104bc0bfab1e8f3d0598b1800148f182c08bf',
         }<=roster)
 
     def test_builder_works_in_a_repository_without_scratch_siblings(self):
