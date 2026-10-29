@@ -46,7 +46,9 @@
         var threadMap = new Map(), messageMap = new Map(), apiReplyMap = new Map(), controllers = new Map();
         var unreadMap = new Map(), readSeen = new Map(), readPending = new Map(), readTimer = null;
         var channel = '', selectedChannel = '', threadEpoch = 0, chosen = 0, generation = 0, nextCursor = null, beforeId = null, lastId = 0;
-        var pollDelay = Math.max(500, Math.min(5000, Number(config.poll_interval_ms) || 1000));
+        // Every poll cycle sends several requests; once a second kept a PHP worker busy per open inbox.
+        var pollDelay = Math.max(1000, Math.min(15000, Number(config.poll_interval_ms) || 5000));
+        var unreadCheckedAt = 0, unreadDirty = true, threadSignature = null, UNREAD_REFRESH_MS = 30000;
         var closed = false, pollBusy = false, pollAgain = false, timer = null, retryDelay = pollDelay, denied = false;
         var threadLoading = false, messageLoading = false, messageStarted = false, projectionWarning = false;
         var hasPagedThreads = false, threadTotal = 0;
@@ -589,6 +591,7 @@
             ids.forEach(function (id) { url.searchParams.append('ids[]', String(id)); });
             var job = request(url.href, 'unread').then(function (data) {
                 if (closed || denied || epoch !== threadEpoch) return;
+                unreadCheckedAt = Date.now(); unreadDirty = false;
                 (data.conversations || []).forEach(function (row) { unreadMap.set(Number(row.id), Number(row.unread_count) || 0); });
                 var total = Number.isSafeInteger(data.total_unread_conversations) && data.total_unread_conversations >= 0
                     ? data.total_unread_conversations : (data.conversations || []).filter(function (row) { return Number(row.unread_count) > 0; }).length;
@@ -596,6 +599,11 @@
                 renderThreads();
             }).finally(function () { if (unreadJob === job) unreadJob = null; });
             unreadJob = job; return job;
+        }
+        function refreshUnread() {
+            // The unread count scans the whole inbox; repeat it only after activity or every 30 seconds.
+            if (!unreadDirty && Date.now() - unreadCheckedAt < UNREAD_REFRESH_MS) return Promise.resolve();
+            return loadUnread();
         }
         function acknowledgeVisible() {
             if (!config.read_base_url || closed || denied || document.hidden || navigator.onLine === false || !chosen
@@ -662,6 +670,13 @@
                 projectionWarning = Boolean(data.projection_warning);
                 // Refresh keeps older explicitly loaded pages, updating only current rows.
                 (data.conversations || []).forEach(function (thread) { threadMap.set(Number(thread.id), thread); });
+                if (!previous) {
+                    // A new message changes its conversation row; only then is a fresh unread count needed.
+                    var signature = (data.conversations || []).map(function (thread) {
+                        return thread.id + ':' + (thread.last_message_at || '') + ':' + (thread.preview || '');
+                    }).join('|');
+                    if (signature !== threadSignature) { threadSignature = signature; unreadDirty = true; }
+                }
                 threadTotal = Number.isSafeInteger(data.total) && data.total >= 0 ? data.total : 0;
                 count.textContent = String(threadTotal);
                 if (previous || !hasPagedThreads) nextCursor = data.next_cursor && data.next_cursor !== page ? data.next_cursor : null;
@@ -1003,7 +1018,7 @@
             if (closed || denied || document.hidden || navigator.onLine === false || !config.available) { schedule(); return; }
             pollBusy = true; refresh.disabled = true;
             Promise.all([loadThreads(false), loadMessages(chosen && messageStarted ? 'newer' : 'initial'), loadReplyHistory('recent')])
-                .then(loadVisibleUpdates).then(loadUnread).then(success).catch(unavailable)
+                .then(loadVisibleUpdates).then(refreshUnread).then(success).catch(unavailable)
                 .finally(function () {
                     pollBusy = false; if (!closed) refresh.disabled = false;
                     if (pollAgain && !closed && !denied && !document.hidden && navigator.onLine !== false) { pollAgain = false; poll(); }

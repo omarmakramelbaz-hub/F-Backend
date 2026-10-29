@@ -107,6 +107,8 @@ class WhatsAppInboxReadState
     private function visible($query, int $actor)
     {
         if (!Schema::hasTable(WhatsAppInboxMessage::HIDDEN)) return $query;
+        // The per-message check reads every inbound row; actors who never hid anything can skip it.
+        if (!DB::table(WhatsAppInboxMessage::HIDDEN)->where('actor_id', $actor)->exists()) return $query;
         return $query->whereNotExists(function ($hidden) use ($actor) {
             $hidden->selectRaw('1')->from(WhatsAppInboxMessage::HIDDEN . ' as h')
                 ->where('h.actor_id', $actor)->whereColumn('h.conversation_id', 'm.conversation_id')
