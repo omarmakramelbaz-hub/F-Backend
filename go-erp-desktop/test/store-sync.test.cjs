@@ -9,6 +9,8 @@ const rules = require('../src/main/rules.cjs');
 const CATALOG = {
   branch: { value: 'f:100', name: 'فرع المعادي', address: 'المعادي', phone: '0225250000' }, tax_bps: 1400, service_bps: 1200, can_discount: true,
   categories: [{ id: 1, name: 'أسماك' }],
+  expense_categories: [{ key: 'electricity', name: 'كهرباء', stock: null }, { key: 'purchases', name: 'مشتريات', stock: null },
+    { key: 'purchase_tomato', name: 'طماطم', stock: 'purchase_tomato' }],
   products: [
     { id: 1, name: 'بلطي', unit: '', category_id: 1, variants: [{ option_id: '', label: 'الأساسي', unit_price_cents: 12000, quantity_mode: 'select' }] },
     { id: 2, name: 'أرز', unit: '', category_id: 1, variants: [{ option_id: '', label: 'الأساسي', unit_price_cents: 2500, quantity_mode: 'piece' }] },
@@ -22,7 +24,8 @@ function fixture(start = '2026-10-30T09:00:00Z') {
   let ids = 0;
   const store = new Store(db.open(':memory:'), { now: () => new Date(clock), uuid: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}` });
   store.saveDevice({ id: 'device-1', code: 'K7', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'فرع المعادي', address: '', phone: '' }]);
-  store.replaceUsers([CASHIER, { ...CASHIER, id: 1, name: 'المالك', mobile: '1000000001', can_manage: true }], 'hash-1');
+  store.replaceUsers([CASHIER, { ...CASHIER, id: 1, name: 'المالك', mobile: '1000000001', can_manage: true, can_approve_expenses: true,
+    can_close_shift: true }], 'hash-1');
   store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1', catalog: CATALOG }]);
   return { store, tick: (ms) => { clock += ms; }, setClock: (iso) => { clock = Date.parse(iso); } };
 }
@@ -161,4 +164,89 @@ test('receipts print amounts of items without a stock unit without a kilogram la
   const weighed = money.quote({ ...CATALOG, products: [{ ...CATALOG.products[0], variants: [{ ...CATALOG.products[0].variants[0], quantity_mode: 'weight' }] }] },
     { items: [{ product_id: 1, quantity_mode: 'weight', quantity: '0.5' }] });
   assert.equal(printing.quantityLabel(weighed.items[0]), '0.500 كجم');
+});
+
+test('expenses follow the dashboard rules and are queued with the day they were paid', () => {
+  const { store } = fixture('2026-10-30T02:30:00Z'); // 04:30 in Cairo: still the working day of 29 October
+  const cashier = store.user(4);
+  const owner = store.user(1);
+  assert.equal(owner.can_approve_expenses, true);
+  assert.equal(owner.can_close_shift, true);
+  assert.equal(cashier.can_approve_expenses, false);
+  assert.throws(() => store.recordExpense(cashier, 'f:100', { category: 'gas', amount: '10' }), /بند المصروف/);
+  assert.throws(() => store.recordExpense(cashier, 'f:100', { category: 'electricity', amount: '0' }), /أكبر من صفر/);
+  assert.throws(() => store.recordExpense(cashier, 'f:100', { category: 'purchase_tomato', amount: '60' }), /الكيلوات/);
+  assert.throws(() => store.recordExpense(cashier, 'f:100', { category: 'electricity', amount: '5', quantity_kg: '2' }), /البضاعة فقط/);
+  assert.throws(() => store.recordExpense(cashier, 'f:100', { category: 'purchases', amount: '60', description: 'شراء طماطم' }), /مشتريات طماطم/);
+  assert.throws(() => store.recordExpense(cashier, 'f:100', { category: 'electricity', amount: '5', approve: true }), /اعتماد/);
+  const pending = store.recordExpense(cashier, 'f:100', { category: 'electricity', amount: '350.5', description: 'فاتورة كهرباء' });
+  assert.equal(pending.business_date, '2026-10-29');
+  assert.equal(pending.amount_cents, 35050);
+  const tomato = store.recordExpense(owner, 'f:100', { category: 'purchase_tomato', amount: '60', quantity_kg: '٢٫٥', approve: true });
+  const [first, second] = store.pendingOperations();
+  assert.deepEqual({ kind: first.kind, actor_id: first.actor_id, data: first.data }, { kind: 'expense', actor_id: 4,
+    data: { category: 'electricity', description: 'فاتورة كهرباء', amount: '350.50', supplier: '', notes: '', quantity_kg: '', approve: false } });
+  assert.equal(second.id, tomato.id);
+  assert.equal(second.data.quantity_kg, '2.5');
+  assert.equal(second.data.approve, true);
+});
+
+test('only managers move cash, and the drawer summary counts what this device did', () => {
+  const { store } = fixture();
+  const cashier = store.user(4);
+  const owner = store.user(1);
+  sell(store, cashier); // 262.20
+  assert.throws(() => store.recordTill(cashier, 'f:100', { direction: 'in', amount: '100', note: 'فكة' }), /غير مسموح/);
+  assert.throws(() => store.recordTill(owner, 'f:100', { direction: 'in', amount: '100', note: ' ' }), /سبب/);
+  store.recordTill(owner, 'f:100', { direction: 'in', amount: '500', note: 'فكة' });
+  const out = store.recordTill(owner, 'f:100', { direction: 'out', amount: '200', note: 'توريد للمالك' });
+  store.recordExpense(owner, 'f:100', { category: 'electricity', amount: '50', approve: true });
+  store.recordExpense(cashier, 'f:100', { category: 'electricity', amount: '30' });
+  const summary = store.cashSummary('f:100', '2026-10-30');
+  assert.equal(summary.sales_cents, 26220);
+  assert.equal(summary.cash_in_cents, 50000);
+  assert.equal(summary.cash_out_cents, 20000);
+  assert.equal(summary.approved_expenses_cents, 5000);
+  assert.equal(summary.pending_expenses_cents, 3000);
+  assert.equal(summary.drawer_movement_cents, 26220 + 50000 - 20000 - 5000);
+  // A movement the dashboard refused no longer counts, and shows its reason.
+  store.applyResults([{ id: out.id, status: 'rejected', error: 'الرصيد النقدي غير كافٍ أو المبلغ غير مسموح.' }]);
+  assert.equal(store.cashSummary('f:100', '2026-10-30').cash_out_cents, 0);
+  assert.equal(store.journalEntry(out.id).sync_status, 'rejected');
+  assert.deepEqual(store.rejectedOperations().map((row) => [row.kind, row.total]), [['خزنة', '200.00']]);
+  assert.equal(store.journal('f:100', '2026-10-30').length, 4);
+});
+
+test('a synced expense shows the dashboard number and status', () => {
+  const { store } = fixture();
+  const entry = store.recordExpense(store.user(4), 'f:100', { category: 'electricity', amount: '20' });
+  store.applyResults([{ id: entry.id, status: 'applied', expense: { id: 9, number: 'EXP-000009', status: 'pending' } }]);
+  const synced = store.journalEntry(entry.id);
+  assert.equal(synced.sync_status, 'synced');
+  assert.equal(synced.server_ref, 'EXP-000009 · بانتظار الاعتماد');
+  assert.equal(store.pendingOperations().length, 0);
+});
+
+test('an older server only receives sales; expenses and cash moves wait until the server lists them', async () => {
+  const { store } = fixture();
+  const owner = store.user(1);
+  sell(store, owner);
+  const expense = store.recordExpense(owner, 'f:100', { category: 'electricity', amount: '20' });
+  const sent = [];
+  let kinds;
+  const api = { sync: async (device, token, body) => {
+    sent.push(body.operations.map((operation) => operation.kind));
+    return { ...(kinds ? { kinds } : {}), results: body.operations.map((operation) => ({ id: operation.id, status: 'applied',
+      receipt: { id: 1, number: 'N1' }, expense: { id: 3, number: 'EXP-000003', status: 'pending' } })) };
+  } };
+  const engine = new SyncEngine({ store, api, token: () => 'token', intervalMs: 60000 });
+  await engine.run();
+  assert.deepEqual(sent[0], ['sale'], 'A server that does not list its operations gets sales only');
+  assert.equal(store.journalEntry(expense.id).sync_status, 'pending');
+  kinds = ['sale', 'expense', 'till'];
+  await engine.run(); // learns what the updated server knows
+  await engine.run();
+  engine.stop();
+  assert.deepEqual(sent.slice(1), [[], ['expense']]);
+  assert.equal(store.journalEntry(expense.id).sync_status, 'synced');
 });

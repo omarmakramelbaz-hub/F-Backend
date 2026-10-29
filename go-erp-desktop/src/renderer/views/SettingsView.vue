@@ -16,11 +16,11 @@
       </div>
       <div v-if="rejected.length" class="rejected">
         <h3>عمليات رفضها الداشبورد</h3>
-        <p class="muted small">الفواتير دي محفوظة على الجهاز ولم تُسجّل في الداشبورد. راجعها مع الإدارة.</p>
+        <p class="muted small">العمليات دي محفوظة على الجهاز ولم تُسجّل في الداشبورد. راجعها مع الإدارة.</p>
         <table class="list">
-          <thead><tr><th>الفاتورة</th><th>الإجمالي</th><th>السبب</th><th>الوقت</th></tr></thead>
+          <thead><tr><th>النوع</th><th>الفاتورة</th><th>المبلغ</th><th>السبب</th><th>الوقت</th></tr></thead>
           <tbody>
-            <tr v-for="item in rejected" :key="item.id"><td>{{ item.local_number || '-' }}</td><td>{{ item.total }}</td><td>{{ item.error }}</td><td>{{ dateTime(item.at) }}</td></tr>
+            <tr v-for="item in rejected" :key="item.id"><td>{{ item.kind }}</td><td>{{ item.local_number || '-' }}</td><td>{{ item.total }}</td><td>{{ item.error }}</td><td>{{ dateTime(item.at) }}</td></tr>
           </tbody>
         </table>
       </div>

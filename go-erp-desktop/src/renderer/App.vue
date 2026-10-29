@@ -22,6 +22,7 @@
     <main class="content">
       <PosView v-if="view === 'pos'" :key="info.session.branch" :session="info.session" :branch="currentBranch" @changed="refreshSync" />
       <ReceiptsView v-else-if="view === 'receipts'" :key="'r' + info.session.branch" :session="info.session" :branch="currentBranch" />
+      <CashView v-else-if="view === 'cash'" :key="'c' + info.session.branch" :session="info.session" @changed="refreshSync" />
       <SettingsView v-else :info="info" :sync="sync" :sync-now="syncNow" />
     </main>
   </div>
@@ -34,13 +35,15 @@ import SetupView from './views/SetupView.vue';
 import LoginView from './views/LoginView.vue';
 import PosView from './views/PosView.vue';
 import ReceiptsView from './views/ReceiptsView.vue';
+import CashView from './views/CashView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SyncBadge from './components/SyncBadge.vue';
 
 const info = ref(null);
 const sync = ref({});
 const view = ref('pos');
-const tabs = [{ id: 'pos', label: 'الكاشير' }, { id: 'receipts', label: 'فواتير اليوم' }, { id: 'settings', label: 'الإعدادات والمزامنة' }];
+const tabs = [{ id: 'pos', label: 'الكاشير' }, { id: 'receipts', label: 'فواتير اليوم' }, { id: 'cash', label: 'الخزنة والمصروفات' },
+  { id: 'settings', label: 'الإعدادات والمزامنة' }];
 let stop = null;
 
 const userBranches = computed(() => info.value.branches.filter((branch) => info.value.session.user.branches.includes(branch.value)));

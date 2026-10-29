@@ -152,10 +152,24 @@ async function cashierDevice() {
   await shot(page, '05-offline-receipts');
   assert.equal(orderCount(), 1);
 
+  // Still offline: the cashier records an expense paid from the drawer. A cashier cannot move cash.
+  await page.getByRole('button', { name: 'الخزنة والمصروفات' }).click();
+  await page.locator('.cash').waitFor();
+  assert.equal(await page.locator('.forms form').count(), 1, 'A cashier only records expenses');
+  const cashierExpense = page.locator('form', { hasText: 'تسجيل مصروف من الدرج' });
+  await cashierExpense.locator('select').selectOption('electricity');
+  await cashierExpense.getByLabel('المبلغ').fill('120.50');
+  await cashierExpense.getByLabel('الوصف').fill('فاتورة كهرباء');
+  await cashierExpense.getByRole('button', { name: 'حفظ المصروف' }).click();
+  await page.locator('.notice', { hasText: 'تم حفظ المصروف' }).waitFor();
+  await page.locator('.list .pill.warn').first().waitFor();
+
   // The internet is back: the waiting sale is sent without being duplicated.
   await startServer();
   await page.locator('.sync-badge').first().click();
   await until(() => orderCount() === 2, 'offline sale reaches the dashboard', 40000);
+  await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_expenses')[0].c === 1, 'offline expense reaches the dashboard', 40000);
+  await page.getByRole('button', { name: 'فواتير اليوم' }).click();
   await page.getByRole('button', { name: 'تحديث' }).click();
   await until(async () => (await page.locator('.pill.warn').count()) === 0, 'all receipts synced');
   assert.deepEqual(serverRows('SELECT total_cents FROM takeaway_orders ORDER BY id').map((row) => row.total_cents), [31500, 51600]);
@@ -180,6 +194,28 @@ async function cashierDevice() {
   await shot(page, '07-owner-offline-delivery');
   await pay(page);
 
+  // The owner, still offline, approves an expense on the spot and moves cash in and out of the drawer.
+  await page.getByRole('button', { name: 'الخزنة والمصروفات' }).click();
+  const ownerExpense = page.locator('form', { hasText: 'تسجيل مصروف من الدرج' });
+  await ownerExpense.locator('select').selectOption('packaging');
+  await ownerExpense.getByLabel('المبلغ').fill('75');
+  await ownerExpense.getByLabel('اعتماد المصروف الآن').check();
+  await ownerExpense.getByRole('button', { name: 'حفظ المصروف' }).click();
+  await page.locator('.notice', { hasText: 'تم حفظ المصروف' }).waitFor();
+  const drawer = page.locator('form', { hasText: 'إيداع أو سحب من الخزنة' });
+  await drawer.getByLabel('المبلغ').fill('500');
+  await drawer.getByLabel('السبب').fill('فكة');
+  await drawer.getByRole('button', { name: 'تسجيل الإيداع' }).click();
+  await page.locator('.notice', { hasText: 'تم تسجيل الإيداع' }).waitFor();
+  await drawer.getByRole('button', { name: 'سحب', exact: true }).click();
+  await drawer.getByLabel('المبلغ').fill('100');
+  await drawer.getByLabel('السبب').fill('توريد للمالك');
+  await drawer.getByRole('button', { name: 'تسجيل السحب' }).click();
+  await page.locator('.notice', { hasText: 'تم تسجيل السحب' }).waitFor();
+  await until(async () => (await page.locator('.list tbody tr').count()) === 4, 'four drawer entries listed');
+  await shot(page, '08-cash-offline');
+  await page.getByRole('button', { name: 'الكاشير' }).click();
+
   // An open invoice is saved on the device and is back after the app restarts.
   await addItem(page, 'بلطي مقلي', '1');
   await page.locator('.open-tickets button', { hasText: 'تيك أواي' }).waitFor();
@@ -193,9 +229,13 @@ async function cashierDevice() {
 
   await startServer();
   await page.locator('.sync-badge').first().click();
-  await until(() => orderCount() === 3, 'owner sale reaches the dashboard', 40000);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM desktop_sync_operations WHERE status = 'applied'")[0].c === 7, 'every operation reaches the dashboard', 40000);
   assert.deepEqual({ ...serverRows('SELECT total_cents, actor_id FROM takeaway_orders ORDER BY id DESC LIMIT 1')[0] }, { total_cents: 25000, actor_id: 1 });
-  assert.deepEqual(serverRows("SELECT status, COUNT(*) AS c FROM desktop_sync_operations GROUP BY status").map((row) => ({ ...row })), [{ status: 'applied', c: 3 }]);
+  assert.deepEqual(serverRows("SELECT status, COUNT(*) AS c FROM desktop_sync_operations GROUP BY status").map((row) => ({ ...row })), [{ status: 'applied', c: 7 }]);
+  assert.deepEqual(serverRows('SELECT category, amount_cents, status, actor_id FROM branch_expenses ORDER BY id').map((row) => ({ ...row })),
+    [{ category: 'electricity', amount_cents: 12050, status: 'pending', actor_id: 4 }, { category: 'packaging', amount_cents: 7500, status: 'approved', actor_id: 1 }]);
+  assert.deepEqual(serverRows("SELECT kind, amount_cents FROM takeaway_till_entries WHERE kind IN ('expense', 'cash_in', 'cash_out') ORDER BY id")
+    .map((row) => ({ ...row })), [{ kind: 'expense', amount_cents: -7500 }, { kind: 'cash_in', amount_cents: 50000 }, { kind: 'cash_out', amount_cents: -10000 }]);
   await app.close();
   assert.deepEqual(problems, []);
 }
@@ -219,7 +259,7 @@ async function ownerDevice() {
   await page.locator('.session select').selectOption({ label: 'فرع مدينة نصر' });
   await page.locator('.product', { hasText: 'بوري مشوي' }).waitFor();
   assert.deepEqual(await page.locator('.product .name').allTextContents(), ['بوري مشوي']);
-  await shot(page, '08-owner-two-branches');
+  await shot(page, '09-owner-two-branches');
   await app.close();
 }
 

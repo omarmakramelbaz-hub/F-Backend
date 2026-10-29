@@ -56,7 +56,8 @@ class SyncEngine extends EventEmitter {
     try {
       const device = this.store.device();
       if (!device || this.state.device_revoked) return;
-      const operations = this.store.pendingOperations(50);
+      // A server from before expenses and cash moves only knew sales.
+      const operations = this.store.pendingOperations(50, this.store.get('server_kinds', ['sale']));
       const refresh = forceRefresh || !this.lastRefresh || this.now() - this.lastRefresh >= this.refreshEveryMs || this.store.userCount() === 0;
       this.emit('status', { ...this.status(), running: true });
       let response;
@@ -71,6 +72,7 @@ class SyncEngine extends EventEmitter {
         return;
       }
       this.store.applyResults(response.results || []);
+      if (Array.isArray(response.kinds)) this.store.set('server_kinds', response.kinds);
       if (response.users) this.store.replaceUsers(response.users, response.users_hash);
       if (response.branches) this.store.applyBranches(response.branches);
       if (refresh) this.lastRefresh = this.now();

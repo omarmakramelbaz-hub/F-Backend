@@ -23,6 +23,15 @@ const MIGRATIONS = [
      attempts INTEGER NOT NULL DEFAULT 0, result TEXT, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
    CREATE INDEX outbox_pending ON outbox (status, created_at);
    CREATE TABLE counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);`,
+  // Version 1.1: expenses and cash put in or taken out of the drawer, kept until the dashboard has them.
+  `ALTER TABLE users ADD COLUMN can_approve_expenses INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE users ADD COLUMN can_close_shift INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE journal (
+     id TEXT PRIMARY KEY, kind TEXT NOT NULL, branch TEXT NOT NULL, actor_id INTEGER NOT NULL, actor_name TEXT NOT NULL,
+     business_date TEXT NOT NULL, amount_cents INTEGER NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL,
+     sync_status TEXT NOT NULL, sync_error TEXT, server_ref TEXT);
+   CREATE INDEX journal_day ON journal (branch, business_date);
+   ALTER TABLE outbox ADD COLUMN journal_id TEXT;`,
 ];
 
 function open(file) {

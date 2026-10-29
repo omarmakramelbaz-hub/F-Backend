@@ -166,6 +166,17 @@ table.list { width: 100%; border-collapse: collapse; background: #fff; border: 1
 .pill.warn { background: var(--amber-bg); color: var(--amber); }
 .pill.danger { background: var(--red-bg); color: var(--red); }
 
+/* ---- cash and expenses ---- */
+.cash { display: flex; flex-direction: column; gap: 12px; max-width: 1280px; margin: 0 auto; }
+.spacer { flex: 1 1 auto; }
+button.strong { color: var(--purple); border-color: #ddd0fb; background: #f3eeff; font-weight: 700; }
+.summary.six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.stat small { color: var(--muted); font-size: 12px; }
+.stat.total b { color: var(--purple); }
+.forms { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; align-items: start; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.channels.two { grid-template-columns: repeat(2, 1fr); }
+
 /* ---- settings ---- */
 .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .facts > div { display: flex; flex-direction: column; gap: 4px; }
@@ -176,5 +187,5 @@ table.list { width: 100%; border-collapse: collapse; background: #fff; border: 1
 
 @media (max-width: 1180px) {
   .pos { grid-template-columns: minmax(0, 1fr) 380px; }
-  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary, .summary.six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

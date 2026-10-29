@@ -166,6 +166,29 @@ const handlers = {
     return printing.print(BrowserWindow, printing.receipt(ticket, branchInfo(ticket.branch), { ...printSettings(), copy: true }), printSettings());
   },
 
+  'cash:summary': (values) => {
+    const session = requireSession();
+    const day = values.day || rules.operatingDay(now());
+    const user = session.user;
+    return { day, today: rules.operatingDay(now()), summary: store.cashSummary(session.branch, day), items: store.journal(session.branch, day),
+      categories: store.expenseCategories(session.branch),
+      can: { expense: user.can_checkout, approve: user.can_approve_expenses, till: user.can_manage, shift: user.can_close_shift } };
+  },
+
+  'cash:expense': (values) => {
+    const session = requireSession();
+    const entry = store.recordExpense(session.user, session.branch, values);
+    sync.kick();
+    return entry;
+  },
+
+  'cash:till': (values) => {
+    const session = requireSession();
+    const entry = store.recordTill(session.user, session.branch, values);
+    sync.kick();
+    return entry;
+  },
+
   'print:printers': async () => {
     const list = mainWindow ? await mainWindow.webContents.getPrintersAsync() : [];
     return list.map((printer) => ({ name: printer.name, label: printer.displayName || printer.name, default: !!printer.isDefault }));
@@ -195,11 +218,18 @@ const handlers = {
 
   'sync:now': async () => { await sync.run({ refresh: true }); return sync.status(); },
 
-  'dashboard:open': () => {
-    if (dashboardWindow && !dashboardWindow.isDestroyed()) { dashboardWindow.focus(); return true; }
+  // Online-only parts of the dashboard (shift closing, expense review, and every other page) open in their own window.
+  'dashboard:open': (values) => {
+    const pages = { home: '/admin/login', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses' };
+    const url = SERVER + (pages[values.page] || pages.home);
+    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+      if (values.page) dashboardWindow.loadURL(url);
+      dashboardWindow.focus();
+      return true;
+    }
     dashboardWindow = new BrowserWindow({ width: 1366, height: 860, title: 'الداشبورد - GO ERP', autoHideMenuBar: true,
       webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } });
-    dashboardWindow.loadURL(SERVER + '/admin/login');
+    dashboardWindow.loadURL(url);
     return true;
   },
 };

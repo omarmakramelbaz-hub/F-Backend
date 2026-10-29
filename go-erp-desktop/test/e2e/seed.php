@@ -40,6 +40,10 @@ require_once database_path('migrations/2026_10_03_140000_create_takeaway_pos.php
 require_once database_path('migrations/2026_10_03_150000_create_pos_service_tickets.php'); (new \CreatePosServiceTickets)->up();
 require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
 (require database_path('migrations/2026_10_30_000001_create_desktop_sync_tables.php'))->up();
+require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.php'); (new \CreateBranchExpenses)->up();
+require_once database_path('migrations/2026_10_06_120000_create_branch_expenses_categories.php'); (new \CreateBranchExpensesCategories)->up();
+require_once database_path('migrations/2026_10_06_200000_manage_expense_categories.php'); (new \ManageExpenseCategories)->up();
+require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php'); (new \ScopeExpenseCategoriesByBranch)->up();
 app(PermissionRegistrar::class)->forgetCachedPermissions();
 foreach (['order-list', 'order-create', 'order-edit'] as $name) Permission::create(['name' => $name, 'guard_name' => 'admin']);
 foreach ([

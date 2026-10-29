@@ -48,11 +48,12 @@ class Store {
   replaceUsers(users, hash) {
     transaction(this.db, () => {
       this.db.prepare('DELETE FROM users').run();
-      const insert = this.db.prepare(`INSERT INTO users (id, name, mobile, email, account_type, password_hash, branches, can_checkout, can_manage, can_reprint)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const insert = this.db.prepare(`INSERT INTO users (id, name, mobile, email, account_type, password_hash, branches, can_checkout, can_manage,
+        can_reprint, can_approve_expenses, can_close_shift) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       for (const user of users) {
         insert.run(user.id, user.name, String(user.mobile || ''), String(user.email || ''), user.account_type, user.password_hash,
-          JSON.stringify(user.branches || []), user.can_checkout ? 1 : 0, user.can_manage ? 1 : 0, user.can_reprint ? 1 : 0);
+          JSON.stringify(user.branches || []), user.can_checkout ? 1 : 0, user.can_manage ? 1 : 0, user.can_reprint ? 1 : 0,
+          user.can_approve_expenses ? 1 : 0, user.can_close_shift ? 1 : 0);
       }
       this.set('users_hash', hash);
     });
@@ -77,7 +78,8 @@ class Store {
 
   presentUser(row, withHash) {
     const user = { id: row.id, name: row.name, mobile: row.mobile, email: row.email, account_type: row.account_type,
-      branches: JSON.parse(row.branches), can_checkout: !!row.can_checkout, can_manage: !!row.can_manage, can_reprint: !!row.can_reprint };
+      branches: JSON.parse(row.branches), can_checkout: !!row.can_checkout, can_manage: !!row.can_manage, can_reprint: !!row.can_reprint,
+      can_approve_expenses: !!row.can_approve_expenses, can_close_shift: !!row.can_close_shift };
     if (withHash) user.password_hash = row.password_hash;
     return user;
   }
@@ -227,6 +229,101 @@ class Store {
     if (permission && !actor[permission]) throw new Error('الحساب غير مسموح له بهذه العملية.');
   }
 
+  // ---- expenses and cash put in or taken out of the drawer ----
+
+  /** The branch's active expense categories, as last synced with its menu. */
+  expenseCategories(branch) {
+    const catalog = this.catalog(branch);
+    return catalog && Array.isArray(catalog.expense_categories) ? catalog.expense_categories : [];
+  }
+
+  /** Same checks as the dashboard's expenses page, so the expense is not refused later. */
+  recordExpense(actor, branch, values) {
+    this.requireBranch(actor, branch, 'can_checkout');
+    const category = this.expenseCategories(branch).find((item) => item.key === values.category);
+    if (!category) throw new Error('اختر بند المصروف.');
+    const amount = money.minor(String(values.amount ?? '').trim());
+    if (amount <= 0 || amount > 100000000) throw new Error('قيمة المصروف أكبر من صفر وبحد أقصى مليون جنيه.');
+    const text = (value, max) => String(value ?? '').trim().slice(0, max);
+    const description = text(values.description, 500);
+    let quantity = text(values.quantity_kg, 14).replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace('٫', '.');
+    if (category.stock) {
+      if (!/^[0-9]{1,7}(\.[0-9]{1,3})?$/.test(quantity) || Number(quantity) <= 0 || Number(quantity) > 1000000) {
+        throw new Error('أدخل عدد الكيلوات لهذا البند (حتى ٣ منازل عشرية).');
+      }
+    } else {
+      if (quantity) throw new Error('عدد الكيلوات متاح لبنود مشتريات البضاعة فقط.');
+      quantity = '';
+      const material = rules.stockMaterial(description);
+      if (branch.startsWith('f:') && ['purchases', 'other'].includes(category.key) && material) {
+        throw new Error(`اختر بند مشتريات ${material} وأدخل الكمية بالكيلو لإضافتها إلى البضاعة.`);
+      }
+    }
+    const approve = !!values.approve;
+    if (approve && !actor.can_approve_expenses) throw new Error('اعتماد المصروفات للمالك والإدارة فقط.');
+    const data = { category: category.key, description, amount: money.decimal(amount), supplier: text(values.supplier, 150),
+      notes: text(values.notes, 1000), quantity_kg: quantity, approve };
+    return this.addJournal(actor, branch, 'expense', amount, data, { category_name: category.name });
+  }
+
+  /** Cash a manager puts in or takes out of the drawer, with its reason. */
+  recordTill(actor, branch, values) {
+    this.requireBranch(actor, branch, 'can_manage');
+    const direction = values.direction === 'out' ? 'out' : 'in';
+    const amount = money.minor(String(values.amount ?? '').trim());
+    if (amount <= 0 || amount > 100000000) throw new Error('المبلغ أكبر من صفر وبحد أقصى مليون جنيه.');
+    const note = String(values.note ?? '').trim().slice(0, 500);
+    if (!note) throw new Error('اكتب سبب العملية.');
+    return this.addJournal(actor, branch, 'till', amount, { direction, amount: money.decimal(amount), note }, {});
+  }
+
+  /** The record and the operation that sends it to the dashboard are saved together. */
+  addJournal(actor, branch, kind, amount, data, extra) {
+    return transaction(this.db, () => {
+      const now = this.now();
+      const stamp = now.toISOString();
+      const id = this.uuid();
+      const operation = { id, kind, actor_id: actor.id, branch, occurred_at: stamp, data };
+      this.db.prepare(`INSERT INTO journal (id, kind, branch, actor_id, actor_name, business_date, amount_cents, data, created_at, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
+        .run(id, kind, branch, actor.id, actor.name, rules.operatingDay(now), amount, JSON.stringify({ ...data, ...extra }), stamp);
+      this.db.prepare(`INSERT INTO outbox (id, kind, journal_id, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)`)
+        .run(id, kind, id, JSON.stringify(operation), stamp, stamp);
+      return this.journalEntry(id);
+    });
+  }
+
+  journalEntry(id) {
+    const row = this.db.prepare('SELECT * FROM journal WHERE id = ?').get(id);
+    return row ? { ...row, data: JSON.parse(row.data) } : null;
+  }
+
+  journal(branch, day) {
+    return this.db.prepare('SELECT * FROM journal WHERE branch = ? AND business_date = ? ORDER BY created_at DESC').all(branch, day)
+      .map((row) => ({ ...row, data: JSON.parse(row.data) }));
+  }
+
+  /**
+   * What went through the drawer on this device today. The shift is still closed on the dashboard,
+   * which adds the other devices, app orders and the opening cash.
+   */
+  cashSummary(branch, day) {
+    const sales = this.db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(json_extract(totals, '$.total_cents')), 0) AS total,
+      COALESCE(SUM(json_extract(totals, '$.delivery_cents')), 0) AS delivery
+      FROM tickets WHERE branch = ? AND status = 'paid' AND business_date = ?`).get(branch, day);
+    const sum = (where, ...args) => this.db.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS total, COUNT(*) AS count FROM journal
+      WHERE branch = ? AND business_date = ? AND ${where}`).get(branch, day, ...args);
+    const cashIn = sum("kind = 'till' AND json_extract(data, '$.direction') = 'in' AND sync_status != 'rejected'");
+    const cashOut = sum("kind = 'till' AND json_extract(data, '$.direction') = 'out' AND sync_status != 'rejected'");
+    const approved = sum("kind = 'expense' AND json_extract(data, '$.approve') = 1 AND sync_status != 'rejected'");
+    const pending = sum("kind = 'expense' AND json_extract(data, '$.approve') = 0 AND sync_status != 'rejected'");
+    const salesCash = sales.total - sales.delivery;
+    return { day, sales_count: sales.count, sales_cents: sales.total, delivery_cents: sales.delivery, sales_cash_cents: salesCash,
+      cash_in_cents: cashIn.total, cash_out_cents: cashOut.total, approved_expenses_cents: approved.total,
+      pending_expenses_cents: pending.total, pending_expenses_count: pending.count,
+      drawer_movement_cents: salesCash + cashIn.total - cashOut.total - approved.total };
+  }
+
   // ---- invoices and daily totals ----
 
   receipts(branch, day) {
@@ -243,8 +340,12 @@ class Store {
 
   // ---- the queue of operations for the dashboard ----
 
-  pendingOperations(limit = 50) {
-    return this.db.prepare("SELECT id, payload FROM outbox WHERE status = 'pending' ORDER BY created_at LIMIT ?").all(limit)
+  /** Only operations the server said it knows; others wait on the device until the server is updated. */
+  pendingOperations(limit = 50, kinds = null) {
+    const known = Array.isArray(kinds) ? kinds.filter((kind) => typeof kind === 'string') : null;
+    if (known && !known.length) return [];
+    const filter = known ? ` AND kind IN (${known.map(() => '?').join(', ')})` : '';
+    return this.db.prepare(`SELECT id, payload FROM outbox WHERE status = 'pending'${filter} ORDER BY created_at LIMIT ?`).all(...(known || []), limit)
       .map((row) => JSON.parse(row.payload));
   }
 
@@ -252,17 +353,22 @@ class Store {
     transaction(this.db, () => {
       const now = this.now().toISOString();
       for (const result of results || []) {
-        const row = this.db.prepare('SELECT id, ticket_id FROM outbox WHERE id = ?').get(result.id);
+        const row = this.db.prepare('SELECT id, ticket_id, journal_id FROM outbox WHERE id = ?').get(result.id);
         if (!row) continue;
         if (result.status === 'applied') {
           this.db.prepare("UPDATE outbox SET status = 'done', result = ?, last_error = NULL, updated_at = ? WHERE id = ?").run(JSON.stringify(result), now, row.id);
           const receipt = result.receipt || {};
           if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ? WHERE id = ?")
             .run(receipt.id ?? null, receipt.number ?? null, row.ticket_id);
+          if (row.journal_id) {
+            const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}` : null;
+            this.db.prepare("UPDATE journal SET sync_status = 'synced', sync_error = NULL, server_ref = ? WHERE id = ?").run(reference, row.journal_id);
+          }
         } else if (result.status === 'rejected') {
           this.db.prepare("UPDATE outbox SET status = 'rejected', result = ?, last_error = ?, updated_at = ? WHERE id = ?")
             .run(JSON.stringify(result), result.error || 'تم رفض العملية.', now, row.id);
           if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'rejected', sync_error = ? WHERE id = ?").run(result.error || 'تم رفض العملية.', row.ticket_id);
+          if (row.journal_id) this.db.prepare("UPDATE journal SET sync_status = 'rejected', sync_error = ? WHERE id = ?").run(result.error || 'تم رفض العملية.', row.journal_id);
         } else {
           this.db.prepare('UPDATE outbox SET attempts = attempts + 1, updated_at = ? WHERE id = ?').run(now, row.id);
         }
@@ -277,10 +383,13 @@ class Store {
   }
 
   rejectedOperations() {
-    return this.db.prepare(`SELECT o.id, o.last_error, o.updated_at, t.local_number, t.branch, t.totals FROM outbox o
-      LEFT JOIN tickets t ON t.id = o.ticket_id WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()
-      .map((row) => ({ id: row.id, error: row.last_error, at: row.updated_at, local_number: row.local_number, branch: row.branch,
-        total: row.totals ? money.decimal(JSON.parse(row.totals).total_cents) : null }));
+    const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة' };
+    return this.db.prepare(`SELECT o.id, o.kind, o.last_error, o.updated_at, t.local_number, t.branch, t.totals, j.amount_cents, j.branch AS journal_branch
+      FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id LEFT JOIN journal j ON j.id = o.journal_id
+      WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()
+      .map((row) => ({ id: row.id, kind: labels[row.kind] || row.kind, error: row.last_error, at: row.updated_at,
+        local_number: row.local_number, branch: row.branch || row.journal_branch,
+        total: row.totals ? money.decimal(JSON.parse(row.totals).total_cents) : (row.amount_cents != null ? money.decimal(row.amount_cents) : null) }));
   }
 }
 
