@@ -24,6 +24,9 @@ let sync;
 let mainWindow = null;
 let dashboardWindow = null;
 let current = null; // { user, branch } of the signed-in account
+// A cashier PC's clock is often wrong. Sales and the working day use the server's time from the last sync.
+let clockOffset = 0;
+const now = () => new Date(Date.now() + clockOffset);
 
 function sealToken(token) {
   if (safeStorage.isEncryptionAvailable()) return { sealed: safeStorage.encryptString(token).toString('base64') };
@@ -151,8 +154,8 @@ const handlers = {
 
   'receipts:list': (values) => {
     const session = requireSession();
-    const day = values.day || rules.operatingDay(new Date());
-    return { day, today: rules.operatingDay(new Date()), summary: store.daySummary(session.branch, day), items: store.receipts(session.branch, day) };
+    const day = values.day || rules.operatingDay(now());
+    return { day, today: rules.operatingDay(now()), summary: store.daySummary(session.branch, day), items: store.receipts(session.branch, day) };
   },
 
   'receipts:print': async (values) => {
@@ -180,7 +183,7 @@ const handlers = {
   'print:test': async () => {
     const session = requireSession();
     const branch = branchInfo(session.branch);
-    const html = printing.receipt({ local_number: 'تجربة', paid_at: new Date().toISOString(), actor_name: session.user.name, channel: 'takeaway',
+    const html = printing.receipt({ local_number: 'تجربة', paid_at: now().toISOString(), actor_name: session.user.name, channel: 'takeaway',
       data: { customer_phone: '-', customer_name: '', notes: 'طباعة تجريبية' },
       totals: { items: [{ name: 'صنف تجريبي', option_label: '', quantity_mode: 'piece', quantity_millis: 1000, unit_price_cents: 100, total_cents: 100 }],
         subtotal_cents: 100, discount_cents: 0, service_cents: 0, delivery_cents: 0, tax_cents: 0, total_cents: 100, cash_received_cents: 100, change_cents: 0 } },
@@ -227,10 +230,15 @@ function createWindow() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => callback(false));
-  store = new Store(db.open(path.join(app.getPath('userData'), 'goerp.sqlite')));
+  store = new Store(db.open(path.join(app.getPath('userData'), 'goerp.sqlite')), { now });
+  const readOffset = () => { const value = Number(store.get('server_offset_ms')); clockOffset = Number.isFinite(value) ? value : 0; };
+  readOffset();
   api = new Api({ baseUrl: SERVER, fetchImpl: (url, init) => require('electron').net.fetch(url, init) });
   sync = new SyncEngine({ store, api, token: () => openToken(store.device()) });
-  sync.on('status', (status) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sync:status', status); });
+  sync.on('status', (status) => {
+    readOffset();
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sync:status', status);
+  });
   registerHandlers();
   createWindow();
   sync.start();

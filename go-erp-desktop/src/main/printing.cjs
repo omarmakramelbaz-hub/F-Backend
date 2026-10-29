@@ -19,11 +19,20 @@ function when(iso) {
   return new Intl.DateTimeFormat('ar-EG-u-nu-latn', { timeZone: 'Africa/Cairo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
 }
 
+/** Paper and printable widths: 80 mm rolls print 72 mm, 58 mm rolls print 48 mm. */
+function paper(width) {
+  return Number(width) === 58 ? { paper: 58, content: 48 } : { paper: 80, content: 72 };
+}
+
 function page(width, body) {
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
-    @page { size: ${width}mm auto; margin: 0; }
+  const size = paper(width);
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+  <style>
+    @page { margin: 0; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 2mm 3mm; width: ${width}mm; font-family: Tahoma, "Segoe UI", Arial, sans-serif; font-size: 12px; color: #000; }
+    html { margin: 0; }
+    body { margin: 0 auto; padding: 2mm 1mm; width: ${size.content}mm; font-family: Tahoma, "Segoe UI", Arial, sans-serif; font-size: 12px; color: #000; }
     h1 { font-size: 16px; margin: 0 0 2px; text-align: center; }
     .center { text-align: center; } .small { font-size: 11px; } .big { font-size: 15px; font-weight: bold; }
     hr { border: 0; border-top: 1px dashed #000; margin: 4px 0; }
@@ -84,19 +93,44 @@ function kitchen(ticket, quote, branch, options = {}) {
   return page(options.width || 72, body);
 }
 
-/** Prints through a hidden window; without a chosen printer Windows shows its print dialog. */
-function print(BrowserWindow, html, settings = {}) {
-  return new Promise((resolve) => {
-    const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
-    const done = (ok, error) => { resolve({ ok, error: ok ? null : (error || 'تعذرت الطباعة.') }); if (!window.isDestroyed()) window.close(); };
-    window.webContents.once('did-finish-load', () => {
-      const silent = !!settings.printer;
-      window.webContents.print({ silent, deviceName: settings.printer || undefined, printBackground: true, margins: { marginType: 'none' } },
-        (success, reason) => done(success, reason && reason !== 'cancelled' ? 'تعذرت الطباعة: ' + reason : null));
+/**
+ * Loads the receipt in a hidden window and measures it, so the roll is cut right after the last line
+ * instead of feeding a whole page. The page itself cannot run scripts (see its security policy).
+ */
+function render(BrowserWindow, html, settings = {}) {
+  return new Promise((resolve, reject) => {
+    const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+    window.webContents.once('did-fail-load', () => { if (!window.isDestroyed()) window.close(); reject(new Error('تعذر تجهيز الفاتورة للطباعة.')); });
+    window.webContents.once('did-finish-load', async () => {
+      let pageSize;
+      try {
+        const height = Number(await window.webContents.executeJavaScript('Math.ceil(document.body.getBoundingClientRect().bottom)'));
+        // Screen pixels are 1/96 inch; 8 mm more so the cutter never clips the last line.
+        if (height > 0) pageSize = { width: paper(settings.width).paper * 1000, height: Math.max(Math.ceil(height * 25400 / 96) + 8000, 50000) };
+      } catch { pageSize = undefined; }
+      resolve({ window, pageSize });
     });
-    window.webContents.once('did-fail-load', () => done(false, 'تعذر تجهيز الفاتورة للطباعة.'));
     window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   });
 }
 
-module.exports = { receipt, kitchen, print, quantityLabel };
+/** Prints on the chosen Windows printer; without one, Windows shows its print dialog. */
+async function print(BrowserWindow, html, settings = {}) {
+  let rendered;
+  try {
+    rendered = await render(BrowserWindow, html, settings);
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+  const { window, pageSize } = rendered;
+  return new Promise((resolve) => {
+    const options = { silent: !!settings.printer, deviceName: settings.printer || undefined, printBackground: true, margins: { marginType: 'none' } };
+    if (pageSize) options.pageSize = pageSize;
+    window.webContents.print(options, (success, reason) => {
+      resolve({ ok: success, error: success ? null : (reason && reason !== 'cancelled' ? 'تعذرت الطباعة: ' + reason : null) });
+      if (!window.isDestroyed()) window.close();
+    });
+  });
+}
+
+module.exports = { receipt, kitchen, print, render, paper, quantityLabel };
