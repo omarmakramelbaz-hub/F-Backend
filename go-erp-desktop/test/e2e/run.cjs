@@ -20,6 +20,8 @@ const SERVER = `http://127.0.0.1:${PORT}`;
 const PHP_ENV = { ...process.env, GOERP_E2E_DIR: WORK };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let server = null;
+let currentPage = null; // shown in the failure report
+let appOutput = ''; // the app's own console output, also for the failure report
 
 async function startServer() {
   server = spawn('php', ['-S', `127.0.0.1:${PORT}`, '-t', path.join(ROOT, 'public'), path.join(__dirname, 'router.php')], { stdio: 'ignore', env: PHP_ENV });
@@ -51,9 +53,18 @@ async function until(check, label, timeout = 20000) {
   }
 }
 
-function launch(userData, executablePath = require(path.join(APP, 'node_modules', 'electron')), args = [APP]) {
-  return electron.launch({ executablePath, args: [...args, '--no-sandbox', '--disable-gpu'], cwd: APP,
+async function launch(userData, executablePath = require(path.join(APP, 'node_modules', 'electron')), args = [APP]) {
+  const app = await electron.launch({ executablePath, args: [...args, '--no-sandbox', '--disable-gpu'], cwd: APP,
     env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData } });
+  const keep = (chunk) => { appOutput = (appOutput + chunk).slice(-3000); };
+  app.process().stdout.on('data', keep);
+  app.process().stderr.on('data', keep);
+  return app;
+}
+
+async function firstWindow(app) {
+  currentPage = await app.firstWindow();
+  return currentPage;
 }
 
 async function shot(page, name) {
@@ -85,7 +96,7 @@ async function pay(page) {
 async function cashierDevice() {
   const userData = path.join(WORK, 'cashier-device');
   let app = await launch(userData);
-  let page = await app.firstWindow();
+  let page = await firstWindow(app);
   const problems = [];
   page.on('pageerror', (error) => problems.push(error.message));
 
@@ -167,7 +178,7 @@ async function cashierDevice() {
   await page.locator('.open-tickets button', { hasText: 'تيك أواي' }).waitFor();
   await app.close();
   app = await launch(userData);
-  page = await app.firstWindow();
+  page = await firstWindow(app);
   page.on('pageerror', (error) => problems.push(error.message));
   await page.getByRole('heading', { name: 'تسجيل الدخول' }).waitFor({ timeout: 20000 });
   await signIn(page, 'u1@example.test', 'root-pass');
@@ -185,7 +196,7 @@ async function cashierDevice() {
 async function ownerDevice() {
   // The owner sets up another device for two branches and switches between their menus.
   const app = await launch(path.join(WORK, 'owner-device'), process.env.GOERP_E2E_EXECUTABLE || undefined, process.env.GOERP_E2E_EXECUTABLE ? [] : [APP]);
-  const page = await app.firstWindow();
+  const page = await firstWindow(app);
   await page.getByLabel('رقم الموبايل أو البريد').fill('u1@example.test');
   await page.getByLabel('كلمة المرور').fill('root-pass');
   await page.getByRole('button', { name: 'تجهيز الجهاز' }).click();
@@ -218,6 +229,13 @@ async function main() {
 
 main().catch(async (error) => {
   console.error(error && error.stack || error);
+  let screen = '';
+  try { if (currentPage) screen = (await currentPage.locator('body').innerText({ timeout: 2000 })).slice(0, 1500); } catch { /* window closed */ }
+  if (process.env.GITHUB_ACTIONS) {
+    // CI logs are not always reachable; an annotation is readable from the run's API.
+    const text = `${error && error.message || error}\n--- screen ---\n${screen}\n--- app output ---\n${appOutput.slice(-1200)}`;
+    console.log('::error title=GO ERP desktop end-to-end check::' + text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A'));
+  }
   await stopServer();
   process.exit(1);
 });
