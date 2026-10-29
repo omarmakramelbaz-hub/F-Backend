@@ -115,6 +115,15 @@ class SpeedReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(operator.Stop, 'APP_UPDATE_REQUEST_WAITING'):
             self.run_operator('apply')
 
+    def test_plan_reports_only_the_shared_device_setup_switch(self):
+        self.assertIsNone(self.run_operator('plan')['shared_device_setup_enabled'])
+        (self.root / '.env').write_text('APP_KEY=base64:secret\nDESKTOP_DASHBOARD_WORKSPACE_ENABLED=true\n')
+        result = self.run_operator('plan')
+        self.assertIs(result['shared_device_setup_enabled'], True)
+        self.assertNotIn('secret', json.dumps(result))
+        (self.root / '.env').write_text('DESKTOP_DASHBOARD_WORKSPACE_ENABLED=false\n')
+        self.assertIs(self.run_operator('plan')['shared_device_setup_enabled'], False)
+
     def test_the_kept_record_of_an_earlier_request_does_not_block(self):
         (self.manual / 'requests/last-request.json').write_text('{}')
         self.assertEqual(self.run_operator('plan')['result'], 'GO_ERP_SPEED_RELEASE_PLAN')

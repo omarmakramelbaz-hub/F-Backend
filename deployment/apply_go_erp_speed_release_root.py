@@ -198,6 +198,16 @@ def lock_watcher(path):
     return fd
 
 
+def shared_device_setup(root):
+    """Whether shared device setup is switched on; only that one switch is read, never printed values."""
+    try:
+        text = (root / '.env').read_bytes().decode('utf-8', 'replace')
+    except FileNotFoundError:
+        return None
+    values = re.findall(r'(?m)^[ \t]*(?:export[ \t]+)?DESKTOP_DASHBOARD_WORKSPACE_ENABLED[ \t]*=[ \t]*["\']?([^"\'\r\n#]*)', text)
+    return bool(values) and values[-1].strip().lower() in ('true', '1', 'on', 'yes', '(true)')
+
+
 def php_lint(php, package):
     for name in TARGETS:
         if name.endswith('.php'):
@@ -220,7 +230,8 @@ def inspect(root, package, release, web_uid, manual, php):
     feed = read_json(root / 'storage/app/desktop-updates/current.json')
     plan = {'result': 'GO_ERP_SPEED_RELEASE_PLAN', 'release': release, 'live_files': len(TARGETS),
             'published_version': feed.get('version') if isinstance(feed, dict) else None,
-            'app_update_state': state, 'database_changed': False, 'environment_changed': False}
+            'app_update_state': state, 'shared_device_setup_enabled': shared_device_setup(root),
+            'database_changed': False, 'environment_changed': False}
     return plan, {'files': files, 'live': live}
 
 
