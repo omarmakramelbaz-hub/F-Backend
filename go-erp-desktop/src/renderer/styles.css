@@ -177,6 +177,13 @@ button.strong { color: var(--purple); border-color: #ddd0fb; background: #f3eeff
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .channels.two { grid-template-columns: repeat(2, 1fr); }
 
+/* ---- reports ---- */
+.reports { display: flex; flex-direction: column; gap: 12px; max-width: 1280px; margin: 0 auto; }
+.report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+table.list.compact { border: 0; }
+.list.compact td { padding: 6px 4px; }
+.list.compact td:last-child { text-align: left; }
+
 /* ---- settings ---- */
 .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .facts > div { display: flex; flex-direction: column; gap: 4px; }

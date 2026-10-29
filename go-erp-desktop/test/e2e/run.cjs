@@ -119,6 +119,7 @@ async function cashierDevice() {
 
   // Online sale: 1.250 x 180 + 1 x 40 + 2 x 25 = 315.00.
   await signIn(page, '01000000004', 'cashier-pass');
+  assert.equal(await page.getByRole('button', { name: 'التقارير' }).count(), 0, 'Reports are for the owner and managers');
   await page.evaluate(() => window.goerp.call('print:settings', { printer: '', kitchen_printer: '', width: 72, auto_print: false }));
   await addItem(page, 'بوري مشوي', '1.250');
   await addItem(page, 'أرز صيادية');
@@ -215,6 +216,12 @@ async function cashierDevice() {
   await page.locator('.notice', { hasText: 'تم تسجيل السحب' }).waitFor();
   await until(async () => (await page.locator('.list tbody tr').count()) === 4, 'four drawer entries listed');
   await shot(page, '08-cash-offline');
+
+  // The owner's report of this device works offline: 315 + 516 + 250 = 1,081.00 from three invoices.
+  await page.getByRole('button', { name: 'التقارير' }).click();
+  await page.locator('.reports .stat.total', { hasText: '1,081.00' }).waitFor();
+  assert.equal(await page.locator('.reports .stat').first().locator('b').textContent(), '3');
+  await shot(page, '09-reports-offline');
   await page.getByRole('button', { name: 'الكاشير' }).click();
 
   // An open invoice is saved on the device and is back after the app restarts.
@@ -270,7 +277,7 @@ async function ownerDevice() {
   await page.getByRole('button', { name: 'خروج' }).click();
   await closed;
   await signIn(page, '01000000001', 'root-pass');
-  await shot(page, '09-owner-two-branches');
+  await shot(page, '10-owner-two-branches');
   await app.close();
 }
 

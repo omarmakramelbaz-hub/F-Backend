@@ -205,6 +205,23 @@ const handlers = {
     return entry;
   },
 
+  'reports:sales': (values) => {
+    const session = requireSession();
+    if (!session.user.can_manage) throw new Error('التقارير متاحة للمالك والإدارة فقط.');
+    const today = rules.operatingDay(now());
+    const from = values.from || today;
+    const to = values.to || from;
+    const report = store.salesReport(session.branch, from, to);
+    if (from === to) report.cash = store.cashSummary(session.branch, from);
+    return { today, report };
+  },
+
+  'reports:print': async (values) => {
+    const session = requireSession();
+    const { report } = handlers['reports:sales'](values);
+    return printing.print(BrowserWindow, printing.report(report, branchInfo(session.branch), printSettings()), printSettings());
+  },
+
   'print:printers': async () => {
     const list = mainWindow ? await mainWindow.webContents.getPrintersAsync() : [];
     return list.map((printer) => ({ name: printer.name, label: printer.displayName || printer.name, default: !!printer.isDefault }));

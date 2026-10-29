@@ -250,3 +250,29 @@ test('an older server only receives sales; expenses and cash moves wait until th
   assert.deepEqual(sent.slice(1), [[], ['expense']]);
   assert.equal(store.journalEntry(expense.id).sync_status, 'synced');
 });
+
+test('the device sales report adds up invoices by channel, cashier, day and item', () => {
+  const { store, setClock } = fixture();
+  const cashier = store.user(4);
+  const owner = store.user(1);
+  sell(store, cashier); // takeaway: 23000 + 14% tax = 26220
+  sell(store, owner, { channel: 'dine', data: { table_name: '3' } }); // dine: 23000 + 12% service 2760 + tax 3606 = 29366
+  setClock('2026-10-31T09:00:00Z');
+  sell(store, cashier);
+  const day = store.salesReport('f:100', '2026-10-30', '2026-10-30');
+  assert.equal(day.count, 2);
+  assert.equal(day.total_cents, 26220 + 29366);
+  assert.equal(day.service_cents, 2760);
+  assert.deepEqual(day.channels.map((entry) => [entry.channel, entry.count, entry.total_cents]), [['dine', 1, 29366], ['takeaway', 1, 26220]]);
+  assert.deepEqual(day.cashiers.map((entry) => [entry.name, entry.total_cents]), [['المالك', 29366], ['كاشير', 26220]]);
+  const range = store.salesReport('f:100', '2026-10-30', '2026-10-31');
+  assert.equal(range.count, 3);
+  assert.deepEqual(range.days.map((entry) => entry.day), ['2026-10-30', '2026-10-31']);
+  assert.deepEqual(range.items.map((line) => [line.name, line.quantity_millis, line.invoices]), [['بلطي', 4500, 3], ['أرز', 6000, 3]]);
+  assert.throws(() => store.salesReport('f:100', '2026-10-31', '2026-10-30'), /الفترة/);
+  const printing = require('../src/main/printing.cjs');
+  const html = printing.report({ ...day, cash: store.cashSummary('f:100', '2026-10-30') }, { name: 'فرع المعادي' }, { width: 72 });
+  assert.match(html, /إجمالي المبيعات/);
+  assert.match(html, /555\.86/);
+  assert.match(html, /حركة الدرج من الجهاز/);
+});

@@ -93,6 +93,37 @@ function kitchen(ticket, quote, branch, options = {}) {
   return page(options.width || 72, body);
 }
 
+/** End-of-day style summary of this device's sales, printed on the receipt roll. */
+function report(data, branch, options = {}) {
+  const row = (label, value) => `<div class="row"><span>${label}</span><span class="num">${value}</span></div>`;
+  const section = (title, entries) => entries.length ? `<hr><div class="big">${title}</div>${entries.join('')}` : '';
+  const items = data.items.map((line) => `<tr><td>${escape(line.name)}${line.option_label ? ' - ' + escape(line.option_label) : ''}
+      <div class="small">${escape(quantityLabel(line))}</div></td><td class="n">${money.decimal(line.total_cents)}</td></tr>`).join('');
+  const cash = data.cash;
+  const body = `
+    <h1>${escape(branch.name)}</h1>
+    <div class="center">تقرير مبيعات هذا الجهاز</div>
+    <div class="center small">${data.from === data.to ? 'يوم العمل ' + escape(data.from) : 'من ' + escape(data.from) + ' إلى ' + escape(data.to)}</div>
+    <hr>
+    ${row('عدد الفواتير', data.count)}
+    ${row('الإجمالي قبل الخصم', money.decimal(data.subtotal_cents))}
+    ${data.discount_cents ? row('الخصومات', money.decimal(data.discount_cents)) : ''}
+    ${data.service_cents ? row('الخدمة', money.decimal(data.service_cents)) : ''}
+    ${data.delivery_cents ? row('التوصيل', money.decimal(data.delivery_cents)) : ''}
+    ${data.tax_cents ? row('الضريبة', money.decimal(data.tax_cents)) : ''}
+    <div class="row big"><span>إجمالي المبيعات</span><span>${money.decimal(data.total_cents)} جنيه</span></div>
+    ${section('حسب نوع الطلب', data.channels.map((entry) => row(`${CHANNEL_LABELS[entry.channel] || entry.channel} (${entry.count})`, money.decimal(entry.total_cents))))}
+    ${section('حسب الكاشير', data.cashiers.map((entry) => row(`${escape(entry.name)} (${entry.count})`, money.decimal(entry.total_cents))))}
+    ${data.days.length > 1 ? section('حسب اليوم', data.days.map((entry) => row(`${escape(entry.day)} (${entry.count})`, money.decimal(entry.total_cents)))) : ''}
+    ${cash ? section('حركة الدرج من الجهاز', [row('نقدية المبيعات (بدون التوصيل)', money.decimal(cash.sales_cash_cents)),
+      row('إيداع', money.decimal(cash.cash_in_cents)), row('سحب', money.decimal(cash.cash_out_cents)),
+      row('مصروفات معتمدة', money.decimal(cash.approved_expenses_cents)), row('مصروفات بانتظار الاعتماد', money.decimal(cash.pending_expenses_cents)),
+      `<div class="row big"><span>صافي حركة الدرج</span><span class="num">${money.decimal(cash.drawer_movement_cents)}</span></div>`]) : ''}
+    ${items ? `<hr><div class="big">الأصناف</div><table>${items}</table>` : ''}
+    <hr><div class="center small">طُبع ${escape(when(new Date().toISOString()))} — الأرقام من هذا الجهاز فقط</div>`;
+  return page(options.width || 72, body);
+}
+
 /**
  * Loads the receipt in a hidden window and measures it, so the roll is cut right after the last line
  * instead of feeding a whole page. The page itself cannot run scripts (see its security policy).
@@ -133,4 +164,4 @@ async function print(BrowserWindow, html, settings = {}) {
   });
 }
 
-module.exports = { receipt, kitchen, print, render, paper, quantityLabel };
+module.exports = { receipt, kitchen, report, print, render, paper, quantityLabel };
