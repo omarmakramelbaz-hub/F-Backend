@@ -57,6 +57,10 @@ class DesktopSyncTest extends TestCase
         require_once database_path('migrations/2026_10_03_150000_create_pos_service_tickets.php'); (new \CreatePosServiceTickets)->up();
         require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
         (require database_path('migrations/2026_10_30_000001_create_desktop_sync_tables.php'))->up();
+        require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.php'); (new \CreateBranchExpenses)->up();
+        require_once database_path('migrations/2026_10_06_120000_create_branch_expenses_categories.php'); (new \CreateBranchExpensesCategories)->up();
+        require_once database_path('migrations/2026_10_06_200000_manage_expense_categories.php'); (new \ManageExpenseCategories)->up();
+        require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php'); (new \ScopeExpenseCategoriesByBranch)->up();
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         foreach (['order-list', 'order-create', 'order-edit'] as $name) Permission::create(['name' => $name, 'guard_name' => 'admin']);
         foreach ([
@@ -186,6 +190,83 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(['rejected', 'rejected', 'rejected', 'rejected', 'rejected'], array_column($results, 'status'));
         $this->assertStringContainsString('لا يطابق', $results[0]['error']);
         $this->assertSame(0, DB::table('takeaway_orders')->count());
+    }
+
+    private function operation(string $kind, int $actor, array $data, array $overrides = []): array
+    {
+        return array_replace(['id' => (string) Str::uuid(), 'kind' => $kind, 'actor_id' => $actor, 'branch' => 'f:100',
+            'occurred_at' => '2026-10-30T09:30:00Z', 'data' => $data], $overrides);
+    }
+
+    public function test_devices_receive_expense_categories_and_who_may_approve_expenses(): void
+    {
+        $device = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->json();
+        $state = $this->sync($device, ['want_users' => true, 'want_catalogs' => true])->assertOk()->json();
+        $users = collect($state['users'])->keyBy('id');
+        $this->assertTrue($users[1]['can_approve_expenses']);
+        $this->assertFalse($users[4]['can_approve_expenses']);
+        $this->assertTrue($users[1]['can_close_shift']);
+        $this->assertFalse($users[4]['can_close_shift'], 'Only the owner and the central administration close shifts');
+        $categories = collect($state['branches'][0]['catalog']['expense_categories'])->keyBy('key');
+        $this->assertTrue($categories->has('electricity'));
+        $this->assertNull($categories['electricity']['stock']);
+        $this->assertSame('purchase_tomato', $categories['purchase_tomato']['stock']);
+    }
+
+    public function test_an_offline_expense_is_recorded_once_on_the_day_it_was_paid(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $pending = $this->operation('expense', 4, ['category' => 'electricity', 'description' => 'فاتورة كهرباء', 'amount' => '350.50']);
+        $denied = $this->operation('expense', 4, ['category' => 'gas', 'amount' => '20', 'approve' => true]);
+        $results = $this->sync($device, ['operations' => [$pending, $denied]])->assertOk()->json()['results'];
+        $this->assertSame('applied', $results[0]['status'], json_encode($results[0], JSON_UNESCAPED_UNICODE));
+        $this->assertSame('pending', $results[0]['expense']['status']);
+        $this->assertSame('rejected', $results[1]['status'], 'A cashier cannot approve its own expense');
+        $row = DB::table('branch_expenses')->first();
+        $this->assertSame(35050, (int) $row->amount_cents);
+        $this->assertSame('2026-10-30', $row->occurred_on);
+        $this->assertSame(4, (int) $row->actor_id);
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$pending]])->json()['results'][0], 'A resend returns the same result');
+        $this->assertSame(1, DB::table('branch_expenses')->count());
+    }
+
+    public function test_an_owner_expense_can_be_approved_and_leaves_the_drawer(): void
+    {
+        $device = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->json();
+        $approved = $this->operation('expense', 1, ['category' => 'packaging', 'amount' => '75', 'approve' => true, 'supplier' => 'مورد']);
+        $stock = $this->operation('expense', 1, ['category' => 'purchase_tomato', 'amount' => '60']);
+        $results = $this->sync($device, ['operations' => [$approved, $stock]])->assertOk()->json()['results'];
+        $this->assertSame('approved', $results[0]['expense']['status'], json_encode($results[0], JSON_UNESCAPED_UNICODE));
+        $this->assertSame(-7500, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'));
+        $this->assertSame('rejected', $results[1]['status'], 'A stock purchase needs its quantity in kilograms');
+    }
+
+    public function test_offline_cash_in_and_out_apply_on_top_of_the_current_drawer(): void
+    {
+        $device = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->json();
+        DB::table('takeaway_tills')->insert(['branch' => 'f:100', 'balance_cents' => 10000, 'tax_bps' => 0, 'revision' => 7,
+            'created_at' => now(), 'updated_at' => now()]);
+        $in = $this->operation('till', 1, ['direction' => 'in', 'amount' => '500', 'note' => 'فكة']);
+        $out = $this->operation('till', 1, ['direction' => 'out', 'amount' => '200', 'note' => 'توريد للمالك']);
+        $tooMuch = $this->operation('till', 1, ['direction' => 'out', 'amount' => '10000', 'note' => 'سحب']);
+        $cashier = $this->operation('till', 4, ['direction' => 'in', 'amount' => '5', 'note' => 'x']);
+        $noNote = $this->operation('till', 1, ['direction' => 'in', 'amount' => '5', 'note' => '']);
+        $results = $this->sync($device, ['operations' => [$in, $out, $tooMuch, $cashier, $noNote]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'applied', 'rejected', 'rejected', 'rejected'], array_column($results, 'status'),
+            json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame(40000, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'));
+        $this->assertSame(['cash_in', 'cash_out'], DB::table('takeaway_till_entries')->orderBy('id')->pluck('kind')->all());
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$in]])->json()['results'][0]);
+        $this->assertSame(2, DB::table('takeaway_till_entries')->count());
+    }
+
+    public function test_operations_this_server_does_not_know_yet_wait_on_the_device(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
+        $this->assertSame('retry', $response['results'][0]['status']);
+        $this->assertSame(['sale', 'expense', 'till'], $response['kinds']);
+        $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
     public function test_a_revoked_device_and_a_wrong_token_are_refused(): void

@@ -3,7 +3,10 @@
 namespace App\Services\DesktopSync;
 
 use App\Models\User;
+use App\Services\Dashboard\BranchExpenses;
+use App\Services\Dashboard\BranchShiftClosing;
 use App\Services\Dashboard\BranchStock;
+use App\Services\Dashboard\ExpenseCategories;
 use App\Services\Dashboard\PosServiceTable;
 use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayCatalog;
@@ -11,6 +14,7 @@ use App\Services\Dashboard\TakeawayService;
 use App\Services\GoServices\Money;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Illuminate\Validation\ValidationException;
@@ -68,7 +72,31 @@ class DesktopSyncState
                 'password_hash' => (string) $user->password, 'branches' => $allowed,
                 'can_checkout' => (bool) $permissions['can_checkout'], 'can_manage' => (bool) $permissions['can_manage'],
                 'can_reprint' => (bool) $permissions['can_reprint'],
+                'can_approve_expenses' => $this->canApproveExpenses($user),
+                'can_close_shift' => app(BranchShiftClosing::class)->canClose($user),
             ];
+        }
+        return $result;
+    }
+
+    /** Same rule as the dashboard's expenses page: owners and the central administration approve. */
+    private function canApproveExpenses(User $user): bool
+    {
+        try {
+            return (bool) app(BranchExpenses::class)->permissions($user)['can_approve'];
+        } catch (HttpException $error) {
+            return false;
+        }
+    }
+
+    /** The branch's active expense categories; stock purchases are entered in kilograms. */
+    private function expenseCategories(string $branch): array
+    {
+        if (! Schema::hasTable('branch_expenses')) return [];
+        $result = [];
+        foreach (app(ExpenseCategories::class)->catalog($branch) as $key => $item) {
+            if (! $item['active']) continue;
+            $result[] = ['key' => (string) $key, 'name' => (string) $item['name'], 'stock' => $item['stock_category'] ?? null];
         }
         return $result;
     }
@@ -162,7 +190,8 @@ class DesktopSyncState
             return ['branch' => $branch, 'customer_phone_required' => true,
                 'tax_bps' => Money::rate($summary['register']['tax_rate'] ?? '0.00'),
                 'service_bps' => app(PosServiceTable::class)->ready() ? app(PosServiceTable::class)->policy($value)['service_bps'] : 0,
-                'can_discount' => true, 'products' => $products, 'categories' => $categories];
+                'can_discount' => true, 'products' => $products, 'categories' => $categories,
+                'expense_categories' => $this->expenseCategories($value)];
         });
     }
 }

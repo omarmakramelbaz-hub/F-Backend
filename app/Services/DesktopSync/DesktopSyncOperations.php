@@ -3,6 +3,7 @@
 namespace App\Services\DesktopSync;
 
 use App\Models\User;
+use App\Services\Dashboard\BranchExpenses;
 use App\Services\Dashboard\CustomerDirectory;
 use App\Services\Dashboard\DesktopPosQuote;
 use App\Services\Dashboard\OperatingDay;
@@ -22,7 +23,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale'];
+    public const KINDS = ['sale', 'expense', 'till'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -45,6 +46,8 @@ class DesktopSyncOperations
     {
         $id = is_string($operation['id'] ?? null) && Str::isUuid($operation['id']) ? $operation['id'] : null;
         if ($id === null) return ['id' => $operation['id'] ?? null, 'status' => 'rejected', 'error' => 'رقم العملية غير صالح.'];
+        // A newer app can know operations this server does not yet; they wait on the device until it does.
+        if (is_string($operation['kind'] ?? null) && ! in_array($operation['kind'], self::KINDS, true)) return ['id' => $id, 'status' => 'retry'];
         $hash = hash('sha256', json_encode([$operation['kind'] ?? null, $operation['actor_id'] ?? null, $operation['branch'] ?? null,
             $operation['occurred_at'] ?? null, $operation['data'] ?? null], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $stored = DB::table('desktop_sync_operations')->where('device_id', $device->id)->where('op_id', $id)->first();
@@ -62,7 +65,11 @@ class DesktopSyncOperations
             abort_unless($when->lte(now('UTC')->addMinutes(10)), 422, 'ساعة الكمبيوتر غير مضبوطة.');
             $actor = User::query()->find($values['actor_id']);
             abort_unless($actor, 403, 'الحساب غير موجود.');
-            $result = $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']);
+            $result = match ($values['kind']) {
+                'expense' => $this->expense($actor, $values['branch'], $id, $when, $values['data']),
+                'till' => $this->till($actor, $values['branch'], $id, $values['data']),
+                default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
+            };
             $status = 'applied';
         } catch (ValidationException $error) {
             $result = ['error' => collect($error->errors())->flatten()->first() ?: 'بيانات العملية غير صحيحة.'];
@@ -137,5 +144,52 @@ class DesktopSyncOperations
         $receipt = $payment['receipt'];
         return ['receipt' => ['id' => (int) $receipt['id'], 'number' => (string) $receipt['number'],
             'business_date' => (string) $receipt['business_date'], 'total' => (string) $receipt['total']]];
+    }
+
+    /**
+     * An expense paid from the drawer, recorded on the day it happened. The dashboard's own expense rules
+     * apply (categories, stock purchases in kilograms, who may approve); the operation id makes it once-only.
+     */
+    private function expense(User $actor, string $branch, string $id, Carbon $when, array $data): array
+    {
+        $data = Validator::make($data, [
+            'category' => 'required|string|max:60', 'description' => 'nullable|string|max:500', 'amount' => 'required|string|max:14',
+            'supplier' => 'nullable|string|max:150', 'notes' => 'nullable|string|max:1000', 'quantity_kg' => 'nullable|string|max:14',
+            'approve' => 'nullable|boolean',
+        ])->validate();
+        $result = app(BranchExpenses::class)->save([
+            'branch' => $branch, 'idempotency_key' => $id, 'occurred_on' => OperatingDay::date($when), 'category' => $data['category'],
+            'description' => $data['description'] ?? '', 'amount' => $data['amount'], 'payment_method' => 'cash',
+            'supplier' => $data['supplier'] ?? '', 'notes' => $data['notes'] ?? '',
+            'quantity_kg' => ($data['quantity_kg'] ?? '') === '' ? null : $data['quantity_kg'], 'approve' => (bool) ($data['approve'] ?? false),
+        ], $actor);
+        $expense = $result['expense'];
+        return ['expense' => ['id' => (int) $expense['id'], 'number' => (string) $expense['number'], 'status' => (string) $expense['status']]];
+    }
+
+    /**
+     * Cash put in or taken out of the drawer by a manager. The device could not know the drawer's latest
+     * revision while offline, so the movement applies on top of the current drawer, under the same locks
+     * and balance rules as the dashboard.
+     */
+    private function till(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, [
+            'direction' => 'required|in:in,out', 'amount' => 'required|string|max:14', 'note' => 'required|string|max:500',
+        ])->validate();
+        return DB::transaction(function () use ($actor, $branch, $id, $data) {
+            $this->access->branch($branch, $actor, true);
+            $now = now('UTC');
+            DB::table('takeaway_tills')->insertOrIgnore(['branch' => $branch, 'balance_cents' => 0, 'tax_bps' => 0, 'revision' => 1,
+                'created_at' => $now, 'updated_at' => $now]);
+            $till = DB::table('takeaway_tills')->where('branch', $branch)->lockForUpdate()->first();
+            $result = app(TakeawayService::class)->changeRegister(['branch' => $branch, 'idempotency_key' => $id,
+                'expected_revision' => (int) $till->revision, 'note' => $data['note'], 'direction' => $data['direction'],
+                'amount' => $data['amount']], $actor, false);
+            $entry = DB::table('takeaway_till_entries')->where('till_id', $till->id)->where('actor_id', $actor->id)
+                ->where('request_key', $id)->first(['id', 'business_date']);
+            return ['till' => ['id' => (int) ($entry->id ?? 0), 'business_date' => (string) ($entry->business_date ?? ''),
+                'replayed' => (bool) ($result['replayed'] ?? false)]];
+        }, 3);
     }
 }

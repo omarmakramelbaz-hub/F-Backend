@@ -190,7 +190,7 @@ class DesktopSyncInstallTests(unittest.TestCase):
 
     def test_existing_new_files_on_the_server_are_never_overwritten(self):
         self.write(self.root / 'routes/desktop_sync.php', '<?php // someone else\n')
-        with self.assertRaisesRegex(operator.Stop, 'NEW_FILES_ALREADY_ON_SERVER'):
+        with self.assertRaisesRegex(operator.Stop, 'NEW_FILES_DIFFER_FROM_EVERY_RELEASE'):
             self.run_operator('apply')
         self.assertEqual(self.live('routes/desktop_sync.php'), '<?php // someone else\n')
 
@@ -208,6 +208,40 @@ class DesktopSyncInstallTests(unittest.TestCase):
                 self.run_operator('apply')
         finally:
             os.close(held)
+
+    def test_an_earlier_release_on_the_server_is_upgraded_and_rollback_restores_it(self):
+        self.run_operator('apply')
+        changed = 'app/Services/DesktopSync/DesktopSyncOperations.php'
+        self.write(self.package / changed, '<?php // new version with expenses\n')
+        self.release = self.commit('expenses and cash drawer')
+        plan = self.run_operator('plan')
+        self.assertEqual(plan['mode'], 'upgrade')
+        self.assertEqual(plan['route_provider'], 'kept')
+        installed_provider = self.live(operator.PROVIDER)
+        result = self.run_operator('apply')
+        self.assertEqual(result['result'], 'GO_ERP_DESKTOP_SYNC_INSTALLED')
+        self.assertEqual(self.live(changed), '<?php // new version with expenses\n')
+        self.assertEqual(self.live(operator.PROVIDER), installed_provider)
+        self.assertEqual(self.run_operator('plan')['result'], 'GO_ERP_DESKTOP_SYNC_FILES_ALREADY_INSTALLED')
+        rolled = self.run_operator('rollback', backup=Path(result['backup']))
+        self.assertEqual(rolled['result'], 'GO_ERP_DESKTOP_SYNC_ROLLED_BACK')
+        self.assertEqual(self.live(changed), '<?php // new ' + changed + '\n', 'The earlier version is back')
+        self.assertEqual(self.live(operator.PROVIDER), installed_provider)
+
+    def test_a_backup_from_the_first_installer_version_still_rolls_back(self):
+        result = self.run_operator('apply')
+        backup = self.backups / 'first-format'
+        backup.mkdir(mode=0o700)
+        (backup / 'provider.before').write_bytes(PROVIDER.encode())
+        manifest = json.loads((Path(result['backup']) / 'manifest.json').read_text())
+        manifest['format'] = 1
+        for row in manifest['files'].values():
+            row.pop('index')
+        (backup / 'manifest.json').write_text(json.dumps(manifest))
+        rolled = self.run_operator('rollback', backup=backup)
+        self.assertEqual(rolled['result'], 'GO_ERP_DESKTOP_SYNC_ROLLED_BACK')
+        self.assertTrue(all(self.live(name) is None for name in operator.NEW_FILES))
+        self.assertEqual(self.live(operator.PROVIDER), PROVIDER)
 
     def test_the_route_line_goes_after_the_go_services_routes_with_the_same_indent(self):
         added = operator.add_route_line(PROVIDER.encode()).decode().splitlines()

@@ -11,6 +11,7 @@ adds one line to RouteServiceProvider, creates the three new desktop_sync_* tabl
 migration, then checks that the new address answers. Nothing else changes: no existing table, no
 .env, no PHP-FPM, no old desktop update service. A private backup is kept; --rollback restores the
 files (the three new tables stay; they are empty and unused without the files).
+A server that already has an earlier version of these six files from this branch is upgraded in place.
 """
 import argparse
 import datetime
@@ -213,6 +214,17 @@ def release_files(package, release):
     return files, base_provider
 
 
+def earlier_versions(package, release):
+    """Every version of the new files that earlier commits of this branch shipped, by checksum."""
+    versions = {}
+    for name in NEW_FILES:
+        found = set()
+        for commit in git(package, 'log', '--format=%H', '--diff-filter=AM', BASE + '..' + release, '--', name).decode().split():
+            found.add(sha256(git(package, 'show', commit + ':' + name)))
+        versions[name] = found
+    return versions
+
+
 def lock_watcher(path):
     """Hold the old update worker's lock (if it still exists) so nothing reads the tree while it changes."""
     try:
@@ -275,15 +287,22 @@ def inspect(root, package, release, web_uid, php):
     need(provider is not None, 'ROUTE_PROVIDER_MISSING')
     if len(same) == len(NEW_FILES) and provider.count(LINE.encode()) == 1:
         return {'result': 'GO_ERP_DESKTOP_SYNC_FILES_ALREADY_INSTALLED', 'release': release}, {'installed': True}
-    need(not present, 'NEW_FILES_ALREADY_ON_SERVER_REVIEW_OR_ROLLBACK')
-    if provider == base_provider:
+    upgrade = bool(present)
+    if upgrade:
+        # Only files this branch shipped before may be replaced; anything else needs a person to look.
+        earlier = earlier_versions(package, release)
+        need(all(sha256(live[name][0]) in earlier[name] for name in present), 'NEW_FILES_DIFFER_FROM_EVERY_RELEASE_REVIEW_REQUIRED')
+        need(provider.count(LINE.encode()) == 1, 'ROUTE_PROVIDER_DIFFERS_REVIEW_REQUIRED')
+        provider_mode, new_provider = 'kept', provider
+    elif provider == base_provider:
         provider_mode, new_provider = 'replaced', files[PROVIDER]
     else:
         new_provider = add_route_line(provider)
         need(new_provider is not None, 'ROUTE_PROVIDER_DIFFERS_REVIEW_REQUIRED')
         provider_mode = 'line-added'
     php_lint(php, package)
-    plan = {'result': 'GO_ERP_DESKTOP_SYNC_PLAN', 'release': release, 'new_files': len(NEW_FILES),
+    plan = {'result': 'GO_ERP_DESKTOP_SYNC_PLAN', 'release': release, 'mode': 'upgrade' if upgrade else 'install',
+            'new_files': len(NEW_FILES),
             'route_provider': provider_mode, 'new_folder': safe_directory(root, NEW_DIRECTORY, missing_ok=True) is None,
             'route_cache': os.path.lexists(str(root / ROUTE_CACHE)), 'new_tables': 3,
             'existing_tables_changed': False, 'environment_changed': False}
@@ -296,11 +315,13 @@ def apply(root, backups, release, web_uid, plan, context):
     wanted, live = context['wanted'], context['live']
     services = safe_directory(root, 'app/Services')
     owners = {}
-    for name in NEW_FILES:
-        parent = safe_directory(root, name.rsplit('/', 1)[0], missing_ok=True) or services
-        owners[name] = (parent.st_uid, parent.st_gid, 0o644)
-    info = live[PROVIDER][1]
-    owners[PROVIDER] = (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
+    for name in TARGETS:
+        info = live[name][1]
+        if info is not None:
+            owners[name] = (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
+        else:
+            parent = safe_directory(root, name.rsplit('/', 1)[0], missing_ok=True) or services
+            owners[name] = (parent.st_uid, parent.st_gid, 0o644)
     if not backups.exists():
         backups.mkdir(mode=0o700)
     backups_info = backups.lstat()
@@ -309,11 +330,12 @@ def apply(root, backups, release, web_uid, plan, context):
     backup = backups / (datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     backup.mkdir(mode=0o700)
     created_folder = plan['new_folder']
-    manifest = {'format': 1, 'release': release, 'base': BASE, 'created_folder': created_folder, 'files': {}}
-    private_write(backup / 'provider.before', live[PROVIDER][0])
-    for name in TARGETS:
+    manifest = {'format': 2, 'release': release, 'base': BASE, 'created_folder': created_folder, 'files': {}}
+    for index, name in enumerate(TARGETS):
         before = live[name][0]
-        manifest['files'][name] = {'before_sha256': None if before is None else sha256(before),
+        if before is not None:
+            private_write(backup / ('file-%d.before' % index), before)
+        manifest['files'][name] = {'index': index, 'before_sha256': None if before is None else sha256(before),
                                    'after_sha256': sha256(wanted[name]), 'uid': owners[name][0],
                                    'gid': owners[name][1], 'mode': owners[name][2]}
     private_write(backup / 'manifest.json', json.dumps(manifest, sort_keys=True).encode())
@@ -363,28 +385,37 @@ def restore(root, web_uid, live, owners, written, folder_made):
 
 
 def rollback(root, backup, web_uid):
+    """Puts back exactly what the backup holds: earlier files are restored, files the install added are removed."""
     info = backup.lstat()
     need(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid() and not info.st_mode & 0o077, 'BACKUP_UNSAFE')
     manifest = read_json(backup / 'manifest.json')
-    need(isinstance(manifest, dict) and manifest.get('format') == 1 and manifest.get('base') == BASE
+    need(isinstance(manifest, dict) and manifest.get('format') in (1, 2) and manifest.get('base') == BASE
          and sorted(manifest.get('files', {})) == sorted(TARGETS), 'BACKUP_MANIFEST')
-    provider = (backup / 'provider.before').read_bytes()
-    need(sha256(provider) == manifest['files'][PROVIDER]['before_sha256'], 'BACKUP_FILE_CHANGED')
+    plan = {}
     for name in TARGETS:
         row = manifest['files'][name]
+        before = None
+        if row['before_sha256'] is not None:
+            # The first installer version saved only the route provider; it never replaced other files.
+            saved = backup / ('provider.before' if manifest['format'] == 1 else 'file-%d.before' % row['index'])
+            need(manifest['format'] == 2 or name == PROVIDER, 'BACKUP_MANIFEST')
+            before = saved.read_bytes()
+            need(sha256(before) == row['before_sha256'], 'BACKUP_FILE_CHANGED')
         current = live_read(root, name, web_uid)[0]
         need((None if current is None else sha256(current)) in (row['after_sha256'], row['before_sha256']),
              'LIVE_FILE_CHANGED_SINCE_INSTALL')
-    for name in NEW_FILES:
-        if live_read(root, name, web_uid)[0] is not None:
-            live_remove(root, name)
-    row = manifest['files'][PROVIDER]
-    live_write(root, PROVIDER, provider, row['uid'], row['gid'], row['mode'])
+        plan[name] = (before, row)
+    for name in TARGETS:
+        before, row = plan[name]
+        if before is None:
+            if live_read(root, name, web_uid)[0] is not None:
+                live_remove(root, name)
+        elif live_read(root, name, web_uid)[0] != before:
+            live_write(root, name, before, row['uid'], row['gid'], row['mode'])
     folder = root / NEW_DIRECTORY
     if manifest.get('created_folder') and folder.is_dir() and not folder.is_symlink() and not os.listdir(str(folder)):
         os.rmdir(str(folder))
-    need(live_read(root, PROVIDER, web_uid)[0] == provider
-         and all(live_read(root, name, web_uid)[0] is None for name in NEW_FILES), 'ROLLBACK_VERIFY')
+    need(all(live_read(root, name, web_uid)[0] == plan[name][0] for name in TARGETS), 'ROLLBACK_VERIFY')
     return {'result': 'GO_ERP_DESKTOP_SYNC_ROLLED_BACK', 'backup': str(backup), 'new_tables_kept': True}
 
 

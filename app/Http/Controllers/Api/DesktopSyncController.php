@@ -32,7 +32,7 @@ class DesktopSyncController extends Controller
             'catalog_hashes.*' => 'nullable|string|max:64',
         ]);
         $response = ['server_time' => now('UTC')->toIso8601String(), 'operating_day' => OperatingDay::metadata(),
-            'results' => $operations->apply($device, $values['operations'] ?? [])];
+            'kinds' => DesktopSyncOperations::KINDS, 'results' => $operations->apply($device, $values['operations'] ?? [])];
         if (($values['want_users'] ?? false) || ($values['want_catalogs'] ?? false)) {
             $users = $state->users($device);
             $hash = hash('sha256', json_encode($users, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
