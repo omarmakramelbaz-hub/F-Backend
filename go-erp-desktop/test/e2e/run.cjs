@@ -41,7 +41,8 @@ async function stopServer() {
 }
 
 function serverRows(sql) {
-  const db = new DatabaseSync(path.join(WORK, 'server.sqlite'), { readOnly: true });
+  // The local dashboard may be writing at the same moment; wait for it instead of failing.
+  const db = new DatabaseSync(path.join(WORK, 'server.sqlite'), { timeout: 10000 });
   try { return db.prepare(sql).all(); } finally { db.close(); }
 }
 
@@ -259,6 +260,16 @@ async function ownerDevice() {
   await page.locator('.session select').selectOption({ label: 'فرع مدينة نصر' });
   await page.locator('.product', { hasText: 'بوري مشوي' }).waitFor();
   assert.deepEqual(await page.locator('.product .name').allTextContents(), ['بوري مشوي']);
+
+  // The online dashboard opens signed in as the same account, and signing out of the app closes it.
+  const opened = app.waitForEvent('window');
+  await page.getByRole('button', { name: 'الداشبورد الكامل' }).click();
+  const dashboard = await opened;
+  await dashboard.waitForURL(/\/admin\/dashboard/, { timeout: 20000 });
+  const closed = dashboard.waitForEvent('close');
+  await page.getByRole('button', { name: 'خروج' }).click();
+  await closed;
+  await signIn(page, '01000000001', 'root-pass');
   await shot(page, '09-owner-two-branches');
   await app.close();
 }

@@ -24,6 +24,10 @@ let sync;
 let mainWindow = null;
 let dashboardWindow = null;
 let current = null; // { user, branch } of the signed-in account
+// What the signed-in person typed, kept in memory only, to sign the online dashboard window in as the same account.
+let dashboardLogin = null;
+let dashboardTarget = null;
+let dashboardAutoLogin = false;
 // A cashier PC's clock is often wrong. Sales and the working day use the server's time from the last sync.
 let clockOffset = 0;
 const now = () => new Date(Date.now() + clockOffset);
@@ -49,6 +53,8 @@ function requireSession() {
   const user = store.user(current.user.id);
   if (!user || !user.branches.includes(current.branch)) {
     current = null;
+    dashboardLogin = null;
+    resetDashboard();
     throw new Error('تغيرت صلاحيات الحساب. سجّل الدخول مرة أخرى.');
   }
   current.user = user;
@@ -91,19 +97,29 @@ const handlers = {
     if (!sync.state.device_revoked) throw new Error('الجهاز يعمل بشكل طبيعي.');
     store.forgetDevice();
     current = null;
+    dashboardLogin = null;
+    resetDashboard();
     sync.state.device_revoked = false;
     return true;
   },
 
-  'auth:login': (values) => {
+  'auth:login': async (values) => {
     const user = auth.login(store, values.login, values.password);
     const usable = user.branches.filter((value) => store.catalog(value));
     const branch = usable.includes(values.branch) ? values.branch : (usable[0] || user.branches[0]);
+    // A previous account's dashboard session never carries over to the next person.
+    await resetDashboard();
     current = { user, branch };
+    dashboardLogin = { login: String(values.login || ''), password: String(values.password || '') };
     return current;
   },
 
-  'auth:logout': () => { current = null; return true; },
+  'auth:logout': async () => {
+    current = null;
+    dashboardLogin = null;
+    await resetDashboard();
+    return true;
+  },
 
   'auth:branch': (values) => {
     const session = requireSession();
@@ -218,21 +234,75 @@ const handlers = {
 
   'sync:now': async () => { await sync.run({ refresh: true }); return sync.status(); },
 
-  // Online-only parts of the dashboard (shift closing, expense review, and every other page) open in their own window.
+  // Online-only parts of the dashboard (shift closing, expense review, and every other page) open in their own window,
+  // signed in as the same account.
   'dashboard:open': (values) => {
-    const pages = { home: '/admin/login', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses' };
-    const url = SERVER + (pages[values.page] || pages.home);
-    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-      if (values.page) dashboardWindow.loadURL(url);
-      dashboardWindow.focus();
-      return true;
-    }
-    dashboardWindow = new BrowserWindow({ width: 1366, height: 860, title: 'الداشبورد - GO ERP', autoHideMenuBar: true,
-      webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } });
-    dashboardWindow.loadURL(url);
+    openDashboard(values.page);
     return true;
   },
 };
+
+const DASHBOARD_PAGES = { home: '/admin/dashboard', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses' };
+
+function openDashboard(page) {
+  const target = SERVER + (DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home);
+  dashboardTarget = page && page !== 'home' ? target : null;
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    if (page) dashboardWindow.loadURL(target);
+    dashboardWindow.focus();
+    return;
+  }
+  dashboardAutoLogin = false;
+  dashboardWindow = new BrowserWindow({ width: 1366, height: 860, title: 'الداشبورد - GO ERP', autoHideMenuBar: true,
+    webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } });
+  const contents = dashboardWindow.webContents;
+  contents.on('did-finish-load', () => onDashboardLoad(contents));
+  contents.on('did-fail-load', (event, code, description, url, mainFrame) => {
+    if (!mainFrame || code === -3) return; // -3: the load was replaced by another one
+    contents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">
+      <body style="font-family:Tahoma,Arial,sans-serif;display:grid;place-items:center;height:90vh;color:#182335">
+      <div style="text-align:center"><h2>الداشبورد يحتاج إنترنت</h2><p>الكاشير والخزنة والمصروفات شغالين من غير نت من البرنامج نفسه.</p>
+      <p><a href="${target}">إعادة المحاولة</a></p></div></body></html>`));
+  });
+  dashboardWindow.on('closed', () => { dashboardWindow = null; });
+  dashboardWindow.loadURL(target);
+}
+
+/** Fills the dashboard's own login form once per window; a manual logout inside the dashboard is respected. */
+async function onDashboardLoad(contents) {
+  if (!dashboardWindow || dashboardWindow.isDestroyed()) return;
+  let url;
+  try { url = new URL(contents.getURL()); } catch { return; }
+  if (url.origin !== new URL(SERVER).origin) return;
+  if (url.pathname.replace(/\/+$/, '') === '/admin/login') {
+    if (dashboardAutoLogin || !dashboardLogin) return;
+    dashboardAutoLogin = true;
+    const { login, password } = dashboardLogin;
+    await contents.executeJavaScript(`(() => {
+      const form = document.querySelector('[data-dashboard-login]') || document.querySelector('form[action*="signin"]');
+      if (!form) return false;
+      form.querySelector('[name="email"]').value = ${JSON.stringify(login)};
+      form.querySelector('[name="password"]').value = ${JSON.stringify(password)};
+      if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      return true;
+    })()`).catch(() => {});
+    return;
+  }
+  if (dashboardTarget && !url.href.startsWith(dashboardTarget)) {
+    const target = dashboardTarget;
+    dashboardTarget = null;
+    contents.loadURL(target);
+    return;
+  }
+  dashboardTarget = null;
+}
+
+async function resetDashboard() {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) dashboardWindow.destroy();
+  dashboardWindow = null;
+  dashboardTarget = null;
+  try { await session.fromPartition('persist:dashboard').clearStorageData(); } catch { /* nothing stored yet */ }
+}
 
 function registerHandlers() {
   for (const [channel, handler] of Object.entries(handlers)) {

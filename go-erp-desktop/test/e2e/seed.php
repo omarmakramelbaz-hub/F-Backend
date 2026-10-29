@@ -5,6 +5,8 @@ require __DIR__.'/env.php';
 touch(getenv('DB_DATABASE'));
 $app = require GOERP_ROOT.'/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+// Readers (the test's checks) never block the local dashboard's writes.
+\Illuminate\Support\Facades\DB::statement('PRAGMA journal_mode = WAL');
 goerp_settings($app);
 
 use Illuminate\Database\Schema\Blueprint;
