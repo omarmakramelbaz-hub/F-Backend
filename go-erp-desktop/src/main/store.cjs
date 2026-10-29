@@ -211,8 +211,25 @@ class Store {
         .run(actor.id, actor.name, JSON.stringify(data), number, day, catalog.snapshot_id, JSON.stringify(totals), stamp, stamp, id);
       this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'sale', ?, ?, 'pending', ?, ?)`)
         .run(operationId, id, JSON.stringify(operation), stamp, stamp);
+      this.rememberCustomer(phone, data, quote.total_cents, stamp);
       return this.ticket(id);
     });
+  }
+
+  rememberCustomer(phone, data, total, stamp) {
+    this.db.prepare(`INSERT INTO customers (phone, name, address, orders, total_cents, last_order_at) VALUES (?, ?, ?, 1, ?, ?)
+      ON CONFLICT(phone) DO UPDATE SET name = CASE WHEN excluded.name != '' THEN excluded.name ELSE name END,
+        address = CASE WHEN excluded.address != '' THEN excluded.address ELSE address END,
+        orders = orders + 1, total_cents = total_cents + excluded.total_cents, last_order_at = excluded.last_order_at`)
+      .run(phone, data.customer_name.trim(), data.address.trim(), total, stamp);
+  }
+
+  /** A customer this device served before, found by any way of writing the same phone number. */
+  customer(phoneText) {
+    const phone = rules.normalizePhone(phoneText);
+    if (!phone) return null;
+    const row = this.db.prepare('SELECT * FROM customers WHERE phone = ?').get(phone);
+    return row ? { phone: row.phone, name: row.name, address: row.address, orders: row.orders, total_cents: row.total_cents, last_order_at: row.last_order_at } : null;
   }
 
   nextNumber(branch, day) {

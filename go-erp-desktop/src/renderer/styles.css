@@ -137,6 +137,8 @@ label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--i
 .pay label { flex: 1 1 auto; }
 .pay input { min-height: 42px; font-size: 18px; direction: ltr; text-align: center; }
 .change { font-size: 15px; padding-bottom: 9px; white-space: nowrap; }
+.known { margin: 0; color: var(--green); background: var(--green-bg); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+button.big small { font-weight: 400; opacity: .8; font-size: 12px; }
 .change b { color: var(--purple); direction: ltr; unicode-bidi: isolate; }
 .invoice .actions .primary { flex: 1 1 100%; }
 

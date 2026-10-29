@@ -2,7 +2,7 @@
   <div class="pos">
     <section class="catalog">
       <div class="catalog-tools">
-        <input v-model="search" class="search" placeholder="ابحث عن صنف…">
+        <input ref="searchInput" v-model="search" class="search" placeholder="ابحث عن صنف… (F2)">
         <label class="quantity-box" title="أدخل الوزن بالكيلو أو عدد القطع ثم اختر الصنف">
           الوزن / العدد
           <input v-model.trim="pendingQuantity" inputmode="decimal" placeholder="مثال: 1.250 أو 3" @keydown.enter.prevent>
@@ -48,7 +48,8 @@
       </div>
 
       <div class="customer">
-        <label>هاتف العميل<input v-model.trim="ticket.data.customer_phone" inputmode="tel" @input="changed" placeholder="01xxxxxxxxx"></label>
+        <label>هاتف العميل<input v-model.trim="ticket.data.customer_phone" inputmode="tel" @input="changed" @change="lookupCustomer" placeholder="01xxxxxxxxx"></label>
+        <p v-if="known" class="known wide">عميل سابق: {{ known.orders }} طلب بإجمالي {{ money(known.total_cents) }} جنيه</p>
         <label>اسم العميل<input v-model.trim="ticket.data.customer_name" @input="changed" :placeholder="ticket.channel === 'phone' ? 'مطلوب' : 'اختياري'"></label>
         <label v-if="ticket.channel === 'dine'">رقم الطاولة<input v-model.trim="ticket.data.table_name" @input="changed"></label>
         <template v-if="ticket.channel === 'phone'">
@@ -84,7 +85,7 @@
       <p v-if="error" class="error">{{ error }}</p>
       <p v-if="notice" class="notice">{{ notice }}</p>
       <div class="actions">
-        <button class="primary big" :disabled="busy || !quote" @click="pay">إنهاء البيع وطباعة الفاتورة</button>
+        <button class="primary big" :disabled="busy || !quote" @click="pay">إنهاء البيع وطباعة الفاتورة <small>(F9)</small></button>
         <button :disabled="busy || !ticket.data.items.length" @click="kitchen">طباعة للمطبخ</button>
         <button class="danger-outline" :disabled="busy || !ticket.id" @click="discard">حذف الفاتورة</button>
       </div>
@@ -107,7 +108,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { call, money, CHANNELS } from '../api.js';
 
 defineProps({ session: Object, branch: Object });
@@ -126,6 +127,8 @@ const cash = ref('');
 const error = ref('');
 const notice = ref('');
 const busy = ref(false);
+const searchInput = ref(null);
+const known = ref(null);
 const variantProduct = ref(null);
 let saveTimer = null;
 let quoteTimer = null;
@@ -234,6 +237,30 @@ function setChannel(channel) {
   changed();
 }
 
+/** A returning customer's name and address are filled in from this device's earlier orders. */
+async function lookupCustomer() {
+  known.value = null;
+  const phone = ticket.data.customer_phone;
+  if (!phone) return;
+  try {
+    const customer = await call('customers:lookup', { phone });
+    if (!customer || phone !== ticket.data.customer_phone) return;
+    known.value = customer;
+    let filled = false;
+    if (!ticket.data.customer_name && customer.name) { ticket.data.customer_name = customer.name; filled = true; }
+    if (ticket.channel === 'phone' && !ticket.data.address && customer.address) { ticket.data.address = customer.address; filled = true; }
+    if (filled) changed();
+  } catch { /* lookup is only a help */ }
+}
+
+// Cashier shortcuts: F2 search, F4 new invoice, F9 finish the sale.
+function onKey(event) {
+  if (variantProduct.value) { if (event.key === 'Escape') variantProduct.value = null; return; }
+  if (event.key === 'F2') { event.preventDefault(); searchInput.value && searchInput.value.focus(); }
+  else if (event.key === 'F4') { event.preventDefault(); newTicket(); }
+  else if (event.key === 'F9') { event.preventDefault(); pay(); }
+}
+
 function changed() {
   error.value = '';
   clearTimeout(quoteTimer);
@@ -281,6 +308,7 @@ async function loadOpen() {
 
 async function switchTo(item) {
   await save();
+  known.value = null;
   Object.assign(ticket, { id: item.id, channel: item.channel, label: item.label, data: { ...emptyTicket().data, ...item.data } });
   cash.value = '';
   await refreshQuote();
@@ -288,6 +316,7 @@ async function switchTo(item) {
 
 async function newTicket() {
   await save();
+  known.value = null;
   Object.assign(ticket, emptyTicket());
   cash.value = '';
   quote.value = null;
@@ -308,6 +337,7 @@ async function pay() {
     Object.assign(ticket, emptyTicket());
     cash.value = '';
     quote.value = null;
+    known.value = null;
     await loadOpen();
     emit('changed');
   } catch (problem) {
@@ -345,7 +375,10 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+onUnmounted(() => window.removeEventListener('keydown', onKey));
+
 onMounted(async () => {
+  window.addEventListener('keydown', onKey);
   try {
     catalog.value = await call('catalog:get');
   } catch (problem) {

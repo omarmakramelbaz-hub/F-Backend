@@ -62,7 +62,16 @@ function requireSession() {
 }
 
 function printSettings() {
-  return store.get('print', { printer: '', width: 72, kitchen_printer: '', auto_print: true });
+  return { printer: '', width: 72, kitchen_printer: '', auto_print: true, kitchen_auto: false, ...store.get('print', {}) };
+}
+
+function autostart() {
+  try { return app.getLoginItemSettings().openAtLogin; } catch { return false; }
+}
+
+/** A copy of the device database once a day, kept for a week, next to the database itself. */
+function backupDatabase() {
+  try { db.backup(store.db, path.join(app.getPath('userData'), 'backups'), rules.operatingDay(now())); } catch { /* the next run tries again */ }
 }
 
 function branchInfo(value) {
@@ -71,7 +80,18 @@ function branchInfo(value) {
 
 const handlers = {
   'app:info': () => ({ version: app.getVersion(), server: SERVER, device: publicDevice(), branches: store.branches(),
-    session: current, sync: sync.status(), print: printSettings() }),
+    session: current, sync: sync.status(), print: printSettings(), autostart: autostart() }),
+
+  'app:autostart': (values) => {
+    requireSession();
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!values.enabled });
+    return autostart();
+  },
+
+  'customers:lookup': (values) => {
+    requireSession();
+    return store.customer(values.phone);
+  },
 
   'setup:enroll': async (values) => {
     if (store.device()) throw new Error('هذا الجهاز مجهز بالفعل.');
@@ -154,7 +174,12 @@ const handlers = {
     const ticket = store.payTicket(session.user, values.id, { cash_received: values.cash_received, data: values.data });
     sync.kick();
     let printed = null;
-    if (printSettings().auto_print) printed = await printing.print(BrowserWindow, printing.receipt(ticket, branchInfo(ticket.branch), printSettings()), printSettings());
+    const settings = printSettings();
+    if (settings.auto_print) printed = await printing.print(BrowserWindow, printing.receipt(ticket, branchInfo(ticket.branch), settings), settings);
+    if (settings.kitchen_auto) {
+      await printing.print(BrowserWindow, printing.kitchen(ticket, ticket.totals, branchInfo(ticket.branch), settings),
+        { ...settings, printer: settings.kitchen_printer || settings.printer });
+    }
     return { ticket, printed };
   },
 
@@ -231,7 +256,7 @@ const handlers = {
     if (values && Object.keys(values).length) {
       const name = (value) => String(value || '').slice(0, 200);
       store.set('print', { printer: name(values.printer), kitchen_printer: name(values.kitchen_printer),
-        width: Number(values.width) === 58 ? 58 : 72, auto_print: values.auto_print !== false });
+        width: Number(values.width) === 58 ? 58 : 72, auto_print: values.auto_print !== false, kitchen_auto: values.kitchen_auto === true });
     }
     return printSettings();
   },
@@ -350,6 +375,8 @@ app.whenReady().then(() => {
   store = new Store(db.open(path.join(app.getPath('userData'), 'goerp.sqlite')), { now });
   const readOffset = () => { const value = Number(store.get('server_offset_ms')); clockOffset = Number.isFinite(value) ? value : 0; };
   readOffset();
+  backupDatabase();
+  setInterval(backupDatabase, 6 * 60 * 60 * 1000);
   api = new Api({ baseUrl: SERVER, fetchImpl: (url, init) => require('electron').net.fetch(url, init) });
   sync = new SyncEngine({ store, api, token: () => openToken(store.device()) });
   sync.on('status', (status) => {

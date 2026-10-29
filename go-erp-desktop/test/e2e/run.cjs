@@ -224,9 +224,16 @@ async function cashierDevice() {
   await shot(page, '09-reports-offline');
   await page.getByRole('button', { name: 'الكاشير' }).click();
 
-  // An open invoice is saved on the device and is back after the app restarts.
+  // A returning customer's name and address fill in from the phone number, and the open
+  // invoice is saved on the device and is back after the app restarts.
+  await page.getByRole('button', { name: 'دليفري' }).click();
   await addItem(page, 'بلطي مقلي', '1');
-  await page.locator('.open-tickets button', { hasText: 'تيك أواي' }).waitFor();
+  await page.getByLabel('هاتف العميل').fill('01099887766');
+  await page.getByLabel('هاتف العميل').press('Tab');
+  await page.locator('.known', { hasText: 'عميل سابق' }).waitFor();
+  assert.equal(await page.getByLabel('اسم العميل').inputValue(), 'منى');
+  assert.equal(await page.getByLabel('العنوان').inputValue(), '١٢ شارع النصر - المعادي');
+  await page.locator('.open-tickets button', { hasText: 'منى' }).waitFor();
   await app.close();
   app = await launch(userData);
   page = await firstWindow(app);

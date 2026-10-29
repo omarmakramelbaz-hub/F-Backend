@@ -45,6 +45,7 @@
           <select v-model.number="print.width"><option :value="72">80 مم (عرض الطباعة 72)</option><option :value="58">58 مم</option></select>
         </label>
         <label class="check"><input type="checkbox" v-model="print.auto_print"> طباعة الفاتورة تلقائيًا بعد إنهاء البيع</label>
+        <label class="check"><input type="checkbox" v-model="print.kitchen_auto"> طباعة طلب المطبخ تلقائيًا مع الفاتورة</label>
       </div>
       <p v-if="printNotice" :class="printOk ? 'notice' : 'error'">{{ printNotice }}</p>
       <div class="actions">
@@ -66,6 +67,8 @@
       <p class="muted small">آخر تحديث للمينيو:
         <span v-for="branch in info.branches" :key="branch.value"> {{ branch.name }}: {{ branch.updated_at ? dateTime(branch.updated_at) : 'لم يتم بعد' }}{{ branch.available ? '' : ' (غير متاح)' }} ·</span>
       </p>
+          <label class="check"><input type="checkbox" v-model="autostart" @change="setAutostart"> تشغيل البرنامج تلقائيًا مع فتح ويندوز</label>
+      <p class="muted small">نسخة احتياطية من بيانات الجهاز بتتعمل كل يوم، وبيتحفظ آخر ٧ أيام.</p>
     </section>
   </div>
 </template>
@@ -79,7 +82,12 @@ const props = defineProps({ info: Object, sync: Object, syncNow: Function });
 const busy = ref(false);
 const rejected = ref([]);
 const printers = ref([]);
-const print = reactive({ printer: '', kitchen_printer: '', width: 72, auto_print: true, ...props.info.print });
+const print = reactive({ printer: '', kitchen_printer: '', width: 72, auto_print: true, kitchen_auto: false, ...props.info.print });
+const autostart = ref(!!props.info.autostart);
+
+async function setAutostart() {
+  autostart.value = await call('app:autostart', { enabled: autostart.value });
+}
 const printNotice = ref('');
 const printOk = ref(true);
 

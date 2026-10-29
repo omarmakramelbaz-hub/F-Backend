@@ -276,3 +276,40 @@ test('the device sales report adds up invoices by channel, cashier, day and item
   assert.match(html, /555\.86/);
   assert.match(html, /حركة الدرج من الجهاز/);
 });
+
+test('a returning customer is found by any way of writing the phone number', () => {
+  const { store } = fixture();
+  const actor = store.user(4);
+  sell(store, actor, { channel: 'phone', data: { customer_phone: '01012345678', customer_name: 'منى', address: '١٢ شارع النصر' } });
+  sell(store, actor, { data: { customer_phone: '+20 101 234 5678', customer_name: '' } });
+  const customer = store.customer('٠١٠١٢٣٤٥٦٧٨');
+  assert.equal(customer.phone, '+201012345678');
+  assert.equal(customer.name, 'منى', 'An empty name later does not erase the known one');
+  assert.equal(customer.address, '١٢ شارع النصر');
+  assert.equal(customer.orders, 2);
+  assert.equal(store.customer('01099999999'), null);
+  assert.equal(store.customer('not a phone'), null);
+});
+
+test('a dated copy of the database is made once a day and the newest seven are kept', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { store } = fixture();
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'goerp-backup-'));
+  try {
+    for (let day = 1; day <= 8; day++) fs.writeFileSync(path.join(folder, `goerp-2026-10-0${day}.sqlite`), '');
+    const file = db.backup(store.db, folder, '2026-10-30');
+    assert.ok(fs.statSync(file).size > 0);
+    const kept = fs.readdirSync(folder).sort();
+    assert.equal(kept.length, 7);
+    assert.equal(kept[kept.length - 1], 'goerp-2026-10-30.sqlite');
+    const copy = new (require('node:sqlite').DatabaseSync)(file);
+    assert.equal(copy.prepare('SELECT COUNT(*) AS c FROM users').get().c, 2);
+    copy.close();
+    db.backup(store.db, folder, '2026-10-30');
+    assert.equal(fs.readdirSync(folder).length, 7, 'The same day is not copied twice');
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});

@@ -32,7 +32,23 @@ const MIGRATIONS = [
      sync_status TEXT NOT NULL, sync_error TEXT, server_ref TEXT);
    CREATE INDEX journal_day ON journal (branch, business_date);
    ALTER TABLE outbox ADD COLUMN journal_id TEXT;`,
+  // Version 1.3: customers this device served, so a returning phone number fills its name and address.
+  `CREATE TABLE customers (
+     phone TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL, orders INTEGER NOT NULL, total_cents INTEGER NOT NULL,
+     last_order_at TEXT NOT NULL);`,
 ];
+
+/** A dated copy of the database once a day; the newest seven are kept. */
+function backup(db, folder, day, keep = 7) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  fs.mkdirSync(folder, { recursive: true });
+  const file = path.join(folder, `goerp-${day}.sqlite`);
+  if (!fs.existsSync(file)) db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+  const copies = fs.readdirSync(folder).filter((name) => /^goerp-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)).sort();
+  for (const name of copies.slice(0, Math.max(0, copies.length - keep))) fs.rmSync(path.join(folder, name), { force: true });
+  return file;
+}
 
 function open(file) {
   const db = new DatabaseSync(file);
@@ -60,4 +76,4 @@ function transaction(db, work) {
   }
 }
 
-module.exports = { open, transaction };
+module.exports = { open, transaction, backup };
