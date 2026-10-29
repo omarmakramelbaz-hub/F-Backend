@@ -1,0 +1,138 @@
+name: GO ERP Desktop
+
+on:
+  push:
+    branches: ['claude/go-erp-desktop-v2']
+    paths:
+      - 'go-erp-desktop/**'
+      - 'app/Services/DesktopSync/**'
+      - 'app/Http/Controllers/Api/DesktopSyncController.php'
+      - 'app/Providers/RouteServiceProvider.php'
+      - 'routes/desktop_sync.php'
+      - 'database/migrations/2026_10_30_000001_create_desktop_sync_tables.php'
+      - 'tests/Feature/DesktopSyncTest.php'
+      - 'deployment/install_go_erp_desktop_sync_root.py'
+      - 'tests/test_install_go_erp_desktop_sync_root.py'
+      - '.github/workflows/go-erp-desktop.yml'
+  pull_request:
+    paths:
+      - 'go-erp-desktop/**'
+      - 'app/Services/DesktopSync/**'
+      - 'app/Http/Controllers/Api/DesktopSyncController.php'
+      - 'routes/desktop_sync.php'
+      - 'database/migrations/2026_10_30_000001_create_desktop_sync_tables.php'
+      - 'tests/Feature/DesktopSyncTest.php'
+      - 'deployment/install_go_erp_desktop_sync_root.py'
+      - '.github/workflows/go-erp-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-erp-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Server API, pricing parity and end-to-end check
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      CACHE_DRIVER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: go-erp-desktop/package-lock.json
+      - name: Install the existing application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the isolated runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} bootstrap/cache
+          cp .env.example .env
+          php artisan key:generate
+      - name: Desktop sync API tests
+        run: vendor/bin/phpunit --filter DesktopSyncTest
+      - name: Server installer tests
+        run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py
+      - name: The app prices invoices exactly like the current dashboard code
+        run: |
+          php go-erp-desktop/test/quote-vectors.php > "$RUNNER_TEMP/quote-vectors.json"
+          cmp "$RUNNER_TEMP/quote-vectors.json" go-erp-desktop/test/fixtures/quote-vectors.json
+      - name: Install the app's packages
+        working-directory: go-erp-desktop
+        run: npm ci
+      - name: App unit tests
+        working-directory: go-erp-desktop
+        run: npm test
+      - name: Build the screens
+        working-directory: go-erp-desktop
+        run: npm run build
+      - name: End-to-end check (setup, offline sales, sync, offline sign-in)
+        working-directory: go-erp-desktop
+        env:
+          GOERP_E2E_DIR: ${{ runner.temp }}/goerp-e2e
+        run: xvfb-run -a -s "-screen 0 1440x900x24" npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: end-to-end-screenshots
+          path: ${{ runner.temp }}/goerp-e2e/shots
+          if-no-files-found: ignore
+
+  windows:
+    name: Windows installer
+    needs: verify
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: go-erp-desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: go-erp-desktop/package-lock.json
+      - run: npm ci
+      - name: App unit tests on Windows
+        run: npm test
+      - name: Build the installer
+        run: npm run dist
+      - name: List the installer files
+        run: ls -la release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GO-ERP-Desktop-Setup
+          path: |
+            go-erp-desktop/release/*.exe
+            go-erp-desktop/release/*.blockmap
+            go-erp-desktop/release/latest.yml
+          if-no-files-found: error
+      - name: Publish this version for download and automatic updates
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="desktop-v${version}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Version ${version} is already published; raise the version in go-erp-desktop/package.json to publish a new one."
+            exit 0
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title "GO ERP Desktop ${version}" --notes-file release-notes.md \
+            release/*.exe release/*.exe.blockmap release/latest.yml

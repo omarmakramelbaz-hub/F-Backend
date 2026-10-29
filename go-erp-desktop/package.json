@@ -1,0 +1,75 @@
+{
+  "name": "go-erp-desktop",
+  "productName": "GO ERP Desktop",
+  "version": "1.0.0",
+  "description": "GO ERP cashier that works without internet and syncs with the dashboard every 30 seconds.",
+  "author": "GO ERP",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main/main.cjs",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "test": "node --test test/*.test.cjs",
+    "dist": "vite build && electron-builder --win nsis --x64 --publish never",
+    "test:e2e": "node test/e2e/run.cjs"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "electron-updater": "6.8.10"
+  },
+  "devDependencies": {
+    "@fontsource/almarai": "5.3.0",
+    "@vitejs/plugin-vue": "6.0.10",
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0",
+    "playwright-core": "1.63.0",
+    "vite": "8.3.4",
+    "vue": "3.5.44"
+  },
+  "build": {
+    "appId": "com.goerp.desktop",
+    "productName": "GO ERP Desktop",
+    "executableName": "GO ERP Desktop",
+    "artifactName": "GO-ERP-Desktop-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/main/**",
+      "dist/renderer/**",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GO ERP",
+      "uninstallDisplayName": "GO ERP Desktop",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "omarmakramelbaz-hub",
+        "repo": "f-backend",
+        "releaseType": "release"
+      }
+    ]
+  }
+}
