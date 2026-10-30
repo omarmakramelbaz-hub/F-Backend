@@ -29,6 +29,10 @@ class RouteServiceProvider
 """
 
 
+PAYROLL = "<?php class BranchPayroll { public function attendance(array $values, $actor) {} }\n"
+PAYROLL_PUNCH = "<?php class BranchPayroll { public function attendance(array $values, $actor, ?Carbon $punchedAt = null) {} }\n"
+
+
 class DesktopSyncInstallTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='go-erp-desktop-sync-')
@@ -47,12 +51,14 @@ class DesktopSyncInstallTests(unittest.TestCase):
         self.git('config', 'user.email', 'test@example.invalid')
         self.git('config', 'user.name', 'Test')
         self.write(self.package / operator.PROVIDER, PROVIDER)
+        self.write(self.package / operator.PAYROLL, PAYROLL)
         self.write(self.package / 'routes/web.php', '<?php // unchanged\n')
         self.write(self.package / 'app/Services/Dashboard/OperatingDay.php', '<?php // existing\n')
         self.base = self.commit('live site')
         for name in operator.NEW_FILES:
             self.write(self.package / name, '<?php // new ' + name + '\n')
         self.write(self.package / operator.PROVIDER, operator.add_route_line(PROVIDER.encode()).decode())
+        self.write(self.package / operator.PAYROLL, PAYROLL_PUNCH)
         self.write(self.package / 'go-erp-desktop/src/main/main.cjs', '// the desktop app itself is not server source\n')
         self.write(self.package / 'tests/Feature/DesktopSyncTest.php', '<?php // test\n')
         self.release = self.commit('desktop sync api')
@@ -60,6 +66,7 @@ class DesktopSyncInstallTests(unittest.TestCase):
         operator.BASE = self.base
         self.write(self.root / operator.PROVIDER, PROVIDER)
         os.chmod(self.root / operator.PROVIDER, 0o640)
+        self.write(self.root / operator.PAYROLL, PAYROLL)
         for folder in ('app/Http/Controllers/Api', 'app/Services/Dashboard', 'database/migrations', 'routes'):
             (self.root / folder).mkdir(parents=True, exist_ok=True)
         self.uid = os.getuid()
@@ -127,6 +134,7 @@ class DesktopSyncInstallTests(unittest.TestCase):
         self.assertTrue(all(self.live(name) is None for name in operator.NEW_FILES))
         self.assertFalse((self.root / operator.NEW_DIRECTORY).exists())
         self.assertEqual(self.live(operator.PROVIDER), PROVIDER)
+        self.assertEqual(self.live(operator.PAYROLL), PAYROLL)
         self.assertEqual(self.run_operator('plan')['result'], 'GO_ERP_DESKTOP_SYNC_PLAN')
 
     def test_running_apply_again_only_rechecks(self):
@@ -235,6 +243,7 @@ class DesktopSyncInstallTests(unittest.TestCase):
         (backup / 'provider.before').write_bytes(PROVIDER.encode())
         manifest = json.loads((Path(result['backup']) / 'manifest.json').read_text())
         manifest['format'] = 1
+        manifest['files'].pop(operator.PAYROLL)  # the first installer version never changed it
         for row in manifest['files'].values():
             row.pop('index')
         (backup / 'manifest.json').write_text(json.dumps(manifest))
@@ -242,6 +251,42 @@ class DesktopSyncInstallTests(unittest.TestCase):
         self.assertEqual(rolled['result'], 'GO_ERP_DESKTOP_SYNC_ROLLED_BACK')
         self.assertTrue(all(self.live(name) is None for name in operator.NEW_FILES))
         self.assertEqual(self.live(operator.PROVIDER), PROVIDER)
+
+    def test_the_payroll_service_gets_the_device_punch_option_and_rollback_restores_it(self):
+        self.assertEqual(self.run_operator('plan')['payroll_service'], 'updated')
+        result = self.run_operator('apply')
+        self.assertEqual(self.live(operator.PAYROLL), PAYROLL_PUNCH)
+        self.run_operator('rollback', backup=Path(result['backup']))
+        self.assertEqual(self.live(operator.PAYROLL), PAYROLL)
+
+    def test_a_payroll_service_changed_on_the_server_stops_before_any_write(self):
+        self.write(self.root / operator.PAYROLL, '<?php // hotfix made on the server\n')
+        with self.assertRaisesRegex(operator.Stop, 'PAYROLL_SERVICE_DIFFERS'):
+            self.run_operator('apply')
+        self.assertTrue(all(self.live(name) is None for name in operator.NEW_FILES))
+        self.assertEqual(self.live(operator.PROVIDER), PROVIDER)
+
+    def test_a_server_from_the_first_release_is_upgraded_with_the_payroll_option(self):
+        # The first release added the new files and the route line; its own installer put them on the server.
+        self.git('checkout', '--quiet', '-b', 'first', self.base)
+        for name in operator.NEW_FILES:
+            self.write(self.package / name, '<?php // first ' + name + '\n')
+            self.write(self.root / name, '<?php // first ' + name + '\n')
+        self.write(self.package / operator.PROVIDER, operator.add_route_line(PROVIDER.encode()).decode())
+        self.write(self.root / operator.PROVIDER, operator.add_route_line(PROVIDER.encode()).decode())
+        self.commit('first release')
+        for name in operator.NEW_FILES:
+            self.write(self.package / name, '<?php // second ' + name + '\n')
+        self.write(self.package / operator.PAYROLL, PAYROLL_PUNCH)
+        self.release = self.commit('second release')
+        plan = self.run_operator('plan')
+        self.assertEqual((plan['mode'], plan['payroll_service'], plan['route_provider']), ('upgrade', 'updated', 'kept'))
+        result = self.run_operator('apply')
+        self.assertEqual(self.live(operator.PAYROLL), PAYROLL_PUNCH)
+        self.assertEqual(self.live('routes/desktop_sync.php'), '<?php // second routes/desktop_sync.php\n')
+        self.run_operator('rollback', backup=Path(result['backup']))
+        self.assertEqual(self.live(operator.PAYROLL), PAYROLL)
+        self.assertEqual(self.live('routes/desktop_sync.php'), '<?php // first routes/desktop_sync.php\n')
 
     def test_the_route_line_goes_after_the_go_services_routes_with_the_same_indent(self):
         added = operator.add_route_line(PROVIDER.encode()).decode().splitlines()

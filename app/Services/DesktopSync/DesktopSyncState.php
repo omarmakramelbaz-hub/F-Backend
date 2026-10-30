@@ -7,6 +7,7 @@ use App\Services\Dashboard\BranchExpenses;
 use App\Services\Dashboard\BranchShiftClosing;
 use App\Services\Dashboard\BranchStock;
 use App\Services\Dashboard\ExpenseCategories;
+use App\Services\Dashboard\OperatingDay;
 use App\Services\Dashboard\PosServiceTable;
 use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayCatalog;
@@ -101,6 +102,48 @@ class DesktopSyncState
         return $result;
     }
 
+    /** The branch's active delivery companies, to choose who takes a delivery order. */
+    private function deliveryCompanies(string $branch): array
+    {
+        if (! Schema::hasTable('branch_delivery_companies')) return [];
+        return DB::table('branch_delivery_companies')->where('branch', $branch)->where('active', true)->orderBy('name')
+            ->get(['id', 'name', 'phone'])->map(fn ($row) => ['id' => (int) $row->id, 'name' => (string) $row->name, 'phone' => (string) $row->phone])->all();
+    }
+
+    /** Employees who may punch in on this branch's devices, and the branch's shift hours. */
+    private function employees(string $branch): array
+    {
+        if (! Schema::hasTable('branch_employees')) return [];
+        $today = OperatingDay::date();
+        $previous = OperatingDay::start($today)->subDay()->toDateString();
+        return DB::table('branch_employees')->where('branch', $branch)->where('active', true)->where('hired_on', '<=', $today)
+            ->where(fn ($query) => $query->whereNull('left_on')->orWhere('left_on', '>=', $previous))->orderBy('name')->get()
+            ->map(fn ($row) => ['id' => (int) $row->id, 'name' => (string) $row->name, 'job_title' => (string) ($row->job_title ?? ''),
+                'schedule_type' => (string) ($row->schedule_type ?? 'branch'), 'shift' => (string) ($row->shift ?? ''),
+                'attendance_shift' => $row->attendance_shift ?? null, 'attendance_start' => isset($row->attendance_start) ? substr((string) $row->attendance_start, 0, 5) : null,
+                'attendance_end' => isset($row->attendance_end) ? substr((string) $row->attendance_end, 0, 5) : null])->all();
+    }
+
+    private function attendanceShifts(string $branch): array
+    {
+        if (! Schema::hasTable('branch_attendance_rules')) return [];
+        return DB::table('branch_attendance_rules')->where('branch', $branch)->orderBy('shift')->get()
+            ->map(fn ($row) => ['shift' => (string) $row->shift, 'starts_at' => substr((string) $row->starts_at, 0, 5),
+                'ends_at' => substr((string) $row->ends_at, 0, 5)])->all();
+    }
+
+    /** Today's and yesterday's recorded attendance, so every device shows punches made on the others. */
+    public function attendanceDays(string $branch): array
+    {
+        if (! Schema::hasTable('branch_employee_days')) return [];
+        $today = OperatingDay::date();
+        $days = [$today, OperatingDay::start($today)->subDay()->toDateString()];
+        $time = fn ($value) => $value ? \Carbon\Carbon::parse($value, 'UTC')->toIso8601String() : null;
+        return DB::table('branch_employee_days')->where('branch', $branch)->whereIn('day', $days)->get()
+            ->map(fn ($row) => ['employee_id' => (int) $row->employee_id, 'day' => (string) $row->day, 'status' => (string) $row->status,
+                'checked_in_at' => $time($row->checked_in_at), 'checked_out_at' => $time($row->checked_out_at)])->all();
+    }
+
     /** The device's branches with a stored, immutable menu version the device sells from. */
     public function catalogs(object $device, array $known, array $users): array
     {
@@ -120,7 +163,7 @@ class DesktopSyncState
                 DB::table('desktop_sync_snapshots')->insert(['id' => $id, 'device_id' => $device->id, 'branch' => $value,
                     'payload_hash' => $hash, 'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE), 'created_at' => now('UTC')]);
             }
-            $entry = ['value' => $value, 'available' => true, 'snapshot_id' => $id, 'hash' => $hash];
+            $entry = ['value' => $value, 'available' => true, 'snapshot_id' => $id, 'hash' => $hash, 'attendance' => $this->attendanceDays($value)];
             if (($known[$value] ?? null) !== $hash) $entry['catalog'] = $payload;
             $result[] = $entry;
         }
@@ -191,7 +234,8 @@ class DesktopSyncState
                 'tax_bps' => Money::rate($summary['register']['tax_rate'] ?? '0.00'),
                 'service_bps' => app(PosServiceTable::class)->ready() ? app(PosServiceTable::class)->policy($value)['service_bps'] : 0,
                 'can_discount' => true, 'products' => $products, 'categories' => $categories,
-                'expense_categories' => $this->expenseCategories($value)];
+                'expense_categories' => $this->expenseCategories($value), 'delivery_companies' => $this->deliveryCompanies($value),
+                'employees' => $this->employees($value), 'attendance_shifts' => $this->attendanceShifts($value)];
         });
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\DesktopSync;
 
 use App\Models\User;
 use App\Services\Dashboard\BranchExpenses;
+use App\Services\Dashboard\BranchPayroll;
 use App\Services\Dashboard\CustomerDirectory;
 use App\Services\Dashboard\DesktopPosQuote;
 use App\Services\Dashboard\OperatingDay;
@@ -23,7 +24,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -68,6 +69,7 @@ class DesktopSyncOperations
             $result = match ($values['kind']) {
                 'expense' => $this->expense($actor, $values['branch'], $id, $when, $values['data']),
                 'till' => $this->till($actor, $values['branch'], $id, $values['data']),
+                'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -105,6 +107,7 @@ class DesktopSyncOperations
             'discount_reason' => 'nullable|string|max:500', 'cash_received' => 'required|string|max:14',
             'total_cents' => 'required|integer|min:0|max:100000000', 'local_number' => 'nullable|string|max:40',
             'service_consent' => 'nullable|boolean', 'marketing_consent' => 'nullable|boolean',
+            'delivery_company_id' => 'nullable|integer|min:1', 'driver' => 'nullable|string|max:100',
         ])->validate();
         $actor = $this->access->actor($actor);
         $this->access->branch($branch, $actor);
@@ -123,6 +126,13 @@ class DesktopSyncOperations
         abort_unless($quote['total_cents'] === (int) $data['total_cents'], 409, 'إجمالي الفاتورة لا يطابق المينيو المحفوظ على الجهاز.');
         $phone = trim((string) ($data['customer_phone'] ?? ''));
         if ($data['channel'] !== 'phone' || $phone !== '') $phone = CustomerDirectory::requirePhone($phone);
+        // Who delivered is recorded as the device knew it; a company stopped later does not refuse the sale.
+        $delivery = [];
+        if ($data['channel'] === 'phone') {
+            $company = collect($snapshot['delivery_companies'] ?? [])->firstWhere('id', (int) ($data['delivery_company_id'] ?? 0));
+            if ($company) $delivery['delivery_company'] = ['id' => (int) $company['id'], 'name' => (string) $company['name']];
+            if (trim((string) ($data['driver'] ?? '')) !== '') $delivery['driver'] = trim((string) $data['driver']);
+        }
         // Everything below is derived from the operation itself, so a resend reproduces the same request.
         $context = [
             'channel' => $data['channel'], 'trusted_offline' => true, 'legacy_customer_phone_missing' => false,
@@ -131,7 +141,7 @@ class DesktopSyncOperations
             'snapshot' => ['customer_name' => trim((string) ($data['customer_name'] ?? '')), 'customer_phone' => $phone,
                 'address' => trim((string) ($data['address'] ?? '')), 'table_name' => trim((string) ($data['table_name'] ?? '')),
                 'notes' => trim((string) ($data['notes'] ?? '')), 'desktop_device' => $device->id,
-                'local_number' => (string) ($data['local_number'] ?? ''), 'occurred_at' => $when->toIso8601String()],
+                'local_number' => (string) ($data['local_number'] ?? ''), 'occurred_at' => $when->toIso8601String()] + $delivery,
         ];
         $payment = app(TakeawayService::class)->checkout([
             'branch' => $branch, 'items' => $data['items'], 'discount' => $data['discount'] ?? null,
@@ -165,6 +175,23 @@ class DesktopSyncOperations
         ], $actor);
         $expense = $result['expense'];
         return ['expense' => ['id' => (int) $expense['id'], 'number' => (string) $expense['number'], 'status' => (string) $expense['status']]];
+    }
+
+    /**
+     * An employee's check-in or check-out at the time the device recorded it, also while it was offline
+     * (the owner's choice). The dashboard's own rules apply: shift, late arrival and early leave deductions.
+     */
+    private function attendance(User $actor, string $branch, string $id, Carbon $when, array $data): array
+    {
+        $data = Validator::make($data, [
+            'employee_id' => 'required|integer|min:1', 'day' => 'required|date_format:Y-m-d',
+            'status' => 'required|in:morning,evening,part_time', 'action' => 'required|in:check_in,check_out',
+        ])->validate();
+        $result = app(BranchPayroll::class)->attendance(['branch' => $branch, 'idempotency_key' => $id] + $data, $actor, $when);
+        $day = $result['attendance'];
+        $time = fn ($value) => $value ? Carbon::parse($value, 'UTC')->toIso8601String() : null;
+        return ['attendance' => ['employee_id' => (int) $day['employee_id'], 'day' => (string) $day['day'], 'status' => (string) $day['status'],
+            'checked_in_at' => $time($day['checked_in_at']), 'checked_out_at' => $time($day['checked_out_at'])]];
     }
 
     /**

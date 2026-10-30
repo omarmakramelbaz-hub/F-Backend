@@ -7,8 +7,10 @@ Run as root on srv1836524 from a clean checkout of the reviewed commit:
   undo:       python3 -I -B deployment/install_go_erp_desktop_sync_root.py --rollback BACKUP_DIR
 
 The install adds six new files (one controller, three services, one routes file, one migration),
-adds one line to RouteServiceProvider, creates the three new desktop_sync_* tables with that one
-migration, then checks that the new address answers. Nothing else changes: no existing table, no
+adds one line to RouteServiceProvider, adds the desktop punch option to BranchPayroll (employee
+attendance recorded with the device's time, as the owner chose; the dashboard keeps server time),
+creates the three new desktop_sync_* tables with that one migration, then checks that the new
+address answers. Nothing else changes: no existing table, no
 .env, no PHP-FPM, no old desktop update service. A private backup is kept; --rollback restores the
 files (the three new tables stay; they are empty and unused without the files).
 A server that already has an earlier version of these six files from this branch is upgraded in place.
@@ -47,7 +49,8 @@ NEW_FILES = (
 )
 NEW_DIRECTORY = 'app/Services/DesktopSync'
 PROVIDER = 'app/Providers/RouteServiceProvider.php'
-TARGETS = NEW_FILES + (PROVIDER,)
+PAYROLL = 'app/Services/Dashboard/BranchPayroll.php'
+TARGETS = NEW_FILES + (PROVIDER, PAYROLL)
 MIGRATION = 'database/migrations/2026_10_30_000001_create_desktop_sync_tables.php'
 ANCHOR = "Route::middleware('api')->prefix('api')->group(base_path('routes/go_services.php'));"
 LINE = "Route::middleware('api')->prefix('api')->group(base_path('routes/desktop_sync.php'));"
@@ -200,6 +203,7 @@ def release_files(package, release):
             changes[name] = status
     expected = dict((name, 'A') for name in NEW_FILES)
     expected[PROVIDER] = 'M'
+    expected[PAYROLL] = 'M'
     need(changes == expected, 'UNREVIEWED_SOURCE_DELTA')
     files = {}
     for name in NEW_FILES:
@@ -211,13 +215,16 @@ def release_files(package, release):
     need((package / PROVIDER).read_bytes() == wanted_provider and add_route_line(base_provider) == wanted_provider,
          'RELEASE_PROVIDER_CHANGE')
     files[PROVIDER] = wanted_provider
+    wanted_payroll = git(package, 'show', release + ':' + PAYROLL)
+    need(0 < len(wanted_payroll) <= MAX_SOURCE and (package / PAYROLL).read_bytes() == wanted_payroll, 'RELEASE_FILE')
+    files[PAYROLL] = wanted_payroll
     return files, base_provider
 
 
 def earlier_versions(package, release):
     """Every version of the new files that earlier commits of this branch shipped, by checksum."""
     versions = {}
-    for name in NEW_FILES:
+    for name in NEW_FILES + (PAYROLL,):
         found = set()
         for commit in git(package, 'log', '--format=%H', '--diff-filter=AM', BASE + '..' + release, '--', name).decode().split():
             found.add(sha256(git(package, 'show', commit + ':' + name)))
@@ -285,12 +292,16 @@ def inspect(root, package, release, web_uid, php):
     same = [name for name in NEW_FILES if live[name][0] == files[name]]
     provider = live[PROVIDER][0]
     need(provider is not None, 'ROUTE_PROVIDER_MISSING')
-    if len(same) == len(NEW_FILES) and provider.count(LINE.encode()) == 1:
+    payroll = live[PAYROLL][0]
+    need(payroll is not None, 'PAYROLL_SERVICE_MISSING')
+    if len(same) == len(NEW_FILES) and provider.count(LINE.encode()) == 1 and payroll == files[PAYROLL]:
         return {'result': 'GO_ERP_DESKTOP_SYNC_FILES_ALREADY_INSTALLED', 'release': release}, {'installed': True}
+    earlier = earlier_versions(package, release)
+    base_payroll = git(package, 'show', BASE + ':' + PAYROLL)
+    need(payroll in (base_payroll, files[PAYROLL]) or sha256(payroll) in earlier[PAYROLL], 'PAYROLL_SERVICE_DIFFERS_REVIEW_REQUIRED')
     upgrade = bool(present)
     if upgrade:
         # Only files this branch shipped before may be replaced; anything else needs a person to look.
-        earlier = earlier_versions(package, release)
         need(all(sha256(live[name][0]) in earlier[name] for name in present), 'NEW_FILES_DIFFER_FROM_EVERY_RELEASE_REVIEW_REQUIRED')
         need(provider.count(LINE.encode()) == 1, 'ROUTE_PROVIDER_DIFFERS_REVIEW_REQUIRED')
         provider_mode, new_provider = 'kept', provider
@@ -305,6 +316,7 @@ def inspect(root, package, release, web_uid, php):
             'new_files': len(NEW_FILES),
             'route_provider': provider_mode, 'new_folder': safe_directory(root, NEW_DIRECTORY, missing_ok=True) is None,
             'route_cache': os.path.lexists(str(root / ROUTE_CACHE)), 'new_tables': 3,
+            'payroll_service': 'already-updated' if payroll == files[PAYROLL] else 'updated',
             'existing_tables_changed': False, 'environment_changed': False}
     wanted = dict(files)
     wanted[PROVIDER] = new_provider
@@ -389,10 +401,11 @@ def rollback(root, backup, web_uid):
     info = backup.lstat()
     need(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid() and not info.st_mode & 0o077, 'BACKUP_UNSAFE')
     manifest = read_json(backup / 'manifest.json')
+    names = sorted(manifest.get('files', {})) if isinstance(manifest, dict) and isinstance(manifest.get('files'), dict) else []
     need(isinstance(manifest, dict) and manifest.get('format') in (1, 2) and manifest.get('base') == BASE
-         and sorted(manifest.get('files', {})) == sorted(TARGETS), 'BACKUP_MANIFEST')
+         and names in (sorted(TARGETS), sorted(set(TARGETS) - {PAYROLL})), 'BACKUP_MANIFEST')
     plan = {}
-    for name in TARGETS:
+    for name in names:
         row = manifest['files'][name]
         before = None
         if row['before_sha256'] is not None:
@@ -405,7 +418,7 @@ def rollback(root, backup, web_uid):
         need((None if current is None else sha256(current)) in (row['after_sha256'], row['before_sha256']),
              'LIVE_FILE_CHANGED_SINCE_INSTALL')
         plan[name] = (before, row)
-    for name in TARGETS:
+    for name in names:
         before, row = plan[name]
         if before is None:
             if live_read(root, name, web_uid)[0] is not None:
@@ -415,7 +428,7 @@ def rollback(root, backup, web_uid):
     folder = root / NEW_DIRECTORY
     if manifest.get('created_folder') and folder.is_dir() and not folder.is_symlink() and not os.listdir(str(folder)):
         os.rmdir(str(folder))
-    need(all(live_read(root, name, web_uid)[0] == plan[name][0] for name in TARGETS), 'ROLLBACK_VERIFY')
+    need(all(live_read(root, name, web_uid)[0] == plan[name][0] for name in names), 'ROLLBACK_VERIFY')
     return {'result': 'GO_ERP_DESKTOP_SYNC_ROLLED_BACK', 'backup': str(backup), 'new_tables_kept': True}
 
 

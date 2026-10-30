@@ -61,6 +61,10 @@ class DesktopSyncTest extends TestCase
         require_once database_path('migrations/2026_10_06_120000_create_branch_expenses_categories.php'); (new \CreateBranchExpensesCategories)->up();
         require_once database_path('migrations/2026_10_06_200000_manage_expense_categories.php'); (new \ManageExpenseCategories)->up();
         require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php'); (new \ScopeExpenseCategoriesByBranch)->up();
+        require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up();
+        require_once database_path('migrations/2026_10_06_140000_add_employee_wallet_phone.php'); (new \AddEmployeeWalletPhone)->up();
+        require_once database_path('migrations/2026_10_08_190000_add_employee_attendance_rules.php'); (new \AddEmployeeAttendanceRules)->up();
+        require_once database_path('migrations/2026_10_18_160000_add_employee_part_time_schedule.php'); (new \AddEmployeePartTimeSchedule)->up();
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         foreach (['order-list', 'order-create', 'order-edit'] as $name) Permission::create(['name' => $name, 'guard_name' => 'admin']);
         foreach ([
@@ -265,8 +269,113 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
+    }
+
+    public function test_a_delivery_order_keeps_the_delivery_company_and_driver(): void
+    {
+        DB::table('branch_delivery_companies')->insert(['id' => 7, 'branch' => 'f:100', 'name' => 'شركة سريع', 'phone' => '01011112222',
+            'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $branch = $this->sync($device, ['want_catalogs' => true])->json()['branches'][0];
+        $this->assertSame([['id' => 7, 'name' => 'شركة سريع', 'phone' => '01011112222']], $branch['catalog']['delivery_companies']);
+        DB::table('branch_delivery_companies')->update(['active' => false]); // stopped after the order left
+        $sale = $this->sale($branch['snapshot_id'], ['data' => ['channel' => 'phone', 'address' => 'المعادي', 'delivery_company_id' => 7,
+            'driver' => 'حسن', 'delivery_cents' => 2000, 'total_cents' => 29100, 'cash_received' => '300.00']]);
+        $result = $this->sync($device, ['operations' => [$sale]])->assertOk()->json()['results'][0];
+        $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $context = json_decode(DB::table('takeaway_orders')->value('context_snapshot'), true);
+        $this->assertSame(['id' => 7, 'name' => 'شركة سريع'], $context['delivery_company']);
+        $this->assertSame('حسن', $context['driver']);
+    }
+
+    private function attendanceFixture(): void
+    {
+        foreach ([['morning', '10:00', '18:00'], ['evening', '20:00', '04:00']] as [$shift, $start, $end]) {
+            DB::table('branch_attendance_rules')->insert(['branch' => 'f:100', 'shift' => $shift, 'starts_at' => $start, 'ends_at' => $end,
+                'late_half_hour_cents' => 1000, 'early_half_hour_cents' => 500, 'absence_cents' => 30000, 'revision' => 1, 'actor_id' => 1,
+                'created_at' => now(), 'updated_at' => now()]);
+        }
+        foreach ([[50, 'سعيد'], [51, 'كريم'], [52, 'هاني']] as [$id, $name]) {
+            DB::table('branch_employees')->insert(['id' => $id, 'branch' => 'f:100', 'name' => $name, 'job_title' => 'كاشير', 'shift' => 'صباحي',
+                'hired_on' => '2026-01-01', 'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        }
+    }
+
+    private function automaticAbsence(int $employee, bool $automatic = true): void
+    {
+        DB::table('branch_employee_days')->insert(['branch' => 'f:100', 'employee_id' => $employee, 'day' => '2026-10-30', 'status' => 'unauthorized_absence',
+            'attendance_rule_snapshot' => json_encode($automatic ? ['automatically_recorded' => true, 'automatic_absence_deadline' => '2026-10-30 20:00:00'] : []),
+            'notes' => '', 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('branch_employee_entries')->insert(['branch' => 'f:100', 'employee_id' => $employee, 'day' => '2026-10-30', 'kind' => 'deduction',
+            'source_key' => 'attendance.absence', 'amount_cents' => 30000, 'reason' => 'غياب بدون إذن', 'notes' => '', 'revision' => 1, 'actor_id' => 1,
+            'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function deductions(int $employee): int
+    {
+        return (int) DB::table('branch_employee_entries')->where('employee_id', $employee)->whereNull('voided_at')->sum('amount_cents');
+    }
+
+    public function test_devices_receive_employees_shift_hours_and_todays_attendance(): void
+    {
+        $this->attendanceFixture();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $branch = $this->sync($device, ['want_catalogs' => true])->json()['branches'][0];
+        $this->assertSame(['سعيد', 'كريم', 'هاني'], array_column($branch['catalog']['employees'], 'name'));
+        $this->assertSame([['shift' => 'evening', 'starts_at' => '20:00', 'ends_at' => '04:00'], ['shift' => 'morning', 'starts_at' => '10:00', 'ends_at' => '18:00']],
+            $branch['catalog']['attendance_shifts']);
+        $this->assertSame([], $branch['attendance']);
+    }
+
+    public function test_punches_use_the_time_the_device_recorded_with_the_dashboard_deductions(): void
+    {
+        $this->attendanceFixture();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $in = $this->operation('attendance', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in'],
+            ['occurred_at' => '2026-10-30T08:40:00Z']); // 10:40 in Cairo: 40 minutes late, one completed half hour
+        $out = $this->operation('attendance', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_out'],
+            ['occurred_at' => '2026-10-30T11:50:00Z']); // 13:50: four hours and ten minutes early, eight half hours
+        $results = $this->sync($device, ['operations' => [$in, $out]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('2026-10-30T08:40:00+00:00', $results[0]['attendance']['checked_in_at']);
+        $day = DB::table('branch_employee_days')->where('employee_id', 50)->first();
+        $this->assertSame(['10:40:00', '13:50:00'], [$day->check_in, $day->check_out]);
+        $this->assertSame(1000 + 4000, $this->deductions(50));
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$in]])->json()['results'][0]);
+        $this->assertSame(1, DB::table('branch_employee_days')->count());
+    }
+
+    public function test_an_automatic_absence_gives_way_to_a_punch_recorded_before_the_deadline(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-30 23:30:00', 'Africa/Cairo'));
+        $this->attendanceFixture();
+        $this->automaticAbsence(50);
+        $this->automaticAbsence(51);
+        $this->automaticAbsence(52, false); // recorded by a person
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $results = $this->sync($device, ['operations' => [
+            $this->operation('attendance', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in'], ['occurred_at' => '2026-10-30T08:00:00Z']),
+            $this->operation('attendance', 4, ['employee_id' => 51, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in'], ['occurred_at' => '2026-10-30T20:30:00Z']),
+            $this->operation('attendance', 4, ['employee_id' => 52, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in'], ['occurred_at' => '2026-10-30T08:00:00Z']),
+        ]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'rejected', 'rejected'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('morning', DB::table('branch_employee_days')->where('employee_id', 50)->value('status'));
+        $this->assertSame(0, $this->deductions(50), 'The automatic absence deduction is cancelled');
+        $this->assertSame(30000, $this->deductions(51), 'A punch after the deadline does not undo the absence');
+        $this->assertSame(30000, $this->deductions(52), 'An absence recorded by a person stays');
+    }
+
+    public function test_the_dashboard_itself_still_refuses_device_time_and_leave_from_the_program(): void
+    {
+        $this->attendanceFixture();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $leave = $this->operation('attendance', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'preapproved_leave', 'action' => 'set_status']);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$leave]])->json()['results'][0]['status']);
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        app(\App\Services\Dashboard\BranchPayroll::class)->attendance(['branch' => 'f:100', 'idempotency_key' => (string) Str::uuid(), 'employee_id' => 50,
+            'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in', 'checked_in_at' => '2026-10-30 06:00:00'], User::find(4));
     }
 
     public function test_a_revoked_device_and_a_wrong_token_are_refused(): void
