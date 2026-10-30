@@ -148,10 +148,21 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           tag="desktop-v${version}"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "Version ${version} is already published; raise the version in go-erp-desktop/package.json to publish a new one."
-            exit 0
+          files="release/GO-ERP-Desktop-Setup-${version}.exe release/GO-ERP-Desktop-Setup-${version}.exe.blockmap release/latest.yml"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            for attempt in 1 2 3; do
+              gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+                --title "GO ERP Desktop ${version}" --notes-file release-notes.md $files && break
+              sleep 20
+              # A release created before an upload broke is completed below, never created twice.
+              gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 && break
+            done
           fi
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
-            --title "GO ERP Desktop ${version}" --notes-file release-notes.md \
-            release/*.exe release/*.exe.blockmap release/latest.yml
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null
+          for file in $files; do
+            name=$(basename "$file")
+            if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$name"; then
+              for attempt in 1 2 3; do gh release upload "$tag" "$file" --repo "$GITHUB_REPOSITORY" && break; sleep 20; done
+            fi
+          done
+          echo "Version ${version} is published. Raise the version in go-erp-desktop/package.json to publish a new one."
