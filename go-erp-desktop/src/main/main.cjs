@@ -283,6 +283,7 @@ const handlers = {
       const name = (value) => String(value || '').slice(0, 200);
       store.set('print', { printer: name(values.printer), kitchen_printer: name(values.kitchen_printer),
         width: Number(values.width) === 58 ? 58 : 72, auto_print: values.auto_print !== false, kitchen_auto: values.kitchen_auto === true });
+      if (dashboardView) installDirectPrint(dashboardView.webContents);
     }
     return printSettings();
   },
@@ -344,7 +345,9 @@ function createDashboardView() {
   const dashboardSession = session.fromPartition('persist:dashboard');
   const allowed = new Set(['notifications', 'geolocation', 'clipboard-sanitized-write', 'fullscreen']);
   dashboardSession.setPermissionRequestHandler((webContents, permission, callback) => callback(allowed.has(permission)));
-  dashboardView = new WebContentsView({ webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } });
+  const dashboardPreferences = { partition: 'persist:dashboard', sandbox: true, contextIsolation: true,
+    preload: path.join(__dirname, 'dashboard-preload.cjs') };
+  dashboardView = new WebContentsView({ webPreferences: dashboardPreferences });
   dashboardSignedIn = false;
   dashboardLoggingOut = false;
   dashboardLastAutoLogin = 0;
@@ -352,8 +355,7 @@ function createDashboardView() {
   contents.setWindowOpenHandler(({ url }) => {
     // Print views and other dashboard pop-ups open as app windows with the same session; other sites open in the browser.
     if (sameServer(url)) {
-      return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true,
-        webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } } };
+      return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: dashboardPreferences } };
     }
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -361,7 +363,9 @@ function createDashboardView() {
   contents.on('did-create-window', (popup) => {
     dashboardPopups.add(popup);
     popup.on('closed', () => dashboardPopups.delete(popup));
+    popup.webContents.on('dom-ready', () => installDirectPrint(popup.webContents));
   });
+  contents.on('dom-ready', () => installDirectPrint(contents));
   // The dashboard's own sign-out link (navbar: /admin/adminLogout).
   contents.on('will-navigate', (event, url) => {
     if (sameServer(url) && /^\/admin\/(adminLogout|logout)\/?$/i.test(new URL(url).pathname)) dashboardLoggingOut = true;
@@ -371,6 +375,45 @@ function createDashboardView() {
     if (!mainFrame || code === -3) return; // -3: replaced by another load
     notifyDashboard({ type: 'offline' }); // the app switches to the device's own screens
   });
+}
+
+/**
+ * The dashboard prints a receipt from a hidden frame (DashboardPrint) or from a print page. With a printer chosen
+ * in the app's settings, that receipt goes straight to the printer, as the branches' direct-print Chrome launcher
+ * did; without one, the usual print window opens.
+ */
+function directPrintScript() {
+  return `(() => {
+    window.__goerpDirectPrint = ${!!printSettings().printer};
+    if (window.__goerpPrintHook) return;
+    window.__goerpPrintHook = true;
+    const send = (doc) => window.postMessage({ goerp: 'print-receipt', html: '<!doctype html>\\n' + doc.documentElement.outerHTML, base: doc.baseURI }, '*');
+    const install = (frame) => {
+      let child;
+      try { child = frame.contentWindow; } catch (_) { return; }
+      if (!child || child.__goerpHooked) return;
+      child.__goerpHooked = true;
+      const original = child.print.bind(child);
+      child.print = function () {
+        if (!window.__goerpDirectPrint) return original();
+        try { send(child.document); } catch (_) { return original(); }
+        // The dashboard finishes its print job as after a closed print window.
+        setTimeout(() => { try { child.dispatchEvent(new Event('afterprint')); window.dispatchEvent(new Event('afterprint')); } catch (_) {} }, 0);
+      };
+    };
+    // Capture runs before the dashboard's own load handler, so the frame is ready before it prints.
+    document.addEventListener('load', (event) => { if (event.target && event.target.tagName === 'IFRAME') install(event.target); }, true);
+    const ownPrint = window.print.bind(window);
+    window.print = function () {
+      if (!window.__goerpDirectPrint) return ownPrint();
+      send(document);
+      setTimeout(() => window.dispatchEvent(new Event('afterprint')), 0);
+    };
+  })()`;
+}
+
+function installDirectPrint(contents) {
+  if (contents && !contents.isDestroyed() && sameServer(contents.getURL())) contents.executeJavaScript(directPrintScript()).catch(() => {});
 }
 
 function showDashboard(page) {
@@ -448,6 +491,18 @@ async function resetDashboard() {
   dashboardTarget = null;
   try { await session.fromPartition('persist:dashboard').clearStorageData(); } catch { /* nothing stored yet */ }
 }
+
+ipcMain.on('dashboard:print-receipt', async (event, values) => {
+  const sender = event.sender;
+  const fromDashboard = (dashboardView && sender === dashboardView.webContents)
+    || [...dashboardPopups].some((popup) => !popup.isDestroyed() && popup.webContents === sender);
+  if (!fromDashboard || !values || !sameServer(values.base) || typeof values.html !== 'string') return;
+  const settings = printSettings();
+  if (!settings.printer) return;
+  const html = values.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
+  const result = await printing.print(BrowserWindow, html, settings, { partition: 'persist:dashboard', baseURL: values.base });
+  if (!result.ok && result.error) notifyDashboard({ type: 'print-error', error: result.error });
+});
 
 function registerHandlers() {
   for (const [channel, handler] of Object.entries(handlers)) {

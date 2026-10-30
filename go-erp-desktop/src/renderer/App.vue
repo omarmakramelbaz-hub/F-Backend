@@ -8,6 +8,7 @@
     <span class="status-brand">GO ERP</span>
     <SyncBadge :status="sync" @sync-now="syncNow" />
     <span class="status-who">{{ currentBranch.name }} · {{ info.session.user.name }}</span>
+    <span v-if="printProblem" class="status-error" role="alert">{{ printProblem }}</span>
     <span class="spacer"></span>
     <button type="button" @click="useDevice"><i class="fas fa-desktop" aria-hidden="true"></i> شاشات الجهاز (بدون إنترنت)</button>
     <button type="button" @click="logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> خروج</button>
@@ -74,6 +75,8 @@ const sync = ref({});
 const view = ref('pos');
 const dashboardShown = ref(false);
 const banner = ref(null);
+const printProblem = ref('');
+let printTimer = null;
 const stops = [];
 
 // Reports are for the owner and managers, like the dashboard's reports.
@@ -161,6 +164,11 @@ onMounted(async () => {
     else if (event.type === 'hidden') dashboardShown.value = false;
     else if (event.type === 'offline') goOffline();
     else if (event.type === 'signed-out') logout();
+    else if (event.type === 'print-error') {
+      printProblem.value = event.error;
+      clearTimeout(printTimer);
+      printTimer = setTimeout(() => { printProblem.value = ''; }, 12000);
+    }
   }));
   const offline = () => goOffline();
   window.addEventListener('offline', offline);

@@ -162,9 +162,11 @@ function report(data, branch, options = {}) {
  * Loads the receipt in a hidden window and measures it, so the roll is cut right after the last line
  * instead of feeding a whole page. The page itself cannot run scripts (see its security policy).
  */
-function render(BrowserWindow, html, settings = {}) {
+function render(BrowserWindow, html, settings = {}, source = {}) {
   return new Promise((resolve, reject) => {
-    const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+    // A dashboard receipt keeps its own address and session, so its logo and fonts load like in the dashboard.
+    const window = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true,
+      ...(source.partition ? { partition: source.partition } : {}) } });
     window.webContents.once('did-fail-load', () => { if (!window.isDestroyed()) window.close(); reject(new Error('تعذر تجهيز الفاتورة للطباعة.')); });
     window.webContents.once('did-finish-load', async () => {
       let pageSize;
@@ -175,7 +177,7 @@ function render(BrowserWindow, html, settings = {}) {
       } catch { pageSize = undefined; }
       resolve({ window, pageSize });
     });
-    window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html), source.baseURL ? { baseURLForDataURL: source.baseURL } : {});
   });
 }
 
@@ -189,10 +191,10 @@ function printError(reason) {
 }
 
 /** Prints on the chosen Windows printer; without one, Windows shows its print dialog. */
-async function print(BrowserWindow, html, settings = {}) {
+async function print(BrowserWindow, html, settings = {}, source = {}) {
   let rendered;
   try {
-    rendered = await render(BrowserWindow, html, settings);
+    rendered = await render(BrowserWindow, html, settings, source);
   } catch (error) {
     return { ok: false, error: error.message };
   }

@@ -1,7 +1,7 @@
 {
   "name": "go-erp-desktop",
   "productName": "GO ERP Desktop",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "GO ERP cashier that works without internet and syncs with the dashboard every 30 seconds.",
   "author": "GO ERP",
   "license": "UNLICENSED",

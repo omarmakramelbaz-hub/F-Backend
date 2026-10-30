@@ -323,6 +323,20 @@ async function ownerDevice() {
 
   // Back in on the device's screens: the owner switches between the two branches' menus.
   await signIn(page, '01000000001', 'root-pass', '.status-bar');
+  // A receipt the dashboard prints goes straight to the printer chosen in the app (here a missing one).
+  await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens again');
+  await page.evaluate(() => window.goerp.call('print:settings', { printer: 'e2e-no-printer', kitchen_printer: '', width: 72, auto_print: true }));
+  await app.evaluate(({ webContents }) => {
+    const dashboard = webContents.getAllWebContents().find((contents) => contents.getURL().includes('/admin/dashboard'));
+    return dashboard.executeJavaScript(`new Promise((resolve) => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-same-origin allow-modals');
+      frame.addEventListener('load', () => { frame.contentWindow.print(); resolve(true); });
+      frame.srcdoc = '<!doctype html><html data-dashboard-receipt="1"><body><h1>فاتورة تجريبية</h1></body></html>';
+      document.body.appendChild(frame);
+    })`);
+  });
+  await page.locator('.status-error', { hasText: 'الطابعة المختارة مش موجودة' }).waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'شاشات الجهاز (بدون إنترنت)' }).click();
   await page.locator('.side-branch').selectOption({ label: 'فرع مدينة نصر' });
   await page.locator('.product', { hasText: 'بوري مشوي' }).waitFor();
