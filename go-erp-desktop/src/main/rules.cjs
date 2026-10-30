@@ -19,9 +19,13 @@ function normalizePhone(value) {
   return phone;
 }
 
-/** Dashboard login identity: mobile without its leading zero, or email. */
+function latinDigits(value) {
+  return String(value ?? '').replace(/[٠-٩۰-۹]/g, (digit) => ARABIC_DIGITS[digit]);
+}
+
+/** Dashboard login rule (HomeController::signin): what was typed, without its first zero. */
 function loginKey(value) {
-  let login = String(value ?? '').trim();
+  let login = latinDigits(value).trim();
   if (login.startsWith('0')) login = login.slice(1);
   return login.toLowerCase();
 }
@@ -57,4 +61,4 @@ function stockMaterial(label) {
   return found ? found[0] : null;
 }
 
-module.exports = { normalizePhone, loginKey, operatingDay, stockMaterial };
+module.exports = { normalizePhone, latinDigits, loginKey, operatingDay, stockMaterial };

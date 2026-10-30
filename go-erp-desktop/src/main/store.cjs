@@ -63,11 +63,18 @@ class Store {
 
   userCount() { return this.db.prepare('SELECT COUNT(*) AS count FROM users').get().count; }
 
+  /**
+   * Same as the dashboard: the typed value without its first zero must equal the stored mobile as it is
+   * (so a mobile stored as 0502353511 is typed 00502353511), or the email. The number typed exactly as
+   * stored is also accepted, unless the dashboard's own rule already finds an account.
+   */
   findUserByLogin(login) {
-    const key = rules.loginKey(login);
+    const typed = rules.latinDigits(login).trim();
+    const key = rules.loginKey(typed);
     if (!key) return null;
     const rows = this.db.prepare('SELECT * FROM users').all();
-    const row = rows.find((user) => rules.loginKey(user.mobile) === key || user.email.toLowerCase() === key);
+    const row = rows.find((user) => String(user.mobile).trim() === key || String(user.email).trim().toLowerCase() === key)
+      || rows.find((user) => String(user.mobile).trim() === typed);
     return row ? this.presentUser(row, true) : null;
   }
 

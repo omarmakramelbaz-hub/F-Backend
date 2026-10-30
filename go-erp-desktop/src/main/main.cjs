@@ -130,7 +130,8 @@ const handlers = {
     // A previous account's dashboard session never carries over to the next person.
     await resetDashboard();
     current = { user, branch };
-    dashboardLogin = { login: String(values.login || ''), password: String(values.password || '') };
+    // The dashboard finds an account by email, or by its mobile typed with one extra leading zero.
+    dashboardLogin = { login: user.email ? String(user.email) : '0' + String(user.mobile), password: String(values.password || '') };
     return current;
   },
 

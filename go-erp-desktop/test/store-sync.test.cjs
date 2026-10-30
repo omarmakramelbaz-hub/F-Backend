@@ -395,3 +395,20 @@ test('punches made on other devices come from the server and block a second chec
   assert.equal(state.checked_out_at, null);
   assert.deepEqual(store.rejectedOperations().map((row) => row.kind), ['حضور وانصراف']);
 });
+
+test('accounts sign in with the dashboard rule, also when the stored mobile starts with zero', () => {
+  const { store } = fixture();
+  store.replaceUsers([CASHIER, { ...CASHIER, id: 7, name: 'فرع المنصورة', mobile: '0502353511', email: 'Mansoura@Example.test' },
+    { ...CASHIER, id: 8, name: 'مدير', mobile: '502353511', email: 'm2@example.test' }], 'hash-2');
+  const who = (login) => (store.findUserByLogin(login) || {}).id;
+  assert.equal(who('00502353511'), 7, 'Typed like on the dashboard: one zero is dropped, the stored zero stays');
+  assert.equal(who('٠٠٥٠٢٣٥٣٥١١'), 7, 'Arabic digits work too');
+  assert.equal(who('0502353511'), 8, "The dashboard's own rule wins when it finds an account");
+  assert.equal(who('01000000004'), 4);
+  assert.equal(who('1000000004'), 4);
+  assert.equal(who('mansoura@example.test'), 7);
+  assert.equal(who(' MANSOURA@EXAMPLE.TEST '), 7);
+  assert.equal(who('0'), undefined);
+  store.replaceUsers([{ ...CASHIER, id: 7, mobile: '0502353511' }], 'hash-3');
+  assert.equal(who('0502353511'), 7, 'Typed exactly as stored is accepted when no other account matches');
+});
