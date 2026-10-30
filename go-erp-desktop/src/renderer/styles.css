@@ -186,6 +186,12 @@ table.list.compact { border: 0; }
 .list.compact td { padding: 6px 4px; }
 .list.compact td:last-child { text-align: left; }
 
+/* ---- attendance ---- */
+.attendance { display: flex; flex-direction: column; gap: 12px; max-width: 1280px; margin: 0 auto; }
+.attendance .toolbar { align-items: center; }
+.shift-pill { background: #f3eeff; color: var(--purple); }
+td.punch { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
 /* ---- settings ---- */
 .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .facts > div { display: flex; flex-direction: column; gap: 4px; }

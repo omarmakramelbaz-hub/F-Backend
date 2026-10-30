@@ -120,7 +120,8 @@ async function cashierDevice() {
   // Online sale: 1.250 x 180 + 1 x 40 + 2 x 25 = 315.00.
   await signIn(page, '01000000004', 'cashier-pass');
   assert.equal(await page.getByRole('button', { name: 'التقارير' }).count(), 0, 'Reports are for the owner and managers');
-  await page.evaluate(() => window.goerp.call('print:settings', { printer: '', kitchen_printer: '', width: 72, auto_print: false }));
+  // A printer that does not exist: prints fail quickly instead of opening the system print dialog.
+  await page.evaluate(() => window.goerp.call('print:settings', { printer: 'e2e-no-printer', kitchen_printer: '', width: 72, auto_print: false }));
   await addItem(page, 'بوري مشوي', '1.250');
   await addItem(page, 'أرز صيادية');
   await addItem(page, 'سلطة طحينة', '2');
@@ -166,11 +167,26 @@ async function cashierDevice() {
   await page.locator('.notice', { hasText: 'تم حفظ المصروف' }).waitFor();
   await page.locator('.list .pill.warn').first().waitFor();
 
+  // Still offline: an employee checks in; the device's time is what the dashboard will record.
+  await page.getByRole('button', { name: 'الحضور' }).click();
+  await page.locator('.attendance tr', { hasText: 'سعيد' }).waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  const punchedAt = Date.now();
+  await page.locator('.attendance tr', { hasText: 'سعيد' }).getByRole('button', { name: 'حضور صباحي' }).click();
+  await page.locator('.notice', { hasText: 'تم تسجيل حضور سعيد' }).waitFor();
+  await page.locator('.attendance tr', { hasText: 'سعيد' }).getByRole('button', { name: 'انصراف' }).waitFor();
+  await shot(page, '05b-attendance-offline');
+
   // The internet is back: the waiting sale is sent without being duplicated.
   await startServer();
   await page.locator('.sync-badge').first().click();
   await until(() => orderCount() === 2, 'offline sale reaches the dashboard', 40000);
   await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_expenses')[0].c === 1, 'offline expense reaches the dashboard', 40000);
+  await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_employee_days')[0].c === 1, 'offline punch reaches the dashboard', 40000);
+  const punch = serverRows('SELECT status, checked_in_at FROM branch_employee_days')[0];
+  assert.equal(punch.status, 'morning');
+  const recorded = Date.parse(punch.checked_in_at.replace(' ', 'T') + 'Z');
+  assert.ok(Math.abs(recorded - punchedAt) < 60000, 'The dashboard keeps the time the device recorded, not the time it synced');
   await page.getByRole('button', { name: 'فواتير اليوم' }).click();
   await page.getByRole('button', { name: 'تحديث' }).click();
   await until(async () => (await page.locator('.pill.warn').count()) === 0, 'all receipts synced');
@@ -193,6 +209,12 @@ async function cashierDevice() {
   await page.getByLabel('خصم', { exact: true }).fill('10');
   await page.getByLabel('سبب الخصم').fill('عميل دائم');
   await grandTotal(page, '250.00');
+  // The order leaves with the delivery company's driver and is paid when the driver returns.
+  await page.getByLabel('شركة التوصيل').selectOption({ label: 'شركة سريع' });
+  await page.getByLabel('اسم المندوب').fill('حسن');
+  await page.getByRole('button', { name: 'خرج مع المندوب' }).click();
+  await page.locator('.notice', { hasText: 'خرج مع المندوب' }).waitFor();
+  await page.locator('.open-tickets button', { hasText: 'مع المندوب' }).waitFor();
   await shot(page, '07-owner-offline-delivery');
   await pay(page);
 
@@ -244,9 +266,12 @@ async function cashierDevice() {
 
   await startServer();
   await page.locator('.sync-badge').first().click();
-  await until(() => serverRows("SELECT COUNT(*) AS c FROM desktop_sync_operations WHERE status = 'applied'")[0].c === 7, 'every operation reaches the dashboard', 40000);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM desktop_sync_operations WHERE status = 'applied'")[0].c === 8, 'every operation reaches the dashboard', 40000);
   assert.deepEqual({ ...serverRows('SELECT total_cents, actor_id FROM takeaway_orders ORDER BY id DESC LIMIT 1')[0] }, { total_cents: 25000, actor_id: 1 });
-  assert.deepEqual(serverRows("SELECT status, COUNT(*) AS c FROM desktop_sync_operations GROUP BY status").map((row) => ({ ...row })), [{ status: 'applied', c: 7 }]);
+  const deliveryContext = JSON.parse(serverRows('SELECT context_snapshot FROM takeaway_orders ORDER BY id DESC LIMIT 1')[0].context_snapshot);
+  assert.equal(deliveryContext.delivery_company.name, 'شركة سريع');
+  assert.equal(deliveryContext.driver, 'حسن');
+  assert.deepEqual(serverRows("SELECT status, COUNT(*) AS c FROM desktop_sync_operations GROUP BY status").map((row) => ({ ...row })), [{ status: 'applied', c: 8 }]);
   assert.deepEqual(serverRows('SELECT category, amount_cents, status, actor_id FROM branch_expenses ORDER BY id').map((row) => ({ ...row })),
     [{ category: 'electricity', amount_cents: 12050, status: 'pending', actor_id: 4 }, { category: 'packaging', amount_cents: 7500, status: 'approved', actor_id: 1 }]);
   assert.deepEqual(serverRows("SELECT kind, amount_cents FROM takeaway_till_entries WHERE kind IN ('expense', 'cash_in', 'cash_out') ORDER BY id")

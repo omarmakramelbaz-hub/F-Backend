@@ -100,6 +100,9 @@ class Store {
   applyBranches(entries) {
     transaction(this.db, () => {
       for (const entry of entries || []) {
+        if (Array.isArray(entry.attendance)) {
+          this.db.prepare('UPDATE branches SET attendance = ? WHERE value = ?').run(JSON.stringify(entry.attendance), entry.value);
+        }
         if (!entry.available) {
           this.db.prepare('UPDATE branches SET available = 0 WHERE value = ?').run(entry.value);
           continue;
@@ -155,6 +158,21 @@ class Store {
     return this.ticket(id);
   }
 
+  /** A delivery order leaves with the driver: it stays open until the driver returns with the money. */
+  markOut(actor, id, values = {}) {
+    const ticket = this.ticket(id);
+    if (!ticket || ticket.status !== 'open') throw new Error('الفاتورة لم تعد مفتوحة.');
+    this.requireBranch(actor, ticket.branch, 'can_checkout');
+    if (ticket.channel !== 'phone') throw new Error('خروج المندوب للطلبات الدليفري فقط.');
+    const data = cleanTicketData({ ...ticket.data, ...values, out_at: this.now().toISOString() });
+    if (!data.customer_name.trim() || !data.address.trim()) throw new Error('أكمل اسم العميل وعنوانه.');
+    if (!rules.normalizePhone(data.customer_phone)) throw new Error('اكتب رقم هاتف صحيح للعميل.');
+    if (!data.delivery_company_id && !data.driver.trim()) throw new Error('اختر شركة التوصيل أو اكتب اسم المندوب.');
+    this.quoteTicket(ticket.branch, ticket.channel, data);
+    this.db.prepare('UPDATE tickets SET data = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(data), this.now().toISOString(), id);
+    return this.ticket(id);
+  }
+
   deleteTicket(actor, id) {
     const ticket = this.ticket(id);
     if (!ticket || ticket.status !== 'open') return false;
@@ -204,7 +222,8 @@ class Store {
           customer_phone: data.customer_phone.trim(), customer_name: data.customer_name.trim(), address: data.address.trim(),
           table_name: data.table_name.trim(), notes: data.notes.trim(), delivery_cents: quote.delivery_cents,
           discount: money.decimal(quote.discount_cents), discount_reason: data.discount_reason.trim(), cash_received: money.decimal(cash),
-          total_cents: quote.total_cents, local_number: number, service_consent: !!data.service_consent, marketing_consent: !!data.marketing_consent } };
+          total_cents: quote.total_cents, local_number: number, service_consent: !!data.service_consent, marketing_consent: !!data.marketing_consent,
+          ...(ticket.channel === 'phone' ? { delivery_company_id: data.delivery_company_id, driver: data.driver.trim() } : {}) } };
       const stamp = now.toISOString();
       this.db.prepare(`UPDATE tickets SET status = 'paid', actor_id = ?, actor_name = ?, data = ?, local_number = ?, business_date = ?,
         snapshot_id = ?, totals = ?, paid_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`)
@@ -315,9 +334,65 @@ class Store {
     return row ? { ...row, data: JSON.parse(row.data) } : null;
   }
 
-  journal(branch, day) {
-    return this.db.prepare('SELECT * FROM journal WHERE branch = ? AND business_date = ? ORDER BY created_at DESC').all(branch, day)
-      .map((row) => ({ ...row, data: JSON.parse(row.data) }));
+  journal(branch, day, kinds = ['expense', 'till']) {
+    return this.db.prepare(`SELECT * FROM journal WHERE branch = ? AND business_date = ? AND kind IN (${kinds.map(() => '?').join(', ')})
+      ORDER BY created_at DESC`).all(branch, day, ...kinds).map((row) => ({ ...row, data: JSON.parse(row.data) }));
+  }
+
+  // ---- employee attendance, recorded with the device's (server-corrected) time, also offline ----
+
+  employees(branch) {
+    const catalog = this.catalog(branch);
+    return catalog && Array.isArray(catalog.employees) ? catalog.employees : [];
+  }
+
+  attendanceShifts(branch) {
+    const catalog = this.catalog(branch);
+    return catalog && Array.isArray(catalog.attendance_shifts) ? catalog.attendance_shifts : [];
+  }
+
+  /** Each employee's day: what the server last said, overlaid with this device's own punches. */
+  attendanceBoard(branch, day) {
+    const row = this.db.prepare('SELECT attendance FROM branches WHERE value = ?').get(branch);
+    const server = new Map((row && row.attendance ? JSON.parse(row.attendance) : []).filter((item) => item.day === day)
+      .map((item) => [item.employee_id, item]));
+    const punches = this.journal(branch, day, ['attendance']).reverse();
+    return this.employees(branch).map((employee) => {
+      const known = server.get(employee.id) || {};
+      const state = { employee, status: known.status || 'unrecorded', checked_in_at: known.checked_in_at || null,
+        checked_out_at: known.checked_out_at || null, pending: false, error: null };
+      for (const punch of punches.filter((item) => item.data.employee_id === employee.id)) {
+        if (punch.sync_status === 'rejected') { state.error = punch.sync_error; continue; }
+        if (punch.sync_status === 'pending') state.pending = true;
+        state.status = punch.data.status;
+        if (punch.data.action === 'check_in' && !state.checked_in_at) state.checked_in_at = punch.created_at;
+        if (punch.data.action === 'check_out' && !state.checked_out_at) state.checked_out_at = punch.created_at;
+      }
+      return state;
+    });
+  }
+
+  /** Same order and shift rules as the dashboard; the server applies its deductions from these times. */
+  recordPunch(actor, branch, values) {
+    this.requireBranch(actor, branch, 'can_checkout');
+    const day = rules.operatingDay(this.now());
+    const action = values.action === 'check_out' ? 'check_out' : 'check_in';
+    const state = this.attendanceBoard(branch, day).find((item) => item.employee.id === Number(values.employee_id));
+    if (!state) throw new Error('الموظف غير موجود في هذا الفرع. اتصل بالإنترنت لتحديث قائمة الموظفين.');
+    const partTime = state.employee.schedule_type === 'part_time';
+    let status = values.status;
+    if (action === 'check_in') {
+      if (state.checked_in_at) throw new Error('تم تسجيل حضور ' + state.employee.name + ' اليوم بالفعل.');
+      if (['preapproved_leave'].includes(state.status)) throw new Error('الموظف عليه إجازة مسجلة اليوم.');
+      if (partTime) status = 'part_time';
+      else if (!['morning', 'evening'].includes(status)) throw new Error('اختر حضور صباحي أو مسائي.');
+    } else {
+      if (!state.checked_in_at) throw new Error('سجّل حضور ' + state.employee.name + ' أولًا.');
+      if (state.checked_out_at) throw new Error('تم تسجيل انصراف ' + state.employee.name + ' اليوم بالفعل.');
+      status = state.status;
+    }
+    const data = { employee_id: state.employee.id, day, status, action };
+    return this.addJournal(actor, branch, 'attendance', 0, data, { employee_name: state.employee.name });
   }
 
   /**
@@ -416,6 +491,11 @@ class Store {
             .run(receipt.id ?? null, receipt.number ?? null, row.ticket_id);
           if (row.journal_id) {
             const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}` : null;
+            if (result.attendance) {
+              // The server keeps the first punch of the day; show the time it recorded.
+              this.db.prepare(`UPDATE journal SET data = json_set(data, '$.server_checked_in_at', ?, '$.server_checked_out_at', ?) WHERE id = ?`)
+                .run(result.attendance.checked_in_at || null, result.attendance.checked_out_at || null, row.journal_id);
+            }
             this.db.prepare("UPDATE journal SET sync_status = 'synced', sync_error = NULL, server_ref = ? WHERE id = ?").run(reference, row.journal_id);
           }
         } else if (result.status === 'rejected') {
@@ -437,7 +517,7 @@ class Store {
   }
 
   rejectedOperations() {
-    const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة' };
+    const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف' };
     return this.db.prepare(`SELECT o.id, o.kind, o.last_error, o.updated_at, t.local_number, t.branch, t.totals, j.amount_cents, j.branch AS journal_branch
       FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id LEFT JOIN journal j ON j.id = o.journal_id
       WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()
@@ -455,7 +535,10 @@ function cleanTicketData(data) {
   })) : [];
   return { items, customer_phone: text(data.customer_phone, 30), customer_name: text(data.customer_name, 100), address: text(data.address, 500),
     table_name: text(data.table_name, 100), notes: text(data.notes, 500), discount: text(data.discount, 14), discount_reason: text(data.discount_reason, 500),
-    delivery: text(data.delivery, 14), service_consent: !!data.service_consent, marketing_consent: !!data.marketing_consent };
+    delivery: text(data.delivery, 14), service_consent: !!data.service_consent, marketing_consent: !!data.marketing_consent,
+    // Delivery orders: who takes it, and when it left with the driver (paid when the driver returns).
+    delivery_company_id: Number.isInteger(Number(data.delivery_company_id)) && Number(data.delivery_company_id) > 0 ? Number(data.delivery_company_id) : null,
+    driver: text(data.driver, 100), out_at: typeof data.out_at === 'string' && !Number.isNaN(Date.parse(data.out_at)) ? data.out_at : '' };
 }
 
 function presentTicket(row) {

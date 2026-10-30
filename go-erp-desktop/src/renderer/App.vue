@@ -24,6 +24,7 @@
       <ReceiptsView v-else-if="view === 'receipts'" :key="'r' + info.session.branch" :session="info.session" :branch="currentBranch" />
       <CashView v-else-if="view === 'cash'" :key="'c' + info.session.branch" :session="info.session" @changed="refreshSync" />
       <ReportsView v-else-if="view === 'reports'" :key="'t' + info.session.branch" />
+      <AttendanceView v-else-if="view === 'attendance'" :key="'a' + info.session.branch" @changed="refreshSync" />
       <SettingsView v-else :info="info" :sync="sync" :sync-now="syncNow" />
     </main>
   </div>
@@ -38,6 +39,7 @@ import PosView from './views/PosView.vue';
 import ReceiptsView from './views/ReceiptsView.vue';
 import CashView from './views/CashView.vue';
 import ReportsView from './views/ReportsView.vue';
+import AttendanceView from './views/AttendanceView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SyncBadge from './components/SyncBadge.vue';
 
@@ -46,6 +48,7 @@ const sync = ref({});
 const view = ref('pos');
 // Reports are for the owner and managers, like the dashboard's reports.
 const tabs = computed(() => [{ id: 'pos', label: 'الكاشير' }, { id: 'receipts', label: 'فواتير اليوم' }, { id: 'cash', label: 'الخزنة والمصروفات' },
+  { id: 'attendance', label: 'الحضور' },
   ...(info.value && info.value.session && info.value.session.user.can_manage ? [{ id: 'reports', label: 'التقارير' }] : []),
   { id: 'settings', label: 'الإعدادات والمزامنة' }]);
 let stop = null;

@@ -46,6 +46,10 @@ require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.
 require_once database_path('migrations/2026_10_06_120000_create_branch_expenses_categories.php'); (new \CreateBranchExpensesCategories)->up();
 require_once database_path('migrations/2026_10_06_200000_manage_expense_categories.php'); (new \ManageExpenseCategories)->up();
 require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php'); (new \ScopeExpenseCategoriesByBranch)->up();
+require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up();
+require_once database_path('migrations/2026_10_06_140000_add_employee_wallet_phone.php'); (new \AddEmployeeWalletPhone)->up();
+require_once database_path('migrations/2026_10_08_190000_add_employee_attendance_rules.php'); (new \AddEmployeeAttendanceRules)->up();
+require_once database_path('migrations/2026_10_18_160000_add_employee_part_time_schedule.php'); (new \AddEmployeePartTimeSchedule)->up();
 app(PermissionRegistrar::class)->forgetCachedPermissions();
 foreach (['order-list', 'order-create', 'order-edit'] as $name) Permission::create(['name' => $name, 'guard_name' => 'admin']);
 foreach ([
@@ -70,4 +74,13 @@ foreach ([
     DB::table('resturant_products')->insert(['id' => $id, 'resturant_id' => $branch, 'product_id' => 500 + $id, 'category_id' => $category,
         'product_name' => $name, 'product_price' => $price, 'status' => 'show', 'price' => '{}', 'created_at' => now(), 'updated_at' => now()]);
 }
+DB::table('branch_delivery_companies')->insert(['branch' => 'f:100', 'name' => 'شركة سريع', 'phone' => '01011112222', 'active' => true,
+    'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+foreach ([['morning', '10:00', '18:00'], ['evening', '20:00', '04:00']] as [$shift, $start, $end]) {
+    DB::table('branch_attendance_rules')->insert(['branch' => 'f:100', 'shift' => $shift, 'starts_at' => $start, 'ends_at' => $end,
+        'late_half_hour_cents' => 1000, 'early_half_hour_cents' => 500, 'absence_cents' => 30000, 'revision' => 1, 'actor_id' => 1,
+        'created_at' => now(), 'updated_at' => now()]);
+}
+DB::table('branch_employees')->insert(['id' => 50, 'branch' => 'f:100', 'name' => 'سعيد', 'job_title' => 'كاشير', 'shift' => 'صباحي',
+    'hired_on' => '2026-01-01', 'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
 echo "seeded\n";

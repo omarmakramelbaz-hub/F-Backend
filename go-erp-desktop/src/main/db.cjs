@@ -36,6 +36,8 @@ const MIGRATIONS = [
   `CREATE TABLE customers (
      phone TEXT PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL, orders INTEGER NOT NULL, total_cents INTEGER NOT NULL,
      last_order_at TEXT NOT NULL);`,
+  // Version 1.4: the server's attendance for today and yesterday, to show punches made on other devices.
+  `ALTER TABLE branches ADD COLUMN attendance TEXT;`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

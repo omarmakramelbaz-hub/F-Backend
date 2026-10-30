@@ -183,6 +183,20 @@ const handlers = {
     return { ticket, printed };
   },
 
+  // The bill before payment; for a delivery order it also records that the order left with the driver.
+  'tickets:bill': async (values) => {
+    const session = requireSession();
+    let ticket = store.ticket(values.id);
+    if (!ticket || ticket.branch !== session.branch || ticket.status !== 'open') throw new Error('الفاتورة غير موجودة.');
+    if (values.out) ticket = store.markOut(session.user, ticket.id, values.data || {});
+    const catalog = store.catalog(ticket.branch) || {};
+    const quote = store.quoteTicket(ticket.branch, ticket.channel, ticket.data).quote;
+    const settings = printSettings();
+    const printed = await printing.print(BrowserWindow, printing.bill(ticket, quote, branchInfo(ticket.branch),
+      { ...settings, companies: catalog.delivery_companies || [] }), settings);
+    return { ticket, printed };
+  },
+
   'tickets:kitchen': async (values) => {
     const session = requireSession();
     const ticket = store.ticket(values.id);
@@ -226,6 +240,19 @@ const handlers = {
   'cash:till': (values) => {
     const session = requireSession();
     const entry = store.recordTill(session.user, session.branch, values);
+    sync.kick();
+    return entry;
+  },
+
+  'attendance:board': () => {
+    const session = requireSession();
+    const day = rules.operatingDay(now());
+    return { day, now: now().toISOString(), shifts: store.attendanceShifts(session.branch), items: store.attendanceBoard(session.branch, day) };
+  },
+
+  'attendance:punch': (values) => {
+    const session = requireSession();
+    const entry = store.recordPunch(session.user, session.branch, values);
     sync.kick();
     return entry;
   },

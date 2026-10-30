@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const CHANNELS = ['app:info', 'app:autostart', 'customers:lookup', 'setup:enroll', 'setup:reset', 'auth:login', 'auth:logout', 'auth:branch', 'catalog:get', 'tickets:open', 'tickets:save',
-  'tickets:delete', 'tickets:quote', 'tickets:pay', 'tickets:kitchen', 'receipts:list', 'receipts:print', 'cash:summary', 'cash:expense', 'cash:till', 'reports:sales', 'reports:print', 'print:printers',
+  'tickets:delete', 'tickets:quote', 'tickets:pay', 'tickets:bill', 'tickets:kitchen', 'receipts:list', 'receipts:print', 'cash:summary', 'cash:expense', 'cash:till', 'attendance:board', 'attendance:punch', 'reports:sales', 'reports:print', 'print:printers',
   'print:settings', 'print:test', 'sync:status', 'sync:now', 'dashboard:open'];
 
 contextBridge.exposeInMainWorld('goerp', {

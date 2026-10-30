@@ -93,6 +93,40 @@ function kitchen(ticket, quote, branch, options = {}) {
   return page(options.width || 72, body);
 }
 
+/**
+ * The bill before payment: the table's bill in the hall, or the driver's copy of a delivery order with the
+ * amount to collect, the customer's address and phone.
+ */
+function bill(ticket, quote, branch, options = {}) {
+  const data = ticket.data;
+  const delivery = ticket.channel === 'phone';
+  const company = delivery && data.delivery_company_id ? (options.companies || []).find((item) => item.id === data.delivery_company_id) : null;
+  const lines = quote.items.map((line) => `<tr><td>${escape(line.name)}${line.option_label && line.option_label !== 'الأساسي' ? ' - ' + escape(line.option_label) : ''}
+      <div class="small">${escape(quantityLabel(line))} × ${money.decimal(line.unit_price_cents)}</div></td><td class="n">${money.decimal(line.total_cents)}</td></tr>`).join('');
+  const row = (label, value) => `<div class="row"><span>${label}</span><span class="num">${value}</span></div>`;
+  const body = `
+    <h1>${escape(branch.name)}</h1>
+    ${branch.phone ? `<div class="center small">${escape(branch.phone)}</div>` : ''}
+    <div class="center big">${delivery ? 'طلب توصيل — المطلوب تحصيله' : 'الحساب' + (data.table_name ? ' — طاولة ' + escape(data.table_name) : '')}</div>
+    <hr>
+    ${data.customer_name ? `<div>العميل: ${escape(data.customer_name)}</div>` : ''}
+    ${data.customer_phone ? `<div>الهاتف: <span class="num">${escape(data.customer_phone)}</span></div>` : ''}
+    ${data.address ? `<div class="big">العنوان: ${escape(data.address)}</div>` : ''}
+    ${company ? `<div>شركة التوصيل: ${escape(company.name)}</div>` : ''}
+    ${data.driver ? `<div>المندوب: ${escape(data.driver)}</div>` : ''}
+    <div class="small">${escape(when(new Date().toISOString()))}</div>
+    <hr><table>${lines}</table><hr>
+    ${row('الإجمالي قبل الخصم', money.decimal(quote.subtotal_cents))}
+    ${quote.discount_cents ? row('الخصم', money.decimal(quote.discount_cents)) : ''}
+    ${quote.service_cents ? row('الخدمة', money.decimal(quote.service_cents)) : ''}
+    ${quote.delivery_cents ? row('التوصيل', money.decimal(quote.delivery_cents)) : ''}
+    ${quote.tax_cents ? row('الضريبة', money.decimal(quote.tax_cents)) : ''}
+    <div class="row big"><span>${delivery ? 'المطلوب تحصيله' : 'الإجمالي'}</span><span>${money.decimal(quote.total_cents)} جنيه</span></div>
+    ${data.notes ? `<hr><div class="small">ملاحظات: ${escape(data.notes)}</div>` : ''}
+    <hr><div class="center small">لم يتم الدفع بعد — ليست فاتورة نهائية</div>`;
+  return page(options.width || 72, body);
+}
+
 /** End-of-day style summary of this device's sales, printed on the receipt roll. */
 function report(data, branch, options = {}) {
   const row = (label, value) => `<div class="row"><span>${label}</span><span class="num">${value}</span></div>`;
@@ -145,6 +179,15 @@ function render(BrowserWindow, html, settings = {}) {
   });
 }
 
+/** Windows reports print failures in English; the cashier sees what to do in Arabic. */
+function printError(reason) {
+  const text = String(reason || '').toLowerCase();
+  if (!text || text.includes('cancel')) return null; // closed the print dialog on purpose
+  if (text.includes('devicename')) return 'الطابعة المختارة مش موجودة على الجهاز. اختار الطابعة من الإعدادات.';
+  if (text.includes('failed')) return 'فشلت الطباعة. اتأكد إن الطابعة شغالة وفيها ورق.';
+  return 'تعذرت الطباعة: ' + reason;
+}
+
 /** Prints on the chosen Windows printer; without one, Windows shows its print dialog. */
 async function print(BrowserWindow, html, settings = {}) {
   let rendered;
@@ -158,10 +201,10 @@ async function print(BrowserWindow, html, settings = {}) {
     const options = { silent: !!settings.printer, deviceName: settings.printer || undefined, printBackground: true, margins: { marginType: 'none' } };
     if (pageSize) options.pageSize = pageSize;
     window.webContents.print(options, (success, reason) => {
-      resolve({ ok: success, error: success ? null : (reason && reason !== 'cancelled' ? 'تعذرت الطباعة: ' + reason : null) });
+      resolve({ ok: success, error: success ? null : printError(reason) });
       if (!window.isDestroyed()) window.close();
     });
   });
 }
 
-module.exports = { receipt, kitchen, report, print, render, paper, quantityLabel };
+module.exports = { receipt, kitchen, bill, report, print, render, paper, quantityLabel, printError };

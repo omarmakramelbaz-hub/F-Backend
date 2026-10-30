@@ -9,6 +9,11 @@ const rules = require('../src/main/rules.cjs');
 const CATALOG = {
   branch: { value: 'f:100', name: 'فرع المعادي', address: 'المعادي', phone: '0225250000' }, tax_bps: 1400, service_bps: 1200, can_discount: true,
   categories: [{ id: 1, name: 'أسماك' }],
+  delivery_companies: [{ id: 7, name: 'شركة سريع', phone: '01011112222' }],
+  employees: [{ id: 50, name: 'سعيد', job_title: 'كاشير', schedule_type: 'branch', shift: 'صباحي' },
+    { id: 51, name: 'كريم', job_title: 'شيف', schedule_type: 'branch', shift: 'مسائي' },
+    { id: 52, name: 'هاني', job_title: 'مساعد', schedule_type: 'part_time', attendance_shift: 'morning', attendance_start: '12:00', attendance_end: '16:00' }],
+  attendance_shifts: [{ shift: 'morning', starts_at: '10:00', ends_at: '18:00' }, { shift: 'evening', starts_at: '20:00', ends_at: '04:00' }],
   expense_categories: [{ key: 'electricity', name: 'كهرباء', stock: null }, { key: 'purchases', name: 'مشتريات', stock: null },
     { key: 'purchase_tomato', name: 'طماطم', stock: 'purchase_tomato' }],
   products: [
@@ -312,4 +317,81 @@ test('a dated copy of the database is made once a day and the newest seven are k
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
   }
+});
+
+test('a delivery order leaves with the driver, prints the amount to collect, and is paid when the driver returns', () => {
+  const { store, tick } = fixture();
+  const actor = store.user(4);
+  const ticket = store.saveTicket(actor, { branch: 'f:100', channel: 'phone', data: {
+    items: [{ product_id: 2, quantity_mode: 'piece', quantity: '2' }], customer_phone: '01012345678', customer_name: 'منى', delivery: '20' } });
+  assert.throws(() => store.markOut(actor, ticket.id, { address: 'المعادي' }), /شركة التوصيل أو اكتب اسم المندوب/);
+  assert.throws(() => store.markOut(actor, ticket.id, { delivery_company_id: 7 }), /عنوانه/);
+  const out = store.markOut(actor, ticket.id, { address: 'المعادي', delivery_company_id: 7, driver: 'حسن' });
+  assert.ok(out.data.out_at);
+  assert.equal(out.status, 'open', 'Still open until the money comes back');
+  const printing = require('../src/main/printing.cjs');
+  const quote = store.quoteTicket('f:100', 'phone', out.data).quote;
+  const html = printing.bill(out, quote, { name: 'فرع المعادي' }, { width: 72, companies: CATALOG.delivery_companies });
+  assert.match(html, /المطلوب تحصيله/);
+  assert.match(html, /شركة سريع/);
+  assert.match(html, new RegExp(String((5000 + 2000 + Math.floor((7000 * 1400 + 5000) / 10000)) / 100)));
+  tick(40 * 60 * 1000);
+  const paid = store.payTicket(actor, ticket.id, { cash_received: '100' });
+  const [operation] = store.pendingOperations();
+  assert.equal(operation.data.delivery_company_id, 7);
+  assert.equal(operation.data.driver, 'حسن');
+  assert.equal(paid.data.out_at, out.data.out_at);
+  const dine = store.saveTicket(actor, { branch: 'f:100', channel: 'dine', data: { items: [{ product_id: 2, quantity_mode: 'piece', quantity: '1' }], table_name: '4' } });
+  assert.throws(() => store.markOut(actor, dine.id, {}), /الدليفري فقط/);
+});
+
+test('print failures are explained in Arabic and a closed print dialog is not an error', () => {
+  const printing = require('../src/main/printing.cjs');
+  assert.equal(printing.printError('Invalid deviceName provided'), 'الطابعة المختارة مش موجودة على الجهاز. اختار الطابعة من الإعدادات.');
+  assert.match(printing.printError('Print job failed'), /الطابعة شغالة/);
+  assert.equal(printing.printError('Print job canceled'), null);
+  assert.equal(printing.printError('cancelled'), null);
+});
+
+test('punches follow the dashboard order and shift rules and are queued with the device time', () => {
+  const { store, tick } = fixture('2026-10-30T08:40:00Z'); // 10:40 in Cairo
+  const cashier = store.user(4);
+  assert.throws(() => store.recordPunch(cashier, 'f:100', { employee_id: 99, action: 'check_in', status: 'morning' }), /غير موجود/);
+  assert.throws(() => store.recordPunch(cashier, 'f:100', { employee_id: 50, action: 'check_out' }), /حضور سعيد أولًا/);
+  assert.throws(() => store.recordPunch(cashier, 'f:100', { employee_id: 50, action: 'check_in', status: 'part_time' }), /صباحي أو مسائي/);
+  const punchIn = store.recordPunch(cashier, 'f:100', { employee_id: 50, action: 'check_in', status: 'morning' });
+  assert.throws(() => store.recordPunch(cashier, 'f:100', { employee_id: 50, action: 'check_in', status: 'morning' }), /بالفعل/);
+  const partTime = store.recordPunch(cashier, 'f:100', { employee_id: 52, action: 'check_in', status: 'morning' });
+  assert.equal(partTime.data.status, 'part_time', 'A part-time employee always punches as part-time');
+  tick(7 * 60 * 60 * 1000);
+  store.recordPunch(cashier, 'f:100', { employee_id: 50, action: 'check_out' });
+  assert.throws(() => store.recordPunch(cashier, 'f:100', { employee_id: 50, action: 'check_out' }), /انصراف سعيد اليوم بالفعل/);
+  const operations = store.pendingOperations();
+  assert.deepEqual(operations.map((operation) => [operation.kind, operation.data.action, operation.data.status, operation.occurred_at]), [
+    ['attendance', 'check_in', 'morning', '2026-10-30T08:40:00.000Z'], ['attendance', 'check_in', 'part_time', '2026-10-30T08:40:00.000Z'],
+    ['attendance', 'check_out', 'morning', '2026-10-30T15:40:00.000Z']]);
+  assert.deepEqual(operations[0].data, { employee_id: 50, day: '2026-10-30', status: 'morning', action: 'check_in' });
+  const board = store.attendanceBoard('f:100', '2026-10-30');
+  const said = board.find((item) => item.employee.id === 50);
+  assert.equal(said.checked_in_at, punchIn.created_at);
+  assert.equal(said.pending, true);
+  assert.equal(store.journal('f:100', '2026-10-30').length, 0, 'Punches are not drawer entries');
+});
+
+test('punches made on other devices come from the server and block a second check-in here', () => {
+  const { store } = fixture('2026-10-30T09:00:00Z');
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1',
+    attendance: [{ employee_id: 51, day: '2026-10-30', status: 'evening', checked_in_at: '2026-10-30T08:05:00+00:00', checked_out_at: null },
+      { employee_id: 50, day: '2026-10-29', status: 'morning', checked_in_at: '2026-10-29T08:00:00+00:00', checked_out_at: '2026-10-29T16:00:00+00:00' }] }]);
+  const board = store.attendanceBoard('f:100', '2026-10-30');
+  assert.equal(board.find((item) => item.employee.id === 51).checked_in_at, '2026-10-30T08:05:00+00:00');
+  assert.equal(board.find((item) => item.employee.id === 50).checked_in_at, null, "Yesterday's punch does not count today");
+  assert.throws(() => store.recordPunch(store.user(4), 'f:100', { employee_id: 51, action: 'check_in', status: 'evening' }), /بالفعل/);
+  const out = store.recordPunch(store.user(4), 'f:100', { employee_id: 51, action: 'check_out' });
+  assert.equal(out.data.status, 'evening', 'The check-out keeps the shift the server recorded');
+  store.applyResults([{ id: out.id, status: 'rejected', error: 'تم إقفال هذا الشهر. لا يمكن تغيير حركاته.' }]);
+  const state = store.attendanceBoard('f:100', '2026-10-30').find((item) => item.employee.id === 51);
+  assert.equal(state.error, 'تم إقفال هذا الشهر. لا يمكن تغيير حركاته.');
+  assert.equal(state.checked_out_at, null);
+  assert.deepEqual(store.rejectedOperations().map((row) => row.kind), ['حضور وانصراف']);
 });

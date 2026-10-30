@@ -55,6 +55,14 @@
         <template v-if="ticket.channel === 'phone'">
           <label class="wide">العنوان<input v-model.trim="ticket.data.address" @input="changed"></label>
           <label>رسوم التوصيل<input v-model.trim="ticket.data.delivery" inputmode="decimal" @input="changed" placeholder="0.00"></label>
+          <label>شركة التوصيل
+            <select v-model="ticket.data.delivery_company_id" @change="changed">
+              <option :value="null">مندوب الفرع</option>
+              <option v-for="company in deliveryCompanies" :key="company.id" :value="company.id">{{ company.name }}</option>
+            </select>
+          </label>
+          <label>اسم المندوب<input v-model.trim="ticket.data.driver" @input="changed" maxlength="100" placeholder="اختياري مع شركة التوصيل"></label>
+          <p v-if="ticket.data.out_at" class="known wide">خرج مع المندوب {{ time(ticket.data.out_at) }} — اضغط إنهاء البيع لما المندوب يرجع بالفلوس.</p>
         </template>
         <label class="wide">ملاحظة للطلب<input v-model="ticket.data.notes" @input="changed" maxlength="500"></label>
         <template v-if="session.user.can_manage">
@@ -87,6 +95,8 @@
       <div class="actions">
         <button class="primary big" :disabled="busy || !quote" @click="pay">إنهاء البيع وطباعة الفاتورة <small>(F9)</small></button>
         <button :disabled="busy || !ticket.data.items.length" @click="kitchen">طباعة للمطبخ</button>
+        <button v-if="ticket.channel === 'phone'" class="strong" :disabled="busy || !quote" @click="bill(true)">خرج مع المندوب (فاتورة التحصيل)</button>
+        <button v-else-if="ticket.channel === 'dine'" :disabled="busy || !quote" @click="bill(false)">طباعة الحساب</button>
         <button class="danger-outline" :disabled="busy || !ticket.id" @click="discard">حذف الفاتورة</button>
       </div>
       </div>
@@ -109,7 +119,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
-import { call, money, CHANNELS } from '../api.js';
+import { call, money, time, CHANNELS } from '../api.js';
 
 defineProps({ session: Object, branch: Object });
 const emit = defineEmits(['changed']);
@@ -143,6 +153,7 @@ const visibleProducts = computed(() => {
   return catalog.value.products.filter((product) => (category.value === null || product.category_id === category.value)
     && (!words || product.name.includes(words)));
 });
+const deliveryCompanies = computed(() => (catalog.value && catalog.value.delivery_companies) || []);
 const productById = computed(() => new Map((catalog.value ? catalog.value.products : []).map((product) => [product.id, product])));
 const changeCents = computed(() => {
   if (!quote.value || !/^\d{1,10}(\.\d{1,2})?$/.test(cash.value)) return null;
@@ -152,13 +163,14 @@ const changeCents = computed(() => {
 
 function emptyTicket() {
   return { id: null, channel: 'takeaway', label: '', data: { items: [], customer_phone: '', customer_name: '', address: '', table_name: '',
-    notes: '', discount: '', discount_reason: '', delivery: '', service_consent: false, marketing_consent: false } };
+    notes: '', discount: '', discount_reason: '', delivery: '', service_consent: false, marketing_consent: false,
+    delivery_company_id: null, driver: '', out_at: '' } };
 }
 
 function ticketLabel(item) {
   const data = item.data || {};
   const name = item.channel === 'dine' && data.table_name ? 'طاولة ' + data.table_name : (data.customer_name || data.customer_phone || 'فاتورة');
-  return CHANNELS[item.channel] + ' · ' + name;
+  return CHANNELS[item.channel] + ' · ' + name + (item.channel === 'phone' && data.out_at ? ' · مع المندوب' : '');
 }
 
 function lineName(item) {
@@ -340,6 +352,25 @@ async function pay() {
     known.value = null;
     await loadOpen();
     emit('changed');
+  } catch (problem) {
+    error.value = problem.message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** Prints the bill before payment; a delivery order is marked as gone with the driver. */
+async function bill(out) {
+  error.value = '';
+  notice.value = '';
+  busy.value = true;
+  try {
+    await save();
+    const result = await call('tickets:bill', { id: ticket.id, out, data: plain(ticket.data) });
+    if (out) Object.assign(ticket.data, { out_at: result.ticket.data.out_at });
+    await loadOpen();
+    notice.value = out ? 'الطلب خرج مع المندوب. الفاتورة لسه مفتوحة لحد ما يرجع بالفلوس.' : 'تم طباعة الحساب.';
+    if (result.printed && !result.printed.ok && result.printed.error) error.value = result.printed.error;
   } catch (problem) {
     error.value = problem.message;
   } finally {
