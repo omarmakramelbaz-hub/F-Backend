@@ -1,0 +1,303 @@
+/*
+ * The dashboard's own look for the desktop app: its login screen, the GO ERP logo and its icons.
+ * Copied from public/dashboard/branding/dashboard-brand.css (login and logo sections) and
+ * Font Awesome Free 5.10.2 (the dashboard's icon font; icons CC BY 4.0, font SIL OFL 1.1).
+ */
+@font-face {
+  font-family: 'Font Awesome 5 Free';
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url('./assets/fa-solid-900.woff2') format('woff2');
+}
+.fas { font-family: 'Font Awesome 5 Free'; font-weight: 900; font-style: normal; display: inline-block; line-height: 1;
+  -webkit-font-smoothing: antialiased; text-rendering: auto; }
+.fa-user:before { content: "\f007"; } .fa-lock:before { content: "\f023"; } .fa-eye:before { content: "\f06e"; }
+.fa-eye-slash:before { content: "\f070"; } .fa-arrow-left:before { content: "\f060"; } .fa-exclamation-circle:before { content: "\f06a"; }
+.fa-cash-register:before { content: "\f788"; } .fa-receipt:before { content: "\f543"; } .fa-wallet:before { content: "\f555"; }
+.fa-user-clock:before { content: "\f4fd"; } .fa-chart-bar:before { content: "\f080"; } .fa-cog:before { content: "\f013"; }
+.fa-sign-out-alt:before { content: "\f2f5"; } .fa-tachometer-alt:before { content: "\f3fd"; } .fa-sync-alt:before { content: "\f2f1"; }
+.fa-desktop:before { content: "\f108"; } .fa-wifi:before { content: "\f1eb"; } .fa-store:before { content: "\f54e"; }
+
+/* ---- dashboard-brand.css: GO ERP logo ---- */
+.dashboard-login-logo {
+    display: block;
+    width: min(380px, 100%);
+    height: auto;
+    max-height: 380px;
+    object-fit: contain;
+    border-radius: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+}
+/* go-erp-platform-logos:start */
+/* Native inline vectors only; no raster asset or background rectangle. */
+.go-erp-platform-logo[data-go-erp-vector] { display: block; background: none; }
+.dashboard-login-logo.go-erp-platform-logo {
+    height: 380px;
+}
+@media (max-width: 800px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 235px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-logo.go-erp-platform-logo { height: 205px; }
+}
+.main-sidebar .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    height: 88px;
+    max-width: 100%;
+    flex: 0 1 208px;
+    object-fit: contain;
+}
+.main-sidebar .go-erp-platform-logo + .dashboard-brand-copy {
+    display: none !important;
+}
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo {
+    height: 72px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:hover .dashboard-brand-logo.go-erp-platform-logo {
+    width: 208px;
+    flex-basis: 208px;
+}
+/* go-erp-platform-logos:end */
+
+/* go-erp-logo-stamp:start */
+/* Shared native GO Solar System branding for login and dashboard. */
+.go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; filter: none; }
+.dashboard-theme .main-sidebar .go-erp-platform-logo[data-go-erp-vector] { color: #fd7201; }
+.dashboard-login-identity { display: flex; flex-direction: column; justify-content: center; min-height: 440px; }
+.dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(360px, 100%); height: auto; max-height: 380px; }
+.dashboard-login-brand-title.go-erp-tagline {
+    max-width: 380px;
+    margin: 14px auto 0;
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.8;
+    letter-spacing: .045em;
+    color: #ffffff;
+    text-wrap: balance;
+}
+.dashboard-login-identity .dashboard-login-brand-subtitle { display: none; }
+@media (max-width: 800px) {
+    .dashboard-login-identity { min-height: 0; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(260px, 100%); max-height: 275px; }
+}
+@media (max-width: 400px) {
+    .dashboard-login-brand-title.go-erp-tagline { font-size: 9px; letter-spacing: .02em; }
+    .dashboard-login-identity .dashboard-login-logo.go-erp-platform-logo { width: min(230px, 100%); max-height: 245px; }
+}
+/* The native logo bursts once on mount, then remains fully visible. */
+.go-erp-platform-logo[data-go-erp-explosion] { overflow: visible; pointer-events: none; }
+.go-erp-logo-rest { opacity: 1; }
+.go-erp-logo-compact { display: none; }
+.go-erp-logo-fragments { opacity: 0; }
+.go-erp-login-flow { display: none; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) {
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-rest {
+        animation: go-erp-logo-rest 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragments {
+        animation: go-erp-logo-fragments 1.45s linear 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-explosion] .go-erp-logo-fragment {
+        transform-box: view-box;
+        transform-origin: 530px 311px;
+        animation: go-erp-fragment-flight 1.45s cubic-bezier(.2, .7, .2, 1) 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-dynamic] .go-erp-login-flow {
+        display: block;
+        animation: go-erp-flow-reveal .7s ease 1.45s 1 both;
+    }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-rotor,
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-counter {
+        transform-box: view-box;
+        transform-origin: 0 0;
+        animation-duration: var(--orbit-period);
+        animation-timing-function: linear;
+        animation-delay: 1.45s;
+        animation-iteration-count: infinite;
+        animation-fill-mode: both;
+    }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-rotor { animation-name: go-erp-solar-orbit; }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-counter { animation-name: go-erp-solar-counter; }
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-solar-corona { animation: go-erp-solar-corona 8s ease-in-out 1.45s infinite; }
+    @keyframes go-erp-flow-reveal {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes go-erp-solar-orbit {
+        from { transform: rotate(var(--orbit-start)); }
+        to { transform: rotate(var(--orbit-end)); }
+    }
+    @keyframes go-erp-solar-counter {
+        from { transform: rotate(var(--counter-start)); }
+        to { transform: rotate(var(--counter-end)); }
+    }
+    @keyframes go-erp-solar-corona {
+        0%, 100% { opacity: .7; }
+        50% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-rest {
+        0%, 4% { opacity: 1; }
+        5%, 87.9% { opacity: 0; }
+        88%, 100% { opacity: 1; }
+    }
+    @keyframes go-erp-logo-fragments {
+        0%, 4% { opacity: 0; }
+        5%, 87.9% { opacity: 1; }
+        88%, 100% { opacity: 0; }
+    }
+    @keyframes go-erp-fragment-flight {
+        0%, 4%, 86%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+        30%, 40% { transform: translate(var(--go-x), var(--go-y)) rotate(var(--go-r)) scale(.94); }
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .go-erp-platform-logo[data-go-erp-solar] .go-erp-login-flow { display: block; opacity: 1; }
+}
+/* Keep the internal GO mark centered in a compact sidebar brand slot. */
+.dashboard-theme .main-sidebar .dashboard-brand { min-height: 92px; padding-block: 4px; }
+.dashboard-theme .main-sidebar .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] { height: 84px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand { min-height: 76px; }
+.dashboard-theme.dashboard-navigation-ready .main-sidebar.dashboard-sidebar-compact .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] { width: 208px; height: 68px; flex: 0 1 208px; }
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .dashboard-brand-logo.go-erp-platform-logo[data-go-erp-solar] {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-stage { display: none; }
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-erp-logo-compact { display: inline; }
+/* go-erp-logo-stamp:end */
+
+/* ---- dashboard-brand.css: login screen ---- */
+.login-page.dashboard-login-page {
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: auto;
+    margin: 0;
+    padding: 38px 24px;
+    background: radial-gradient(ellipse at 15% 20%, #f47b1610, transparent 45%), #091320;
+    color: #eef3f9;
+    font-family: 'Almarai', sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    text-align: start;
+}
+.dashboard-login {
+    display: grid;
+    grid-template-columns: .95fr 1fr;
+    align-items: center;
+    gap: 46px;
+    width: min(1080px, 100%);
+    padding: 46px;
+    border: 1px solid #24394d;
+    border-radius: 26px;
+    background: #0e1d2c;
+    box-shadow: 0 22px 90px #00000035;
+}
+.dashboard-login-identity { min-width: 0; text-align: center; }
+.dashboard-login-brand { display: flex; align-items: center; justify-content: center; color: inherit; }
+.dashboard-login-brand-title { color: #f1f4f8; font-size: 20px; font-weight: 700; margin: 20px 0 7px; }
+.dashboard-login-brand-subtitle { color: #93a8bb; font-size: 12px; margin: 0; line-height: 1.9; }
+.dashboard-login-form-panel { min-width: 0; padding-inline-start: 38px; border-inline-start: 1px solid #294052; }
+.dashboard-login-eyebrow { display: inline-block; margin-bottom: 10px; font-size: 12px; font-weight: 700; color: #ff9b48; }
+.dashboard-login-form-panel h1 { color: #f4f7fb; font-size: 27px; font-weight: 700; line-height: 1.6; margin: 0 0 10px; }
+.dashboard-login-description { color: #9aafc2; font-size: 13px; margin: 0 0 30px; }
+.dashboard-login-form { margin: 0; }
+.dashboard-login-field { margin-bottom: 20px; }
+.dashboard-login-field > label { display: block; color: #dce6f0; font-size: 13px; font-weight: 700; margin: 0 0 8px; }
+.dashboard-login-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 54px;
+    padding-inline: 14px 5px;
+    border: 1px solid #334d63;
+    border-radius: 10px;
+    background: #14293b;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+.dashboard-login-input-wrap:focus-within { border-color: #f29243; box-shadow: 0 0 0 3px #f292431a; }
+.dashboard-login-input-wrap > i { color: #8fa6ba; width: 15px; text-align: center; flex-shrink: 0; font-size: 14px; }
+.dashboard-login-input-wrap > input {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    height: 52px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #f1f5fa;
+    font: inherit;
+    font-size: 13px;
+    text-align: start;
+    padding: 10px 8px;
+    border-radius: 6px;
+}
+.dashboard-login-input-wrap > input::placeholder { color: #7f98ae; opacity: 1; }
+.dashboard-login-input-wrap > input:-webkit-autofill { -webkit-text-fill-color: #f1f5fa; box-shadow: inset 0 0 0 1000px #14293b; caret-color: #fff; }
+.dashboard-login-input-wrap:has(input[aria-invalid="true"]) { border-color: #d75c68; }
+.dashboard-password-toggle {
+    display: grid;
+    place-items: center;
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #a3b7ca;
+    cursor: pointer;
+}
+.dashboard-password-toggle:hover { background: #20394e; color: #fff; }
+.dashboard-login-remember { display: inline-flex; align-items: center; gap: 9px; margin: 3px 0 22px; color: #bdcddd; font-size: 13px; font-weight: 400; cursor: pointer; }
+.dashboard-login-remember input { accent-color: #f57a16; width: 16px; height: 16px; margin: 0; }
+.dashboard-login-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    padding: 12px 20px;
+    background: #ef710b;
+    color: #fff;
+    border: 1px solid #ef710b;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 5px 20px #e56a0a20;
+}
+.dashboard-login-submit:hover { background: #d65d00; border-color: #d65d00; }
+html[dir="ltr"] .dashboard-login-submit > i { transform: rotate(180deg); }
+.dashboard-login-page a:focus-visible, .dashboard-login-page button:focus-visible, .dashboard-login-remember input:focus-visible { outline: 2px solid #ffab65; outline-offset: 4px; }
+.dashboard-login-alert { display: flex; align-items: flex-start; gap: 10px; border: 1px solid; border-radius: 9px; padding: 11px 13px; margin-bottom: 20px; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.dashboard-login-alert-error { color: #ffc9cd; background: #491f2a; border-color: #7e3b48; }
+.dashboard-login-alert-success { color: #b7ebce; background: #163b2d; border-color: #2d6c4f; }
+.dashboard-login-alert > i { padding-top: 4px; }
+.dashboard-login-alert ul { list-style: none; margin: 0; padding: 0; }
+@media (max-width: 800px) {
+    .dashboard-login { grid-template-columns: 1fr; gap: 26px; max-width: 520px; padding: 30px; }
+    .dashboard-login-logo { width: 235px; max-height: 235px; }
+    .dashboard-login-brand-title { margin-top: 14px; font-size: 18px; }
+    .dashboard-login-form-panel { padding-inline-start: 0; padding-top: 25px; border-inline-start: 0; border-top: 1px solid #294052; }
+    .dashboard-login-form-panel h1 { font-size: 24px; }
+}
+@media (max-width: 400px) {
+    .login-page.dashboard-login-page { padding: 18px 14px; }
+    .dashboard-login { padding: 25px 20px; border-radius: 20px; }
+    .dashboard-login-logo { width: 205px; max-height: 205px; }
+    .dashboard-login-form-panel h1 { font-size: 21px; }
+    .dashboard-login-input-wrap { gap: 7px; padding-inline-start: 10px; }
+    .dashboard-login-description { margin-bottom: 24px; }
+}

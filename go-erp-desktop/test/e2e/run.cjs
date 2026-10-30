@@ -61,9 +61,10 @@ async function until(check, label, timeout = 20000) {
 // Resolving the path downloads Electron on first use; done once, before any server starts.
 const ELECTRON = require(path.join(APP, 'node_modules', 'electron'));
 
-async function launch(userData, executablePath = ELECTRON, args = [APP]) {
+// embed: the live dashboard opens inside the window after signing in; off: the device's own screens.
+async function launch(userData, executablePath = ELECTRON, args = [APP], embed = false) {
   const app = await electron.launch({ executablePath, args: [...args, '--no-sandbox', '--disable-gpu'], cwd: APP,
-    env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData } });
+    env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData, GOERP_DASHBOARD_VIEW: embed ? 'on' : 'off' } });
   const keep = (chunk) => { appOutput = (appOutput + chunk).slice(-3000); };
   app.process().stdout.on('data', keep);
   app.process().stderr.on('data', keep);
@@ -76,7 +77,7 @@ async function firstWindow(app) {
 }
 
 async function shot(page, name) {
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(1700); // the GO ERP logo settles after its opening animation
   await page.screenshot({ path: path.join(SHOTS, name + '.png') });
 }
 
@@ -89,11 +90,15 @@ async function grandTotal(page, text) {
   await until(async () => (await page.locator('.totals .grand').textContent().catch(() => '')).includes(text), 'invoice total ' + text);
 }
 
-async function signIn(page, login, password) {
-  await page.getByLabel('رقم الموبايل أو البريد').fill(login);
-  await page.getByLabel('كلمة المرور').fill(password);
-  await page.getByRole('button', { name: 'دخول' }).click();
-  await page.locator('.pos').waitFor();
+async function dashboardUrls(app) {
+  return app.evaluate(({ webContents }) => webContents.getAllWebContents().map((contents) => contents.getURL()));
+}
+
+async function signIn(page, login, password, landing = '.pos') {
+  await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill(login);
+  await page.getByLabel('كلمة المرور', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'تسجيل دخول' }).click();
+  await page.locator(landing).waitFor();
 }
 
 async function pay(page) {
@@ -109,12 +114,12 @@ async function cashierDevice() {
   page.on('pageerror', (error) => problems.push(error.message));
 
   // First run: set up once with the branch cashier's dashboard account.
-  await page.getByLabel('رقم الموبايل أو البريد').fill('01000000004');
-  await page.getByLabel('كلمة المرور').fill('cashier-pass');
+  await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill('01000000004');
+  await page.getByLabel('كلمة المرور', { exact: true }).fill('cashier-pass');
   await page.getByLabel('اسم الجهاز').fill('كاشير المعادي 1');
   await shot(page, '01-setup');
   await page.getByRole('button', { name: 'تجهيز الجهاز' }).click();
-  await page.getByRole('heading', { name: 'تسجيل الدخول' }).waitFor({ timeout: 20000 });
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
   await shot(page, '02-login');
 
   // Online sale: 1.250 x 180 + 1 x 40 + 2 x 25 = 315.00.
@@ -260,7 +265,7 @@ async function cashierDevice() {
   app = await launch(userData);
   page = await firstWindow(app);
   page.on('pageerror', (error) => problems.push(error.message));
-  await page.getByRole('heading', { name: 'تسجيل الدخول' }).waitFor({ timeout: 20000 });
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
   await signIn(page, 'u1@example.test', 'root-pass');
   await page.locator('.line', { hasText: 'بلطي مقلي' }).waitFor();
 
@@ -281,35 +286,51 @@ async function cashierDevice() {
 }
 
 async function ownerDevice() {
-  // The owner sets up another device for two branches and switches between their menus.
-  const app = await launch(path.join(WORK, 'owner-device'), process.env.GOERP_E2E_EXECUTABLE || undefined, process.env.GOERP_E2E_EXECUTABLE ? [] : [APP]);
+  // The owner sets up another device for two branches. On this device the live dashboard opens inside the window.
+  const app = await launch(path.join(WORK, 'owner-device'), process.env.GOERP_E2E_EXECUTABLE || undefined,
+    process.env.GOERP_E2E_EXECUTABLE ? [] : [APP], true);
   const page = await firstWindow(app);
-  await page.getByLabel('رقم الموبايل أو البريد').fill('u1@example.test');
-  await page.getByLabel('كلمة المرور').fill('root-pass');
+  await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill('u1@example.test');
+  await page.getByLabel('كلمة المرور', { exact: true }).fill('root-pass');
   await page.getByRole('button', { name: 'تجهيز الجهاز' }).click();
   await page.getByText('اختر فروع هذا الجهاز').waitFor({ timeout: 20000 });
   await page.getByLabel('فرع المعادي').check();
   await page.getByLabel('فرع مدينة نصر').check();
   await page.getByRole('button', { name: 'تأكيد الفروع' }).click();
-  await page.getByRole('heading', { name: 'تسجيل الدخول' }).waitFor({ timeout: 20000 });
-  await signIn(page, '01000000005', 'other-pass');
-  assert.equal(await page.locator('.session select').count(), 0, 'A branch cashier only sees its own branch');
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+  await shot(page, '10-login-like-the-dashboard');
+
+  // A branch cashier signs in: the dashboard opens in the window, signed in as the same account.
+  await signIn(page, '01000000005', 'other-pass', '.status-bar');
+  await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens signed in');
+  // The device's own screens are one click away; a branch cashier only sees its own branch there.
+  await page.getByRole('button', { name: 'شاشات الجهاز (بدون إنترنت)' }).click();
+  await page.locator('.pos').waitFor();
+  assert.equal(await page.locator('.side-branch').count(), 0, 'A branch cashier only sees its own branch');
+  await shot(page, '11-device-screens');
+  // Signing out of the app closes the dashboard and its session.
   await page.getByRole('button', { name: 'خروج' }).click();
-  await signIn(page, '01000000001', 'root-pass');
-  await page.locator('.session select').selectOption({ label: 'فرع مدينة نصر' });
+  await until(async () => !(await dashboardUrls(app)).some((url) => url.includes('/admin/')), 'dashboard closes with the app sign-out');
+
+  // The owner: the dashboard's own sign-out link signs out of the app as well.
+  await signIn(page, '01000000001', 'root-pass', '.status-bar');
+  await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens for the owner');
+  await app.evaluate(({ webContents }) => {
+    const dashboard = webContents.getAllWebContents().find((contents) => contents.getURL().includes('/admin/dashboard'));
+    return dashboard.executeJavaScript("location.href = '/admin/adminLogout'");
+  });
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+
+  // Back in on the device's screens: the owner switches between the two branches' menus.
+  await signIn(page, '01000000001', 'root-pass', '.status-bar');
+  await page.getByRole('button', { name: 'شاشات الجهاز (بدون إنترنت)' }).click();
+  await page.locator('.side-branch').selectOption({ label: 'فرع مدينة نصر' });
   await page.locator('.product', { hasText: 'بوري مشوي' }).waitFor();
   assert.deepEqual(await page.locator('.product .name').allTextContents(), ['بوري مشوي']);
-
-  // The online dashboard opens signed in as the same account, and signing out of the app closes it.
-  const opened = app.waitForEvent('window');
-  await page.getByRole('button', { name: 'الداشبورد الكامل' }).click();
-  const dashboard = await opened;
-  await dashboard.waitForURL(/\/admin\/dashboard/, { timeout: 20000 });
-  const closed = dashboard.waitForEvent('close');
-  await page.getByRole('button', { name: 'خروج' }).click();
-  await closed;
-  await signIn(page, '01000000001', 'root-pass');
-  await shot(page, '10-owner-two-branches');
+  await shot(page, '12-owner-two-branches');
+  // And back to the dashboard from the side menu.
+  await page.getByRole('button', { name: 'الداشبورد' }).click();
+  await page.locator('.status-bar').waitFor();
   await app.close();
 }
 

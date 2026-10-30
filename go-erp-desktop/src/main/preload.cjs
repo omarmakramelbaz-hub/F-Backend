@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const CHANNELS = ['app:info', 'app:autostart', 'customers:lookup', 'setup:enroll', 'setup:reset', 'auth:login', 'auth:logout', 'auth:branch', 'catalog:get', 'tickets:open', 'tickets:save',
   'tickets:delete', 'tickets:quote', 'tickets:pay', 'tickets:bill', 'tickets:kitchen', 'receipts:list', 'receipts:print', 'cash:summary', 'cash:expense', 'cash:till', 'attendance:board', 'attendance:punch', 'reports:sales', 'reports:print', 'print:printers',
-  'print:settings', 'print:test', 'sync:status', 'sync:now', 'dashboard:open'];
+  'print:settings', 'print:test', 'sync:status', 'sync:now', 'dashboard:open', 'dashboard:hide'];
 
 contextBridge.exposeInMainWorld('goerp', {
   async call(channel, values) {
@@ -17,5 +17,11 @@ contextBridge.exposeInMainWorld('goerp', {
     const listener = (event, status) => callback(status);
     ipcRenderer.on('sync:status', listener);
     return () => ipcRenderer.removeListener('sync:status', listener);
+  },
+  // shown / hidden / online / offline / signed-out, from the embedded dashboard
+  onDashboardEvent(callback) {
+    const listener = (event, value) => callback(value);
+    ipcRenderer.on('dashboard:event', listener);
+    return () => ipcRenderer.removeListener('dashboard:event', listener);
   },
 });

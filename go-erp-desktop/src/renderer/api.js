@@ -7,6 +7,10 @@ export function onSyncStatus(callback) {
   return window.goerp.onSyncStatus(callback);
 }
 
+export function onDashboardEvent(callback) {
+  return window.goerp.onDashboardEvent(callback);
+}
+
 export function money(cents) {
   const value = Math.abs(Number(cents) || 0);
   const text = Math.floor(value / 100).toLocaleString('en-US') + '.' + String(value % 100).padStart(2, '0');

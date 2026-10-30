@@ -24,7 +24,7 @@
 
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
-body { background: var(--page); overflow: hidden; }
+body { background: #091320; overflow: hidden; }
 h1, h2, h3, p { margin: 0; }
 h1 { font-size: 22px; font-weight: 800; }
 h2 { font-size: 17px; font-weight: 800; }
@@ -56,25 +56,57 @@ label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--i
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 12px; }
 
-/* ---- start, setup and login ---- */
-.splash { height: 100%; display: grid; place-items: center; font-size: 42px; font-weight: 800; color: var(--orange); letter-spacing: 2px; }
-.center-page { height: 100%; display: grid; place-items: center; padding: 20px; overflow: auto; }
-.card.narrow { width: min(440px, 100%); padding: 26px; box-shadow: 0 10px 30px rgba(24, 35, 53, .07); }
-.login-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+/* ---- start, setup and login: the dashboard's own screen (dashboard-theme.css) ---- */
+.splash { height: 100%; display: grid; place-items: center; background: #091320; }
+.splash svg { width: min(320px, 60vw); height: auto; }
+.login-page.dashboard-login-page { height: 100%; overflow: auto; }
+.dashboard-login-brand svg { width: min(360px, 100%); height: auto; max-height: 380px; }
+.dashboard-login-alert span { flex: 1; }
+.login-link { border: 0; background: none; color: #ffab65; text-decoration: underline; padding: 0; min-height: 0; font: inherit; cursor: pointer; }
+.login-device { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 22px 0 0;
+  color: #93a8bb; font-size: 12px; }
+.setup-choose { color: #dce6f0; font-weight: 700; margin: 0 0 10px; }
+.setup-branch { display: flex; margin: 0 0 10px; }
+.dashboard-login-submit:disabled { opacity: .7; cursor: wait; }
 
-/* ---- shell ---- */
-.shell { height: 100%; display: flex; flex-direction: column; }
-.topbar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: #fff; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
-.brand { font-weight: 800; font-size: 19px; color: var(--orange); }
-.tabs { display: flex; gap: 6px; margin-inline-end: auto; flex-wrap: wrap; }
-.tabs button { border-color: transparent; background: transparent; color: var(--ink-soft); font-weight: 700; }
-.tabs button.active { background: #fff3e8; color: var(--orange-dark); border-color: #ffd7b3; }
-.tabs .online-dashboard { color: var(--purple); border-color: #ddd0fb; background: #f3eeff; }
-.session { display: flex; align-items: center; gap: 10px; }
-.session select { width: auto; min-width: 150px; }
-.branch-name { font-weight: 700; }
-.user { color: var(--ink-soft); }
-.content { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; }
+/* ---- the device's screens, framed like the dashboard (dark sidebar, light working area) ---- */
+.shell { height: 100%; display: flex; background: #091320; }
+.side { width: 250px; flex: 0 0 250px; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #0b1724;
+  border-inline-end: 1px solid #243445; color: #e8edf5; overflow: auto; }
+.side-brand { display: grid; place-items: center; padding: 6px 0 10px; border-bottom: 1px solid #243445; }
+.side-brand svg { width: 190px; height: auto; }
+.side-user { display: flex; align-items: center; gap: 9px; padding: 6px 3px; font-size: 12px; line-height: 1.6; }
+.side-user .fas { color: #f58b3a; font-size: 15px; }
+.side-user b, .side-user small { display: block; }
+.side-user small { color: #adbdcc; }
+.side-branch { background: #14293b; color: #e8edf5; border-color: #334d63; }
+.side-nav { display: flex; flex-direction: column; gap: 3px; }
+.side-nav button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 0; padding: 10px 11px; border: 0; border-radius: 8px;
+  background: transparent; color: #e8edf5; font-size: 13px; text-align: start; }
+.side-nav button:hover:not(:disabled) { background: #1c2d41; color: #fff; }
+.side-nav button.active { background: #fd7201; color: #fff; font-weight: 700; }
+.side-nav .fas { width: 22px; font-size: 17px; text-align: center; flex-shrink: 0; }
+.side-nav .side-dashboard { margin-top: 8px; border: 1px solid #334d63; }
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid #243445; }
+.side-logout { background: transparent; color: #e8edf5; border-color: #334d63; }
+.side-logout:hover:not(:disabled) { background: #1c2d41; border-color: #334d63; }
+.side .sync-badge, .status-bar .sync-badge, .login-device .sync-badge { background: #14293b; border-color: #334d63; color: #e8edf5; }
+.content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; padding: 12px; background: #f6f7fa; }
+.mode-banner { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; font-size: 13px;
+  border: 1px solid #f1c890; background: #fff7eb; color: #874b06; }
+.mode-banner.online { border-color: #b9e5c6; background: #eefaf2; color: #116c3a; }
+.mode-banner.info { border-color: #ddd0fb; background: #f3eeff; color: #4b2aa0; }
+.mode-banner span { flex: 1; }
+.mode-banner button { min-height: 30px; padding: 3px 12px; font-weight: 700; }
+
+/* ---- under the live dashboard ---- */
+.status-bar { position: fixed; inset-inline: 0; bottom: 0; height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+  background: #0b1724; border-top: 1px solid #243445; color: #e8edf5; font-size: 12px; }
+.status-brand { font-weight: 800; color: #fd7201; letter-spacing: 1px; }
+.status-who { color: #adbdcc; }
+.status-bar .sync-badge { min-height: 24px; padding: 2px 9px; }
+.status-bar button:not(.sync-badge) { min-height: 26px; padding: 2px 10px; font-size: 12px; background: #14293b; color: #e8edf5; border-color: #334d63; }
+.status-bar button:not(.sync-badge):hover { background: #1c2d41; }
 
 /* ---- sync badge ---- */
 .sync-badge { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 4px 10px; border-radius: 16px; font-size: 12px; white-space: nowrap; }

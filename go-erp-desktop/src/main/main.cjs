@@ -1,7 +1,7 @@
 'use strict';
 // GO ERP desktop: works on its own database and syncs with the dashboard every 30 seconds while online.
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, safeStorage, shell, Menu, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, safeStorage, shell, Menu, session } = require('electron');
 const db = require('./db.cjs');
 const { Store } = require('./store.cjs');
 const { Api } = require('./api.cjs');
@@ -22,12 +22,10 @@ let store;
 let api;
 let sync;
 let mainWindow = null;
-let dashboardWindow = null;
 let current = null; // { user, branch } of the signed-in account
 // What the signed-in person typed, kept in memory only, to sign the online dashboard window in as the same account.
 let dashboardLogin = null;
 let dashboardTarget = null;
-let dashboardAutoLogin = false;
 // A cashier PC's clock is often wrong. Sales and the working day use the server's time from the last sync.
 let clockOffset = 0;
 const now = () => new Date(Date.now() + clockOffset);
@@ -80,7 +78,7 @@ function branchInfo(value) {
 
 const handlers = {
   'app:info': () => ({ version: app.getVersion(), server: SERVER, device: publicDevice(), branches: store.branches(),
-    session: current, sync: sync.status(), print: printSettings(), autostart: autostart() }),
+    session: current, sync: sync.status(), print: printSettings(), autostart: autostart(), embed: EMBED, dashboard_shown: dashboardShown }),
 
   'app:autostart': (values) => {
     requireSession();
@@ -304,49 +302,117 @@ const handlers = {
 
   'sync:now': async () => { await sync.run({ refresh: true }); return sync.status(); },
 
-  // Online-only parts of the dashboard (shift closing, expense review, and every other page) open in their own window,
-  // signed in as the same account.
+  // The live dashboard, signed in as the same account, fills the window while online: the same pages,
+  // menus and permissions as on the server.
   'dashboard:open': (values) => {
-    openDashboard(values.page);
+    requireSession();
+    return showDashboard(values.page);
+  },
+
+  // The device's own screens: used while offline, or whenever the person picks them.
+  'dashboard:hide': () => {
+    hideDashboard();
     return true;
   },
 };
 
 const DASHBOARD_PAGES = { home: '/admin/dashboard', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses' };
+const BAR_HEIGHT = 34; // the app's status bar stays visible under the dashboard
+const EMBED = process.env.GOERP_DASHBOARD_VIEW !== 'off';
+let dashboardView = null;
+let dashboardShown = false;
+let dashboardSignedIn = false; // a dashboard page loaded after signing in
+let dashboardLoggingOut = false; // the person used the dashboard's own sign-out
+let dashboardLastAutoLogin = 0;
+const dashboardPopups = new Set();
 
-function openDashboard(page) {
-  const target = SERVER + (DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home);
-  dashboardTarget = page && page !== 'home' ? target : null;
-  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
-    if (page) dashboardWindow.loadURL(target);
-    dashboardWindow.focus();
-    return;
-  }
-  dashboardAutoLogin = false;
-  dashboardWindow = new BrowserWindow({ width: 1366, height: 860, title: 'الداشبورد - GO ERP', autoHideMenuBar: true,
-    webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } });
-  const contents = dashboardWindow.webContents;
-  contents.on('did-finish-load', () => onDashboardLoad(contents));
-  contents.on('did-fail-load', (event, code, description, url, mainFrame) => {
-    if (!mainFrame || code === -3) return; // -3: the load was replaced by another one
-    contents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">
-      <body style="font-family:Tahoma,Arial,sans-serif;display:grid;place-items:center;height:90vh;color:#182335">
-      <div style="text-align:center"><h2>الداشبورد يحتاج إنترنت</h2><p>الكاشير والخزنة والمصروفات شغالين من غير نت من البرنامج نفسه.</p>
-      <p><a href="${target}">إعادة المحاولة</a></p></div></body></html>`));
-  });
-  dashboardWindow.on('closed', () => { dashboardWindow = null; });
-  dashboardWindow.loadURL(target);
+function notifyDashboard(event) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('dashboard:event', event);
 }
 
-/** Fills the dashboard's own login form once per window; a manual logout inside the dashboard is respected. */
+function sameServer(url) {
+  try { return new URL(url).origin === new URL(SERVER).origin; } catch { return false; }
+}
+
+function layoutDashboard() {
+  if (!dashboardView || !mainWindow || mainWindow.isDestroyed()) return;
+  const [width, height] = mainWindow.getContentSize();
+  dashboardView.setBounds({ x: 0, y: 0, width, height: Math.max(0, height - BAR_HEIGHT) });
+}
+
+function createDashboardView() {
+  const dashboardSession = session.fromPartition('persist:dashboard');
+  const allowed = new Set(['notifications', 'geolocation', 'clipboard-sanitized-write', 'fullscreen']);
+  dashboardSession.setPermissionRequestHandler((webContents, permission, callback) => callback(allowed.has(permission)));
+  dashboardView = new WebContentsView({ webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } });
+  dashboardSignedIn = false;
+  dashboardLoggingOut = false;
+  dashboardLastAutoLogin = 0;
+  const contents = dashboardView.webContents;
+  contents.setWindowOpenHandler(({ url }) => {
+    // Print views and other dashboard pop-ups open as app windows with the same session; other sites open in the browser.
+    if (sameServer(url)) {
+      return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true,
+        webPreferences: { partition: 'persist:dashboard', sandbox: true, contextIsolation: true } } };
+    }
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  contents.on('did-create-window', (popup) => {
+    dashboardPopups.add(popup);
+    popup.on('closed', () => dashboardPopups.delete(popup));
+  });
+  // The dashboard's own sign-out link (navbar: /admin/adminLogout).
+  contents.on('will-navigate', (event, url) => {
+    if (sameServer(url) && /^\/admin\/(adminLogout|logout)\/?$/i.test(new URL(url).pathname)) dashboardLoggingOut = true;
+  });
+  contents.on('did-finish-load', () => onDashboardLoad(contents));
+  contents.on('did-fail-load', (event, code, description, url, mainFrame) => {
+    if (!mainFrame || code === -3) return; // -3: replaced by another load
+    notifyDashboard({ type: 'offline' }); // the app switches to the device's own screens
+  });
+}
+
+function showDashboard(page) {
+  if (!EMBED || !current || !mainWindow) return false;
+  const target = SERVER + (DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home);
+  dashboardTarget = page && page !== 'home' ? target : null;
+  if (!dashboardView) {
+    createDashboardView();
+    dashboardView.webContents.loadURL(target);
+  } else if (page || dashboardView.webContents.getURL() === '') {
+    dashboardView.webContents.loadURL(target);
+  }
+  if (!dashboardShown) {
+    mainWindow.contentView.addChildView(dashboardView);
+    dashboardShown = true;
+  }
+  layoutDashboard();
+  dashboardView.webContents.focus();
+  notifyDashboard({ type: 'shown' });
+  return true;
+}
+
+function hideDashboard() {
+  if (dashboardView && dashboardShown && mainWindow && !mainWindow.isDestroyed()) mainWindow.contentView.removeChildView(dashboardView);
+  dashboardShown = false;
+  notifyDashboard({ type: 'hidden' });
+}
+
+/** Signs the dashboard in as the app's account; a sign-out chosen inside the dashboard signs out of the app too. */
 async function onDashboardLoad(contents) {
-  if (!dashboardWindow || dashboardWindow.isDestroyed()) return;
   let url;
   try { url = new URL(contents.getURL()); } catch { return; }
-  if (url.origin !== new URL(SERVER).origin) return;
+  if (!sameServer(url.href)) return;
   if (url.pathname.replace(/\/+$/, '') === '/admin/login') {
-    if (dashboardAutoLogin || !dashboardLogin) return;
-    dashboardAutoLogin = true;
+    if (dashboardLoggingOut) {
+      dashboardLoggingOut = false;
+      notifyDashboard({ type: 'signed-out' });
+      return;
+    }
+    // First sign-in, or the dashboard session expired: sign in again, at most once a minute.
+    if (!dashboardLogin || Date.now() - dashboardLastAutoLogin < 60000) return;
+    dashboardLastAutoLogin = Date.now();
     const { login, password } = dashboardLogin;
     await contents.executeJavaScript(`(() => {
       const form = document.querySelector('[data-dashboard-login]') || document.querySelector('form[action*="signin"]');
@@ -358,6 +424,8 @@ async function onDashboardLoad(contents) {
     })()`).catch(() => {});
     return;
   }
+  dashboardSignedIn = true;
+  notifyDashboard({ type: 'online' });
   if (dashboardTarget && !url.href.startsWith(dashboardTarget)) {
     const target = dashboardTarget;
     dashboardTarget = null;
@@ -368,8 +436,15 @@ async function onDashboardLoad(contents) {
 }
 
 async function resetDashboard() {
-  if (dashboardWindow && !dashboardWindow.isDestroyed()) dashboardWindow.destroy();
-  dashboardWindow = null;
+  for (const popup of dashboardPopups) if (!popup.isDestroyed()) popup.destroy();
+  dashboardPopups.clear();
+  if (dashboardView) {
+    if (dashboardShown && mainWindow && !mainWindow.isDestroyed()) mainWindow.contentView.removeChildView(dashboardView);
+    if (!dashboardView.webContents.isDestroyed()) dashboardView.webContents.close();
+  }
+  dashboardView = null;
+  dashboardShown = false;
+  dashboardSignedIn = false;
   dashboardTarget = null;
   try { await session.fromPartition('persist:dashboard').clearStorageData(); } catch { /* nothing stored yet */ }
 }
@@ -389,9 +464,10 @@ function registerHandlers() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1366, height: 860, minWidth: 1024, minHeight: 680, title: 'GO ERP', autoHideMenuBar: true,
-    backgroundColor: '#f4f6fb', show: false,
+    backgroundColor: '#091320', show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   mainWindow.once('ready-to-show', () => { mainWindow.maximize(); mainWindow.show(); });
+  for (const event of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) mainWindow.on(event, layoutDashboard);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
   mainWindow.loadFile(RENDERER);
