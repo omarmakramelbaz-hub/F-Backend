@@ -345,7 +345,8 @@ function createDashboardView() {
   const dashboardSession = session.fromPartition('persist:dashboard');
   const allowed = new Set(['notifications', 'geolocation', 'clipboard-sanitized-write', 'fullscreen']);
   dashboardSession.setPermissionRequestHandler((webContents, permission, callback) => callback(allowed.has(permission)));
-  const dashboardPreferences = { partition: 'persist:dashboard', sandbox: true, contextIsolation: true,
+  // backgroundThrottling off: new-order alerts keep sounding while the device's screens are in front.
+  const dashboardPreferences = { partition: 'persist:dashboard', sandbox: true, contextIsolation: true, backgroundThrottling: false,
     preload: path.join(__dirname, 'dashboard-preload.cjs') };
   dashboardView = new WebContentsView({ webPreferences: dashboardPreferences });
   dashboardSignedIn = false;
