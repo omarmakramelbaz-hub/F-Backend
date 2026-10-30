@@ -14,6 +14,8 @@ on:
       - 'tests/Feature/DesktopSyncTest.php'
       - 'deployment/install_go_erp_desktop_sync_root.py'
       - 'tests/test_install_go_erp_desktop_sync_root.py'
+      - 'deployment/publish_go_erp_desktop_download_root.py'
+      - 'tests/test_publish_go_erp_desktop_download_root.py'
       - '.github/workflows/go-erp-desktop.yml'
   pull_request:
     paths:
@@ -65,7 +67,7 @@ jobs:
       - name: Desktop sync API tests
         run: vendor/bin/phpunit --filter DesktopSyncTest
       - name: Server installer tests
-        run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py
+        run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py tests/test_publish_go_erp_desktop_download_root.py
       - name: The dashboard's own attendance rules still pass (BranchPayroll gained the device punch option)
         run: |
           composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-progress --no-scripts
