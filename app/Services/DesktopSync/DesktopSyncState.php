@@ -112,18 +112,25 @@ class DesktopSyncState
             ->get(['id', 'name', 'phone'])->map(fn ($row) => ['id' => (int) $row->id, 'name' => (string) $row->name, 'phone' => (string) $row->phone])->all();
     }
 
-    /** Employees who may punch in on this branch's devices, and the branch's shift hours. */
+    /**
+     * Employees who may punch in on this branch's devices, and the branch's shift hours. has_salary: a leave is valued
+     * from the salary, so the dashboard records one only for an employee with a salary.
+     */
     private function employees(string $branch): array
     {
         if (! Schema::hasTable('branch_employees')) return [];
         $today = OperatingDay::date();
         $previous = OperatingDay::start($today)->subDay()->toDateString();
-        return DB::table('branch_employees')->where('branch', $branch)->where('active', true)->where('hired_on', '<=', $today)
-            ->where(fn ($query) => $query->whereNull('left_on')->orWhere('left_on', '>=', $previous))->orderBy('name')->get()
-            ->map(fn ($row) => ['id' => (int) $row->id, 'name' => (string) $row->name, 'job_title' => (string) ($row->job_title ?? ''),
+        $rows = DB::table('branch_employees')->where('branch', $branch)->where('active', true)->where('hired_on', '<=', $today)
+            ->where(fn ($query) => $query->whereNull('left_on')->orWhere('left_on', '>=', $previous))->orderBy('name')->get();
+        $salaried = $rows->isNotEmpty() && Schema::hasTable('branch_employee_salaries')
+            ? DB::table('branch_employee_salaries')->whereIn('employee_id', $rows->pluck('id'))->where('effective_month', '<=', substr($today, 0, 7))
+                ->distinct()->pluck('employee_id')->map(fn ($id) => (int) $id)->all() : [];
+        return $rows->map(fn ($row) => ['id' => (int) $row->id, 'name' => (string) $row->name, 'job_title' => (string) ($row->job_title ?? ''),
                 'schedule_type' => (string) ($row->schedule_type ?? 'branch'), 'shift' => (string) ($row->shift ?? ''),
                 'attendance_shift' => $row->attendance_shift ?? null, 'attendance_start' => isset($row->attendance_start) ? substr((string) $row->attendance_start, 0, 5) : null,
-                'attendance_end' => isset($row->attendance_end) ? substr((string) $row->attendance_end, 0, 5) : null])->all();
+                'attendance_end' => isset($row->attendance_end) ? substr((string) $row->attendance_end, 0, 5) : null,
+                'has_salary' => in_array((int) $row->id, $salaried, true)])->values()->all();
     }
 
     private function attendanceShifts(string $branch): array

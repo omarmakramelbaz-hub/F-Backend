@@ -342,7 +342,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -821,7 +821,65 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(30000, $this->deductions(52), 'An absence recorded by a person stays');
     }
 
-    public function test_the_dashboard_itself_still_refuses_device_time_and_leave_from_the_program(): void
+    private function salary(int $employee, int $cents): void
+    {
+        DB::table('branch_employee_salaries')->insert(['employee_id' => $employee, 'branch' => 'f:100', 'effective_month' => '2026-10', 'amount_cents' => $cents,
+            'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_leave_and_absence_recorded_on_the_device_follow_the_dashboard(): void
+    {
+        $this->attendanceFixture();
+        $this->salary(50, 620000);
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $employees = $this->sync($device, ['want_catalogs' => true])->json()['branches'][0]['catalog']['employees'];
+        $this->assertSame([true, false, false], array_column($employees, 'has_salary'), 'A leave is valued from the salary: only سعيد has one');
+        $leave = $this->operation('attendance_status', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'preapproved_leave', 'action' => 'set_status',
+            'notes' => 'إجازة متفق عليها']);
+        $absent = $this->operation('attendance_status', 4, ['employee_id' => 51, 'day' => '2026-10-30', 'status' => 'unauthorized_absence', 'action' => 'set_status']);
+        $unpaid = $this->operation('attendance_status', 4, ['employee_id' => 52, 'day' => '2026-10-30', 'status' => 'preapproved_leave', 'action' => 'set_status']);
+        $results = $this->sync($device, ['operations' => [$leave, $absent, $unpaid]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'applied', 'rejected'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame(['preapproved_leave', null, null], [$results[0]['attendance']['status'], $results[0]['attendance']['checked_in_at'],
+            $results[0]['attendance']['checked_out_at']]);
+        $this->assertSame('سجّل راتب الموظف لحساب قيمة يوم الإجازة.', $results[2]['error']);
+        $this->assertSame(20000, $this->deductions(50), 'A leave day: the monthly salary ÷ the days of the month (31)');
+        $this->assertSame('إجازة متفق عليها', DB::table('branch_employee_days')->where('employee_id', 50)->value('notes'));
+        $this->assertSame(30000, $this->deductions(51), "The branch's absence deduction");
+        // The day's first status stays: a check-in after the absence is refused, as on the dashboard; a resend is the same record.
+        $late = $this->operation('attendance', 4, ['employee_id' => 51, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in']);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$late]])->json()['results'][0]['status']);
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$leave]])->json()['results'][0]);
+        $this->assertSame(2, DB::table('branch_employee_days')->count());
+    }
+
+    public function test_an_automatic_absence_gives_way_to_a_leave_recorded_on_the_device_before_the_deadline(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-30 23:30:00', 'Africa/Cairo'));
+        $this->attendanceFixture();
+        $this->salary(50, 620000);
+        $this->salary(51, 620000);
+        $this->automaticAbsence(50);
+        $this->automaticAbsence(51);
+        $this->automaticAbsence(52, false); // recorded by a person
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $results = $this->sync($device, ['operations' => [
+            $this->operation('attendance_status', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'preapproved_leave', 'action' => 'set_status'],
+                ['occurred_at' => '2026-10-30T08:00:00Z']),
+            $this->operation('attendance_status', 4, ['employee_id' => 51, 'day' => '2026-10-30', 'status' => 'preapproved_leave', 'action' => 'set_status'],
+                ['occurred_at' => '2026-10-30T20:30:00Z']),
+            $this->operation('attendance_status', 4, ['employee_id' => 52, 'day' => '2026-10-30', 'status' => 'unauthorized_absence', 'action' => 'set_status'],
+                ['occurred_at' => '2026-10-30T08:00:00Z']),
+        ]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'rejected', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('preapproved_leave', DB::table('branch_employee_days')->where('employee_id', 50)->value('status'));
+        $this->assertSame(20000, $this->deductions(50), 'The automatic absence deduction gives way to the leave day');
+        $this->assertSame(30000, $this->deductions(51), 'A leave recorded after the deadline does not undo the absence');
+        $this->assertSame(30000, $this->deductions(52), 'An absence recorded by a person stays as it was');
+        $this->assertSame(1, (int) DB::table('branch_employee_days')->where('employee_id', 52)->value('revision'));
+    }
+
+    public function test_a_punch_operation_cannot_set_a_status_and_the_page_cannot_send_device_times(): void
     {
         $this->attendanceFixture();
         $device = $this->enroll('01000000004', 'cashier-pass')->json();

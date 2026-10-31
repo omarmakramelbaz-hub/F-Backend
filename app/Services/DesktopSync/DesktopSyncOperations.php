@@ -26,7 +26,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -72,6 +72,7 @@ class DesktopSyncOperations
                 'expense' => $this->expense($actor, $values['branch'], $id, $when, $values['data']),
                 'till' => $this->till($actor, $values['branch'], $id, $values['data']),
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
+                'attendance_status' => $this->attendance($actor, $values['branch'], $id, $when, $values['data'], true),
                 'ticket_settle' => $this->ticketSettle($actor, $values['branch'], $id, $values['data']),
                 'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
                 'ticket_action' => $this->ticketAction($actor, $values['branch'], $id, $values['data']),
@@ -207,11 +208,16 @@ class DesktopSyncOperations
      * An employee's check-in or check-out at the time the device recorded it, also while it was offline
      * (the owner's choice). The dashboard's own rules apply: shift, late arrival and early leave deductions.
      */
-    private function attendance(User $actor, string $branch, string $id, Carbon $when, array $data): array
+    /**
+     * $status: the employees page's leave or absence for the day (set_status), recorded on the device; like a punch, the
+     * dashboard keeps the first status of the day and replaces an automatic absence the device's record was too late for.
+     */
+    private function attendance(User $actor, string $branch, string $id, Carbon $when, array $data, bool $status = false): array
     {
         $data = Validator::make($data, [
             'employee_id' => 'required|integer|min:1', 'day' => 'required|date_format:Y-m-d',
-            'status' => 'required|in:morning,evening,part_time', 'action' => 'required|in:check_in,check_out',
+            'status' => $status ? 'required|in:preapproved_leave,unauthorized_absence' : 'required|in:morning,evening,part_time',
+            'action' => $status ? 'required|in:set_status' : 'required|in:check_in,check_out',
             'notes' => 'nullable|string|max:1000',
         ])->validate();
         if (trim((string) ($data['notes'] ?? '')) === '') unset($data['notes']);

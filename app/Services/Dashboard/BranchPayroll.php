@@ -184,9 +184,10 @@ class BranchPayroll
         }
     }
     /**
-     * $punchedAt is set only for a punch an enrolled GO ERP desktop device recorded, possibly while offline: its time
-     * replaces the server clock, the page revision is not needed, and an automatic absence recorded only because the
-     * punch had not reached the server before the deadline is replaced. The dashboard itself always uses server time.
+     * $punchedAt is set only for a punch, leave or absence an enrolled GO ERP desktop device recorded, possibly while
+     * offline: its time replaces the server clock, the page revision is not needed, and an automatic absence recorded only
+     * because the device's record had not reached the server before the deadline is replaced. The dashboard itself always
+     * uses server time.
      */
     public function attendance(array $values,$actor,?Carbon $punchedAt=null): array
     {
@@ -195,14 +196,13 @@ class BranchPayroll
             'status'=>'required|in:morning,evening,part_time,preapproved_leave,unauthorized_absence','action'=>'required|in:check_in,check_out,set_status',
             'check_in'=>'prohibited','check_out'=>'prohibited','checked_in_at'=>'prohibited','checked_out_at'=>'prohibited','notes'=>'nullable|string|max:1000'])->validate();
         abort_if($v['day']>OperatingDay::date(),422,'لا يمكن تسجيل الحضور ليوم مستقبلي.');
-        abort_if($punchedAt&&!in_array($v['action'],['check_in','check_out'],true),422,'برنامج الكمبيوتر يسجل الحضور والانصراف فقط.');
         return $this->ops->write('employee.attendance',$v,$actor,function($branch,$actor)use($v,$punchedAt){
             $employee=$this->employee($v['employee_id'],$v['branch'],true);$this->employmentDay($employee,$v['day']);$this->openMonth($employee->id,substr($v['day'],0,7));
             $old=DB::table('branch_employee_days')->where('employee_id',$employee->id)->where('day',$v['day'])->first();if($old&&!$punchedAt)$this->ops->revision($old,$v);
             $status=$v['status'];$present=in_array($status,['morning','evening','part_time'],true);$clock=$punchedAt?$punchedAt->copy()->setTimezone('Africa/Cairo'):now('Africa/Cairo');
-            if($punchedAt&&$old&&$old->status==='unauthorized_absence'&&$v['action']==='check_in'&&$present){
+            if($punchedAt&&$old&&$old->status==='unauthorized_absence'&&($present?$v['action']==='check_in':$v['action']==='set_status')){
                 $recorded=json_decode($old->attendance_rule_snapshot??'',true)?:[];
-                // The absence was recorded automatically because this punch had not reached the server before the deadline.
+                // The absence was recorded automatically because this punch (or leave or absence) had not reached the server before the deadline.
                 if(!empty($recorded['automatically_recorded'])&&!empty($recorded['automatic_absence_deadline'])
                     &&$clock->lessThan(Carbon::parse($recorded['automatic_absence_deadline'],'UTC')))
                     $old=(object)array_merge((array)$old,['status'=>'unrecorded','attendance_rule_snapshot'=>null,
