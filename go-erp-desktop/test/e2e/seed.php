@@ -27,6 +27,9 @@ Schema::create('resturants', function (Blueprint $t) {
     $t->id(); $t->unsignedBigInteger('user_id'); $t->unsignedBigInteger('parent_id')->nullable();
     $t->string('name'); $t->string('address')->default('شارع ٩ - المعادي'); $t->string('phone')->default('01000000000');
     $t->decimal('service_fees', 6, 2)->default(0); $t->timestamps();
+    // The branch's delivery pin and tariff (as on the live site).
+    $t->decimal('lat', 10, 7)->nullable(); $t->decimal('lng', 10, 7)->nullable();
+    foreach (['km_price', 'default_0_1', 'default_1_2', 'default_2_3'] as $column) $t->decimal($column, 10, 2)->nullable();
 });
 Schema::create('categories', function (Blueprint $t) { $t->id(); $t->string('name_ar'); $t->string('name_en'); });
 Schema::create('resturant_products', function (Blueprint $t) {
@@ -50,6 +53,7 @@ require_once database_path('migrations/2026_10_06_200000_manage_expense_categori
 require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php'); (new \ScopeExpenseCategoriesByBranch)->up();
 require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up();
 require_once database_path('migrations/2026_10_06_130000_create_phone_delivery_batches.php'); (new \CreatePhoneDeliveryBatches)->up();
+require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php'); (new \CreatePosBranchPrintJobs)->up();
 require_once database_path('migrations/2026_10_06_140000_add_employee_wallet_phone.php'); (new \AddEmployeeWalletPhone)->up();
 require_once database_path('migrations/2026_10_08_190000_add_employee_attendance_rules.php'); (new \AddEmployeeAttendanceRules)->up();
 require_once database_path('migrations/2026_10_18_160000_add_employee_part_time_schedule.php'); (new \AddEmployeePartTimeSchedule)->up();

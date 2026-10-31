@@ -68,6 +68,8 @@ class SyncEngine extends EventEmitter {
           operations, want_users: refresh, users_hash: this.store.usersHash(), want_catalogs: refresh, catalog_hashes: this.store.catalogHashes(),
           // Open dine-in and delivery orders and the tables, every sync: what the device collects payment for offline.
           want_service: true, service_hashes: this.store.serviceHashes(),
+          // The branches' saved delivery customers changed since the device's copy (new delivery orders offline).
+          want_customers: true, customers_cursor: this.store.customersCursor(),
         });
       } catch (error) {
         if (process.env.GOERP_DEBUG_SYNC) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} sync failed: ${error.status} ${error.cause || ''}`);
@@ -83,13 +85,14 @@ class SyncEngine extends EventEmitter {
       if (response.users) this.store.replaceUsers(response.users, response.users_hash);
       if (response.branches) this.store.applyBranches(response.branches);
       if (Array.isArray(response.service)) this.store.applyService(response.service);
+      const moreCustomers = response.customers ? this.store.applyCustomers(response.customers) : false;
       if (refresh) this.lastRefresh = this.now();
       const syncedAt = new Date(this.now()).toISOString();
       this.store.set('last_sync_at', syncedAt);
       if (response.server_time) this.store.set('server_offset_ms', Date.parse(response.server_time) - this.now());
       this.state = { ...this.state, online: true, last_sync_at: syncedAt, last_error: null };
-      // A full batch means more operations are waiting: continue right away.
-      if (operations.length >= 50) next = 1000;
+      // A full batch means more operations (or saved customers) are waiting: continue right away.
+      if (operations.length >= 50 || moreCustomers) next = 1000;
       // The dashboard is reachable: dine-in orders opened offline and still unpaid continue there.
       if (this.store.queueTicketMoves() > 0) next = 1000;
     } finally {

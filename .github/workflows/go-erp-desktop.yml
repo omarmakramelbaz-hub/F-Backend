@@ -17,6 +17,12 @@ on:
       - 'resources/lang/ar/phone_orders.php'
       - 'app/Services/Dashboard/PosService*.php'
       - 'app/Services/Dashboard/PhoneDeliveryBoard.php'
+      - 'app/Services/Dashboard/PhoneDelivery.php'
+      - 'app/Services/Dashboard/BranchDeliveryTariff.php'
+      - 'app/Services/Dashboard/BranchCustomers.php'
+      - 'app/Services/Dashboard/PosServicePhone.php'
+      - 'resources/views/admin/phone_orders/index.blade.php'
+      - 'public/dashboard/js/branch-print-receiver.js'
       - 'public/dashboard/js/takeaway-pos.js'
       - 'public/dashboard/js/dining-pos.js'
       - 'public/dashboard/js/phone-orders.js'
@@ -94,6 +100,10 @@ jobs:
           cmp "$RUNNER_TEMP/receipts.json" go-erp-desktop/test/fixtures/receipts.json
           php go-erp-desktop/test/receipt-fixtures.php labels > "$RUNNER_TEMP/labels.json"
           cmp "$RUNNER_TEMP/labels.json" go-erp-desktop/src/main/offline/labels.json
+      - name: The app's delivery fee is the dashboard's own calculation
+        run: |
+          php go-erp-desktop/test/delivery-vectors.php > "$RUNNER_TEMP/delivery-vectors.json"
+          cmp "$RUNNER_TEMP/delivery-vectors.json" go-erp-desktop/test/fixtures/delivery-vectors.json
       - name: The dine-in and delivery pages still answer in the shapes the app answers with offline
         run: |
           php go-erp-desktop/test/dining-capture.php "$RUNNER_TEMP/dining.json"

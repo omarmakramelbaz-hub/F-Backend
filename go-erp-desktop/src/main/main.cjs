@@ -16,6 +16,7 @@ const { TakeawayOffline } = require('./offline/takeaway.cjs');
 const { ExpensesOffline } = require('./offline/expenses.cjs');
 const { EmployeesOffline } = require('./offline/employees.cjs');
 const { ServiceOffline } = require('./offline/service.cjs');
+const { DeliveryOffline } = require('./offline/delivery.cjs');
 
 const SERVER = process.env.GOERP_SERVER || 'https://fasakhaninja.com';
 // Lets the automatic tests run the app on a separate data folder.
@@ -660,7 +661,7 @@ app.whenReady().then(() => {
       new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
       new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
       new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'dine' }),
-      new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'phone' })],
+      new DeliveryOffline({ store, origin, now, kick: () => sync.kick() })],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
     onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
     onFromCopy: (contents) => fromCopy.add(contents),

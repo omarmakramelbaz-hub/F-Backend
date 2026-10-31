@@ -30,4 +30,10 @@ foreach (['عميل التوصيل ١', 'عميل التوصيل ٢'] as $name) 
         'delivery_company_id' => 1, 'delivery_company_snapshot' => $company, 'business_date' => App\Services\Dashboard\OperatingDay::date(),
         'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
 }
+// The branch's pin (المعادي) and delivery tariff, and a returning delivery customer with her saved location (about 1.1 km).
+DB::table('resturants')->where('id', 100)->update(['lat' => 29.9602, 'lng' => 31.2569, 'km_price' => '10.00', 'default_0_1' => '15.00',
+    'default_1_2' => '20.00', 'default_2_3' => '25.00']);
+DB::table('branch_customers')->insert(['branch' => 'f:100', 'name' => 'هبة', 'phone' => '01055556666', 'phone_key' => '01055556666',
+    'address' => 'شارع ٢٠٠، دجلة', 'area' => 'المعادي', 'delivery_notes' => 'جنب الصيدلية', 'latitude' => 29.9702, 'longitude' => 31.2569,
+    'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
 echo "service orders: ".$quote['total']."\n";

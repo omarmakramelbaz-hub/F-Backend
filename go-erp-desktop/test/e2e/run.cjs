@@ -650,6 +650,46 @@ async function dashboardOffline() {
   await inDashboard(app, "(() => { document.querySelector('[data-phone-settle-confirmed]').click(); document.querySelector('[data-phone-settle-submit]').click(); })()");
   await checked("document.querySelectorAll('[data-phone-column=\"finished\"] [data-phone-ticket]').length === 3", 'the delivery order is collected on the device', 30000);
   await dashboardShot(app, '21-dashboard-delivery-collected-offline');
+
+  // A new delivery order offline, on the dashboard's own page without its map: هبة by her number (her saved location), the
+  // delivery fee from the branch's tariff (about 1.1 km: 20.00), one سلطة طحينة (25.00) → 45.00.
+  const phone = (code) => inDashboard(app, `(() => { const root = document.querySelector('#phone-orders') || document; ${code} })()`);
+  await inDashboard(app, "location.href = '/admin/phone-orders'");
+  await checked("!!document.querySelector('[data-phone-field=\"customer_phone\"]') && document.body.dataset.dashboardLocal === '1'",
+    'the delivery page opens offline in its no-map mode', 30000);
+  await phone(`const input = document.querySelector('[data-phone-field="customer_phone"]'); input.value = '01055556666';
+    input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('[data-phone-next-number]').click();`);
+  await checked("document.querySelector('[data-phone-field=\"customer_name\"]').value === 'هبة' && document.querySelector('[data-phone-lat]').value !== ''",
+    'the returning customer is found on the device with her location');
+  await phone("document.querySelector('[data-phone-confirm-location]').click();");
+  await checked("document.querySelector('[data-phone-field=\"delivery_fee\"]').value === '20.00' && /تم تأكيد/.test(document.querySelector('[data-phone-distance]').textContent)",
+    'the delivery fee is calculated on the device');
+  await dashboardShot(app, '22-dashboard-new-delivery-location-offline');
+  await phone("document.querySelector('[data-phone-next-details]').click();");
+  await checked("document.querySelectorAll('[data-phone-product]').length >= 3", 'the customer is saved and the products open');
+  await phone(`Array.from(document.querySelectorAll('[data-phone-product]')).find((button) => button.textContent.includes('سلطة طحينة')).click();
+    const option = document.querySelector('[data-phone-modal]:not([hidden]) .ph-option-list button'); if (option) option.click();`);
+  await checked("document.querySelector('[data-phone-total=\"total\"]').textContent.includes('45.00')", 'the device prices the delivery order');
+  // The customer agrees to the follow-up (the page sends nothing before it).
+  await phone("const consent = document.querySelector('[data-phone-customer-consent]'); if (!consent.checked) consent.click();");
+  await checked("!document.querySelector('[data-phone-save]').disabled", 'the order can be sent');
+  await phone("document.querySelector('[data-phone-save]').click();");
+  await until(() => deviceRows(userData, 'goerp.sqlite', `SELECT COUNT(*) AS c FROM tickets WHERE channel = 'phone' AND json_extract(data, '$.kind') = 'local'`)[0].c === 1,
+    'the new delivery order is saved on the device', 30000).catch(async (error) => { await report('new delivery order'); throw error; });
+  // The branch printer took its kitchen ticket from the device (no printer here: recorded as failed, like the dashboard).
+  await until(() => deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM kitchen_prints WHERE job_status IN ('invoked', 'failed')")[0].c === 1,
+    'the branch printer picks up the kitchen ticket', 30000);
+  await inDashboard(app, "location.href = '/admin/phone-orders?view=orders'");
+  await checked(`!!${card.replace('%s', 'preparing')} && /هبة/.test(${card.replace('%s', 'preparing')}.innerText)`, 'the new order is on the board', 30000);
+  await press('preparing', 'اختيار شركة التوصيل');
+  await checked("!!document.querySelector('[data-phone-board-company]')", 'the courier choice opens for the new order');
+  await inDashboard(app, "(() => { const select = document.querySelector('[data-phone-board-company]'); select.value = select.options[1].value; select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await checked(`!!${card.replace('%s', 'courier')}`, 'the new order is with the courier', 30000);
+  await press('courier', 'إنهاء الأوردر');
+  await checked("!!document.querySelector('[data-phone-settle-cash]')", 'the new order\'s collection opens');
+  await inDashboard(app, "(() => { document.querySelector('[data-phone-settle-confirmed]').click(); document.querySelector('[data-phone-settle-submit]').click(); })()");
+  await checked("document.querySelectorAll('[data-phone-column=\"finished\"] [data-phone-ticket]').length === 4", 'the new order is collected on the device', 30000);
+  await dashboardShot(app, '23-dashboard-new-delivery-collected-offline');
   // A page this account never saved explains that it needs the internet, inside the dashboard.
   await inDashboard(app, "window.DashboardSPA && window.DashboardSPA.visit('/admin/wallets/transactions')");
   await until(async () => /الصفحة دي محتاجة إنترنت/.test(await inDashboard(app, 'document.body.innerText').catch(() => '')), 'unsaved page message');
@@ -679,7 +719,12 @@ async function dashboardOffline() {
     'the delivery orders are collected', 40000);
   assert.equal(serverRows('SELECT COUNT(*) AS c FROM phone_delivery_dispatches')[0].c, 1, 'handed to the courier once');
   assert.deepEqual(serverRows('SELECT total_cents FROM phone_delivery_batches').map((row) => row.total_cents), [21000], 'The courier\'s batch, once');
-  assert.equal(orderCount(), before + 6, 'The takeaway sale, the new dine-in order, the dashboard order and three delivery orders: each once');
+  // The new delivery order: one invoice with its delivery fee, and هبة's customer record saved for the branch.
+  const placed = deviceRows(userData, 'goerp.sqlite', "SELECT id FROM outbox WHERE kind = 'sale' AND json_extract(payload, '$.data.channel') = 'phone'")[0];
+  await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${placed.id}' AND channel = 'phone' AND total_cents = 4500`)[0].c === 1,
+    'the delivery order placed offline reaches the dashboard', 40000);
+  await until(() => serverRows("SELECT revision FROM branch_customers WHERE phone_key = '01055556666'")[0].revision === 2, 'the customer saved offline reaches the dashboard', 40000);
+  assert.equal(orderCount(), before + 7, 'The takeaway sale, the new dine-in order, the dashboard order and four delivery orders: each once');
   await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
   await app.close();
 }

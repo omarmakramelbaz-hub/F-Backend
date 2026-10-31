@@ -65,6 +65,16 @@ const MIGRATIONS = [
    CREATE TABLE kitchen_prints (seq INTEGER PRIMARY KEY AUTOINCREMENT, ticket_ref TEXT NOT NULL, revision INTEGER NOT NULL, snapshot TEXT NOT NULL,
      created_at TEXT NOT NULL);
    CREATE TABLE service_overlays (ticket_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`,
+  // Version 1.9: new delivery orders on the dashboard's page offline. The branches' saved delivery customers (from the
+  // dashboard, and those saved here), and the kitchen tickets the branch printer prints from this device.
+  `CREATE TABLE directory (
+     id INTEGER PRIMARY KEY, branch TEXT NOT NULL, name TEXT NOT NULL, phone TEXT NOT NULL, phone_key TEXT NOT NULL, address TEXT NOT NULL,
+     area TEXT NOT NULL DEFAULT '', delivery_notes TEXT NOT NULL DEFAULT '', latitude REAL, longitude REAL, revision INTEGER NOT NULL,
+     local INTEGER NOT NULL DEFAULT 0, updated_at TEXT);
+   CREATE INDEX directory_phone ON directory (branch, phone_key);
+   ALTER TABLE kitchen_prints ADD COLUMN branch TEXT;
+   ALTER TABLE kitchen_prints ADD COLUMN job_status TEXT;
+   ALTER TABLE kitchen_prints ADD COLUMN claim_token TEXT;`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

@@ -212,7 +212,7 @@ class ServiceOffline {
   /** The number shown for an order opened on this device (the dashboard's own orders keep theirs). */
   localNumber(ticket) {
     const code = String((this.store.device() || {}).code || 'D').toUpperCase();
-    return `DI-${code}-${ticket.seq}`;
+    return `${ticket.channel === 'phone' ? 'PH' : 'DI'}-${code}-${ticket.seq}`;
   }
 
   /** PosServiceTicket::present for an order opened on this device. */
@@ -223,9 +223,10 @@ class ServiceOffline {
     const canReprint = paid && !!user.can_reprint;
     const quote = data.quote;
     const value = { id, channel: ticket.channel, branch: quote.branch, revision: data.revision, status: data.status, payment_status: paid ? 'paid' : 'unpaid',
-      table: data.table, waiter_name: data.waiter_name || '', guest_count: data.guest_count ?? null, customer_name: data.customer_name || '',
-      customer_phone: data.customer_phone || '', address: '', area: '', delivery_notes: '', customer_id: null, customer_revision: null,
-      delivery_company: null, delivery_location: null, delivery_fee: '0.00', notes: data.notes || '', cancel_reason: data.cancel_reason || '',
+      table: data.table ?? null, waiter_name: data.waiter_name || '', guest_count: data.guest_count ?? null, customer_name: data.customer_name || '',
+      customer_phone: data.customer_phone || '', address: data.address || '', area: data.area || '', delivery_notes: data.delivery_notes || '',
+      customer_id: data.customer_id ?? null, customer_revision: data.customer_revision ?? null, delivery_company: data.delivery_company ?? null,
+      delivery_location: data.location ?? null, delivery_fee: data.delivery_fee || '0.00', notes: data.notes || '', cancel_reason: data.cancel_reason || '',
       created_at: cairoIso(ticket.created_at), updated_at: cairoIso(ticket.updated_at), cashier: { id: ticket.actor_id, name: ticket.actor_name },
       kitchen_sent: !!data.kitchen, bill_locked: !!data.bill, bill_issued_at: data.bill ? cairoIso(data.bill.at) : null,
       bill_issued_by: data.bill ? data.bill.by : null, bill_issued_revision: data.bill ? data.bill.revision : null,
@@ -238,7 +239,8 @@ class ServiceOffline {
     if (full) {
       value.items = quote.items;
       value.cart = { branch: ticket.branch, items: quote.items.map((line) => ({ product_id: line.product_id, quantity: line.quantity,
-        quantity_mode: line.quantity_mode, option_id: line.option_id })), discount: quote.discount, discount_reason: data.discount_reason || '', delivery_fee: '0.00' };
+        quantity_mode: line.quantity_mode, option_id: line.option_id })), discount: quote.discount, discount_reason: data.discount_reason || '',
+        delivery_fee: data.delivery_fee || '0.00' };
     }
     return value;
   }
@@ -573,9 +575,16 @@ class ServiceOffline {
   localAction(user, command, local, action, expected, reason, hash) {
     this.mutable(local);
     if (expected !== local.data.revision) throw new Reply(409, CHANGED);
-    if (action === 'send_kitchen' && local.data.kitchen) throw new Reply(409, KITCHEN_SENT);
-    if (action === 'cancel' && local.data.kitchen) throw new Reply(409, 'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');
-    if (action !== 'cancel' && !(local.data.items || []).length) throw new Reply(422, 'الفاتورة فارغة.');
+    const phone = local.channel === 'phone';
+    const current = local.data.status;
+    // PosServiceTicket::action, for an order of this device.
+    if (action === 'send_kitchen' && !phone && local.data.kitchen) throw new Reply(409, KITCHEN_SENT);
+    if (action === 'cancel') {
+      if (!phone && local.data.kitchen) throw new Reply(409, 'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');
+      if (phone && !['new', 'preparing'].includes(current)) throw new Reply(409, 'إلغاء طلب الدليفري متاح أثناء التجهيز وقبل تسليمه للمندوب.');
+    } else if (!(local.data.items || []).length) throw new Reply(422, 'الفاتورة فارغة.');
+    const stages = { prepare: [['new'], 'preparing'], dispatch: [['new', 'preparing'], 'out_for_delivery'], finish: [['out_for_delivery'], 'finished'] };
+    if (stages[action] && !stages[action][0].includes(current)) throw new Reply(409, 'المرحلة غير متاحة.');
     const revision = local.data.revision + 1;
     const data = { ...local.data, revision };
     delete data.move_op;
@@ -585,15 +594,18 @@ class ServiceOffline {
       Object.assign(data, { status: 'cancelled', cancel_reason: reason });
       status = 'cancelled';
     } else if (action === 'send_kitchen') {
-      data.status = 'preparing';
+      data.status = phone ? (current === 'new' ? 'preparing' : current) : 'preparing';
+    } else if (action === 'request_bill') {
+      Object.assign(data, { status: phone ? current : 'awaiting_bill', bill: { at: this.now().toISOString(), by: user.id, revision } });
     } else {
-      Object.assign(data, { status: 'awaiting_bill', bill: { at: this.now().toISOString(), by: user.id, revision } });
+      data.status = stages[action][1];
     }
     this.store.atomically(() => {
       if (!this.store.cancelTicketMove(local.id)) throw new Reply(409, MOVING);
       const updated = this.store.updatePageTicket(local.id, data, status);
       if (action === 'send_kitchen') {
-        meta.kitchen = this.store.addKitchenPrint(local.id, revision, this.presentLocal(user, updated, true));
+        // A delivery order's kitchen ticket goes to the branch printer, like the dashboard's print queue.
+        meta.kitchen = this.store.addKitchenPrint(local.id, revision, this.presentLocal(user, updated, true), { job: phone, branch: local.branch });
         this.store.updatePageTicket(local.id, { ...data, kitchen: meta.kitchen }, status);
       }
       this.store.recordPageCommand(command.key, 'action', local.id, revision, user, command.branch, meta);
@@ -674,9 +686,13 @@ class ServiceOffline {
     const context = this.context(ticket, phone, consent);
     if (found.local) {
       const local = found.local;
-      const data = { ...local.data, status: 'paid', revision, customer_phone: phone, service_consent: true,
+      const delivery = local.channel === 'phone';
+      // Paid: a delivery order is finished (as the dashboard marks it), with the company that took it on its invoice.
+      const company = delivery ? (local.data.courier || local.data.delivery_company) : null;
+      const data = { ...local.data, status: delivery ? 'finished' : 'paid', revision, customer_phone: phone, service_consent: true,
         marketing_consent: yes(body.marketing_consent) || !!local.data.marketing_consent, settle_key: command.key, page_ticket_id: ticket.id,
-        table_name: local.data.table.name, address: '', context, delivery_company_id: null, driver: '' };
+        table_name: delivery ? '' : local.data.table.name, address: delivery ? local.data.address : '', context,
+        delivery_company_id: company ? Number(company.id) : null, driver: '' };
       delete data.move_op;
       this.store.atomically(() => {
         if (!this.store.cancelTicketMove(local.id)) throw new Reply(409, MOVING);
@@ -746,6 +762,14 @@ class ServiceOffline {
         orders.push({ ...this.presentServer(user, server, overlay, false), courier_company: courier, batch_print_url: null,
           completed_at: record ? cairoIso(record.paid_at) : (overlay && overlay.cancelled ? overlay.updated_at : null) });
       }
+      // Orders placed on this device while offline.
+      for (const local of this.store.pageTickets(value, 'phone')) {
+        if (local.data.kind !== 'local' || local.status === 'moved') continue;
+        const courier = local.data.courier || local.data.delivery_company || null;
+        if (company && !(courier && Number(courier.id) === company)) continue;
+        orders.push({ ...this.presentLocal(user, local, false), courier_company: courier, batch_print_url: null,
+          completed_at: local.status === 'paid' ? cairoIso(local.paid_at) : (local.status === 'cancelled' ? cairoIso(local.updated_at) : null) });
+      }
     }
     const columns = {};
     for (const stage of ['preparing', 'courier', 'finished']) {
@@ -777,10 +801,11 @@ class ServiceOffline {
     }
     const catalog = this.takeaway.branch(user, command.branch);
     if (!user.can_checkout) throw new Reply(403, 'الحساب غير مسموح له بالبيع.');
-    if (!this.supports('ticket_dispatch')) throw new Reply(422, NEEDS_UPDATE);
     const found = this.find(user, ticketId);
-    if (found.branch !== command.branch || !found.server) throw new Reply(404, NOT_HERE);
-    const ticket = this.presentServer(user, found.server, found.overlay, true);
+    if (found.branch !== command.branch) throw new Reply(404, NOT_HERE);
+    if (found.server && !this.supports('ticket_dispatch')) throw new Reply(422, NEEDS_UPDATE);
+    if (found.local) this.mutable(found.local);
+    const ticket = this.present(user, found, true);
     if (expected !== Number(ticket.revision)) throw new Reply(409, 'البيانات تغيرت. حدّث الصفحة قبل الحفظ.');
     if (ticket.payment_status !== 'unpaid' || !['new', 'preparing'].includes(ticket.status)) throw new Reply(409, 'الطلب انتقل من مرحلة التجهيز. حدّث القائمة.');
     if (!(ticket.items || []).length) throw new Reply(422, 'الفاتورة فارغة.');
@@ -790,13 +815,24 @@ class ServiceOffline {
     const revision = Number(ticket.revision) + 1;
     const result = { operation: { kind: 'phone.dispatch', idempotency_key: command.key }, branch: command.branch, ticket_id: ticketId, revision, company: snapshot,
       success: true };
-    const next = { ...(found.overlay || {}), base_revision: found.overlay ? found.overlay.base_revision : Number(found.server.revision), revision,
-      status: 'out_for_delivery', courier_company: snapshot, updated_at: cairoIso(this.now().toISOString()) };
-    this.store.atomically(() => {
-      this.store.overlayServerTicket(ticketId, next, { id: command.key, kind: 'ticket_dispatch', actor_id: user.id, branch: command.branch,
-        data: { ticket_id: ticketId, company_id: companyId } });
-      this.store.recordPageCommand(command.key, 'phone.dispatch', `S:${ticketId}`, revision, user, command.branch, { hash, result });
-    });
+    if (found.local) {
+      // An order placed here: it leaves with the courier of that company (sent with the order when it moves to the dashboard).
+      const data = { ...found.local.data, revision, status: 'out_for_delivery', courier: snapshot };
+      delete data.move_op;
+      this.store.atomically(() => {
+        if (!this.store.cancelTicketMove(found.local.id)) throw new Reply(409, MOVING);
+        this.store.updatePageTicket(found.local.id, data);
+        this.store.recordPageCommand(command.key, 'phone.dispatch', found.local.id, revision, user, command.branch, { hash, result });
+      });
+    } else {
+      const next = { ...(found.overlay || {}), base_revision: found.overlay ? found.overlay.base_revision : Number(found.server.revision), revision,
+        status: 'out_for_delivery', courier_company: snapshot, updated_at: cairoIso(this.now().toISOString()) };
+      this.store.atomically(() => {
+        this.store.overlayServerTicket(ticketId, next, { id: command.key, kind: 'ticket_dispatch', actor_id: user.id, branch: command.branch,
+          data: { ticket_id: ticketId, company_id: companyId } });
+        this.store.recordPageCommand(command.key, 'phone.dispatch', `S:${ticketId}`, revision, user, command.branch, { hash, result });
+      });
+    }
     this.kick();
     return json({ ...result, replayed: false });
   }
@@ -831,19 +867,21 @@ class ServiceOffline {
     const catalog = this.takeaway.branch(user, command.branch);
     if (!user.can_checkout) throw new Reply(403, 'الحساب غير مسموح له بالبيع.');
     if (body.payment_method !== 'cash') throw new Reply(422, 'الدفع متاح كاش فقط.');
-    if (!this.supports('ticket_batch')) throw new Reply(422, NEEDS_UPDATE);
     // PhoneDeliveryBoard::finish, order by order.
     let total = 0;
     let company = null;
     const orders = [];
     for (const line of [...lines].sort((a, b) => a.id - b.id)) {
       const found = this.find(user, line.id);
-      if (found.branch !== command.branch || !found.server) throw new Reply(404, NOT_HERE);
-      const ticket = this.presentServer(user, found.server, found.overlay, true);
+      if (found.branch !== command.branch) throw new Reply(404, NOT_HERE);
+      if (found.server && !this.supports('ticket_batch')) throw new Reply(422, NEEDS_UPDATE);
+      if (found.local && found.local.status === 'moved') throw new Reply(409, MOVED);
+      const ticket = this.present(user, found, true);
       if (ticket.payment_status !== 'unpaid' || !['out_for_delivery', 'finished'].includes(ticket.status)) throw new Reply(409, 'أحد الطلبات تم تحصيله أو تغيرت مرحلته. حدّث القائمة.');
       if (line.revision !== Number(ticket.revision)) throw new Reply(409, 'البيانات تغيرت. حدّث الصفحة قبل الحفظ.');
       if (ticket.quote_hash !== line.quote_hash) throw new Reply(409, 'تغيرت قيمة أحد الطلبات.');
-      const assigned = (found.overlay && found.overlay.courier_company) || found.server.courier_company || ticket.delivery_company;
+      const assigned = found.local ? (found.local.data.courier || found.local.data.delivery_company)
+        : (found.overlay && found.overlay.courier_company) || found.server.courier_company || ticket.delivery_company;
       if (!assigned || !assigned.id) throw new Reply(422, 'يجب إسناد الطلب إلى شركة توصيل أولًا.');
       if (company && Number(company.id) !== Number(assigned.id)) throw new Reply(422, 'اختر طلبات شركة واحدة لمندوب واحد.');
       company = company || assigned;
@@ -855,11 +893,29 @@ class ServiceOffline {
     const stamp = cairoIso(this.now().toISOString());
     let result;
     this.store.atomically(() => {
-      this.store.queueOperation({ id: command.key, kind: 'ticket_batch', actor_id: user.id, branch: command.branch, data: { items: orders.map(({ ticket }) => ({
-        id: ticket.id, quote_hash: ticket.quote_hash })), courier_name: courier, total: money.decimal(total), cash_received: money.decimal(received) } });
+      // The dashboard's own orders are collected there as one batch; orders placed here are each sent as a paid invoice.
+      const dashboard = orders.filter(({ found }) => found.server);
+      const dashboardTotal = dashboard.reduce((sum, { ticket }) => sum + cents(ticket.total), 0);
+      if (dashboard.length) {
+        this.store.queueOperation({ id: command.key, kind: 'ticket_batch', actor_id: user.id, branch: command.branch, data: { items: dashboard.map(({ ticket }) => ({
+          id: ticket.id, quote_hash: ticket.quote_hash })), courier_name: courier, total: money.decimal(dashboardTotal),
+          // The cash for the dashboard's orders: what the courier handed over, less the orders placed here.
+          cash_received: money.decimal(received - (total - dashboardTotal)) } });
+      }
       const paid = orders.map(({ found, ticket }) => {
-        // Each order: a paid invoice on the device under the batch (the dashboard pays them all with the batch).
         const id = derivedKey(command.key, String(ticket.id));
+        if (found.local) {
+          const local = found.local;
+          const phone = rules.normalizePhone(local.data.customer_phone) || '';
+          const data = { ...local.data, status: 'finished', revision: Number(ticket.revision) + 1, settle_key: id, page_ticket_id: ticket.id, batch_key: command.key,
+            table_name: '', context: this.context(ticket, phone, false), delivery_company_id: Number(company.id), driver: courier, service_consent: true };
+          delete data.move_op;
+          if (!this.store.cancelTicketMove(local.id)) throw new Reply(409, MOVING);
+          this.store.completeSale(user, local, data, { snapshot_id: local.data.snapshot_id }, local.data.priced, cents(ticket.total), phone,
+            { operationId: id, insert: false });
+          return { ticket_id: Number(ticket.id), order_id: LOCAL_RECEIPT_BASE + local.seq, total: ticket.total };
+        }
+        // Each order: a paid invoice on the device under the batch (the dashboard pays them all with the batch).
         const revision = Number(ticket.revision) + 1;
         const phone = rules.normalizePhone(ticket.customer_phone) || '';
         const record = this.store.recordServerPayment(user, { id, branch: command.branch, channel: 'phone', label: '', phone, operation: null,

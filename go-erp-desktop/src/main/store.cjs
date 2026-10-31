@@ -302,7 +302,8 @@ class Store {
       for (const entry of entries || []) {
         if (!entry || !entry.value || !Array.isArray(entry.tickets)) continue;
         this.db.prepare('UPDATE branches SET service = ?, service_hash = ? WHERE value = ?')
-          .run(JSON.stringify({ tables: entry.tables || [], policy: entry.policy || {}, tickets: entry.tickets, received_at: this.now().toISOString() }),
+          .run(JSON.stringify({ tables: entry.tables || [], policy: entry.policy || {}, tickets: entry.tickets, delivery: entry.delivery ?? null,
+            received_at: this.now().toISOString() }),
             entry.hash, entry.value);
       }
     });
@@ -377,10 +378,89 @@ class Store {
     return this.pageCommand(key) || { seq: Number(result.lastInsertRowid) };
   }
 
-  addKitchenPrint(ticketRef, revision, snapshot) {
-    const result = this.db.prepare('INSERT INTO kitchen_prints (ticket_ref, revision, snapshot, created_at) VALUES (?, ?, ?, ?)')
-      .run(String(ticketRef), revision, JSON.stringify(snapshot), this.now().toISOString());
+  /** A kitchen ticket printed here; job: the branch printer prints it (delivery orders, like the dashboard's print queue). */
+  addKitchenPrint(ticketRef, revision, snapshot, { job = false, branch = null } = {}) {
+    const result = this.db.prepare('INSERT INTO kitchen_prints (ticket_ref, revision, snapshot, created_at, branch, job_status) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(String(ticketRef), revision, JSON.stringify(snapshot), this.now().toISOString(), branch, job ? 'pending' : null);
     return Number(result.lastInsertRowid);
+  }
+
+  /** The branch printer's waiting kitchen tickets of orders placed here (PosBranchPrinting::listing). */
+  kitchenJobs(branch) {
+    return this.db.prepare("SELECT seq, ticket_ref, job_status FROM kitchen_prints WHERE branch = ? AND job_status IS NOT NULL ORDER BY seq").all(branch);
+  }
+
+  claimKitchenJob(seq, token) {
+    return this.db.prepare("UPDATE kitchen_prints SET job_status = 'claimed', claim_token = ? WHERE seq = ? AND job_status = 'pending'").run(token, seq).changes > 0;
+  }
+
+  completeKitchenJob(seq, token, result) {
+    const row = this.db.prepare('SELECT job_status, claim_token FROM kitchen_prints WHERE seq = ?').get(seq);
+    if (!row || row.claim_token !== token || !['claimed', result].includes(row.job_status)) return false;
+    this.db.prepare('UPDATE kitchen_prints SET job_status = ? WHERE seq = ?').run(result, seq);
+    return true;
+  }
+
+  // ---- the branches' saved delivery customers (new delivery orders offline) ----
+
+  customersCursor() {
+    return this.get('customers_cursor', null);
+  }
+
+  /** A page of the dashboard's saved customers changed since the device's cursor. Returns whether more are waiting. */
+  applyCustomers(page) {
+    if (!page || !Array.isArray(page.items)) return false;
+    transaction(this.db, () => {
+      const upsert = this.db.prepare(`INSERT INTO directory (id, branch, name, phone, phone_key, address, area, delivery_notes, latitude, longitude, revision,
+        local, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT(id) DO UPDATE SET branch = excluded.branch, name = excluded.name,
+        phone = excluded.phone, phone_key = excluded.phone_key, address = excluded.address, area = excluded.area, delivery_notes = excluded.delivery_notes,
+        latitude = excluded.latitude, longitude = excluded.longitude, revision = excluded.revision, local = 0, updated_at = excluded.updated_at`);
+      const stamp = this.now().toISOString();
+      for (const item of page.items) {
+        upsert.run(item.id, item.branch, item.name || '', item.phone || '', item.phone_key || '', item.address || '', item.area || '', item.delivery_notes || '',
+          item.latitude ?? null, item.longitude ?? null, item.revision || 1, stamp);
+        // Saved here before: the dashboard's record (same number) now stands for it.
+        this.db.prepare('DELETE FROM directory WHERE local = 1 AND branch = ? AND phone_key = ?').run(item.branch, item.phone_key || '');
+      }
+      if (page.cursor) this.set('customers_cursor', page.cursor);
+    });
+    return !!page.more;
+  }
+
+  /** Saved customers of the branch with one of these numbers (or starting with them). */
+  directoryByPhone(branch, keys, prefix) {
+    if (!keys.length) return [];
+    const where = keys.map(() => (prefix ? 'phone_key LIKE ?' : 'phone_key = ?')).join(' OR ');
+    return this.db.prepare(`SELECT * FROM directory WHERE branch = ? AND (${where}) ORDER BY local DESC, updated_at DESC, id DESC LIMIT 20`)
+      .all(branch, ...keys.map((key) => (prefix ? key.replace(/[%_]/g, '') + '%' : key)));
+  }
+
+  /** The branch's saved addresses with a location (the delivery page's saved-address search). */
+  directoryAddresses(branch) {
+    return this.db.prepare('SELECT address, area, latitude, longitude FROM directory WHERE branch = ? AND latitude IS NOT NULL AND longitude IS NOT NULL ORDER BY id')
+      .all(branch);
+  }
+
+  /** A delivery customer saved on the dashboard's page offline: kept here and sent (customer_save). */
+  saveDirectoryCustomer(actor, values) {
+    return this.atomically(() => {
+      const stamp = this.now().toISOString();
+      const existing = values.customer_id ? this.db.prepare('SELECT * FROM directory WHERE id = ? AND branch = ?').get(values.customer_id, values.branch)
+        : this.db.prepare('SELECT * FROM directory WHERE branch = ? AND phone_key = ? ORDER BY local DESC LIMIT 1').get(values.branch, values.phone_key);
+      const id = existing ? existing.id : 4000000000000 + this.nextCounter('directory_seq');
+      const revision = existing ? existing.revision + 1 : 1;
+      this.db.prepare(`INSERT INTO directory (id, branch, name, phone, phone_key, address, area, delivery_notes, latitude, longitude, revision, local, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, phone = excluded.phone, phone_key = excluded.phone_key,
+        address = excluded.address, area = excluded.area, delivery_notes = excluded.delivery_notes, latitude = excluded.latitude, longitude = excluded.longitude,
+        revision = excluded.revision, local = 1, updated_at = excluded.updated_at`)
+        .run(id, values.branch, values.name, values.phone, values.phone_key, values.address, values.area, values.delivery_notes, values.latitude ?? null,
+          values.longitude ?? null, revision, stamp);
+      this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'customer_save', NULL, ?, 'pending', ?, ?)`)
+        .run(values.key, JSON.stringify({ id: values.key, kind: 'customer_save', actor_id: actor.id, branch: values.branch, occurred_at: stamp,
+          data: { name: values.name, phone: values.phone, address: values.address, area: values.area, delivery_notes: values.delivery_notes,
+            latitude: values.latitude ?? null, longitude: values.longitude ?? null } }), stamp, stamp);
+      return this.db.prepare('SELECT * FROM directory WHERE id = ?').get(id);
+    });
   }
 
   kitchenPrint(seq) {
@@ -453,16 +533,24 @@ class Store {
     if (!(this.get('server_kinds', []) || []).includes('ticket_open')) return 0;
     return transaction(this.db, () => {
       let queued = 0;
-      for (const row of this.db.prepare(`SELECT * FROM tickets WHERE status = 'open' AND channel = 'dine' AND json_extract(data, '$.source') = 'dashboard'
+      for (const row of this.db.prepare(`SELECT * FROM tickets WHERE status = 'open' AND channel IN ('dine', 'phone') AND json_extract(data, '$.source') = 'dashboard'
         AND json_extract(data, '$.kind') = 'local' AND json_extract(data, '$.move_op') IS NULL`).all()) {
         const ticket = presentTicket(row);
         const data = ticket.data;
-        if (!data.items || !data.items.length || !data.table) continue;
+        if (!data.items || !data.items.length || (ticket.channel === 'dine' && !data.table) || (ticket.channel === 'phone' && !data.location)) continue;
         const stamp = this.now().toISOString();
-        const operation = { id: ticket.id, kind: 'ticket_open', actor_id: ticket.actor_id, branch: ticket.branch, occurred_at: stamp, data: {
+        const kitchen = data.kitchen ? this.db.prepare('SELECT job_status FROM kitchen_prints WHERE seq = ?').get(data.kitchen) : null;
+        const moved = ticket.channel === 'dine' ? {
           table_id: data.table.id, waiter_name: data.waiter_name, guest_count: data.guest_count, customer_name: data.customer_name || '',
           customer_phone: data.customer_phone || '', items: data.items, discount: data.discount || '0.00', discount_reason: data.discount_reason || '',
-          notes: data.notes || '', kitchen_sent: !!data.kitchen, bill_requested: !!data.bill } };
+          notes: data.notes || '', kitchen_sent: !!data.kitchen, bill_requested: !!data.bill } : {
+          // A delivery order: where it goes, the delivery fee charged, and what was done (kitchen ticket printed, courier, bill).
+          channel: 'phone', items: data.items, discount: data.discount || '0.00', discount_reason: data.discount_reason || '', customer_name: data.customer_name,
+          customer_phone: data.customer_phone, address: data.address, area: data.area || '', delivery_notes: data.delivery_notes || '', notes: data.notes || '',
+          latitude: data.location.latitude, longitude: data.location.longitude, delivery_fee: data.delivery_fee, delivery_company_id: data.delivery_company_id || null,
+          marketing_consent: !!data.marketing_consent, kitchen_sent: !!data.kitchen, kitchen_printed: !!kitchen && kitchen.job_status === 'invoked',
+          courier_company_id: data.courier ? data.courier.id : null, bill_requested: !!data.bill };
+        const operation = { id: ticket.id, kind: 'ticket_open', actor_id: ticket.actor_id, branch: ticket.branch, occurred_at: stamp, data: moved };
         this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'ticket_open', ?, ?, 'pending', ?, ?)
           ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, status = 'pending', last_error = NULL, updated_at = excluded.updated_at`)
           .run(ticket.id, ticket.id, JSON.stringify(operation), stamp, stamp);

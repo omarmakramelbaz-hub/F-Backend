@@ -74,6 +74,24 @@ function formFields(text, boundary) {
 
 const wantsJson = (request) => /json/i.test(header(request.headers, 'accept')) || header(request.headers, 'x-requested-with') === 'XMLHttpRequest';
 
+/**
+ * The delivery page offline: its map needs the internet, so it opens in the dashboard's own no-map mode (the customer's
+ * saved address or the coordinates of their location, then "تأكيد موقع العميل").
+ */
+function withoutMap(body) {
+  const html = body.toString('utf8');
+  const script = /<script[^>]*dashboard\/js\/phone-orders\.js/;
+  if (!script.test(html)) return body;
+  // The same texts the dashboard shows in this mode (resources/views/admin/phone_orders/index.blade.php, saved addresses only).
+  const saved = 'الاقتراحات من عناوين محفوظة لهذا الفرع فقط.';
+  return Buffer.from(html
+    .replace(/(<button type="button" data-phone-locate>)[^<]*(<\/button>)/, '$1بحث في العناوين المحفوظة$2')
+    .replace(/(<p data-phone-location-status role="status">)[^<]*(<\/p>)/, `$1${saved} راجع إحداثيات العميل ثم أكد موقعه.$2`)
+    .replace(/(<p class="ph-map-legend">)[\s\S]*?(<\/p>)/, `$1${saved} إذا لم تجد عنوانًا مطابقًا، أدخل إحداثيات العميل ثم أكد موقعه.$2`)
+    .replace(/(data-phone-confirm-location>)[^<]*(<\/button>)/, '$1تأكيد موقع العميل$2')
+    .replace(script, (tag) => '<style>[data-phone-map]{display:none!important}</style>' + "<script>document.body.dataset.dashboardLocal='1';</script>" + tag));
+}
+
 class DashboardOffline {
   /**
    * origin: the dashboard's address. cache: PageCache. pages: the offline answers of the dashboard pages that work
@@ -122,6 +140,7 @@ class DashboardOffline {
       { urlPattern: this.origin + '/admin/dining/tickets/7*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/dining/kitchen/6*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/phone-orders/kitchen/6*', requestStage: 'Request' },
+      { urlPattern: this.origin + '/admin/phone-orders/tickets/7*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/phone-orders/batches/5*', requestStage: 'Request' }];
   }
 
@@ -240,7 +259,7 @@ class DashboardOffline {
         const copy = this.cache.get(scope, kind, url.href, { pathOnly: kind !== 'data' });
         if (copy) {
           if (document) this.onFromCopy(contents);
-          return { status: 200, body: copy.body, contentType: copy.contentType };
+          return { status: 200, body: kind === 'data' ? copy.body : withoutMap(copy.body), contentType: copy.contentType };
         }
       }
     }

@@ -168,12 +168,12 @@ class TakeawayOffline {
    * TakeawayService::quote, with the device's menu version (DesktopPosQuote: what the dashboard checks on sync).
    * channel: takeaway, or dine (the dine-in page: the branch's service charge is added).
    */
-  price(user, catalog, cart, channel = 'takeaway') {
+  price(user, catalog, cart, channel = 'takeaway', delivery = 0) {
     if (cart.discount_cents > 0 && !user.can_manage) throw new Reply(403, 'الخصم متاح للمالك أو الإدارة المخولة فقط.');
     if (cart.discount_cents > 0 && !cart.discount_reason) throw invalid('discount_reason', 'اكتب سبب الخصم.');
     let quote;
     try {
-      quote = money.quote(catalog, { channel, items: cart.items, discount_cents: cart.discount_cents });
+      quote = money.quote(catalog, { channel, items: cart.items, discount_cents: cart.discount_cents, delivery_cents: delivery });
     } catch (error) {
       throw new Reply(422, error.message);
     }
@@ -187,12 +187,13 @@ class TakeawayOffline {
     const hash = channel === 'takeaway'
       ? sha256(['device', catalog.snapshot_id, cart.branch, lines, quote.discount_cents, cart.discount_reason, quote.tax_bps, quote.tax_cents, quote.total_cents])
       : sha256(['device', channel, catalog.snapshot_id, cart.branch, lines, quote.discount_cents, cart.discount_reason, quote.service_bps,
-        quote.service_cents, quote.tax_bps, quote.tax_cents, quote.total_cents]);
+        quote.service_cents, ...(channel === 'phone' ? [quote.delivery_cents] : []), quote.tax_bps, quote.tax_cents, quote.total_cents]);
     return { quote, result: { success: true, quote_hash: hash, branch: catalog.branch, items,
       subtotal_cents: quote.subtotal_cents, discount_cents: quote.discount_cents, tax_cents: quote.tax_cents, total_cents: quote.total_cents,
       subtotal: money.decimal(quote.subtotal_cents), discount: money.decimal(quote.discount_cents), tax_bps: quote.tax_bps,
       tax_rate: money.decimal(quote.tax_bps), tax: money.decimal(quote.tax_cents), service_bps: quote.service_bps, service_cents: quote.service_cents,
-      delivery_cents: 0, service_rate: money.decimal(quote.service_bps), service: money.decimal(quote.service_cents), delivery: '0.00',
+      delivery_cents: quote.delivery_cents, service_rate: money.decimal(quote.service_bps), service: money.decimal(quote.service_cents),
+      delivery: money.decimal(quote.delivery_cents),
       total: money.decimal(quote.total_cents) } };
   }
 

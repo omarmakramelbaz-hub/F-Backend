@@ -1,0 +1,1588 @@
+{
+    "cases": [
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9602,
+                31.2569
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "distance_meters": 0,
+                "distance_km": "0.000",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "15.00",
+                "pricing_rule": "app_branch_tier",
+                "pricing_tier": "default_0_1",
+                "pricing_distance_meters": 0.0,
+                "pricing_distance_km": "0.000000",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "8d459620dd63ee72849d50c7cb1da85aa6708c835c0782e5d72bab3f267b5b3d"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9641,
+                31.2601
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 29.9641,
+                "longitude": 31.2601,
+                "distance_meters": 533,
+                "distance_km": "0.533",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "20.00",
+                "pricing_rule": "app_branch_tier",
+                "pricing_tier": "default_1_2",
+                "pricing_distance_meters": 532.659472191088,
+                "pricing_distance_km": "0.532659",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "8377ea4d01214db5b26f8efd2a8d3b496a013071a7bd92e57ff45715c39b2da4"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9702,
+                31.2569
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 29.9702,
+                "longitude": 31.2569,
+                "distance_meters": 1113,
+                "distance_km": "1.113",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "20.00",
+                "pricing_rule": "app_branch_tier",
+                "pricing_tier": "default_1_2",
+                "pricing_distance_meters": 1113.194907932514,
+                "pricing_distance_km": "1.113195",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "cb94b428ecbf0af2469b152a6e24c62b6d8e61473ee047efe81c9f7a2f0f7ae1"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9781,
+                31.2399
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 29.9781,
+                "longitude": 31.2399,
+                "distance_meters": 2580,
+                "distance_km": "2.580",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "25.00",
+                "pricing_rule": "app_branch_tier",
+                "pricing_tier": "default_2_3",
+                "pricing_distance_meters": 2580.3433290622997,
+                "pricing_distance_km": "2.580343",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "a8238295aab4ec506ca15577d35a9e93c2673ee3a47f66adeafc39a39fd96a17"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9901,
+                31.2811
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 29.9901,
+                "longitude": 31.2811,
+                "distance_meters": 4065,
+                "distance_km": "4.065",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "40.65",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 4065.005992571611,
+                "pricing_distance_km": "4.065006",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "ec410d1826df0f37c0047830bd9f5b0d44d279cd0e5e7489fc1b9ded4a3b1809"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0102,
+                31.3017
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 30.0102,
+                "longitude": 31.3017,
+                "distance_meters": 7046,
+                "distance_km": "7.046",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "70.46",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 7045.502562486731,
+                "pricing_distance_km": "7.045503",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "97661e96675b5f6222a1b29d27d55ba7643557a06b2575dd4323747f5f6b83b4"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.1201,
+                31.4004
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 30.1201,
+                "longitude": 31.4004,
+                "distance_meters": 22540,
+                "distance_km": "22.540",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "225.40",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 22540.389205864874,
+                "pricing_distance_km": "22.540389",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "6229be6b75618822a2d7a3951dc0e2071d85ba17a4641f7a37dfd9e8dea2baf5"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0444,
+                31.2357
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "distance_meters": 9593,
+                "distance_km": "9.593",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "95.93",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 9593.327613572495,
+                "pricing_distance_km": "9.593328",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "a9e7596bd1076269bef96155159579a0da9db1e8f83bfc0abe3eac5a17976b33"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0512345,
+                31.2401234
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 30.0512345,
+                "longitude": 31.2401234,
+                "distance_meters": 10262,
+                "distance_km": "10.262",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "102.62",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 10262.151657398677,
+                "pricing_distance_km": "10.262152",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "278d5a959ce336bd7b80c8835fa1dd0ba9bc6f5502dfb7ce17a600ad3258b3a5"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0619876,
+                31.2001234
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 30.0619876,
+                "longitude": 31.2001234,
+                "distance_meters": 12583,
+                "distance_km": "12.583",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "125.83",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 12583.465980226847,
+                "pricing_distance_km": "12.583466",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "1d67ee36cc050afc4b4f0260319f05f1353dcc7579aae8c2ff8b6beb5c2de07a"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                31.2101,
+                29.9287
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 31.2101,
+                "longitude": 29.9287,
+                "distance_meters": 188571,
+                "distance_km": "188.571",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "1885.71",
+                "pricing_rule": "app_per_km",
+                "pricing_tier": null,
+                "pricing_distance_meters": 188571.45180585934,
+                "pricing_distance_km": "188.571452",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "d825e0767703da895c0f9427bc1e286136b97d8842e57aeea5aa0498bf0cfb2c"
+            }
+        },
+        {
+            "name": "tiers",
+            "settings": {
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "km_price": "10.00",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.95,
+                31.25
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 29.9602,
+                "branch_longitude": 31.2569,
+                "latitude": 29.95,
+                "longitude": 31.25,
+                "distance_meters": 1316,
+                "distance_km": "1.316",
+                "km_price": "10.00",
+                "method": "app_direct",
+                "delivery_fee": "20.00",
+                "pricing_rule": "app_branch_tier",
+                "pricing_tier": "default_1_2",
+                "pricing_distance_meters": 1316.113708595404,
+                "pricing_distance_km": "1.316114",
+                "pricing_rates": {
+                    "km_price": "10.00",
+                    "default_0_1": "15.00",
+                    "default_1_2": "20.00",
+                    "default_2_3": "25.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "8ddeec8b343181b4fd2959d352cdf9b367819dc6959881e1a66f2fd5ae945dfb"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                29.9602,
+                31.2569
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "distance_meters": 9593,
+                "distance_km": "9.593",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "71.95",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 9593.327613572495,
+                "pricing_distance_km": "9.593328",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "5e1a82e4819b8fc2b79e3c5dd6f461af7d04ed082877090b287e9dd0c9f3c60c"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                29.9641,
+                31.2601
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 29.9641,
+                "longitude": 31.2601,
+                "distance_meters": 9243,
+                "distance_km": "9.243",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "69.32",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 9243.253295554536,
+                "pricing_distance_km": "9.243253",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "acf379bea787ebf3e18e6d12fc708f4ddfa4ba0ba826c2a474af351ddb5a190f"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                29.9702,
+                31.2569
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 29.9702,
+                "longitude": 31.2569,
+                "distance_meters": 8509,
+                "distance_km": "8.509",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "63.82",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 8508.968215909317,
+                "pricing_distance_km": "8.508968",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "a2184c03f041e0c2586aca59c75f2c7af918f67d8bae2601d5a0fe6f049cf84c"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                29.9781,
+                31.2399
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 29.9781,
+                "longitude": 31.2399,
+                "distance_meters": 7392,
+                "distance_km": "7.392",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "55.44",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 7391.578141468771,
+                "pricing_distance_km": "7.391578",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "b0e4d69157e76e29879824fc1d038ac19677e274e9fa26a8102bc6935f9ec945"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                29.9901,
+                31.2811
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 29.9901,
+                "longitude": 31.2811,
+                "distance_meters": 7462,
+                "distance_km": "7.462",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "55.97",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 7462.410848351459,
+                "pricing_distance_km": "7.462411",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "f15ad1621367b78a65fd41d066e039de8306dd478d37daa09f5c372f9f1e1ed0"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                30.0102,
+                31.3017
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 30.0102,
+                "longitude": 31.3017,
+                "distance_meters": 7413,
+                "distance_km": "7.413",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "55.60",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 7413.2778099950065,
+                "pricing_distance_km": "7.413278",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "17664ec47cc01779398ad9bffb37a9d9b2043adb5323c79e70aeb54fbd4a8cdb"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                30.1201,
+                31.4004
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 30.1201,
+                "longitude": 31.4004,
+                "distance_meters": 17964,
+                "distance_km": "17.964",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "134.73",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 17963.97800048856,
+                "pricing_distance_km": "17.963978",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "7dfd822f9481f964f2417b86e197597cc65d8138eff8518764eb5c43e5223949"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                30.0444,
+                31.2357
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "distance_meters": 0,
+                "distance_km": "0.000",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 0.0,
+                "pricing_distance_km": "0.000000",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "ae2cbb386020c777096f5845728392f77a11e1ffe6b46322ad011d40fbf1867e"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                30.0512345,
+                31.2401234
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 30.0512345,
+                "longitude": 31.2401234,
+                "distance_meters": 872,
+                "distance_km": "0.872",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "6.54",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 872.073596080277,
+                "pricing_distance_km": "0.872074",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "e93f1306831c1742da131e77b8503d3e8a19a2ed9daeb7a9cb54842b3c42dd68"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                30.0619876,
+                31.2001234
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 30.0619876,
+                "longitude": 31.2001234,
+                "distance_meters": 3948,
+                "distance_km": "3.948",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "29.61",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 3947.6476691486732,
+                "pricing_distance_km": "3.947648",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "5f147b7f511c200f19aafcff420302f1606e3c2f020a1236ad2d6d0dda3cc4e2"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                31.2101,
+                29.9287
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 31.2101,
+                "longitude": 29.9287,
+                "distance_meters": 180312,
+                "distance_km": "180.312",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "1352.34",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 180311.5545717411,
+                "pricing_distance_km": "180.311555",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "7cdde5f2ecb8f0d131955feb2ea7d22b622bc1033b57ebff68ed91cf990d8fe0"
+            }
+        },
+        {
+            "name": "legacy",
+            "settings": {
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "km_price": "7.50",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "ready": true
+            },
+            "point": [
+                29.95,
+                31.25
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 30.0444,
+                "branch_longitude": 31.2357,
+                "latitude": 29.95,
+                "longitude": 31.25,
+                "distance_meters": 10599,
+                "distance_km": "10.599",
+                "km_price": "7.50",
+                "method": "app_direct",
+                "delivery_fee": "79.49",
+                "pricing_rule": "branch_per_km_legacy",
+                "pricing_tier": null,
+                "pricing_distance_meters": 10598.607111969797,
+                "pricing_distance_km": "10.598607",
+                "pricing_rates": {
+                    "km_price": "7.50",
+                    "default_0_1": null,
+                    "default_1_2": null,
+                    "default_2_3": null,
+                    "legacy": true
+                },
+                "delivery_quote_hash": "71134df794f745ae42e85168d94eec43f7d39d91ebefc1552d07663eb69099c5"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9602,
+                31.2569
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 29.9602,
+                "longitude": 31.2569,
+                "distance_meters": 188407,
+                "distance_km": "188.407",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 188407.07086182202,
+                "pricing_distance_km": "188.407071",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "e54c0ec25bc89cd758a33a2b7ddbec738eca91c00afcaf80ff21984d8b88c074"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9641,
+                31.2601
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 29.9641,
+                "longitude": 31.2601,
+                "distance_meters": 188297,
+                "distance_km": "188.297",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 188296.73014069378,
+                "pricing_distance_km": "188.296730",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "cb8b2ed6a9681ff5dfaaedb3bb932dfefc9df86ae1ec1c98d15c0cb077a70eec"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9702,
+                31.2569
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 29.9702,
+                "longitude": 31.2569,
+                "distance_meters": 187589,
+                "distance_km": "187.589",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 187588.6204109979,
+                "pricing_distance_km": "187.588620",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "2f227b578c85f5a5b050e6a231701956009b80f80397b19c59a8b90783d3b402"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9781,
+                31.2399
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 29.9781,
+                "longitude": 31.2399,
+                "distance_meters": 185831,
+                "distance_km": "185.831",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 185830.59947727388,
+                "pricing_distance_km": "185.830599",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "8331d129590fe47db8c3839ef224bd5b25e09a2f43517268e32a1ba3197736d2"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.9901,
+                31.2811
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 29.9901,
+                "longitude": 31.2811,
+                "distance_meters": 187575,
+                "distance_km": "187.575",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 187575.29387697717,
+                "pricing_distance_km": "187.575294",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "eaf2d6ff8d30cb58cd078e5107b4b91db55296190bad9c4fae3cb3758c986f45"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0102,
+                31.3017
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 30.0102,
+                "longitude": 31.3017,
+                "distance_meters": 187356,
+                "distance_km": "187.356",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 187356.22939535696,
+                "pricing_distance_km": "187.356229",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "2b20d106aa0a4e0043b01898f3b12d1fb8048db97a4f8bbe2083edbe7ff747fa"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.1201,
+                31.4004
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 30.1201,
+                "longitude": 31.4004,
+                "distance_meters": 185967,
+                "distance_km": "185.967",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 185967.04094314194,
+                "pricing_distance_km": "185.967041",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "764593efe4e2b8d6bc23ee944ea7a913638a30957ee0fefe0439a1ae0741ef13"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0444,
+                31.2357
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 30.0444,
+                "longitude": 31.2357,
+                "distance_meters": 180186,
+                "distance_km": "180.186",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 180186.02199679197,
+                "pricing_distance_km": "180.186022",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "e20977003e91d4c476859dc1f2a04c3a056334224af3c1eb9933befc72ffb44c"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0512345,
+                31.2401234
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 30.0512345,
+                "longitude": 31.2401234,
+                "distance_meters": 179938,
+                "distance_km": "179.938",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 179938.3031083676,
+                "pricing_distance_km": "179.938303",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "a8126655423805ec735bba97bf4d41876b36b8531e7a16df405b64db268f870f"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                30.0619876,
+                31.2001234
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 30.0619876,
+                "longitude": 31.2001234,
+                "distance_meters": 176398,
+                "distance_km": "176.398",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 176397.61735298985,
+                "pricing_distance_km": "176.397617",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "a88284474f672604e6ea4ee129a6a865dc6ac7c7b61f2eb1c7c5d7ee2de2c469"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                31.2101,
+                29.9287
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 31.2101,
+                "longitude": 29.9287,
+                "distance_meters": 1465,
+                "distance_km": "1.465",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 1464.8431618805098,
+                "pricing_distance_km": "1.464843",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "8fcee4491de9b1c4d451d72145ee5e8a727963f47773a51c9f992af1b63b6ca7"
+            }
+        },
+        {
+            "name": "free",
+            "settings": {
+                "latitude": 31.2001,
+                "longitude": 29.9187,
+                "km_price": "0.00",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "ready": true
+            },
+            "point": [
+                29.95,
+                31.25
+            ],
+            "delivery": {
+                "branch": "f:100",
+                "branch_latitude": 31.2001,
+                "branch_longitude": 29.9187,
+                "latitude": 29.95,
+                "longitude": 31.25,
+                "distance_meters": 188797,
+                "distance_km": "188.797",
+                "km_price": "0.00",
+                "method": "app_direct",
+                "delivery_fee": "0.00",
+                "pricing_rule": "app_zero_rate",
+                "pricing_tier": null,
+                "pricing_distance_meters": 188797.47646457423,
+                "pricing_distance_km": "188.797476",
+                "pricing_rates": {
+                    "km_price": "0.00",
+                    "default_0_1": "5.00",
+                    "default_1_2": "5.00",
+                    "default_2_3": "5.00",
+                    "legacy": false
+                },
+                "delivery_quote_hash": "dd132c7416428ac8bc4ba4ea12cf3087c78d831116d4c44b5dd5b1d1338bb6ed"
+            }
+        }
+    ]
+}

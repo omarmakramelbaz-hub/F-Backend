@@ -933,3 +933,158 @@ test('a dashboard order cancelled offline frees its table or leaves the delivery
   assert.equal(old.status, 422);
   assert.match(old.json.message, /اتصالًا بالإنترنت/);
 });
+
+// ---- new delivery orders on the delivery page offline ----
+const { DeliveryOffline, distance: deliveryDistance, tariff } = require('../src/main/offline/delivery.cjs');
+
+test('the delivery fee offline is the dashboard\'s own calculation (distance, tier, fee), case by case', () => {
+  // Rendered by test/delivery-vectors.php from BranchDeliveryTariff.
+  const { cases } = require('./fixtures/delivery-vectors.json');
+  assert.ok(cases.length >= 30);
+  for (const sample of cases) {
+    const { settings, point: [latitude, longitude], delivery } = sample;
+    const lat = Math.round(latitude * 1e7) / 1e7;
+    const lng = Math.round(longitude * 1e7) / 1e7;
+    const meters = deliveryDistance(settings.latitude, settings.longitude, lat, lng);
+    const priced = tariff(meters, settings.pricing_rates);
+    assert.deepEqual([Math.round(meters), (meters / 1000).toFixed(3), priced.delivery_fee, priced.pricing_rule, priced.pricing_tier, priced.pricing_distance_km],
+      [delivery.distance_meters, delivery.distance_km, delivery.delivery_fee, delivery.pricing_rule, delivery.pricing_tier, delivery.pricing_distance_km],
+      `${sample.name} ${latitude},${longitude}`);
+  }
+});
+
+/** The delivery page's checks on a new order's answer (phone-orders.js validateWriteResult). */
+function newOrderAccepted(result, payload) {
+  const ticket = result.ticket;
+  assert.ok(ticket && Number(ticket.id) > 0 && ticket.channel === 'phone' && ['new', 'preparing', 'out_for_delivery', 'finished', 'cancelled'].includes(ticket.status)
+    && ticket.payment_status === 'unpaid' && ticket.branch.value === payload.branch && Number(ticket.revision) > 0 && ticket.items.length && scaled(ticket.total, 2) !== null);
+  assert.ok(result.operation.idempotency_key === payload.idempotency_key && Number(result.operation.ticket_id) === Number(ticket.id));
+  assert.equal(ticket.quote_hash, payload.quote_hash);
+  assert.ok(!ticket.delivery_location || !ticket.delivery_location.delivery_origin_branch);
+  if (payload.send_to_kitchen) assert.ok(ticket.kitchen_sent);
+}
+
+function newDeliveryPage() {
+  const cashier = cashierPage();
+  const { store } = cashier;
+  store.set('server_kinds', ['sale', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'customer_save']);
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h2',
+    catalog: { ...MENU, delivery_companies: [{ id: 7, name: 'شركة سريع', phone: '01011112222' }] } }]);
+  // The branch's pin and tariff: 15 / 20 / 25 by the nearest kilometre, 10 per kilometre beyond.
+  store.applyService([{ ...serviceCopy(), hash: 'service-delivery', tickets: [], delivery: { branch: MENU.branch, latitude: 29.9602, longitude: 31.2569,
+    km_price: '10.00', pricing_rates: { km_price: '10.00', default_0_1: '15.00', default_1_2: '20.00', default_2_3: '25.00', legacy: false }, ready: true } }]);
+  store.applyCustomers({ items: [{ id: 501, branch: 'f:100', name: 'منى', phone: '01112223334', phone_key: '01112223334', address: 'شارع النصر، عمارة ٥',
+    area: 'المعادي', delivery_notes: 'الدور التالت', latitude: 29.9702, longitude: 31.2569, revision: 3 }], cursor: '2026-10-30 10:00:00|501', more: false });
+  const page = new DeliveryOffline({ store, origin: ORIGIN, now: () => store.now(), kick: () => {} });
+  const ask = async (method, path, { user = ACCOUNT, body = null } = {}) => {
+    const url = new URL(ORIGIN + path);
+    const route = page.match(method, url.pathname);
+    assert.ok(route, `${method} ${path} is answered on the device`);
+    return page.answer(route, { user, url, body });
+  };
+  let keys = 0;
+  return { ...cashier, page, ask, key: () => `00000000-0000-4000-a000-${String(++keys).padStart(12, '0')}` };
+}
+
+test('a new delivery order offline: the customer by number, their location, the delivery fee, the order and its kitchen ticket', async () => {
+  const { store, ask, key } = newDeliveryPage();
+  const settings = await ask('GET', '/admin/phone-orders/delivery-settings?branch=f:100');
+  assert.deepEqual([settings.status, settings.json.settings.ready, settings.json.settings.branch.value], [200, true, 'f:100']);
+  const companies = (await ask('GET', '/admin/delivery-companies/data?branch=f:100&active=1')).json.items;
+  assert.deepEqual(companies.map((company) => [company.id, company.name]), [[7, 'شركة سريع']]);
+  // A returning customer, typed any common way.
+  for (const typed of ['01112223334', '+201112223334', '1112223334']) {
+    const found = (await ask('GET', `/admin/phone-orders/customers?branch=f:100&phone=${encodeURIComponent(typed)}&prefix=0`)).json;
+    assert.deepEqual(found.items.map((item) => [item.customer_id, item.customer_revision, item.name, item.latitude]), [[501, 3, 'منى', 29.9702]], typed);
+    assert.equal(found.items, found.matches);
+  }
+  assert.equal((await ask('GET', '/admin/phone-orders/customers?branch=f:100&phone=0111&prefix=1')).json.items.length, 1, 'While typing');
+  const saved = (await ask('POST', '/admin/phone-orders/address-suggestions', { body: { branch: 'f:100', query: 'النصر' } })).json;
+  assert.deepEqual([saved.provider, saved.items.map((item) => [item.label, item.latitude, item.longitude])], ['saved', [['شارع النصر، عمارة ٥، المعادي', 29.9702, 31.2569]]]);
+  // Her location (about 1.1 km): the 1–2 km tier, 20.00.
+  const location = (await ask('POST', '/admin/phone-orders/delivery-quote', { body: { branch: 'f:100', latitude: '29.9702', longitude: '31.2569', location_confirmed: true } })).json.delivery;
+  assert.deepEqual([location.delivery_fee, location.pricing_rule, location.pricing_tier, location.distance_km, location.method], ['20.00', 'app_branch_tier', 'default_1_2', '1.113', 'app_direct']);
+  assert.match(location.delivery_quote_hash, /^[a-f0-9]{64}$/);
+  assert.equal((await ask('POST', '/admin/phone-orders/delivery-quote', { body: { branch: 'f:100', latitude: '0', longitude: '0', location_confirmed: true } })).status, 422);
+  // The customer step saves her (sent to the dashboard as customer_save).
+  const customer = await ask('POST', '/admin/customers/save', { body: { branch: 'f:100', name: 'منى', phone: '01112223334', address: 'شارع النصر، عمارة ٥', area: 'المعادي',
+    delivery_notes: 'الدور التالت', latitude: location.latitude, longitude: location.longitude, idempotency_key: key(), customer_id: 501, expected_revision: 3 } });
+  assert.equal(customer.status, 200, JSON.stringify(customer.json));
+  assert.deepEqual([customer.json.customer.id, customer.json.customer.revision, customer.json.customer.branch], [501, 4, 'f:100']);
+  // The order: 2 سلطة طحينة (50.00) + 20.00 delivery, tax 14% of 70.00 = 9.80 → 79.80.
+  const items = [{ product_id: 7, quantity: '2', quantity_mode: 'piece' }];
+  const draft = { branch: 'f:100', items, discount: '0.00', discount_reason: '', delivery_fee_manual: false, delivery_fee: location.delivery_fee,
+    latitude: location.latitude, longitude: location.longitude, location_confirmed: true, delivery_quote_hash: location.delivery_quote_hash, customer_id: 501,
+    delivery_company_id: 7 };
+  const quote = (await ask('POST', '/admin/phone-orders/quote', { body: draft })).json;
+  assert.deepEqual([quote.subtotal, quote.delivery, quote.tax, quote.total], ['50.00', '20.00', '9.80', '79.80']);
+  assert.equal((await ask('POST', '/admin/phone-orders/quote', { body: { ...draft, delivery_quote_hash: 'a'.repeat(64) } })).status, 409, 'A location changed since');
+  const manual = (await ask('POST', '/admin/phone-orders/quote', { body: { ...draft, delivery_fee_manual: true, delivery_fee: '30.00' } })).json;
+  assert.equal(manual.delivery, '30.00', 'A fee set by the cashier');
+  const order = { ...draft, send_to_kitchen: true, idempotency_key: key(), quote_hash: quote.quote_hash, customer_name: 'منى', customer_phone: '01112223334',
+    address: 'شارع النصر، عمارة ٥', area: 'المعادي', delivery_notes: 'الدور التالت', notes: 'حار', service_consent: true, marketing_consent: false };
+  assert.equal((await ask('POST', '/admin/phone-orders/tickets/save', { body: { ...order, service_consent: false, idempotency_key: key() } })).status, 422);
+  const placed = await ask('POST', '/admin/phone-orders/tickets/save', { body: order });
+  assert.equal(placed.status, 200, JSON.stringify(placed.json));
+  newOrderAccepted(placed.json, order);
+  const ticket = placed.json.ticket;
+  assert.ok(ticket.id > LOCAL_TICKET_BASE);
+  assert.deepEqual([ticket.status, ticket.number, ticket.delivery_fee, ticket.total, ticket.address, ticket.delivery_company.name, placed.json.print_queued],
+    ['new', 'PH-A1B-1', '20.00', '79.80', 'شارع النصر، عمارة ٥', 'شركة سريع', true]);
+  assert.deepEqual(shape(ticket), shape({ ...PHONE.show.ticket, number: '' }), 'The delivery page\'s own order format');
+  assert.equal((await ask('POST', '/admin/phone-orders/tickets/save', { body: order })).json.replayed, true);
+  // The branch printer prints its kitchen ticket from the device.
+  const jobs = (await ask('GET', '/admin/phone-orders/print-jobs?branch=f:100')).json;
+  assert.deepEqual(jobs.jobs.map((job) => job.ticket_id), [ticket.id]);
+  const token = '11111111-2222-4333-8444-555555555555';
+  const claim = (await ask('POST', '/admin/phone-orders/print-jobs/claim', { body: { branch: 'f:100', job_id: jobs.jobs[0].id, claim_token: token } })).json;
+  assert.equal(claim.print_url, `${ORIGIN}/admin/phone-orders/kitchen/${jobs.jobs[0].id}/print`);
+  assert.equal((await ask('POST', '/admin/phone-orders/print-jobs/claim', { body: { branch: 'f:100', job_id: jobs.jobs[0].id, claim_token: token } })).status, 409, 'Once');
+  const slip = await ask('GET', new URL(claim.print_url).pathname);
+  assert.match(slip.html, /data-dashboard-receipt="pos-kitchen"/);
+  assert.match(slip.html, /شارع النصر/);
+  assert.equal((await ask('POST', '/admin/phone-orders/print-jobs/complete', { body: { branch: 'f:100', job_id: jobs.jobs[0].id, claim_token: token, result: 'invoked' } })).status, 200);
+  assert.deepEqual((await ask('GET', '/admin/phone-orders/print-jobs?branch=f:100')).json.jobs, []);
+  // On the board, then with the courier, then collected: one invoice for the dashboard.
+  const board = (await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns;
+  assert.deepEqual(board.preparing.items.map((item) => [item.id, item.courier_company.name]), [[ticket.id, 'شركة سريع']]);
+  const handoff = await ask('POST', '/admin/phone-orders/dispatch-company', { body: { branch: 'f:100', ticket_id: ticket.id, company_id: 7, expected_revision: 1, idempotency_key: key() } });
+  assert.equal(handoff.status, 200, JSON.stringify(handoff.json));
+  assert.equal((await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns.courier.items[0].id, ticket.id);
+  const saved_quote = (await ask('POST', '/admin/phone-orders/quote', { body: { branch: 'f:100', ticket_id: ticket.id } })).json;
+  const collect = { type: 'settle', ticketId: ticket.id, total: saved_quote.total, payload: { branch: 'f:100', expected_revision: 2, idempotency_key: key(),
+    quote_hash: saved_quote.quote_hash, payment_method: 'cash', cash_received: '100.00', payment_confirmed: true, payment_reference: '' } };
+  const paid = await ask('POST', `/admin/phone-orders/tickets/${ticket.id}/settle`, { body: collect.payload });
+  assert.equal(paid.status, 200, JSON.stringify(paid.json));
+  deliveryPageAccepts(paid.json, collect);
+  assert.deepEqual([paid.json.ticket.status, paid.json.receipt.change, paid.json.receipt.context.address], ['finished', '20.20', 'شارع النصر، عمارة ٥']);
+  const operations = store.pendingOperations();
+  assert.deepEqual(operations.map((operation) => operation.kind), ['customer_save', 'sale']);
+  const sale = operations[1].data;
+  assert.deepEqual([sale.channel, sale.total_cents, sale.delivery_cents, sale.address, sale.delivery_company_id, sale.customer_phone],
+    ['phone', 7980, 2000, 'شارع النصر، عمارة ٥', 7, '+201112223334']);
+  assert.deepEqual((await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns.finished.items.map((item) => item.id), [ticket.id]);
+});
+
+test('a delivery order placed offline and still out when the internet is back moves to the dashboard with what was done', async () => {
+  const { store, ask, key } = newDeliveryPage();
+  const location = (await ask('POST', '/admin/phone-orders/delivery-quote', { body: { branch: 'f:100', latitude: 29.9702, longitude: 31.2569, location_confirmed: true } })).json.delivery;
+  const draft = { branch: 'f:100', items: [{ product_id: 7, quantity: '1', quantity_mode: 'piece' }], discount: '0.00', discount_reason: '', delivery_fee_manual: true,
+    delivery_fee: '18.00', latitude: location.latitude, longitude: location.longitude, location_confirmed: true, delivery_quote_hash: location.delivery_quote_hash,
+    customer_id: null, delivery_company_id: null };
+  const quote = (await ask('POST', '/admin/phone-orders/quote', { body: draft })).json;
+  const order = { ...draft, send_to_kitchen: true, idempotency_key: key(), quote_hash: quote.quote_hash, customer_name: 'عميل جديد', customer_phone: '01099998888',
+    address: 'شارع ٩', area: '', delivery_notes: '', notes: '', service_consent: true, marketing_consent: true };
+  const placed = (await ask('POST', '/admin/phone-orders/tickets/save', { body: order })).json.ticket;
+  await ask('POST', '/admin/phone-orders/dispatch-company', { body: { branch: 'f:100', ticket_id: placed.id, company_id: 7, expected_revision: 1, idempotency_key: key() } });
+  await ask('POST', `/admin/phone-orders/tickets/${placed.id}/action`, { body: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'request_bill', reason: '' } });
+  assert.equal(store.queueTicketMoves(), 1);
+  const move = store.pendingOperations().find((operation) => operation.kind === 'ticket_open');
+  assert.deepEqual(move.data, { channel: 'phone', items: [{ product_id: 7, option_id: '', quantity_mode: 'piece', quantity: '1' }], discount: '0.00', discount_reason: '',
+    customer_name: 'عميل جديد', customer_phone: '+201099998888', address: 'شارع ٩', area: '', delivery_notes: '', notes: '', latitude: 29.9702, longitude: 31.2569,
+    delivery_fee: '18.00', delivery_company_id: null, marketing_consent: true, kitchen_sent: true, kitchen_printed: false, courier_company_id: 7, bill_requested: true });
+  store.applyResults([{ id: move.id, status: 'applied', ticket: { id: 88, revision: 4, status: 'out_for_delivery', number: '' } }]);
+  const moved = await ask('GET', `/admin/phone-orders/tickets/${placed.id}`);
+  assert.deepEqual([moved.status, moved.location], [302, `${ORIGIN}/admin/phone-orders/tickets/88`]);
+  assert.deepEqual((await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns.courier.items, [], 'It shows from the dashboard\'s copy now');
+});
