@@ -838,7 +838,8 @@ class Store {
     const known = Array.isArray(kinds) ? kinds.filter((kind) => typeof kind === 'string') : null;
     if (known && !known.length) return [];
     const filter = known ? ` AND kind IN (${known.map(() => '?').join(', ')})` : '';
-    return this.db.prepare(`SELECT id, payload FROM outbox WHERE status = 'pending'${filter} ORDER BY created_at LIMIT ?`).all(...(known || []), limit)
+    // In the order they were done (an order changed, then its bill printed, then paid).
+    return this.db.prepare(`SELECT id, payload FROM outbox WHERE status = 'pending'${filter} ORDER BY created_at, rowid LIMIT ?`).all(...(known || []), limit)
       .map((row) => JSON.parse(row.payload));
   }
 

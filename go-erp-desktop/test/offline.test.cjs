@@ -839,3 +839,55 @@ test('orders a courier brought back are collected together offline: one batch, i
     .map((row) => [row.server_id, row.sync_status]), [[301, 'synced'], [302, 'synced']]);
   assert.equal(store.serviceOverlay(41), null);
 });
+
+test('items added offline to a table opened on the dashboard: shown, billed and paid on the device, then sent to it in order', async () => {
+  const { store, ask, key } = diningPage({ kinds: ['sale', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_save'] });
+  const order = (await ask('GET', '/admin/dining/tickets/1')).json.ticket;
+  const base = order.cart.items.map((item) => ({ product_id: item.product_id, option_id: item.option_id, quantity_mode: item.quantity_mode, quantity: item.quantity }));
+  // Only the guests change: the order keeps its prices (the dashboard's quote).
+  const guests = { kind: 'save', id: 1, expectedTotal: scaled(order.total, 2), payload: { branch: 'f:100', idempotency_key: key(), ticket_id: 1, expected_revision: 2, table_id: 1,
+    items: base, discount: '0.00', discount_reason: '', quote_hash: order.quote_hash, waiter_name: order.waiter_name, guest_count: 3, customer_name: order.customer_name,
+    customer_phone: null, service_consent: false, marketing_consent: false, notes: order.notes } };
+  const kept = await ask('POST', '/admin/dining/tickets/save', { body: guests.payload });
+  assert.equal(kept.status, 200, JSON.stringify(kept.json));
+  pageAccepts(kept.json, guests);
+  assert.deepEqual([kept.json.ticket.guest_count, kept.json.ticket.total, kept.json.ticket.quote_hash], [3, order.total, order.quote_hash]);
+  // One more سلطة طحينة and half a kilo of cleaned بوري (as the page sends them: one line per item): priced with the device's menu.
+  const more = [...base.map((item) => (item.product_id === 7 ? { ...item, quantity: '3' } : item)),
+    { product_id: 1, option_id: 'f:0:extra_clean', quantity: '0.500', quantity_mode: 'weight' }];
+  const quote = (await ask('POST', '/admin/dining/quote', { body: { branch: 'f:100', items: more, discount: '0.00', discount_reason: '' } })).json;
+  const add = { kind: 'save', id: 1, expectedTotal: scaled(quote.total, 2), payload: { ...guests.payload, idempotency_key: key(), expected_revision: 3, items: more,
+    quote_hash: quote.quote_hash, reprice: true } };
+  const added = await ask('POST', '/admin/dining/tickets/save', { body: add.payload });
+  assert.equal(added.status, 200, JSON.stringify(added.json));
+  assert.deepEqual(shape(added.json), KEYS.save);
+  assert.deepEqual(shape(added.json.ticket), shape(DASHBOARD[3].json.ticket));
+  pageAccepts(added.json, add);
+  assert.deepEqual([added.json.ticket.revision, added.json.ticket.total, added.json.ticket.kitchen_sent], [4, quote.total, true]);
+  assert.equal(added.json.ticket.items.find((line) => line.product_id === 7).quantity, '3.000');
+  assert.equal(added.json.ticket.items.find((line) => line.option_id === 'f:0:extra_clean').option_label, 'تنظيف');
+  const floor = (await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables[0];
+  assert.deepEqual([floor.status, floor.ticket.total], ['in_service', quote.total]);
+  const bill = { kind: 'action', id: 1, expectedQuoteHash: quote.quote_hash, payload: { branch: 'f:100', expected_revision: 4, idempotency_key: key(), action: 'request_bill' } };
+  const billed = await ask('POST', '/admin/dining/tickets/1/action', { body: bill.payload });
+  pageAccepts(billed.json, bill);
+  assert.match((await ask('GET', '/admin/dining/tickets/1/print')).html, new RegExp(quote.total.replace('.', '\\.')));
+  const pay = { kind: 'settle', id: 1, expectedTotal: scaled(quote.total, 2), payload: { branch: 'f:100', expected_revision: 5, idempotency_key: key(),
+    quote_hash: quote.quote_hash, customer_phone: '01012345678', service_consent: true, payment_method: 'cash', cash_received: '500.00', payment_confirmed: true } };
+  const paid = await ask('POST', '/admin/dining/tickets/1/settle', { body: pay.payload });
+  assert.equal(paid.status, 200, JSON.stringify(paid.json));
+  pageAccepts(paid.json, pay);
+  // Sent in the order they were done, each checked by the dashboard against the order as the device left it.
+  const operations = store.pendingOperations();
+  assert.deepEqual(operations.map((operation) => operation.kind), ['ticket_save', 'ticket_save', 'ticket_action', 'ticket_settle']);
+  assert.deepEqual(operations[0].data.base, { items: base, discount: '0.00', discount_reason: '' });
+  assert.deepEqual(operations[0].data.items, base);
+  assert.deepEqual(operations[1].data.base.items, base);
+  assert.deepEqual(operations[1].data.items, more.map((item) => ({ product_id: item.product_id, option_id: item.option_id || '', quantity_mode: item.quantity_mode,
+    quantity: item.quantity })));
+  const expect = { items: operations[1].data.items, discount: '0.00', discount_reason: '', total_cents: Number(scaled(quote.total, 2)) };
+  assert.deepEqual(operations[2].data.expect, expect);
+  assert.deepEqual([operations[3].data.quote_hash, operations[3].data.expected_revision, operations[3].data.expect], [order.quote_hash, 2, expect]);
+  assert.equal(paid.json.receipt.total, quote.total);
+  assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['free', 'free']);
+});

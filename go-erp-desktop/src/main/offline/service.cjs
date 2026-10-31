@@ -24,7 +24,7 @@ const BILL_ISSUED = 'صدرت فاتورة الدفع؛ المتاح فقط إن
 const KITCHEN_SENT = 'تم إرسال الأوردر للمطبخ بالفعل. تُحفظ التعديلات عند طباعة طلب الحساب.';
 const MOVED = 'انتقل هذا الطلب للداشبورد بعد رجوع الإنترنت. افتح الطاولة من جديد.';
 const MOVING = 'جاري نقل هذا الطلب للداشبورد الآن. افتح الطاولة من جديد بعد ثوانٍ.';
-const EDIT_NEEDS_INTERNET = 'تعديل طلب مفتوح على الداشبورد يحتاج اتصالًا بالإنترنت. تقدر تطبع الحساب وتحصّل الطلب كما هو، وتسجّل الأصناف الإضافية من صفحة الكاشير.';
+const EDIT_NEEDS_INTERNET = 'تعديل طلب مفتوح على الداشبورد يحتاج اتصالًا بالإنترنت (أو تحديث السرفر لأحدث نسخة). تقدر تطبع الحساب وتحصّل الطلب كما هو، وتسجّل الأصناف الإضافية من صفحة الكاشير.';
 const ACTION_NEEDS_INTERNET = 'هذا الإجراء على طلب مفتوح من الداشبورد يحتاج اتصالًا بالإنترنت.';
 const NEW_DELIVERY_NEEDS_INTERNET = 'إنشاء أو تعديل طلب دليفري يحتاج اتصالًا بالإنترنت (تأكيد موقع العميل وسعر التوصيل). تقدر تحصّل الطلبات المفتوحة الآن.';
 const NEEDS_UPDATE = 'هذه العملية تحتاج اتصالًا بالإنترنت مرة واحدة لتحديث بيانات الداشبورد على الجهاز.';
@@ -173,6 +173,16 @@ class ServiceOffline {
       value.revision = overlay.revision;
       if (overlay.updated_at) value.updated_at = overlay.updated_at;
       if (overlay.status) value.status = overlay.status;
+      if (overlay.edit) {
+        // Changed here (more items, guests, notes): the order as the page saved it, priced with the device's menu.
+        const { edit } = overlay;
+        const quote = edit.quote;
+        Object.assign(value, { waiter_name: edit.waiter_name, guest_count: edit.guest_count, customer_name: edit.customer_name, customer_phone: edit.customer_phone,
+          notes: edit.notes, discount_reason: edit.discount_reason || '', quote_hash: quote.quote_hash, items: quote.items,
+          cart: { branch: value.branch.value, items: quote.items.map((line) => ({ product_id: line.product_id, quantity: line.quantity, quantity_mode: line.quantity_mode,
+            option_id: line.option_id })), discount: quote.discount, discount_reason: edit.discount_reason || '', delivery_fee: value.delivery_fee } });
+        for (const key of ['subtotal', 'discount', 'tax', 'tax_rate', 'service', 'service_rate', 'delivery', 'total']) value[key] = quote[key] ?? value[key];
+      }
       if (overlay.kitchen) {
         value.kitchen_sent = true;
         value.kitchen_print_url = this.url(`/kitchen/${LOCAL_KITCHEN_BASE + overlay.kitchen}/print`);
@@ -463,7 +473,10 @@ class ServiceOffline {
     }
     const found = this.find(user, ticketId);
     if (found.branch !== command.branch) throw new Reply(404, NOT_HERE);
-    if (!found.local) throw new Reply(422, EDIT_NEEDS_INTERNET);
+    if (!found.local) {
+      if (this.channel !== 'dine' || !this.supports('ticket_save')) throw new Reply(422, EDIT_NEEDS_INTERNET);
+      return this.serverSave(user, command, found, { waiter, guests, customer, phone, notes }, cart, catalog, hash, body);
+    }
     const local = found.local;
     this.mutable(local);
     if (positiveInt(body.expected_revision) !== local.data.revision) throw new Reply(409, CHANGED);
@@ -482,6 +495,54 @@ class ServiceOffline {
       this.store.updatePageTicket(local.id, data);
       this.store.recordPageCommand(command.key, 'save', local.id, data.revision, user, command.branch, { hash });
     });
+    return json(this.result(user, this.store.pageCommand(command.key), false));
+  }
+
+  /** The cart an order of the dashboard has now (with this device's changes): what a change here starts from. */
+  orderCart(ticket, overlay) {
+    if (overlay && overlay.edit) return { items: overlay.edit.items, discount: overlay.edit.discount, discount_reason: overlay.edit.discount_reason || '' };
+    const cart = ticket.cart || {};
+    return { items: (cart.items || []).map((item) => ({ product_id: Number(item.product_id), option_id: String(item.option_id || ''), quantity_mode: item.quantity_mode,
+      quantity: String(item.quantity) })), discount: cart.discount || '0.00', discount_reason: cart.discount_reason || '' };
+  }
+
+  /** What the dashboard checks a later step against once this device changed the order: the same cart and amount. */
+  expectation(ticket, overlay) {
+    if (!overlay || !overlay.edit) return {};
+    return { expect: { ...this.orderCart(ticket, overlay), total_cents: cents(ticket.total) } };
+  }
+
+  /**
+   * An order open on the dashboard, changed here (more items, guests, notes) before its bill: shown changed, and sent to
+   * the dashboard (ticket_save), which applies it when the order there is still what this device started from.
+   */
+  serverSave(user, command, found, values, cart, catalog, hash, body) {
+    const { server, overlay } = found;
+    const ticket = this.presentServer(user, server, overlay, true);
+    if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled') throw new Reply(409, CLOSED);
+    if (ticket.bill_locked) throw new Reply(409, BILL_ISSUED);
+    if (positiveInt(body.expected_revision) !== Number(ticket.revision)) throw new Reply(409, CHANGED);
+    if (values.guests > Number((ticket.table && ticket.table.capacity) || 200)) throw new Reply(422, 'عدد الضيوف أكبر من سعة الطاولة.');
+    const before = this.orderCart(ticket, overlay);
+    let after = before;
+    let quote = this.savedQuote(found, ticket);
+    if (yes(body.reprice) || !sameCart(cart.items, cart.discount_cents, cart.discount_reason, before)) {
+      const priced = this.takeaway.price(user, catalog, cart, 'dine');
+      if (priced.result.quote_hash !== String(body.quote_hash || '')) throw new Reply(409, 'تغير السعر أو الإعداد. راجع الإجمالي.');
+      quote = priced.result;
+      after = { items: cart.items, discount: money.decimal(cart.discount_cents), discount_reason: cart.discount_reason };
+    }
+    const revision = Number(ticket.revision) + 1;
+    const edit = { ...after, quote, waiter_name: values.waiter, guest_count: values.guests, customer_name: values.customer, customer_phone: values.phone, notes: values.notes };
+    const next = { ...(overlay || {}), base_revision: overlay ? overlay.base_revision : Number(server.revision), revision,
+      updated_at: cairoIso(this.now().toISOString()), edit };
+    this.store.atomically(() => {
+      this.store.overlayServerTicket(Number(server.id), next, { id: command.key, kind: 'ticket_save', actor_id: user.id, branch: command.branch,
+        data: { ticket_id: Number(server.id), base: before, items: after.items, discount: after.discount, discount_reason: after.discount_reason,
+          waiter_name: values.waiter, guest_count: values.guests, customer_name: values.customer, customer_phone: values.phone, notes: values.notes } });
+      this.store.recordPageCommand(command.key, 'save', `S:${server.id}`, revision, user, command.branch, { hash });
+    });
+    this.kick();
     return json(this.result(user, this.store.pageCommand(command.key), false));
   }
 
@@ -562,7 +623,7 @@ class ServiceOffline {
         meta.kitchen = next.kitchen;
       }
       this.store.overlayServerTicket(Number(server.id), next, { id: command.key, kind: 'ticket_action', actor_id: user.id, branch: command.branch,
-        data: { channel: this.channel, ticket_id: Number(server.id), action, quote_hash: server.quote_hash } });
+        data: { channel: this.channel, ticket_id: Number(server.id), action, quote_hash: server.quote_hash, ...this.expectation(ticket, overlay) } });
       this.store.recordPageCommand(command.key, 'action', `S:${server.id}`, revision, user, command.branch, meta);
     });
   }
@@ -628,7 +689,7 @@ class ServiceOffline {
         this.store.recordServerPayment(user, { id: command.key, branch: command.branch, channel: this.channel, label: ticket.table ? ticket.table.name : '',
           data, totals: this.totals(ticket, cash), server_ticket_id: Number(server.id), overlay: next, phone,
           operation: { channel: this.channel, ticket_id: Number(server.id), expected_revision: next.base_revision, quote_hash: server.quote_hash,
-            cash_received: money.decimal(cash), customer_phone: phone || null, service_consent: consent } });
+            cash_received: money.decimal(cash), customer_phone: phone || null, service_consent: consent, ...this.expectation(ticket, overlay) } });
         this.store.recordPageCommand(command.key, 'settle', `S:${server.id}`, revision, user, command.branch, { hash });
       });
     }

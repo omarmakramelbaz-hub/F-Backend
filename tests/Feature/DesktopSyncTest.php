@@ -336,7 +336,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -582,6 +582,43 @@ class DesktopSyncTest extends TestCase
         $stale = $this->operation('ticket_batch', 4, ['items' => [['id' => $third->id, 'quote_hash' => str_repeat('a', 64)]], 'total' => '116.00', 'cash_received' => '116.00']);
         $this->assertSame('rejected', $this->sync($device, ['operations' => [$stale]])->json('results')[0]['status']);
         $this->assertSame('unpaid', DB::table('pos_service_tickets')->where('id', $third->id)->value('payment_status'));
+    }
+
+    public function test_items_added_offline_to_a_dashboard_order_reach_it_once_and_its_bill_and_payment_follow(): void
+    {
+        $open = $this->openTable();
+        $ticket = $open['ticket'];
+        $id = (int) $ticket['id'];
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $line = fn ($item) => ['product_id' => $item['product_id'], 'quantity' => $item['quantity'], 'quantity_mode' => $item['quantity_mode'], 'option_id' => $item['option_id']];
+        $base = ['items' => array_map($line, $ticket['items']), 'discount' => '0.00', 'discount_reason' => ''];
+        // One more بلطي مقلي (45.50): 211.00 + 45.50 = 256.50
+        $more = array_merge($base['items'], [['product_id' => 2, 'quantity' => '1', 'quantity_mode' => 'piece', 'option_id' => '']]);
+        $expect = ['items' => $more, 'discount' => '0.00', 'discount_reason' => '', 'total_cents' => 25650];
+        $save = $this->operation('ticket_save', 4, ['ticket_id' => $id, 'base' => $base, 'items' => $more, 'discount' => '0.00', 'discount_reason' => '',
+            'waiter_name' => 'حسن', 'guest_count' => 3, 'customer_name' => 'أسرة محمد', 'customer_phone' => '', 'notes' => 'زيادة']);
+        $bill = $this->operation('ticket_action', 4, ['channel' => 'dine', 'ticket_id' => $id, 'action' => 'request_bill', 'quote_hash' => $ticket['quote_hash'],
+            'expect' => $expect]);
+        $settle = $this->operation('ticket_settle', 4, ['channel' => 'dine', 'ticket_id' => $id, 'expected_revision' => 2, 'quote_hash' => $ticket['quote_hash'],
+            'cash_received' => '300.00', 'customer_phone' => '01012345678', 'service_consent' => true, 'expect' => $expect]);
+        $results = $this->sync($device, ['operations' => [$save, $bill, $settle]])->assertOk()->json('results');
+        $this->assertSame(['applied', 'applied', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('256.50', $results[0]['ticket']['total']);
+        $row = DB::table('pos_service_tickets')->find($id);
+        $this->assertSame([3, 'زيادة', 'paid'], [(int) $row->guest_count, $row->notes, $row->payment_status]);
+        $this->assertNotNull($row->bill_issued_at);
+        $this->assertSame(25650, (int) DB::table('takeaway_orders')->where('ticket_id', $id)->value('total_cents'));
+        $this->assertSame($results, $this->sync($device, ['operations' => [$save, $bill, $settle]])->json('results'), 'A resend repeats nothing');
+        // Changed on the dashboard meanwhile: the device's change is refused, and so is a payment for a different amount.
+        $other = $this->openTable2();
+        $stale = $this->operation('ticket_save', 4, ['ticket_id' => $other['id'], 'base' => ['items' => [['product_id' => 2, 'quantity' => '2', 'quantity_mode' => 'piece']]],
+            'items' => [['product_id' => 2, 'quantity' => '3', 'quantity_mode' => 'piece']], 'waiter_name' => 'حسن', 'guest_count' => 1]);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$stale]])->json('results')[0]['status']);
+        $wrong = $this->operation('ticket_settle', 4, ['channel' => 'dine', 'ticket_id' => $other['id'], 'expected_revision' => 1, 'quote_hash' => str_repeat('b', 64),
+            'cash_received' => '300.00', 'customer_phone' => '01012345678', 'service_consent' => true,
+            'expect' => ['items' => [['product_id' => 2, 'quantity' => '1', 'quantity_mode' => 'piece']], 'total_cents' => 9999]]);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$wrong]])->json('results')[0]['status']);
+        $this->assertSame('unpaid', DB::table('pos_service_tickets')->where('id', $other['id'])->value('payment_status'));
     }
 
     public function test_a_bill_printed_or_a_kitchen_ticket_sent_offline_reaches_the_dashboard_order_once(): void

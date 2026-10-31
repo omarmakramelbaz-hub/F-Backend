@@ -25,7 +25,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -76,6 +76,7 @@ class DesktopSyncOperations
                 'ticket_action' => $this->ticketAction($actor, $values['branch'], $id, $values['data']),
                 'ticket_dispatch' => $this->ticketDispatch($actor, $values['branch'], $id, $values['data']),
                 'ticket_batch' => $this->ticketBatch($actor, $values['branch'], $id, $values['data']),
+                'ticket_save' => $this->ticketSave($actor, $values['branch'], $id, $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -233,7 +234,7 @@ class DesktopSyncOperations
     {
         $data = Validator::make($data, ['channel' => 'required|in:dine,phone', 'ticket_id' => 'required|integer|min:1',
             'expected_revision' => 'required|integer|min:1', 'quote_hash' => 'required|string|size:64', 'cash_received' => 'required|string|max:14',
-            'customer_phone' => 'nullable|string|max:30', 'service_consent' => 'nullable|boolean'])->validate();
+            'customer_phone' => 'nullable|string|max:30', 'service_consent' => 'nullable|boolean', 'expect' => 'nullable|array'])->validate();
         $tickets = app(PosServiceTicket::class);
         $actor = $this->access->actor($actor);
         $command = DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
@@ -247,8 +248,16 @@ class DesktopSyncOperations
         // costs: the payment then applies to the order as it is now. A different amount is never collected silently.
         $revision = (int) $data['expected_revision'];
         $row = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', $data['channel'])->where('id', (int) $data['ticket_id'])->first();
-        if ($row && $row->payment_status === 'unpaid' && $row->status !== 'cancelled'
-            && hash_equals((string) (json_decode($row->quote_snapshot, true)['quote_hash'] ?? ''), $data['quote_hash'])) $revision = (int) $row->revision;
+        if ($row && $row->payment_status === 'unpaid' && $row->status !== 'cancelled') {
+            $saved = (string) (json_decode($row->quote_snapshot, true)['quote_hash'] ?? '');
+            if (hash_equals($saved, $data['quote_hash'])) $revision = (int) $row->revision;
+            // Changed on the device first (more items): the dashboard priced that change itself, so the payment applies when
+            // the order has the same items and the same amount the device collected.
+            elseif (! empty($data['expect']) && $this->sameOrder($row, $data['expect'])) {
+                $revision = (int) $row->revision;
+                $data['quote_hash'] = $saved;
+            }
+        }
         $values = ['branch' => $branch, 'idempotency_key' => $id, 'expected_revision' => $revision, 'quote_hash' => $data['quote_hash'],
             'payment_method' => 'cash', 'cash_received' => $data['cash_received'], 'payment_confirmed' => true];
         if ($data['channel'] === 'dine') $values += ['customer_phone' => $data['customer_phone'] ?? null, 'service_consent' => (bool) ($data['service_consent'] ?? false)];
@@ -296,7 +305,7 @@ class DesktopSyncOperations
     private function ticketAction(User $actor, string $branch, string $id, array $data): array
     {
         $data = Validator::make($data, ['channel' => 'required|in:dine,phone', 'ticket_id' => 'required|integer|min:1',
-            'action' => 'required|in:send_kitchen,request_bill', 'quote_hash' => 'required|string|size:64'])->validate();
+            'action' => 'required|in:send_kitchen,request_bill', 'quote_hash' => 'required|string|size:64', 'expect' => 'nullable|array'])->validate();
         abort_unless($data['action'] === 'request_bill' || $data['channel'] === 'dine', 422, 'الإجراء غير متاح لهذا الطلب.');
         $tickets = app(PosServiceTicket::class);
         $actor = $this->access->actor($actor);
@@ -309,7 +318,8 @@ class DesktopSyncOperations
         $ticket = $tickets->show($data['channel'], (int) $row->id, $actor)['ticket'];
         $done = $data['action'] === 'send_kitchen' ? $ticket['kitchen_sent'] : $ticket['bill_locked'];
         if ($done || $ticket['payment_status'] !== 'unpaid' || $ticket['status'] === 'cancelled') return $summary($ticket, true);
-        abort_unless(hash_equals((string) $ticket['quote_hash'], $data['quote_hash']), 409, 'تغيّر الطلب على الداشبورد قبل وصول ما تم على الجهاز.');
+        abort_unless(hash_equals((string) $ticket['quote_hash'], $data['quote_hash']) || (! empty($data['expect']) && $this->sameOrder($row, $data['expect'])),
+            409, 'تغيّر الطلب على الداشبورد قبل وصول ما تم على الجهاز.');
         $result = $tickets->action($data['channel'], (int) $row->id, ['branch' => $branch, 'idempotency_key' => $id,
             'expected_revision' => (int) $ticket['revision'], 'action' => $data['action']], $actor);
         return $summary($result['ticket']);
@@ -360,6 +370,60 @@ class DesktopSyncOperations
             'courier_name' => $data['courier_name'] ?? '', 'total' => $data['total'], 'payment_method' => 'cash', 'cash_received' => $data['cash_received'],
             'payment_reference' => '', 'payment_confirmed' => true], $actor, true);
         return $summary($result['batch']);
+    }
+
+    /**
+     * A dine-in order open on the dashboard, changed on the device while offline (more items, guests, notes) before its
+     * bill. Applied when the order on the dashboard is still the one the device started from; a changed cart is priced by
+     * the dashboard itself, an unchanged one keeps its prices.
+     */
+    private function ticketSave(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['ticket_id' => 'required|integer|min:1', 'base' => 'required|array', 'base.items' => 'required|array|min:1|max:100',
+            'items' => 'required|array|min:1|max:100', 'discount' => 'nullable|string|max:14', 'discount_reason' => 'nullable|string|max:500',
+            'waiter_name' => 'required|string|max:100', 'guest_count' => 'required|integer|min:1|max:200', 'customer_name' => 'nullable|string|max:100',
+            'customer_phone' => 'nullable|string|max:30', 'notes' => 'nullable|string|max:500'])->validate();
+        $tickets = app(PosServiceTicket::class);
+        $actor = $this->access->actor($actor);
+        $summary = fn (array $ticket, bool $already = false) => ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'],
+            'status' => (string) $ticket['status'], 'total' => (string) $ticket['total']]] + ($already ? ['already_saved' => true] : []);
+        $command = DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if ($command) return $summary($tickets->show('dine', (int) $command->ticket_id, $actor)['ticket'], true);
+        $row = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', 'dine')->where('id', (int) $data['ticket_id'])->first();
+        abort_unless($row, 404, 'الطلب غير موجود على الداشبورد.');
+        abort_unless($row->payment_status === 'unpaid' && $row->status !== 'cancelled', 409, 'الطلب اتقفل على الداشبورد قبل وصول تعديل الجهاز.');
+        abort_unless(empty($row->bill_issued_at) && $row->status !== 'awaiting_bill', 409, 'صدرت فاتورة الدفع على الداشبورد قبل وصول تعديل الجهاز.');
+        abort_unless($this->sameCart($row, $data['base']), 409, 'تغيّر الطلب على الداشبورد قبل وصول تعديل الجهاز.');
+        $cart = ['branch' => $branch, 'items' => $data['items'], 'discount' => $data['discount'] ?? '0.00', 'discount_reason' => $data['discount_reason'] ?? ''];
+        $hash = $this->sameCart($row, $cart) ? (string) (json_decode($row->quote_snapshot, true)['quote_hash'] ?? '') : $tickets->quote('dine', $cart, $actor)['quote_hash'];
+        $saved = $tickets->save('dine', $cart + ['idempotency_key' => $id, 'ticket_id' => (int) $row->id, 'expected_revision' => (int) $row->revision,
+            'table_id' => (int) $row->table_id, 'quote_hash' => $hash, 'waiter_name' => $data['waiter_name'], 'guest_count' => (int) $data['guest_count'],
+            'customer_name' => $data['customer_name'] ?? null, 'customer_phone' => ($data['customer_phone'] ?? '') !== '' ? $data['customer_phone'] : null,
+            'notes' => $data['notes'] ?? null], $actor);
+        return $summary($saved['ticket']);
+    }
+
+    /** The order on the dashboard has these items and discount (lines merged, in any order). */
+    private function sameCart(object $row, array $cart): bool
+    {
+        $sales = app(TakeawayService::class);
+        $current = json_decode($row->cart_snapshot, true) ?: [];
+        try {
+            $mine = $sales->canonicalCart(['branch' => $row->branch, 'items' => $cart['items'] ?? [], 'discount' => $cart['discount'] ?? '0.00',
+                'discount_reason' => $cart['discount_reason'] ?? '']);
+            $theirs = $sales->canonicalCart(['branch' => $row->branch, 'items' => $current['items'] ?? [], 'discount' => $current['discount'] ?? '0.00',
+                'discount_reason' => $current['discount_reason'] ?? '']);
+        } catch (ValidationException $error) {
+            return false;
+        }
+        return PosServiceTicket::fingerprint($mine) === PosServiceTicket::fingerprint($theirs);
+    }
+
+    /** The same items and the same amount as the device has (after it changed the order). */
+    private function sameOrder(object $row, array $expect): bool
+    {
+        $total = (string) (json_decode($row->quote_snapshot, true)['total'] ?? '');
+        return $this->sameCart($row, $expect) && $total !== '' && \App\Services\GoServices\Money::minor($total) === (int) ($expect['total_cents'] ?? -1);
     }
 
     /** The paid order as the device keeps it. */

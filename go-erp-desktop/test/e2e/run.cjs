@@ -602,14 +602,20 @@ async function dashboardOffline() {
     .catch(async (error) => { await report('dine-in payment'); throw error; });
   const kitchen = deviceRows(userData, 'goerp.sqlite', 'SELECT COUNT(*) AS c FROM kitchen_prints')[0].c;
   assert.equal(kitchen, 1, 'The kitchen ticket was printed from the device');
-  // Table 1: the dashboard's own order, its bill printed and paid on the device.
+  // Table 1: the dashboard's own order — one more سلطة طحينة added on the device (80.00 + 25.00 = 105.00), its bill printed and paid.
   await checked("Array.from(document.querySelectorAll('[data-dining-table]')).filter((button) => /is-free/.test(button.className)).length === 1", 'table 2 is free again');
   await dining("root.querySelector('[data-dining-table=\"1\"]').click();");
   await checked("document.querySelectorAll('[data-dining-lines] tr').length === 1 && !document.querySelector('[data-dining-request-bill]').disabled",
     'the dashboard order opens from the device');
+  await dining(`Array.from(root.querySelectorAll('[data-dining-product]')).find((button) => button.textContent.includes('سلطة طحينة')).click();
+    const option = document.querySelector('[data-dining-modal]:not([hidden]) .dp-option-list button'); if (option) option.click();`);
+  await checked("document.querySelector('[data-dining-total=\"total\"]').textContent.trim() === '105.00' && !document.querySelector('[data-dining-request-bill]').disabled",
+    'the device prices the item added to the dashboard order');
+  // Printing the bill saves the change first, like the dashboard.
   await dining("root.querySelector('[data-dining-request-bill]').click();");
-  await checked("!document.querySelector('[data-dining-settle]').disabled", 'the dashboard order\'s bill is printed on the device');
-  await pay('01098765432', '100');
+  await checked("!document.querySelector('[data-dining-settle]').disabled && document.querySelectorAll('[data-dining-lines] tr').length === 2",
+    'the dashboard order\'s change is saved and its bill printed on the device');
+  await pay('01098765432', '200');
   await until(() => deviceRows(userData, 'goerp.sqlite', `SELECT COUNT(*) AS c FROM tickets WHERE status = 'paid' AND json_extract(data, '$.server_ticket_id') = ${seated.id}`)[0].c === 1,
     'the dashboard order is paid on the device', 30000).catch(async (error) => { await report('dashboard order payment'); throw error; });
   await checked("Array.from(document.querySelectorAll('[data-dining-table]')).every((button) => /is-free/.test(button.className))", 'both tables are free');
@@ -665,6 +671,8 @@ async function dashboardOffline() {
   await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${local.id}' AND channel = 'dine' AND total_cents = 20500`)[0].c === 1,
     'the offline dine-in order reaches the dashboard', 40000);
   await until(() => serverRows(`SELECT payment_status FROM pos_service_tickets WHERE id = ${seated.id}`)[0].payment_status === 'paid', 'the dashboard order is closed', 40000);
+  assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE ticket_id = ${seated.id}`)[0].total_cents, 10500, 'with the item added on the device');
+  assert.equal(JSON.parse(serverRows(`SELECT cart_snapshot FROM pos_service_tickets WHERE id = ${seated.id}`)[0].cart_snapshot).items.length, 2);
   assert.ok(serverRows(`SELECT bill_issued_at FROM pos_service_tickets WHERE id = ${seated.id}`)[0].bill_issued_at, 'with its bill printed');
   assert.equal(serverRows('SELECT COUNT(*) AS c FROM pos_service_tables WHERE active_ticket_id IS NOT NULL')[0].c, 0, 'Every table is free');
   await until(() => serverRows("SELECT COUNT(*) AS c FROM pos_service_tickets WHERE channel = 'phone' AND payment_status = 'paid' AND status = 'finished'")[0].c === 3,
