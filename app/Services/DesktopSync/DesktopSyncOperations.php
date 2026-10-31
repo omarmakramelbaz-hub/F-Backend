@@ -25,7 +25,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -77,6 +77,7 @@ class DesktopSyncOperations
                 'ticket_dispatch' => $this->ticketDispatch($actor, $values['branch'], $id, $values['data']),
                 'ticket_batch' => $this->ticketBatch($actor, $values['branch'], $id, $values['data']),
                 'ticket_save' => $this->ticketSave($actor, $values['branch'], $id, $values['data']),
+                'ticket_cancel' => $this->ticketAction($actor, $values['branch'], $id, ['action' => 'cancel'] + $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -305,8 +306,10 @@ class DesktopSyncOperations
     private function ticketAction(User $actor, string $branch, string $id, array $data): array
     {
         $data = Validator::make($data, ['channel' => 'required|in:dine,phone', 'ticket_id' => 'required|integer|min:1',
-            'action' => 'required|in:send_kitchen,request_bill', 'quote_hash' => 'required|string|size:64', 'expect' => 'nullable|array'])->validate();
-        abort_unless($data['action'] === 'request_bill' || $data['channel'] === 'dine', 422, 'الإجراء غير متاح لهذا الطلب.');
+            'action' => 'required|in:send_kitchen,request_bill,cancel', 'quote_hash' => 'required|string|size:64', 'expect' => 'nullable|array',
+            'reason' => 'nullable|string|max:500'])->validate();
+        abort_unless($data['action'] !== 'send_kitchen' || $data['channel'] === 'dine', 422, 'الإجراء غير متاح لهذا الطلب.');
+        if ($data['action'] === 'cancel' && trim($data['reason'] ?? '') === '') throw ValidationException::withMessages(['reason' => 'اكتب سبب الإلغاء.']);
         $tickets = app(PosServiceTicket::class);
         $actor = $this->access->actor($actor);
         $summary = fn (array $ticket, bool $already = false) => ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'],
@@ -316,12 +319,12 @@ class DesktopSyncOperations
         $row = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', $data['channel'])->where('id', (int) $data['ticket_id'])->first();
         abort_unless($row, 404, 'الطلب غير موجود على الداشبورد.');
         $ticket = $tickets->show($data['channel'], (int) $row->id, $actor)['ticket'];
-        $done = $data['action'] === 'send_kitchen' ? $ticket['kitchen_sent'] : $ticket['bill_locked'];
+        $done = ['send_kitchen' => $ticket['kitchen_sent'], 'request_bill' => $ticket['bill_locked'], 'cancel' => false][$data['action']];
         if ($done || $ticket['payment_status'] !== 'unpaid' || $ticket['status'] === 'cancelled') return $summary($ticket, true);
         abort_unless(hash_equals((string) $ticket['quote_hash'], $data['quote_hash']) || (! empty($data['expect']) && $this->sameOrder($row, $data['expect'])),
             409, 'تغيّر الطلب على الداشبورد قبل وصول ما تم على الجهاز.');
         $result = $tickets->action($data['channel'], (int) $row->id, ['branch' => $branch, 'idempotency_key' => $id,
-            'expected_revision' => (int) $ticket['revision'], 'action' => $data['action']], $actor);
+            'expected_revision' => (int) $ticket['revision'], 'action' => $data['action']] + ($data['action'] === 'cancel' ? ['reason' => trim($data['reason'])] : []), $actor);
         return $summary($result['ticket']);
     }
 

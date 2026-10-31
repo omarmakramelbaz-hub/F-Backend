@@ -891,3 +891,45 @@ test('items added offline to a table opened on the dashboard: shown, billed and 
   assert.equal(paid.json.receipt.total, quote.total);
   assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['free', 'free']);
 });
+
+test('a dashboard order cancelled offline frees its table or leaves the delivery board, and is cancelled there once', async () => {
+  const { store, ask, key } = diningPage({ kinds: ['sale', 'ticket_settle', 'ticket_action', 'ticket_cancel'] });
+  // Table 1 seated on the dashboard, not sent to the kitchen yet.
+  const open = DASHBOARD[2].json.ticket;
+  const copy = serviceCopy();
+  store.applyService([{ ...copy, hash: 'service-open', tables: [{ ...copy.tables[0], ticket: { ...copy.tables[0].ticket, status: 'open', kitchen_sent: false } }, copy.tables[1]],
+    tickets: [open] }]);
+  const cancel = { kind: 'action', id: open.id, expectedQuoteHash: open.quote_hash, payload: { branch: 'f:100', expected_revision: 1, idempotency_key: key(), action: 'cancel',
+    reason: 'العميل مشي' } };
+  assert.equal((await ask('POST', `/admin/dining/tickets/${open.id}/action`, { body: { ...cancel.payload, reason: '' } })).status, 422, 'A reason is required');
+  const cancelled = await ask('POST', `/admin/dining/tickets/${open.id}/action`, { body: cancel.payload });
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+  pageAccepts(cancelled.json, cancel);
+  assert.deepEqual([cancelled.json.ticket.status, cancelled.json.ticket.cancel_reason, cancelled.json.ticket.payment_status], ['cancelled', 'العميل مشي', 'unpaid']);
+  assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['free', 'free']);
+  const [operation] = store.pendingOperations();
+  assert.deepEqual([operation.id, operation.kind, operation.data.action, operation.data.reason, operation.data.ticket_id],
+    [cancel.payload.idempotency_key, 'ticket_cancel', 'cancel', 'العميل مشي', open.id]);
+  // Sent to the kitchen already: not cancelled offline (the dashboard's rule).
+  store.applyService([{ ...serviceCopy(), hash: 'service-kitchen' }]);
+  store.applyResults([{ id: operation.id, status: 'applied', ticket: { id: open.id, revision: 2, status: 'cancelled' } }]);
+  const sent = await ask('POST', '/admin/dining/tickets/1/action', { body: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'cancel', reason: 'غلط' } });
+  assert.equal(sent.status, 409);
+
+  // The delivery board: an order still being prepared is cancelled and moves to the finished column.
+  const { store: phoneStore, ask: phoneAsk, key: phoneKey } = deliveryPage();
+  phoneStore.set('server_kinds', ['sale', 'ticket_settle', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_cancel']);
+  const id = PHONE.show.ticket.id;
+  const dropped = await phoneAsk('POST', `/admin/phone-orders/tickets/${id}/action`, { body: { branch: 'f:100', expected_revision: 1, idempotency_key: phoneKey(),
+    action: 'cancel', reason: 'العميل لغى' } });
+  assert.equal(dropped.status, 200, JSON.stringify(dropped.json));
+  assert.deepEqual([dropped.json.ticket.status, dropped.json.ticket.payment_status], ['cancelled', 'unpaid'], 'What the delivery page checks');
+  const columns = (await phoneAsk('GET', '/admin/phone-orders/board?branch=f:100')).json.columns;
+  assert.deepEqual([columns.preparing.items.length, columns.finished.items.map((item) => [item.id, item.status])], [0, [[id, 'cancelled']]]);
+  assert.ok(columns.finished.items[0].completed_at);
+  // Without a dashboard that knows offline cancellations, it needs the internet.
+  const { ask: oldAsk, key: oldKey } = diningPage();
+  const old = await oldAsk('POST', '/admin/dining/tickets/1/action', { body: { branch: 'f:100', expected_revision: 2, idempotency_key: oldKey(), action: 'cancel', reason: 'غلط' } });
+  assert.equal(old.status, 422);
+  assert.match(old.json.message, /اتصالًا بالإنترنت/);
+});

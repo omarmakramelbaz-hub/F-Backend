@@ -336,7 +336,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -619,6 +619,35 @@ class DesktopSyncTest extends TestCase
             'expect' => ['items' => [['product_id' => 2, 'quantity' => '1', 'quantity_mode' => 'piece']], 'total_cents' => 9999]]);
         $this->assertSame('rejected', $this->sync($device, ['operations' => [$wrong]])->json('results')[0]['status']);
         $this->assertSame('unpaid', DB::table('pos_service_tickets')->where('id', $other['id'])->value('payment_status'));
+    }
+
+    public function test_orders_cancelled_offline_are_cancelled_on_the_dashboard_once_and_free_their_table(): void
+    {
+        $cashier = User::find(4);
+        $table = DB::table('pos_service_tables')->insertGetId(['branch' => 'f:100', 'name' => 'ترابيزة 9', 'capacity' => 4, 'active' => true, 'revision' => 1,
+            'created_at' => now(), 'updated_at' => now()]);
+        $items = [['product_id' => 2, 'quantity' => '1', 'quantity_mode' => 'piece']];
+        $quote = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/quote', ['branch' => 'f:100', 'items' => $items])->json();
+        $dine = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/tickets/save', ['branch' => 'f:100', 'idempotency_key' => (string) Str::uuid(),
+            'table_id' => $table, 'items' => $items, 'quote_hash' => $quote['quote_hash'], 'waiter_name' => 'حسن', 'guest_count' => 1])->assertOk()->json('ticket');
+        $phone = $this->phoneOrder();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $cancel = fn (string $channel, int $id, string $hash, string $reason = 'العميل مشي') => $this->operation('ticket_cancel', 4, ['channel' => $channel,
+            'ticket_id' => $id, 'quote_hash' => $hash, 'reason' => $reason]);
+        $operations = [$cancel('dine', (int) $dine['id'], $dine['quote_hash']), $cancel('phone', (int) $phone->id, json_decode($phone->quote_snapshot, true)['quote_hash'])];
+        $results = $this->sync($device, ['operations' => $operations])->assertOk()->json('results');
+        $this->assertSame(['applied', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame(['cancelled', 'cancelled'], DB::table('pos_service_tickets')->whereIn('id', [$dine['id'], $phone->id])->orderBy('id')->pluck('status')->all());
+        $this->assertSame('العميل مشي', DB::table('pos_service_tickets')->where('id', $dine['id'])->value('cancel_reason'));
+        $this->assertNull(DB::table('pos_service_tables')->where('id', $table)->value('active_ticket_id'), 'The table is free again');
+        $this->assertSame($results, $this->sync($device, ['operations' => $operations])->json('results'), 'A resend repeats nothing');
+        // Sent to the kitchen on the dashboard meanwhile: it is not cancelled from the device.
+        $open = $this->openTable();
+        $late = $this->sync($device, ['operations' => [$cancel('dine', (int) $open['ticket']['id'], $open['ticket']['quote_hash'])]])->json('results')[0];
+        $this->assertSame('rejected', $late['status']);
+        $this->assertSame('preparing', DB::table('pos_service_tickets')->where('id', $open['ticket']['id'])->value('status'));
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$cancel('dine', (int) $open['ticket']['id'], $open['ticket']['quote_hash'], ' ')]])
+            ->json('results')[0]['status'], 'A reason is required');
     }
 
     public function test_a_bill_printed_or_a_kitchen_ticket_sent_offline_reaches_the_dashboard_order_once(): void

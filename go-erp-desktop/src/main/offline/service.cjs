@@ -193,6 +193,7 @@ class ServiceOffline {
         Object.assign(value, { bill_locked: true, bill_issued_at: overlay.bill.at, bill_issued_by: overlay.bill.by, bill_issued_revision: overlay.bill.revision });
         if (this.channel === 'dine') value.status = 'awaiting_bill';
       }
+      if (overlay.cancelled) Object.assign(value, { status: 'cancelled', cancel_reason: overlay.cancelled.reason });
       if (overlay.paid) {
         const record = this.store.ticket(overlay.paid);
         const canReprint = !!user.can_reprint;
@@ -334,7 +335,7 @@ class ServiceOffline {
       if (value.ticket_id) {
         const overlay = this.store.serviceOverlay(Number(value.ticket_id));
         const server = (copy.tickets || []).find((item) => Number(item.id) === Number(value.ticket_id));
-        if (overlay && overlay.paid) Object.assign(value, { status: 'free', ticket_id: null, ticket: null, revision: Number(value.revision) + 1 });
+        if (overlay && (overlay.paid || overlay.cancelled)) Object.assign(value, { status: 'free', ticket_id: null, ticket: null, revision: Number(value.revision) + 1 });
         else if (overlay && server) {
           value.ticket = this.presentServer(user, server, overlay, false);
           value.status = value.ticket.status === 'awaiting_bill' ? 'awaiting_bill' : 'in_service';
@@ -564,7 +565,7 @@ class ServiceOffline {
     const found = this.find(user, id);
     if (found.branch !== command.branch) throw new Reply(404, NOT_HERE);
     if (found.local) this.localAction(user, command, found.local, body.action, expected, reason, hash);
-    else this.serverAction(user, command, found, body.action, expected, hash);
+    else this.serverAction(user, command, found, body.action, expected, hash, reason);
     this.kick();
     return json(this.result(user, this.store.pageCommand(command.key), false));
   }
@@ -600,30 +601,37 @@ class ServiceOffline {
   }
 
   /** An order open on the dashboard: done here, and told to the dashboard with the page's operation number. */
-  serverAction(user, command, found, action, expected, hash) {
+  serverAction(user, command, found, action, expected, hash, reason = '') {
     const { server, overlay } = found;
     const ticket = this.presentServer(user, server, overlay, true);
     if (ticket.payment_status !== 'unpaid' || ticket.status === 'cancelled') throw new Reply(409, CLOSED);
     if (ticket.bill_locked) throw new Reply(409, BILL_ISSUED);
     if (expected !== Number(ticket.revision)) throw new Reply(409, CHANGED);
-    const possible = action === 'request_bill' || (action === 'send_kitchen' && this.channel === 'dine');
+    const possible = ['request_bill', 'cancel'].includes(action) || (action === 'send_kitchen' && this.channel === 'dine');
     if (!possible) throw new Reply(422, ACTION_NEEDS_INTERNET);
-    if (!this.supports('ticket_action')) throw new Reply(422, NEEDS_UPDATE);
+    if (!this.supports(action === 'cancel' ? 'ticket_cancel' : 'ticket_action')) throw new Reply(422, NEEDS_UPDATE);
     if (action === 'send_kitchen' && ticket.kitchen_sent) throw new Reply(409, KITCHEN_SENT);
-    if (!(ticket.items || []).length) throw new Reply(422, 'الفاتورة فارغة.');
+    if (action === 'cancel') {
+      // PosServiceTicket::action: a dine-in order before the kitchen, a delivery order before it leaves with the courier.
+      if (this.channel === 'dine' && ticket.kitchen_sent) throw new Reply(409, 'لا يمكن إلغاء فاتورة أُرسلت للمطبخ.');
+      if (this.channel === 'phone' && !['new', 'preparing'].includes(ticket.status)) throw new Reply(409, 'إلغاء طلب الدليفري متاح أثناء التجهيز وقبل تسليمه للمندوب.');
+    } else if (!(ticket.items || []).length) throw new Reply(422, 'الفاتورة فارغة.');
     const revision = Number(ticket.revision) + 1;
     const stamp = cairoIso(this.now().toISOString());
     const next = { ...(overlay || {}), base_revision: overlay ? overlay.base_revision : Number(server.revision), revision, updated_at: stamp };
     const meta = { hash };
     this.store.atomically(() => {
       if (action === 'request_bill') next.bill = { at: stamp, by: user.id, revision };
+      else if (action === 'cancel') next.cancelled = { reason };
       else {
         const snapshot = { ...this.presentServer(user, server, { ...next, kitchen: null }, true), status: 'preparing' };
         next.kitchen = this.store.addKitchenPrint(`S:${server.id}`, revision, snapshot);
         meta.kitchen = next.kitchen;
       }
-      this.store.overlayServerTicket(Number(server.id), next, { id: command.key, kind: 'ticket_action', actor_id: user.id, branch: command.branch,
-        data: { channel: this.channel, ticket_id: Number(server.id), action, quote_hash: server.quote_hash, ...this.expectation(ticket, overlay) } });
+      // A cancellation has its own kind: a dashboard without it keeps it waiting instead of refusing it.
+      this.store.overlayServerTicket(Number(server.id), next, { id: command.key, kind: action === 'cancel' ? 'ticket_cancel' : 'ticket_action', actor_id: user.id,
+        branch: command.branch, data: { channel: this.channel, ticket_id: Number(server.id), action, quote_hash: server.quote_hash, ...(action === 'cancel' ? { reason } : {}),
+          ...this.expectation(ticket, overlay) } });
       this.store.recordPageCommand(command.key, 'action', `S:${server.id}`, revision, user, command.branch, meta);
     });
   }
@@ -736,7 +744,7 @@ class ServiceOffline {
         const courier = (overlay && overlay.courier_company) || server.courier_company || null;
         if (company && !(courier && Number(courier.id) === company)) continue;
         orders.push({ ...this.presentServer(user, server, overlay, false), courier_company: courier, batch_print_url: null,
-          completed_at: record ? cairoIso(record.paid_at) : null });
+          completed_at: record ? cairoIso(record.paid_at) : (overlay && overlay.cancelled ? overlay.updated_at : null) });
       }
     }
     const columns = {};
