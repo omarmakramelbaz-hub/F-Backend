@@ -10,6 +10,9 @@ const auth = require('./auth.cjs');
 const printing = require('./printing.cjs');
 const rules = require('./rules.cjs');
 const money = require('./money.cjs');
+const { PageCache } = require('./offline/cache.cjs');
+const { DashboardOffline, warmUpScript } = require('./offline/interceptor.cjs');
+const { TakeawayOffline } = require('./offline/takeaway.cjs');
 
 const SERVER = process.env.GOERP_SERVER || 'https://fasakhaninja.com';
 // Lets the automatic tests run the app on a separate data folder.
@@ -21,6 +24,9 @@ if (!app.requestSingleInstanceLock()) app.quit();
 let store;
 let api;
 let sync;
+let pageCache; // the dashboard pages and files saved on this device
+let offline; // answers the dashboard window from the device while the internet is down
+let offlineMode = false;
 let mainWindow = null;
 let current = null; // { user, branch } of the signed-in account
 // What the signed-in person typed, kept in memory only, to sign the online dashboard window in as the same account.
@@ -76,9 +82,25 @@ function branchInfo(value) {
   return store.branches().find((branch) => branch.value === value) || { value, name: '', address: '', phone: '' };
 }
 
+function sessionUser() {
+  return current ? store.user(current.user.id) : null;
+}
+
 const handlers = {
   'app:info': () => ({ version: app.getVersion(), server: SERVER, device: publicDevice(), branches: store.branches(),
-    session: current, sync: sync.status(), print: printSettings(), autostart: autostart(), embed: EMBED, dashboard_shown: dashboardShown }),
+    session: current, sync: sync.status(), print: printSettings(), autostart: autostart(), embed: EMBED, dashboard_shown: dashboardShown,
+    offline_mode: offlineMode, dashboard_copy: current ? offline.hasCopy(sessionUser()) : false }),
+
+  // The person's computer says the network is gone: answer the dashboard from the device right away.
+  'app:network': (values) => {
+    if (values.online === false) {
+      setOfflineMode(true);
+      sync.run().catch(() => {});
+    } else {
+      sync.kick();
+    }
+    return offlineMode;
+  },
 
   'app:autostart': (values) => {
     requireSession();
@@ -114,6 +136,7 @@ const handlers = {
   'setup:reset': () => {
     if (!sync.state.device_revoked) throw new Error('الجهاز يعمل بشكل طبيعي.');
     store.forgetDevice();
+    pageCache.forgetAll();
     current = null;
     dashboardLogin = null;
     resetDashboard();
@@ -341,6 +364,58 @@ function layoutDashboard() {
   dashboardView.setBounds({ x: 0, y: 0, width, height: Math.max(0, height - BAR_HEIGHT) });
 }
 
+/**
+ * Online or offline. Offline the dashboard window keeps working from the device (saved pages, the cashier page's
+ * answers); the 30-second sync decides when the internet is back.
+ */
+function setOfflineMode(value, reason = '') {
+  if (offlineMode === value) return;
+  console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} ${value ? 'offline' : 'online'}${reason ? ': ' + reason : ''}`);
+  offlineMode = value;
+  offline.setOffline(value).catch(() => {});
+  notifyDashboard({ type: 'connection', online: !value });
+  if (!value) refreshWhenIdle();
+}
+
+// Windows whose current page came from the device's copy: reloaded from the dashboard once it is idle online.
+const fromCopy = new WeakSet();
+let refreshTimer = null;
+
+function refreshWhenIdle() {
+  clearTimeout(refreshTimer);
+  const contents = dashboardView && dashboardView.webContents;
+  if (offlineMode || !contents || contents.isDestroyed() || !fromCopy.has(contents)) return;
+  contents.executeJavaScript('!window.DashboardSPA || window.DashboardSPA.isIdle()').then((idle) => {
+    if (offlineMode || contents.isDestroyed()) return;
+    if (!idle) { refreshTimer = setTimeout(refreshWhenIdle, 15000); return; }
+    dashboardTarget = contents.getURL();
+    contents.reload();
+  }).catch(() => { refreshTimer = setTimeout(refreshWhenIdle, 15000); });
+}
+
+// Each account's dashboard pages are saved for offline use once it opens the dashboard online (again after 6 hours).
+const warmedAt = new Map();
+
+function warmUp(contents) {
+  const user = sessionUser();
+  if (!user || offlineMode || Date.now() - (warmedAt.get(user.id) || 0) < 6 * 3600 * 1000) return;
+  warmedAt.set(user.id, Date.now());
+  setTimeout(() => {
+    if (!contents.isDestroyed() && !offlineMode && current && current.user.id === user.id) contents.executeJavaScript(warmUpScript()).catch(() => {});
+  }, 4000);
+}
+
+/** Pictures of a receipt (the logo) from the device's copy, so it prints the same with the internet down. */
+function inlineImages(html, base) {
+  return html.replace(/(<img\b[^>]*?\bsrc=")([^"]+)(")/gi, (match, start, src, end) => {
+    let url;
+    try { url = new URL(src.replace(/&amp;/g, '&'), base).href; } catch { return match; }
+    if (url.startsWith('data:')) return match;
+    const copy = offline.copyOf(url);
+    return copy ? `${start}data:${copy.contentType};base64,${copy.body.toString('base64')}${end}` : match;
+  });
+}
+
 function createDashboardView() {
   const dashboardSession = session.fromPartition('persist:dashboard');
   const allowed = new Set(['notifications', 'geolocation', 'clipboard-sanitized-write', 'fullscreen']);
@@ -362,6 +437,7 @@ function createDashboardView() {
     return { action: 'deny' };
   });
   contents.on('did-create-window', (popup) => {
+    offline.attach(popup.webContents).catch(() => {});
     dashboardPopups.add(popup);
     popup.on('closed', () => dashboardPopups.delete(popup));
     popup.webContents.on('dom-ready', () => installDirectPrint(popup.webContents));
@@ -374,7 +450,8 @@ function createDashboardView() {
   contents.on('did-finish-load', () => onDashboardLoad(contents));
   contents.on('did-fail-load', (event, code, description, url, mainFrame) => {
     if (!mainFrame || code === -3) return; // -3: replaced by another load
-    notifyDashboard({ type: 'offline' }); // the app switches to the device's own screens
+    // Neither the dashboard nor a saved copy could show the page: the app's own screens take over.
+    notifyDashboard({ type: 'unavailable' });
   });
 }
 
@@ -417,16 +494,25 @@ function installDirectPrint(contents) {
   if (contents && !contents.isDestroyed() && sameServer(contents.getURL())) contents.executeJavaScript(directPrintScript()).catch(() => {});
 }
 
-function showDashboard(page) {
+async function showDashboard(page) {
   if (!EMBED || !current || !mainWindow) return false;
-  const target = SERVER + (DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home);
+  const user = sessionUser();
+  let path = DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home;
+  if (offlineMode) {
+    // Offline the dashboard opens from this account's saved pages; without any, the device's screens are used.
+    if (!offline.hasCopy(user)) return false;
+    if (!page || page === 'home') path = offline.landing(user) || path;
+  }
+  const target = SERVER + path;
   dashboardTarget = page && page !== 'home' ? target : null;
   if (!dashboardView) {
     createDashboardView();
+    await offline.attach(dashboardView.webContents);
     dashboardView.webContents.loadURL(target);
   } else if (page || dashboardView.webContents.getURL() === '') {
     dashboardView.webContents.loadURL(target);
   }
+  if (!current || !mainWindow || mainWindow.isDestroyed() || !dashboardView) return false;
   if (!dashboardShown) {
     mainWindow.contentView.addChildView(dashboardView);
     dashboardShown = true;
@@ -454,6 +540,12 @@ async function onDashboardLoad(contents) {
       notifyDashboard({ type: 'signed-out' });
       return;
     }
+    if (offlineMode) {
+      // No signing in without the internet: back to a saved page; the dashboard signs in again once online.
+      const landing = offline.landing(sessionUser() || { id: 0, can_checkout: false });
+      if (landing) contents.loadURL(SERVER + landing);
+      return;
+    }
     // First sign-in, or the dashboard session expired: sign in again, at most once a minute.
     if (!dashboardLogin || Date.now() - dashboardLastAutoLogin < 60000) return;
     dashboardLastAutoLogin = Date.now();
@@ -469,7 +561,8 @@ async function onDashboardLoad(contents) {
     return;
   }
   dashboardSignedIn = true;
-  notifyDashboard({ type: 'online' });
+  notifyDashboard({ type: 'loaded' });
+  warmUp(contents);
   if (dashboardTarget && !url.href.startsWith(dashboardTarget)) {
     const target = dashboardTarget;
     dashboardTarget = null;
@@ -493,14 +586,21 @@ async function resetDashboard() {
   try { await session.fromPartition('persist:dashboard').clearStorageData(); } catch { /* nothing stored yet */ }
 }
 
+// The button on the "nothing saved for this account yet" page.
+ipcMain.on('dashboard:device-screens', (event) => {
+  if (!dashboardView || event.sender !== dashboardView.webContents) return;
+  hideDashboard();
+});
+
 ipcMain.on('dashboard:print-receipt', async (event, values) => {
   const sender = event.sender;
   const fromDashboard = (dashboardView && sender === dashboardView.webContents)
     || [...dashboardPopups].some((popup) => !popup.isDestroyed() && popup.webContents === sender);
   if (!fromDashboard || !values || !sameServer(values.base) || typeof values.html !== 'string') return;
   const settings = printSettings();
+  if (process.env.GOERP_DEBUG_SYNC) console.log('[goerp] print request, printer:', settings.printer || '(none)');
   if (!settings.printer) return;
-  const html = values.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
+  const html = inlineImages(values.html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, ''), values.base);
   const result = await printing.print(BrowserWindow, html, settings, { partition: 'persist:dashboard', baseURL: values.base });
   if (!result.ok && result.error) notifyDashboard({ type: 'print-error', error: result.error });
 });
@@ -539,8 +639,25 @@ app.whenReady().then(() => {
   setInterval(backupDatabase, 6 * 60 * 60 * 1000);
   api = new Api({ baseUrl: SERVER, fetchImpl: (url, init) => require('electron').net.fetch(url, init) });
   sync = new SyncEngine({ store, api, token: () => openToken(store.device()) });
+  const origin = new URL(SERVER).origin;
+  pageCache = new PageCache(path.join(app.getPath('userData'), 'dashboard-copy.sqlite'), { now });
+  offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
+    takeaway: new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
+    onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
+    onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
+    onFromCopy: (contents) => fromCopy.add(contents),
+    onLive: (contents) => fromCopy.delete(contents) });
   sync.on('status', (status) => {
     readOffset();
+    // Only a finished sync says whether the dashboard answers (a starting one still carries the previous result).
+    if (!status.running) {
+      if (status.online === false) setOfflineMode(true, 'sync: ' + (status.last_error || ''));
+      else if (status.online === true) setOfflineMode(false, 'sync');
+      // Saved pages of accounts no longer on this device are removed.
+      if (store.userCount()) {
+        for (const scope of pageCache.scopes()) if (scope.startsWith('u:') && !store.user(Number(scope.slice(2)))) pageCache.forgetScope(scope);
+      }
+    }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sync:status', status);
   });
   registerHandlers();

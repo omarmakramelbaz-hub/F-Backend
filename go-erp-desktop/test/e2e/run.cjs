@@ -17,14 +17,16 @@ const WORK = process.env.GOERP_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 
 const SHOTS = path.join(WORK, 'shots');
 const PORT = Number(process.env.GOERP_E2E_PORT || 8099);
 const SERVER = `http://127.0.0.1:${PORT}`;
-const PHP_ENV = { ...process.env, GOERP_E2E_DIR: WORK };
+// Several PHP workers, like a real server: the dashboard's pages poll while the app syncs.
+const PHP_ENV = { ...process.env, GOERP_E2E_DIR: WORK, PHP_CLI_SERVER_WORKERS: '4' };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let server = null;
 let currentPage = null; // shown in the failure report
 let appOutput = ''; // the app's own console output, also for the failure report
 
 async function startServer() {
-  server = spawn('php', ['-S', `127.0.0.1:${PORT}`, '-t', path.join(ROOT, 'public'), path.join(__dirname, 'router.php')], { stdio: 'ignore', env: PHP_ENV });
+  const log = fs.openSync(path.join(WORK, 'php-server.log'), 'a');
+  server = spawn('php', ['-S', `127.0.0.1:${PORT}`, '-t', path.join(ROOT, 'public'), path.join(__dirname, 'router.php')], { stdio: ['ignore', log, log], env: PHP_ENV });
   await until(async () => {
     try {
       const response = await fetch(SERVER + '/api/desktop-sync/v1/sync', { method: 'POST' });
@@ -64,7 +66,7 @@ const ELECTRON = require(path.join(APP, 'node_modules', 'electron'));
 // embed: the live dashboard opens inside the window after signing in; off: the device's own screens.
 async function launch(userData, executablePath = ELECTRON, args = [APP], embed = false) {
   const app = await electron.launch({ executablePath, args: [...args, '--no-sandbox', '--disable-gpu'], cwd: APP,
-    env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData, GOERP_DASHBOARD_VIEW: embed ? 'on' : 'off' } });
+    env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData, GOERP_DASHBOARD_VIEW: embed ? 'on' : 'off', GOERP_DEBUG_SYNC: '1' } });
   const keep = (chunk) => { appOutput = (appOutput + chunk).slice(-3000); };
   app.process().stdout.on('data', keep);
   app.process().stderr.on('data', keep);
@@ -81,6 +83,16 @@ async function shot(page, name) {
   await page.screenshot({ path: path.join(SHOTS, name + '.png') });
 }
 
+/** The dashboard window itself (it lies over the app's window, which page.screenshot does not include). */
+async function dashboardShot(app, name) {
+  await wait(1200);
+  const png = await app.evaluate(async ({ webContents }) => {
+    const dashboard = webContents.getAllWebContents().find((contents) => /^https?:\/\/[^/]+\/admin\//.test(contents.getURL()));
+    return dashboard ? (await dashboard.capturePage()).toPNG().toString('base64') : null;
+  });
+  if (png) fs.writeFileSync(path.join(SHOTS, name + '.png'), Buffer.from(png, 'base64'));
+}
+
 async function addItem(page, name, quantity) {
   if (quantity) await page.getByPlaceholder('مثال: 1.250 أو 3').fill(quantity);
   await page.locator('.product', { hasText: name }).click();
@@ -92,6 +104,19 @@ async function grandTotal(page, text) {
 
 async function dashboardUrls(app) {
   return app.evaluate(({ webContents }) => webContents.getAllWebContents().map((contents) => contents.getURL()));
+}
+
+/** Runs a script inside the dashboard window (the view under the app's status bar). */
+async function inDashboard(app, script) {
+  return app.evaluate(({ webContents }, code) => {
+    const dashboard = webContents.getAllWebContents().find((contents) => /^https?:\/\/[^/]+\/admin\//.test(contents.getURL()));
+    return dashboard ? dashboard.executeJavaScript(code) : null;
+  }, script);
+}
+
+function deviceRows(userData, file, sql) {
+  const db = new DatabaseSync(path.join(userData, file), { readOnly: true, timeout: 10000 });
+  try { return db.prepare(sql).all(); } finally { db.close(); }
 }
 
 async function signIn(page, login, password, landing = '.pos') {
@@ -302,9 +327,17 @@ async function ownerDevice() {
 
   // A branch cashier signs in: the dashboard opens in the window, signed in as the same account.
   await signIn(page, '01000000005', 'other-pass', '.status-bar');
-  await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens signed in');
+  try {
+    await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens signed in');
+  } catch (error) {
+    console.log('DEBUG urls', JSON.stringify(await dashboardUrls(app)));
+    console.log('DEBUG app', appOutput.split('\n').filter((line) => line.includes('[goerp]')).join(' | '));
+    console.log('DEBUG state', JSON.stringify(await app.evaluate(({ webContents }) => webContents.getAllWebContents().map((c) => [c.getURL(), c.isLoading()]))));
+    console.log('DEBUG page', String(await inDashboard(app, "JSON.stringify({ ready: document.readyState, email: (document.querySelector('[name=email]') || {}).value, resources: performance.getEntriesByType('resource').map((r) => r.name.slice(0, 90) + ' ' + Math.round(r.duration)).slice(0, 40) })").catch((e) => 'ERR ' + e.message)));
+    throw error;
+  }
   // The device's own screens are one click away; a branch cashier only sees its own branch there.
-  await page.getByRole('button', { name: 'شاشات الجهاز (بدون إنترنت)' }).click();
+  await page.getByRole('button', { name: 'شاشات الجهاز' }).click();
   await page.locator('.pos').waitFor();
   assert.equal(await page.locator('.side-branch').count(), 0, 'A branch cashier only sees its own branch');
   await shot(page, '11-device-screens');
@@ -337,7 +370,7 @@ async function ownerDevice() {
     })`);
   });
   await page.locator('.status-error', { hasText: 'الطابعة المختارة مش موجودة' }).waitFor({ timeout: 20000 });
-  await page.getByRole('button', { name: 'شاشات الجهاز (بدون إنترنت)' }).click();
+  await page.getByRole('button', { name: 'شاشات الجهاز' }).click();
   await page.locator('.side-branch').selectOption({ label: 'فرع مدينة نصر' });
   await page.locator('.product', { hasText: 'بوري مشوي' }).waitFor();
   assert.deepEqual(await page.locator('.product .name').allTextContents(), ['بوري مشوي']);
@@ -348,6 +381,92 @@ async function ownerDevice() {
   await app.close();
 }
 
+/**
+ * The dashboard's own cashier page with the internet down: it opens from the device's copy, sells from the device's
+ * menu, prints the dashboard's receipt, and the sale reaches the dashboard once the internet is back.
+ */
+async function dashboardOffline() {
+  const userData = path.join(WORK, 'owner-device');
+  const app = await launch(userData, process.env.GOERP_E2E_EXECUTABLE || undefined, process.env.GOERP_E2E_EXECUTABLE ? [] : [APP], true);
+  const page = await firstWindow(app);
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+  await signIn(page, '01000000004', 'cashier-pass', '.status-bar');
+  await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens for the cashier');
+  await page.evaluate(() => window.goerp.call('print:settings', { printer: 'e2e-no-printer', kitchen_printer: '', width: 72, auto_print: true }));
+  // The account's daily pages are saved on the device in the background.
+  const saved = (pagePath) => deviceRows(userData, 'dashboard-copy.sqlite',
+    `SELECT COUNT(*) AS c FROM entries WHERE scope = 'u:4' AND kind = 'page' AND path = '${pagePath}'`)[0].c === 1;
+  await until(() => saved('/admin/takeaway'), 'the cashier page is saved for offline use', 40000);
+  // Online, the cashier page works from the dashboard as usual.
+  await app.evaluate(({ webContents }) => {
+    global.__dashboardConsole = [];
+    for (const contents of webContents.getAllWebContents()) contents.on('console-message', (event) => {
+      const message = event.message || '';
+      if (/error|fail|uncaught/i.test(message) || event.level === 'error' || event.level === 3) global.__dashboardConsole.push(String(message).slice(0, 300));
+    });
+  });
+  await inDashboard(app, "location.href = '/admin/takeaway'");
+  const products = () => inDashboard(app, "document.querySelectorAll('[data-pos-product]').length").catch(() => 0);
+  try {
+    await until(async () => (await products()) >= 3, 'the cashier page shows the branch menu online', 30000);
+  } catch (error) {
+    console.log('DEBUG url', JSON.stringify(await dashboardUrls(app)));
+    console.log('DEBUG pos', String(await inDashboard(app, "JSON.stringify({ pos: !!document.querySelector('#takeaway-pos'), message: (document.querySelector('[data-pos-catalog-message]') || {}).textContent, notice: (document.querySelector('[data-pos-message]') || {}).textContent, branch: (document.querySelector('[data-pos-branch]') || {}).value, cards: document.querySelectorAll('.tp-product').length, scripts: Array.from(document.scripts).map((s) => s.src).filter(Boolean).slice(-6) })").catch((e) => 'ERR ' + e.message)));
+    console.log('DEBUG console', JSON.stringify(await app.evaluate(() => global.__dashboardConsole || [])));
+    console.log('DEBUG catalog', String(await inDashboard(app, "fetch('/admin/takeaway/catalog?branch=f:100&page=1', { headers: { Accept: 'application/json' } }).then(async (r) => r.status + ' ' + (await r.text()).slice(0, 800))").catch((e) => 'ERR ' + e.message)));
+    throw error;
+  }
+
+  // The internet goes down.
+  await stopServer();
+  await page.locator('.sync-badge').first().click();
+  await page.locator('.status-offline').waitFor({ timeout: 40000 });
+  await inDashboard(app, 'location.reload()');
+  await until(async () => (await products()) >= 3, 'the cashier page opens from the device without the internet', 30000);
+  await shot(page, '13-dashboard-cashier-offline-status');
+  await dashboardShot(app, '13-dashboard-cashier-offline');
+  // 1 kg بوري مشوي (180) + 1 سلطة طحينة (25) = 205.00
+  const step = (code) => inDashboard(app, `(() => { const root = document.querySelector('#takeaway-pos'); ${code} })()`);
+  await step(`const card = (name) => Array.from(root.querySelectorAll('[data-pos-product]')).find((button) => button.textContent.includes(name));
+    card('بوري مشوي').click(); card('سلطة طحينة').click();`);
+  await step(`const phone = root.querySelector('[data-pos-customer-phone]'); phone.value = '01012345678';
+    phone.dispatchEvent(new Event('input', { bubbles: true })); phone.dispatchEvent(new Event('change', { bubbles: true }));
+    const consent = root.querySelector('[data-pos-customer-consent]'); if (!consent.checked) consent.click();`);
+  await until(async () => (await step("return root.querySelector('[data-pos-total=\"total\"]').textContent")) === '205.00', 'the device prices the invoice');
+  await step(`const cash = root.querySelector('[data-pos-cash-received]'); cash.value = '300';
+    cash.dispatchEvent(new Event('input', { bubbles: true })); root.querySelector('[data-pos-finish]').click();`);
+  await until(async () => (await step("const saved = root.querySelector('[data-pos-saved]'); return !saved.hidden && saved.textContent")) || false,
+    'the sale is saved on the device', 30000);
+  // The dashboard prints its receipt straight to the app's printer (a missing one here).
+  try {
+    await page.locator('.status-error', { hasText: 'الطابعة المختارة مش موجودة' }).waitFor({ timeout: 20000 });
+  } catch (error) {
+    console.log('DEBUG print', String(await step("return JSON.stringify({ message: root.querySelector('[data-pos-message] span').textContent, saved: root.querySelector('[data-pos-saved]').textContent, frames: document.querySelectorAll('iframe').length, print: typeof window.DashboardPrint, flag: window.__goerpDirectPrint, hook: window.__goerpPrintHook })")));
+    console.log('DEBUG console', JSON.stringify(await app.evaluate(() => global.__dashboardConsole || [])));
+    console.log('DEBUG app', appOutput.split('\n').filter((line) => line.includes('[goerp]')).join(' | '));
+    throw error;
+  }
+  const sale = deviceRows(userData, 'goerp.sqlite', "SELECT id, channel, status, json_extract(totals, '$.total_cents') AS total FROM tickets WHERE json_extract(data, '$.source') = 'dashboard'");
+  assert.deepEqual(sale.map((row) => [row.channel, row.status, row.total]), [['takeaway', 'paid', 20500]]);
+  await shot(page, '14-dashboard-sale-offline-status');
+  await dashboardShot(app, '14-dashboard-sale-offline');
+  // A page this account never saved explains that it needs the internet, inside the dashboard.
+  await inDashboard(app, "window.DashboardSPA && window.DashboardSPA.visit('/admin/wallets/transactions')");
+  await until(async () => /الصفحة دي محتاجة إنترنت/.test(await inDashboard(app, 'document.body.innerText').catch(() => '')), 'unsaved page message');
+  await shot(page, '15-dashboard-unsaved-page-offline-status');
+  await dashboardShot(app, '15-dashboard-unsaved-page-offline');
+
+  // The internet is back: the sale reaches the dashboard under the page's own operation number.
+  const before = orderCount();
+  await startServer();
+  await page.locator('.sync-badge').first().click();
+  await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].c === 1, 'the offline sale reaches the dashboard', 40000);
+  assert.equal(orderCount(), before + 1);
+  assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].total_cents, 20500);
+  await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
+  await app.close();
+}
+
 async function main() {
   fs.mkdirSync(SHOTS, { recursive: true });
   execFileSync('php', [path.join(__dirname, 'seed.php')], { env: PHP_ENV, stdio: 'inherit' });
@@ -355,12 +474,15 @@ async function main() {
   await cashierDevice();
   if (!server) await startServer();
   await ownerDevice();
+  if (!server) await startServer();
+  await dashboardOffline();
   await stopServer();
   console.log('GO ERP desktop end-to-end check passed. Screenshots: ' + SHOTS);
 }
 
 main().catch(async (error) => {
   console.error(error && error.stack || error);
+  console.error('App log: ' + appOutput.split('\n').filter((line) => line.includes('[goerp]')).join(' | '));
   let screen = '';
   try { if (currentPage) screen = (await currentPage.locator('body').innerText({ timeout: 2000 })).slice(0, 1500); } catch { /* window closed */ }
   if (process.env.GITHUB_ACTIONS) {

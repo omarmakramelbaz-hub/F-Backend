@@ -66,6 +66,7 @@ class SyncEngine extends EventEmitter {
           operations, want_users: refresh, users_hash: this.store.usersHash(), want_catalogs: refresh, catalog_hashes: this.store.catalogHashes(),
         });
       } catch (error) {
+        if (process.env.GOERP_DEBUG_SYNC) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} sync failed: ${error.status} ${error.cause || ''}`);
         this.state.online = false;
         this.state.last_error = error.message;
         if (error.status === 401) this.state.device_revoked = true;

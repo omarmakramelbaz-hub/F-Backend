@@ -1,0 +1,431 @@
+{
+    "cases": [
+        {
+            "name": "takeaway print",
+            "preview": false,
+            "dashboard_print": false,
+            "receipt": {
+                "id": 9000000000001,
+                "number": "A1B-1030-0001",
+                "idempotency_key": "6f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-30",
+                "created_at": "2026-10-30T21:45:09+02:00",
+                "items": [
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity": "1.500",
+                        "unit_price": "180.00",
+                        "total": "270.00"
+                    },
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "2.000",
+                        "unit_price": "25.00",
+                        "total": "50.00"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "",
+                "tax_rate": "14.00",
+                "discount_reason": "",
+                "currency": "EGP",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "channel": "takeaway",
+                "ticket_id": null,
+                "context": {
+                    "customer_name": "أحمد",
+                    "customer_phone": "+201012345678"
+                },
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "364.80",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/details",
+                "can_reprint": true,
+                "receipt_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/print",
+                "subtotal": "320.00",
+                "discount": "0.00",
+                "tax": "44.80",
+                "total": "364.80",
+                "cash_received": "400.00",
+                "change": "35.20"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\"  data-dashboard-receipt=\"takeaway\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n    <title>الفاتورة الحالية A1B-1030-0001</title>\n    <style>\n        * { box-sizing: border-box; }\n        body { margin: 0; background: #edf1f6; color: #172137; font: 13px/1.55 Tahoma, Arial, sans-serif; }\n        .receipt { width: calc(100% - 28px); max-width: 660px; margin: 28px auto; padding: 28px; background: #fff; border: 1px solid #dfe5ec; border-radius: 12px; box-shadow: 0 10px 35px #13233a12; }\n        .preview-title { margin: 0 0 22px; color: #647186; font-size: 13px; font-weight: normal; }\n        .heading { text-align: center; border-bottom: 1px dashed #aeb9c8; padding-bottom: 18px; }\n        .logo { display: block; width: 112px; height: 112px; object-fit: contain; margin: 0 auto 8px; }\n        .heading h2 { margin: 4px 0; font-size: 20px; line-height: 1.4; }\n        .branch-contact { max-width: 440px; margin: 4px auto 0; font-size: 11px; color: #667387; overflow-wrap: anywhere; }\n        .receipt-channel { display: inline-block; margin-top: 12px; padding: 3px 15px; border: 1px solid #c9d2de; border-radius: 4px; color: #36475c; font-size: 11px; font-weight: bold; }\n        .receipt-identity { margin-top: 12px; }\n        .receipt-identity h1 { margin: 0 0 3px; color: #647186; font-size: 11px; font-weight: normal; }\n        .receipt-number { font-size: 19px; font-weight: bold; letter-spacing: .25px; overflow-wrap: anywhere; }\n        .receipt-state { margin: 10px 0 0; padding: 6px; border: 1px solid #172137; font-size: 12px; font-weight: bold; }\n        .information { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 18px 0; }\n        .information div { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }\n        .information dt { flex: 0 0 auto; color: #6b778a; font-size: 11px; }\n        .information dd { margin: 0; color: #25364b; font-size: 12px; font-weight: bold; }\n        .full-width { grid-column: 1 / -1; }\n        bdi { unicode-bidi: isolate; direction: ltr; font-variant-numeric: tabular-nums; }\n        .number { display: inline-block; white-space: nowrap; }\n        table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 18px 0 0; }\n        .item-col { width: 46%; }.quantity-col { width: 15%; }.price-col { width: 18%; }.amount-col { width: 21%; }\n        th, td { padding: 11px 5px; border-bottom: 1px solid #e2e7ee; vertical-align: top; text-align: start; font-size: 12px; }\n        th { border-top: 1px solid #b8c4d3; border-bottom-color: #b8c4d3; background: #f5f7fa; color: #4c5c71; font-size: 11px; white-space: nowrap; }\n        .item-name { overflow-wrap: anywhere; font-weight: bold; }\n        .item-option { display: block; margin-top: 3px; color: #68758a; font-size: 10px; font-weight: normal; }\n        .item-quantity { text-align: center; }\n        .item-unit { display: block; margin-top: 2px; color: #68758a; font-size: 10px; }\n        .item-price, .item-total { text-align: end; white-space: nowrap; }\n        td.item-total { font-weight: bold; }\n        .summary { margin-top: 14px; padding-top: 6px; }\n        .summary-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 12px; }\n        .summary-value { display: inline-flex; flex: 0 0 auto; gap: 4px; align-items: baseline; white-space: nowrap; font-weight: bold; }\n        .currency { color: #68758a; font-size: 10px; font-weight: normal; }\n        .grand-total { margin: 8px 0 4px; padding: 10px 0 7px; border-top: 2px solid #172137; border-bottom: 1px solid #c9d2df; font-size: 19px; font-weight: bold; }\n        .grand-total .currency { font-size: 11px; }\n        .payment-total, .change-total { font-size: 13px; }\n        .change-total { font-weight: bold; }\n        .notes { margin-top: 12px; padding: 10px 12px; border: 1px dashed #b8c4d3; border-radius: 4px; white-space: pre-line; overflow-wrap: anywhere; font-size: 11px; }\n        .notes strong { display: block; margin-bottom: 3px; }\n        .footer { margin: 22px 0 0; padding-top: 15px; border-top: 1px dashed #aeb9c8; text-align: center; color: #68758a; font-size: 10px; }\n        .footer strong { display: block; margin-bottom: 3px; color: #27384c; font-size: 14px; }\n        .footer p { margin: 3px 0; }\n        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }\n        .controls button { border: 0; border-radius: 6px; padding: 10px 20px; background: #172137; color: #fff; font: inherit; cursor: pointer; }\n        @media (max-width: 480px) {\n            .receipt { width: calc(100% - 16px); margin: 10px auto; padding: 16px 12px; }\n            .information { grid-template-columns: 1fr; gap: 6px; }\n            th, td { padding-inline: 3px; font-size: 10.5px; }\n            th { font-size: 10px; }.item-option, .item-unit { font-size: 9px; }\n            .grand-total { font-size: 17px; }\n        }\n        @page  { size: auto; margin: 0; }\n        @media  print {\n            html, body { width: 100%; margin: 0; padding: 0; background: #fff; color: #000; font-size: 11px; line-height: 1.4; }\n            .receipt { width: 100%; max-width: 80mm; margin: 0 auto; padding: 3mm 2mm; border: 0; border-radius: 0; box-shadow: none; }\n            .preview-title { display: none; }\n            .heading { padding-bottom: 9px; border-color: #000; break-inside: avoid; page-break-inside: avoid; }\n            .logo { width: 28mm; height: 28mm; margin: 0 auto 5px; filter: grayscale(1); }\n            .heading h2 { margin: 2px 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }\n            .branch-contact { margin: 3px 0 0; color: #000; font-size: 10px; }\n            .receipt-channel { margin-top: 7px; padding: 2px 10px; color: #000; border-color: #000; font-size: 10px; }\n            .receipt-identity { margin-top: 7px; }\n            .receipt-identity h1 { margin: 0 0 2px; color: #000; font-size: 9px; }\n            .receipt-number { font-size: 13px; line-height: 1.4; letter-spacing: .15px; }\n            .receipt-state { margin-top: 6px; padding: 4px; border: 1px solid #000; font-size: 11px; }\n            .information { display: block; margin: 9px 0; }\n            .information div { gap: 6px; margin: 4px 0; break-inside: avoid; page-break-inside: avoid; }\n            .information dt { color: #000; font-size: 10px; }\n            .information dd { color: #000; font-size: 10.5px; }\n            table { margin: 10px 0 0; }\n            th, td { padding: 6px 2px; border-color: #888; font-size: 10.5px; line-height: 1.4; }\n            th { padding-block: 5px; color: #000; background: #fff; border-color: #000; font-size: 10px; }\n            .item-option, .item-unit { color: #000; font-size: 9px; line-height: 1.4; }\n            .item-price, .item-total { font-size: 10px; }\n            thead { display: table-header-group; }\n            tr { break-inside: avoid; page-break-inside: avoid; }\n            .summary { margin-top: 8px; padding-top: 0; break-inside: avoid; page-break-inside: avoid; }\n            .summary-row { gap: 8px; padding: 3px 0; font-size: 11px; }\n            .summary-value { gap: 3px; }\n            .currency { color: #000; font-size: 9px; }\n            .grand-total { margin: 6px 0 3px; padding: 7px 0 5px; border-color: #000; font-size: 16px; }\n            .grand-total .currency { font-size: 9px; }\n            .payment-total, .change-total { font-size: 12px; }\n            .notes { margin-top: 8px; padding: 6px; border-color: #555; border-radius: 0; font-size: 10px; break-inside: avoid; page-break-inside: avoid; }\n            .notes strong { margin-bottom: 2px; }\n            .footer { margin-top: 13px; padding-top: 9px; color: #000; border-color: #000; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }\n            .footer strong { color: #000; font-size: 12px; }\n            .footer p { margin: 2px 0; }\n            .controls { display: none !important; }\n        }\n    </style>\n</head>\n<body>\n<main class=\"receipt\">\n        <header class=\"heading\">\n        <img class=\"logo\" src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\" width=\"1254\" height=\"1254\">\n        <h2>فرع المعادي</h2>\n        <p class=\"branch-contact\">شارع ٩ - المعادي</p>        <p class=\"branch-contact\"><bdi class=\"number\">01000000000</bdi></p>        <div class=\"receipt-channel\">تيك أواي</div>\n        <div class=\"receipt-identity\">\n            <h1>رقم الفاتورة</h1>\n            <bdi class=\"receipt-number\">A1B-1030-0001</bdi>\n        </div>\n            </header>\n    <dl class=\"information\">\n        <div><dt>التاريخ</dt><dd><bdi>30/10/2026 21:45</bdi></dd></div>\n        <div><dt>كاشير</dt><dd>كاشير المعادي</dd></div>\n                    <div><dt>العميل</dt><dd>أحمد</dd></div>            <div><dt>رقم التليفون</dt><dd><bdi>+201012345678</bdi></dd></div>                <div><dt>طريقة الدفع</dt><dd>كاش</dd></div>\n            </dl>\n    <table>\n        <colgroup><col class=\"item-col\"><col class=\"quantity-col\"><col class=\"price-col\"><col class=\"amount-col\"></colgroup>\n        <thead><tr><th scope=\"col\">الصنف</th><th scope=\"col\" class=\"item-quantity\">الكمية</th><th scope=\"col\" class=\"item-price\">السعر</th><th scope=\"col\" class=\"item-total\">الإجمالي</th></tr></thead>\n        <tbody>\n                    <tr>\n                <td class=\"item-name\">بوري مشوي</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">1.500</bdi><span class=\"item-unit\">كجم</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">180.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">270.00</bdi></td>\n            </tr>\n                    <tr>\n                <td class=\"item-name\">سلطة طحينة</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">2</bdi><span class=\"item-unit\">قطعة</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">25.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">50.00</bdi></td>\n            </tr>\n                </tbody>\n    </table>\n    <div class=\"summary\">\n        <div class=\"summary-row\"><span>إجمالي الأصناف</span><span class=\"summary-value\"><bdi>320.00</bdi><small class=\"currency\">جنيه</small></span></div>\n                <div class=\"summary-row\"><span>الضريبة (<bdi>14.00%</bdi>)</span><span class=\"summary-value\"><bdi>44.80</bdi><small class=\"currency\">جنيه</small></span></div>\n                        <div class=\"summary-row grand-total\"><span>الإجمالي الكلي</span><span class=\"summary-value\"><bdi>364.80</bdi><small class=\"currency\">جنيه</small></span></div>\n                            <div class=\"summary-row payment-total\"><span>المبلغ المدفوع</span><span class=\"summary-value\"><bdi>400.00</bdi><small class=\"currency\">جنيه</small></span></div>\n            <div class=\"summary-row change-total\"><span>الباقي</span><span class=\"summary-value\"><bdi>35.20</bdi><small class=\"currency\">جنيه</small></span></div>\n            </div>\n            <footer class=\"footer\">\n        <strong>شكرًا لزيارتكم</strong>\n        <p>نسعد بخدمتكم مجددًا</p>\n        <p>طلبات التيك أواي</p>\n    </footer>\n    <div class=\"controls\"><button type=\"button\" onclick=\"window.print()\">طباعة الفاتورة</button></div></main>\n<script>window.addEventListener('load',function(){window.print();});</script></body>\n</html>\n"
+        },
+        {
+            "name": "takeaway from the dashboard print frame",
+            "preview": false,
+            "dashboard_print": true,
+            "receipt": {
+                "id": 9000000000001,
+                "number": "A1B-1030-0001",
+                "idempotency_key": "6f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-30",
+                "created_at": "2026-10-30T21:45:09+02:00",
+                "items": [
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "f:0:extra_clean",
+                        "option_label": "تنظيف",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity": "0.750",
+                        "unit_price": "200.00",
+                        "total": "150.00"
+                    },
+                    {
+                        "product_id": 9,
+                        "name": "صنف <خاص>",
+                        "option_id": null,
+                        "option_label": "كامل",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "3.000",
+                        "unit_price": "1250.50",
+                        "total": "3751.50"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "بدون بصل\nسريع",
+                "tax_rate": "14.00",
+                "discount_reason": "عميل دائم & \"مميز\"",
+                "currency": "EGP",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "channel": "takeaway",
+                "ticket_id": null,
+                "context": [],
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "364.80",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/details",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "3901.50",
+                "discount": "20.00",
+                "tax": "543.41",
+                "total": "4424.91",
+                "cash_received": "4500.00",
+                "change": "75.09"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\"  data-dashboard-receipt=\"takeaway\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n    <title>الفاتورة الحالية A1B-1030-0001</title>\n    <style>\n        * { box-sizing: border-box; }\n        body { margin: 0; background: #edf1f6; color: #172137; font: 13px/1.55 Tahoma, Arial, sans-serif; }\n        .receipt { width: calc(100% - 28px); max-width: 660px; margin: 28px auto; padding: 28px; background: #fff; border: 1px solid #dfe5ec; border-radius: 12px; box-shadow: 0 10px 35px #13233a12; }\n        .preview-title { margin: 0 0 22px; color: #647186; font-size: 13px; font-weight: normal; }\n        .heading { text-align: center; border-bottom: 1px dashed #aeb9c8; padding-bottom: 18px; }\n        .logo { display: block; width: 112px; height: 112px; object-fit: contain; margin: 0 auto 8px; }\n        .heading h2 { margin: 4px 0; font-size: 20px; line-height: 1.4; }\n        .branch-contact { max-width: 440px; margin: 4px auto 0; font-size: 11px; color: #667387; overflow-wrap: anywhere; }\n        .receipt-channel { display: inline-block; margin-top: 12px; padding: 3px 15px; border: 1px solid #c9d2de; border-radius: 4px; color: #36475c; font-size: 11px; font-weight: bold; }\n        .receipt-identity { margin-top: 12px; }\n        .receipt-identity h1 { margin: 0 0 3px; color: #647186; font-size: 11px; font-weight: normal; }\n        .receipt-number { font-size: 19px; font-weight: bold; letter-spacing: .25px; overflow-wrap: anywhere; }\n        .receipt-state { margin: 10px 0 0; padding: 6px; border: 1px solid #172137; font-size: 12px; font-weight: bold; }\n        .information { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 18px 0; }\n        .information div { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }\n        .information dt { flex: 0 0 auto; color: #6b778a; font-size: 11px; }\n        .information dd { margin: 0; color: #25364b; font-size: 12px; font-weight: bold; }\n        .full-width { grid-column: 1 / -1; }\n        bdi { unicode-bidi: isolate; direction: ltr; font-variant-numeric: tabular-nums; }\n        .number { display: inline-block; white-space: nowrap; }\n        table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 18px 0 0; }\n        .item-col { width: 46%; }.quantity-col { width: 15%; }.price-col { width: 18%; }.amount-col { width: 21%; }\n        th, td { padding: 11px 5px; border-bottom: 1px solid #e2e7ee; vertical-align: top; text-align: start; font-size: 12px; }\n        th { border-top: 1px solid #b8c4d3; border-bottom-color: #b8c4d3; background: #f5f7fa; color: #4c5c71; font-size: 11px; white-space: nowrap; }\n        .item-name { overflow-wrap: anywhere; font-weight: bold; }\n        .item-option { display: block; margin-top: 3px; color: #68758a; font-size: 10px; font-weight: normal; }\n        .item-quantity { text-align: center; }\n        .item-unit { display: block; margin-top: 2px; color: #68758a; font-size: 10px; }\n        .item-price, .item-total { text-align: end; white-space: nowrap; }\n        td.item-total { font-weight: bold; }\n        .summary { margin-top: 14px; padding-top: 6px; }\n        .summary-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 12px; }\n        .summary-value { display: inline-flex; flex: 0 0 auto; gap: 4px; align-items: baseline; white-space: nowrap; font-weight: bold; }\n        .currency { color: #68758a; font-size: 10px; font-weight: normal; }\n        .grand-total { margin: 8px 0 4px; padding: 10px 0 7px; border-top: 2px solid #172137; border-bottom: 1px solid #c9d2df; font-size: 19px; font-weight: bold; }\n        .grand-total .currency { font-size: 11px; }\n        .payment-total, .change-total { font-size: 13px; }\n        .change-total { font-weight: bold; }\n        .notes { margin-top: 12px; padding: 10px 12px; border: 1px dashed #b8c4d3; border-radius: 4px; white-space: pre-line; overflow-wrap: anywhere; font-size: 11px; }\n        .notes strong { display: block; margin-bottom: 3px; }\n        .footer { margin: 22px 0 0; padding-top: 15px; border-top: 1px dashed #aeb9c8; text-align: center; color: #68758a; font-size: 10px; }\n        .footer strong { display: block; margin-bottom: 3px; color: #27384c; font-size: 14px; }\n        .footer p { margin: 3px 0; }\n        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }\n        .controls button { border: 0; border-radius: 6px; padding: 10px 20px; background: #172137; color: #fff; font: inherit; cursor: pointer; }\n        @media (max-width: 480px) {\n            .receipt { width: calc(100% - 16px); margin: 10px auto; padding: 16px 12px; }\n            .information { grid-template-columns: 1fr; gap: 6px; }\n            th, td { padding-inline: 3px; font-size: 10.5px; }\n            th { font-size: 10px; }.item-option, .item-unit { font-size: 9px; }\n            .grand-total { font-size: 17px; }\n        }\n        @page  { size: auto; margin: 0; }\n        @media  print {\n            html, body { width: 100%; margin: 0; padding: 0; background: #fff; color: #000; font-size: 11px; line-height: 1.4; }\n            .receipt { width: 100%; max-width: 80mm; margin: 0 auto; padding: 3mm 2mm; border: 0; border-radius: 0; box-shadow: none; }\n            .preview-title { display: none; }\n            .heading { padding-bottom: 9px; border-color: #000; break-inside: avoid; page-break-inside: avoid; }\n            .logo { width: 28mm; height: 28mm; margin: 0 auto 5px; filter: grayscale(1); }\n            .heading h2 { margin: 2px 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }\n            .branch-contact { margin: 3px 0 0; color: #000; font-size: 10px; }\n            .receipt-channel { margin-top: 7px; padding: 2px 10px; color: #000; border-color: #000; font-size: 10px; }\n            .receipt-identity { margin-top: 7px; }\n            .receipt-identity h1 { margin: 0 0 2px; color: #000; font-size: 9px; }\n            .receipt-number { font-size: 13px; line-height: 1.4; letter-spacing: .15px; }\n            .receipt-state { margin-top: 6px; padding: 4px; border: 1px solid #000; font-size: 11px; }\n            .information { display: block; margin: 9px 0; }\n            .information div { gap: 6px; margin: 4px 0; break-inside: avoid; page-break-inside: avoid; }\n            .information dt { color: #000; font-size: 10px; }\n            .information dd { color: #000; font-size: 10.5px; }\n            table { margin: 10px 0 0; }\n            th, td { padding: 6px 2px; border-color: #888; font-size: 10.5px; line-height: 1.4; }\n            th { padding-block: 5px; color: #000; background: #fff; border-color: #000; font-size: 10px; }\n            .item-option, .item-unit { color: #000; font-size: 9px; line-height: 1.4; }\n            .item-price, .item-total { font-size: 10px; }\n            thead { display: table-header-group; }\n            tr { break-inside: avoid; page-break-inside: avoid; }\n            .summary { margin-top: 8px; padding-top: 0; break-inside: avoid; page-break-inside: avoid; }\n            .summary-row { gap: 8px; padding: 3px 0; font-size: 11px; }\n            .summary-value { gap: 3px; }\n            .currency { color: #000; font-size: 9px; }\n            .grand-total { margin: 6px 0 3px; padding: 7px 0 5px; border-color: #000; font-size: 16px; }\n            .grand-total .currency { font-size: 9px; }\n            .payment-total, .change-total { font-size: 12px; }\n            .notes { margin-top: 8px; padding: 6px; border-color: #555; border-radius: 0; font-size: 10px; break-inside: avoid; page-break-inside: avoid; }\n            .notes strong { margin-bottom: 2px; }\n            .footer { margin-top: 13px; padding-top: 9px; color: #000; border-color: #000; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }\n            .footer strong { color: #000; font-size: 12px; }\n            .footer p { margin: 2px 0; }\n            .controls { display: none !important; }\n        }\n    </style>\n</head>\n<body>\n<main class=\"receipt\">\n        <header class=\"heading\">\n        <img class=\"logo\" src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\" width=\"1254\" height=\"1254\">\n        <h2>فرع المعادي</h2>\n        <p class=\"branch-contact\">شارع ٩ - المعادي</p>        <p class=\"branch-contact\"><bdi class=\"number\">01000000000</bdi></p>        <div class=\"receipt-channel\">تيك أواي</div>\n        <div class=\"receipt-identity\">\n            <h1>رقم الفاتورة</h1>\n            <bdi class=\"receipt-number\">A1B-1030-0001</bdi>\n        </div>\n            </header>\n    <dl class=\"information\">\n        <div><dt>التاريخ</dt><dd><bdi>30/10/2026 21:45</bdi></dd></div>\n        <div><dt>كاشير</dt><dd>كاشير المعادي</dd></div>\n                                                <div><dt>طريقة الدفع</dt><dd>كاش</dd></div>\n            </dl>\n    <table>\n        <colgroup><col class=\"item-col\"><col class=\"quantity-col\"><col class=\"price-col\"><col class=\"amount-col\"></colgroup>\n        <thead><tr><th scope=\"col\">الصنف</th><th scope=\"col\" class=\"item-quantity\">الكمية</th><th scope=\"col\" class=\"item-price\">السعر</th><th scope=\"col\" class=\"item-total\">الإجمالي</th></tr></thead>\n        <tbody>\n                    <tr>\n                <td class=\"item-name\">بوري مشوي<span class=\"item-option\">تنظيف</span></td>\n                <td class=\"item-quantity\"><bdi class=\"number\">0.750</bdi><span class=\"item-unit\">كجم</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">200.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">150.00</bdi></td>\n            </tr>\n                    <tr>\n                <td class=\"item-name\">صنف &lt;خاص&gt;<span class=\"item-option\">كامل</span></td>\n                <td class=\"item-quantity\"><bdi class=\"number\">3</bdi><span class=\"item-unit\">قطعة</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">1,250.50</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">3,751.50</bdi></td>\n            </tr>\n                </tbody>\n    </table>\n    <div class=\"summary\">\n        <div class=\"summary-row\"><span>إجمالي الأصناف</span><span class=\"summary-value\"><bdi>3,901.50</bdi><small class=\"currency\">جنيه</small></span></div>\n        <div class=\"summary-row\"><span>خصم</span><span class=\"summary-value\"><bdi>20.00</bdi><small class=\"currency\">جنيه</small></span></div>        <div class=\"summary-row\"><span>الضريبة (<bdi>14.00%</bdi>)</span><span class=\"summary-value\"><bdi>543.41</bdi><small class=\"currency\">جنيه</small></span></div>\n                        <div class=\"summary-row grand-total\"><span>الإجمالي الكلي</span><span class=\"summary-value\"><bdi>4,424.91</bdi><small class=\"currency\">جنيه</small></span></div>\n                            <div class=\"summary-row payment-total\"><span>المبلغ المدفوع</span><span class=\"summary-value\"><bdi>4,500.00</bdi><small class=\"currency\">جنيه</small></span></div>\n            <div class=\"summary-row change-total\"><span>الباقي</span><span class=\"summary-value\"><bdi>75.09</bdi><small class=\"currency\">جنيه</small></span></div>\n            </div>\n    <div class=\"notes\"><strong>سبب الخصم</strong>عميل دائم &amp; &quot;مميز&quot;</div>    <div class=\"notes\"><strong>ملاحظة للطلب</strong>بدون بصل\nسريع</div>    <footer class=\"footer\">\n        <strong>شكرًا لزيارتكم</strong>\n        <p>نسعد بخدمتكم مجددًا</p>\n        <p>طلبات التيك أواي</p>\n    </footer>\n    </main>\n</body>\n</html>\n"
+        },
+        {
+            "name": "takeaway details",
+            "preview": true,
+            "dashboard_print": false,
+            "receipt": {
+                "id": 9000000000001,
+                "number": "A1B-1030-0001",
+                "idempotency_key": "6f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-30",
+                "created_at": "2026-10-31T03:05:00+02:00",
+                "items": [
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity": "1.500",
+                        "unit_price": "180.00",
+                        "total": "270.00"
+                    },
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "2.000",
+                        "unit_price": "25.00",
+                        "total": "50.00"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "",
+                "tax_rate": "14.00",
+                "discount_reason": "",
+                "currency": "EGP",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "channel": "takeaway",
+                "ticket_id": null,
+                "context": {
+                    "customer_name": "أحمد",
+                    "customer_phone": "+201012345678"
+                },
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "364.80",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/details",
+                "can_reprint": true,
+                "receipt_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/print",
+                "subtotal": "320.00",
+                "discount": "0.00",
+                "tax": "44.80",
+                "total": "364.80",
+                "cash_received": "400.00",
+                "change": "35.20"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\"  data-dashboard-invoice-details=\"1\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n    <title>الفاتورة الحالية A1B-1030-0001</title>\n    <style>\n        * { box-sizing: border-box; }\n        body { margin: 0; background: #edf1f6; color: #172137; font: 13px/1.55 Tahoma, Arial, sans-serif; }\n        .receipt { width: calc(100% - 28px); max-width: 660px; margin: 28px auto; padding: 28px; background: #fff; border: 1px solid #dfe5ec; border-radius: 12px; box-shadow: 0 10px 35px #13233a12; }\n        .preview-title { margin: 0 0 22px; color: #647186; font-size: 13px; font-weight: normal; }\n        .heading { text-align: center; border-bottom: 1px dashed #aeb9c8; padding-bottom: 18px; }\n        .logo { display: block; width: 112px; height: 112px; object-fit: contain; margin: 0 auto 8px; }\n        .heading h2 { margin: 4px 0; font-size: 20px; line-height: 1.4; }\n        .branch-contact { max-width: 440px; margin: 4px auto 0; font-size: 11px; color: #667387; overflow-wrap: anywhere; }\n        .receipt-channel { display: inline-block; margin-top: 12px; padding: 3px 15px; border: 1px solid #c9d2de; border-radius: 4px; color: #36475c; font-size: 11px; font-weight: bold; }\n        .receipt-identity { margin-top: 12px; }\n        .receipt-identity h1 { margin: 0 0 3px; color: #647186; font-size: 11px; font-weight: normal; }\n        .receipt-number { font-size: 19px; font-weight: bold; letter-spacing: .25px; overflow-wrap: anywhere; }\n        .receipt-state { margin: 10px 0 0; padding: 6px; border: 1px solid #172137; font-size: 12px; font-weight: bold; }\n        .information { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 18px 0; }\n        .information div { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }\n        .information dt { flex: 0 0 auto; color: #6b778a; font-size: 11px; }\n        .information dd { margin: 0; color: #25364b; font-size: 12px; font-weight: bold; }\n        .full-width { grid-column: 1 / -1; }\n        bdi { unicode-bidi: isolate; direction: ltr; font-variant-numeric: tabular-nums; }\n        .number { display: inline-block; white-space: nowrap; }\n        table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 18px 0 0; }\n        .item-col { width: 46%; }.quantity-col { width: 15%; }.price-col { width: 18%; }.amount-col { width: 21%; }\n        th, td { padding: 11px 5px; border-bottom: 1px solid #e2e7ee; vertical-align: top; text-align: start; font-size: 12px; }\n        th { border-top: 1px solid #b8c4d3; border-bottom-color: #b8c4d3; background: #f5f7fa; color: #4c5c71; font-size: 11px; white-space: nowrap; }\n        .item-name { overflow-wrap: anywhere; font-weight: bold; }\n        .item-option { display: block; margin-top: 3px; color: #68758a; font-size: 10px; font-weight: normal; }\n        .item-quantity { text-align: center; }\n        .item-unit { display: block; margin-top: 2px; color: #68758a; font-size: 10px; }\n        .item-price, .item-total { text-align: end; white-space: nowrap; }\n        td.item-total { font-weight: bold; }\n        .summary { margin-top: 14px; padding-top: 6px; }\n        .summary-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 12px; }\n        .summary-value { display: inline-flex; flex: 0 0 auto; gap: 4px; align-items: baseline; white-space: nowrap; font-weight: bold; }\n        .currency { color: #68758a; font-size: 10px; font-weight: normal; }\n        .grand-total { margin: 8px 0 4px; padding: 10px 0 7px; border-top: 2px solid #172137; border-bottom: 1px solid #c9d2df; font-size: 19px; font-weight: bold; }\n        .grand-total .currency { font-size: 11px; }\n        .payment-total, .change-total { font-size: 13px; }\n        .change-total { font-weight: bold; }\n        .notes { margin-top: 12px; padding: 10px 12px; border: 1px dashed #b8c4d3; border-radius: 4px; white-space: pre-line; overflow-wrap: anywhere; font-size: 11px; }\n        .notes strong { display: block; margin-bottom: 3px; }\n        .footer { margin: 22px 0 0; padding-top: 15px; border-top: 1px dashed #aeb9c8; text-align: center; color: #68758a; font-size: 10px; }\n        .footer strong { display: block; margin-bottom: 3px; color: #27384c; font-size: 14px; }\n        .footer p { margin: 3px 0; }\n        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }\n        .controls button { border: 0; border-radius: 6px; padding: 10px 20px; background: #172137; color: #fff; font: inherit; cursor: pointer; }\n        @media (max-width: 480px) {\n            .receipt { width: calc(100% - 16px); margin: 10px auto; padding: 16px 12px; }\n            .information { grid-template-columns: 1fr; gap: 6px; }\n            th, td { padding-inline: 3px; font-size: 10.5px; }\n            th { font-size: 10px; }.item-option, .item-unit { font-size: 9px; }\n            .grand-total { font-size: 17px; }\n        }\n        @page  { size: auto; margin: 0; }\n        @media  print {\n            html, body { width: 100%; margin: 0; padding: 0; background: #fff; color: #000; font-size: 11px; line-height: 1.4; }\n            .receipt { width: 100%; max-width: 80mm; margin: 0 auto; padding: 3mm 2mm; border: 0; border-radius: 0; box-shadow: none; }\n            .preview-title { display: none; }\n            .heading { padding-bottom: 9px; border-color: #000; break-inside: avoid; page-break-inside: avoid; }\n            .logo { width: 28mm; height: 28mm; margin: 0 auto 5px; filter: grayscale(1); }\n            .heading h2 { margin: 2px 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }\n            .branch-contact { margin: 3px 0 0; color: #000; font-size: 10px; }\n            .receipt-channel { margin-top: 7px; padding: 2px 10px; color: #000; border-color: #000; font-size: 10px; }\n            .receipt-identity { margin-top: 7px; }\n            .receipt-identity h1 { margin: 0 0 2px; color: #000; font-size: 9px; }\n            .receipt-number { font-size: 13px; line-height: 1.4; letter-spacing: .15px; }\n            .receipt-state { margin-top: 6px; padding: 4px; border: 1px solid #000; font-size: 11px; }\n            .information { display: block; margin: 9px 0; }\n            .information div { gap: 6px; margin: 4px 0; break-inside: avoid; page-break-inside: avoid; }\n            .information dt { color: #000; font-size: 10px; }\n            .information dd { color: #000; font-size: 10.5px; }\n            table { margin: 10px 0 0; }\n            th, td { padding: 6px 2px; border-color: #888; font-size: 10.5px; line-height: 1.4; }\n            th { padding-block: 5px; color: #000; background: #fff; border-color: #000; font-size: 10px; }\n            .item-option, .item-unit { color: #000; font-size: 9px; line-height: 1.4; }\n            .item-price, .item-total { font-size: 10px; }\n            thead { display: table-header-group; }\n            tr { break-inside: avoid; page-break-inside: avoid; }\n            .summary { margin-top: 8px; padding-top: 0; break-inside: avoid; page-break-inside: avoid; }\n            .summary-row { gap: 8px; padding: 3px 0; font-size: 11px; }\n            .summary-value { gap: 3px; }\n            .currency { color: #000; font-size: 9px; }\n            .grand-total { margin: 6px 0 3px; padding: 7px 0 5px; border-color: #000; font-size: 16px; }\n            .grand-total .currency { font-size: 9px; }\n            .payment-total, .change-total { font-size: 12px; }\n            .notes { margin-top: 8px; padding: 6px; border-color: #555; border-radius: 0; font-size: 10px; break-inside: avoid; page-break-inside: avoid; }\n            .notes strong { margin-bottom: 2px; }\n            .footer { margin-top: 13px; padding-top: 9px; color: #000; border-color: #000; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }\n            .footer strong { color: #000; font-size: 12px; }\n            .footer p { margin: 2px 0; }\n            .controls { display: none !important; }\n        }\n    </style>\n</head>\n<body>\n<main class=\"receipt\">\n    <h2 class=\"preview-title\">تفاصيل الفاتورة</h2>    <header class=\"heading\">\n        <img class=\"logo\" src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\" width=\"1254\" height=\"1254\">\n        <h2>فرع المعادي</h2>\n        <p class=\"branch-contact\">شارع ٩ - المعادي</p>        <p class=\"branch-contact\"><bdi class=\"number\">01000000000</bdi></p>        <div class=\"receipt-channel\">تيك أواي</div>\n        <div class=\"receipt-identity\">\n            <h1>رقم الفاتورة</h1>\n            <bdi class=\"receipt-number\">A1B-1030-0001</bdi>\n        </div>\n            </header>\n    <dl class=\"information\">\n        <div><dt>التاريخ</dt><dd><bdi>31/10/2026 03:05</bdi></dd></div>\n        <div><dt>كاشير</dt><dd>كاشير المعادي</dd></div>\n                    <div><dt>العميل</dt><dd>أحمد</dd></div>            <div><dt>رقم التليفون</dt><dd><bdi>+201012345678</bdi></dd></div>                <div><dt>طريقة الدفع</dt><dd>كاش</dd></div>\n            </dl>\n    <table>\n        <colgroup><col class=\"item-col\"><col class=\"quantity-col\"><col class=\"price-col\"><col class=\"amount-col\"></colgroup>\n        <thead><tr><th scope=\"col\">الصنف</th><th scope=\"col\" class=\"item-quantity\">الكمية</th><th scope=\"col\" class=\"item-price\">السعر</th><th scope=\"col\" class=\"item-total\">الإجمالي</th></tr></thead>\n        <tbody>\n                    <tr>\n                <td class=\"item-name\">بوري مشوي</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">1.500</bdi><span class=\"item-unit\">كجم</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">180.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">270.00</bdi></td>\n            </tr>\n                    <tr>\n                <td class=\"item-name\">سلطة طحينة</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">2</bdi><span class=\"item-unit\">قطعة</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">25.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">50.00</bdi></td>\n            </tr>\n                </tbody>\n    </table>\n    <div class=\"summary\">\n        <div class=\"summary-row\"><span>إجمالي الأصناف</span><span class=\"summary-value\"><bdi>320.00</bdi><small class=\"currency\">جنيه</small></span></div>\n                <div class=\"summary-row\"><span>الضريبة (<bdi>14.00%</bdi>)</span><span class=\"summary-value\"><bdi>44.80</bdi><small class=\"currency\">جنيه</small></span></div>\n                        <div class=\"summary-row grand-total\"><span>الإجمالي الكلي</span><span class=\"summary-value\"><bdi>364.80</bdi><small class=\"currency\">جنيه</small></span></div>\n                            <div class=\"summary-row payment-total\"><span>المبلغ المدفوع</span><span class=\"summary-value\"><bdi>400.00</bdi><small class=\"currency\">جنيه</small></span></div>\n            <div class=\"summary-row change-total\"><span>الباقي</span><span class=\"summary-value\"><bdi>35.20</bdi><small class=\"currency\">جنيه</small></span></div>\n            </div>\n            <footer class=\"footer\">\n        <strong>شكرًا لزيارتكم</strong>\n        <p>نسعد بخدمتكم مجددًا</p>\n        <p>طلبات التيك أواي</p>\n    </footer>\n    </main>\n</body>\n</html>\n"
+        },
+        {
+            "name": "dine-in with service",
+            "preview": false,
+            "dashboard_print": true,
+            "receipt": {
+                "id": 9000000000001,
+                "number": "A1B-1030-0001",
+                "idempotency_key": "6f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-30",
+                "created_at": "2026-10-30T21:45:09+02:00",
+                "items": [
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity": "1.500",
+                        "unit_price": "180.00",
+                        "total": "270.00"
+                    },
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "2.000",
+                        "unit_price": "25.00",
+                        "total": "50.00"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "",
+                "tax_rate": "14.00",
+                "discount_reason": "",
+                "currency": "EGP",
+                "service": "38.40",
+                "service_rate": "12.00",
+                "delivery": "0.00",
+                "channel": "dine",
+                "ticket_id": null,
+                "context": {
+                    "customer_name": "أسرة محمد",
+                    "table": {
+                        "name": "ترابيزة ٤"
+                    },
+                    "customer_phone": "+201012345678"
+                },
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "364.80",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/details",
+                "can_reprint": true,
+                "receipt_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/print",
+                "subtotal": "320.00",
+                "discount": "0.00",
+                "tax": "50.18",
+                "total": "408.58",
+                "cash_received": "500.00",
+                "change": "91.42"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\"  data-dashboard-receipt=\"takeaway\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n    <title>الفاتورة الحالية A1B-1030-0001</title>\n    <style>\n        * { box-sizing: border-box; }\n        body { margin: 0; background: #edf1f6; color: #172137; font: 13px/1.55 Tahoma, Arial, sans-serif; }\n        .receipt { width: calc(100% - 28px); max-width: 660px; margin: 28px auto; padding: 28px; background: #fff; border: 1px solid #dfe5ec; border-radius: 12px; box-shadow: 0 10px 35px #13233a12; }\n        .preview-title { margin: 0 0 22px; color: #647186; font-size: 13px; font-weight: normal; }\n        .heading { text-align: center; border-bottom: 1px dashed #aeb9c8; padding-bottom: 18px; }\n        .logo { display: block; width: 112px; height: 112px; object-fit: contain; margin: 0 auto 8px; }\n        .heading h2 { margin: 4px 0; font-size: 20px; line-height: 1.4; }\n        .branch-contact { max-width: 440px; margin: 4px auto 0; font-size: 11px; color: #667387; overflow-wrap: anywhere; }\n        .receipt-channel { display: inline-block; margin-top: 12px; padding: 3px 15px; border: 1px solid #c9d2de; border-radius: 4px; color: #36475c; font-size: 11px; font-weight: bold; }\n        .receipt-identity { margin-top: 12px; }\n        .receipt-identity h1 { margin: 0 0 3px; color: #647186; font-size: 11px; font-weight: normal; }\n        .receipt-number { font-size: 19px; font-weight: bold; letter-spacing: .25px; overflow-wrap: anywhere; }\n        .receipt-state { margin: 10px 0 0; padding: 6px; border: 1px solid #172137; font-size: 12px; font-weight: bold; }\n        .information { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 18px 0; }\n        .information div { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }\n        .information dt { flex: 0 0 auto; color: #6b778a; font-size: 11px; }\n        .information dd { margin: 0; color: #25364b; font-size: 12px; font-weight: bold; }\n        .full-width { grid-column: 1 / -1; }\n        bdi { unicode-bidi: isolate; direction: ltr; font-variant-numeric: tabular-nums; }\n        .number { display: inline-block; white-space: nowrap; }\n        table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 18px 0 0; }\n        .item-col { width: 46%; }.quantity-col { width: 15%; }.price-col { width: 18%; }.amount-col { width: 21%; }\n        th, td { padding: 11px 5px; border-bottom: 1px solid #e2e7ee; vertical-align: top; text-align: start; font-size: 12px; }\n        th { border-top: 1px solid #b8c4d3; border-bottom-color: #b8c4d3; background: #f5f7fa; color: #4c5c71; font-size: 11px; white-space: nowrap; }\n        .item-name { overflow-wrap: anywhere; font-weight: bold; }\n        .item-option { display: block; margin-top: 3px; color: #68758a; font-size: 10px; font-weight: normal; }\n        .item-quantity { text-align: center; }\n        .item-unit { display: block; margin-top: 2px; color: #68758a; font-size: 10px; }\n        .item-price, .item-total { text-align: end; white-space: nowrap; }\n        td.item-total { font-weight: bold; }\n        .summary { margin-top: 14px; padding-top: 6px; }\n        .summary-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 12px; }\n        .summary-value { display: inline-flex; flex: 0 0 auto; gap: 4px; align-items: baseline; white-space: nowrap; font-weight: bold; }\n        .currency { color: #68758a; font-size: 10px; font-weight: normal; }\n        .grand-total { margin: 8px 0 4px; padding: 10px 0 7px; border-top: 2px solid #172137; border-bottom: 1px solid #c9d2df; font-size: 19px; font-weight: bold; }\n        .grand-total .currency { font-size: 11px; }\n        .payment-total, .change-total { font-size: 13px; }\n        .change-total { font-weight: bold; }\n        .notes { margin-top: 12px; padding: 10px 12px; border: 1px dashed #b8c4d3; border-radius: 4px; white-space: pre-line; overflow-wrap: anywhere; font-size: 11px; }\n        .notes strong { display: block; margin-bottom: 3px; }\n        .footer { margin: 22px 0 0; padding-top: 15px; border-top: 1px dashed #aeb9c8; text-align: center; color: #68758a; font-size: 10px; }\n        .footer strong { display: block; margin-bottom: 3px; color: #27384c; font-size: 14px; }\n        .footer p { margin: 3px 0; }\n        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }\n        .controls button { border: 0; border-radius: 6px; padding: 10px 20px; background: #172137; color: #fff; font: inherit; cursor: pointer; }\n        @media (max-width: 480px) {\n            .receipt { width: calc(100% - 16px); margin: 10px auto; padding: 16px 12px; }\n            .information { grid-template-columns: 1fr; gap: 6px; }\n            th, td { padding-inline: 3px; font-size: 10.5px; }\n            th { font-size: 10px; }.item-option, .item-unit { font-size: 9px; }\n            .grand-total { font-size: 17px; }\n        }\n        @page  { size: auto; margin: 0; }\n        @media  print {\n            html, body { width: 100%; margin: 0; padding: 0; background: #fff; color: #000; font-size: 11px; line-height: 1.4; }\n            .receipt { width: 100%; max-width: 80mm; margin: 0 auto; padding: 3mm 2mm; border: 0; border-radius: 0; box-shadow: none; }\n            .preview-title { display: none; }\n            .heading { padding-bottom: 9px; border-color: #000; break-inside: avoid; page-break-inside: avoid; }\n            .logo { width: 28mm; height: 28mm; margin: 0 auto 5px; filter: grayscale(1); }\n            .heading h2 { margin: 2px 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }\n            .branch-contact { margin: 3px 0 0; color: #000; font-size: 10px; }\n            .receipt-channel { margin-top: 7px; padding: 2px 10px; color: #000; border-color: #000; font-size: 10px; }\n            .receipt-identity { margin-top: 7px; }\n            .receipt-identity h1 { margin: 0 0 2px; color: #000; font-size: 9px; }\n            .receipt-number { font-size: 13px; line-height: 1.4; letter-spacing: .15px; }\n            .receipt-state { margin-top: 6px; padding: 4px; border: 1px solid #000; font-size: 11px; }\n            .information { display: block; margin: 9px 0; }\n            .information div { gap: 6px; margin: 4px 0; break-inside: avoid; page-break-inside: avoid; }\n            .information dt { color: #000; font-size: 10px; }\n            .information dd { color: #000; font-size: 10.5px; }\n            table { margin: 10px 0 0; }\n            th, td { padding: 6px 2px; border-color: #888; font-size: 10.5px; line-height: 1.4; }\n            th { padding-block: 5px; color: #000; background: #fff; border-color: #000; font-size: 10px; }\n            .item-option, .item-unit { color: #000; font-size: 9px; line-height: 1.4; }\n            .item-price, .item-total { font-size: 10px; }\n            thead { display: table-header-group; }\n            tr { break-inside: avoid; page-break-inside: avoid; }\n            .summary { margin-top: 8px; padding-top: 0; break-inside: avoid; page-break-inside: avoid; }\n            .summary-row { gap: 8px; padding: 3px 0; font-size: 11px; }\n            .summary-value { gap: 3px; }\n            .currency { color: #000; font-size: 9px; }\n            .grand-total { margin: 6px 0 3px; padding: 7px 0 5px; border-color: #000; font-size: 16px; }\n            .grand-total .currency { font-size: 9px; }\n            .payment-total, .change-total { font-size: 12px; }\n            .notes { margin-top: 8px; padding: 6px; border-color: #555; border-radius: 0; font-size: 10px; break-inside: avoid; page-break-inside: avoid; }\n            .notes strong { margin-bottom: 2px; }\n            .footer { margin-top: 13px; padding-top: 9px; color: #000; border-color: #000; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }\n            .footer strong { color: #000; font-size: 12px; }\n            .footer p { margin: 2px 0; }\n            .controls { display: none !important; }\n        }\n    </style>\n</head>\n<body>\n<main class=\"receipt\">\n        <header class=\"heading\">\n        <img class=\"logo\" src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\" width=\"1254\" height=\"1254\">\n        <h2>فرع المعادي</h2>\n        <p class=\"branch-contact\">شارع ٩ - المعادي</p>        <p class=\"branch-contact\"><bdi class=\"number\">01000000000</bdi></p>        <div class=\"receipt-channel\">صالة</div>\n        <div class=\"receipt-identity\">\n            <h1>رقم الفاتورة</h1>\n            <bdi class=\"receipt-number\">A1B-1030-0001</bdi>\n        </div>\n            </header>\n    <dl class=\"information\">\n        <div><dt>التاريخ</dt><dd><bdi>30/10/2026 21:45</bdi></dd></div>\n        <div><dt>كاشير</dt><dd>كاشير المعادي</dd></div>\n                    <div><dt>نوع الطلب</dt><dd>صالة</dd></div>\n    <div><dt>العميل</dt><dd>أسرة محمد</dd></div>    <div><dt>الترابيزة</dt><dd>ترابيزة ٤</dd></div>        \n                <div><dt>طريقة الدفع</dt><dd>كاش</dd></div>\n            </dl>\n    <table>\n        <colgroup><col class=\"item-col\"><col class=\"quantity-col\"><col class=\"price-col\"><col class=\"amount-col\"></colgroup>\n        <thead><tr><th scope=\"col\">الصنف</th><th scope=\"col\" class=\"item-quantity\">الكمية</th><th scope=\"col\" class=\"item-price\">السعر</th><th scope=\"col\" class=\"item-total\">الإجمالي</th></tr></thead>\n        <tbody>\n                    <tr>\n                <td class=\"item-name\">بوري مشوي</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">1.500</bdi><span class=\"item-unit\">كجم</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">180.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">270.00</bdi></td>\n            </tr>\n                    <tr>\n                <td class=\"item-name\">سلطة طحينة</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">2</bdi><span class=\"item-unit\">قطعة</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">25.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">50.00</bdi></td>\n            </tr>\n                </tbody>\n    </table>\n    <div class=\"summary\">\n        <div class=\"summary-row\"><span>إجمالي الأصناف</span><span class=\"summary-value\"><bdi>320.00</bdi><small class=\"currency\">جنيه</small></span></div>\n                <div class=\"summary-row\"><span>الضريبة (<bdi>14.00%</bdi>)</span><span class=\"summary-value\"><bdi>50.18</bdi><small class=\"currency\">جنيه</small></span></div>\n        <div class=\"summary-row\"><span>رسوم الخدمة (<bdi>12.00%</bdi>)</span><span class=\"summary-value\"><bdi>38.40</bdi><small class=\"currency\">جنيه</small></span></div>                <div class=\"summary-row grand-total\"><span>الإجمالي الكلي</span><span class=\"summary-value\"><bdi>408.58</bdi><small class=\"currency\">جنيه</small></span></div>\n                            <div class=\"summary-row payment-total\"><span>المبلغ المدفوع</span><span class=\"summary-value\"><bdi>500.00</bdi><small class=\"currency\">جنيه</small></span></div>\n            <div class=\"summary-row change-total\"><span>الباقي</span><span class=\"summary-value\"><bdi>91.42</bdi><small class=\"currency\">جنيه</small></span></div>\n            </div>\n            <footer class=\"footer\">\n        <strong>شكرًا لزيارتكم</strong>\n        <p>نسعد بخدمتكم مجددًا</p>\n        <p>طلبات الصالة</p>\n    </footer>\n    <div class=\"controls\"><button type=\"button\" onclick=\"window.print()\">طباعة الفاتورة</button></div></main>\n</body>\n</html>\n"
+        },
+        {
+            "name": "phone delivery",
+            "preview": false,
+            "dashboard_print": true,
+            "receipt": {
+                "id": 9000000000001,
+                "number": "A1B-1030-0001",
+                "idempotency_key": "6f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-30",
+                "created_at": "2026-10-30T21:45:09+02:00",
+                "items": [
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity": "1.500",
+                        "unit_price": "180.00",
+                        "total": "270.00"
+                    },
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "2.000",
+                        "unit_price": "25.00",
+                        "total": "50.00"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "",
+                "tax_rate": "14.00",
+                "discount_reason": "",
+                "currency": "EGP",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "25.00",
+                "channel": "phone",
+                "ticket_id": null,
+                "context": {
+                    "customer_name": "منى",
+                    "customer_phone": "+201112223334",
+                    "address": "شارع النصر، عمارة ٥",
+                    "delivery_company": {
+                        "id": 1,
+                        "name": "شركة سريع",
+                        "phone": "01011112222"
+                    },
+                    "driver": "سيد"
+                },
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "364.80",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/details",
+                "can_reprint": true,
+                "receipt_url": "https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/print",
+                "subtotal": "320.00",
+                "discount": "0.00",
+                "tax": "48.30",
+                "total": "393.30",
+                "cash_received": "393.30",
+                "change": "0.00"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\"  data-dashboard-receipt=\"takeaway\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n    <title>الفاتورة الحالية A1B-1030-0001</title>\n    <style>\n        * { box-sizing: border-box; }\n        body { margin: 0; background: #edf1f6; color: #172137; font: 13px/1.55 Tahoma, Arial, sans-serif; }\n        .receipt { width: calc(100% - 28px); max-width: 660px; margin: 28px auto; padding: 28px; background: #fff; border: 1px solid #dfe5ec; border-radius: 12px; box-shadow: 0 10px 35px #13233a12; }\n        .preview-title { margin: 0 0 22px; color: #647186; font-size: 13px; font-weight: normal; }\n        .heading { text-align: center; border-bottom: 1px dashed #aeb9c8; padding-bottom: 18px; }\n        .logo { display: block; width: 112px; height: 112px; object-fit: contain; margin: 0 auto 8px; }\n        .heading h2 { margin: 4px 0; font-size: 20px; line-height: 1.4; }\n        .branch-contact { max-width: 440px; margin: 4px auto 0; font-size: 11px; color: #667387; overflow-wrap: anywhere; }\n        .receipt-channel { display: inline-block; margin-top: 12px; padding: 3px 15px; border: 1px solid #c9d2de; border-radius: 4px; color: #36475c; font-size: 11px; font-weight: bold; }\n        .receipt-identity { margin-top: 12px; }\n        .receipt-identity h1 { margin: 0 0 3px; color: #647186; font-size: 11px; font-weight: normal; }\n        .receipt-number { font-size: 19px; font-weight: bold; letter-spacing: .25px; overflow-wrap: anywhere; }\n        .receipt-state { margin: 10px 0 0; padding: 6px; border: 1px solid #172137; font-size: 12px; font-weight: bold; }\n        .information { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 18px 0; }\n        .information div { display: flex; gap: 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }\n        .information dt { flex: 0 0 auto; color: #6b778a; font-size: 11px; }\n        .information dd { margin: 0; color: #25364b; font-size: 12px; font-weight: bold; }\n        .full-width { grid-column: 1 / -1; }\n        bdi { unicode-bidi: isolate; direction: ltr; font-variant-numeric: tabular-nums; }\n        .number { display: inline-block; white-space: nowrap; }\n        table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 18px 0 0; }\n        .item-col { width: 46%; }.quantity-col { width: 15%; }.price-col { width: 18%; }.amount-col { width: 21%; }\n        th, td { padding: 11px 5px; border-bottom: 1px solid #e2e7ee; vertical-align: top; text-align: start; font-size: 12px; }\n        th { border-top: 1px solid #b8c4d3; border-bottom-color: #b8c4d3; background: #f5f7fa; color: #4c5c71; font-size: 11px; white-space: nowrap; }\n        .item-name { overflow-wrap: anywhere; font-weight: bold; }\n        .item-option { display: block; margin-top: 3px; color: #68758a; font-size: 10px; font-weight: normal; }\n        .item-quantity { text-align: center; }\n        .item-unit { display: block; margin-top: 2px; color: #68758a; font-size: 10px; }\n        .item-price, .item-total { text-align: end; white-space: nowrap; }\n        td.item-total { font-weight: bold; }\n        .summary { margin-top: 14px; padding-top: 6px; }\n        .summary-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 12px; }\n        .summary-value { display: inline-flex; flex: 0 0 auto; gap: 4px; align-items: baseline; white-space: nowrap; font-weight: bold; }\n        .currency { color: #68758a; font-size: 10px; font-weight: normal; }\n        .grand-total { margin: 8px 0 4px; padding: 10px 0 7px; border-top: 2px solid #172137; border-bottom: 1px solid #c9d2df; font-size: 19px; font-weight: bold; }\n        .grand-total .currency { font-size: 11px; }\n        .payment-total, .change-total { font-size: 13px; }\n        .change-total { font-weight: bold; }\n        .notes { margin-top: 12px; padding: 10px 12px; border: 1px dashed #b8c4d3; border-radius: 4px; white-space: pre-line; overflow-wrap: anywhere; font-size: 11px; }\n        .notes strong { display: block; margin-bottom: 3px; }\n        .footer { margin: 22px 0 0; padding-top: 15px; border-top: 1px dashed #aeb9c8; text-align: center; color: #68758a; font-size: 10px; }\n        .footer strong { display: block; margin-bottom: 3px; color: #27384c; font-size: 14px; }\n        .footer p { margin: 3px 0; }\n        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }\n        .controls button { border: 0; border-radius: 6px; padding: 10px 20px; background: #172137; color: #fff; font: inherit; cursor: pointer; }\n        @media (max-width: 480px) {\n            .receipt { width: calc(100% - 16px); margin: 10px auto; padding: 16px 12px; }\n            .information { grid-template-columns: 1fr; gap: 6px; }\n            th, td { padding-inline: 3px; font-size: 10.5px; }\n            th { font-size: 10px; }.item-option, .item-unit { font-size: 9px; }\n            .grand-total { font-size: 17px; }\n        }\n        @page  { size: auto; margin: 0; }\n        @media  print {\n            html, body { width: 100%; margin: 0; padding: 0; background: #fff; color: #000; font-size: 11px; line-height: 1.4; }\n            .receipt { width: 100%; max-width: 80mm; margin: 0 auto; padding: 3mm 2mm; border: 0; border-radius: 0; box-shadow: none; }\n            .preview-title { display: none; }\n            .heading { padding-bottom: 9px; border-color: #000; break-inside: avoid; page-break-inside: avoid; }\n            .logo { width: 28mm; height: 28mm; margin: 0 auto 5px; filter: grayscale(1); }\n            .heading h2 { margin: 2px 0; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }\n            .branch-contact { margin: 3px 0 0; color: #000; font-size: 10px; }\n            .receipt-channel { margin-top: 7px; padding: 2px 10px; color: #000; border-color: #000; font-size: 10px; }\n            .receipt-identity { margin-top: 7px; }\n            .receipt-identity h1 { margin: 0 0 2px; color: #000; font-size: 9px; }\n            .receipt-number { font-size: 13px; line-height: 1.4; letter-spacing: .15px; }\n            .receipt-state { margin-top: 6px; padding: 4px; border: 1px solid #000; font-size: 11px; }\n            .information { display: block; margin: 9px 0; }\n            .information div { gap: 6px; margin: 4px 0; break-inside: avoid; page-break-inside: avoid; }\n            .information dt { color: #000; font-size: 10px; }\n            .information dd { color: #000; font-size: 10.5px; }\n            table { margin: 10px 0 0; }\n            th, td { padding: 6px 2px; border-color: #888; font-size: 10.5px; line-height: 1.4; }\n            th { padding-block: 5px; color: #000; background: #fff; border-color: #000; font-size: 10px; }\n            .item-option, .item-unit { color: #000; font-size: 9px; line-height: 1.4; }\n            .item-price, .item-total { font-size: 10px; }\n            thead { display: table-header-group; }\n            tr { break-inside: avoid; page-break-inside: avoid; }\n            .summary { margin-top: 8px; padding-top: 0; break-inside: avoid; page-break-inside: avoid; }\n            .summary-row { gap: 8px; padding: 3px 0; font-size: 11px; }\n            .summary-value { gap: 3px; }\n            .currency { color: #000; font-size: 9px; }\n            .grand-total { margin: 6px 0 3px; padding: 7px 0 5px; border-color: #000; font-size: 16px; }\n            .grand-total .currency { font-size: 9px; }\n            .payment-total, .change-total { font-size: 12px; }\n            .notes { margin-top: 8px; padding: 6px; border-color: #555; border-radius: 0; font-size: 10px; break-inside: avoid; page-break-inside: avoid; }\n            .notes strong { margin-bottom: 2px; }\n            .footer { margin-top: 13px; padding-top: 9px; color: #000; border-color: #000; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }\n            .footer strong { color: #000; font-size: 12px; }\n            .footer p { margin: 2px 0; }\n            .controls { display: none !important; }\n        }\n    </style>\n</head>\n<body>\n<main class=\"receipt\">\n        <header class=\"heading\">\n        <img class=\"logo\" src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\" width=\"1254\" height=\"1254\">\n        <h2>فرع المعادي</h2>\n        <p class=\"branch-contact\">شارع ٩ - المعادي</p>        <p class=\"branch-contact\"><bdi class=\"number\">01000000000</bdi></p>        <div class=\"receipt-channel\">دليفري بالتليفون</div>\n        <div class=\"receipt-identity\">\n            <h1>رقم الفاتورة</h1>\n            <bdi class=\"receipt-number\">A1B-1030-0001</bdi>\n        </div>\n            </header>\n    <dl class=\"information\">\n        <div><dt>التاريخ</dt><dd><bdi>30/10/2026 21:45</bdi></dd></div>\n        <div><dt>كاشير</dt><dd>كاشير المعادي</dd></div>\n                    <div><dt>نوع الطلب</dt><dd>دليفري بالتليفون</dd></div>\n    <div><dt>العميل</dt><dd>منى</dd></div>    <div><dt>رقم التليفون</dt><dd><bdi>+201112223334</bdi></dd></div>        <div class=\"full-width\"><dt>عنوان التوصيل</dt><dd>شارع النصر، عمارة ٥</dd></div>    \n<div><dt>شركة التوصيل</dt><dd>شركة سريع · <bdi>01011112222</bdi></dd></div>                <div><dt>طريقة الدفع</dt><dd>كاش</dd></div>\n            </dl>\n    <table>\n        <colgroup><col class=\"item-col\"><col class=\"quantity-col\"><col class=\"price-col\"><col class=\"amount-col\"></colgroup>\n        <thead><tr><th scope=\"col\">الصنف</th><th scope=\"col\" class=\"item-quantity\">الكمية</th><th scope=\"col\" class=\"item-price\">السعر</th><th scope=\"col\" class=\"item-total\">الإجمالي</th></tr></thead>\n        <tbody>\n                    <tr>\n                <td class=\"item-name\">بوري مشوي</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">1.500</bdi><span class=\"item-unit\">كجم</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">180.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">270.00</bdi></td>\n            </tr>\n                    <tr>\n                <td class=\"item-name\">سلطة طحينة</td>\n                <td class=\"item-quantity\"><bdi class=\"number\">2</bdi><span class=\"item-unit\">قطعة</span></td>\n                <td class=\"item-price\"><bdi class=\"number\">25.00</bdi></td>\n                <td class=\"item-total\"><bdi class=\"number\">50.00</bdi></td>\n            </tr>\n                </tbody>\n    </table>\n    <div class=\"summary\">\n        <div class=\"summary-row\"><span>إجمالي الأصناف</span><span class=\"summary-value\"><bdi>320.00</bdi><small class=\"currency\">جنيه</small></span></div>\n                <div class=\"summary-row\"><span>الضريبة (<bdi>14.00%</bdi>)</span><span class=\"summary-value\"><bdi>48.30</bdi><small class=\"currency\">جنيه</small></span></div>\n                <div class=\"summary-row\"><span>رسوم التوصيل</span><span class=\"summary-value\"><bdi>25.00</bdi><small class=\"currency\">جنيه</small></span></div>        <div class=\"summary-row grand-total\"><span>الإجمالي الكلي</span><span class=\"summary-value\"><bdi>393.30</bdi><small class=\"currency\">جنيه</small></span></div>\n                            <div class=\"summary-row payment-total\"><span>المبلغ المدفوع</span><span class=\"summary-value\"><bdi>393.30</bdi><small class=\"currency\">جنيه</small></span></div>\n            <div class=\"summary-row change-total\"><span>الباقي</span><span class=\"summary-value\"><bdi>0.00</bdi><small class=\"currency\">جنيه</small></span></div>\n            </div>\n            <footer class=\"footer\">\n        <strong>شكرًا لزيارتكم</strong>\n        <p>نسعد بخدمتكم مجددًا</p>\n        <p>طلبات الهاتف والدليفري</p>\n    </footer>\n    <div class=\"controls\"><button type=\"button\" onclick=\"window.print()\">طباعة الفاتورة</button></div></main>\n</body>\n</html>\n"
+        }
+    ]
+}

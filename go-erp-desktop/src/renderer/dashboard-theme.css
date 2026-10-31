@@ -17,7 +17,7 @@
 .fa-cash-register:before { content: "\f788"; } .fa-receipt:before { content: "\f543"; } .fa-wallet:before { content: "\f555"; }
 .fa-user-clock:before { content: "\f4fd"; } .fa-chart-bar:before { content: "\f080"; } .fa-cog:before { content: "\f013"; }
 .fa-sign-out-alt:before { content: "\f2f5"; } .fa-tachometer-alt:before { content: "\f3fd"; } .fa-sync-alt:before { content: "\f2f1"; }
-.fa-desktop:before { content: "\f108"; } .fa-wifi:before { content: "\f1eb"; } .fa-store:before { content: "\f54e"; }
+.fa-desktop:before { content: "\f108"; } .fa-wifi:before { content: "\f1eb"; } .fa-plug:before { content: "\f1e6"; } .fa-store:before { content: "\f54e"; }
 
 /* ---- dashboard-brand.css: GO ERP logo ---- */
 .dashboard-login-logo {

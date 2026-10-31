@@ -24,7 +24,9 @@ class Api {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw new ApiError(0, 'لا يوجد اتصال بالسرفر الآن. البرنامج يعمل على بيانات الجهاز.');
+      const failure = new ApiError(0, 'لا يوجد اتصال بالسرفر الآن. البرنامج يعمل على بيانات الجهاز.');
+      failure.cause = error && error.message;
+      throw failure;
     }
     let payload = null;
     try { payload = await response.json(); } catch { payload = null; }

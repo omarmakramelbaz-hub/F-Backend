@@ -163,11 +163,26 @@ class DesktopSyncState
                 DB::table('desktop_sync_snapshots')->insert(['id' => $id, 'device_id' => $device->id, 'branch' => $value,
                     'payload_hash' => $hash, 'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE), 'created_at' => now('UTC')]);
             }
-            $entry = ['value' => $value, 'available' => true, 'snapshot_id' => $id, 'hash' => $hash, 'attendance' => $this->attendanceDays($value)];
+            $entry = ['value' => $value, 'available' => true, 'snapshot_id' => $id, 'hash' => $hash, 'attendance' => $this->attendanceDays($value),
+                'today' => $this->today($value, $actor)];
             if (($known[$value] ?? null) !== $hash) $entry['catalog'] = $payload;
             $result[] = $entry;
         }
         return $result;
+    }
+
+    /**
+     * The branch's invoices of the working day so far, as the cashier page counts them. While offline the device
+     * adds the sales it has not sent yet.
+     */
+    private function today(string $value, User $actor): ?array
+    {
+        try {
+            $today = app(TakeawayService::class)->summary($value, $actor)['today'] ?? null;
+        } catch (HttpException $error) {
+            return null;
+        }
+        return is_array($today) ? $today + ['as_of' => now('UTC')->toIso8601String()] : null;
     }
 
     public function snapshot(object $device, string $id): ?array
@@ -202,11 +217,17 @@ class DesktopSyncState
             $summary = app(TakeawayService::class)->summary($value, $actor);
             $products = [];
             $categories = [];
+            // The cashier page's own product cards, in its order, so the same page works offline. Stock balances
+            // change with every sale and are not part of the stored menu version.
+            $cards = [];
             for ($page = 1; ; $page++) {
                 $listing = $catalog->listing(['branch' => $value, 'page' => $page, 'per_page' => 100], $actor);
                 $categories = $listing['categories'];
                 $rows = $catalog->rows($branch, array_column($listing['items'], 'id'), false);
                 foreach ($listing['items'] as $product) {
+                    $card = $product;
+                    unset($card['stock']);
+                    $cards[] = $card;
                     if (! $product['available'] || ! isset($rows[$product['id']])) continue;
                     $variants = [];
                     foreach (array_merge([['id' => '', 'label' => 'الأساسي']], $product['options']) as $option) {
@@ -233,7 +254,7 @@ class DesktopSyncState
             return ['branch' => $branch, 'customer_phone_required' => true,
                 'tax_bps' => Money::rate($summary['register']['tax_rate'] ?? '0.00'),
                 'service_bps' => app(PosServiceTable::class)->ready() ? app(PosServiceTable::class)->policy($value)['service_bps'] : 0,
-                'can_discount' => true, 'products' => $products, 'categories' => $categories,
+                'can_discount' => true, 'products' => $products, 'categories' => $categories, 'listing' => $cards,
                 'expense_categories' => $this->expenseCategories($value), 'delivery_companies' => $this->deliveryCompanies($value),
                 'employees' => $this->employees($value), 'attendance_shifts' => $this->attendanceShifts($value)];
         });

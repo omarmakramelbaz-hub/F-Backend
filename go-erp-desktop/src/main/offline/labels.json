@@ -1,0 +1,61 @@
+{
+    "takeaway": {
+        "current_invoice": "الفاتورة الحالية",
+        "title": "طلبات التيك أواي",
+        "invoice_number": "رقم الفاتورة",
+        "date": "التاريخ",
+        "cashier": "كاشير",
+        "payment_method": "طريقة الدفع",
+        "payment_reference": "مرجع المعاملة",
+        "item": "الصنف",
+        "quantity_short": "الكمية",
+        "price": "السعر",
+        "line_total": "الإجمالي",
+        "kg": "كجم",
+        "piece": "قطعة",
+        "subtotal": "إجمالي الأصناف",
+        "currency": "جنيه",
+        "discount": "خصم",
+        "tax": "الضريبة",
+        "service": "رسوم الخدمة",
+        "total": "الإجمالي الكلي",
+        "cash": "كاش",
+        "card": "بطاقة",
+        "wallet": "محفظة",
+        "other": "أخرى",
+        "cash_paid": "المبلغ المدفوع",
+        "change": "الباقي",
+        "discount_reason": "سبب الخصم",
+        "order_notes": "ملاحظة للطلب",
+        "receipt_thanks": "شكرًا لزيارتكم",
+        "receipt_welcome": "نسعد بخدمتكم مجددًا",
+        "print_invoice": "طباعة الفاتورة",
+        "all_branches": "جميع الفروع"
+    },
+    "pos_service": {
+        "details": "تفاصيل الفاتورة",
+        "takeaway": "تيك أواي",
+        "dine": "صالة",
+        "phone": "دليفري بالتليفون",
+        "unpaid_bill": "كشف حساب غير مسدد",
+        "cancelled": "طلب ملغي — لا يتم تحصيله",
+        "customer": "العميل",
+        "phone_number": "رقم التليفون",
+        "delivery": "رسوم التوصيل",
+        "mixed": "دفع مختلط",
+        "unpaid": "لم يتم التحصيل",
+        "channel": "نوع الطلب",
+        "table": "الترابيزة",
+        "waiter": "النادل",
+        "guests": "عدد الأفراد",
+        "area": "المنطقة",
+        "address": "عنوان التوصيل",
+        "delivery_notes": "ملاحظات التوصيل"
+    },
+    "dining": {
+        "title": "طلبات الصالة"
+    },
+    "phone_orders": {
+        "title": "طلبات الهاتف والدليفري"
+    }
+}

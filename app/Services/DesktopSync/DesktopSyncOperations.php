@@ -111,6 +111,14 @@ class DesktopSyncOperations
         ])->validate();
         $actor = $this->access->actor($actor);
         $this->access->branch($branch, $actor);
+        // The dashboard's cashier page may have reached the server just before the connection dropped; the device
+        // then saved the same invoice under the same operation number. The dashboard already has it: never twice.
+        $existing = DB::table('takeaway_orders')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first(['id']);
+        if ($existing) {
+            $receipt = app(TakeawayService::class)->receipt((int) $existing->id, $actor);
+            return ['receipt' => ['id' => (int) $receipt['id'], 'number' => (string) $receipt['number'],
+                'business_date' => (string) $receipt['business_date'], 'total' => (string) $receipt['total'], 'already_saved' => true]];
+        }
         $permissions = $this->access->permissions($actor);
         abort_unless($permissions['can_checkout'], 403, 'الحساب غير مسموح له بالبيع.');
         $snapshot = $this->state->snapshot($device, $data['snapshot_id']);
@@ -130,7 +138,8 @@ class DesktopSyncOperations
         $delivery = [];
         if ($data['channel'] === 'phone') {
             $company = collect($snapshot['delivery_companies'] ?? [])->firstWhere('id', (int) ($data['delivery_company_id'] ?? 0));
-            if ($company) $delivery['delivery_company'] = ['id' => (int) $company['id'], 'name' => (string) $company['name']];
+            // The dashboard's receipt shows the company's name and phone.
+            if ($company) $delivery['delivery_company'] = ['id' => (int) $company['id'], 'name' => (string) $company['name'], 'phone' => (string) ($company['phone'] ?? '')];
             if (trim((string) ($data['driver'] ?? '')) !== '') $delivery['driver'] = trim((string) $data['driver']);
         }
         // Everything below is derived from the operation itself, so a resend reproduces the same request.

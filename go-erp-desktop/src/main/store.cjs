@@ -110,6 +110,11 @@ class Store {
         if (Array.isArray(entry.attendance)) {
           this.db.prepare('UPDATE branches SET attendance = ? WHERE value = ?').run(JSON.stringify(entry.attendance), entry.value);
         }
+        if (entry.today && typeof entry.today === 'object') {
+          // received_at: invoices this device sent before this moment are already in the server's count.
+          this.db.prepare('UPDATE branches SET today = ? WHERE value = ?')
+            .run(JSON.stringify({ ...entry.today, received_at: this.now().toISOString() }), entry.value);
+        }
         if (!entry.available) {
           this.db.prepare('UPDATE branches SET available = 0 WHERE value = ?').run(entry.value);
           continue;
@@ -218,28 +223,132 @@ class Store {
       if (ticket.channel === 'phone' && (!data.customer_name.trim() || !data.address.trim())) throw new Error('أكمل اسم العميل وعنوانه.');
       const cash = money.minor(payment.cash_received ?? '0');
       if (cash < quote.total_cents) throw new Error('المبلغ المستلم أقل من إجمالي الفاتورة.');
-      const now = this.now();
-      const day = rules.operatingDay(now);
-      const number = this.nextNumber(ticket.branch, day);
-      const operationId = this.uuid();
-      const totals = { ...quote, cash_received_cents: cash, change_cents: cash - quote.total_cents };
-      const operation = { id: operationId, kind: 'sale', actor_id: actor.id, branch: ticket.branch, occurred_at: now.toISOString(),
-        data: { snapshot_id: catalog.snapshot_id, channel: ticket.channel,
-          items: quote.items.map((line) => ({ product_id: line.product_id, option_id: line.option_id, quantity_mode: line.quantity_mode, quantity: line.quantity })),
-          customer_phone: data.customer_phone.trim(), customer_name: data.customer_name.trim(), address: data.address.trim(),
-          table_name: data.table_name.trim(), notes: data.notes.trim(), delivery_cents: quote.delivery_cents,
-          discount: money.decimal(quote.discount_cents), discount_reason: data.discount_reason.trim(), cash_received: money.decimal(cash),
-          total_cents: quote.total_cents, local_number: number, service_consent: !!data.service_consent, marketing_consent: !!data.marketing_consent,
-          ...(ticket.channel === 'phone' ? { delivery_company_id: data.delivery_company_id, driver: data.driver.trim() } : {}) } };
-      const stamp = now.toISOString();
-      this.db.prepare(`UPDATE tickets SET status = 'paid', actor_id = ?, actor_name = ?, data = ?, local_number = ?, business_date = ?,
-        snapshot_id = ?, totals = ?, paid_at = ?, updated_at = ?, sync_status = 'pending' WHERE id = ?`)
-        .run(actor.id, actor.name, JSON.stringify(data), number, day, catalog.snapshot_id, JSON.stringify(totals), stamp, stamp, id);
-      this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'sale', ?, ?, 'pending', ?, ?)`)
-        .run(operationId, id, JSON.stringify(operation), stamp, stamp);
-      this.rememberCustomer(phone, data, quote.total_cents, stamp);
+      this.#completeSale(actor, ticket, data, catalog, quote, cash, phone, { operationId: this.uuid(), insert: false });
       return this.ticket(id);
     });
+  }
+
+  /**
+   * A sale finished on the dashboard's own cashier page while offline (checked by the page's local answers).
+   * The page's operation number (idempotency_key) is the invoice's and the operation's id: a retry returns
+   * the same invoice, and the dashboard recognises an invoice that reached it just before the connection dropped.
+   */
+  pageSale(actor, values) {
+    return transaction(this.db, () => {
+      const existing = this.ticket(values.id);
+      if (existing) {
+        if (existing.actor_id !== actor.id || existing.branch !== values.branch || existing.data.request_hash !== values.request_hash) {
+          const error = new Error('تم استخدام رقم العملية لفاتورة مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ticket: existing, replayed: true };
+      }
+      this.requireBranch(actor, values.branch, 'can_checkout');
+      const phone = rules.normalizePhone(values.data.customer_phone);
+      if (!phone) throw new Error('اكتب رقم هاتف صحيح للعميل قبل إنهاء الفاتورة.');
+      const data = { ...cleanTicketData(values.data), request_hash: values.request_hash, source: 'dashboard' };
+      const ticket = { id: values.id, branch: values.branch, channel: 'takeaway' };
+      this.#completeSale(actor, ticket, data, values.catalog, values.quote, values.cash_cents, phone, { operationId: values.id, insert: true });
+      return { ticket: this.ticket(values.id), replayed: false };
+    });
+  }
+
+  /** The paid invoice and the operation that sends it to the dashboard, written together. */
+  #completeSale(actor, ticket, data, catalog, quote, cash, phone, { operationId, insert }) {
+    const now = this.now();
+    const day = rules.operatingDay(now);
+    const number = this.nextNumber(ticket.branch, day);
+    const seq = this.nextCounter('receipt_seq');
+    const firstPrint = crypto.randomBytes(32).toString('hex');
+    const totals = { ...quote, cash_received_cents: cash, change_cents: cash - quote.total_cents };
+    const operation = { id: operationId, kind: 'sale', actor_id: actor.id, branch: ticket.branch, occurred_at: now.toISOString(),
+      data: { snapshot_id: catalog.snapshot_id, channel: ticket.channel,
+        items: quote.items.map((line) => ({ product_id: line.product_id, option_id: line.option_id, quantity_mode: line.quantity_mode, quantity: line.quantity })),
+        customer_phone: data.customer_phone.trim(), customer_name: data.customer_name.trim(), address: data.address.trim(),
+        table_name: data.table_name.trim(), notes: data.notes.trim(), delivery_cents: quote.delivery_cents,
+        discount: money.decimal(quote.discount_cents), discount_reason: data.discount_reason.trim(), cash_received: money.decimal(cash),
+        total_cents: quote.total_cents, local_number: number, service_consent: !!data.service_consent, marketing_consent: !!data.marketing_consent,
+        ...(ticket.channel === 'phone' ? { delivery_company_id: data.delivery_company_id, driver: data.driver.trim() } : {}) } };
+    const stamp = now.toISOString();
+    if (insert) {
+      this.db.prepare(`INSERT INTO tickets (id, branch, channel, status, actor_id, actor_name, label, data, local_number, business_date,
+        snapshot_id, totals, created_at, updated_at, paid_at, sync_status, seq, first_print) VALUES (?, ?, ?, 'paid', ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+        .run(ticket.id, ticket.branch, ticket.channel, actor.id, actor.name, JSON.stringify(data), number, day, catalog.snapshot_id,
+          JSON.stringify(totals), stamp, stamp, stamp, seq, firstPrint);
+    } else {
+      this.db.prepare(`UPDATE tickets SET status = 'paid', actor_id = ?, actor_name = ?, data = ?, local_number = ?, business_date = ?,
+        snapshot_id = ?, totals = ?, paid_at = ?, updated_at = ?, sync_status = 'pending', seq = ?, first_print = ? WHERE id = ?`)
+        .run(actor.id, actor.name, JSON.stringify(data), number, day, catalog.snapshot_id, JSON.stringify(totals), stamp, stamp, seq, firstPrint, ticket.id);
+    }
+    this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'sale', ?, ?, 'pending', ?, ?)`)
+      .run(operationId, ticket.id, JSON.stringify(operation), stamp, stamp);
+    this.rememberCustomer(phone, data, quote.total_cents, stamp);
+  }
+
+  nextCounter(name) {
+    this.db.prepare('INSERT INTO counters (name, value) VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET value = value + 1').run(name);
+    return this.db.prepare('SELECT value FROM counters WHERE name = ?').get(name).value;
+  }
+
+  ticketBySeq(seq) {
+    const row = this.db.prepare('SELECT * FROM tickets WHERE seq = ?').get(seq);
+    return row ? presentTicket(row) : null;
+  }
+
+  /** Paid invoices of the given branches and working day, newest first, a page at a time. */
+  paidTickets(branches, day, page = 1, perPage = 20) {
+    if (!branches.length) return { total: 0, items: [] };
+    const marks = branches.map(() => '?').join(', ');
+    const total = this.db.prepare(`SELECT COUNT(*) AS count FROM tickets WHERE status = 'paid' AND business_date = ? AND branch IN (${marks})`)
+      .get(day, ...branches).count;
+    const items = this.db.prepare(`SELECT * FROM tickets WHERE status = 'paid' AND business_date = ? AND branch IN (${marks})
+      ORDER BY seq DESC LIMIT ? OFFSET ?`).all(day, ...branches, perPage, (page - 1) * perPage).map(presentTicket);
+    return { total, items };
+  }
+
+  /**
+   * The branches' invoices of the working day as the dashboard counts them: the server's count from the last
+   * sync, plus this device's invoices the server did not have yet at that moment.
+   */
+  dayTotals(branches, day) {
+    let count = 0;
+    let total = 0;
+    let cash = 0;
+    const methods = { card: 0, mobile_wallet: 0, other: 0, mixed: 0 };
+    for (const branch of branches) {
+      const row = this.db.prepare('SELECT today FROM branches WHERE value = ?').get(branch);
+      const server = row && row.today ? JSON.parse(row.today) : null;
+      const known = server && server.date === day ? server : null;
+      if (known) {
+        count += Number(known.count) || 0;
+        total += money.minor(known.total || '0');
+        cash += money.minor(known.cash || '0');
+        for (const method of Object.keys(methods)) methods[method] += money.minor(known[method] || '0');
+      }
+      const since = known ? Date.parse(known.received_at) : null;
+      const local = this.db.prepare(`SELECT sync_status, synced_at, totals FROM tickets WHERE branch = ? AND status = 'paid' AND business_date = ?`)
+        .all(branch, day);
+      for (const ticket of local) {
+        const counted = known && ticket.sync_status === 'synced' && ticket.synced_at && Date.parse(ticket.synced_at) <= since;
+        if (counted) continue;
+        const amount = JSON.parse(ticket.totals).total_cents;
+        count++;
+        total += amount;
+        cash += amount;
+      }
+    }
+    return { date: day, count, total: money.decimal(total), cash: money.decimal(cash),
+      ...Object.fromEntries(Object.entries(methods).map(([method, cents]) => [method, money.decimal(cents)])) };
+  }
+
+  /** The one first print of an account that may not reprint: once, by its cashier, within ten minutes. */
+  useFirstPrint(ticketId, actorId, token) {
+    const ticket = this.ticket(ticketId);
+    if (!ticket || ticket.actor_id !== actorId || !ticket.first_print || ticket.first_print === 'used' || ticket.first_print !== token) return false;
+    if (this.now().getTime() - Date.parse(ticket.paid_at) > 10 * 60 * 1000) return false;
+    this.db.prepare("UPDATE tickets SET first_print = 'used' WHERE id = ? AND first_print = ?").run(ticketId, token);
+    return true;
   }
 
   rememberCustomer(phone, data, total, stamp) {
@@ -494,8 +603,8 @@ class Store {
         if (result.status === 'applied') {
           this.db.prepare("UPDATE outbox SET status = 'done', result = ?, last_error = NULL, updated_at = ? WHERE id = ?").run(JSON.stringify(result), now, row.id);
           const receipt = result.receipt || {};
-          if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ? WHERE id = ?")
-            .run(receipt.id ?? null, receipt.number ?? null, row.ticket_id);
+          if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ?, synced_at = ? WHERE id = ?")
+            .run(receipt.id ?? null, receipt.number ?? null, now, row.ticket_id);
           if (row.journal_id) {
             const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}` : null;
             if (result.attendance) {

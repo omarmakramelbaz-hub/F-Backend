@@ -7,10 +7,12 @@
   <footer v-else-if="dashboardShown" class="status-bar">
     <span class="status-brand">GO ERP</span>
     <SyncBadge :status="sync" @sync-now="syncNow" />
+    <span v-if="offlineMode" class="status-offline" role="status" title="النت مقطوع: صفحات الداشبورد المحفوظة والكاشير شغالين من الجهاز، وكل حاجة هتتزامن لما النت يرجع."><i class="fas fa-plug" aria-hidden="true"></i> بدون إنترنت — شغال من الجهاز</span>
     <span class="status-who">{{ currentBranch.name }} · {{ info.session.user.name }}</span>
-    <span v-if="printProblem" class="status-error" role="alert">{{ printProblem }}</span>
+    <span v-if="statusNotice" class="status-notice" role="status" :title="statusNotice">{{ statusNotice }}</span>
+    <span v-if="printProblem" class="status-error" role="alert" :title="printProblem">{{ printProblem }}</span>
     <span class="spacer"></span>
-    <button type="button" @click="useDevice"><i class="fas fa-desktop" aria-hidden="true"></i> شاشات الجهاز (بدون إنترنت)</button>
+    <button type="button" @click="useDevice" title="شاشات البرنامج نفسه: تشتغل بإنترنت أو من غيره"><i class="fas fa-desktop" aria-hidden="true"></i> شاشات الجهاز</button>
     <button type="button" @click="logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> خروج</button>
   </footer>
 
@@ -76,7 +78,10 @@ const view = ref('pos');
 const dashboardShown = ref(false);
 const banner = ref(null);
 const printProblem = ref('');
+const offlineMode = ref(false);
+const statusNotice = ref('');
 let printTimer = null;
+let noticeTimer = null;
 const stops = [];
 
 // Reports are for the owner and managers, like the dashboard's reports.
@@ -95,6 +100,13 @@ async function refresh() {
   info.value = await call('app:info');
   sync.value = info.value.sync;
   dashboardShown.value = !!info.value.dashboard_shown;
+  offlineMode.value = !!info.value.offline_mode;
+}
+
+function notice(text) {
+  statusNotice.value = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { statusNotice.value = ''; }, 9000);
 }
 
 async function refreshSync() {
@@ -106,21 +118,29 @@ async function syncNow() {
   info.value = await call('app:info');
 }
 
-/** After signing in, the live dashboard opens when the internet is there; otherwise the device's screens. */
+/**
+ * After signing in the dashboard opens: live with the internet, and from this account's pages saved on the device
+ * without it. Only an account that never opened the dashboard online on this device starts on the device's screens.
+ */
 async function afterSignIn() {
   await refresh();
   view.value = 'pos';
-  if (info.value.embed && sync.value.online !== false && navigator.onLine) await openDashboard();
-  else if (info.value.embed) banner.value = offlineBanner();
+  if (!info.value.embed) return;
+  if (!(await openDashboard())) banner.value = noCopyBanner();
 }
 
 async function openDashboard(page) {
   banner.value = null;
-  try { await call('dashboard:open', page ? { page } : {}); } catch { /* signed out meanwhile */ }
+  try { return await call('dashboard:open', page ? { page } : {}); } catch { return false; /* signed out meanwhile */ }
+}
+
+function noCopyBanner() {
+  return { kind: 'offline', text: 'مفيش إنترنت، وصفحات الداشبورد لسه متحفظتش على الجهاز للحساب ده (بتتحفظ أول مرة يفتح والنت شغال). اشتغل من شاشات الجهاز، وكل حاجة هتتزامن لوحدها لما النت يرجع.', back: false };
 }
 
 async function useDevice() {
   await call('dashboard:hide');
+  view.value = 'pos';
   banner.value = { kind: 'info', text: 'شاشات الجهاز شغالة بإنترنت أو من غيره، وكل اللي بيتسجل هنا بيتزامن مع الداشبورد.', back: true };
 }
 
@@ -128,12 +148,19 @@ function offlineBanner() {
   return { kind: 'offline', text: 'مفيش إنترنت دلوقتي — كمّل شغلك من شاشات الجهاز، وكل حاجة هتتزامن مع الداشبورد لوحدها لما النت يرجع.', back: false };
 }
 
-/** The internet dropped: keep working on the device's screens. */
+/** The internet dropped: the dashboard keeps working from the device; the device's screens show a notice. */
 async function goOffline() {
+  offlineMode.value = true;
   if (!info.value || !info.value.session) return;
+  call('app:network', { online: false }).catch(() => {});
+  if (!dashboardShown.value) banner.value = offlineBanner();
+}
+
+/** The dashboard window could not show its page at all: the device's own screens take over. */
+async function dashboardUnavailable() {
   if (dashboardShown.value) await call('dashboard:hide');
   view.value = 'pos';
-  banner.value = offlineBanner();
+  banner.value = info.value && info.value.session && !info.value.dashboard_copy ? noCopyBanner() : offlineBanner();
 }
 
 async function changeBranch(value) {
@@ -154,15 +181,19 @@ onMounted(async () => {
     const wasOnline = sync.value.online;
     sync.value = status;
     if (!info.value || !info.value.session) return;
-    if (status.online === false && dashboardShown.value) goOffline();
-    else if (status.online === true && wasOnline === false && !dashboardShown.value && info.value.embed) {
+    if (status.online === true && wasOnline === false && !dashboardShown.value && info.value.embed) {
       banner.value = { kind: 'online', text: 'النت رجع وكل العمليات اتبعتت للداشبورد.', back: true };
     }
   }));
   stops.push(onDashboardEvent((event) => {
     if (event.type === 'shown') dashboardShown.value = true;
     else if (event.type === 'hidden') dashboardShown.value = false;
-    else if (event.type === 'offline') goOffline();
+    else if (event.type === 'connection') {
+      offlineMode.value = !event.online;
+      if (event.online && dashboardShown.value) notice('النت رجع — الداشبورد بيتحدث، والعمليات اللي اتعملت من غير نت بتتبعت.');
+    }
+    else if (event.type === 'unavailable') dashboardUnavailable();
+    else if (event.type === 'missing-page') notice('الصفحة دي محتاجة إنترنت أول مرة، ففتحنا صفحة محفوظة على الجهاز.');
     else if (event.type === 'signed-out') logout();
     else if (event.type === 'print-error') {
       printProblem.value = event.error;

@@ -6,7 +6,7 @@ $values = [
     'APP_ENV' => 'local', 'APP_DEBUG' => 'true', 'APP_KEY' => 'base64:'.base64_encode(str_repeat('d', 32)),
     'APP_URL' => 'http://127.0.0.1', 'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $work.'/server.sqlite',
     'CACHE_DRIVER' => 'array', 'SESSION_DRIVER' => 'file', 'QUEUE_CONNECTION' => 'sync', 'BROADCAST_DRIVER' => 'log',
-    'LOG_CHANNEL' => 'single', 'MAIL_MAILER' => 'log',
+    'LOG_CHANNEL' => 'single', 'MAIL_MAILER' => 'log', 'DEBUGBAR_ENABLED' => 'false',
 ];
 foreach ($values as $key => $value) { putenv("$key=$value"); $_ENV[$key] = $value; $_SERVER[$key] = $value; }
 define('GOERP_ROOT', dirname(__DIR__, 3));

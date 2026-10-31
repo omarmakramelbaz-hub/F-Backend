@@ -38,6 +38,16 @@ const MIGRATIONS = [
      last_order_at TEXT NOT NULL);`,
   // Version 1.4: the server's attendance for today and yesterday, to show punches made on other devices.
   `ALTER TABLE branches ADD COLUMN attendance TEXT;`,
+  // Version 1.6: the dashboard's own cashier page works offline. Its receipts need a number (seq), the one-time
+  // first print of accounts that cannot reprint, when the dashboard got each invoice, and the branch's day so far.
+  `ALTER TABLE tickets ADD COLUMN seq INTEGER;
+   ALTER TABLE tickets ADD COLUMN first_print TEXT;
+   ALTER TABLE tickets ADD COLUMN synced_at TEXT;
+   UPDATE tickets SET seq = rowid WHERE status = 'paid';
+   UPDATE tickets SET synced_at = updated_at WHERE sync_status = 'synced';
+   INSERT OR REPLACE INTO counters (name, value) SELECT 'receipt_seq', COALESCE(MAX(seq), 0) FROM tickets;
+   CREATE UNIQUE INDEX tickets_seq ON tickets (seq);
+   ALTER TABLE branches ADD COLUMN today TEXT;`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

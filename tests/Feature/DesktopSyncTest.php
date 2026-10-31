@@ -180,6 +180,52 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(1, DB::table('takeaway_orders')->count());
     }
 
+    public function test_the_menu_carries_the_cashier_pages_own_product_cards_and_todays_totals(): void
+    {
+        DB::table('resturant_products')->insert(['id' => 4, 'resturant_id' => 100, 'product_id' => 504, 'category_id' => 1,
+            'product_name' => 'صنف مخفي', 'product_price' => '10.00', 'status' => 'hide', 'price' => '{}', 'created_at' => now(), 'updated_at' => now()]);
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $branch = $this->sync($device, ['want_catalogs' => true])->assertOk()->json()['branches'][0];
+        $page = $this->actingAs(User::find(4), 'admin')->getJson('/admin/takeaway/catalog?branch=f:100&per_page=100')->assertOk()->json();
+        $cards = array_map(function ($card) { unset($card['stock']); return $card; }, $page['items']);
+        $this->assertSame($cards, $branch['catalog']['listing'], 'The same cards the cashier page shows, in the same order');
+        $this->assertFalse(collect($branch['catalog']['listing'])->firstWhere('id', 4)['available'], 'Hidden items stay visible as unavailable');
+        $this->assertSame([1, 2], array_column($branch['catalog']['products'], 'id'), 'Only sellable items are priced');
+        $this->assertSame(['date' => '2026-10-30', 'count' => 0, 'total' => '0.00'],
+            array_intersect_key($branch['today'], array_flip(['date', 'count', 'total'])));
+
+        $snapshot = $branch['snapshot_id'];
+        $this->sync($device, ['operations' => [$this->sale($snapshot)]])->assertOk();
+        $again = $this->sync($device, ['want_catalogs' => true, 'catalog_hashes' => ['f:100' => $branch['hash']]])->assertOk()->json()['branches'][0];
+        $this->assertSame(1, $again['today']['count']);
+        $this->assertSame('271.00', $again['today']['total']);
+        $this->assertArrayNotHasKey('catalog', $again, 'A sale does not change the stored menu version');
+    }
+
+    public function test_a_sale_the_cashier_page_already_saved_online_is_not_sold_again(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $snapshot = $this->sync($device, ['want_catalogs' => true])->json()['branches'][0]['snapshot_id'];
+        $cashier = User::find(4);
+        $items = [['product_id' => 1, 'quantity' => '1.500', 'quantity_mode' => 'weight']];
+        $quote = $this->actingAs($cashier, 'admin')->postJson('/admin/takeaway/quote', ['branch' => 'f:100', 'items' => $items])->assertOk()->json();
+        $key = (string) Str::uuid();
+        // The page's checkout reached the dashboard, then the connection dropped before the answer came back.
+        $this->actingAs($cashier, 'admin')->postJson('/admin/takeaway/checkout', ['branch' => 'f:100', 'items' => $items,
+            'quote_hash' => $quote['quote_hash'], 'idempotency_key' => $key, 'payment_method' => 'cash', 'cash_received' => '200.00',
+            'customer_phone' => '01012345678', 'service_consent' => true])->assertOk();
+        $this->assertSame(1, DB::table('takeaway_orders')->count());
+        // The device then saved the same invoice offline under the page's operation number.
+        $operation = $this->sale($snapshot, ['id' => $key, 'data' => ['items' => [['product_id' => 1, 'option_id' => '', 'quantity_mode' => 'weight', 'quantity' => '1.500']],
+            'cash_received' => '200.00', 'total_cents' => 18000]]);
+        $operation['data']['items'] = [['product_id' => 1, 'option_id' => '', 'quantity_mode' => 'weight', 'quantity' => '1.500']];
+        $result = $this->sync($device, ['operations' => [$operation]])->assertOk()->json()['results'][0];
+        $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertTrue($result['receipt']['already_saved']);
+        $this->assertSame((int) DB::table('takeaway_orders')->value('id'), $result['receipt']['id']);
+        $this->assertSame(1, DB::table('takeaway_orders')->count(), 'Sold once');
+    }
+
     public function test_tampered_totals_foreign_branches_and_unknown_menus_are_rejected(): void
     {
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
@@ -286,8 +332,13 @@ class DesktopSyncTest extends TestCase
         $result = $this->sync($device, ['operations' => [$sale]])->assertOk()->json()['results'][0];
         $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
         $context = json_decode(DB::table('takeaway_orders')->value('context_snapshot'), true);
-        $this->assertSame(['id' => 7, 'name' => 'شركة سريع'], $context['delivery_company']);
+        $this->assertSame(['id' => 7, 'name' => 'شركة سريع', 'phone' => '01011112222'], $context['delivery_company']);
         $this->assertSame('حسن', $context['driver']);
+        // The dashboard's own invoice page shows it (it needs the company's phone).
+        $id = (int) DB::table('takeaway_orders')->value('id');
+        $page = $this->actingAs(User::find(1), 'admin')->get('/admin/takeaway/receipts/'.$id.'/details')->assertOk()->getContent();
+        $this->assertStringContainsString('شركة سريع', $page);
+        $this->assertStringContainsString('01011112222', $page);
     }
 
     private function attendanceFixture(): void

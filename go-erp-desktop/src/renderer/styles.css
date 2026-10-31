@@ -100,11 +100,18 @@ label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--i
 .mode-banner button { min-height: 30px; padding: 3px 12px; font-weight: 700; }
 
 /* ---- under the live dashboard ---- */
-.status-bar { position: fixed; inset-inline: 0; bottom: 0; height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
-  background: #0b1724; border-top: 1px solid #243445; color: #e8edf5; font-size: 12px; }
+.status-bar { position: fixed; inset-inline: 0; bottom: 0; height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  background: #0b1724; border-top: 1px solid #243445; color: #e8edf5; font-size: 12px; white-space: nowrap; overflow: hidden; }
+/* One line always: long messages shorten, their full text shows on hover. */
+.status-bar > * { flex: 0 0 auto; }
+.status-bar > .status-who, .status-bar > .status-error, .status-bar > .status-notice, .status-bar > .status-offline {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status-brand { font-weight: 800; color: #fd7201; letter-spacing: 1px; }
 .status-who { color: #adbdcc; }
 .status-error { color: #ffc9cd; background: #491f2a; border: 1px solid #7e3b48; border-radius: 6px; padding: 1px 8px; }
+.status-offline { color: #ffd9b8; background: #4a2a10; border: 1px solid #fd7201; border-radius: 6px; padding: 1px 8px; font-weight: 700; }
+.status-offline i { color: #fd7201; }
+.status-notice { color: #cfe3f7; background: #15324c; border: 1px solid #2f5577; border-radius: 6px; padding: 1px 8px; }
 .status-bar .sync-badge { min-height: 24px; padding: 2px 9px; }
 .status-bar button:not(.sync-badge) { min-height: 26px; padding: 2px 10px; font-size: 12px; background: #14293b; color: #e8edf5; border-color: #334d63; }
 .status-bar button:not(.sync-badge):hover { background: #1c2d41; }

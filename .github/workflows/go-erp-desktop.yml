@@ -9,6 +9,12 @@ on:
       - 'app/Http/Controllers/Api/DesktopSyncController.php'
       - 'app/Providers/RouteServiceProvider.php'
       - 'app/Services/Dashboard/BranchPayroll.php'
+      - 'resources/views/admin/takeaway/**'
+      - 'resources/views/admin/pos_service/context.blade.php'
+      - 'resources/lang/ar/takeaway.php'
+      - 'resources/lang/ar/pos_service.php'
+      - 'public/dashboard/js/takeaway-pos.js'
+      - 'public/dashboard/js/dashboard-print.js'
       - 'routes/desktop_sync.php'
       - 'database/migrations/2026_10_30_000001_create_desktop_sync_tables.php'
       - 'tests/Feature/DesktopSyncTest.php'
@@ -76,6 +82,12 @@ jobs:
         run: |
           php go-erp-desktop/test/quote-vectors.php > "$RUNNER_TEMP/quote-vectors.json"
           cmp "$RUNNER_TEMP/quote-vectors.json" go-erp-desktop/test/fixtures/quote-vectors.json
+      - name: Offline receipts are the dashboard's own receipt page
+        run: |
+          php go-erp-desktop/test/receipt-fixtures.php > "$RUNNER_TEMP/receipts.json"
+          cmp "$RUNNER_TEMP/receipts.json" go-erp-desktop/test/fixtures/receipts.json
+          php go-erp-desktop/test/receipt-fixtures.php labels > "$RUNNER_TEMP/labels.json"
+          cmp "$RUNNER_TEMP/labels.json" go-erp-desktop/src/main/offline/labels.json
       - name: Install the app's packages
         working-directory: go-erp-desktop
         run: npm ci
