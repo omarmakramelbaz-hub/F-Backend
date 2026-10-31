@@ -223,7 +223,7 @@ class Store {
       if (ticket.channel === 'phone' && (!data.customer_name.trim() || !data.address.trim())) throw new Error('أكمل اسم العميل وعنوانه.');
       const cash = money.minor(payment.cash_received ?? '0');
       if (cash < quote.total_cents) throw new Error('المبلغ المستلم أقل من إجمالي الفاتورة.');
-      this.#completeSale(actor, ticket, data, catalog, quote, cash, phone, { operationId: this.uuid(), insert: false });
+      this.completeSale(actor, ticket, data, catalog, quote, cash, phone, { operationId: this.uuid(), insert: false });
       return this.ticket(id);
     });
   }
@@ -249,17 +249,18 @@ class Store {
       if (!phone) throw new Error('اكتب رقم هاتف صحيح للعميل قبل إنهاء الفاتورة.');
       const data = { ...cleanTicketData(values.data), request_hash: values.request_hash, source: 'dashboard' };
       const ticket = { id: values.id, branch: values.branch, channel: 'takeaway' };
-      this.#completeSale(actor, ticket, data, values.catalog, values.quote, values.cash_cents, phone, { operationId: values.id, insert: true });
+      this.completeSale(actor, ticket, data, values.catalog, values.quote, values.cash_cents, phone, { operationId: values.id, insert: true });
       return { ticket: this.ticket(values.id), replayed: false };
     });
   }
 
   /** The paid invoice and the operation that sends it to the dashboard, written together. */
-  #completeSale(actor, ticket, data, catalog, quote, cash, phone, { operationId, insert }) {
+  completeSale(actor, ticket, data, catalog, quote, cash, phone, { operationId, insert }) {
+    // Used by the device's screens and by the dashboard pages' offline answers.
     const now = this.now();
     const day = rules.operatingDay(now);
     const number = this.nextNumber(ticket.branch, day);
-    const seq = this.nextCounter('receipt_seq');
+    const seq = ticket.seq || this.nextCounter('receipt_seq');
     const firstPrint = crypto.randomBytes(32).toString('hex');
     const totals = { ...quote, cash_received_cents: cash, change_cents: cash - quote.total_cents };
     const operation = { id: operationId, kind: 'sale', actor_id: actor.id, branch: ticket.branch, occurred_at: now.toISOString(),
@@ -278,12 +279,145 @@ class Store {
           JSON.stringify(totals), stamp, stamp, stamp, seq, firstPrint);
     } else {
       this.db.prepare(`UPDATE tickets SET status = 'paid', actor_id = ?, actor_name = ?, data = ?, local_number = ?, business_date = ?,
-        snapshot_id = ?, totals = ?, paid_at = ?, updated_at = ?, sync_status = 'pending', seq = ?, first_print = ? WHERE id = ?`)
+        snapshot_id = ?, totals = ?, paid_at = ?, updated_at = ?, sync_status = 'pending', seq = COALESCE(seq, ?), first_print = ? WHERE id = ?`)
         .run(actor.id, actor.name, JSON.stringify(data), number, day, catalog.snapshot_id, JSON.stringify(totals), stamp, stamp, seq, firstPrint, ticket.id);
     }
     this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'sale', ?, ?, 'pending', ?, ?)`)
       .run(operationId, ticket.id, JSON.stringify(operation), stamp, stamp);
     this.rememberCustomer(phone, data, quote.total_cents, stamp);
+  }
+
+  // ---- the dashboard's dine-in and delivery pages offline ----
+
+  /** The branches' tables and open orders as the server last sent them (only when they changed). */
+  applyService(entries) {
+    transaction(this.db, () => {
+      for (const entry of entries || []) {
+        if (!entry || !entry.value || !Array.isArray(entry.tickets)) continue;
+        this.db.prepare('UPDATE branches SET service = ?, service_hash = ? WHERE value = ?')
+          .run(JSON.stringify({ tables: entry.tables || [], policy: entry.policy || {}, tickets: entry.tickets, received_at: this.now().toISOString() }),
+            entry.hash, entry.value);
+      }
+    });
+  }
+
+  serviceHashes() {
+    const hashes = {};
+    for (const row of this.db.prepare('SELECT value, service_hash FROM branches WHERE service IS NOT NULL').all()) hashes[row.value] = row.service_hash;
+    return hashes;
+  }
+
+  service(branch) {
+    const row = this.db.prepare('SELECT service FROM branches WHERE value = ?').get(branch);
+    return row && row.service ? JSON.parse(row.service) : null;
+  }
+
+  serviceOverlay(ticketId) {
+    const row = this.db.prepare('SELECT data FROM service_overlays WHERE ticket_id = ?').get(ticketId);
+    return row ? JSON.parse(row.data) : {};
+  }
+
+  setServiceOverlay(ticketId, data) {
+    this.db.prepare('INSERT INTO service_overlays (ticket_id, data) VALUES (?, ?) ON CONFLICT(ticket_id) DO UPDATE SET data = excluded.data')
+      .run(ticketId, JSON.stringify(data));
+  }
+
+  pageCommand(key) {
+    const row = this.db.prepare('SELECT * FROM page_commands WHERE key = ?').get(key);
+    return row ? { ...row, meta: row.meta ? JSON.parse(row.meta) : {} } : null;
+  }
+
+  recordPageCommand(key, kind, ticketRef, revision, actor, branch, meta = {}) {
+    this.db.prepare('INSERT INTO page_commands (key, kind, ticket_ref, revision, actor_id, branch, meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(key, kind, String(ticketRef), revision, actor.id, branch, JSON.stringify(meta), this.now().toISOString());
+  }
+
+  addKitchenPrint(ticketRef, revision, snapshot) {
+    const result = this.db.prepare('INSERT INTO kitchen_prints (ticket_ref, revision, snapshot, created_at) VALUES (?, ?, ?, ?)')
+      .run(String(ticketRef), revision, JSON.stringify(snapshot), this.now().toISOString());
+    return Number(result.lastInsertRowid);
+  }
+
+  kitchenPrint(seq) {
+    const row = this.db.prepare('SELECT * FROM kitchen_prints WHERE seq = ?').get(seq);
+    return row ? { ...row, snapshot: JSON.parse(row.snapshot) } : null;
+  }
+
+  /** Orders opened on the dashboard's page while offline, and payments made here for orders open on the server. */
+  pageTickets(branch, channel) {
+    return this.db.prepare(`SELECT * FROM tickets WHERE branch = ? AND channel = ? AND json_extract(data, '$.source') = 'dashboard' ORDER BY created_at`)
+      .all(branch, channel).map(presentTicket);
+  }
+
+  /** A new order opened on the dashboard's page while offline; it gets its number now (it is shown before payment). */
+  createPageTicket(actor, values) {
+    return transaction(this.db, () => {
+      const now = this.now().toISOString();
+      const seq = this.nextCounter('receipt_seq');
+      this.db.prepare(`INSERT INTO tickets (id, branch, channel, status, actor_id, actor_name, label, data, created_at, updated_at, seq)
+        VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`)
+        .run(values.id, values.branch, values.channel, actor.id, actor.name, String(values.label || '').slice(0, 60), JSON.stringify(values.data), now, now, seq);
+      return this.ticket(values.id);
+    });
+  }
+
+  updatePageTicket(id, data, status = 'open') {
+    this.db.prepare('UPDATE tickets SET data = ?, status = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(data), status, this.now().toISOString(), id);
+    return this.ticket(id);
+  }
+
+  /** An order open on the server, paid here: the payment as a paid invoice, sent with its own operation (ticket_settle). */
+  recordServerPayment(actor, values) {
+    return transaction(this.db, () => {
+      const now = this.now();
+      const stamp = now.toISOString();
+      const day = rules.operatingDay(now);
+      const seq = this.nextCounter('receipt_seq');
+      const number = this.nextNumber(values.branch, day);
+      const firstPrint = crypto.randomBytes(32).toString('hex');
+      this.db.prepare(`INSERT INTO tickets (id, branch, channel, status, actor_id, actor_name, label, data, local_number, business_date, snapshot_id, totals,
+        created_at, updated_at, paid_at, sync_status, seq, first_print) VALUES (?, ?, ?, 'paid', ?, ?, '', ?, ?, ?, NULL, ?, ?, ?, ?, 'pending', ?, ?)`)
+        .run(values.id, values.branch, values.channel, actor.id, actor.name, JSON.stringify(values.data), number, day, JSON.stringify(values.totals),
+          stamp, stamp, stamp, seq, firstPrint);
+      const operation = { id: values.id, kind: 'ticket_settle', actor_id: actor.id, branch: values.branch, occurred_at: stamp, data: values.operation };
+      this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'ticket_settle', ?, ?, 'pending', ?, ?)`)
+        .run(values.id, values.id, JSON.stringify(operation), stamp, stamp);
+      if (values.phone) this.rememberCustomer(values.phone, { customer_name: values.data.customer_name || '', address: values.data.address || '' }, values.totals.total_cents, stamp);
+      return this.ticket(values.id);
+    });
+  }
+
+  /**
+   * Back online: orders opened offline and still unpaid move to the dashboard (ticket_open), so they continue there.
+   * Returns how many were queued.
+   */
+  queueTicketMoves() {
+    return transaction(this.db, () => {
+      let queued = 0;
+      for (const row of this.db.prepare(`SELECT * FROM tickets WHERE status = 'open' AND channel = 'dine' AND json_extract(data, '$.source') = 'dashboard'
+        AND json_extract(data, '$.move_op') IS NULL`).all()) {
+        const ticket = presentTicket(row);
+        const data = ticket.data;
+        if (!data.items || !data.items.length || !data.table) continue;
+        const stamp = this.now().toISOString();
+        const operation = { id: ticket.id, kind: 'ticket_open', actor_id: ticket.actor_id, branch: ticket.branch, occurred_at: stamp, data: {
+          table_id: data.table.id, waiter_name: data.waiter_name, guest_count: data.guest_count, customer_name: data.customer_name || '',
+          customer_phone: data.customer_phone || '', items: data.items, discount: data.discount || '0.00', discount_reason: data.discount_reason || '',
+          notes: data.notes || '', kitchen_sent: !!data.kitchen_sent, bill_requested: !!data.bill_issued_at } };
+        this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'ticket_open', ?, ?, 'pending', ?, ?)`)
+          .run(ticket.id, ticket.id, JSON.stringify(operation), stamp, stamp);
+        this.db.prepare("UPDATE tickets SET data = json_set(data, '$.move_op', ?), sync_status = 'pending' WHERE id = ?").run(ticket.id, ticket.id);
+        queued++;
+      }
+      return queued;
+    });
+  }
+
+  /** A move to the dashboard not sent yet is called off (the order is being paid here instead). */
+  cancelTicketMove(ticketId) {
+    const done = this.db.prepare("DELETE FROM outbox WHERE id = ? AND kind = 'ticket_open' AND status = 'pending'").run(ticketId).changes;
+    if (done) this.db.prepare("UPDATE tickets SET data = json_remove(data, '$.move_op'), sync_status = NULL WHERE id = ?").run(ticketId);
+    return done > 0;
   }
 
   nextCounter(name) {
@@ -646,7 +780,11 @@ class Store {
         if (result.status === 'applied') {
           this.db.prepare("UPDATE outbox SET status = 'done', result = ?, last_error = NULL, updated_at = ? WHERE id = ?").run(JSON.stringify(result), now, row.id);
           const receipt = result.receipt || {};
-          if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ?, synced_at = ? WHERE id = ?")
+          if (row.ticket_id && result.ticket && !result.receipt) {
+            // Moved to the dashboard: the order now lives there.
+            this.db.prepare("UPDATE tickets SET status = 'moved', sync_status = 'synced', sync_error = NULL, server_id = ?, synced_at = ? WHERE id = ?")
+              .run(result.ticket.id ?? null, now, row.ticket_id);
+          } else if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ?, synced_at = ? WHERE id = ?")
             .run(receipt.id ?? null, receipt.number ?? null, now, row.ticket_id);
           if (row.journal_id) {
             const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}` : null;

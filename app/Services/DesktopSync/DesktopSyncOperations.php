@@ -8,6 +8,7 @@ use App\Services\Dashboard\BranchPayroll;
 use App\Services\Dashboard\CustomerDirectory;
 use App\Services\Dashboard\DesktopPosQuote;
 use App\Services\Dashboard\OperatingDay;
+use App\Services\Dashboard\PosServiceTicket;
 use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayService;
 use Carbon\Carbon;
@@ -24,7 +25,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -70,6 +71,8 @@ class DesktopSyncOperations
                 'expense' => $this->expense($actor, $values['branch'], $id, $when, $values['data']),
                 'till' => $this->till($actor, $values['branch'], $id, $values['data']),
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
+                'ticket_settle' => $this->ticketSettle($actor, $values['branch'], $id, $values['data']),
+                'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -216,6 +219,80 @@ class DesktopSyncOperations
         $time = fn ($value) => $value ? Carbon::parse($value, 'UTC')->toIso8601String() : null;
         return ['attendance' => ['employee_id' => (int) $day['employee_id'], 'day' => (string) $day['day'], 'status' => (string) $day['status'],
             'checked_in_at' => $time($day['checked_in_at']), 'checked_out_at' => $time($day['checked_out_at'])]];
+    }
+
+    /**
+     * A dine-in or delivery order that was open on the dashboard, paid on the device while offline. The dashboard's own
+     * settle applies (the order's saved total, its revision, the cash register); a page payment that reached the
+     * dashboard before the connection dropped (same operation number) is the same payment.
+     */
+    private function ticketSettle(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['channel' => 'required|in:dine,phone', 'ticket_id' => 'required|integer|min:1',
+            'expected_revision' => 'required|integer|min:1', 'quote_hash' => 'required|string|size:64', 'cash_received' => 'required|string|max:14',
+            'customer_phone' => 'nullable|string|max:30', 'service_consent' => 'nullable|boolean'])->validate();
+        $tickets = app(PosServiceTicket::class);
+        $actor = $this->access->actor($actor);
+        $command = DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if ($command) {
+            $ticket = $tickets->show($data['channel'], (int) $command->ticket_id, $actor)['ticket'];
+            $order = DB::table('pos_service_tickets')->where('id', $command->ticket_id)->value('paid_order_id');
+            return ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'], 'status' => (string) $ticket['status']],
+                'receipt' => $order ? $this->receipt((int) $order, $actor) : null, 'already_saved' => true];
+        }
+        $values = ['branch' => $branch, 'idempotency_key' => $id, 'expected_revision' => (int) $data['expected_revision'], 'quote_hash' => $data['quote_hash'],
+            'payment_method' => 'cash', 'cash_received' => $data['cash_received'], 'payment_confirmed' => true];
+        if ($data['channel'] === 'dine') $values += ['customer_phone' => $data['customer_phone'] ?? null, 'service_consent' => (bool) ($data['service_consent'] ?? false)];
+        $result = $tickets->settle($data['channel'], (int) $data['ticket_id'], $values, $actor, true);
+        return ['ticket' => ['id' => (int) $result['ticket']['id'], 'revision' => (int) $result['ticket']['revision'], 'status' => (string) $result['ticket']['status']],
+            'receipt' => $this->receipt((int) $result['receipt']['id'], $actor)];
+    }
+
+    /**
+     * A dine-in order opened on the device while offline that is still unpaid when the internet is back: it becomes a
+     * dashboard order at today's prices (it was not paid yet), on its table, with what the device already did (sent to
+     * the kitchen, bill printed), so it continues on the dashboard like any other order.
+     */
+    private function ticketOpen(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['table_id' => 'required|integer|min:1', 'waiter_name' => 'required|string|max:100',
+            'guest_count' => 'required|integer|min:1|max:200', 'customer_name' => 'nullable|string|max:100', 'customer_phone' => 'nullable|string|max:30',
+            'items' => 'required|array|min:1|max:100', 'discount' => 'nullable|string|max:14', 'discount_reason' => 'nullable|string|max:500',
+            'notes' => 'nullable|string|max:500', 'kitchen_sent' => 'nullable|boolean', 'bill_requested' => 'nullable|boolean'])->validate();
+        $tickets = app(PosServiceTicket::class);
+        $actor = $this->access->actor($actor);
+        $command = DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if (! $command) {
+            $cart = ['branch' => $branch, 'items' => $data['items'], 'discount' => $data['discount'] ?? '0.00', 'discount_reason' => $data['discount_reason'] ?? ''];
+            $quote = $tickets->quote('dine', $cart, $actor);
+            $tickets->save('dine', $cart + ['idempotency_key' => $id, 'table_id' => (int) $data['table_id'], 'quote_hash' => $quote['quote_hash'],
+                'waiter_name' => $data['waiter_name'], 'guest_count' => (int) $data['guest_count'], 'customer_name' => $data['customer_name'] ?? null,
+                'customer_phone' => ($data['customer_phone'] ?? '') !== '' ? $data['customer_phone'] : null, 'notes' => $data['notes'] ?? null], $actor);
+            $command = DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        }
+        $ticket = $tickets->show('dine', (int) $command->ticket_id, $actor)['ticket'];
+        foreach (['send_kitchen' => 'kitchen_sent', 'request_bill' => 'bill_requested'] as $action => $flag) {
+            if (empty($data[$flag]) || ($action === 'send_kitchen' && $ticket['kitchen_sent']) || ($action === 'request_bill' && $ticket['bill_locked'])) continue;
+            $ticket = $tickets->action('dine', (int) $ticket['id'], ['branch' => $branch, 'idempotency_key' => $this->derivedKey($id, $action),
+                'expected_revision' => (int) $ticket['revision'], 'action' => $action], $actor)['ticket'];
+        }
+        return ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'], 'status' => (string) $ticket['status'],
+            'number' => (string) ($ticket['number'] ?? '')]];
+    }
+
+    /** The paid order as the device keeps it. */
+    private function receipt(int $order, User $actor): array
+    {
+        $receipt = app(TakeawayService::class)->receipt($order, $actor);
+        return ['id' => (int) $receipt['id'], 'number' => (string) $receipt['number'], 'business_date' => (string) $receipt['business_date'],
+            'total' => (string) $receipt['total']];
+    }
+
+    /** A fixed operation number for a step of an operation, so a resend repeats nothing. */
+    private function derivedKey(string $id, string $step): string
+    {
+        $hex = substr(hash('sha256', $id.':'.$step), 0, 32);
+        return substr($hex, 0, 8).'-'.substr($hex, 8, 4).'-5'.substr($hex, 13, 3).'-a'.substr($hex, 17, 3).'-'.substr($hex, 20, 12);
     }
 
     /**

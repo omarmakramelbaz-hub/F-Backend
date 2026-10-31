@@ -55,6 +55,8 @@ class DesktopSyncTest extends TestCase
         require_once database_path('migrations/2026_09_27_180000_create_go_store_catalog.php'); (new \CreateGoStoreCatalog)->up();
         require_once database_path('migrations/2026_10_03_140000_create_takeaway_pos.php'); (new \CreateTakeawayPos)->up();
         require_once database_path('migrations/2026_10_03_150000_create_pos_service_tickets.php'); (new \CreatePosServiceTickets)->up();
+        require_once database_path('migrations/2026_10_04_060000_lock_pos_service_bills.php'); (new \LockPosServiceBills)->up();
+        require_once database_path('migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php'); (new \CreateShiftReportPrintingAndNumbers)->up();
         require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
         (require database_path('migrations/2026_10_30_000001_create_desktop_sync_tables.php'))->up();
         require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.php'); (new \CreateBranchExpenses)->up();
@@ -333,7 +335,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -435,6 +437,94 @@ class DesktopSyncTest extends TestCase
             'notes' => 'جه بدري يساعد في الجرد']);
         $this->assertSame('applied', $this->sync($device, ['operations' => [$noted]])->json()['results'][0]['status']);
         $this->assertSame('جه بدري يساعد في الجرد', DB::table('branch_employee_days')->where('employee_id', 51)->value('notes'));
+    }
+
+    /** A dine-in order opened on the dashboard by the branch cashier, sent to the kitchen. */
+    private function openTable(): array
+    {
+        $table = DB::table('pos_service_tables')->insertGetId(['branch' => 'f:100', 'name' => 'ترابيزة 1', 'capacity' => 4, 'active' => true, 'revision' => 1,
+            'created_at' => now(), 'updated_at' => now()]);
+        $cashier = User::find(4);
+        $items = [['product_id' => 1, 'quantity' => '1.000', 'quantity_mode' => 'weight'], ['product_id' => 2, 'quantity' => '2', 'quantity_mode' => 'piece']];
+        $quote = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/quote', ['branch' => 'f:100', 'items' => $items])->assertOk()->json();
+        $ticket = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/tickets/save', ['branch' => 'f:100', 'idempotency_key' => (string) Str::uuid(),
+            'table_id' => $table, 'items' => $items, 'quote_hash' => $quote['quote_hash'], 'waiter_name' => 'حسن', 'guest_count' => 2])->assertOk()->json('ticket');
+        $ticket = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/tickets/'.$ticket['id'].'/action', ['branch' => 'f:100',
+            'idempotency_key' => (string) Str::uuid(), 'expected_revision' => $ticket['revision'], 'action' => 'send_kitchen'])->assertOk()->json('ticket');
+        return ['table' => $table, 'ticket' => $ticket];
+    }
+
+    public function test_devices_receive_the_tables_and_open_orders_in_the_dining_pages_format(): void
+    {
+        $open = $this->openTable();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $service = $this->sync($device, ['want_service' => true])->assertOk()->json('service')[0];
+        $this->assertSame('f:100', $service['value']);
+        $this->assertSame([$open['ticket']['id']], array_column($service['tickets'], 'id'));
+        $page = $this->actingAs(User::find(4), 'admin')->getJson('/admin/dining/tickets/'.$open['ticket']['id'])->assertOk()->json('ticket');
+        $this->assertSame(array_keys($page), array_keys($service['tickets'][0]), 'The same order format the dining page reads');
+        $this->assertSame($page['quote_hash'], $service['tickets'][0]['quote_hash']);
+        $this->assertSame('in_service', $service['tables'][0]['status']);
+        $again = $this->sync($device, ['want_service' => true, 'service_hashes' => ['f:100' => $service['hash']]])->json('service')[0];
+        $this->assertArrayNotHasKey('tickets', $again, 'Unchanged orders are not resent');
+    }
+
+    public function test_an_order_open_on_the_dashboard_is_paid_offline_once_and_frees_its_table(): void
+    {
+        $open = $this->openTable();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $settle = $this->operation('ticket_settle', 4, ['channel' => 'dine', 'ticket_id' => $open['ticket']['id'], 'expected_revision' => $open['ticket']['revision'],
+            'quote_hash' => $open['ticket']['quote_hash'], 'cash_received' => '250.00', 'customer_phone' => '01012345678', 'service_consent' => true]);
+        $result = $this->sync($device, ['operations' => [$settle]])->assertOk()->json('results')[0];
+        $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('paid', $result['ticket']['status']);
+        $order = DB::table('takeaway_orders')->first();
+        // 1 kg × 120.00 + 2 × 45.50 = 211.00
+        $this->assertSame(['dine', 21100, (int) $open['ticket']['id']], [$order->channel, (int) $order->total_cents, (int) $order->ticket_id]);
+        $this->assertNull(DB::table('pos_service_tables')->value('active_ticket_id'), 'The table is free again');
+        $this->assertSame($result, $this->sync($device, ['operations' => [$settle]])->json('results')[0], 'A resend returns the same result');
+        $this->assertSame(1, DB::table('takeaway_orders')->count());
+        // A stale copy (the order changed on the dashboard meanwhile) is refused, never paid twice.
+        $other = $this->openTable2();
+        $stale = $this->operation('ticket_settle', 4, ['channel' => 'dine', 'ticket_id' => $other['id'], 'expected_revision' => 1,
+            'quote_hash' => $other['quote_hash'], 'cash_received' => '200.00', 'customer_phone' => '01012345678', 'service_consent' => true]);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$stale]])->json('results')[0]['status']);
+    }
+
+    /** A second table's order, sent to the kitchen (revision 2). */
+    private function openTable2(): array
+    {
+        $table = DB::table('pos_service_tables')->insertGetId(['branch' => 'f:100', 'name' => 'ترابيزة 2', 'capacity' => 4, 'active' => true, 'revision' => 1,
+            'created_at' => now(), 'updated_at' => now()]);
+        $cashier = User::find(4);
+        $items = [['product_id' => 2, 'quantity' => '1', 'quantity_mode' => 'piece']];
+        $quote = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/quote', ['branch' => 'f:100', 'items' => $items])->json();
+        $ticket = $this->actingAs($cashier, 'admin')->postJson('/admin/dining/tickets/save', ['branch' => 'f:100', 'idempotency_key' => (string) Str::uuid(),
+            'table_id' => $table, 'items' => $items, 'quote_hash' => $quote['quote_hash'], 'waiter_name' => 'حسن', 'guest_count' => 1])->json('ticket');
+        return $this->actingAs($cashier, 'admin')->postJson('/admin/dining/tickets/'.$ticket['id'].'/action', ['branch' => 'f:100',
+            'idempotency_key' => (string) Str::uuid(), 'expected_revision' => $ticket['revision'], 'action' => 'send_kitchen'])->json('ticket');
+    }
+
+    public function test_an_order_opened_offline_moves_to_the_dashboard_when_still_unpaid(): void
+    {
+        $table = DB::table('pos_service_tables')->insertGetId(['branch' => 'f:100', 'name' => 'ترابيزة 3', 'capacity' => 6, 'active' => true, 'revision' => 1,
+            'created_at' => now(), 'updated_at' => now()]);
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $open = $this->operation('ticket_open', 4, ['table_id' => $table, 'waiter_name' => 'سيد', 'guest_count' => 3, 'customer_name' => 'أسرة علي',
+            'items' => [['product_id' => 1, 'quantity' => '0.500', 'quantity_mode' => 'weight', 'option_id' => '']], 'notes' => 'حار', 'kitchen_sent' => true,
+            'bill_requested' => true]);
+        $result = $this->sync($device, ['operations' => [$open]])->assertOk()->json('results')[0];
+        $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $ticket = DB::table('pos_service_tickets')->first();
+        $this->assertSame([(int) $ticket->id, 'awaiting_bill', 'unpaid', $table], [$result['ticket']['id'], $ticket->status, $ticket->payment_status, (int) $ticket->table_id]);
+        $this->assertNotNull($ticket->last_kitchen_id, 'Sent to the kitchen, as the device did');
+        $this->assertSame((int) $ticket->id, (int) DB::table('pos_service_tables')->where('id', $table)->value('active_ticket_id'));
+        $this->assertSame($result, $this->sync($device, ['operations' => [$open]])->json('results')[0]);
+        $this->assertSame(1, DB::table('pos_service_tickets')->count(), 'Moved once');
+        // A table another device seated meanwhile is refused; the device keeps its order.
+        $busy = $this->operation('ticket_open', 4, ['table_id' => $table, 'waiter_name' => 'سيد', 'guest_count' => 1,
+            'items' => [['product_id' => 2, 'quantity' => '1', 'quantity_mode' => 'piece', 'option_id' => '']]]);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$busy]])->json('results')[0]['status']);
     }
 
     public function test_an_automatic_absence_gives_way_to_a_punch_recorded_before_the_deadline(): void

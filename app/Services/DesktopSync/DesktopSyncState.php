@@ -9,6 +9,7 @@ use App\Services\Dashboard\BranchStock;
 use App\Services\Dashboard\ExpenseCategories;
 use App\Services\Dashboard\OperatingDay;
 use App\Services\Dashboard\PosServiceTable;
+use App\Services\Dashboard\PosServiceTicket;
 use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayCatalog;
 use App\Services\Dashboard\TakeawayService;
@@ -183,6 +184,34 @@ class DesktopSyncState
             return null;
         }
         return is_array($today) ? $today + ['as_of' => now('UTC')->toIso8601String()] : null;
+    }
+
+    /**
+     * Each branch's dine-in tables and its open dine-in and delivery orders, in the dashboard pages' own format, so the
+     * device shows them and collects their payment while offline. Sent only when they changed since the device's copy.
+     */
+    public function service(object $device, array $known, array $users): array
+    {
+        if (! Schema::hasTable('pos_service_tickets') || ! app(PosServiceTable::class)->ready()) return [];
+        $result = [];
+        foreach ($device->branch_values as $value) {
+            $actor = $this->catalogActor($device, $value, $users);
+            if (! $actor) continue;
+            try {
+                $tables = app(PosServiceTable::class)->listing($value, $actor);
+                $rows = DB::table('pos_service_tickets')->where('branch', $value)->where('payment_status', 'unpaid')
+                    ->whereNotIn('status', ['cancelled', 'finished', 'paid'])->orderBy('id')->limit(300)->get()->all();
+                $tickets = app(PosServiceTicket::class)->presentMany($rows, true, $actor);
+            } catch (HttpException $error) {
+                continue;
+            }
+            $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets];
+            $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $entry = ['value' => $value, 'hash' => $hash];
+            if (($known[$value] ?? null) !== $hash) $entry += $payload;
+            $result[] = $entry;
+        }
+        return $result;
     }
 
     public function snapshot(object $device, string $id): ?array

@@ -64,6 +64,8 @@ class SyncEngine extends EventEmitter {
       try {
         response = await this.api.sync(device, this.token(), {
           operations, want_users: refresh, users_hash: this.store.usersHash(), want_catalogs: refresh, catalog_hashes: this.store.catalogHashes(),
+          // Open dine-in and delivery orders and the tables, every sync: what the device collects payment for offline.
+          want_service: true, service_hashes: this.store.serviceHashes(),
         });
       } catch (error) {
         if (process.env.GOERP_DEBUG_SYNC) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} sync failed: ${error.status} ${error.cause || ''}`);
@@ -76,6 +78,7 @@ class SyncEngine extends EventEmitter {
       if (Array.isArray(response.kinds)) this.store.set('server_kinds', response.kinds);
       if (response.users) this.store.replaceUsers(response.users, response.users_hash);
       if (response.branches) this.store.applyBranches(response.branches);
+      if (Array.isArray(response.service)) this.store.applyService(response.service);
       if (refresh) this.lastRefresh = this.now();
       const syncedAt = new Date(this.now()).toISOString();
       this.store.set('last_sync_at', syncedAt);

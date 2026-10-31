@@ -1,12 +1,14 @@
 'use strict';
-// The dashboard's receipt page (resources/views/admin/takeaway/receipt.blade.php) for invoices saved on this device
-// while offline: the same layout, texts, style and print sizes. test/receipt-fixtures.php renders the dashboard's own
-// page for sample invoices and the tests compare both.
+// The dashboard's print pages for what this device saved while offline: the receipt (admin/takeaway/receipt.blade.php),
+// an order's bill before payment (admin/pos_service/ticket.blade.php) and the kitchen ticket (admin/pos_service/kitchen.blade.php),
+// with the same layout, texts, style and print sizes. test/receipt-fixtures.php renders the dashboard's own pages for
+// sample invoices and the tests compare both.
 const fs = require('node:fs');
 const path = require('node:path');
 const labels = require('./labels.json');
 
 const STYLE = fs.readFileSync(path.join(__dirname, 'receipt.css'), 'utf8');
+const KITCHEN_STYLE = fs.readFileSync(path.join(__dirname, 'kitchen.css'), 'utf8');
 const CAIRO = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
@@ -55,6 +57,19 @@ function contextRows(channel, context) {
   }
   if (filled(context.delivery_company)) {
     html += `<div><dt>شركة التوصيل</dt><dd>${e(context.delivery_company.name)} · <bdi>${e(context.delivery_company.phone)}</bdi></dd></div>`;
+  }
+  const location = context.delivery_location;
+  if (location && typeof location === 'object' && Object.keys(location).length) {
+    html += `<div><dt>مسافة التوصيل</dt><dd><bdi>${e(location.distance_km)}</bdi> كم\n`;
+    if ((location.method ?? '') === 'app_direct') {
+      const rule = location.pricing_rule ?? '';
+      const tariff = rule === 'app_branch_tier' ? 'branch_tariff_fixed' : (rule === 'app_zero_rate' ? 'branch_tariff_free' : 'branch_tariff_per_km');
+      html += ` · ${e(t('phone_orders.app_delivery_distance'))} · ${e(t('phone_orders.' + tariff))}\n`;
+      if (!['app_branch_tier', 'app_zero_rate'].includes(rule)) html += `<bdi>${e(location.km_price)}</bdi> ${e(t('phone_orders.currency'))}`;
+    } else {
+      html += ` × <bdi>${e(location.km_price)}</bdi> ج.م / كم\n`;
+    }
+    html += `</dd></div><div><dt>موقع العميل</dt><dd><bdi>${e(location.latitude)}, ${e(location.longitude)}</bdi></dd></div>`;
   }
   return html;
 }
@@ -151,4 +166,40 @@ function renderReceipt(receipt, { origin, preview = false, dashboardPrint = fals
   return html;
 }
 
-module.exports = { renderReceipt, money, cairoTime };
+/** admin.pos_service.ticket: an open dine-in or delivery order's bill, printed before payment (the receipt page, unpaid). */
+function ticketBill(ticket) {
+  return { ...ticket, number: ticket.number ?? `${String(ticket.channel).toUpperCase()}-${ticket.id}`,
+    cashier: ticket.cashier ?? { name: ticket.waiter_name ?? '' }, payment_method: 'unpaid', payment_reference: '', cash_received: '0.00',
+    change: '0.00', unpaid: true, print_marker: 'pos-ticket', context: ticket };
+}
+
+/**
+ * admin.pos_service.kitchen: what the kitchen prepares. kitchen: { id, ticket_id, revision, created_at, ticket } where ticket
+ * is the order as it was sent.
+ */
+function renderKitchen(kitchen, { origin, dashboardPrint = false }) {
+  const ticket = kitchen.ticket;
+  const branch = ticket.branch || {};
+  let html = '<!doctype html>\n<html lang="ar" dir="rtl" data-dashboard-receipt="pos-kitchen">\n';
+  html += '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n';
+  html += `<title>${e(t('pos_service.kitchen_ticket'))} ${e(ticket.id)}</title>\n<style>\n${KITCHEN_STYLE}</style></head><body><main class="receipt">\n`;
+  html += `<header class="heading"><img class="logo" src="${e(origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا" width="1254" height="1254">`;
+  html += `<p>${e(branch.name)}</p><h1>${e(t('pos_service.kitchen_ticket'))}</h1><p>${e(t('pos_service.ticket_number'))} <bdi>${e(ticket.number ?? ticket.id)}</bdi>`;
+  html += ` · ${e(t('pos_service.revision'))} <bdi>${e(kitchen.revision)}</bdi></p></header>\n`;
+  html += `<dl class="information"><div><dt>${e(t('pos_service.sent_at'))}</dt><dd><bdi>${e(cairoTime(kitchen.created_at))}</bdi></dd></div>`;
+  html += contextRows(ticket.channel, ticket) + '</dl>\n';
+  html += `<table><thead><tr><th>${e(t('takeaway.item'))}</th><th class="quantity">${e(t('takeaway.quantity'))}</th></tr></thead><tbody>`;
+  for (const item of ticket.items || []) {
+    const quantity = item.quantity_mode === 'piece' ? String(item.quantity).split('.')[0] : item.quantity;
+    html += `<tr><td>${e(item.name)}${filled(item.option_label) ? `<small class="option">${e(item.option_label)}</small>` : ''}</td>`;
+    html += `<td class="quantity"><bdi>${e(quantity)}</bdi> ${e(t('takeaway.' + (item.quantity_mode === 'weight' ? 'kg' : 'piece')))}</td></tr>`;
+  }
+  html += '</tbody></table>\n';
+  if (filled(ticket.notes)) html += `<div class="notes">${e(ticket.notes)}</div>`;
+  html += `<p class="footer">${e(t('pos_service.kitchen_copy'))}</p><div class="controls"><button type="button" onclick="window.print()">${e(t('takeaway.print_invoice'))}</button></div>\n</main>`;
+  if (!dashboardPrint) html += "<script>window.addEventListener('load',function(){window.print();});</script>";
+  html += '</body></html>\n';
+  return html;
+}
+
+module.exports = { renderReceipt, renderKitchen, ticketBill, money, cairoTime };

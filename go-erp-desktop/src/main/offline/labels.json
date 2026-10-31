@@ -30,7 +30,8 @@
         "receipt_thanks": "شكرًا لزيارتكم",
         "receipt_welcome": "نسعد بخدمتكم مجددًا",
         "print_invoice": "طباعة الفاتورة",
-        "all_branches": "جميع الفروع"
+        "all_branches": "جميع الفروع",
+        "quantity": "الكمية / الوزن"
     },
     "pos_service": {
         "details": "تفاصيل الفاتورة",
@@ -50,12 +51,22 @@
         "guests": "عدد الأفراد",
         "area": "المنطقة",
         "address": "عنوان التوصيل",
-        "delivery_notes": "ملاحظات التوصيل"
+        "delivery_notes": "ملاحظات التوصيل",
+        "kitchen_ticket": "طلب المطبخ",
+        "ticket_number": "رقم الطلب",
+        "sent_at": "وقت الإرسال",
+        "revision": "إصدار الطلب",
+        "kitchen_copy": "نسخة المطبخ — ليست فاتورة تحصيل"
     },
     "dining": {
         "title": "طلبات الصالة"
     },
     "phone_orders": {
-        "title": "طلبات الهاتف والدليفري"
+        "title": "طلبات الهاتف والدليفري",
+        "app_delivery_distance": "مسافة حساب التطبيق",
+        "branch_tariff_fixed": "شريحة التوصيل المسجلة بالفرع",
+        "branch_tariff_free": "توصيل مجاني حسب بيانات الفرع",
+        "branch_tariff_per_km": "سعر الكيلومتر المسجل بالفرع:",
+        "currency": "ج.م"
     }
 }

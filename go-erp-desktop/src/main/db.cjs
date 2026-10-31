@@ -55,6 +55,16 @@ const MIGRATIONS = [
    UPDATE journal SET synced_at = created_at WHERE sync_status = 'synced';
    INSERT OR REPLACE INTO counters (name, value) SELECT 'journal_seq', COALESCE(MAX(seq), 0) FROM journal;
    CREATE UNIQUE INDEX journal_seq ON journal (seq);`,
+  // Version 1.7: the dashboard's dine-in and delivery pages offline. The branch's tables and open orders as the server
+  // last sent them, the page's own operation numbers, kitchen tickets printed here, and what this device did to an
+  // order open on the server (its bill printed).
+  `ALTER TABLE branches ADD COLUMN service TEXT;
+   ALTER TABLE branches ADD COLUMN service_hash TEXT;
+   CREATE TABLE page_commands (key TEXT PRIMARY KEY, kind TEXT NOT NULL, ticket_ref TEXT NOT NULL, revision INTEGER NOT NULL,
+     actor_id INTEGER NOT NULL, branch TEXT NOT NULL, meta TEXT, created_at TEXT NOT NULL);
+   CREATE TABLE kitchen_prints (seq INTEGER PRIMARY KEY AUTOINCREMENT, ticket_ref TEXT NOT NULL, revision INTEGER NOT NULL, snapshot TEXT NOT NULL,
+     created_at TEXT NOT NULL);
+   CREATE TABLE service_overlays (ticket_id INTEGER PRIMARY KEY, data TEXT NOT NULL);`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

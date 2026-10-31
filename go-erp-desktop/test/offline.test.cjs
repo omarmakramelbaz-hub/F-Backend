@@ -3,16 +3,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { renderReceipt } = require('../src/main/offline/receipt.cjs');
+const { renderReceipt, renderKitchen, ticketBill } = require('../src/main/offline/receipt.cjs');
 
 const normalize = (html) => html.replace(/\s+/g, ' ').replace(/\s*([<>])\s*/g, '$1').trim();
 
-test('offline receipts are the dashboard receipt page, case by case', () => {
-  // Rendered by test/receipt-fixtures.php from resources/views/admin/takeaway/receipt.blade.php.
+test('offline receipts, bills and kitchen tickets are the dashboard print pages, case by case', () => {
+  // Rendered by test/receipt-fixtures.php from the dashboard's own views (takeaway/receipt, pos_service/ticket and kitchen).
   const { cases } = require(path.join(__dirname, 'fixtures', 'receipts.json'));
-  assert.ok(cases.length >= 5);
+  assert.ok(cases.length >= 11);
+  const origin = 'https://fasakhaninja.com';
   for (const sample of cases) {
-    const html = renderReceipt(sample.receipt, { origin: 'https://fasakhaninja.com', preview: sample.preview, dashboardPrint: sample.dashboard_print });
+    const html = sample.kind === 'kitchen' ? renderKitchen(sample.kitchen, { origin, dashboardPrint: sample.dashboard_print })
+      : renderReceipt(sample.kind === 'ticket' ? ticketBill(sample.ticket) : sample.receipt, { origin, preview: sample.preview, dashboardPrint: sample.dashboard_print });
     assert.equal(normalize(html), normalize(sample.html), sample.name);
   }
 });

@@ -25,11 +25,12 @@ if (($argv[1] ?? '') === 'labels') {
         'takeaway' => $pick('takeaway', ['current_invoice', 'title', 'invoice_number', 'date', 'cashier', 'payment_method', 'payment_reference',
             'item', 'quantity_short', 'price', 'line_total', 'kg', 'piece', 'subtotal', 'currency', 'discount', 'tax', 'service', 'total',
             'cash', 'card', 'wallet', 'other', 'cash_paid', 'change', 'discount_reason', 'order_notes', 'receipt_thanks', 'receipt_welcome',
-            'print_invoice', 'all_branches']),
+            'print_invoice', 'all_branches', 'quantity']),
         'pos_service' => $pick('pos_service', ['details', 'takeaway', 'dine', 'phone', 'unpaid_bill', 'cancelled', 'customer', 'phone_number',
-            'delivery', 'mixed', 'unpaid', 'channel', 'table', 'waiter', 'guests', 'area', 'address', 'delivery_notes']),
+            'delivery', 'mixed', 'unpaid', 'channel', 'table', 'waiter', 'guests', 'area', 'address', 'delivery_notes',
+            'kitchen_ticket', 'ticket_number', 'sent_at', 'revision', 'kitchen_copy']),
         'dining' => $pick('dining', ['title']),
-        'phone_orders' => $pick('phone_orders', ['title']),
+        'phone_orders' => $pick('phone_orders', ['title', 'app_delivery_distance', 'branch_tariff_fixed', 'branch_tariff_free', 'branch_tariff_per_km', 'currency']),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n";
     exit;
 }
@@ -68,12 +69,48 @@ $cases = [
     ])],
 ];
 
+// Dine-in and delivery orders before payment: the bill (admin.pos_service.ticket) and the kitchen ticket (admin.pos_service.kitchen).
+$ticket = fn (array $values) => array_merge([
+    'id' => 12, 'channel' => 'dine', 'branch' => $branch, 'revision' => 3, 'status' => 'awaiting_bill', 'payment_status' => 'unpaid',
+    'table' => ['id' => 4, 'name' => 'ترابيزة ٤', 'capacity' => 6], 'waiter_name' => 'حسن', 'guest_count' => 3, 'customer_name' => 'أسرة محمد',
+    'customer_phone' => '', 'address' => '', 'area' => '', 'delivery_notes' => '', 'customer_id' => null, 'customer_revision' => null,
+    'delivery_company' => null, 'delivery_location' => null, 'delivery_fee' => '0.00', 'notes' => "بدون بصل\nسريع", 'cancel_reason' => '',
+    'created_at' => '2026-10-31T13:19:44+02:00', 'updated_at' => '2026-10-31T13:25:02+02:00', 'cashier' => ['id' => 4, 'name' => 'كاشير المعادي'],
+    'kitchen_sent' => true, 'bill_locked' => true, 'bill_issued_at' => '2026-10-31T13:25:02+02:00', 'bill_issued_by' => 4, 'bill_issued_revision' => 3,
+    'details_url' => 'https://fasakhaninja.com/admin/dining/tickets/12/details', 'quote_hash' => str_repeat('a', 64), 'discount_reason' => '',
+    'bill_print_url' => 'https://fasakhaninja.com/admin/dining/tickets/12/print', 'kitchen_print_url' => 'https://fasakhaninja.com/admin/dining/kitchen/5/print',
+    'can_reprint' => false, 'receipt_url' => null, 'subtotal' => '320.00', 'discount' => '0.00', 'tax' => '50.18', 'tax_rate' => '14.00',
+    'service' => '38.40', 'service_rate' => '12.00', 'delivery' => '0.00', 'total' => '408.58',
+    'items' => [$line(1, 'بوري مشوي', 'f:0:extra_clean', 'تنظيف', 'weight', '1.500', '180.00', '270.00') + ['unit_price_cents' => 18000, 'total_cents' => 27000, 'quantity_millis' => 1500],
+        $line(7, 'سلطة <طحينة>', '', '', 'piece', '2.000', '25.00', '50.00') + ['unit_price_cents' => 2500, 'total_cents' => 5000, 'quantity_millis' => 2000]],
+], $values);
+$phone = $ticket(['id' => 31, 'channel' => 'phone', 'status' => 'out_for_delivery', 'table' => null, 'waiter_name' => '', 'guest_count' => null,
+    'customer_name' => 'منى', 'customer_phone' => '+201112223334', 'address' => 'شارع النصر، عمارة ٥', 'area' => 'المعادي', 'delivery_notes' => 'الدور الثالث',
+    'delivery_company' => ['id' => 1, 'name' => 'شركة سريع', 'phone' => '01011112222'], 'delivery_fee' => '25.00', 'delivery' => '25.00', 'service' => '0.00',
+    'service_rate' => '0.00', 'tax' => '48.30', 'total' => '393.30', 'number' => 'PH100-S7-0003', 'notes' => '',
+    'delivery_location' => ['method' => 'app_direct', 'pricing_rule' => 'app_branch_tier', 'distance_km' => '4.20', 'km_price' => '6.00', 'latitude' => 29.96, 'longitude' => 31.25]]);
+$cases[] = ['name' => 'dine-in bill', 'kind' => 'ticket', 'preview' => false, 'dashboard_print' => true, 'ticket' => $ticket([])];
+$cases[] = ['name' => 'dine-in bill details', 'kind' => 'ticket', 'preview' => true, 'dashboard_print' => false, 'ticket' => $ticket(['status' => 'preparing', 'bill_locked' => false])];
+$cases[] = ['name' => 'delivery bill with the app distance', 'kind' => 'ticket', 'preview' => false, 'dashboard_print' => false, 'ticket' => $phone];
+$cases[] = ['name' => 'delivery bill priced per kilometre', 'kind' => 'ticket', 'preview' => false, 'dashboard_print' => true,
+    'ticket' => array_merge($phone, ['delivery_location' => ['method' => 'road', 'pricing_rule' => 'per_km', 'distance_km' => '3.10', 'km_price' => '7.50', 'latitude' => 30.01, 'longitude' => 31.2]])];
+$cases[] = ['name' => 'dine-in kitchen ticket', 'kind' => 'kitchen', 'dashboard_print' => true,
+    'kitchen' => ['id' => 5, 'ticket_id' => 12, 'revision' => 2, 'created_at' => '2026-10-31T13:20:10+02:00', 'ticket' => $ticket(['revision' => 2, 'status' => 'preparing'])]];
+$cases[] = ['name' => 'delivery kitchen ticket', 'kind' => 'kitchen', 'dashboard_print' => false,
+    'kitchen' => ['id' => 9, 'ticket_id' => 31, 'revision' => 1, 'created_at' => '2026-10-31T22:05:00+02:00', 'ticket' => array_merge($phone, ['notes' => 'حار'])]];
+
 foreach ($cases as &$case) {
-    $request = Illuminate\Http\Request::create('https://fasakhaninja.com/admin/takeaway/receipts/9000000000001/'.($case['preview'] ? 'details' : 'print'), 'GET',
-        $case['dashboard_print'] ? ['dashboard_print' => '1'] : []);
+    $kind = $case['kind'] ?? 'receipt';
+    $path = $kind === 'kitchen' ? 'dining/kitchen/5/print' : ($kind === 'ticket' ? 'dining/tickets/12/'.($case['preview'] ? 'details' : 'print')
+        : 'takeaway/receipts/9000000000001/'.($case['preview'] ? 'details' : 'print'));
+    $request = Illuminate\Http\Request::create('https://fasakhaninja.com/admin/'.$path, 'GET', $case['dashboard_print'] ? ['dashboard_print' => '1'] : []);
     app()->instance('request', $request);
     app('url')->setRequest($request);
-    $case['html'] = view('admin.takeaway.receipt', ['receipt' => $case['receipt'], 'preview' => $case['preview']])->render();
+    $case['html'] = match ($kind) {
+        'kitchen' => view('admin.pos_service.kitchen', ['kitchen' => $case['kitchen']])->render(),
+        'ticket' => view('admin.pos_service.ticket', ['ticket' => $case['ticket'], 'preview' => $case['preview']])->render(),
+        default => view('admin.takeaway.receipt', ['receipt' => $case['receipt'], 'preview' => $case['preview']])->render(),
+    };
 }
 unset($case);
 echo json_encode(['cases' => $cases], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n";

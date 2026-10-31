@@ -40,6 +40,8 @@ Schema::create('settings', function (Blueprint $t) { $t->id(); $t->string('group
 require_once database_path('migrations/2026_09_27_180000_create_go_store_catalog.php'); (new \CreateGoStoreCatalog)->up();
 require_once database_path('migrations/2026_10_03_140000_create_takeaway_pos.php'); (new \CreateTakeawayPos)->up();
 require_once database_path('migrations/2026_10_03_150000_create_pos_service_tickets.php'); (new \CreatePosServiceTickets)->up();
+require_once database_path('migrations/2026_10_04_060000_lock_pos_service_bills.php'); (new \LockPosServiceBills)->up();
+require_once database_path('migrations/2026_10_18_210000_create_shift_report_printing_and_numbers.php'); (new \CreateShiftReportPrintingAndNumbers)->up();
 require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
 (require database_path('migrations/2026_10_30_000001_create_desktop_sync_tables.php'))->up();
 require_once database_path('migrations/2026_10_04_030000_create_branch_expenses.php'); (new \CreateBranchExpenses)->up();
