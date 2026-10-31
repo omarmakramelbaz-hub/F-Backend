@@ -128,7 +128,7 @@
         "path": "\/admin\/dining\/tickets\/save",
         "body": {
             "branch": "f:100",
-            "idempotency_key": "4827136a-e12e-4037-b880-4fa8c62d4b96",
+            "idempotency_key": "5c1d7903-c259-437b-a81e-bef56679b789",
             "table_id": 1,
             "items": [
                 {
@@ -155,7 +155,7 @@
             "operation": {
                 "id": 1,
                 "kind": "save",
-                "idempotency_key": "4827136a-e12e-4037-b880-4fa8c62d4b96",
+                "idempotency_key": "5c1d7903-c259-437b-a81e-bef56679b789",
                 "ticket_id": 1,
                 "revision": 1
             },
@@ -193,8 +193,8 @@
                 "delivery_fee": "0.00",
                 "notes": "بدون بصل",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
@@ -281,7 +281,7 @@
         "path": "\/admin\/dining\/tickets\/1\/action",
         "body": {
             "branch": "f:100",
-            "idempotency_key": "d28eb50e-d30b-4378-b25e-0d4c2a8a5c3e",
+            "idempotency_key": "349e068d-8388-4546-abdd-a39cd2977cc0",
             "expected_revision": 1,
             "action": "send_kitchen"
         },
@@ -292,7 +292,7 @@
             "operation": {
                 "id": 2,
                 "kind": "action",
-                "idempotency_key": "d28eb50e-d30b-4378-b25e-0d4c2a8a5c3e",
+                "idempotency_key": "349e068d-8388-4546-abdd-a39cd2977cc0",
                 "ticket_id": 1,
                 "revision": 2
             },
@@ -330,8 +330,8 @@
                 "delivery_fee": "0.00",
                 "notes": "بدون بصل",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
@@ -465,8 +465,8 @@
                     "delivery_fee": "0.00",
                     "notes": "بدون بصل",
                     "cancel_reason": "",
-                    "created_at": "2026-10-31T16:19:22+02:00",
-                    "updated_at": "2026-10-31T16:19:22+02:00",
+                    "created_at": "2026-10-31T16:32:38+02:00",
+                    "updated_at": "2026-10-31T16:32:38+02:00",
                     "cashier": {
                         "id": 4,
                         "name": "كاشير المعادي"
@@ -528,8 +528,8 @@
                     "delivery_fee": "0.00",
                     "notes": "بدون بصل",
                     "cancel_reason": "",
-                    "created_at": "2026-10-31T16:19:22+02:00",
-                    "updated_at": "2026-10-31T16:19:22+02:00",
+                    "created_at": "2026-10-31T16:32:38+02:00",
+                    "updated_at": "2026-10-31T16:32:38+02:00",
                     "cashier": {
                         "id": 4,
                         "name": "كاشير المعادي"
@@ -660,8 +660,8 @@
                         "delivery_fee": "0.00",
                         "notes": "بدون بصل",
                         "cancel_reason": "",
-                        "created_at": "2026-10-31T16:19:22+02:00",
-                        "updated_at": "2026-10-31T16:19:22+02:00",
+                        "created_at": "2026-10-31T16:32:38+02:00",
+                        "updated_at": "2026-10-31T16:32:38+02:00",
                         "cashier": {
                             "id": 4,
                             "name": "كاشير المعادي"
@@ -709,7 +709,7 @@
         "path": "\/admin\/dining\/tickets\/1\/action",
         "body": {
             "branch": "f:100",
-            "idempotency_key": "502c2c1e-2c0a-416c-9ee2-cc1c9e1e0d73",
+            "idempotency_key": "b938517f-95e5-483c-9d3b-9187063cde33",
             "expected_revision": 2,
             "action": "request_bill"
         },
@@ -720,7 +720,7 @@
             "operation": {
                 "id": 3,
                 "kind": "action",
-                "idempotency_key": "502c2c1e-2c0a-416c-9ee2-cc1c9e1e0d73",
+                "idempotency_key": "b938517f-95e5-483c-9d3b-9187063cde33",
                 "ticket_id": 1,
                 "revision": 3
             },
@@ -758,15 +758,15 @@
                 "delivery_fee": "0.00",
                 "notes": "بدون بصل",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
                 },
                 "kitchen_sent": true,
                 "bill_locked": true,
-                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_at": "2026-10-31T16:32:38+02:00",
                 "bill_issued_by": 4,
                 "bill_issued_revision": 3,
                 "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
@@ -882,15 +882,15 @@
                 "delivery_fee": "0.00",
                 "notes": "بدون بصل",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
                 },
                 "kitchen_sent": true,
                 "bill_locked": true,
-                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_at": "2026-10-31T16:32:38+02:00",
                 "bill_issued_by": 4,
                 "bill_issued_revision": 3,
                 "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
@@ -967,7 +967,7 @@
         "path": "\/admin\/dining\/tickets\/1\/settle",
         "body": {
             "branch": "f:100",
-            "idempotency_key": "e217d398-7b55-414d-a9d4-ab6737fe2457",
+            "idempotency_key": "ac46160d-be21-4849-a990-57f67c592766",
             "expected_revision": 3,
             "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
             "payment_method": "cash",
@@ -982,7 +982,7 @@
             "operation": {
                 "id": 4,
                 "kind": "settle",
-                "idempotency_key": "e217d398-7b55-414d-a9d4-ab6737fe2457",
+                "idempotency_key": "ac46160d-be21-4849-a990-57f67c592766",
                 "ticket_id": 1,
                 "revision": 4
             },
@@ -1020,15 +1020,15 @@
                 "delivery_fee": "0.00",
                 "notes": "بدون بصل",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
                 },
                 "kitchen_sent": true,
                 "bill_locked": true,
-                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_at": "2026-10-31T16:32:38+02:00",
                 "bill_issued_by": 4,
                 "bill_issued_revision": 3,
                 "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
@@ -1100,7 +1100,7 @@
             "receipt": {
                 "id": 1,
                 "number": "TA-F-100-0000001",
-                "idempotency_key": "e217d398-7b55-414d-a9d4-ab6737fe2457",
+                "idempotency_key": "ac46160d-be21-4849-a990-57f67c592766",
                 "branch": {
                     "value": "f:100",
                     "id": 100,
@@ -1115,7 +1115,7 @@
                     "name": "كاشير المعادي"
                 },
                 "business_date": "2026-10-31",
-                "created_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
                 "items": [
                     {
                         "product_id": 7,
@@ -1190,7 +1190,7 @@
                 "change": "70.00"
             },
             "receipt_url": null,
-            "first_print_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/1\/print?initial_print=79b7fb5d3cfc86ce228691703d9d9b8b9092b667be37267dcc44a603650f0267",
+            "first_print_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/1\/print?initial_print=fc60bf66617ff297c069f6b2090f5c8897d6dda5c31571cb6149b54a29435131",
             "register": {
                 "id": 1,
                 "branch": "f:100",
@@ -1252,15 +1252,15 @@
                 "delivery_fee": "0.00",
                 "notes": "بدون بصل",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
                 },
                 "kitchen_sent": true,
                 "bill_locked": true,
-                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_at": "2026-10-31T16:32:38+02:00",
                 "bill_issued_by": 4,
                 "bill_issued_revision": 3,
                 "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
@@ -1417,8 +1417,8 @@
                             "delivery_fee": "25.00",
                             "notes": "",
                             "cancel_reason": "",
-                            "created_at": "2026-10-31T16:19:22+02:00",
-                            "updated_at": "2026-10-31T16:19:22+02:00",
+                            "created_at": "2026-10-31T16:32:38+02:00",
+                            "updated_at": "2026-10-31T16:32:38+02:00",
                             "cashier": {
                                 "id": 4,
                                 "name": "كاشير المعادي"
@@ -1523,8 +1523,8 @@
                 "delivery_fee": "25.00",
                 "notes": "",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
@@ -1648,13 +1648,13 @@
             "ticket_id": 2,
             "company_id": 7,
             "expected_revision": 1,
-            "idempotency_key": "144965e7-aef4-4662-97c0-40f147e9e672"
+            "idempotency_key": "295a0439-fb87-4a4e-b5b3-32b910e7e7a3"
         },
         "status": 200,
         "json": {
             "operation": {
                 "kind": "phone.dispatch",
-                "idempotency_key": "144965e7-aef4-4662-97c0-40f147e9e672"
+                "idempotency_key": "295a0439-fb87-4a4e-b5b3-32b910e7e7a3"
             },
             "branch": "f:100",
             "ticket_id": 2,
@@ -1675,7 +1675,7 @@
         "path": "\/admin\/phone-orders\/tickets\/2\/action",
         "body": {
             "branch": "f:100",
-            "idempotency_key": "7cd48490-9cc1-4ef9-be6b-3608d50bc458",
+            "idempotency_key": "e23adf6c-6878-4342-b45a-e38b1c3ef250",
             "expected_revision": 2,
             "action": "request_bill",
             "reason": ""
@@ -1687,7 +1687,7 @@
             "operation": {
                 "id": 5,
                 "kind": "action",
-                "idempotency_key": "7cd48490-9cc1-4ef9-be6b-3608d50bc458",
+                "idempotency_key": "e23adf6c-6878-4342-b45a-e38b1c3ef250",
                 "ticket_id": 2,
                 "revision": 3
             },
@@ -1721,15 +1721,15 @@
                 "delivery_fee": "25.00",
                 "notes": "",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
                 },
                 "kitchen_sent": false,
                 "bill_locked": true,
-                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_at": "2026-10-31T16:32:38+02:00",
                 "bill_issued_by": 4,
                 "bill_issued_revision": 3,
                 "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
@@ -1833,15 +1833,15 @@
                             "delivery_fee": "25.00",
                             "notes": "",
                             "cancel_reason": "",
-                            "created_at": "2026-10-31T16:19:22+02:00",
-                            "updated_at": "2026-10-31T16:19:22+02:00",
+                            "created_at": "2026-10-31T16:32:38+02:00",
+                            "updated_at": "2026-10-31T16:32:38+02:00",
                             "cashier": {
                                 "id": 4,
                                 "name": "كاشير المعادي"
                             },
                             "kitchen_sent": false,
                             "bill_locked": true,
-                            "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                            "bill_issued_at": "2026-10-31T16:32:38+02:00",
                             "bill_issued_by": 4,
                             "bill_issued_revision": 3,
                             "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
@@ -1905,7 +1905,7 @@
         "body": {
             "branch": "f:100",
             "expected_revision": 3,
-            "idempotency_key": "6f1e2ec4-9513-47a7-95e0-a8de2549dc72",
+            "idempotency_key": "569e25c6-3ce0-4f6b-980d-bace5eadf79f",
             "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
             "payment_method": "cash",
             "cash_received": "200.00",
@@ -1919,7 +1919,7 @@
             "operation": {
                 "id": 6,
                 "kind": "settle",
-                "idempotency_key": "6f1e2ec4-9513-47a7-95e0-a8de2549dc72",
+                "idempotency_key": "569e25c6-3ce0-4f6b-980d-bace5eadf79f",
                 "ticket_id": 2,
                 "revision": 4
             },
@@ -1953,15 +1953,15 @@
                 "delivery_fee": "25.00",
                 "notes": "",
                 "cancel_reason": "",
-                "created_at": "2026-10-31T16:19:22+02:00",
-                "updated_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "updated_at": "2026-10-31T16:32:38+02:00",
                 "cashier": {
                     "id": 4,
                     "name": "كاشير المعادي"
                 },
                 "kitchen_sent": false,
                 "bill_locked": true,
-                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_at": "2026-10-31T16:32:38+02:00",
                 "bill_issued_by": 4,
                 "bill_issued_revision": 3,
                 "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
@@ -2013,7 +2013,7 @@
             "receipt": {
                 "id": 2,
                 "number": "TA-F-100-0000002",
-                "idempotency_key": "6f1e2ec4-9513-47a7-95e0-a8de2549dc72",
+                "idempotency_key": "569e25c6-3ce0-4f6b-980d-bace5eadf79f",
                 "branch": {
                     "value": "f:100",
                     "id": 100,
@@ -2028,7 +2028,7 @@
                     "name": "كاشير المعادي"
                 },
                 "business_date": "2026-10-31",
-                "created_at": "2026-10-31T16:19:22+02:00",
+                "created_at": "2026-10-31T16:32:38+02:00",
                 "items": [
                     {
                         "product_id": 7,
@@ -2087,7 +2087,7 @@
                 "change": "125.00"
             },
             "receipt_url": null,
-            "first_print_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/2\/print?initial_print=7c7670652fb66f6e054e62de39b8f522fbcb4b4836fd371320169265f914557f",
+            "first_print_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/2\/print?initial_print=939b043e801110dac903b44bfc9e063555a9efbfa890ccb12833dcc3c1ac6963",
             "register": {
                 "id": 1,
                 "branch": "f:100",
@@ -2165,15 +2165,15 @@
                             "delivery_fee": "25.00",
                             "notes": "",
                             "cancel_reason": "",
-                            "created_at": "2026-10-31T16:19:22+02:00",
-                            "updated_at": "2026-10-31T16:19:22+02:00",
+                            "created_at": "2026-10-31T16:32:38+02:00",
+                            "updated_at": "2026-10-31T16:32:38+02:00",
                             "cashier": {
                                 "id": 4,
                                 "name": "كاشير المعادي"
                             },
                             "kitchen_sent": false,
                             "bill_locked": true,
-                            "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                            "bill_issued_at": "2026-10-31T16:32:38+02:00",
                             "bill_issued_by": 4,
                             "bill_issued_revision": 3,
                             "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
@@ -2198,7 +2198,7 @@
                                 "contact_name": ""
                             },
                             "batch_print_url": null,
-                            "completed_at": "2026-10-31T14:19:22+00:00"
+                            "completed_at": "2026-10-31T14:32:38+00:00"
                         }
                     ],
                     "pagination": {
@@ -2220,6 +2220,145 @@
                     "branch": "f:100"
                 }
             ]
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/dispatch-company",
+        "body": {
+            "branch": "f:100",
+            "ticket_id": 3,
+            "company_id": 7,
+            "expected_revision": 1,
+            "idempotency_key": "51526aaa-10ed-43f1-a2d0-d775d175e8e9"
+        },
+        "status": 200,
+        "json": {
+            "operation": {
+                "kind": "phone.dispatch",
+                "idempotency_key": "51526aaa-10ed-43f1-a2d0-d775d175e8e9"
+            },
+            "branch": "f:100",
+            "ticket_id": 3,
+            "revision": 2,
+            "company": {
+                "id": 7,
+                "name": "شركة سريع",
+                "phone": "01011112222",
+                "contact_name": ""
+            },
+            "success": true,
+            "replayed": false
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/dispatch-company",
+        "body": {
+            "branch": "f:100",
+            "ticket_id": 4,
+            "company_id": 7,
+            "expected_revision": 1,
+            "idempotency_key": "6879d298-85a3-4d5f-82b3-ed07453278dc"
+        },
+        "status": 200,
+        "json": {
+            "operation": {
+                "kind": "phone.dispatch",
+                "idempotency_key": "6879d298-85a3-4d5f-82b3-ed07453278dc"
+            },
+            "branch": "f:100",
+            "ticket_id": 4,
+            "revision": 2,
+            "company": {
+                "id": 7,
+                "name": "شركة سريع",
+                "phone": "01011112222",
+                "contact_name": ""
+            },
+            "success": true,
+            "replayed": false
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/finish-batch",
+        "body": {
+            "branch": "f:100",
+            "idempotency_key": "7dc89817-b609-41ad-a835-37616199ec87",
+            "items": [
+                {
+                    "id": 3,
+                    "revision": 2,
+                    "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784"
+                },
+                {
+                    "id": 4,
+                    "revision": 2,
+                    "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784"
+                }
+            ],
+            "courier_name": "سيد",
+            "total": "150.00",
+            "payment_method": "cash",
+            "cash_received": "200.00",
+            "payment_reference": "",
+            "payment_confirmed": true
+        },
+        "status": 200,
+        "json": {
+            "operation": {
+                "kind": "phone.batch",
+                "idempotency_key": "7dc89817-b609-41ad-a835-37616199ec87"
+            },
+            "batch": {
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "company": {
+                    "id": 7,
+                    "name": "شركة سريع",
+                    "phone": "01011112222",
+                    "contact_name": ""
+                },
+                "courier_name": "سيد",
+                "created_at": "2026-10-31T16:32:38+02:00",
+                "items": [
+                    {
+                        "ticket_id": 3,
+                        "order_id": 3,
+                        "total": "75.00"
+                    },
+                    {
+                        "ticket_id": 4,
+                        "order_id": 4,
+                        "total": "75.00"
+                    }
+                ],
+                "total": "150.00",
+                "payment_method": "cash",
+                "cash_received": "200.00",
+                "change": "50.00",
+                "payment_reference": "",
+                "idempotency_key": "7dc89817-b609-41ad-a835-37616199ec87",
+                "id": 1,
+                "print_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/batches\/1\/print"
+            },
+            "success": true,
+            "replayed": false
         },
         "html": null
     }

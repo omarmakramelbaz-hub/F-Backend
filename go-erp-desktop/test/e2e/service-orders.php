@@ -21,4 +21,13 @@ DB::table('pos_service_tickets')->insert(['branch' => 'f:100', 'channel' => 'pho
     'address' => 'شارع النصر، عمارة ٥', 'area' => 'المعادي', 'delivery_cents' => 2500, 'cart_snapshot' => json_encode($saved, JSON_UNESCAPED_UNICODE),
     'quote_snapshot' => json_encode($quote, JSON_UNESCAPED_UNICODE), 'revision' => 1, 'actor_id' => 4, 'status' => 'preparing', 'payment_status' => 'unpaid',
     'business_date' => App\Services\Dashboard\OperatingDay::date(), 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+// Two more orders already with the courier of شركة سريع: the courier brings the money for both together.
+$company = json_encode(['id' => 1, 'name' => 'شركة سريع', 'phone' => '01011112222', 'contact_name' => ''], JSON_UNESCAPED_UNICODE);
+foreach (['عميل التوصيل ١', 'عميل التوصيل ٢'] as $name) {
+    DB::table('pos_service_tickets')->insert(['branch' => 'f:100', 'channel' => 'phone', 'customer_name' => $name, 'customer_phone' => '+201112223335',
+        'address' => 'المعادي', 'area' => 'المعادي', 'delivery_cents' => 2500, 'cart_snapshot' => json_encode($saved, JSON_UNESCAPED_UNICODE),
+        'quote_snapshot' => json_encode($quote, JSON_UNESCAPED_UNICODE), 'revision' => 2, 'actor_id' => 4, 'status' => 'out_for_delivery', 'payment_status' => 'unpaid',
+        'delivery_company_id' => 1, 'delivery_company_snapshot' => $company, 'business_date' => App\Services\Dashboard\OperatingDay::date(),
+        'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+}
 echo "service orders: ".$quote['total']."\n";

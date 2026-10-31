@@ -30,7 +30,9 @@ if (($argv[1] ?? '') === 'labels') {
             'delivery', 'mixed', 'unpaid', 'channel', 'table', 'waiter', 'guests', 'area', 'address', 'delivery_notes',
             'kitchen_ticket', 'ticket_number', 'sent_at', 'revision', 'kitchen_copy']),
         'dining' => $pick('dining', ['title']),
-        'phone_orders' => $pick('phone_orders', ['title', 'app_delivery_distance', 'branch_tariff_fixed', 'branch_tariff_free', 'branch_tariff_per_km', 'currency']),
+        'phone_orders' => $pick('phone_orders', ['title', 'app_delivery_distance', 'branch_tariff_fixed', 'branch_tariff_free', 'branch_tariff_per_km', 'currency',
+            'batch_receipt', 'courier_company', 'courier_name', 'cashier', 'saved_number', 'total', 'payment_method', 'cash', 'cash_received', 'change',
+            'payment_reference', 'batch_paid_note']),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n";
     exit;
 }
@@ -99,15 +101,23 @@ $cases[] = ['name' => 'dine-in kitchen ticket', 'kind' => 'kitchen', 'dashboard_
 $cases[] = ['name' => 'delivery kitchen ticket', 'kind' => 'kitchen', 'dashboard_print' => false,
     'kitchen' => ['id' => 9, 'ticket_id' => 31, 'revision' => 1, 'created_at' => '2026-10-31T22:05:00+02:00', 'ticket' => array_merge($phone, ['notes' => 'حار'])]];
 
+// The courier's batch receipt (admin.phone_orders.batch_receipt): several delivery orders collected together.
+$batch = ['id' => 5000000000003, 'branch' => $branch, 'cashier' => ['id' => 4, 'name' => 'كاشير المعادي'], 'company' => ['id' => 1, 'name' => 'شركة سريع', 'phone' => '01011112222', 'contact_name' => ''],
+    'courier_name' => 'سيد', 'created_at' => '2026-10-31T22:40:00+02:00', 'items' => [['ticket_id' => 31, 'order_id' => 9000000000012, 'total' => '105.00'], ['ticket_id' => 7000000000004, 'order_id' => 9000000000013, 'total' => '75.50']],
+    'total' => '180.50', 'payment_method' => 'cash', 'cash_received' => '200.00', 'change' => '19.50', 'payment_reference' => '', 'idempotency_key' => '00000000-0000-4000-9000-000000000003'];
+$cases[] = ['name' => 'courier batch receipt', 'kind' => 'batch', 'dashboard_print' => true, 'batch' => $batch];
+$cases[] = ['name' => 'courier batch receipt without a courier name', 'kind' => 'batch', 'dashboard_print' => false, 'batch' => array_merge($batch, ['courier_name' => '', 'payment_reference' => 'وصل ٥'])];
+
 foreach ($cases as &$case) {
     $kind = $case['kind'] ?? 'receipt';
     $path = $kind === 'kitchen' ? 'dining/kitchen/5/print' : ($kind === 'ticket' ? 'dining/tickets/12/'.($case['preview'] ? 'details' : 'print')
-        : 'takeaway/receipts/9000000000001/'.($case['preview'] ? 'details' : 'print'));
+        : ($kind === 'batch' ? 'phone-orders/batches/5000000000003/print' : 'takeaway/receipts/9000000000001/'.($case['preview'] ? 'details' : 'print')));
     $request = Illuminate\Http\Request::create('https://fasakhaninja.com/admin/'.$path, 'GET', $case['dashboard_print'] ? ['dashboard_print' => '1'] : []);
     app()->instance('request', $request);
     app('url')->setRequest($request);
     $case['html'] = match ($kind) {
         'kitchen' => view('admin.pos_service.kitchen', ['kitchen' => $case['kitchen']])->render(),
+        'batch' => view('admin.phone_orders.batch_receipt', ['batch' => $case['batch']])->render(),
         'ticket' => view('admin.pos_service.ticket', ['ticket' => $case['ticket'], 'preview' => $case['preview']])->render(),
         default => view('admin.takeaway.receipt', ['receipt' => $case['receipt'], 'preview' => $case['preview']])->render(),
     };

@@ -67,6 +67,18 @@
         "branch_tariff_fixed": "شريحة التوصيل المسجلة بالفرع",
         "branch_tariff_free": "توصيل مجاني حسب بيانات الفرع",
         "branch_tariff_per_km": "سعر الكيلومتر المسجل بالفرع:",
-        "currency": "ج.م"
+        "currency": "ج.م",
+        "batch_receipt": "إيصال تحصيل الطلبات",
+        "courier_company": "شركة المندوب",
+        "courier_name": "اسم المندوب (اختياري)",
+        "cashier": "الكاشير",
+        "saved_number": "رقم الطلب",
+        "total": "الإجمالي النهائي",
+        "payment_method": "وسيلة الدفع",
+        "cash": "كاش",
+        "cash_received": "المبلغ المستلم",
+        "change": "الباقي",
+        "payment_reference": "مرجع المعاملة",
+        "batch_paid_note": "تم تحصيل قيمة هذه الطلبات. إعادة الطباعة لا تسجل تحصيلًا جديدًا."
     }
 }

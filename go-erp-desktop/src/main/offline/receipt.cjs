@@ -1,6 +1,7 @@
 'use strict';
 // The dashboard's print pages for what this device saved while offline: the receipt (admin/takeaway/receipt.blade.php),
-// an order's bill before payment (admin/pos_service/ticket.blade.php) and the kitchen ticket (admin/pos_service/kitchen.blade.php),
+// an order's bill before payment (admin/pos_service/ticket.blade.php), the kitchen ticket (admin/pos_service/kitchen.blade.php)
+// and the courier's receipt for delivery orders collected together (admin/phone_orders/batch_receipt.blade.php),
 // with the same layout, texts, style and print sizes. test/receipt-fixtures.php renders the dashboard's own pages for
 // sample invoices and the tests compare both.
 const fs = require('node:fs');
@@ -202,4 +203,37 @@ function renderKitchen(kitchen, { origin, dashboardPrint = false }) {
   return html;
 }
 
-module.exports = { renderReceipt, renderKitchen, ticketBill, money, cairoTime };
+const BATCH_STYLE = '@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}body{font:12px Tahoma,Arial;color:#000;width:72mm;margin:0 auto;overflow-wrap:anywhere}'
+  + 'header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}h1{font-size:17px}p{margin:7px 0}table{width:100%;border-collapse:collapse;margin:14px 0}'
+  + 'th,td{padding:9px 3px;border-bottom:1px dashed #333;text-align:start}tr{break-inside:avoid}tfoot{font-size:16px;font-weight:bold}footer{margin-top:15px;font-size:11px}';
+
+/** Carbon's format('Y-m-d H:i') in Cairo time. */
+function cairoDay(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = Object.fromEntries(CAIRO.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
+/** admin.phone_orders.batch_receipt: the courier's receipt for delivery orders collected together. */
+function renderBatch(batch, { origin }) {
+  let html = '<!doctype html>\n<html lang="ar" dir="rtl" data-dashboard-receipt="phone-batch">\n';
+  html += `<head><meta charset="utf-8"><title>${e(t('phone_orders.batch_receipt'))} #${e(batch.id)}</title>\n<style>${BATCH_STYLE}</style></head>\n`;
+  html += `<body><header><img src="${e(origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا"><h1>${e(t('phone_orders.batch_receipt'))}</h1>`;
+  html += `<p>${e(batch.branch && batch.branch.name)}</p><bdi>#${e(batch.id)}</bdi><p><bdi>${e(cairoDay(batch.created_at))}</bdi></p></header>\n`;
+  html += `<p>${e(t('phone_orders.courier_company'))}: ${e(batch.company && batch.company.name)}</p>\n`;
+  if (filled(batch.courier_name)) html += `<p>${e(t('phone_orders.courier_name'))}: ${e(batch.courier_name)}</p>`;
+  html += `\n<p>${e(t('phone_orders.cashier'))}: ${e(batch.cashier && batch.cashier.name)}</p>\n`;
+  html += `<table><thead><tr><th>${e(t('phone_orders.saved_number'))}</th><th>${e(t('phone_orders.total'))}</th></tr></thead><tbody>`;
+  for (const line of batch.items || []) html += `<tr><td><bdi>#${e(line.ticket_id)}</bdi></td><td><bdi>${e(line.total)}</bdi></td></tr>`;
+  html += `</tbody><tfoot><tr><td>${e(t('phone_orders.total'))}</td><td><bdi>${e(batch.total)}</bdi> ${e(t('phone_orders.currency'))}</td></tr></tfoot></table>\n`;
+  html += `<p>${e(t('phone_orders.payment_method'))}: ${e(t('phone_orders.' + batch.payment_method))}</p>\n`;
+  if (batch.payment_method === 'cash') {
+    html += `<p>${e(t('phone_orders.cash_received'))}: <bdi>${e(batch.cash_received)}</bdi></p><p>${e(t('phone_orders.change'))}: <bdi>${e(batch.change)}</bdi></p>`;
+  }
+  if (filled(batch.payment_reference)) html += `<p>${e(t('phone_orders.payment_reference'))}: <bdi>${e(batch.payment_reference)}</bdi></p>`;
+  html += `\n<footer>${e(t('phone_orders.batch_paid_note'))}</footer></body></html>\n`;
+  return html;
+}
+
+module.exports = { renderReceipt, renderKitchen, renderBatch, ticketBill, money, cairoTime };

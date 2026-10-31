@@ -3,17 +3,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { renderReceipt, renderKitchen, ticketBill } = require('../src/main/offline/receipt.cjs');
+const { renderReceipt, renderKitchen, renderBatch, ticketBill } = require('../src/main/offline/receipt.cjs');
 
 const normalize = (html) => html.replace(/\s+/g, ' ').replace(/\s*([<>])\s*/g, '$1').trim();
 
 test('offline receipts, bills and kitchen tickets are the dashboard print pages, case by case', () => {
   // Rendered by test/receipt-fixtures.php from the dashboard's own views (takeaway/receipt, pos_service/ticket and kitchen).
   const { cases } = require(path.join(__dirname, 'fixtures', 'receipts.json'));
-  assert.ok(cases.length >= 11);
+  assert.ok(cases.length >= 13);
   const origin = 'https://fasakhaninja.com';
   for (const sample of cases) {
     const html = sample.kind === 'kitchen' ? renderKitchen(sample.kitchen, { origin, dashboardPrint: sample.dashboard_print })
+      : sample.kind === 'batch' ? renderBatch(sample.batch, { origin })
       : renderReceipt(sample.kind === 'ticket' ? ticketBill(sample.ticket) : sample.receipt, { origin, preview: sample.preview, dashboardPrint: sample.dashboard_print });
     assert.equal(normalize(html), normalize(sample.html), sample.name);
   }
@@ -716,7 +717,7 @@ function deliveryPageAccepts(result, operation) {
 function deliveryPage() {
   const cashier = cashierPage();
   const { store } = cashier;
-  store.set('server_kinds', ['sale', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch']);
+  store.set('server_kinds', ['sale', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch']);
   store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h2',
     catalog: { ...MENU, delivery_companies: [{ id: 1, name: 'شركة سريع', phone: '01000000001' }, { id: 7, name: 'شركة سريع', phone: '01011112222' }] } }]);
   store.applyService([{ ...serviceCopy(), tickets: [DASHBOARD[3].json.ticket, { ...PHONE.show.ticket, courier_company: null }] }]);
@@ -789,4 +790,52 @@ test('the delivery board offline: hand an order to a courier, print its bill and
   assert.equal(PHONE.finished.columns.finished.items[0].status, finished.finished.items[0].status);
   assert.equal((await ask('POST', `/admin/phone-orders/tickets/${id}/action`, { body: { branch: 'f:100', expected_revision: 4, idempotency_key: key(), action: 'dispatch' } })).status,
     409, 'Closed');
+});
+
+test('orders a courier brought back are collected together offline: one batch, its receipt, then the dashboard\'s own batch', async () => {
+  const { store, ask, key } = deliveryPage();
+  const BATCH = DASHBOARD[21].json;
+  const order = (id, name) => ({ ...PHONE.show.ticket, id, customer_name: name, details_url: `${ORIGIN}/admin/phone-orders/tickets/${id}/details`,
+    bill_print_url: `${ORIGIN}/admin/phone-orders/tickets/${id}/print`, courier_company: null });
+  // One order already with the courier on the dashboard, one handed over on the device.
+  store.applyService([{ ...serviceCopy(), hash: 'service-batch', tickets: [{ ...order(41, 'عميل ١'), status: 'out_for_delivery', revision: 2,
+    courier_company: PHONE.dispatch.company }, order(42, 'عميل ٢')] }]);
+  const handoff = await ask('POST', '/admin/phone-orders/dispatch-company', { body: { branch: 'f:100', ticket_id: 42, company_id: 7, expected_revision: 1, idempotency_key: key() } });
+  assert.equal(handoff.status, 200, JSON.stringify(handoff.json));
+  const courier = (await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns.courier.items;
+  assert.deepEqual(courier.map((item) => [item.id, item.revision, item.courier_company.id]), [[41, 2, 7], [42, 2, 7]]);
+  const payload = { branch: 'f:100', idempotency_key: key(), items: courier.map((item) => ({ id: item.id, revision: item.revision, quote_hash: item.quote_hash })),
+    courier_name: 'سيد', total: '150.00', payment_method: 'cash', cash_received: '200.00', payment_reference: '', payment_confirmed: true };
+  assert.equal((await ask('POST', '/admin/phone-orders/finish-batch', { body: { ...payload, total: '140.00' } })).status, 409, 'A wrong total');
+  assert.equal((await ask('POST', '/admin/phone-orders/finish-batch', { body: { ...payload, cash_received: '100.00' } })).status, 422, 'Not enough cash');
+  const done = await ask('POST', '/admin/phone-orders/finish-batch', { body: payload });
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  assert.deepEqual(shape(done.json), shape(BATCH));
+  assert.deepEqual(shape(done.json.batch), shape(BATCH.batch));
+  // The page's own checks (phone-orders.js applyWrite).
+  const { batch } = done.json;
+  const ids = (items, field) => items.map((item) => Number(item[field])).sort((a, b) => a - b).join(',');
+  assert.ok(done.json.success && done.json.operation.idempotency_key === payload.idempotency_key && done.json.operation.kind === 'phone.batch');
+  assert.ok(batch.branch.value === 'f:100' && batch.idempotency_key === payload.idempotency_key && scaled(batch.total, 2) === scaled(payload.total, 2)
+    && ids(batch.items, 'ticket_id') === ids(payload.items, 'id') && Number.isSafeInteger(batch.id)
+    && new URL(batch.print_url).pathname.endsWith(`/phone-orders/batches/${batch.id}/print`));
+  assert.deepEqual([batch.change, batch.company.name, batch.courier_name], ['50.00', 'شركة سريع', 'سيد']);
+  const receipt = await ask('GET', new URL(batch.print_url).pathname);
+  assert.equal(receipt.status, 200);
+  assert.match(receipt.html, /data-dashboard-receipt="phone-batch"/);
+  assert.match(receipt.html, /#41/);
+  assert.equal((await ask('POST', '/admin/phone-orders/finish-batch', { body: payload })).json.replayed, true);
+  const operations = store.pendingOperations();
+  assert.deepEqual(operations.map((operation) => operation.kind), ['ticket_dispatch', 'ticket_batch'], 'One batch, no single payments');
+  assert.deepEqual(operations[1].data, { items: [{ id: 41, quote_hash: PHONE.show.ticket.quote_hash }, { id: 42, quote_hash: PHONE.show.ticket.quote_hash }],
+    courier_name: 'سيد', total: '150.00', cash_received: '200.00' });
+  const finished = (await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns;
+  assert.deepEqual([finished.courier.items.length, finished.finished.items.map((item) => item.id)], [0, [42, 41]]);
+  assert.equal(store.dayTotals(['f:100'], '2026-10-30').count, 5, 'Both orders count in the day until the dashboard has them');
+  // Synced: the dashboard's invoices for both orders.
+  store.applyResults([{ id: operations[0].id, status: 'applied', ticket: { id: 42, revision: 2, status: 'out_for_delivery' } },
+    { id: operations[1].id, status: 'applied', batch: { id: 9, total: '150.00', items: [{ ticket_id: 41, order_id: 301, total: '75.00' }, { ticket_id: 42, order_id: 302, total: '75.00' }] } }]);
+  assert.deepEqual(store.db.prepare("SELECT server_id, sync_status FROM tickets WHERE json_extract(data, '$.batch_key') = ? ORDER BY server_id").all(payload.idempotency_key)
+    .map((row) => [row.server_id, row.sync_status]), [[301, 'synced'], [302, 'synced']]);
+  assert.equal(store.serviceOverlay(41), null);
 });

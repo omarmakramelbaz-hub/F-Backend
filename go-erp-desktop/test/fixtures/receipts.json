@@ -1048,6 +1048,102 @@
                 }
             },
             "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\" data-dashboard-receipt=\"pos-kitchen\">\n<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>طلب المطبخ 31</title>\n<style>\n*{box-sizing:border-box}body{margin:0;background:#edf1f6;color:#172137;font:13px/1.5 Tahoma,Arial,sans-serif}.receipt{max-width:620px;margin:24px auto;padding:24px;background:#fff;border-radius:12px}.heading{text-align:center;border-bottom:2px solid #172137;padding-bottom:12px}.logo{width:145px;height:145px;object-fit:contain}.heading h1{font-size:20px;margin:4px 0}.heading p{margin:3px 0}.information{margin:12px 0}.information div{display:flex;gap:9px;overflow-wrap:anywhere}.information dt{font-size:11px;color:#687487}.information dd{margin:0}bdi{direction:ltr;unicode-bidi:isolate}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{text-align:start;border-bottom:1px solid #d6dce5;padding:9px 4px;vertical-align:top;overflow-wrap:anywhere}.quantity{width:24%;text-align:end}.option{display:block;font-size:11px;color:#617086}.notes{white-space:pre-line;overflow-wrap:anywhere;border:1px dashed #748294;padding:8px;margin-top:12px}.footer{text-align:center;font-size:11px}.controls{text-align:center;margin-top:16px}.controls button{padding:8px 18px;border:0;border-radius:6px;background:#172137;color:#fff;font:inherit}\n@page{size:auto;margin:0}@media  print{html,body{margin:0;background:#fff;color:#000;font-size:10px}.receipt{width:100%;max-width:80mm;margin:0 auto;padding:3mm 2mm;border-radius:0}.logo{width:40mm;max-width:80%;height:auto;aspect-ratio:1}.heading{padding-bottom:6px;border-color:#000}.heading h1{font-size:15px}.heading p{font-size:10px}.information{margin:7px 0}.information dt,.option,.footer{font-size:9px;color:#000}.information dd{font-size:10px}th,td{padding:6px 2px;font-size:11px;border-color:#888}tr,.heading,.notes{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}.controls{display:none!important}}\n</style></head><body><main class=\"receipt\">\n<header class=\"heading\"><img class=\"logo\" src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\" width=\"1254\" height=\"1254\"><p>فرع المعادي</p><h1>طلب المطبخ</h1><p>رقم الطلب <bdi>PH100-S7-0003</bdi> · إصدار الطلب <bdi>1</bdi></p></header>\n<dl class=\"information\"><div><dt>وقت الإرسال</dt><dd><bdi>31/10/2026 22:05</bdi></dd></div><div><dt>نوع الطلب</dt><dd>دليفري بالتليفون</dd></div>\n    <div><dt>العميل</dt><dd>منى</dd></div>    <div><dt>رقم التليفون</dt><dd><bdi>+201112223334</bdi></dd></div>    <div><dt>المنطقة</dt><dd>المعادي</dd></div>    <div class=\"full-width\"><dt>عنوان التوصيل</dt><dd>شارع النصر، عمارة ٥</dd></div>    <div class=\"full-width\"><dt>ملاحظات التوصيل</dt><dd>الدور الثالث</dd></div>\n<div><dt>شركة التوصيل</dt><dd>شركة سريع · <bdi>01011112222</bdi></dd></div><div><dt>مسافة التوصيل</dt><dd><bdi>4.20</bdi> كم\n · مسافة حساب التطبيق · شريحة التوصيل المسجلة بالفرع\n</dd></div><div><dt>موقع العميل</dt><dd><bdi>29.96, 31.25</bdi></dd></div></dl>\n<table><thead><tr><th>الصنف</th><th class=\"quantity\">الكمية / الوزن</th></tr></thead><tbody><tr><td>بوري مشوي<small class=\"option\">تنظيف</small></td><td class=\"quantity\"><bdi>1.500</bdi> كجم</td></tr><tr><td>سلطة &lt;طحينة&gt;</td><td class=\"quantity\"><bdi>2</bdi> قطعة</td></tr></tbody></table>\n<div class=\"notes\">حار</div><p class=\"footer\">نسخة المطبخ — ليست فاتورة تحصيل</p><div class=\"controls\"><button type=\"button\" onclick=\"window.print()\">طباعة الفاتورة</button></div>\n</main><script>window.addEventListener('load',function(){window.print();});</script></body></html>\n"
+        },
+        {
+            "name": "courier batch receipt",
+            "kind": "batch",
+            "dashboard_print": true,
+            "batch": {
+                "id": 5000000000003,
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "company": {
+                    "id": 1,
+                    "name": "شركة سريع",
+                    "phone": "01011112222",
+                    "contact_name": ""
+                },
+                "courier_name": "سيد",
+                "created_at": "2026-10-31T22:40:00+02:00",
+                "items": [
+                    {
+                        "ticket_id": 31,
+                        "order_id": 9000000000012,
+                        "total": "105.00"
+                    },
+                    {
+                        "ticket_id": 7000000000004,
+                        "order_id": 9000000000013,
+                        "total": "75.50"
+                    }
+                ],
+                "total": "180.50",
+                "payment_method": "cash",
+                "cash_received": "200.00",
+                "change": "19.50",
+                "payment_reference": "",
+                "idempotency_key": "00000000-0000-4000-9000-000000000003"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\" data-dashboard-receipt=\"phone-batch\">\n<head><meta charset=\"utf-8\"><title>إيصال تحصيل الطلبات #5000000000003</title>\n<style>@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}body{font:12px Tahoma,Arial;color:#000;width:72mm;margin:0 auto;overflow-wrap:anywhere}header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}h1{font-size:17px}p{margin:7px 0}table{width:100%;border-collapse:collapse;margin:14px 0}th,td{padding:9px 3px;border-bottom:1px dashed #333;text-align:start}tr{break-inside:avoid}tfoot{font-size:16px;font-weight:bold}footer{margin-top:15px;font-size:11px}</style></head>\n<body><header><img src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\"><h1>إيصال تحصيل الطلبات</h1><p>فرع المعادي</p><bdi>#5000000000003</bdi><p><bdi>2026-10-31 22:40</bdi></p></header>\n<p>شركة المندوب: شركة سريع</p>\n<p>اسم المندوب (اختياري): سيد</p><p>الكاشير: كاشير المعادي</p>\n<table><thead><tr><th>رقم الطلب</th><th>الإجمالي النهائي</th></tr></thead><tbody><tr><td><bdi>#31</bdi></td><td><bdi>105.00</bdi></td></tr><tr><td><bdi>#7000000000004</bdi></td><td><bdi>75.50</bdi></td></tr></tbody><tfoot><tr><td>الإجمالي النهائي</td><td><bdi>180.50</bdi> ج.م</td></tr></tfoot></table>\n<p>وسيلة الدفع: كاش</p>\n<p>المبلغ المستلم: <bdi>200.00</bdi></p><p>الباقي: <bdi>19.50</bdi></p><footer>تم تحصيل قيمة هذه الطلبات. إعادة الطباعة لا تسجل تحصيلًا جديدًا.</footer></body></html>\n"
+        },
+        {
+            "name": "courier batch receipt without a courier name",
+            "kind": "batch",
+            "dashboard_print": false,
+            "batch": {
+                "id": 5000000000003,
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "company": {
+                    "id": 1,
+                    "name": "شركة سريع",
+                    "phone": "01011112222",
+                    "contact_name": ""
+                },
+                "courier_name": "",
+                "created_at": "2026-10-31T22:40:00+02:00",
+                "items": [
+                    {
+                        "ticket_id": 31,
+                        "order_id": 9000000000012,
+                        "total": "105.00"
+                    },
+                    {
+                        "ticket_id": 7000000000004,
+                        "order_id": 9000000000013,
+                        "total": "75.50"
+                    }
+                ],
+                "total": "180.50",
+                "payment_method": "cash",
+                "cash_received": "200.00",
+                "change": "19.50",
+                "payment_reference": "وصل ٥",
+                "idempotency_key": "00000000-0000-4000-9000-000000000003"
+            },
+            "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\" data-dashboard-receipt=\"phone-batch\">\n<head><meta charset=\"utf-8\"><title>إيصال تحصيل الطلبات #5000000000003</title>\n<style>@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}body{font:12px Tahoma,Arial;color:#000;width:72mm;margin:0 auto;overflow-wrap:anywhere}header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}h1{font-size:17px}p{margin:7px 0}table{width:100%;border-collapse:collapse;margin:14px 0}th,td{padding:9px 3px;border-bottom:1px dashed #333;text-align:start}tr{break-inside:avoid}tfoot{font-size:16px;font-weight:bold}footer{margin-top:15px;font-size:11px}</style></head>\n<body><header><img src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\"><h1>إيصال تحصيل الطلبات</h1><p>فرع المعادي</p><bdi>#5000000000003</bdi><p><bdi>2026-10-31 22:40</bdi></p></header>\n<p>شركة المندوب: شركة سريع</p>\n<p>الكاشير: كاشير المعادي</p>\n<table><thead><tr><th>رقم الطلب</th><th>الإجمالي النهائي</th></tr></thead><tbody><tr><td><bdi>#31</bdi></td><td><bdi>105.00</bdi></td></tr><tr><td><bdi>#7000000000004</bdi></td><td><bdi>75.50</bdi></td></tr></tbody><tfoot><tr><td>الإجمالي النهائي</td><td><bdi>180.50</bdi> ج.م</td></tr></tfoot></table>\n<p>وسيلة الدفع: كاش</p>\n<p>المبلغ المستلم: <bdi>200.00</bdi></p><p>الباقي: <bdi>19.50</bdi></p><p>مرجع المعاملة: <bdi>وصل ٥</bdi></p><footer>تم تحصيل قيمة هذه الطلبات. إعادة الطباعة لا تسجل تحصيلًا جديدًا.</footer></body></html>\n"
         }
     ]
 }

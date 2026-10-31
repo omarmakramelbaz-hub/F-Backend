@@ -336,7 +336,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -554,6 +554,34 @@ class DesktopSyncTest extends TestCase
         $late = $this->sync($device, ['operations' => [$this->operation('ticket_dispatch', 4, ['ticket_id' => $other->id, 'company_id' => 7])]])->json('results')[0];
         $this->assertSame(['applied', true], [$late['status'], $late['already_saved'] ?? null]);
         $this->assertSame(1, DB::table('phone_delivery_dispatches')->count());
+    }
+
+    public function test_delivery_orders_a_courier_brought_back_are_collected_together_offline_once(): void
+    {
+        DB::table('branch_delivery_companies')->insert(['id' => 7, 'branch' => 'f:100', 'name' => 'شركة سريع', 'phone' => '01011112222',
+            'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $first = $this->phoneOrder();
+        $second = $this->phoneOrder();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $handoffs = array_map(fn ($order) => $this->operation('ticket_dispatch', 4, ['ticket_id' => $order->id, 'company_id' => 7]), [$first, $second]);
+        $hash = fn ($order) => json_decode($order->quote_snapshot, true)['quote_hash'];
+        // 2 × (2 × 45.50 + 25.00) = 232.00
+        $batch = $this->operation('ticket_batch', 4, ['items' => [['id' => $first->id, 'quote_hash' => $hash($first)], ['id' => $second->id, 'quote_hash' => $hash($second)]],
+            'courier_name' => 'سيد', 'total' => '232.00', 'cash_received' => '250.00']);
+        $results = $this->sync($device, ['operations' => [...$handoffs, $batch]])->assertOk()->json('results');
+        $this->assertSame(['applied', 'applied', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('232.00', $results[2]['batch']['total']);
+        $this->assertSame([(int) $first->id, (int) $second->id], array_column($results[2]['batch']['items'], 'ticket_id'));
+        $this->assertSame(2, DB::table('takeaway_orders')->where('channel', 'phone')->count());
+        $this->assertSame(['finished', 'finished'], DB::table('pos_service_tickets')->orderBy('id')->pluck('status')->all());
+        $this->assertSame(1, DB::table('phone_delivery_batches')->count());
+        $this->assertSame($results[2], $this->sync($device, ['operations' => [$batch]])->json('results')[0], 'A resend repeats nothing');
+        // An order whose amount changed meanwhile: the whole batch is refused, nothing is collected silently.
+        $third = $this->phoneOrder();
+        DB::table('pos_service_tickets')->where('id', $third->id)->update(['status' => 'out_for_delivery']);
+        $stale = $this->operation('ticket_batch', 4, ['items' => [['id' => $third->id, 'quote_hash' => str_repeat('a', 64)]], 'total' => '116.00', 'cash_received' => '116.00']);
+        $this->assertSame('rejected', $this->sync($device, ['operations' => [$stale]])->json('results')[0]['status']);
+        $this->assertSame('unpaid', DB::table('pos_service_tickets')->where('id', $third->id)->value('payment_status'));
     }
 
     public function test_a_bill_printed_or_a_kitchen_ticket_sent_offline_reaches_the_dashboard_order_once(): void

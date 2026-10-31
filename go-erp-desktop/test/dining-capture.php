@@ -62,6 +62,18 @@ $call('GET', '/admin/phone-orders/board?branch=f:100');
 $call('POST', "/admin/phone-orders/tickets/$phone/settle", ['branch' => 'f:100', 'expected_revision' => 3, 'idempotency_key' => $key(), 'quote_hash' => $quote['quote_hash'] ?? '',
     'payment_method' => 'cash', 'cash_received' => '200.00', 'payment_confirmed' => true, 'payment_reference' => '']);
 $call('GET', '/admin/phone-orders/board?branch=f:100');
+// Two delivery orders a courier brought the money for, collected together.
+$batch = [];
+foreach ([1, 2] as $n) {
+    $order = DB::table('pos_service_tickets')->insertGetId(['branch' => 'f:100', 'channel' => 'phone', 'customer_name' => 'عميل '.$n, 'customer_phone' => '+20111222333'.$n,
+        'address' => 'المعادي', 'area' => 'المعادي', 'delivery_cents' => 2500, 'cart_snapshot' => json_encode($saved, JSON_UNESCAPED_UNICODE),
+        'quote_snapshot' => json_encode($q, JSON_UNESCAPED_UNICODE), 'revision' => 1, 'actor_id' => 4, 'status' => 'preparing', 'payment_status' => 'unpaid',
+        'business_date' => now()->toDateString(), 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+    $call('POST', '/admin/phone-orders/dispatch-company', ['branch' => 'f:100', 'ticket_id' => $order, 'company_id' => 7, 'expected_revision' => 1, 'idempotency_key' => $key()]);
+    $batch[] = ['id' => $order, 'revision' => 2, 'quote_hash' => $q['quote_hash']];
+}
+$call('POST', '/admin/phone-orders/finish-batch', ['branch' => 'f:100', 'idempotency_key' => $key(), 'items' => $batch, 'courier_name' => 'سيد', 'total' => '150.00',
+    'payment_method' => 'cash', 'cash_received' => '200.00', 'payment_reference' => '', 'payment_confirmed' => true]);
 file_put_contents($target, json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 echo "captured " . count($out) . "\n";
 foreach ($out as $o) echo $o['status'] . ' ' . $o['method'] . ' ' . $o['path'] . "\n";

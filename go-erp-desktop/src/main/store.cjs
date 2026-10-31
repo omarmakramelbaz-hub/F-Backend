@@ -354,6 +354,22 @@ class Store {
     return row ? { ...row, meta: row.meta ? JSON.parse(row.meta) : {} } : null;
   }
 
+  pageCommandBySeq(seq) {
+    const row = this.db.prepare('SELECT rowid AS seq, * FROM page_commands WHERE rowid = ?').get(seq);
+    return row ? { ...row, meta: row.meta ? JSON.parse(row.meta) : {} } : null;
+  }
+
+  setPageCommandMeta(key, meta) {
+    this.db.prepare('UPDATE page_commands SET meta = ? WHERE key = ?').run(JSON.stringify(meta), key);
+  }
+
+  /** An operation the dashboard pages' offline answers send (other than invoices), queued as it is. */
+  queueOperation(operation) {
+    const stamp = this.now().toISOString();
+    this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, ?, NULL, ?, 'pending', ?, ?)`)
+      .run(operation.id, operation.kind, JSON.stringify({ ...operation, occurred_at: stamp }), stamp, stamp);
+  }
+
   /** The page's own operation number (idempotency_key) with what it did, so a retry gets the same answer. */
   recordPageCommand(key, kind, ticketRef, revision, actor, branch, meta = {}) {
     const result = this.db.prepare('INSERT INTO page_commands (key, kind, ticket_ref, revision, actor_id, branch, meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -415,10 +431,13 @@ class Store {
         created_at, updated_at, paid_at, sync_status, seq, first_print) VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'pending', ?, ?)`)
         .run(values.id, values.branch, values.channel, actor.id, actor.name, String(values.label || '').slice(0, 60), JSON.stringify(values.data), number, day,
           JSON.stringify(values.totals), stamp, stamp, stamp, seq, firstPrint);
-      const operation = { id: values.id, kind: 'ticket_settle', actor_id: actor.id, branch: values.branch, occurred_at: stamp, data: values.operation };
-      this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'ticket_settle', ?, ?, 'pending', ?, ?)`)
-        .run(values.id, values.id, JSON.stringify(operation), stamp, stamp);
-      const overlay = { ...(values.overlay || {}), ops: [...((values.overlay && values.overlay.ops) || []), values.id] };
+      // Its own operation (ticket_settle), or none when it is part of a batch the courier brought back (ticket_batch).
+      if (values.operation) {
+        const operation = { id: values.id, kind: 'ticket_settle', actor_id: actor.id, branch: values.branch, occurred_at: stamp, data: values.operation };
+        this.db.prepare(`INSERT INTO outbox (id, kind, ticket_id, payload, status, created_at, updated_at) VALUES (?, 'ticket_settle', ?, ?, 'pending', ?, ?)`)
+          .run(values.id, values.id, JSON.stringify(operation), stamp, stamp);
+      }
+      const overlay = { ...(values.overlay || {}), ops: [...((values.overlay && values.overlay.ops) || []), ...(values.operation ? [values.id] : [])] };
       this.db.prepare('INSERT INTO service_overlays (ticket_id, data) VALUES (?, ?) ON CONFLICT(ticket_id) DO UPDATE SET data = excluded.data')
         .run(values.server_ticket_id, JSON.stringify(overlay));
       if (values.phone) this.rememberCustomer(values.phone, { customer_name: values.data.customer_name || '', address: values.data.address || '' }, values.totals.total_cents, stamp);
@@ -832,6 +851,12 @@ class Store {
         if (result.status === 'applied') {
           this.db.prepare("UPDATE outbox SET status = 'done', result = ?, last_error = NULL, updated_at = ? WHERE id = ?").run(JSON.stringify(result), now, row.id);
           const receipt = result.receipt || {};
+          if (row.kind === 'ticket_batch' && result.batch && Array.isArray(result.batch.items)) {
+            for (const line of result.batch.items) {
+              this.db.prepare(`UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, synced_at = ? WHERE json_extract(data, '$.batch_key') = ?
+                AND json_extract(data, '$.server_ticket_id') = ?`).run(line.order_id ?? null, now, row.id, line.ticket_id);
+            }
+          }
           if (row.ticket_id && row.kind === 'ticket_open') {
             // Moved to the dashboard: the order now lives there.
             this.db.prepare("UPDATE tickets SET status = 'moved', sync_status = 'synced', sync_error = NULL, server_id = ?, synced_at = ? WHERE id = ?")
@@ -851,6 +876,9 @@ class Store {
           this.db.prepare("UPDATE outbox SET status = 'rejected', result = ?, last_error = ?, updated_at = ? WHERE id = ?")
             .run(JSON.stringify(result), result.error || 'تم رفض العملية.', now, row.id);
           if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'rejected', sync_error = ? WHERE id = ?").run(result.error || 'تم رفض العملية.', row.ticket_id);
+          if (row.kind === 'ticket_batch') {
+            this.db.prepare("UPDATE tickets SET sync_status = 'rejected', sync_error = ? WHERE json_extract(data, '$.batch_key') = ?").run(result.error || 'تم رفض العملية.', row.id);
+          }
           if (row.journal_id) this.db.prepare("UPDATE journal SET sync_status = 'rejected', sync_error = ? WHERE id = ?").run(result.error || 'تم رفض العملية.', row.journal_id);
         } else {
           this.db.prepare('UPDATE outbox SET attempts = attempts + 1, updated_at = ? WHERE id = ?').run(now, row.id);

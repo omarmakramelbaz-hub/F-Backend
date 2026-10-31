@@ -121,7 +121,8 @@ class DashboardOffline {
       // Dine-in orders opened on this device while offline, and the kitchen tickets printed here.
       { urlPattern: this.origin + '/admin/dining/tickets/7*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/dining/kitchen/6*', requestStage: 'Request' },
-      { urlPattern: this.origin + '/admin/phone-orders/kitchen/6*', requestStage: 'Request' }];
+      { urlPattern: this.origin + '/admin/phone-orders/kitchen/6*', requestStage: 'Request' },
+      { urlPattern: this.origin + '/admin/phone-orders/batches/5*', requestStage: 'Request' }];
   }
 
   async attach(contents) {

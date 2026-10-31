@@ -618,9 +618,20 @@ async function dashboardOffline() {
   // The delivery page offline: the open order handed to the company, its bill printed and collected.
   await inDashboard(app, "location.href = '/admin/phone-orders?view=orders'");
   const card = "document.querySelector('[data-phone-column=\"%s\"] [data-phone-ticket]')";
-  await checked(`!!${card.replace('%s', 'preparing')}`, 'the delivery board opens offline with the open order', 30000);
+  await checked(`!!${card.replace('%s', 'preparing')} && document.querySelectorAll('[data-phone-column="courier"] [data-phone-ticket]').length === 2`,
+    'the delivery board opens offline with the open orders', 30000);
   await dashboardShot(app, '20-dashboard-delivery-offline');
   const press = (column, label) => inDashboard(app, `Array.from(${card.replace('%s', column)}.querySelectorAll('button')).find((b) => b.textContent.includes('${label}')).click()`);
+  // The courier of شركة سريع brings the money for the two orders he took (2 × 105.00 = 210.00), collected together.
+  await inDashboard(app, `document.querySelectorAll('[data-phone-batch-select]').forEach((check) => { check.checked = true; check.dispatchEvent(new Event('change', { bubbles: true })); })`);
+  await checked("!document.querySelector('[data-phone-batch-finish]').disabled", 'both orders are selected');
+  await inDashboard(app, "document.querySelector('[data-phone-batch-finish]').click()");
+  await checked("!!document.querySelector('[data-phone-batch-cash]') && document.querySelector('[data-phone-batch-cash]').value === '210.00'", 'the batch collection opens');
+  await inDashboard(app, `(() => { const courier = document.querySelector('[data-phone-batch-courier]'); courier.value = 'سيد';
+    document.querySelector('[data-phone-batch-confirmed]').click(); document.querySelector('[data-phone-batch-submit]').click(); })()`);
+  await checked("document.querySelectorAll('[data-phone-column=\"finished\"] [data-phone-ticket]').length === 2 && !document.querySelector('[data-phone-column=\"courier\"] [data-phone-ticket]')",
+    'the courier\'s orders are collected together on the device', 30000);
+  await dashboardShot(app, '20b-dashboard-delivery-batch-offline');
   await press('preparing', 'اختيار شركة التوصيل');
   await checked("!!document.querySelector('[data-phone-board-company]')", 'the courier choice opens');
   await inDashboard(app, "(() => { const select = document.querySelector('[data-phone-board-company]'); select.value = select.options[1].value; select.dispatchEvent(new Event('change', { bubbles: true })); })()");
@@ -631,7 +642,7 @@ async function dashboardOffline() {
   await press('courier', 'إنهاء الأوردر');
   await checked("!!document.querySelector('[data-phone-settle-cash]')", 'the collection opens');
   await inDashboard(app, "(() => { document.querySelector('[data-phone-settle-confirmed]').click(); document.querySelector('[data-phone-settle-submit]').click(); })()");
-  await checked(`!!${card.replace('%s', 'finished')}`, 'the delivery order is collected on the device', 30000);
+  await checked("document.querySelectorAll('[data-phone-column=\"finished\"] [data-phone-ticket]').length === 3", 'the delivery order is collected on the device', 30000);
   await dashboardShot(app, '21-dashboard-delivery-collected-offline');
   // A page this account never saved explains that it needs the internet, inside the dashboard.
   await inDashboard(app, "window.DashboardSPA && window.DashboardSPA.visit('/admin/wallets/transactions')");
@@ -656,10 +667,11 @@ async function dashboardOffline() {
   await until(() => serverRows(`SELECT payment_status FROM pos_service_tickets WHERE id = ${seated.id}`)[0].payment_status === 'paid', 'the dashboard order is closed', 40000);
   assert.ok(serverRows(`SELECT bill_issued_at FROM pos_service_tickets WHERE id = ${seated.id}`)[0].bill_issued_at, 'with its bill printed');
   assert.equal(serverRows('SELECT COUNT(*) AS c FROM pos_service_tables WHERE active_ticket_id IS NOT NULL')[0].c, 0, 'Every table is free');
-  await until(() => serverRows("SELECT payment_status FROM pos_service_tickets WHERE channel = 'phone'")[0].payment_status === 'paid', 'the delivery order is collected', 40000);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM pos_service_tickets WHERE channel = 'phone' AND payment_status = 'paid' AND status = 'finished'")[0].c === 3,
+    'the delivery orders are collected', 40000);
   assert.equal(serverRows('SELECT COUNT(*) AS c FROM phone_delivery_dispatches')[0].c, 1, 'handed to the courier once');
-  assert.equal(serverRows("SELECT status FROM pos_service_tickets WHERE channel = 'phone'")[0].status, 'finished');
-  assert.equal(orderCount(), before + 4, 'The takeaway sale, the new dine-in order, the dashboard order and the delivery order: each once');
+  assert.deepEqual(serverRows('SELECT total_cents FROM phone_delivery_batches').map((row) => row.total_cents), [21000], 'The courier\'s batch, once');
+  assert.equal(orderCount(), before + 6, 'The takeaway sale, the new dine-in order, the dashboard order and three delivery orders: each once');
   await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
   await app.close();
 }

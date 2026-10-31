@@ -7,14 +7,16 @@
 //  - An order open on the dashboard can be sent to the kitchen, have its bill printed and be paid here. Each of these is
 //    sent with the page's own operation number (ticket_action, ticket_settle): the dashboard applies it to that same
 //    order once, even if the page's request had reached it just before the connection dropped.
+const crypto = require('node:crypto');
 const money = require('../money.cjs');
 const rules = require('../rules.cjs');
-const { renderReceipt, renderKitchen, ticketBill } = require('./receipt.cjs');
+const { renderReceipt, renderKitchen, renderBatch, ticketBill } = require('./receipt.cjs');
 const { TakeawayOffline, LOCAL_RECEIPT_BASE, cairoIso, permissions, register, Reply, json, invalid, sha256, notFound, UUID, BRANCH } = require('./takeaway.cjs');
 
 // Orders opened on this device and kitchen tickets printed here get ids far above the dashboard's own.
 const LOCAL_TICKET_BASE = 7000000000000;
 const LOCAL_KITCHEN_BASE = 6000000000000;
+const LOCAL_BATCH_BASE = 5000000000000;
 const ALL_BRANCHES = 'جميع الفروع';
 const CLOSED = 'الفاتورة أُغلقت.';
 const CHANGED = 'تغيرت الفاتورة.';
@@ -74,7 +76,7 @@ class ServiceOffline {
     const rest = pathname.slice(base.length);
     const routes = { 'GET /catalog': 'catalog', 'POST /quote': 'quote', 'GET /tickets': 'tickets', 'POST /tickets/save': 'save', 'GET /recover': 'recover' };
     if (this.channel === 'dine') routes['GET /tables'] = 'tables';
-    else Object.assign(routes, { 'GET /board': 'board', 'POST /dispatch-company': 'dispatch' });
+    else Object.assign(routes, { 'GET /board': 'board', 'POST /dispatch-company': 'dispatch', 'POST /finish-batch': 'finishBatch' });
     const name = routes[`${method} ${rest}`];
     if (name) return { handle: (request) => this[name](request) };
     const ticket = /^\/tickets\/([1-9][0-9]{0,15})(?:\/(action|settle|details|print))?$/.exec(rest);
@@ -83,6 +85,11 @@ class ServiceOffline {
       if (method !== (['action', 'settle'].includes(kind) ? 'POST' : 'GET')) return null;
       const id = Number(ticket[1]);
       return { always: id > LOCAL_TICKET_BASE, handle: (request) => this[kind](request, id) };
+    }
+    const batch = this.channel === 'phone' && /^\/batches\/([1-9][0-9]{0,15})\/print$/.exec(rest);
+    if (batch && method === 'GET') {
+      const id = Number(batch[1]);
+      return { always: id > LOCAL_BATCH_BASE, handle: (request) => this.batchPrint(request, id) };
     }
     const kitchen = /^\/kitchen\/([1-9][0-9]{0,15})\/print$/.exec(rest);
     if (kitchen && method === 'GET') {
@@ -725,6 +732,97 @@ class ServiceOffline {
     return json({ ...result, replayed: false });
   }
 
+  // ---- POST finish-batch (delivery): the orders a courier brought the money for, collected together (ticket_batch) ----
+  finishBatch({ user: who, body }) {
+    const user = this.user({ user: who });
+    const command = this.command(body);
+    const items = Array.isArray(body.items) ? body.items : null;
+    if (!items || !items.length || items.length > 50) throw invalid('items', 'اختر الطلبات.');
+    const lines = items.map((item) => ({ id: positiveInt(item && item.id), revision: positiveInt(item && item.revision),
+      quote_hash: String((item && item.quote_hash) || '') }));
+    if (lines.some((line) => !line.id || !line.revision || !/^[a-f0-9]{64}$/i.test(line.quote_hash))
+      || new Set(lines.map((line) => line.id)).size !== lines.length) throw invalid('items', 'اختر الطلبات.');
+    const courier = text(body.courier_name, 100);
+    if (!['cash', 'card', 'mobile_wallet', 'other'].includes(body.payment_method)) throw invalid('payment_method', 'اختر طريقة الدفع.');
+    if (!yes(body.payment_confirmed) && !['yes', 'on'].includes(body.payment_confirmed)) throw invalid('payment_confirmed', 'أكد تحصيل قيمة الطلبات.');
+    const amount = (value) => {
+      let cents;
+      try { cents = money.minor(String(value ?? '')); } catch { throw new Reply(422, 'أدخل مبلغًا صحيحًا بمنزلتين عشريتين.'); }
+      if (cents < 0 || cents > 100000000) throw new Reply(422, 'المبلغ خارج الحدود المسموحة.');
+      return cents;
+    };
+    const expected = amount(body.total);
+    const received = body.payment_method === 'cash' ? amount(body.cash_received) : 0;
+    const hash = sha256(['phone.batch', command, lines, courier, expected, body.payment_method, received, text(body.payment_reference, 150)]);
+    const done = this.store.pageCommand(command.key);
+    if (done) {
+      if (done.actor_id !== user.id || done.branch !== command.branch || done.meta.hash !== hash) throw new Reply(409, 'رقم العملية مستخدم لبيانات مختلفة.');
+      return json({ ...done.meta.result, replayed: true });
+    }
+    const catalog = this.takeaway.branch(user, command.branch);
+    if (!user.can_checkout) throw new Reply(403, 'الحساب غير مسموح له بالبيع.');
+    if (body.payment_method !== 'cash') throw new Reply(422, 'الدفع متاح كاش فقط.');
+    if (!this.supports('ticket_batch')) throw new Reply(422, NEEDS_UPDATE);
+    // PhoneDeliveryBoard::finish, order by order.
+    let total = 0;
+    let company = null;
+    const orders = [];
+    for (const line of [...lines].sort((a, b) => a.id - b.id)) {
+      const found = this.find(user, line.id);
+      if (found.branch !== command.branch || !found.server) throw new Reply(404, NOT_HERE);
+      const ticket = this.presentServer(user, found.server, found.overlay, true);
+      if (ticket.payment_status !== 'unpaid' || !['out_for_delivery', 'finished'].includes(ticket.status)) throw new Reply(409, 'أحد الطلبات تم تحصيله أو تغيرت مرحلته. حدّث القائمة.');
+      if (line.revision !== Number(ticket.revision)) throw new Reply(409, 'البيانات تغيرت. حدّث الصفحة قبل الحفظ.');
+      if (ticket.quote_hash !== line.quote_hash) throw new Reply(409, 'تغيرت قيمة أحد الطلبات.');
+      const assigned = (found.overlay && found.overlay.courier_company) || found.server.courier_company || ticket.delivery_company;
+      if (!assigned || !assigned.id) throw new Reply(422, 'يجب إسناد الطلب إلى شركة توصيل أولًا.');
+      if (company && Number(company.id) !== Number(assigned.id)) throw new Reply(422, 'اختر طلبات شركة واحدة لمندوب واحد.');
+      company = company || assigned;
+      total += cents(ticket.total);
+      orders.push({ found, ticket });
+    }
+    if (total !== expected) throw new Reply(409, 'راجع إجمالي الطلبات المحددة.');
+    if (received < total) throw new Reply(422, 'النقد المستلم أقل من إجمالي الطلبات.');
+    const stamp = cairoIso(this.now().toISOString());
+    let result;
+    this.store.atomically(() => {
+      this.store.queueOperation({ id: command.key, kind: 'ticket_batch', actor_id: user.id, branch: command.branch, data: { items: orders.map(({ ticket }) => ({
+        id: ticket.id, quote_hash: ticket.quote_hash })), courier_name: courier, total: money.decimal(total), cash_received: money.decimal(received) } });
+      const paid = orders.map(({ found, ticket }) => {
+        // Each order: a paid invoice on the device under the batch (the dashboard pays them all with the batch).
+        const id = derivedKey(command.key, String(ticket.id));
+        const revision = Number(ticket.revision) + 1;
+        const phone = rules.normalizePhone(ticket.customer_phone) || '';
+        const record = this.store.recordServerPayment(user, { id, branch: command.branch, channel: 'phone', label: '', phone, operation: null,
+          totals: this.totals(ticket, cents(ticket.total)), server_ticket_id: Number(ticket.id),
+          data: { source: 'dashboard', kind: 'payment', server_ticket_id: Number(ticket.id), server_ticket: ticket, page_ticket_id: ticket.id, settle_key: id,
+            batch_key: command.key, revision, customer_name: ticket.customer_name || '', customer_phone: phone, address: ticket.address || '',
+            notes: ticket.notes || '', discount_reason: ticket.discount_reason || '', table_name: '', context: this.context(ticket, phone, false), service_consent: false },
+          overlay: { ...(found.overlay || {}), base_revision: found.overlay ? found.overlay.base_revision : Number(found.server.revision), revision, paid: id, phone,
+            updated_at: stamp, ops: [...((found.overlay && found.overlay.ops) || []), command.key] } });
+        return { ticket_id: Number(ticket.id), order_id: LOCAL_RECEIPT_BASE + record.seq, total: ticket.total };
+      });
+      const recorded = this.store.recordPageCommand(command.key, 'phone.batch', 'B:' + command.key, 0, user, command.branch, { hash });
+      const id = LOCAL_BATCH_BASE + recorded.seq;
+      const snapshot = { branch: catalog.branch, cashier: { id: user.id, name: user.name }, company, courier_name: courier, created_at: stamp, items: paid,
+        total: money.decimal(total), payment_method: 'cash', cash_received: money.decimal(received), change: money.decimal(received - total),
+        payment_reference: text(body.payment_reference, 150), idempotency_key: command.key };
+      result = { operation: { kind: 'phone.batch', idempotency_key: command.key }, batch: { ...snapshot, id, print_url: this.url(`/batches/${id}/print`) }, success: true };
+      this.store.setPageCommandMeta(command.key, { hash, result });
+    });
+    this.kick();
+    return json({ ...result, replayed: false });
+  }
+
+  // ---- GET batches/{id}/print (delivery): the courier's receipt of a batch collected on this device ----
+  batchPrint({ user: who, url }, id) {
+    const user = this.user({ user: who });
+    const done = id > LOCAL_BATCH_BASE ? this.store.pageCommandBySeq(id - LOCAL_BATCH_BASE) : null;
+    const batch = done && done.kind === 'phone.batch' && done.meta.result && done.meta.result.batch;
+    if (!batch || !user.branches.includes(done.branch)) return { status: 404, html: notFound('الإيصال غير محفوظ على هذا الجهاز.') };
+    return { status: 200, html: renderBatch(batch, { origin: this.origin }) };
+  }
+
   // ---- GET recover: a write the page is unsure about ----
   recover({ user: who, url }) {
     const user = this.user({ user: who });
@@ -779,4 +877,10 @@ class ServiceOffline {
   }
 }
 
-module.exports = { ServiceOffline, LOCAL_TICKET_BASE, LOCAL_KITCHEN_BASE };
+/** A fixed operation number for one part of an operation (the dashboard's DesktopSyncOperations::derivedKey). */
+function derivedKey(id, step) {
+  const hex = crypto.createHash('sha256').update(`${id}:${step}`).digest('hex').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+module.exports = { ServiceOffline, LOCAL_TICKET_BASE, LOCAL_KITCHEN_BASE, LOCAL_BATCH_BASE };

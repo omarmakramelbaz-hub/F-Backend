@@ -25,7 +25,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -75,6 +75,7 @@ class DesktopSyncOperations
                 'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
                 'ticket_action' => $this->ticketAction($actor, $values['branch'], $id, $values['data']),
                 'ticket_dispatch' => $this->ticketDispatch($actor, $values['branch'], $id, $values['data']),
+                'ticket_batch' => $this->ticketBatch($actor, $values['branch'], $id, $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -331,6 +332,34 @@ class DesktopSyncOperations
         app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->dispatch(['branch' => $branch, 'idempotency_key' => $id, 'ticket_id' => (int) $row->id,
             'company_id' => (int) $data['company_id'], 'expected_revision' => (int) $row->revision], $actor);
         return $summary(DB::table('pos_service_tickets')->where('id', $row->id)->first());
+    }
+
+    /**
+     * Delivery orders a courier brought the money for, collected together on the device while offline (the delivery
+     * board's batch). The dashboard records the same batch once; the device's copy may be older than the orders (handed
+     * over, bill printed since), so each is collected as it is now when it still costs the same, and refused otherwise.
+     */
+    private function ticketBatch(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['items' => 'required|array|min:1|max:50', 'items.*.id' => 'required|integer|min:1|distinct',
+            'items.*.quote_hash' => 'required|string|size:64', 'courier_name' => 'nullable|string|max:100', 'total' => 'required|string|max:14',
+            'cash_received' => 'required|string|max:14'])->validate();
+        $actor = $this->access->actor($actor);
+        $summary = fn (array $batch, bool $already = false) => ['batch' => ['id' => (int) $batch['id'], 'total' => (string) $batch['total'],
+            'items' => array_map(fn ($line) => ['ticket_id' => (int) $line['ticket_id'], 'order_id' => (int) $line['order_id'], 'total' => (string) $line['total']],
+                $batch['items'])]] + ($already ? ['already_saved' => true] : []);
+        $done = DB::table('branch_operation_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if ($done) return $summary(json_decode($done->result, true)['batch'], true);
+        $items = [];
+        foreach ($data['items'] as $item) {
+            $revision = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', 'phone')->where('id', (int) $item['id'])->value('revision');
+            abort_unless($revision !== null, 404, 'أحد الطلبات غير موجود على الداشبورد.');
+            $items[] = ['id' => (int) $item['id'], 'revision' => (int) $revision, 'quote_hash' => $item['quote_hash']];
+        }
+        $result = app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->finish(['branch' => $branch, 'idempotency_key' => $id, 'items' => $items,
+            'courier_name' => $data['courier_name'] ?? '', 'total' => $data['total'], 'payment_method' => 'cash', 'cash_received' => $data['cash_received'],
+            'payment_reference' => '', 'payment_confirmed' => true], $actor, true);
+        return $summary($result['batch']);
     }
 
     /** The paid order as the device keeps it. */
