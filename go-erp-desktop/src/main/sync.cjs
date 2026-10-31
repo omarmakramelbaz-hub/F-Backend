@@ -61,6 +61,8 @@ class SyncEngine extends EventEmitter {
       const refresh = forceRefresh || !this.lastRefresh || this.now() - this.lastRefresh >= this.refreshEveryMs || this.store.userCount() === 0;
       this.emit('status', { ...this.status(), running: true });
       let response;
+      // Being sent now: a move of an order to the dashboard can no longer be called off (see Store#cancelTicketMove).
+      this.store.sending = new Set(operations.map((operation) => operation.id));
       try {
         response = await this.api.sync(device, this.token(), {
           operations, want_users: refresh, users_hash: this.store.usersHash(), want_catalogs: refresh, catalog_hashes: this.store.catalogHashes(),
@@ -73,6 +75,8 @@ class SyncEngine extends EventEmitter {
         this.state.last_error = error.message;
         if (error.status === 401) this.state.device_revoked = true;
         return;
+      } finally {
+        this.store.sending = null;
       }
       this.store.applyResults(response.results || []);
       if (Array.isArray(response.kinds)) this.store.set('server_kinds', response.kinds);
@@ -86,6 +90,8 @@ class SyncEngine extends EventEmitter {
       this.state = { ...this.state, online: true, last_sync_at: syncedAt, last_error: null };
       // A full batch means more operations are waiting: continue right away.
       if (operations.length >= 50) next = 1000;
+      // The dashboard is reachable: dine-in orders opened offline and still unpaid continue there.
+      if (this.store.queueTicketMoves() > 0) next = 1000;
     } finally {
       this.schedule(next);
     }

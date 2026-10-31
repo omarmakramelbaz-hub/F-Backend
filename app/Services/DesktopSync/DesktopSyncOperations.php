@@ -25,7 +25,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -73,6 +73,8 @@ class DesktopSyncOperations
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
                 'ticket_settle' => $this->ticketSettle($actor, $values['branch'], $id, $values['data']),
                 'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
+                'ticket_action' => $this->ticketAction($actor, $values['branch'], $id, $values['data']),
+                'ticket_dispatch' => $this->ticketDispatch($actor, $values['branch'], $id, $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -240,7 +242,13 @@ class DesktopSyncOperations
             return ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'], 'status' => (string) $ticket['status']],
                 'receipt' => $order ? $this->receipt((int) $order, $actor) : null, 'already_saved' => true];
         }
-        $values = ['branch' => $branch, 'idempotency_key' => $id, 'expected_revision' => (int) $data['expected_revision'], 'quote_hash' => $data['quote_hash'],
+        // The order may have moved on since the device's copy (its bill printed, sent to the kitchen) without changing what it
+        // costs: the payment then applies to the order as it is now. A different amount is never collected silently.
+        $revision = (int) $data['expected_revision'];
+        $row = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', $data['channel'])->where('id', (int) $data['ticket_id'])->first();
+        if ($row && $row->payment_status === 'unpaid' && $row->status !== 'cancelled'
+            && hash_equals((string) (json_decode($row->quote_snapshot, true)['quote_hash'] ?? ''), $data['quote_hash'])) $revision = (int) $row->revision;
+        $values = ['branch' => $branch, 'idempotency_key' => $id, 'expected_revision' => $revision, 'quote_hash' => $data['quote_hash'],
             'payment_method' => 'cash', 'cash_received' => $data['cash_received'], 'payment_confirmed' => true];
         if ($data['channel'] === 'dine') $values += ['customer_phone' => $data['customer_phone'] ?? null, 'service_consent' => (bool) ($data['service_consent'] ?? false)];
         $result = $tickets->settle($data['channel'], (int) $data['ticket_id'], $values, $actor, true);
@@ -278,6 +286,51 @@ class DesktopSyncOperations
         }
         return ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'], 'status' => (string) $ticket['status'],
             'number' => (string) ($ticket['number'] ?? '')]];
+    }
+
+    /**
+     * Done on the device while offline to a dine-in or delivery order open on the dashboard: sent to the kitchen, or its
+     * bill printed. Applied to the order as it is now when it still costs the same; already done there, nothing repeats.
+     */
+    private function ticketAction(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['channel' => 'required|in:dine,phone', 'ticket_id' => 'required|integer|min:1',
+            'action' => 'required|in:send_kitchen,request_bill', 'quote_hash' => 'required|string|size:64'])->validate();
+        abort_unless($data['action'] === 'request_bill' || $data['channel'] === 'dine', 422, 'الإجراء غير متاح لهذا الطلب.');
+        $tickets = app(PosServiceTicket::class);
+        $actor = $this->access->actor($actor);
+        $summary = fn (array $ticket, bool $already = false) => ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'],
+            'status' => (string) $ticket['status']]] + ($already ? ['already_saved' => true] : []);
+        $command = DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if ($command) return $summary($tickets->show($data['channel'], (int) $command->ticket_id, $actor)['ticket'], true);
+        $row = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', $data['channel'])->where('id', (int) $data['ticket_id'])->first();
+        abort_unless($row, 404, 'الطلب غير موجود على الداشبورد.');
+        $ticket = $tickets->show($data['channel'], (int) $row->id, $actor)['ticket'];
+        $done = $data['action'] === 'send_kitchen' ? $ticket['kitchen_sent'] : $ticket['bill_locked'];
+        if ($done || $ticket['payment_status'] !== 'unpaid' || $ticket['status'] === 'cancelled') return $summary($ticket, true);
+        abort_unless(hash_equals((string) $ticket['quote_hash'], $data['quote_hash']), 409, 'تغيّر الطلب على الداشبورد قبل وصول ما تم على الجهاز.');
+        $result = $tickets->action($data['channel'], (int) $row->id, ['branch' => $branch, 'idempotency_key' => $id,
+            'expected_revision' => (int) $ticket['revision'], 'action' => $data['action']], $actor);
+        return $summary($result['ticket']);
+    }
+
+    /**
+     * A delivery order handed to a delivery company on the device while offline (the delivery board's dispatch). Applied
+     * once; an order the dashboard already moved on (handed over, paid, cancelled) is left as it is.
+     */
+    private function ticketDispatch(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['ticket_id' => 'required|integer|min:1', 'company_id' => 'required|integer|min:1'])->validate();
+        $actor = $this->access->actor($actor);
+        $summary = fn (object $row, bool $already = false) => ['ticket' => ['id' => (int) $row->id, 'revision' => (int) $row->revision,
+            'status' => (string) $row->status]] + ($already ? ['already_saved' => true] : []);
+        $row = DB::table('pos_service_tickets')->where('branch', $branch)->where('channel', 'phone')->where('id', (int) $data['ticket_id'])->first();
+        abort_unless($row, 404, 'الطلب غير موجود على الداشبورد.');
+        $done = DB::table('branch_operation_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->exists();
+        if ($done || $row->payment_status !== 'unpaid' || ! in_array($row->status, ['new', 'preparing'], true)) return $summary($row, true);
+        app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->dispatch(['branch' => $branch, 'idempotency_key' => $id, 'ticket_id' => (int) $row->id,
+            'company_id' => (int) $data['company_id'], 'expected_revision' => (int) $row->revision], $actor);
+        return $summary(DB::table('pos_service_tickets')->where('id', $row->id)->first());
     }
 
     /** The paid order as the device keeps it. */

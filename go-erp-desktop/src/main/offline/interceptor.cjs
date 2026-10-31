@@ -3,7 +3,8 @@
 // protocol), so online everything (sign-in, cookies, uploads, redirects) behaves exactly as in a normal browser:
 //   online:  every page and file the dashboard loads is saved on the device (pages under the signed-in account);
 //            a request the network cannot deliver is answered from the device instead of failing;
-//   offline: the same pages open from that copy, the cashier page's requests are answered from the device's database,
+//   offline: the same pages open from that copy, the requests of the cashier, dine-in, delivery, expenses and employees
+//            pages are answered from the device's database,
 //            and anything that needs the server gets the dashboard's usual error message asking for the internet.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -116,7 +117,11 @@ class DashboardOffline {
     return [...READ_TYPES.map((resourceType) => ({ urlPattern: '*', resourceType, requestStage: 'Response' })),
       { urlPattern: '*', resourceType: 'Font', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/takeaway/receipts/9*', requestStage: 'Request' },
-      { urlPattern: this.origin + '/admin/branch-expenses/8*', requestStage: 'Request' }];
+      { urlPattern: this.origin + '/admin/branch-expenses/8*', requestStage: 'Request' },
+      // Dine-in orders opened on this device while offline, and the kitchen tickets printed here.
+      { urlPattern: this.origin + '/admin/dining/tickets/7*', requestStage: 'Request' },
+      { urlPattern: this.origin + '/admin/dining/kitchen/6*', requestStage: 'Request' },
+      { urlPattern: this.origin + '/admin/phone-orders/kitchen/6*', requestStage: 'Request' }];
   }
 
   async attach(contents) {
@@ -193,14 +198,17 @@ class DashboardOffline {
     if (NETWORK_FAILURES.has(reason)) {
       const signal = reason !== 'Failed' && SIGNAL_TYPES.has(params.resourceType) && new URL(params.request.url).origin === this.origin;
       if (signal) this.onNetworkFailure(reason, params.request.url);
-      reply = await this.answer(contents, params, true);
+      reply = await this.answer(contents, params, true, true);
     }
     if (reply) return this.fulfill(contents, params.requestId, reply);
     return this.send(contents, 'Fetch.failRequest', { requestId: params.requestId, errorReason: reason });
   }
 
-  /** What the device answers for this request, or null to leave it to the network. */
-  async answer(contents, { request, resourceType }, offline) {
+  /**
+   * What the device answers for this request, or null to leave it to the network. attempted: the request went out and
+   * its answer was lost (it may have reached the dashboard).
+   */
+  async answer(contents, { request, resourceType }, offline, attempted = false) {
     let url;
     try { url = new URL(request.url); } catch { return null; }
     const same = url.origin === this.origin;
@@ -219,7 +227,9 @@ class DashboardOffline {
     if (!offline) return null;
     if (same && /^\/admin\/(adminLogout|logout)\/?$/i.test(url.pathname)) return { status: 302, location: this.origin + '/admin/login' };
     if (same && /^\/admin\/login\/?$/i.test(url.pathname)) return { status: 200, html: signedOutPage() };
-    if (!['GET', 'HEAD'].includes(request.method)) return same ? { status: 503, json: { success: false, message: NEEDS_INTERNET } } : null;
+    // A write the device cannot do: never sent, so the page shows why and stays usable (422); sent but unanswered, it may
+    // have been done (503: the page keeps it pending and checks again once online).
+    if (!['GET', 'HEAD'].includes(request.method)) return same ? { status: attempted ? 503 : 422, json: { success: false, message: NEEDS_INTERNET } } : null;
     const document = resourceType === 'Document';
     const spa = header(request.headers, 'x-dashboard-spa') === '1';
     if (same && user) {

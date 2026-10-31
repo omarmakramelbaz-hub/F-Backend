@@ -88,6 +88,11 @@ class EmployeesOffline {
     const key = url.searchParams.get('idempotency_key') || '';
     const entry = UUID.test(key) ? this.store.journalEntry(key) : null;
     if (!entry || entry.kind !== 'attendance' || entry.actor_id !== user.id || entry.branch !== (url.searchParams.get('branch') || '')) {
+      // The delivery board's hand-off to a courier, done on this device, is recovered the same way.
+      const done = UUID.test(key) ? this.store.pageCommand(key) : null;
+      if (done && done.kind === 'phone.dispatch' && done.actor_id === user.id && done.branch === (url.searchParams.get('branch') || '')) {
+        return json({ ...done.meta.result, found: true, replayed: true });
+      }
       return json({ success: true, found: false });
     }
     return json({ success: true, found: true, replayed: true, attendance: this.day(entry.branch, entry.data.employee_id, entry.data.day) });

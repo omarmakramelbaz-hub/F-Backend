@@ -164,13 +164,16 @@ class TakeawayOffline {
     return { branch: body.branch, items, discount_cents: discount, discount_reason: String(body.discount_reason || '').trim() };
   }
 
-  /** TakeawayService::price, with the device's menu version (DesktopPosQuote: what the dashboard checks on sync). */
-  price(user, catalog, cart) {
+  /**
+   * TakeawayService::quote, with the device's menu version (DesktopPosQuote: what the dashboard checks on sync).
+   * channel: takeaway, or dine (the dine-in page: the branch's service charge is added).
+   */
+  price(user, catalog, cart, channel = 'takeaway') {
     if (cart.discount_cents > 0 && !user.can_manage) throw new Reply(403, 'الخصم متاح للمالك أو الإدارة المخولة فقط.');
     if (cart.discount_cents > 0 && !cart.discount_reason) throw invalid('discount_reason', 'اكتب سبب الخصم.');
     let quote;
     try {
-      quote = money.quote(catalog, { channel: 'takeaway', items: cart.items, discount_cents: cart.discount_cents });
+      quote = money.quote(catalog, { channel, items: cart.items, discount_cents: cart.discount_cents });
     } catch (error) {
       throw new Reply(422, error.message);
     }
@@ -180,13 +183,17 @@ class TakeawayOffline {
         quantity_mode: line.quantity_mode, quantity_millis: line.quantity_millis, quantity: line.quantity, unit_price_cents: line.unit_price_cents,
         unit_price: money.decimal(line.unit_price_cents), total_cents: line.total_cents, total: money.decimal(line.total_cents) };
     });
-    const hash = sha256(['device', catalog.snapshot_id, cart.branch, items.map((line) => [line.product_id, line.option_id, line.quantity_mode,
-      line.quantity_millis, line.unit_price_cents, line.total_cents]), quote.discount_cents, cart.discount_reason, quote.tax_bps, quote.tax_cents, quote.total_cents]);
+    const lines = items.map((line) => [line.product_id, line.option_id, line.quantity_mode, line.quantity_millis, line.unit_price_cents, line.total_cents]);
+    const hash = channel === 'takeaway'
+      ? sha256(['device', catalog.snapshot_id, cart.branch, lines, quote.discount_cents, cart.discount_reason, quote.tax_bps, quote.tax_cents, quote.total_cents])
+      : sha256(['device', channel, catalog.snapshot_id, cart.branch, lines, quote.discount_cents, cart.discount_reason, quote.service_bps,
+        quote.service_cents, quote.tax_bps, quote.tax_cents, quote.total_cents]);
     return { quote, result: { success: true, quote_hash: hash, branch: catalog.branch, items,
       subtotal_cents: quote.subtotal_cents, discount_cents: quote.discount_cents, tax_cents: quote.tax_cents, total_cents: quote.total_cents,
       subtotal: money.decimal(quote.subtotal_cents), discount: money.decimal(quote.discount_cents), tax_bps: quote.tax_bps,
-      tax_rate: money.decimal(quote.tax_bps), tax: money.decimal(quote.tax_cents), service_bps: 0, service_cents: 0, delivery_cents: 0,
-      service_rate: '0.00', service: '0.00', delivery: '0.00', total: money.decimal(quote.total_cents) } };
+      tax_rate: money.decimal(quote.tax_bps), tax: money.decimal(quote.tax_cents), service_bps: quote.service_bps, service_cents: quote.service_cents,
+      delivery_cents: 0, service_rate: money.decimal(quote.service_bps), service: money.decimal(quote.service_cents), delivery: '0.00',
+      total: money.decimal(quote.total_cents) } };
   }
 
   // ---- POST /admin/takeaway/quote ----
@@ -264,16 +271,18 @@ class TakeawayOffline {
       if (data.driver) context.driver = data.driver;
     }
     if (ticket.channel === 'dine' && data.table_name) context.table = { name: data.table_name };
+    // Paid from the dine-in or delivery page: the order's details as the dashboard prints them.
+    const fromPage = data.context && typeof data.context === 'object' ? data.context : null;
     const canReprint = !!user.can_reprint;
     const items = (totals.items || []).map((line) => ({ product_id: line.product_id, name: line.name, option_id: line.option_id || null,
       option_label: line.option_label === BASE_LABEL ? null : (line.option_label || null), unit: line.unit || '', quantity_mode: line.quantity_mode,
       quantity: line.quantity, unit_price: money.decimal(line.unit_price_cents), total: money.decimal(line.total_cents) }));
-    return { id, number: ticket.server_number || ticket.local_number, idempotency_key: ticket.id, branch,
+    return { id, number: ticket.server_number || ticket.local_number, idempotency_key: data.settle_key || ticket.id, branch,
       cashier: { id: ticket.actor_id, name: ticket.actor_name }, business_date: ticket.business_date, created_at: cairoIso(ticket.paid_at), items,
       payment_method: 'cash', payment_confirmed: true, payment_reference: '', notes: data.notes || '', tax_rate: money.decimal(totals.tax_bps || 0),
       discount_reason: data.discount_reason || '', currency: 'EGP', service: money.decimal(totals.service_cents || 0),
       service_rate: money.decimal(totals.service_bps || 0), delivery: money.decimal(totals.delivery_cents || 0), channel: ticket.channel,
-      ticket_id: null, context, payment_breakdown: [{ method: 'cash', amount: money.decimal(totals.total_cents), confirmed: true, reference: '' }],
+      ticket_id: data.page_ticket_id ?? null, context: fromPage || context, payment_breakdown: [{ method: 'cash', amount: money.decimal(totals.total_cents), confirmed: true, reference: '' }],
       status: 'completed', details_url: `${this.origin}/admin/takeaway/receipts/${id}/details`, can_reprint: canReprint,
       receipt_url: canReprint ? `${this.origin}/admin/takeaway/receipts/${id}/print` : null,
       subtotal: money.decimal(totals.subtotal_cents), discount: money.decimal(totals.discount_cents || 0), tax: money.decimal(totals.tax_cents),
@@ -343,4 +352,4 @@ function cairoIso(value) {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${sign}${hours}:${minutes}`;
 }
 
-module.exports = { TakeawayOffline, LOCAL_RECEIPT_BASE, cairoIso, permissions };
+module.exports = { TakeawayOffline, LOCAL_RECEIPT_BASE, cairoIso, permissions, register, Reply, json, invalid, sha256, notFound, UUID, BRANCH };

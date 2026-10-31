@@ -368,3 +368,425 @@ test('the employees page records a check-in and check-out on the device, once, w
   assert.deepEqual([list.items[0].attendance.check_in, list.items[0].attendance.check_out, list.items[0].attendance.notes], ['10:40:00', '14:40:00', 'جه بدري']);
   assert.equal((await ask('GET', '/admin/employees/data?branch=f:100&day=2026-10-29&month=2026-10&page=1')).status, 503, 'Another day needs the internet');
 });
+
+// ---- the dine-in page (الصالة) answered from the device while offline ----
+const { ServiceOffline, LOCAL_TICKET_BASE, LOCAL_KITCHEN_BASE } = require('../src/main/offline/service.cjs');
+
+// The dashboard's own answers, recorded by test/dining-capture.php: the device must answer in the same shape.
+const DASHBOARD = JSON.parse(JSON.stringify(require('./fixtures/dining.json')).replaceAll('http://127.0.0.1:8099', ORIGIN));
+const shape = (value) => Object.keys(value).sort();
+const KEYS = { tables: shape(DASHBOARD[0].json), table: shape(DASHBOARD[0].json.tables[0]), summary: shape(DASHBOARD[5].json.tables[0].ticket),
+  ticket: shape(DASHBOARD[3].json.ticket), save: shape(DASHBOARD[2].json), kitchen: shape(DASHBOARD[3].json), settle: shape(DASHBOARD[8].json),
+  receipt: shape(DASHBOARD[8].json.receipt), listing: shape(DASHBOARD[4].json), quote: shape(DASHBOARD[1].json), show: shape(DASHBOARD[7].json) };
+// The dashboard adds the order's number when the branch numbers its orders per shift; the device always numbers its own.
+const withNumber = (keys) => [...keys, 'number'].sort();
+
+/** The checks dining-pos.js makes before it trusts a write's answer (validateOperationResult), in the same order. */
+function scaled(value, places) {
+  const found = String(value ?? '').trim().match(new RegExp('^([0-9]{1,10})(?:\\.([0-9]{1,' + places + '}))?$'));
+  return found ? BigInt(found[1]) * 10n ** BigInt(places) + BigInt((found[2] || '').padEnd(places, '0') || '0') : null;
+}
+function validTicket(value, branch) {
+  return !!value && value.channel === 'dine' && Number.isSafeInteger(Number(value.id)) && Number(value.id) > 0 && Number.isSafeInteger(Number(value.revision))
+    && Number(value.revision) > 0 && !!value.branch && value.branch.value === branch && Array.isArray(value.items) && !!value.table && Number(value.table.id) > 0
+    && scaled(value.total, 2) !== null;
+}
+function pageAccepts(result, op) {
+  const evidence = result && result.operation;
+  assert.ok(validTicket(result.ticket, op.payload.branch), 'a valid order');
+  assert.equal(typeof result.replayed, 'boolean');
+  assert.ok(evidence && evidence.idempotency_key === op.payload.idempotency_key && evidence.kind === op.kind, 'the same operation');
+  assert.equal(Number(evidence.ticket_id), Number(result.ticket.id));
+  assert.equal(Number(evidence.revision), op.payload.expected_revision ? Number(op.payload.expected_revision) + 1 : 1, 'the next revision');
+  assert.ok(Number(result.ticket.revision) >= Number(evidence.revision));
+  if (op.id) assert.equal(Number(result.ticket.id), Number(op.id));
+  const superseded = result.replayed && Number(result.ticket.revision) > Number(evidence.revision);
+  if (op.kind === 'save') {
+    assert.equal(Number(result.ticket.table.id), Number(op.payload.table_id));
+    if (!superseded) {
+      assert.equal(result.ticket.quote_hash, op.payload.quote_hash);
+      assert.equal(scaled(result.ticket.total, 2), op.expectedTotal);
+      assert.equal(result.ticket.items.length, op.payload.items.length);
+      assert.equal(result.ticket.waiter_name, op.payload.waiter_name);
+      assert.equal(Number(result.ticket.guest_count), op.payload.guest_count);
+      assert.equal(result.ticket.notes || '', op.payload.notes);
+    }
+  }
+  if (!superseded && op.expectedQuoteHash) assert.equal(result.ticket.quote_hash, op.expectedQuoteHash);
+  if (op.kind === 'action' && op.payload.action === 'request_bill') assert.ok(result.ticket.bill_locked);
+  if (op.kind !== 'settle') return;
+  const { receipt } = result;
+  const printURL = result.first_print_url || result.receipt_url;
+  const path = printURL && new URL(printURL).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
+  assert.equal(result.ticket.payment_status, 'paid');
+  assert.ok(receipt && Number.isSafeInteger(Number(receipt.id)) && Number(receipt.id) > 0);
+  assert.equal(Number(receipt.ticket_id), Number(op.id));
+  assert.equal(receipt.channel, 'dine');
+  assert.equal(receipt.branch.value, op.payload.branch);
+  assert.equal(receipt.idempotency_key, op.payload.idempotency_key);
+  assert.equal(receipt.payment_method, op.payload.payment_method);
+  assert.equal(scaled(receipt.total, 2), op.expectedTotal);
+  if (printURL) assert.ok(path && Number(path[1]) === Number(receipt.id), 'the receipt print link');
+}
+
+/** The branch's tables and open orders as the dashboard sends them: table 1 busy with order 1, table 2 free. */
+function serviceCopy() {
+  const busy = DASHBOARD[5].json.tables[0];
+  const free = { ...DASHBOARD[0].json.tables[0], id: 2, name: 'ترابيزة 2', capacity: 6 };
+  return { value: 'f:100', hash: 'service-1', tables: [busy, free], policy: DASHBOARD[0].json.policy, tickets: [DASHBOARD[3].json.ticket] };
+}
+
+function diningPage({ kinds = ['sale', 'ticket_settle', 'ticket_open', 'ticket_action'] } = {}) {
+  const cashier = cashierPage();
+  const { store } = cashier;
+  store.set('server_kinds', kinds);
+  store.applyService([serviceCopy()]);
+  let kicks = 0;
+  const now = () => store.now();
+  const page = new ServiceOffline({ store, origin: ORIGIN, now, kick: () => { kicks++; }, channel: 'dine' });
+  const ask = async (method, path, { user = ACCOUNT, body = null } = {}) => {
+    const url = new URL(ORIGIN + path);
+    const route = page.match(method, url.pathname);
+    assert.ok(route, `${method} ${path} is answered on the device`);
+    return page.answer(route, { user, url, body });
+  };
+  let keys = 0;
+  const key = () => `00000000-0000-4000-8000-${String(++keys).padStart(12, '0')}`;
+  return { ...cashier, page, ask, key, kicks: () => kicks };
+}
+
+const DINE_ITEMS = [{ product_id: 1, quantity: '1.000', quantity_mode: 'weight' }, { product_id: 7, quantity: '2', quantity_mode: 'piece' }];
+
+test('the dine-in floor offline: the dashboard tables and open orders from the last sync, in the dashboard format', async () => {
+  const { ask } = diningPage();
+  const floor = await ask('GET', '/admin/dining/tables?branch=f:100');
+  assert.equal(floor.status, 200, JSON.stringify(floor.json));
+  assert.deepEqual(shape(floor.json), KEYS.tables);
+  assert.deepEqual(floor.json.tables.map((table) => [table.id, table.status, table.ticket_id]), [[1, 'in_service', 1], [2, 'free', null]]);
+  for (const table of floor.json.tables) assert.deepEqual(shape(table), KEYS.table);
+  assert.deepEqual(floor.json.permissions, { can_checkout: true, can_manage_tables: true, can_manage: false, can_reprint: false });
+  const order = await ask('GET', '/admin/dining/tickets/1');
+  assert.deepEqual(shape(order.json), KEYS.show);
+  assert.equal(order.json.ticket.status, 'preparing');
+  const catalog = (await ask('GET', '/admin/dining/catalog?branch=f:100&page=1&per_page=24')).json;
+  assert.deepEqual(catalog.policy, { tax_rate: '14.00', service_rate: '0.00', can_discount: false, payment_methods: ['cash'], currency: 'EGP',
+    settings_revision: 1, channel: 'dine' });
+  assert.equal((await ask('GET', '/admin/dining/tickets/77')).status, 404, 'An order the device does not have');
+  const list = await ask('GET', '/admin/dining/tickets?branch=f:100&page=1&per_page=40');
+  assert.deepEqual(shape(list.json), KEYS.listing);
+  assert.deepEqual(list.json.items.map((item) => item.id), [1]);
+});
+
+test('a table opened offline: kitchen ticket, bill and payment on the device, sent to the dashboard as one invoice', async () => {
+  const { store, ask, key } = diningPage();
+  const quote = await ask('POST', '/admin/dining/quote', { body: { branch: 'f:100', items: DINE_ITEMS, discount: '0.00', discount_reason: '' } });
+  assert.deepEqual(shape(quote.json), KEYS.quote);
+  // 180 + 2 × 25 = 230, tax 14% = 32.20.
+  assert.deepEqual([quote.json.subtotal, quote.json.tax, quote.json.total], ['230.00', '32.20', '262.20']);
+  const save = { kind: 'save', id: null, expectedTotal: scaled(quote.json.total, 2), payload: { branch: 'f:100', items: DINE_ITEMS, discount: '0.00', discount_reason: '',
+    table_id: 2, customer_name: 'أسرة محمد', customer_phone: null, service_consent: false, marketing_consent: false, waiter_name: 'حسن', guest_count: 3,
+    notes: 'بدون بصل', quote_hash: quote.json.quote_hash, idempotency_key: key() } };
+  const saved = await ask('POST', '/admin/dining/tickets/save', { body: save.payload });
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.deepEqual(shape(saved.json), KEYS.save);
+  assert.deepEqual(shape(saved.json.ticket), withNumber(KEYS.ticket));
+  pageAccepts(saved.json, save);
+  const ticket = saved.json.ticket;
+  assert.ok(ticket.id > LOCAL_TICKET_BASE);
+  assert.deepEqual([ticket.status, ticket.revision, ticket.table.name, ticket.total], ['open', 1, 'ترابيزة 2', '262.20']);
+  assert.equal(ticket.number, 'DI-A1B-1');
+  assert.equal(store.pendingOperations().length, 0, 'Nothing for the dashboard yet: the order is still open');
+
+  const floor = (await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables;
+  assert.deepEqual([floor[1].status, floor[1].ticket_id], ['in_service', ticket.id], 'The table is busy with this device\'s order');
+  assert.deepEqual(shape(floor[1].ticket), [...KEYS.summary, 'number'].sort());
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...save.payload, idempotency_key: key() } })).status, 409, 'The table is taken');
+
+  const kitchen = { kind: 'action', id: ticket.id, expectedQuoteHash: ticket.quote_hash,
+    payload: { branch: 'f:100', expected_revision: 1, idempotency_key: key(), action: 'send_kitchen' } };
+  const sent = await ask('POST', `/admin/dining/tickets/${ticket.id}/action`, { body: kitchen.payload });
+  assert.equal(sent.status, 200, JSON.stringify(sent.json));
+  assert.deepEqual(shape(sent.json), KEYS.kitchen);
+  pageAccepts(sent.json, kitchen);
+  assert.equal(sent.json.ticket.status, 'preparing');
+  assert.equal(sent.json.kitchen_print_url, `${ORIGIN}/admin/dining/kitchen/${LOCAL_KITCHEN_BASE + 1}/print`);
+  const slip = await ask('GET', `/admin/dining/kitchen/${LOCAL_KITCHEN_BASE + 1}/print?dashboard_print=1`);
+  assert.equal(slip.status, 200);
+  assert.match(slip.html, /data-dashboard-receipt="pos-kitchen"/);
+  assert.match(slip.html, /بوري مشوي/);
+  assert.match(slip.html, /DI-A1B-1/);
+  assert.doesNotMatch(slip.html, /addEventListener\('load'/, 'Printed by the dashboard\'s own print frame');
+  assert.equal((await ask('POST', `/admin/dining/tickets/${ticket.id}/action`, { body: { ...kitchen.payload, expected_revision: 2, idempotency_key: key() } })).status, 409);
+
+  const bill = { kind: 'action', id: ticket.id, expectedQuoteHash: ticket.quote_hash,
+    payload: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'request_bill' } };
+  const billed = await ask('POST', `/admin/dining/tickets/${ticket.id}/action`, { body: bill.payload });
+  pageAccepts(billed.json, bill);
+  assert.equal(billed.json.ticket.status, 'awaiting_bill');
+  const printed = await ask('GET', `/admin/dining/tickets/${ticket.id}/print?dashboard_print=1`);
+  assert.equal(printed.status, 200);
+  assert.match(printed.html, /data-dashboard-receipt="pos-ticket"/);
+  assert.match(printed.html, /كشف حساب غير مسدد/);
+  assert.equal((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables[1].status, 'awaiting_bill');
+
+  const pay = { kind: 'settle', id: ticket.id, expectedTotal: scaled('262.20', 2), payload: { branch: 'f:100', expected_revision: 3, idempotency_key: key(),
+    quote_hash: ticket.quote_hash, customer_phone: '+201012345678', service_consent: true, marketing_consent: false, payment_method: 'cash',
+    cash_received: '300.00', payment_confirmed: true, payment_reference: '' } };
+  assert.equal((await ask('POST', `/admin/dining/tickets/${ticket.id}/settle`, { body: { ...pay.payload, service_consent: false } })).status, 422);
+  const paid = await ask('POST', `/admin/dining/tickets/${ticket.id}/settle`, { body: pay.payload });
+  assert.equal(paid.status, 200, JSON.stringify(paid.json));
+  assert.deepEqual(shape(paid.json), KEYS.settle);
+  assert.deepEqual(shape(paid.json.receipt), [...KEYS.receipt, 'device'].sort());
+  pageAccepts(paid.json, pay);
+  assert.deepEqual([paid.json.ticket.status, paid.json.ticket.payment_status, paid.json.receipt.change], ['paid', 'paid', '37.80']);
+  assert.equal(paid.json.receipt.id, LOCAL_RECEIPT_BASE + 1, 'The receipt keeps the order\'s number on the device');
+  assert.deepEqual(paid.json.receipt.context.table, { id: 2, name: 'ترابيزة 2', capacity: 6 });
+  assert.equal(paid.json.receipt.context.waiter_name, 'حسن');
+  const [operation] = store.pendingOperations();
+  assert.equal(operation.id, pay.payload.idempotency_key);
+  assert.equal(operation.kind, 'sale');
+  assert.deepEqual([operation.data.channel, operation.data.table_name, operation.data.total_cents, operation.data.snapshot_id], ['dine', 'ترابيزة 2', 26220, 'snap-1']);
+  assert.equal(operation.data.customer_phone, '+201012345678');
+  const again = await ask('POST', `/admin/dining/tickets/${ticket.id}/settle`, { body: pay.payload });
+  assert.equal(again.json.replayed, true, 'A retry: the same payment');
+  assert.equal(again.json.receipt.id, paid.json.receipt.id);
+  assert.equal(store.pendingOperations().length, 1);
+  const recovered = (await ask('GET', `/admin/dining/recover?branch=f:100&idempotency_key=${save.payload.idempotency_key}`)).json;
+  assert.equal(recovered.found, true);
+  assert.equal(recovered.ticket.payment_status, 'paid');
+  assert.equal((await ask('GET', '/admin/dining/recover?branch=f:100&idempotency_key=00000000-0000-4000-8000-999999999999')).json.found, false);
+  assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['in_service', 'free'], 'The table is free again');
+  const receiptPage = await ask('GET', `/admin/dining/tickets/${ticket.id}/details`);
+  assert.match(receiptPage.html, /data-dashboard-invoice-details="1"/);
+});
+
+test('an order open on the dashboard: its bill printed and paid offline, sent with the page\'s operation numbers', async () => {
+  const { store, ask, key, kicks } = diningPage();
+  const order = (await ask('GET', '/admin/dining/tickets/1')).json.ticket;
+  const edit = await ask('POST', '/admin/dining/tickets/save', { body: { branch: 'f:100', ticket_id: 1, expected_revision: 2, table_id: 1, items: DINE_ITEMS,
+    waiter_name: 'حسن', guest_count: 2, notes: '', quote_hash: order.quote_hash, idempotency_key: key() } });
+  assert.equal(edit.status, 422);
+  assert.match(edit.json.message, /يحتاج اتصالًا بالإنترنت/);
+  const bill = { kind: 'action', id: 1, expectedQuoteHash: order.quote_hash, payload: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'request_bill' } };
+  const billed = await ask('POST', '/admin/dining/tickets/1/action', { body: bill.payload });
+  assert.equal(billed.status, 200, JSON.stringify(billed.json));
+  pageAccepts(billed.json, bill);
+  assert.deepEqual([billed.json.ticket.status, billed.json.ticket.revision], ['awaiting_bill', 3]);
+  assert.equal(kicks(), 1);
+  const [action] = store.pendingOperations();
+  assert.deepEqual([action.id, action.kind, action.data.action, action.data.ticket_id, action.data.quote_hash], [bill.payload.idempotency_key, 'ticket_action', 'request_bill', 1, order.quote_hash]);
+  const print = await ask('GET', '/admin/dining/tickets/1/print');
+  assert.match(print.html, /كشف حساب غير مسدد/);
+  assert.match(print.html, /addEventListener\('load',function\(\)\{window\.print\(\);\}\)/, 'Opened on its own: it prints itself');
+  assert.equal((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables[0].status, 'awaiting_bill');
+
+  const pay = { kind: 'settle', id: 1, expectedTotal: scaled(order.total, 2), payload: { branch: 'f:100', expected_revision: 3, idempotency_key: key(),
+    quote_hash: order.quote_hash, customer_phone: '01012345678', service_consent: true, marketing_consent: false, payment_method: 'cash',
+    cash_received: '250.00', payment_confirmed: true, payment_reference: '' } };
+  assert.equal((await ask('POST', '/admin/dining/tickets/1/settle', { body: { ...pay.payload, expected_revision: 2 } })).status, 409, 'An old revision');
+  assert.equal((await ask('POST', '/admin/dining/tickets/1/settle', { body: { ...pay.payload, cash_received: '100.00' } })).status, 422);
+  const paid = await ask('POST', '/admin/dining/tickets/1/settle', { body: pay.payload });
+  assert.equal(paid.status, 200, JSON.stringify(paid.json));
+  pageAccepts(paid.json, pay);
+  assert.equal(paid.json.receipt.total, order.total);
+  assert.equal(paid.json.receipt.context.customer_phone, '+201012345678');
+  const settle = store.pendingOperations().find((operation) => operation.kind === 'ticket_settle');
+  assert.equal(settle.id, pay.payload.idempotency_key);
+  assert.deepEqual(settle.data, { channel: 'dine', ticket_id: 1, expected_revision: 2, quote_hash: order.quote_hash, cash_received: '250.00',
+    customer_phone: '+201012345678', service_consent: true });
+  assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['free', 'free']);
+  assert.equal(store.dayTotals(['f:100'], '2026-10-30').count, 4, 'The payment counts in the day until the dashboard has it');
+
+  // Synced: the dashboard has both; its new copy (order paid, table free) replaces what the device showed.
+  store.applyResults([{ id: bill.payload.idempotency_key, status: 'applied', ticket: { id: 1, revision: 3, status: 'awaiting_bill' } },
+    { id: pay.payload.idempotency_key, status: 'applied', ticket: { id: 1, revision: 4, status: 'paid' }, receipt: { id: 51, number: 'TA-F-100-0000051', total: order.total } }]);
+  const copy = serviceCopy();
+  store.applyService([{ ...copy, hash: 'service-2', tables: [DASHBOARD[10].json.tables[0], copy.tables[1]], tickets: [] }]);
+  assert.equal(store.serviceOverlay(1), null);
+  assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['free', 'free']);
+  assert.equal(store.ticket(pay.payload.idempotency_key).server_number, 'TA-F-100-0000051');
+});
+
+test('orders opened offline and still open move to the dashboard once the internet is back', async () => {
+  const { store, ask, key } = diningPage();
+  const quote = (await ask('POST', '/admin/dining/quote', { body: { branch: 'f:100', items: DINE_ITEMS } })).json;
+  const open = async (table) => (await ask('POST', '/admin/dining/tickets/save', { body: { branch: 'f:100', items: DINE_ITEMS, table_id: table, waiter_name: 'حسن',
+    guest_count: 2, customer_name: 'ضيف', notes: '', quote_hash: quote.quote_hash, idempotency_key: key() } })).json.ticket;
+  const first = await open(2);
+  await ask('POST', `/admin/dining/tickets/${first.id}/action`, { body: { branch: 'f:100', expected_revision: 1, idempotency_key: key(), action: 'send_kitchen' } });
+  assert.equal(store.queueTicketMoves(), 1);
+  const [move] = store.pendingOperations();
+  assert.equal(move.kind, 'ticket_open');
+  assert.deepEqual([move.data.table_id, move.data.waiter_name, move.data.kitchen_sent, move.data.bill_requested], [2, 'حسن', true, false]);
+  assert.deepEqual(move.data.items, [{ product_id: 1, option_id: '', quantity_mode: 'weight', quantity: '1.000' }, { product_id: 7, option_id: '', quantity_mode: 'piece', quantity: '2' }]);
+  assert.equal(store.queueTicketMoves(), 0, 'Queued once');
+
+  // Changed here before the move left: the move waits and is queued again with the change.
+  const billed = await ask('POST', `/admin/dining/tickets/${first.id}/action`, { body: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'request_bill' } });
+  assert.equal(billed.status, 200, JSON.stringify(billed.json));
+  assert.equal(store.pendingOperations().length, 0);
+  assert.equal(store.queueTicketMoves(), 1);
+  assert.equal(store.pendingOperations()[0].data.bill_requested, true);
+
+  // Being sent right now: it can no longer change here.
+  store.sending = new Set([move.id]);
+  const late = await ask('POST', `/admin/dining/tickets/${first.id}/settle`, { body: { branch: 'f:100', expected_revision: 3, idempotency_key: key(),
+    quote_hash: first.quote_hash, customer_phone: '01012345678', service_consent: true, payment_method: 'cash', cash_received: '300.00' } });
+  assert.equal(late.status, 409);
+  store.sending = null;
+
+  store.applyResults([{ id: move.id, status: 'applied', ticket: { id: 31, revision: 3, status: 'awaiting_bill', number: '' } }]);
+  const moved = await ask('GET', `/admin/dining/tickets/${first.id}`);
+  assert.deepEqual([moved.status, moved.location], [302, `${ORIGIN}/admin/dining/tickets/31`], 'It opens from the dashboard now');
+  assert.equal((await ask('POST', `/admin/dining/tickets/${first.id}/settle`, { body: { branch: 'f:100', expected_revision: 3, idempotency_key: key(),
+    quote_hash: first.quote_hash, customer_phone: '01012345678', service_consent: true, payment_method: 'cash', cash_received: '300.00' } })).status, 409);
+  assert.deepEqual((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables.map((table) => table.status), ['in_service', 'free'],
+    'Its table shows what the dashboard sends next');
+
+  // A server that does not know moves yet: the order stays on the device and is paid there.
+  store.set('server_kinds', ['sale']);
+  await open(2);
+  assert.equal(store.queueTicketMoves(), 0);
+});
+
+test('the dine-in page offline keeps the dashboard rules', async () => {
+  const { ask, key } = diningPage({ kinds: ['sale'] });
+  const quote = (await ask('POST', '/admin/dining/quote', { body: { branch: 'f:100', items: DINE_ITEMS } })).json;
+  const body = { branch: 'f:100', items: DINE_ITEMS, table_id: 2, waiter_name: 'حسن', guest_count: 2, notes: '', quote_hash: quote.quote_hash };
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: key(), guest_count: 7 } })).status, 422, 'More guests than seats');
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: key(), waiter_name: ' ' } })).status, 422);
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: key(), table_id: 9 } })).status, 422);
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: key(), quote_hash: 'a'.repeat(64) } })).status, 409);
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: 'not-a-key' } })).status, 422);
+  const blocked = await ask('POST', '/admin/dining/tickets/save', { user: { ...ACCOUNT, id: 9 }, body: { ...body, idempotency_key: key() } });
+  assert.equal(blocked.status, 401, 'An account the device does not know');
+  const first = await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: key() } });
+  const ticket = first.json.ticket;
+  const replay = await ask('POST', '/admin/dining/tickets/save', { body: { ...body, idempotency_key: first.json.operation.idempotency_key } });
+  assert.equal(replay.json.replayed, true);
+  assert.equal(replay.json.ticket.id, ticket.id);
+  assert.equal((await ask('POST', '/admin/dining/tickets/save', { body: { ...body, notes: 'تغيير', idempotency_key: first.json.operation.idempotency_key } })).status, 409,
+    'The same operation number for a different request');
+  // More items before the kitchen: priced again.
+  const more = [...DINE_ITEMS, { product_id: 7, quantity: '1', quantity_mode: 'piece' }];
+  const requote = (await ask('POST', '/admin/dining/quote', { body: { branch: 'f:100', items: more } })).json;
+  const changed = await ask('POST', '/admin/dining/tickets/save', { body: { ...body, ticket_id: ticket.id, expected_revision: 1, items: more,
+    quote_hash: requote.quote_hash, idempotency_key: key() } });
+  assert.equal(changed.status, 200, JSON.stringify(changed.json));
+  assert.deepEqual([changed.json.ticket.revision, changed.json.ticket.total], [2, requote.total]);
+  assert.equal((await ask('POST', `/admin/dining/tickets/${ticket.id}/action`, { body: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'cancel' } })).status,
+    422, 'A reason is required');
+  const cancelled = await ask('POST', `/admin/dining/tickets/${ticket.id}/action`, { body: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'cancel', reason: 'العميل مشي' } });
+  assert.deepEqual([cancelled.json.ticket.status, cancelled.json.ticket.cancel_reason], ['cancelled', 'العميل مشي']);
+  assert.equal((await ask('GET', '/admin/dining/tables?branch=f:100')).json.tables[1].status, 'free');
+  // Without a server that knows these operations, an order of the dashboard can only be shown offline.
+  const order = (await ask('GET', '/admin/dining/tickets/1')).json.ticket;
+  const bill = await ask('POST', '/admin/dining/tickets/1/action', { body: { branch: 'f:100', expected_revision: order.revision, idempotency_key: key(), action: 'request_bill' } });
+  assert.equal(bill.status, 422);
+});
+
+// ---- the delivery page (الدليفري) answered from the device while offline ----
+const PHONE = { board: DASHBOARD[11].json, show: DASHBOARD[12].json, quote: DASHBOARD[13].json, dispatch: DASHBOARD[14].json, bill: DASHBOARD[15].json,
+  settle: DASHBOARD[17].json, finished: DASHBOARD[18].json };
+
+/** The delivery page's checks on a write's answer (phone-orders.js validateWriteResult / applyWrite). */
+function deliveryPageAccepts(result, operation) {
+  const ticket = result.ticket;
+  if (operation.type === 'dispatch_company') {
+    assert.ok(result.success && result.operation && result.operation.idempotency_key === operation.payload.idempotency_key && result.operation.kind === 'phone.dispatch');
+    assert.ok(result.branch === operation.payload.branch && Number(result.ticket_id) === Number(operation.ticketId) && Number(result.revision) > operation.payload.expected_revision);
+    assert.ok(result.company && Number(result.company.id) === operation.payload.company_id);
+    return;
+  }
+  assert.ok(ticket && Number(ticket.id) === Number(operation.ticketId) && ticket.channel === 'phone'
+    && ['new', 'preparing', 'out_for_delivery', 'finished', 'cancelled'].includes(ticket.status) && ['unpaid', 'paid'].includes(ticket.payment_status)
+    && ticket.branch.value === operation.payload.branch && Number(ticket.revision) > 0 && Array.isArray(ticket.items) && ticket.items.length);
+  assert.ok(Number(ticket.revision) > Number(operation.payload.expected_revision));
+  assert.ok(result.operation.idempotency_key === operation.payload.idempotency_key && Number(result.operation.ticket_id) === Number(ticket.id));
+  if (operation.type === 'action' && operation.payload.action === 'request_bill') assert.ok(ticket.bill_locked);
+  if (operation.type !== 'settle') return;
+  assert.equal(ticket.payment_status, 'paid');
+  const url = result.first_print_url || result.receipt_url;
+  const path = url && new URL(url).pathname.match(/\/takeaway\/receipts\/([1-9][0-9]*)\/print\/?$/);
+  assert.ok(result.receipt && (!url || (path && Number(path[1]) === Number(result.receipt.id))));
+  assert.ok(result.receipt.branch.value === operation.payload.branch && result.receipt.idempotency_key === operation.payload.idempotency_key);
+  assert.equal(scaled(result.receipt.total, 2), scaled(operation.total, 2));
+}
+
+function deliveryPage() {
+  const cashier = cashierPage();
+  const { store } = cashier;
+  store.set('server_kinds', ['sale', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch']);
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h2',
+    catalog: { ...MENU, delivery_companies: [{ id: 1, name: 'شركة سريع', phone: '01000000001' }, { id: 7, name: 'شركة سريع', phone: '01011112222' }] } }]);
+  store.applyService([{ ...serviceCopy(), tickets: [DASHBOARD[3].json.ticket, { ...PHONE.show.ticket, courier_company: null }] }]);
+  const page = new ServiceOffline({ store, origin: ORIGIN, now: () => store.now(), kick: () => {}, channel: 'phone' });
+  const ask = async (method, path, { user = ACCOUNT, body = null } = {}) => {
+    const url = new URL(ORIGIN + path);
+    const route = page.match(method, url.pathname);
+    assert.ok(route, `${method} ${path} is answered on the device`);
+    return page.answer(route, { user, url, body });
+  };
+  let keys = 0;
+  return { ...cashier, ask, key: () => `00000000-0000-4000-9000-${String(++keys).padStart(12, '0')}` };
+}
+
+test('the delivery board offline: hand an order to a courier, print its bill and collect it, as the dashboard does', async () => {
+  const { store, ask, key } = deliveryPage();
+  const id = PHONE.show.ticket.id;
+  const board = (await ask('GET', '/admin/phone-orders/board?branch=f:100&preparing_page=1&courier_page=1&finished_page=1')).json;
+  assert.deepEqual(shape(board), shape(PHONE.board));
+  assert.deepEqual(board.columns.preparing.items.map((item) => item.id), [id]);
+  assert.deepEqual(shape(board.columns.preparing.items[0]), shape(PHONE.board.columns.preparing.items[0]));
+  assert.deepEqual(board.columns.preparing.pagination, { page: 1, last_page: 1, total: 1 });
+  assert.deepEqual(board.companies, PHONE.finished.companies, 'The branch\'s delivery companies');
+  assert.equal(board.columns.courier.items.length + board.columns.finished.items.length, 0);
+  const shown = (await ask('GET', `/admin/phone-orders/tickets/${id}?branch=f:100`)).json;
+  assert.deepEqual(shape(shown.ticket), shape(PHONE.show.ticket), 'The order exactly as the dashboard shows it');
+  assert.equal((await ask('POST', '/admin/phone-orders/quote', { body: { branch: 'f:100', items: [{ product_id: 7, quantity: '1', quantity_mode: 'piece' }] } })).status, 422,
+    'A new delivery order needs the map and the internet');
+
+  const handoff = { type: 'dispatch_company', ticketId: id, payload: { branch: 'f:100', ticket_id: id, company_id: 7, expected_revision: 1, idempotency_key: key() } };
+  const dispatched = await ask('POST', '/admin/phone-orders/dispatch-company', { body: handoff.payload });
+  assert.equal(dispatched.status, 200, JSON.stringify(dispatched.json));
+  assert.deepEqual(shape(dispatched.json), shape(PHONE.dispatch));
+  deliveryPageAccepts(dispatched.json, handoff);
+  assert.deepEqual(dispatched.json.company, PHONE.dispatch.company);
+  assert.equal((await ask('POST', '/admin/phone-orders/dispatch-company', { body: handoff.payload })).json.replayed, true);
+  const operation = store.pendingOperations()[0];
+  assert.deepEqual([operation.kind, operation.data], ['ticket_dispatch', { ticket_id: id, company_id: 7 }]);
+  const courier = (await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns.courier.items;
+  assert.deepEqual([courier.length, courier[0].status, courier[0].courier_company.name, courier[0].revision], [1, 'out_for_delivery', 'شركة سريع', 2]);
+
+  const bill = { type: 'action', ticketId: id, payload: { branch: 'f:100', expected_revision: 2, idempotency_key: key(), action: 'request_bill', reason: '' } };
+  const billed = await ask('POST', `/admin/phone-orders/tickets/${id}/action`, { body: bill.payload });
+  assert.equal(billed.status, 200, JSON.stringify(billed.json));
+  assert.deepEqual(shape(billed.json), shape(PHONE.bill));
+  deliveryPageAccepts(billed.json, bill);
+  assert.equal(billed.json.ticket.status, 'out_for_delivery', 'A delivery order keeps its stage when its bill is printed');
+  const printed = await ask('GET', `/admin/phone-orders/tickets/${id}/print`);
+  assert.match(printed.html, /كشف حساب غير مسدد/);
+  assert.match(printed.html, /منى/);
+
+  const saved = (await ask('POST', '/admin/phone-orders/quote', { body: { branch: 'f:100', ticket_id: id } })).json;
+  assert.deepEqual(shape(saved), shape(PHONE.quote));
+  assert.deepEqual([saved.quote_hash, saved.total, saved.revision], [PHONE.quote.quote_hash, '75.00', 3]);
+  const collect = { type: 'settle', ticketId: id, total: saved.total, payload: { branch: 'f:100', expected_revision: 3, idempotency_key: key(),
+    quote_hash: saved.quote_hash, payment_method: 'cash', cash_received: '100.00', payment_confirmed: true, payment_reference: '' } };
+  assert.equal((await ask('POST', `/admin/phone-orders/tickets/${id}/settle`, { body: { ...collect.payload, payment_confirmed: false } })).status, 422);
+  const paid = await ask('POST', `/admin/phone-orders/tickets/${id}/settle`, { body: collect.payload });
+  assert.equal(paid.status, 200, JSON.stringify(paid.json));
+  assert.deepEqual(shape(paid.json), shape(PHONE.settle));
+  deliveryPageAccepts(paid.json, collect);
+  assert.deepEqual([paid.json.ticket.status, paid.json.receipt.change, paid.json.receipt.channel], ['finished', '25.00', 'phone']);
+  assert.deepEqual(paid.json.receipt.context, { ...PHONE.settle.receipt.context }, 'The receipt shows the delivery details like the dashboard\'s');
+  const settle = store.pendingOperations().find((item) => item.kind === 'ticket_settle');
+  assert.deepEqual(settle.data, { channel: 'phone', ticket_id: id, expected_revision: 1, quote_hash: saved.quote_hash, cash_received: '100.00',
+    customer_phone: '+201112223334', service_consent: false });
+  const finished = (await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns;
+  assert.deepEqual([finished.courier.items.length, finished.finished.items.map((item) => item.id)], [0, [id]]);
+  assert.ok(finished.finished.items[0].completed_at);
+  assert.equal(PHONE.finished.columns.finished.items[0].status, finished.finished.items[0].status);
+  assert.equal((await ask('POST', `/admin/phone-orders/tickets/${id}/action`, { body: { branch: 'f:100', expected_revision: 4, idempotency_key: key(), action: 'dispatch' } })).status,
+    409, 'Closed');
+});

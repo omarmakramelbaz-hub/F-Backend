@@ -200,8 +200,14 @@ class DesktopSyncState
             try {
                 $tables = app(PosServiceTable::class)->listing($value, $actor);
                 $rows = DB::table('pos_service_tickets')->where('branch', $value)->where('payment_status', 'unpaid')
-                    ->whereNotIn('status', ['cancelled', 'finished', 'paid'])->orderBy('id')->limit(300)->get()->all();
+                    ->where('status', '!=', 'cancelled')->orderBy('id')->limit(300)->get()->all();
                 $tickets = app(PosServiceTicket::class)->presentMany($rows, true, $actor);
+                // The delivery board shows the company each order was handed to (PhoneDeliveryBoard::listing).
+                $handoffs = Schema::hasTable('phone_delivery_dispatches') ? DB::table('phone_delivery_dispatches')
+                    ->whereIn('ticket_id', array_column($rows, 'id'))->orderBy('id')->pluck('company_snapshot', 'ticket_id')->all() : [];
+                foreach ($rows as $index => $row) {
+                    if ($row->channel === 'phone') $tickets[$index]['courier_company'] = json_decode($handoffs[$row->id] ?? $row->delivery_company_snapshot ?? 'null', true);
+                }
             } catch (HttpException $error) {
                 continue;
             }

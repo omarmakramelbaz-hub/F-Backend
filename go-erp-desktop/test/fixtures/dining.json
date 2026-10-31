@@ -1,0 +1,2226 @@
+[
+    {
+        "method": "GET",
+        "path": "\/admin\/dining\/tables?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": {
+                "value": "f:100",
+                "id": 100,
+                "kind": "f",
+                "name": "فرع المعادي",
+                "label": "فرع المعادي",
+                "address": "شارع ٩ - المعادي",
+                "phone": "01000000000"
+            },
+            "tables": [
+                {
+                    "id": 1,
+                    "branch": "f:100",
+                    "name": "ترابيزة 1",
+                    "capacity": 4,
+                    "active": true,
+                    "revision": 1,
+                    "status": "free",
+                    "ticket_id": null,
+                    "ticket": null,
+                    "branch_name": "فرع المعادي"
+                }
+            ],
+            "policy": {
+                "service_bps": 0,
+                "service_rate": "0.00",
+                "settings_revision": 1
+            },
+            "permissions": {
+                "can_checkout": true,
+                "can_manage_tables": true,
+                "can_manage": false,
+                "can_reprint": false
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/dining\/quote",
+        "body": {
+            "branch": "f:100",
+            "items": [
+                {
+                    "product_id": 1,
+                    "quantity": "1.000",
+                    "quantity_mode": "weight"
+                },
+                {
+                    "product_id": 7,
+                    "quantity": "2",
+                    "quantity_mode": "piece"
+                }
+            ]
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+            "branch": {
+                "value": "f:100",
+                "id": 100,
+                "kind": "f",
+                "name": "فرع المعادي",
+                "label": "فرع المعادي",
+                "address": "شارع ٩ - المعادي",
+                "phone": "01000000000"
+            },
+            "items": [
+                {
+                    "product_id": 7,
+                    "name": "سلطة طحينة",
+                    "option_id": "",
+                    "option_label": "",
+                    "unit": "",
+                    "quantity_mode": "piece",
+                    "quantity_millis": 2000,
+                    "quantity": "2.000",
+                    "unit_price_cents": 2500,
+                    "unit_price": "25.00",
+                    "total_cents": 5000,
+                    "total": "50.00"
+                },
+                {
+                    "product_id": 1,
+                    "name": "بوري مشوي",
+                    "option_id": "",
+                    "option_label": "",
+                    "unit": "",
+                    "quantity_mode": "weight",
+                    "quantity_millis": 1000,
+                    "quantity": "1.000",
+                    "unit_price_cents": 18000,
+                    "unit_price": "180.00",
+                    "total_cents": 18000,
+                    "total": "180.00"
+                }
+            ],
+            "subtotal_cents": 23000,
+            "discount_cents": 0,
+            "tax_cents": 0,
+            "total_cents": 23000,
+            "subtotal": "230.00",
+            "discount": "0.00",
+            "tax_bps": 0,
+            "tax_rate": "0.00",
+            "tax": "0.00",
+            "service_bps": 0,
+            "service_cents": 0,
+            "delivery_cents": 0,
+            "service_rate": "0.00",
+            "service": "0.00",
+            "delivery": "0.00",
+            "total": "230.00"
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/dining\/tickets\/save",
+        "body": {
+            "branch": "f:100",
+            "idempotency_key": "4827136a-e12e-4037-b880-4fa8c62d4b96",
+            "table_id": 1,
+            "items": [
+                {
+                    "product_id": 1,
+                    "quantity": "1.000",
+                    "quantity_mode": "weight"
+                },
+                {
+                    "product_id": 7,
+                    "quantity": "2",
+                    "quantity_mode": "piece"
+                }
+            ],
+            "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+            "waiter_name": "حسن",
+            "guest_count": 2,
+            "customer_name": "أسرة محمد",
+            "notes": "بدون بصل"
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "replayed": false,
+            "operation": {
+                "id": 1,
+                "kind": "save",
+                "idempotency_key": "4827136a-e12e-4037-b880-4fa8c62d4b96",
+                "ticket_id": 1,
+                "revision": 1
+            },
+            "ticket": {
+                "id": 1,
+                "channel": "dine",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 1,
+                "status": "open",
+                "payment_status": "unpaid",
+                "table": {
+                    "id": 1,
+                    "name": "ترابيزة 1",
+                    "capacity": 4
+                },
+                "waiter_name": "حسن",
+                "guest_count": 2,
+                "customer_name": "أسرة محمد",
+                "customer_phone": "",
+                "address": "",
+                "area": "",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "0.00",
+                "notes": "بدون بصل",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": false,
+                "bill_locked": false,
+                "bill_issued_at": null,
+                "bill_issued_by": null,
+                "bill_issued_revision": null,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                "discount_reason": "",
+                "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                "kitchen_print_url": null,
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "total": "230.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity_millis": 1000,
+                        "quantity": "1.000",
+                        "unit_price_cents": 18000,
+                        "unit_price": "180.00",
+                        "total_cents": 18000,
+                        "total": "180.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        },
+                        {
+                            "product_id": 1,
+                            "quantity": "1.000",
+                            "quantity_mode": "weight",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "0.00"
+                }
+            },
+            "receipt": null,
+            "receipt_url": null,
+            "first_print_url": null
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/dining\/tickets\/1\/action",
+        "body": {
+            "branch": "f:100",
+            "idempotency_key": "d28eb50e-d30b-4378-b25e-0d4c2a8a5c3e",
+            "expected_revision": 1,
+            "action": "send_kitchen"
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "replayed": false,
+            "operation": {
+                "id": 2,
+                "kind": "action",
+                "idempotency_key": "d28eb50e-d30b-4378-b25e-0d4c2a8a5c3e",
+                "ticket_id": 1,
+                "revision": 2
+            },
+            "ticket": {
+                "id": 1,
+                "channel": "dine",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 2,
+                "status": "preparing",
+                "payment_status": "unpaid",
+                "table": {
+                    "id": 1,
+                    "name": "ترابيزة 1",
+                    "capacity": 4
+                },
+                "waiter_name": "حسن",
+                "guest_count": 2,
+                "customer_name": "أسرة محمد",
+                "customer_phone": "",
+                "address": "",
+                "area": "",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "0.00",
+                "notes": "بدون بصل",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": true,
+                "bill_locked": false,
+                "bill_issued_at": null,
+                "bill_issued_by": null,
+                "bill_issued_revision": null,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                "discount_reason": "",
+                "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "total": "230.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity_millis": 1000,
+                        "quantity": "1.000",
+                        "unit_price_cents": 18000,
+                        "unit_price": "180.00",
+                        "total_cents": 18000,
+                        "total": "180.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        },
+                        {
+                            "product_id": 1,
+                            "quantity": "1.000",
+                            "quantity_mode": "weight",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "0.00"
+                }
+            },
+            "receipt": null,
+            "receipt_url": null,
+            "first_print_url": null,
+            "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print"
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/dining\/tickets?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": {
+                "value": "f:100",
+                "id": 100,
+                "kind": "f",
+                "name": "فرع المعادي",
+                "label": "فرع المعادي",
+                "address": "شارع ٩ - المعادي",
+                "phone": "01000000000"
+            },
+            "items": [
+                {
+                    "id": 1,
+                    "channel": "dine",
+                    "branch": {
+                        "value": "f:100",
+                        "id": 100,
+                        "kind": "f",
+                        "name": "فرع المعادي",
+                        "label": "فرع المعادي",
+                        "address": "شارع ٩ - المعادي",
+                        "phone": "01000000000"
+                    },
+                    "revision": 2,
+                    "status": "preparing",
+                    "payment_status": "unpaid",
+                    "table": {
+                        "id": 1,
+                        "name": "ترابيزة 1",
+                        "capacity": 4
+                    },
+                    "waiter_name": "حسن",
+                    "guest_count": 2,
+                    "customer_name": "أسرة محمد",
+                    "customer_phone": "",
+                    "address": "",
+                    "area": "",
+                    "delivery_notes": "",
+                    "customer_id": null,
+                    "customer_revision": null,
+                    "delivery_company": null,
+                    "delivery_location": null,
+                    "delivery_fee": "0.00",
+                    "notes": "بدون بصل",
+                    "cancel_reason": "",
+                    "created_at": "2026-10-31T16:19:22+02:00",
+                    "updated_at": "2026-10-31T16:19:22+02:00",
+                    "cashier": {
+                        "id": 4,
+                        "name": "كاشير المعادي"
+                    },
+                    "kitchen_sent": true,
+                    "bill_locked": false,
+                    "bill_issued_at": null,
+                    "bill_issued_by": null,
+                    "bill_issued_revision": null,
+                    "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                    "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                    "discount_reason": "",
+                    "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                    "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                    "can_reprint": false,
+                    "receipt_url": null,
+                    "subtotal": "230.00",
+                    "discount": "0.00",
+                    "tax": "0.00",
+                    "tax_rate": "0.00",
+                    "service": "0.00",
+                    "service_rate": "0.00",
+                    "delivery": "0.00",
+                    "total": "230.00"
+                }
+            ],
+            "tickets": [
+                {
+                    "id": 1,
+                    "channel": "dine",
+                    "branch": {
+                        "value": "f:100",
+                        "id": 100,
+                        "kind": "f",
+                        "name": "فرع المعادي",
+                        "label": "فرع المعادي",
+                        "address": "شارع ٩ - المعادي",
+                        "phone": "01000000000"
+                    },
+                    "revision": 2,
+                    "status": "preparing",
+                    "payment_status": "unpaid",
+                    "table": {
+                        "id": 1,
+                        "name": "ترابيزة 1",
+                        "capacity": 4
+                    },
+                    "waiter_name": "حسن",
+                    "guest_count": 2,
+                    "customer_name": "أسرة محمد",
+                    "customer_phone": "",
+                    "address": "",
+                    "area": "",
+                    "delivery_notes": "",
+                    "customer_id": null,
+                    "customer_revision": null,
+                    "delivery_company": null,
+                    "delivery_location": null,
+                    "delivery_fee": "0.00",
+                    "notes": "بدون بصل",
+                    "cancel_reason": "",
+                    "created_at": "2026-10-31T16:19:22+02:00",
+                    "updated_at": "2026-10-31T16:19:22+02:00",
+                    "cashier": {
+                        "id": 4,
+                        "name": "كاشير المعادي"
+                    },
+                    "kitchen_sent": true,
+                    "bill_locked": false,
+                    "bill_issued_at": null,
+                    "bill_issued_by": null,
+                    "bill_issued_revision": null,
+                    "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                    "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                    "discount_reason": "",
+                    "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                    "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                    "can_reprint": false,
+                    "receipt_url": null,
+                    "subtotal": "230.00",
+                    "discount": "0.00",
+                    "tax": "0.00",
+                    "tax_rate": "0.00",
+                    "service": "0.00",
+                    "service_rate": "0.00",
+                    "delivery": "0.00",
+                    "total": "230.00"
+                }
+            ],
+            "pagination": {
+                "page": 1,
+                "last_page": 1,
+                "per_page": 20,
+                "total": 1
+            },
+            "ready": true,
+            "register": {
+                "id": null,
+                "branch": "f:100",
+                "revision": 1,
+                "tax_rate": "0.00",
+                "currency": "EGP"
+            },
+            "today": {
+                "date": "2026-10-31",
+                "count": 0,
+                "total": "0.00",
+                "cash": "0.00",
+                "card": "0.00",
+                "mobile_wallet": "0.00",
+                "other": "0.00",
+                "mixed": "0.00"
+            },
+            "permissions": {
+                "can_checkout": true,
+                "can_manage_tables": true,
+                "can_manage": false,
+                "can_reprint": false
+            },
+            "policy": {
+                "tax_rate": "0.00",
+                "service_rate": "0.00",
+                "can_discount": false,
+                "payment_methods": [
+                    "cash"
+                ],
+                "currency": "EGP",
+                "settings_revision": 1,
+                "channel": "dine"
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/dining\/tables?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": {
+                "value": "f:100",
+                "id": 100,
+                "kind": "f",
+                "name": "فرع المعادي",
+                "label": "فرع المعادي",
+                "address": "شارع ٩ - المعادي",
+                "phone": "01000000000"
+            },
+            "tables": [
+                {
+                    "id": 1,
+                    "branch": "f:100",
+                    "name": "ترابيزة 1",
+                    "capacity": 4,
+                    "active": true,
+                    "revision": 2,
+                    "status": "in_service",
+                    "ticket_id": 1,
+                    "ticket": {
+                        "id": 1,
+                        "channel": "dine",
+                        "branch": {
+                            "value": "f:100",
+                            "id": 100,
+                            "kind": "f",
+                            "name": "فرع المعادي",
+                            "label": "فرع المعادي",
+                            "address": "شارع ٩ - المعادي",
+                            "phone": "01000000000"
+                        },
+                        "revision": 2,
+                        "status": "preparing",
+                        "payment_status": "unpaid",
+                        "table": {
+                            "id": 1,
+                            "name": "ترابيزة 1",
+                            "capacity": 4
+                        },
+                        "waiter_name": "حسن",
+                        "guest_count": 2,
+                        "customer_name": "أسرة محمد",
+                        "customer_phone": "",
+                        "address": "",
+                        "area": "",
+                        "delivery_notes": "",
+                        "customer_id": null,
+                        "customer_revision": null,
+                        "delivery_company": null,
+                        "delivery_location": null,
+                        "delivery_fee": "0.00",
+                        "notes": "بدون بصل",
+                        "cancel_reason": "",
+                        "created_at": "2026-10-31T16:19:22+02:00",
+                        "updated_at": "2026-10-31T16:19:22+02:00",
+                        "cashier": {
+                            "id": 4,
+                            "name": "كاشير المعادي"
+                        },
+                        "kitchen_sent": true,
+                        "bill_locked": false,
+                        "bill_issued_at": null,
+                        "bill_issued_by": null,
+                        "bill_issued_revision": null,
+                        "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                        "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                        "discount_reason": "",
+                        "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                        "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                        "can_reprint": false,
+                        "receipt_url": null,
+                        "subtotal": "230.00",
+                        "discount": "0.00",
+                        "tax": "0.00",
+                        "tax_rate": "0.00",
+                        "service": "0.00",
+                        "service_rate": "0.00",
+                        "delivery": "0.00",
+                        "total": "230.00"
+                    },
+                    "branch_name": "فرع المعادي"
+                }
+            ],
+            "policy": {
+                "service_bps": 0,
+                "service_rate": "0.00",
+                "settings_revision": 1
+            },
+            "permissions": {
+                "can_checkout": true,
+                "can_manage_tables": true,
+                "can_manage": false,
+                "can_reprint": false
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/dining\/tickets\/1\/action",
+        "body": {
+            "branch": "f:100",
+            "idempotency_key": "502c2c1e-2c0a-416c-9ee2-cc1c9e1e0d73",
+            "expected_revision": 2,
+            "action": "request_bill"
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "replayed": false,
+            "operation": {
+                "id": 3,
+                "kind": "action",
+                "idempotency_key": "502c2c1e-2c0a-416c-9ee2-cc1c9e1e0d73",
+                "ticket_id": 1,
+                "revision": 3
+            },
+            "ticket": {
+                "id": 1,
+                "channel": "dine",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 3,
+                "status": "awaiting_bill",
+                "payment_status": "unpaid",
+                "table": {
+                    "id": 1,
+                    "name": "ترابيزة 1",
+                    "capacity": 4
+                },
+                "waiter_name": "حسن",
+                "guest_count": 2,
+                "customer_name": "أسرة محمد",
+                "customer_phone": "",
+                "address": "",
+                "area": "",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "0.00",
+                "notes": "بدون بصل",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": true,
+                "bill_locked": true,
+                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_by": 4,
+                "bill_issued_revision": 3,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                "discount_reason": "",
+                "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "total": "230.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity_millis": 1000,
+                        "quantity": "1.000",
+                        "unit_price_cents": 18000,
+                        "unit_price": "180.00",
+                        "total_cents": 18000,
+                        "total": "180.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        },
+                        {
+                            "product_id": 1,
+                            "quantity": "1.000",
+                            "quantity_mode": "weight",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "0.00"
+                }
+            },
+            "receipt": null,
+            "receipt_url": null,
+            "first_print_url": null
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/dining\/tickets\/1",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "ticket": {
+                "id": 1,
+                "channel": "dine",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 3,
+                "status": "awaiting_bill",
+                "payment_status": "unpaid",
+                "table": {
+                    "id": 1,
+                    "name": "ترابيزة 1",
+                    "capacity": 4
+                },
+                "waiter_name": "حسن",
+                "guest_count": 2,
+                "customer_name": "أسرة محمد",
+                "customer_phone": "",
+                "address": "",
+                "area": "",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "0.00",
+                "notes": "بدون بصل",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": true,
+                "bill_locked": true,
+                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_by": 4,
+                "bill_issued_revision": 3,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                "discount_reason": "",
+                "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/print",
+                "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "total": "230.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity_millis": 1000,
+                        "quantity": "1.000",
+                        "unit_price_cents": 18000,
+                        "unit_price": "180.00",
+                        "total_cents": 18000,
+                        "total": "180.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        },
+                        {
+                            "product_id": 1,
+                            "quantity": "1.000",
+                            "quantity_mode": "weight",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "0.00"
+                }
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/dining\/tickets\/1\/settle",
+        "body": {
+            "branch": "f:100",
+            "idempotency_key": "e217d398-7b55-414d-a9d4-ab6737fe2457",
+            "expected_revision": 3,
+            "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+            "payment_method": "cash",
+            "cash_received": "300.00",
+            "customer_phone": "01012345678",
+            "service_consent": true
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "replayed": false,
+            "operation": {
+                "id": 4,
+                "kind": "settle",
+                "idempotency_key": "e217d398-7b55-414d-a9d4-ab6737fe2457",
+                "ticket_id": 1,
+                "revision": 4
+            },
+            "ticket": {
+                "id": 1,
+                "channel": "dine",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 4,
+                "status": "paid",
+                "payment_status": "paid",
+                "table": {
+                    "id": 1,
+                    "name": "ترابيزة 1",
+                    "capacity": 4
+                },
+                "waiter_name": "حسن",
+                "guest_count": 2,
+                "customer_name": "أسرة محمد",
+                "customer_phone": "+201012345678",
+                "address": "",
+                "area": "",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "0.00",
+                "notes": "بدون بصل",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": true,
+                "bill_locked": true,
+                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_by": 4,
+                "bill_issued_revision": 3,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                "discount_reason": "",
+                "bill_print_url": null,
+                "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "total": "230.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity_millis": 1000,
+                        "quantity": "1.000",
+                        "unit_price_cents": 18000,
+                        "unit_price": "180.00",
+                        "total_cents": 18000,
+                        "total": "180.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        },
+                        {
+                            "product_id": 1,
+                            "quantity": "1.000",
+                            "quantity_mode": "weight",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "0.00"
+                }
+            },
+            "receipt": {
+                "id": 1,
+                "number": "TA-F-100-0000001",
+                "idempotency_key": "e217d398-7b55-414d-a9d4-ab6737fe2457",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-31",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "2.000",
+                        "unit_price": "25.00",
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity": "1.000",
+                        "unit_price": "180.00",
+                        "total": "180.00"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "بدون بصل",
+                "tax_rate": "0.00",
+                "discount_reason": "",
+                "currency": "EGP",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "channel": "dine",
+                "ticket_id": 1,
+                "context": {
+                    "delivery_company": null,
+                    "delivery_location": null,
+                    "table": {
+                        "id": 1,
+                        "name": "ترابيزة 1",
+                        "capacity": 4
+                    },
+                    "table_name": "ترابيزة 1",
+                    "waiter_name": "حسن",
+                    "guest_count": 2,
+                    "customer_name": "أسرة محمد",
+                    "customer_phone": "+201012345678",
+                    "address": "",
+                    "area": "",
+                    "delivery_notes": "",
+                    "service_consent": true
+                },
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "230.00",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/1\/details",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "total": "230.00",
+                "cash_received": "300.00",
+                "change": "70.00"
+            },
+            "receipt_url": null,
+            "first_print_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/1\/print?initial_print=79b7fb5d3cfc86ce228691703d9d9b8b9092b667be37267dcc44a603650f0267",
+            "register": {
+                "id": 1,
+                "branch": "f:100",
+                "revision": 2,
+                "tax_rate": "0.00",
+                "currency": "EGP"
+            },
+            "today": {
+                "date": "2026-10-31",
+                "count": 1,
+                "total": "230.00",
+                "cash": "230.00",
+                "card": "0.00",
+                "mobile_wallet": "0.00",
+                "other": "0.00",
+                "mixed": "0.00"
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/dining\/tickets\/1",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "ticket": {
+                "id": 1,
+                "channel": "dine",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 4,
+                "status": "paid",
+                "payment_status": "paid",
+                "table": {
+                    "id": 1,
+                    "name": "ترابيزة 1",
+                    "capacity": 4
+                },
+                "waiter_name": "حسن",
+                "guest_count": 2,
+                "customer_name": "أسرة محمد",
+                "customer_phone": "+201012345678",
+                "address": "",
+                "area": "",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "0.00",
+                "notes": "بدون بصل",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": true,
+                "bill_locked": true,
+                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_by": 4,
+                "bill_issued_revision": 3,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/tickets\/1\/details",
+                "quote_hash": "53bf382dde942e0704726f3667d5a8ab3e11e8767e4d83c039a7a158a6d5b40f",
+                "discount_reason": "",
+                "bill_print_url": null,
+                "kitchen_print_url": "http:\/\/127.0.0.1:8099\/admin\/dining\/kitchen\/1\/print",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "230.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "0.00",
+                "total": "230.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    },
+                    {
+                        "product_id": 1,
+                        "name": "بوري مشوي",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "weight",
+                        "quantity_millis": 1000,
+                        "quantity": "1.000",
+                        "unit_price_cents": 18000,
+                        "unit_price": "180.00",
+                        "total_cents": 18000,
+                        "total": "180.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        },
+                        {
+                            "product_id": 1,
+                            "quantity": "1.000",
+                            "quantity_mode": "weight",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "0.00"
+                }
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/dining\/tables?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": {
+                "value": "f:100",
+                "id": 100,
+                "kind": "f",
+                "name": "فرع المعادي",
+                "label": "فرع المعادي",
+                "address": "شارع ٩ - المعادي",
+                "phone": "01000000000"
+            },
+            "tables": [
+                {
+                    "id": 1,
+                    "branch": "f:100",
+                    "name": "ترابيزة 1",
+                    "capacity": 4,
+                    "active": true,
+                    "revision": 3,
+                    "status": "free",
+                    "ticket_id": null,
+                    "ticket": null,
+                    "branch_name": "فرع المعادي"
+                }
+            ],
+            "policy": {
+                "service_bps": 0,
+                "service_rate": "0.00",
+                "settings_revision": 1
+            },
+            "permissions": {
+                "can_checkout": true,
+                "can_manage_tables": true,
+                "can_manage": false,
+                "can_reprint": false
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/phone-orders\/board?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": "f:100",
+            "columns": {
+                "preparing": {
+                    "items": [
+                        {
+                            "id": 2,
+                            "channel": "phone",
+                            "branch": {
+                                "value": "f:100",
+                                "id": 100,
+                                "kind": "f",
+                                "name": "فرع المعادي",
+                                "label": "فرع المعادي",
+                                "address": "شارع ٩ - المعادي",
+                                "phone": "01000000000"
+                            },
+                            "revision": 1,
+                            "status": "preparing",
+                            "payment_status": "unpaid",
+                            "table": null,
+                            "waiter_name": "",
+                            "guest_count": null,
+                            "customer_name": "منى",
+                            "customer_phone": "+201112223334",
+                            "address": "شارع النصر، عمارة ٥",
+                            "area": "المعادي",
+                            "delivery_notes": "",
+                            "customer_id": null,
+                            "customer_revision": null,
+                            "delivery_company": null,
+                            "delivery_location": null,
+                            "delivery_fee": "25.00",
+                            "notes": "",
+                            "cancel_reason": "",
+                            "created_at": "2026-10-31T16:19:22+02:00",
+                            "updated_at": "2026-10-31T16:19:22+02:00",
+                            "cashier": {
+                                "id": 4,
+                                "name": "كاشير المعادي"
+                            },
+                            "kitchen_sent": false,
+                            "bill_locked": false,
+                            "bill_issued_at": null,
+                            "bill_issued_by": null,
+                            "bill_issued_revision": null,
+                            "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
+                            "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+                            "discount_reason": "",
+                            "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/print",
+                            "kitchen_print_url": null,
+                            "can_reprint": false,
+                            "receipt_url": null,
+                            "subtotal": "50.00",
+                            "discount": "0.00",
+                            "tax": "0.00",
+                            "tax_rate": "0.00",
+                            "service": "0.00",
+                            "service_rate": "0.00",
+                            "delivery": "25.00",
+                            "total": "75.00",
+                            "courier_company": null,
+                            "batch_print_url": null,
+                            "completed_at": null
+                        }
+                    ],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 1
+                    }
+                },
+                "courier": {
+                    "items": [],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 0
+                    }
+                },
+                "finished": {
+                    "items": [],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 0
+                    }
+                }
+            },
+            "companies": [
+                {
+                    "id": 1,
+                    "name": "شركة سريع",
+                    "branch": "f:100"
+                },
+                {
+                    "id": 7,
+                    "name": "شركة سريع",
+                    "branch": "f:100"
+                }
+            ]
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/phone-orders\/tickets\/2",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "ticket": {
+                "id": 2,
+                "channel": "phone",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 1,
+                "status": "preparing",
+                "payment_status": "unpaid",
+                "table": null,
+                "waiter_name": "",
+                "guest_count": null,
+                "customer_name": "منى",
+                "customer_phone": "+201112223334",
+                "address": "شارع النصر، عمارة ٥",
+                "area": "المعادي",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "25.00",
+                "notes": "",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": false,
+                "bill_locked": false,
+                "bill_issued_at": null,
+                "bill_issued_by": null,
+                "bill_issued_revision": null,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
+                "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+                "discount_reason": "",
+                "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/print",
+                "kitchen_print_url": null,
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "50.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "25.00",
+                "total": "75.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "25.00"
+                }
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/quote",
+        "body": {
+            "branch": "f:100",
+            "ticket_id": 2
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+            "branch": {
+                "value": "f:100",
+                "id": 100,
+                "kind": "f",
+                "name": "فرع المعادي",
+                "label": "فرع المعادي",
+                "address": "شارع ٩ - المعادي",
+                "phone": "01000000000"
+            },
+            "items": [
+                {
+                    "product_id": 7,
+                    "name": "سلطة طحينة",
+                    "option_id": "",
+                    "option_label": "",
+                    "unit": "",
+                    "quantity_mode": "piece",
+                    "quantity_millis": 2000,
+                    "quantity": "2.000",
+                    "unit_price_cents": 2500,
+                    "unit_price": "25.00",
+                    "total_cents": 5000,
+                    "total": "50.00"
+                }
+            ],
+            "subtotal_cents": 5000,
+            "discount_cents": 0,
+            "tax_cents": 0,
+            "total_cents": 7500,
+            "subtotal": "50.00",
+            "discount": "0.00",
+            "tax_bps": 0,
+            "tax_rate": "0.00",
+            "tax": "0.00",
+            "service_bps": 0,
+            "service_cents": 0,
+            "delivery_cents": 2500,
+            "service_rate": "0.00",
+            "service": "0.00",
+            "delivery": "25.00",
+            "total": "75.00",
+            "ticket_id": 2,
+            "revision": 1
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/dispatch-company",
+        "body": {
+            "branch": "f:100",
+            "ticket_id": 2,
+            "company_id": 7,
+            "expected_revision": 1,
+            "idempotency_key": "144965e7-aef4-4662-97c0-40f147e9e672"
+        },
+        "status": 200,
+        "json": {
+            "operation": {
+                "kind": "phone.dispatch",
+                "idempotency_key": "144965e7-aef4-4662-97c0-40f147e9e672"
+            },
+            "branch": "f:100",
+            "ticket_id": 2,
+            "revision": 2,
+            "company": {
+                "id": 7,
+                "name": "شركة سريع",
+                "phone": "01011112222",
+                "contact_name": ""
+            },
+            "success": true,
+            "replayed": false
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/tickets\/2\/action",
+        "body": {
+            "branch": "f:100",
+            "idempotency_key": "7cd48490-9cc1-4ef9-be6b-3608d50bc458",
+            "expected_revision": 2,
+            "action": "request_bill",
+            "reason": ""
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "replayed": false,
+            "operation": {
+                "id": 5,
+                "kind": "action",
+                "idempotency_key": "7cd48490-9cc1-4ef9-be6b-3608d50bc458",
+                "ticket_id": 2,
+                "revision": 3
+            },
+            "ticket": {
+                "id": 2,
+                "channel": "phone",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 3,
+                "status": "out_for_delivery",
+                "payment_status": "unpaid",
+                "table": null,
+                "waiter_name": "",
+                "guest_count": null,
+                "customer_name": "منى",
+                "customer_phone": "+201112223334",
+                "address": "شارع النصر، عمارة ٥",
+                "area": "المعادي",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "25.00",
+                "notes": "",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": false,
+                "bill_locked": true,
+                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_by": 4,
+                "bill_issued_revision": 3,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
+                "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+                "discount_reason": "",
+                "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/print",
+                "kitchen_print_url": null,
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "50.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "25.00",
+                "total": "75.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "25.00"
+                }
+            },
+            "receipt": null,
+            "receipt_url": null,
+            "first_print_url": null
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/phone-orders\/board?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": "f:100",
+            "columns": {
+                "preparing": {
+                    "items": [],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 0
+                    }
+                },
+                "courier": {
+                    "items": [
+                        {
+                            "id": 2,
+                            "channel": "phone",
+                            "branch": {
+                                "value": "f:100",
+                                "id": 100,
+                                "kind": "f",
+                                "name": "فرع المعادي",
+                                "label": "فرع المعادي",
+                                "address": "شارع ٩ - المعادي",
+                                "phone": "01000000000"
+                            },
+                            "revision": 3,
+                            "status": "out_for_delivery",
+                            "payment_status": "unpaid",
+                            "table": null,
+                            "waiter_name": "",
+                            "guest_count": null,
+                            "customer_name": "منى",
+                            "customer_phone": "+201112223334",
+                            "address": "شارع النصر، عمارة ٥",
+                            "area": "المعادي",
+                            "delivery_notes": "",
+                            "customer_id": null,
+                            "customer_revision": null,
+                            "delivery_company": null,
+                            "delivery_location": null,
+                            "delivery_fee": "25.00",
+                            "notes": "",
+                            "cancel_reason": "",
+                            "created_at": "2026-10-31T16:19:22+02:00",
+                            "updated_at": "2026-10-31T16:19:22+02:00",
+                            "cashier": {
+                                "id": 4,
+                                "name": "كاشير المعادي"
+                            },
+                            "kitchen_sent": false,
+                            "bill_locked": true,
+                            "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                            "bill_issued_by": 4,
+                            "bill_issued_revision": 3,
+                            "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
+                            "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+                            "discount_reason": "",
+                            "bill_print_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/print",
+                            "kitchen_print_url": null,
+                            "can_reprint": false,
+                            "receipt_url": null,
+                            "subtotal": "50.00",
+                            "discount": "0.00",
+                            "tax": "0.00",
+                            "tax_rate": "0.00",
+                            "service": "0.00",
+                            "service_rate": "0.00",
+                            "delivery": "25.00",
+                            "total": "75.00",
+                            "courier_company": {
+                                "id": 7,
+                                "name": "شركة سريع",
+                                "phone": "01011112222",
+                                "contact_name": ""
+                            },
+                            "batch_print_url": null,
+                            "completed_at": null
+                        }
+                    ],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 1
+                    }
+                },
+                "finished": {
+                    "items": [],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 0
+                    }
+                }
+            },
+            "companies": [
+                {
+                    "id": 1,
+                    "name": "شركة سريع",
+                    "branch": "f:100"
+                },
+                {
+                    "id": 7,
+                    "name": "شركة سريع",
+                    "branch": "f:100"
+                }
+            ]
+        },
+        "html": null
+    },
+    {
+        "method": "POST",
+        "path": "\/admin\/phone-orders\/tickets\/2\/settle",
+        "body": {
+            "branch": "f:100",
+            "expected_revision": 3,
+            "idempotency_key": "6f1e2ec4-9513-47a7-95e0-a8de2549dc72",
+            "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+            "payment_method": "cash",
+            "cash_received": "200.00",
+            "payment_confirmed": true,
+            "payment_reference": ""
+        },
+        "status": 200,
+        "json": {
+            "success": true,
+            "replayed": false,
+            "operation": {
+                "id": 6,
+                "kind": "settle",
+                "idempotency_key": "6f1e2ec4-9513-47a7-95e0-a8de2549dc72",
+                "ticket_id": 2,
+                "revision": 4
+            },
+            "ticket": {
+                "id": 2,
+                "channel": "phone",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "revision": 4,
+                "status": "finished",
+                "payment_status": "paid",
+                "table": null,
+                "waiter_name": "",
+                "guest_count": null,
+                "customer_name": "منى",
+                "customer_phone": "+201112223334",
+                "address": "شارع النصر، عمارة ٥",
+                "area": "المعادي",
+                "delivery_notes": "",
+                "customer_id": null,
+                "customer_revision": null,
+                "delivery_company": null,
+                "delivery_location": null,
+                "delivery_fee": "25.00",
+                "notes": "",
+                "cancel_reason": "",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "updated_at": "2026-10-31T16:19:22+02:00",
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "kitchen_sent": false,
+                "bill_locked": true,
+                "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                "bill_issued_by": 4,
+                "bill_issued_revision": 3,
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
+                "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+                "discount_reason": "",
+                "bill_print_url": null,
+                "kitchen_print_url": null,
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "50.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "tax_rate": "0.00",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "25.00",
+                "total": "75.00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": "",
+                        "option_label": "",
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity_millis": 2000,
+                        "quantity": "2.000",
+                        "unit_price_cents": 2500,
+                        "unit_price": "25.00",
+                        "total_cents": 5000,
+                        "total": "50.00"
+                    }
+                ],
+                "cart": {
+                    "branch": "f:100",
+                    "items": [
+                        {
+                            "product_id": 7,
+                            "quantity": "2.000",
+                            "quantity_mode": "piece",
+                            "option_id": ""
+                        }
+                    ],
+                    "discount": "0.00",
+                    "discount_reason": "",
+                    "delivery_fee": "25.00"
+                }
+            },
+            "receipt": {
+                "id": 2,
+                "number": "TA-F-100-0000002",
+                "idempotency_key": "6f1e2ec4-9513-47a7-95e0-a8de2549dc72",
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 4,
+                    "name": "كاشير المعادي"
+                },
+                "business_date": "2026-10-31",
+                "created_at": "2026-10-31T16:19:22+02:00",
+                "items": [
+                    {
+                        "product_id": 7,
+                        "name": "سلطة طحينة",
+                        "option_id": null,
+                        "option_label": null,
+                        "unit": "",
+                        "quantity_mode": "piece",
+                        "quantity": "2.000",
+                        "unit_price": "25.00",
+                        "total": "50.00"
+                    }
+                ],
+                "payment_method": "cash",
+                "payment_confirmed": true,
+                "payment_reference": "",
+                "notes": "",
+                "tax_rate": "0.00",
+                "discount_reason": "",
+                "currency": "EGP",
+                "service": "0.00",
+                "service_rate": "0.00",
+                "delivery": "25.00",
+                "channel": "phone",
+                "ticket_id": 2,
+                "context": {
+                    "delivery_company": null,
+                    "delivery_location": null,
+                    "table": null,
+                    "table_name": "",
+                    "waiter_name": "",
+                    "guest_count": null,
+                    "customer_name": "منى",
+                    "customer_phone": "+201112223334",
+                    "address": "شارع النصر، عمارة ٥",
+                    "area": "المعادي",
+                    "delivery_notes": ""
+                },
+                "payment_breakdown": [
+                    {
+                        "method": "cash",
+                        "amount": "75.00",
+                        "confirmed": true,
+                        "reference": ""
+                    }
+                ],
+                "status": "completed",
+                "details_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/2\/details",
+                "can_reprint": false,
+                "receipt_url": null,
+                "subtotal": "50.00",
+                "discount": "0.00",
+                "tax": "0.00",
+                "total": "75.00",
+                "cash_received": "200.00",
+                "change": "125.00"
+            },
+            "receipt_url": null,
+            "first_print_url": "http:\/\/127.0.0.1:8099\/admin\/takeaway\/receipts\/2\/print?initial_print=7c7670652fb66f6e054e62de39b8f522fbcb4b4836fd371320169265f914557f",
+            "register": {
+                "id": 1,
+                "branch": "f:100",
+                "revision": 3,
+                "tax_rate": "0.00",
+                "currency": "EGP"
+            },
+            "today": {
+                "date": "2026-10-31",
+                "count": 2,
+                "total": "305.00",
+                "cash": "305.00",
+                "card": "0.00",
+                "mobile_wallet": "0.00",
+                "other": "0.00",
+                "mixed": "0.00"
+            }
+        },
+        "html": null
+    },
+    {
+        "method": "GET",
+        "path": "\/admin\/phone-orders\/board?branch=f:100",
+        "body": null,
+        "status": 200,
+        "json": {
+            "success": true,
+            "branch": "f:100",
+            "columns": {
+                "preparing": {
+                    "items": [],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 0
+                    }
+                },
+                "courier": {
+                    "items": [],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 0
+                    }
+                },
+                "finished": {
+                    "items": [
+                        {
+                            "id": 2,
+                            "channel": "phone",
+                            "branch": {
+                                "value": "f:100",
+                                "id": 100,
+                                "kind": "f",
+                                "name": "فرع المعادي",
+                                "label": "فرع المعادي",
+                                "address": "شارع ٩ - المعادي",
+                                "phone": "01000000000"
+                            },
+                            "revision": 4,
+                            "status": "finished",
+                            "payment_status": "paid",
+                            "table": null,
+                            "waiter_name": "",
+                            "guest_count": null,
+                            "customer_name": "منى",
+                            "customer_phone": "+201112223334",
+                            "address": "شارع النصر، عمارة ٥",
+                            "area": "المعادي",
+                            "delivery_notes": "",
+                            "customer_id": null,
+                            "customer_revision": null,
+                            "delivery_company": null,
+                            "delivery_location": null,
+                            "delivery_fee": "25.00",
+                            "notes": "",
+                            "cancel_reason": "",
+                            "created_at": "2026-10-31T16:19:22+02:00",
+                            "updated_at": "2026-10-31T16:19:22+02:00",
+                            "cashier": {
+                                "id": 4,
+                                "name": "كاشير المعادي"
+                            },
+                            "kitchen_sent": false,
+                            "bill_locked": true,
+                            "bill_issued_at": "2026-10-31T16:19:22+02:00",
+                            "bill_issued_by": 4,
+                            "bill_issued_revision": 3,
+                            "details_url": "http:\/\/127.0.0.1:8099\/admin\/phone-orders\/tickets\/2\/details",
+                            "quote_hash": "f58ea4c24d83173ae5fc22567b4b02695692ca1f908bcf3cbe021ac0e5e08784",
+                            "discount_reason": "",
+                            "bill_print_url": null,
+                            "kitchen_print_url": null,
+                            "can_reprint": false,
+                            "receipt_url": null,
+                            "subtotal": "50.00",
+                            "discount": "0.00",
+                            "tax": "0.00",
+                            "tax_rate": "0.00",
+                            "service": "0.00",
+                            "service_rate": "0.00",
+                            "delivery": "25.00",
+                            "total": "75.00",
+                            "courier_company": {
+                                "id": 7,
+                                "name": "شركة سريع",
+                                "phone": "01011112222",
+                                "contact_name": ""
+                            },
+                            "batch_print_url": null,
+                            "completed_at": "2026-10-31T14:19:22+00:00"
+                        }
+                    ],
+                    "pagination": {
+                        "page": 1,
+                        "last_page": 1,
+                        "total": 1
+                    }
+                }
+            },
+            "companies": [
+                {
+                    "id": 1,
+                    "name": "شركة سريع",
+                    "branch": "f:100"
+                },
+                {
+                    "id": 7,
+                    "name": "شركة سريع",
+                    "branch": "f:100"
+                }
+            ]
+        },
+        "html": null
+    }
+]
