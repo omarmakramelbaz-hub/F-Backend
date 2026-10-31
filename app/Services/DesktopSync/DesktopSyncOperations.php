@@ -202,8 +202,16 @@ class DesktopSyncOperations
         $data = Validator::make($data, [
             'employee_id' => 'required|integer|min:1', 'day' => 'required|date_format:Y-m-d',
             'status' => 'required|in:morning,evening,part_time', 'action' => 'required|in:check_in,check_out',
+            'notes' => 'nullable|string|max:1000',
         ])->validate();
-        $result = app(BranchPayroll::class)->attendance(['branch' => $branch, 'idempotency_key' => $id] + $data, $actor, $when);
+        if (trim((string) ($data['notes'] ?? '')) === '') unset($data['notes']);
+        // The dashboard's employees page may have reached the server just before the connection dropped; the device
+        // then saved the same punch under the same operation number. The dashboard already has it: never twice.
+        $command = DB::table('branch_operation_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first(['result']);
+        $result = $command ? (json_decode($command->result, true) ?: []) : null;
+        if (! $result || empty($result['attendance'])) {
+            $result = app(BranchPayroll::class)->attendance(['branch' => $branch, 'idempotency_key' => $id] + $data, $actor, $when);
+        }
         $day = $result['attendance'];
         $time = fn ($value) => $value ? Carbon::parse($value, 'UTC')->toIso8601String() : null;
         return ['attendance' => ['employee_id' => (int) $day['employee_id'], 'day' => (string) $day['day'], 'status' => (string) $day['status'],

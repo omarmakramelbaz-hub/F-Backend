@@ -327,3 +327,42 @@ test('without a list seen online, the expenses page\'s own saved list is the bas
   const gas = (await ask('GET', '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1&category=gas')).json;
   assert.deepEqual(gas.items.map((item) => item.number), ['EXP-000007'], 'Filters apply to the saved list too');
 });
+
+// ---- the employees page (الموظفون والرواتب): check-in and check-out from the device while offline ----
+const { EmployeesOffline } = require('../src/main/offline/employees.cjs');
+
+test('the employees page records a check-in and check-out on the device, once, with the day\'s notes', async () => {
+  let clock = Date.parse('2026-10-30T08:40:00Z'); // 10:40 in Cairo
+  const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
+  store.saveDevice({ id: 'device-1', code: 'A1B', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'المعادي', address: '', phone: '' }]);
+  store.replaceUsers([ACCOUNT], 'h');
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1', attendance: [], catalog: { ...MENU,
+    employees: [{ id: 50, name: 'سعيد', job_title: 'كاشير', schedule_type: 'branch', shift: 'صباحي' }],
+    attendance_shifts: [{ shift: 'morning', starts_at: '10:00', ends_at: '18:00' }] } }]);
+  const cache = new PageCache(':memory:', { now: () => new Date(clock) });
+  const page = new EmployeesOffline({ store, cache, origin: ORIGIN, now: () => new Date(clock) });
+  const ask = async (method, path, body = null) => {
+    const url = new URL(ORIGIN + path);
+    return page.answer(page.match(method, url.pathname), { user: ACCOUNT, url, body });
+  };
+  const key = '8b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f';
+  const punch = { branch: 'f:100', employee_id: 50, day: '2026-10-30', status: 'morning', action: 'check_in', notes: 'جه بدري', expected_revision: null, idempotency_key: key };
+  const arrived = await ask('POST', '/admin/employees/attendance', punch);
+  assert.equal(arrived.status, 200, JSON.stringify(arrived.json));
+  assert.deepEqual([arrived.json.attendance.status, arrived.json.attendance.check_in, arrived.json.attendance.checked_in_at, arrived.json.attendance.notes],
+    ['morning', '10:40:00', '2026-10-30 08:40:00', 'جه بدري']);
+  const [operation] = store.pendingOperations();
+  assert.deepEqual([operation.id, operation.kind, operation.data.action, operation.data.notes], [key, 'attendance', 'check_in', 'جه بدري']);
+  assert.equal((await ask('POST', '/admin/employees/attendance', punch)).json.replayed, true);
+  assert.equal(store.pendingOperations().length, 1, 'Never twice');
+  assert.equal((await ask('GET', `/admin/branch-operations/recover?branch=f:100&idempotency_key=${key}`)).json.found, true);
+  assert.equal((await ask('POST', '/admin/employees/attendance', { ...punch, idempotency_key: '9c8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', action: 'set_status', status: 'unauthorized_absence' })).status, 422);
+  // The list seen online shows the device's punch.
+  cache.put('u:4', 'data', ORIGIN + '/admin/employees/data?branch=f:100&day=2026-10-30&month=2026-10&page=1', 'application/json',
+    Buffer.from(JSON.stringify({ success: true, filters: { branch: 'f:100', day: '2026-10-30', month: '2026-10' }, items: [{ id: 50, branch: 'f:100', name: 'سعيد', attendance: null }] })));
+  clock += 4 * 3600 * 1000; // 14:40
+  await ask('POST', '/admin/employees/attendance', { ...punch, action: 'check_out', notes: '', idempotency_key: '7c8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f' });
+  const list = (await ask('GET', '/admin/employees/data?branch=f:100&day=2026-10-30&month=2026-10&page=1')).json;
+  assert.deepEqual([list.items[0].attendance.check_in, list.items[0].attendance.check_out, list.items[0].attendance.notes], ['10:40:00', '14:40:00', 'جه بدري']);
+  assert.equal((await ask('GET', '/admin/employees/data?branch=f:100&day=2026-10-29&month=2026-10&page=1')).status, 503, 'Another day needs the internet');
+});

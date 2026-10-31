@@ -23,6 +23,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let server = null;
 let currentPage = null; // shown in the failure report
 let appOutput = ''; // the app's own console output, also for the failure report
+const appLog = []; // the app's own [goerp] lines (Chromium's noise would push them out of appOutput)
 
 async function startServer() {
   const log = fs.openSync(path.join(WORK, 'php-server.log'), 'a');
@@ -78,7 +79,11 @@ const ELECTRON = require(path.join(APP, 'node_modules', 'electron'));
 async function launch(userData, executablePath = ELECTRON, args = [APP], embed = false) {
   const app = await electron.launch({ executablePath, args: [...args, '--no-sandbox', '--disable-gpu'], cwd: APP,
     env: { ...process.env, GOERP_SERVER: SERVER, GOERP_USER_DATA: userData, GOERP_DASHBOARD_VIEW: embed ? 'on' : 'off', GOERP_DEBUG_SYNC: '1' } });
-  const keep = (chunk) => { appOutput = (appOutput + chunk).slice(-3000); };
+  const keep = (chunk) => {
+    appOutput = (appOutput + chunk).slice(-3000);
+    for (const line of String(chunk).split('\n')) if (line.includes('[goerp]')) appLog.push(line.trim());
+    appLog.splice(0, Math.max(0, appLog.length - 200));
+  };
   app.process().stdout.on('data', keep);
   app.process().stderr.on('data', keep);
   return app;
@@ -342,7 +347,7 @@ async function ownerDevice() {
     await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens signed in');
   } catch (error) {
     console.log('DEBUG urls', JSON.stringify(await dashboardUrls(app)));
-    console.log('DEBUG app', appOutput.split('\n').filter((line) => line.includes('[goerp]')).join(' | '));
+    console.log('DEBUG app', appLog.slice(-30).join(' | '));
     console.log('DEBUG state', JSON.stringify(await app.evaluate(({ webContents }) => webContents.getAllWebContents().map((c) => [c.getURL(), c.isLoading()]))));
     console.log('DEBUG page', String(await inDashboard(app, "JSON.stringify({ ready: document.readyState, email: (document.querySelector('[name=email]') || {}).value, resources: performance.getEntriesByType('resource').map((r) => r.name.slice(0, 90) + ' ' + Math.round(r.duration)).slice(0, 40) })").catch((e) => 'ERR ' + e.message)));
     throw error;
@@ -363,7 +368,12 @@ async function ownerDevice() {
     const dashboard = webContents.getAllWebContents().find((contents) => contents.getURL().includes('/admin/dashboard'));
     return dashboard.executeJavaScript("location.href = '/admin/adminLogout'");
   });
-  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+  try {
+    await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 30000 });
+  } catch (error) {
+    console.log('DEBUG sign-out', JSON.stringify(await dashboardUrls(app)), appLog.slice(-20).join(' | '));
+    throw error;
+  }
 
   // Back in on the device's screens: the owner switches between the two branches' menus.
   await signIn(page, '01000000001', 'root-pass', '.status-bar');
@@ -411,6 +421,9 @@ async function dashboardOffline() {
   await until(() => saved('/admin/branch-expenses') && deviceRows(userData, 'dashboard-copy.sqlite',
     "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND url LIKE '%/dashboard/js/branch-expenses.js%'")[0].c === 1,
   'the expenses page and its script are saved for offline use', 40000);
+  await until(() => saved('/admin/employees') && deviceRows(userData, 'dashboard-copy.sqlite',
+    "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND url LIKE '%/dashboard/js/branch-operations.js%'")[0].c === 1,
+  'the employees page and its script are saved for offline use', 40000);
   // Online, the cashier page works from the dashboard as usual.
   await app.evaluate(({ webContents }) => {
     global.__dashboardConsole = [];
@@ -459,7 +472,7 @@ async function dashboardOffline() {
   } catch (error) {
     console.log('DEBUG print', String(await step("return JSON.stringify({ message: root.querySelector('[data-pos-message] span').textContent, saved: root.querySelector('[data-pos-saved]').textContent, frames: document.querySelectorAll('iframe').length, print: typeof window.DashboardPrint, flag: window.__goerpDirectPrint, hook: window.__goerpPrintHook })")));
     console.log('DEBUG console', JSON.stringify(await app.evaluate(() => global.__dashboardConsole || [])));
-    console.log('DEBUG app', appOutput.split('\n').filter((line) => line.includes('[goerp]')).join(' | '));
+    console.log('DEBUG app', appLog.slice(-30).join(' | '));
     throw error;
   }
   const sale = deviceRows(userData, 'goerp.sqlite', "SELECT id, channel, status, json_extract(totals, '$.total_cents') AS total FROM tickets WHERE json_extract(data, '$.source') = 'dashboard'");
@@ -495,6 +508,30 @@ async function dashboardOffline() {
     throw error;
   }
   await dashboardShot(app, '16-dashboard-expense-offline');
+  // The employees page offline: سعيد (checked in earlier) leaves, recorded from the dashboard's own page with the device's time.
+  await inDashboard(app, "location.href = '/admin/employees'");
+  const arrival = "document.querySelector('select[aria-label=\"الانصراف — سعيد\"]')";
+  try {
+    await until(async () => await inDashboard(app, `!!${arrival}`).catch(() => false), 'the employees page opens offline');
+  } catch (error) {
+    console.log('DEBUG employees', String(await inDashboard(app, `JSON.stringify({ url: location.href, root: !!document.querySelector('#branch-operations'),
+      message: (document.querySelector('[data-op-message]') || {}).textContent, selects: Array.from(document.querySelectorAll('select')).map((x) => x.getAttribute('aria-label')).filter(Boolean).slice(0, 8),
+      text: (document.querySelector('[data-dashboard-page]') || document.body).innerText.slice(0, 600) })`).catch((e) => 'ERR ' + e.message)));
+    console.log('DEBUG console', JSON.stringify((await app.evaluate(() => global.__dashboardConsole || [])).filter((line) => !/CKEDITOR|toastr|rateYo|firebase|jstree|ServiceWorker/.test(line)).slice(-10)));
+    throw error;
+  }
+  await inDashboard(app, `(() => { const select = ${arrival}; select.value = 'morning'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  try {
+    // Recorded: the departure control is locked and shows the time it was recorded.
+    await until(async () => await inDashboard(app, `${arrival}.disabled && /^\\d{2}:\\d{2}$/.test(${arrival}.options[0].textContent.trim())`).catch(() => false),
+      'the offline check-out shows on the employees page', 20000);
+  } catch (error) {
+    console.log('DEBUG punch', String(await inDashboard(app, `JSON.stringify({ cell: ${arrival}.closest('.op-attendance-cell').innerText, disabled: ${arrival}.disabled,
+      notice: Array.from(document.querySelectorAll('[role=status],[data-op-message],.op-message')).map((x) => x.textContent).join(' | ').slice(0, 400) })`).catch((e) => 'ERR ' + e.message)));
+    console.log('DEBUG journal', JSON.stringify(deviceRows(userData, 'goerp.sqlite', "SELECT kind, sync_status, data FROM journal WHERE kind = 'attendance'")));
+    throw error;
+  }
+  await dashboardShot(app, '17-dashboard-attendance-offline');
   // A page this account never saved explains that it needs the internet, inside the dashboard.
   await inDashboard(app, "window.DashboardSPA && window.DashboardSPA.visit('/admin/wallets/transactions')");
   await until(async () => /الصفحة دي محتاجة إنترنت/.test(await inDashboard(app, 'document.body.innerText').catch(() => '')), 'unsaved page message');
@@ -510,6 +547,8 @@ async function dashboardOffline() {
   assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].total_cents, 20500);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_expenses WHERE amount_cents = 8825 AND category = 'electricity'")[0].c === 1,
     'the offline expense reaches the dashboard', 40000);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 50 AND check_out IS NOT NULL")[0].c === 1,
+    'the offline check-out reaches the dashboard', 40000);
   await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
   await app.close();
 }
@@ -529,12 +568,12 @@ async function main() {
 
 main().catch(async (error) => {
   console.error(error && error.stack || error);
-  console.error('App log: ' + appOutput.split('\n').filter((line) => line.includes('[goerp]')).join(' | '));
+  console.error('App log: ' + appLog.slice(-30).join(' | '));
   let screen = '';
   try { if (currentPage) screen = (await currentPage.locator('body').innerText({ timeout: 2000 })).slice(0, 1500); } catch { /* window closed */ }
   if (process.env.GITHUB_ACTIONS) {
     // CI logs are not always reachable; an annotation is readable from the run's API.
-    const text = `${error && error.message || error}\n--- screen ---\n${screen}\n--- app output ---\n${appOutput.slice(-1200)}`;
+    const text = `${error && error.message || error}\n--- screen ---\n${screen}\n--- app log ---\n${appLog.slice(-25).join('\n')}`;
     console.log('::error title=GO ERP desktop end-to-end check::' + text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A'));
   }
   await stopServer();

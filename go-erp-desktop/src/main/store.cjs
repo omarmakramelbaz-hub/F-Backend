@@ -515,8 +515,22 @@ class Store {
     });
   }
 
-  /** Same order and shift rules as the dashboard; the server applies its deductions from these times. */
-  recordPunch(actor, branch, values) {
+  /**
+   * Same order and shift rules as the dashboard; the server applies its deductions from these times. options.id: the
+   * dashboard page's operation number; saving it again returns the same punch.
+   */
+  recordPunch(actor, branch, values, options = {}) {
+    if (options.id) {
+      const existing = this.journalEntry(options.id);
+      if (existing) {
+        if (existing.kind !== 'attendance' || existing.actor_id !== actor.id || existing.branch !== branch) {
+          const error = new Error('رقم العملية مستخدم لعملية مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ...existing, replayed: true };
+      }
+    }
     this.requireBranch(actor, branch, 'can_checkout');
     const day = rules.operatingDay(this.now());
     const action = values.action === 'check_out' ? 'check_out' : 'check_in';
@@ -535,7 +549,9 @@ class Store {
       status = state.status;
     }
     const data = { employee_id: state.employee.id, day, status, action };
-    return this.addJournal(actor, branch, 'attendance', 0, data, { employee_name: state.employee.name });
+    const notes = String(values.notes ?? '').trim().slice(0, 1000);
+    if (notes) data.notes = notes;
+    return this.addJournal(actor, branch, 'attendance', 0, data, { employee_name: state.employee.name }, options.id);
   }
 
   /**

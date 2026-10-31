@@ -416,6 +416,27 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(1, DB::table('branch_employee_days')->count());
     }
 
+    public function test_a_punch_the_employees_page_already_saved_online_is_not_recorded_again_and_notes_go_up(): void
+    {
+        $this->attendanceFixture();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $key = (string) Str::uuid();
+        // The page's punch reached the dashboard, then the connection dropped before the answer came back.
+        $this->actingAs(User::find(4), 'admin')->postJson('/admin/employees/attendance', ['branch' => 'f:100', 'idempotency_key' => $key,
+            'employee_id' => 50, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in'])->assertOk();
+        $before = (array) DB::table('branch_employee_days')->where('employee_id', 50)->first();
+        // The device then saved the same punch offline under the page's operation number.
+        $same = $this->operation('attendance', 4, ['employee_id' => 50, 'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in'], ['id' => $key]);
+        $result = $this->sync($device, ['operations' => [$same]])->assertOk()->json()['results'][0];
+        $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertEquals($before, (array) DB::table('branch_employee_days')->where('employee_id', 50)->first(), 'Recorded once, unchanged');
+        // A punch made on the dashboard's page offline keeps the day's notes it was saved with.
+        $noted = $this->operation('attendance', 4, ['employee_id' => 51, 'day' => '2026-10-30', 'status' => 'evening', 'action' => 'check_in',
+            'notes' => 'جه بدري يساعد في الجرد']);
+        $this->assertSame('applied', $this->sync($device, ['operations' => [$noted]])->json()['results'][0]['status']);
+        $this->assertSame('جه بدري يساعد في الجرد', DB::table('branch_employee_days')->where('employee_id', 51)->value('notes'));
+    }
+
     public function test_an_automatic_absence_gives_way_to_a_punch_recorded_before_the_deadline(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-10-30 23:30:00', 'Africa/Cairo'));

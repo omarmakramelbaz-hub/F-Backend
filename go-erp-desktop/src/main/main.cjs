@@ -14,6 +14,7 @@ const { PageCache } = require('./offline/cache.cjs');
 const { DashboardOffline, warmUpScript } = require('./offline/interceptor.cjs');
 const { TakeawayOffline } = require('./offline/takeaway.cjs');
 const { ExpensesOffline } = require('./offline/expenses.cjs');
+const { EmployeesOffline } = require('./offline/employees.cjs');
 
 const SERVER = process.env.GOERP_SERVER || 'https://fasakhaninja.com';
 // Lets the automatic tests run the app on a separate data folder.
@@ -446,7 +447,10 @@ function createDashboardView() {
   contents.on('dom-ready', () => installDirectPrint(contents));
   // The dashboard's own sign-out link (navbar: /admin/adminLogout).
   contents.on('will-navigate', (event, url) => {
-    if (sameServer(url) && /^\/admin\/(adminLogout|logout)\/?$/i.test(new URL(url).pathname)) dashboardLoggingOut = true;
+    if (sameServer(url) && /^\/admin\/(adminLogout|logout)\/?$/i.test(new URL(url).pathname)) {
+      dashboardLoggingOut = true;
+      console.log('[goerp] the dashboard\'s own sign-out');
+    }
   });
   contents.on('did-finish-load', () => onDashboardLoad(contents));
   contents.on('did-fail-load', (event, code, description, url, mainFrame) => {
@@ -538,6 +542,7 @@ async function onDashboardLoad(contents) {
   if (url.pathname.replace(/\/+$/, '') === '/admin/login') {
     if (dashboardLoggingOut) {
       dashboardLoggingOut = false;
+      console.log('[goerp] signed out of the app with the dashboard');
       notifyDashboard({ type: 'signed-out' });
       return;
     }
@@ -644,7 +649,8 @@ app.whenReady().then(() => {
   pageCache = new PageCache(path.join(app.getPath('userData'), 'dashboard-copy.sqlite'), { now });
   offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
     pages: [new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
-      new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() })],
+      new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
+      new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() })],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
     onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
     onFromCopy: (contents) => fromCopy.add(contents),
