@@ -667,8 +667,11 @@ async function dashboardOffline() {
   await dashboardShot(app, '22-dashboard-new-delivery-location-offline');
   await phone("document.querySelector('[data-phone-next-details]').click();");
   await checked("document.querySelectorAll('[data-phone-product]').length >= 3", 'the customer is saved and the products open');
-  await phone(`Array.from(document.querySelectorAll('[data-phone-product]')).find((button) => button.textContent.includes('سلطة طحينة')).click();
-    const option = document.querySelector('[data-phone-modal]:not([hidden]) .ph-option-list button'); if (option) option.click();`);
+  // Added once the page is ready (it ignores a click while it still finishes saving the customer).
+  await checked(`(() => { const lines = document.querySelectorAll('[data-phone-lines] tr').length;
+    if (!lines) { Array.from(document.querySelectorAll('[data-phone-product]')).find((button) => button.textContent.includes('سلطة طحينة')).click();
+      const option = document.querySelector('[data-phone-modal]:not([hidden]) .ph-option-list button'); if (option) option.click(); }
+    return lines === 1; })()`, 'the product is added to the delivery order');
   await checked("document.querySelector('[data-phone-total=\"total\"]').textContent.includes('45.00')", 'the device prices the delivery order');
   // The customer agrees to the follow-up (the page sends nothing before it).
   await phone("const consent = document.querySelector('[data-phone-customer-consent]'); if (!consent.checked) consent.click();");
