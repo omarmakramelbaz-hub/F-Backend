@@ -26,7 +26,9 @@ let appOutput = ''; // the app's own console output, also for the failure report
 
 async function startServer() {
   const log = fs.openSync(path.join(WORK, 'php-server.log'), 'a');
-  server = spawn('php', ['-S', `127.0.0.1:${PORT}`, '-t', path.join(ROOT, 'public'), path.join(__dirname, 'router.php')], { stdio: ['ignore', log, log], env: PHP_ENV });
+  // Its own process group, so stopping it also stops its worker processes.
+  server = spawn('php', ['-S', `127.0.0.1:${PORT}`, '-t', path.join(ROOT, 'public'), path.join(__dirname, 'router.php')],
+    { stdio: ['ignore', log, log], env: PHP_ENV, detached: true });
   await until(async () => {
     try {
       const response = await fetch(SERVER + '/api/desktop-sync/v1/sync', { method: 'POST' });
@@ -36,10 +38,19 @@ async function startServer() {
   }, 'local dashboard starts', 15000);
 }
 
+/** The internet goes down: the server and all its workers stop, and nothing answers any more. */
 async function stopServer() {
-  if (server) server.kill('SIGKILL');
+  if (server) {
+    try { process.kill(-server.pid, 'SIGKILL'); } catch { server.kill('SIGKILL'); }
+  }
   server = null;
-  await wait(300);
+  await until(async () => {
+    try {
+      const response = await fetch(SERVER + '/api/desktop-sync/v1/sync', { method: 'POST', signal: AbortSignal.timeout(1000) });
+      await response.arrayBuffer();
+      return false;
+    } catch { return true; }
+  }, 'local dashboard stops', 15000);
 }
 
 function serverRows(sql) {
