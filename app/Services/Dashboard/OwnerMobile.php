@@ -34,6 +34,9 @@ final class OwnerMobile
             if (Schema::hasColumn('users', 'updated_at')) { $changes['updated_at'] = now(); }
             // This form updates contact identity only: no profile, role, password or remember-token writes.
             DB::table('users')->where('id', 1)->update($changes);
+            if ((string) DB::table('users')->where('id', 1)->value('mobile') !== $mobile) {
+                throw ValidationException::withMessages(['mobile' => 'تعذر تأكيد حفظ رقم الموبايل. لم يتم تغيير الرقم.']);
+            }
             return $mobile;
         });
     }

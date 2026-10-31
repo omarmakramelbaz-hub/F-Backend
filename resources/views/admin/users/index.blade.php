@@ -19,7 +19,7 @@
             <div class="container-fluid">
                 <div class="row justify-content-between align-items-center gy-2 mb-2">
                     <div class="col-auto">
-                        <h1 class="m-0 text-dark">{{ request('account_type') === 'delegate' ? 'الشركاء' : trans('main.showAll').' '.__('main.'.request('account_type')) }} <small class="countModule">( {{$users->total()}} )</small></h1>
+                        <h1 class="m-0 text-dark">{{ request('account_type') === 'admin' ? (app()->getLocale() === 'ar' ? 'حسابات الإدارة' : 'Administration accounts') : (request('account_type') === 'delegate' ? 'الشركاء' : trans('main.showAll').' '.__('main.'.request('account_type'))) }} <small class="countModule">( {{$users->total()}} )</small></h1>
                     </div><!-- /.col -->
                     <div class="col-auto">
                         <ol class="breadcrumb float-sm-left">
@@ -87,6 +87,7 @@
                                         @endif
                                         @if(request('account_type') != 'user')
                                         <th>@lang('main.Name')</th>
+                                        @if(request('account_type') === 'admin')<th>{{ app()->getLocale() === 'ar' ? 'نوع الحساب' : 'Account type' }}</th>@endif
                                         @if(request('account_type') == 'delegate')<th>المهنة / النوع</th><th>التطبيق</th>@endif
                                         <th>@lang('main.email')</th>
                                         @endif
@@ -126,6 +127,7 @@
                                                 @endif
                                                 @if(request('account_type') != 'user')
                                                 <td>{{ $user->name }}</td>
+                                                @if(request('account_type') === 'admin')<td>{{ \App\Services\Dashboard\DashboardAccountRole::label($user) }}</td>@endif
                                                 @if(request('account_type') == 'delegate')
                                                 <td>{{ optional($user->pending_vendor)->profession_key ? (\App\Http\Controllers\Api\V1\PartnerApplicationController::professions()[optional($user->pending_vendor)->profession_key]['ar'] ?? optional($user->pending_vendor)->profession_key) : 'مندوب' }}</td>
                                                 <td>{{ strtoupper(optional($user->pending_vendor)->source_app ?: ($user->app_scope === 'go_partner' ? 'go' : 'fasakhansta')) }}</td>

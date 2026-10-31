@@ -1,8 +1,37 @@
 <style>
-    .country_code{
-        position: absolute;
-        top: 40px;
-        left: 20px;
+    .go-mobile-input{
+        display: flex;
+        align-items: stretch;
+        direction: ltr;
+        isolation: isolate;
+        width: 100%;
+    }
+    .go-mobile-input > .go-mobile-prefix{
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 56px;
+        position: static;
+        padding: 0 10px;
+        border: 1px solid #cbd5e1;
+        border-right: 0;
+        border-radius: 6px 0 0 6px;
+        background: #f1f5f9;
+        color: #334155;
+        direction: ltr;
+        unicode-bidi: isolate;
+        white-space: nowrap;
+    }
+    .go-mobile-input > .form-control{
+        flex: 1 1 0;
+        min-width: 0;
+        width: 0;
+        margin: 0;
+        padding-inline: 12px;
+        border-radius: 0 6px 6px 0;
+        direction: ltr;
+        text-align: left;
     }
     label .btn{
         color: #0056b3;
@@ -41,9 +70,11 @@
         </label>
         
         <span class="text-danger">*</span>
-        <span class="country_code">20+</span>
-        <input type="text" name="mobile" @if(\Route::currentRouteName() == 'users.edit') readonly @endif @if(request('pending_vendor')) value="{{ old('mobile', $pending_vendor?->mobile) }}" @else value="{{ old('mobile', $user->mobile) }}" @endif class="form-control @error('mobile') is-invalid @enderror"
-            id="mobile" placeholder="@lang('main.enter') @lang('main.mobile')">
+        <div class="go-mobile-input" dir="ltr">
+        <span class="go-mobile-prefix" dir="ltr">+20</span>
+        <input type="text" name="mobile" @if(\Route::currentRouteName() == 'users.edit') readonly @endif @if(request('pending_vendor')) value="{{ old('mobile', $pending_vendor?->mobile) }}" @else value="{{ (int)$user->id === 1 ? $user->mobile : old('mobile', $user->mobile) }}" @endif class="form-control @error('mobile') is-invalid @enderror"
+            id="mobile" dir="ltr" placeholder="@lang('main.enter') @lang('main.mobile')">
+        </div>
     </div>
     
     
@@ -105,7 +136,12 @@
     @endif
   
     @if(request('account_type') == 'admin')
-       @if($user->id != 1)
+       @if(\App\Services\Dashboard\DashboardAccountRole::isOwner($user))
+        <div class="form-group col-sm-6">
+            <label>{{ app()->getLocale() === 'ar' ? 'نوع الحساب' : 'Account type' }}</label>
+            <input type="text" class="form-control" value="{{ \App\Services\Dashboard\DashboardAccountRole::label($user) }}" readonly>
+        </div>
+       @else
         <div class="form-group col-sm-6">
             <label for="roles_name">@lang('main.AdminRole')</label><span class="text-danger">*</span>
             <select name="roles_name[0]" class="form-control @error('roles_name') is-invalid @enderror" required>

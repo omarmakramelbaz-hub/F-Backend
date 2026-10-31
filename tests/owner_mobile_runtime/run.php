@@ -15,12 +15,21 @@ use Illuminate\Validation\ValidationException;
 final class OwnerMobileFixtureUser extends Illuminate\Foundation\Auth\User
 {
     protected $table = 'users';
+    protected $guarded = [];
     public function getRolesAttribute() { return collect([(object)['id'=>1]]); }
     public function getFirstMediaUrl($collection = '', $conversion = '') { return ''; }
+    public function pending_vendor() { return $this->belongsTo(OwnerMobileFixturePendingVendor::class, 'pending_vendor_id'); }
+}
+final class OwnerMobileFixturePendingVendor extends Illuminate\Database\Eloquent\Model
+{
+    protected $table = 'pending_vendors';
+    protected $guarded = [];
 }
 class_alias(OwnerMobileFixtureUser::class, 'App\\Models\\User');
+class_alias(OwnerMobileFixturePendingVendor::class, 'App\\Models\\PendingVendor');
 class_alias(Auth::class, 'Auth');
 class_alias(Route::class, 'Route');
+class_alias(DB::class, 'DB');
 $root = dirname(__DIR__, 2);
 $temp = sys_get_temp_dir().'/owner-mobile-'.bin2hex(random_bytes(8));
 mkdir($temp, 0700); mkdir($temp.'/views', 0700);
@@ -56,10 +65,15 @@ $app->make('router')->getRoutes()->refreshNameLookups();
 Schema::create('users', function (Blueprint $t) {
     $t->integer('id')->primary(); $t->string('name'); $t->string('email'); $t->string('mobile')->nullable();
     $t->string('country_code')->nullable(); $t->string('account_type'); $t->string('status');
+    $t->integer('pending_vendor_id')->nullable();
     $t->string('password'); $t->string('remember_token')->nullable(); $t->timestamps();
 });
 Schema::create('model_has_roles', function (Blueprint $t) { $t->integer('model_id'); $t->integer('role_id'); });
 Schema::create('orders', function (Blueprint $t) { $t->integer('id'); $t->integer('total'); });
+Schema::create('pending_vendors', function (Blueprint $t) {
+    $t->increments('id'); $t->integer('added_by'); $t->timestamps();
+    foreach (['full_name','type','status','mobile','email','national_id','commercial_registration_no','driving_license_no','tax_no','owner_name','branches_no','location','vodafone_cash_mobile'] as $field) { $t->string($field)->nullable(); }
+});
 $password = 'FixtureOnly123';
 foreach ([[1,'admin','01012345678@1',null,$password],[2,'vendor','vendor@test.invalid','1112345678','VendorOnly123'],
     [3,'resturant_owner','restaurant@test.invalid','1512345678','RestaurantOnly123'],[4,'admin','other@test.invalid',null,'OtherOnly123'],
@@ -148,6 +162,16 @@ $controller($request,$service);
 verified(DB::table('users')->where('id',1)->value('mobile') === '1098765432', 'Controller did not save owner mobile');
 verified(DB::table('users')->where('id',1)->value('password') === $ownerBefore['password'], 'Controller changed the password');
 verified(DB::table('users')->where('id',4)->value('mobile') === null, 'Body user_id redirected the update to another account');
+verified(!$session->get('owner_mobile_open'), 'Successful save kept the old modal error state');
+$request = requestFor('/admin/owner/mobile','POST',['mobile'=>'01098765432','current_password'=>'wrong-spa-password']);
+$request->headers->set('X-Dashboard-SPA','1'); $response = $controller($request,$service);
+verified($response->getStatusCode() === 422 && isset($response->getData(true)['errors']['current_password']), 'SPA save hid validation errors');
+verified(!str_contains($response->getContent(),'wrong-spa-password'), 'SPA error leaked the password');
+$request = requestFor('/admin/owner/mobile','POST',['mobile'=>'01098765432','current_password'=>$password]);
+$request->headers->set('X-Dashboard-SPA','1'); $session->put('_old_input.mobile','');
+$response = $controller($request,$service); $payload = $response->getData(true);
+verified($payload['success'] === true && str_contains($payload['redirect'],'/admin/users/1/edit'), 'SPA save did not request a fresh owner profile');
+verified(!$session->hasOldInput('mobile') && !$session->hasOldInput('current_password'), 'SPA save retained stale/secret input');
 $route = Route::getRoutes()->getByName('owner.mobile.update');
 verified($route->uri() === 'admin/owner/mobile' && $route->methods() === ['POST'] && in_array('IsAdmin',$route->gatherMiddleware(),true), 'Owner route is not authenticated POST');
 
@@ -162,6 +186,7 @@ $render = function (int $actorId) use ($app,$session,$editFile) {
 Route::get('/fixture-owner-profile',fn()=> $render(1))->name('users.edit');
 DB::table('users')->where('id',1)->update(['mobile'=>null]);
 $session->forget('_old_input');
+$session->put('owner_mobile_open',true);
 $request = requestFor('/fixture-owner-profile?account_type=admin','GET');
 $html = app('router')->dispatch($request)->getContent();
 verified(str_contains($html,'data-bs-target="#changeMobile"'), 'Empty owner phone has no add button');
@@ -170,5 +195,36 @@ verified(str_contains($html,'id="change-mobile"') && str_contains($html,'autocom
 verified(str_contains($html,'bootstrap.Modal.getOrCreateInstance'), 'Validation does not reopen the modal');
 verified(!str_contains($html,'do-not-flash-this-password') && !str_contains($html,$ownerBefore['password']), 'Rendered view exposed a secret');
 $otherHtml = $render(4); verified(!str_contains($otherHtml,'data-bs-target="#changeMobile"'), 'Another admin sees an owner phone-change button');
+
+auth('admin')->setUser(OwnerMobileFixtureUser::findOrFail(1));
+$service->update(OwnerMobileFixtureUser::findOrFail(1),'01098765432',$password);
+$session->put('_old_input.mobile',''); $filledHtml = $render(1);
+$document = new DOMDocument; libxml_use_internal_errors(true); $document->loadHTML($filledHtml); libxml_clear_errors();
+$xpath = new DOMXPath($document);
+verified($xpath->query('//input[@id="mobile"]')->item(0)->getAttribute('value') === '1098765432', 'Blank old input hid the persisted owner number');
+verified($xpath->query('//input[@id="change-mobile"]')->item(0)->getAttribute('dir') === 'ltr', 'Phone entry direction is not LTR');
+verified($xpath->query('//div[contains(@class,"go-mobile-input")]/span[contains(@class,"go-mobile-prefix")]')->length === 2, 'Prefix and phone are not separate controls');
+verified(str_contains($filledHtml,'أونر — مالك النظام'), 'Owner profile is labelled as a manager');
+verified(App\Services\Dashboard\DashboardAccountRole::isOwner(OwnerMobileFixtureUser::findOrFail(1)), 'Primary owner role is not recognised');
+verified(!App\Services\Dashboard\DashboardAccountRole::isOwner(OwnerMobileFixtureUser::findOrFail(4)), 'Ordinary admin was promoted to owner');
+
+// Reproduce a stale general-profile save after the dedicated phone form succeeds.
+require $root.'/app/Interfaces/UserRepositoryInterface.php';
+require $root.'/app/Http/Traits/UploadImageTrait.php';
+require $root.'/app/Repositories/UserRepository.php';
+$details = ['name'=>'Updated owner','account_type'=>'admin','mobile'=>'','country_code'=>'99','email'=>$ownerBefore['email']];
+requestFor('/admin/users/1?account_type=admin','PUT',$details);
+(new App\Repositories\UserRepository)->updateUser(1,$details);
+verified(DB::table('users')->where('id',1)->value('mobile') === '1098765432', 'General-profile save erased the verified phone');
+verified(DB::table('users')->where('id',1)->value('country_code') === '20', 'General-profile save changed the verified prefix');
+verified(DB::table('pending_vendors')->value('mobile') === '1098765432', 'Linked profile copied a stale empty number');
+verified(DB::table('users')->where('id',1)->value('password') === $ownerBefore['password'], 'Profile-save protection changed the password');
+
+// A database rule that discards the write cannot receive a false success response.
+$before = dataState();
+DB::statement('CREATE TRIGGER reject_phone AFTER UPDATE ON users WHEN NEW.id=1 BEGIN UPDATE users SET mobile=NULL WHERE id=1; END');
+denied(fn()=>$service->update(OwnerMobileFixtureUser::findOrFail(1),'01022223333',$password),422);
+verified(dataState() === $before, 'Unverified phone write was not rolled back');
+DB::statement('DROP TRIGGER reject_phone');
 
 echo $checks." owner mobile checks passed\n";

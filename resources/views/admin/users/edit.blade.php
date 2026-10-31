@@ -7,7 +7,7 @@
             <div class="container-fluid">
                 <div class="row justify-content-between align-items-center gy-2  mb-2">
                     <div class="col-auto">
-                        <h1 class="m-0 text-dark">@lang('main.edit') {{__('main.'.request('account_type'))}}</h1>
+                        <h1 class="m-0 text-dark">@lang('main.edit') {{ \App\Services\Dashboard\DashboardAccountRole::label($user) }}</h1>
                     </div><!-- /.col -->
                     <div class="col-auto">
                         <ol class="breadcrumb float-sm-left">
@@ -56,10 +56,12 @@
                                         <div class="row gy-3 p-md-4">
                                             <div class="col-md-12">
                                                 <label for="change-mobile"> @lang('main.mobile')</label><span class="text-danger">*</span>
-                                                <span class="country_code">20+</span>
+                                                <div class="go-mobile-input" dir="ltr">
+                                                <span class="go-mobile-prefix" dir="ltr">+20</span>
                                                 <input type="tel" inputmode="tel" autocomplete="tel-national" name="mobile" value="{{ old('mobile', $user->mobile) }}" class="form-control @error('mobile', (int)$user->id === 1 ? 'ownerMobile' : 'default') is-invalid @enderror"
-                                                    id="change-mobile" placeholder="@lang('main.enter') @lang('main.mobile')">
-                                                @error('mobile', (int)$user->id === 1 ? 'ownerMobile' : 'default')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                                                    id="change-mobile" dir="ltr" placeholder="@lang('main.enter') @lang('main.mobile')">
+                                                </div>
+                                                @error('mobile', (int)$user->id === 1 ? 'ownerMobile' : 'default')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
                                             </div>
                                             <div class="form-group col-md-12">
                                                 <label for="password"> @lang('main.current_password')</label><span class="text-danger">*</span>
@@ -74,7 +76,7 @@
                                             
                                           
                                             <div class="col-sm-6">
-                                                <button type="sumbit" class="btn btn-primary">@lang('main.Save changes')</button>
+                                                <button type="submit" class="btn btn-primary">@lang('main.Save changes')</button>
                                             </div>
                                             </form>
                                         </div>

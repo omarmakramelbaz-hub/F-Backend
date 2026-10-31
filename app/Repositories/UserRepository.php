@@ -161,6 +161,12 @@ class UserRepository implements UserRepositoryInterface
         $profile=\App\Services\Dashboard\DesktopDashboardUserProfiles::repositoryUpdate((int)$userId,$newDetails);
         if($profile!==null)return $profile;
 
+        // The owner's verified login phone is changed only by the current-password form.
+        // A profile page opened before that save must not write its old/empty phone back.
+        if ((int)$userId === 1) {
+            unset($newDetails['mobile'], $newDetails['country_code']);
+        }
+
         unset($newDetails['photo_profile']);
         unset($newDetails["national_id_image"],$newDetails["commercial_registration_no_image"],$newDetails["driving_license_image"],$newDetails["tax_no_image"]);
         unset($newDetails["national_id"],$newDetails["commercial_registration_no"],$newDetails["driving_license_no"],$newDetails["tax_no"]);
@@ -200,7 +206,7 @@ class UserRepository implements UserRepositoryInterface
         $pending_vendor->full_name=request()->name;
         $pending_vendor->type=request()->account_type;
         $pending_vendor->status='accepted';
-        $pending_vendor->mobile=request()->mobile;
+        $pending_vendor->mobile=(int)$get_user->id === 1 ? $get_user->mobile : request()->mobile;
         $pending_vendor->email=request()->email;
         $pending_vendor->national_id=request()->national_id;
         $pending_vendor->commercial_registration_no=request()->commercial_registration_no;

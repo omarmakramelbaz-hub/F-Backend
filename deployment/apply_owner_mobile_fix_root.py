@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply seven bounded code changes; preserve unrelated live source and all account data."""
+"""Apply a named bounded account fix, preserving unrelated source and account data."""
 import fcntl
 import hashlib
 import json
@@ -13,7 +13,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
-ALLOWED = {
+BASE_ALLOWED = {
     'app/Services/Dashboard/DashboardLoginIdentity.php',
     'app/Services/Dashboard/OwnerMobile.php',
     'app/Http/Controllers/Dashboard/OwnerMobileController.php',
@@ -22,6 +22,18 @@ ALLOWED = {
     'resources/views/admin/users/edit.blade.php',
     'routes/admin.php',
 }
+ACCOUNT_ALLOWED = {
+    'app/Services/Dashboard/DashboardAccountRole.php',
+    'app/Services/Dashboard/OwnerMobile.php',
+    'app/Http/Controllers/Dashboard/OwnerMobileController.php',
+    'app/Repositories/UserRepository.php',
+    'resources/views/admin/users/form.blade.php',
+    'resources/views/admin/users/edit.blade.php',
+    'resources/views/admin/users/index.blade.php',
+    'resources/views/admin/users/show.blade.php',
+}
+FEATURE_PATHS = {'owner-mobile-20261101': BASE_ALLOWED, 'owner-account-fix-20261101': ACCOUNT_ALLOWED}
+ALLOWED = BASE_ALLOWED | ACCOUNT_ALLOWED
 
 class ReviewError(RuntimeError):
     pass
@@ -40,10 +52,11 @@ def target_path(project, relative):
     return path
 
 def plan(project, manifest):
-    if manifest.get('format') != 1 or manifest.get('feature') != 'owner-mobile-20261101':
+    if manifest.get('format') != 1 or manifest.get('feature') not in FEATURE_PATHS:
         raise ReviewError('GO_OWNER_MOBILE_MANIFEST_CHANGED')
     files = manifest.get('files', [])
-    if len(files) != len(ALLOWED) or {item['path'] for item in files} != ALLOWED:
+    allowed = FEATURE_PATHS[manifest['feature']]
+    if len(files) != len(allowed) or {item['path'] for item in files} != allowed:
         raise ReviewError('GO_OWNER_MOBILE_MANIFEST_PATHS_CHANGED')
     result = []
     for item in files:
@@ -150,6 +163,16 @@ try {
     foreach (['form','edit'] as $view) {
         app('blade.compiler')->compileString(file_get_contents($argv[1].'/resources/views/admin/users/'.$view.'.blade.php'));
     }
+    if (($argv[2]??'')==='owner-account-fix-20261101') {
+        $owner=\Illuminate\Support\Facades\DB::table('users')->where('id',1)->first(['id','account_type','mobile']);
+        if (!$owner || !\App\Services\Dashboard\DashboardAccountRole::isOwner($owner)) {
+            throw new RuntimeException('GO_OWNER_ACCOUNT_ROLE_CHECK_FAILED');
+        }
+        foreach (['index','show'] as $view) {
+            app('blade.compiler')->compileString(file_get_contents($argv[1].'/resources/views/admin/users/'.$view.'.blade.php'));
+        }
+        echo 'GO_OWNER_ACCOUNT_MOBILE_PRESENT='.(\App\Services\Dashboard\DashboardLoginIdentity::mobile((string)$owner->mobile)!==null?'1':'0')."\n";
+    }
     echo "GO_OWNER_MOBILE_RUNTIME_READY\n";
 } catch (Throwable $error) {
     $code=preg_match('/^GO_OWNER_MOBILE_[A-Z_]+$/D',$error->getMessage())?$error->getMessage():'GO_OWNER_MOBILE_RUNTIME_CHECK_FAILED';
@@ -190,12 +213,17 @@ def main():
                 candidate.write_bytes(change['after'])
                 run([php,'-l',str(candidate)], project)
             probe = stage/'probe.php'; probe.write_text(PROBE); probe.chmod(0o644)
+            proof = {}
             def verify():
                 run(['runuser','-u','fasakha','--',php,'artisan','route:clear'], project)
                 run(['runuser','-u','fasakha','--',php,'artisan','view:clear'], project)
-                output = run(['runuser','-u','fasakha','--',php,'-d','display_errors=0','-d','log_errors=0',str(probe),str(project)], project)
+                output = run(['runuser','-u','fasakha','--',php,'-d','display_errors=0','-d','log_errors=0',str(probe),str(project),manifest['feature']], project)
                 if 'GO_OWNER_MOBILE_RUNTIME_READY' not in output.splitlines():
                     raise ReviewError('GO_OWNER_MOBILE_RUNTIME_PROOF_MISSING')
+                if manifest['feature'] == 'owner-account-fix-20261101':
+                    if not any(line in output.splitlines() for line in ['GO_OWNER_ACCOUNT_MOBILE_PRESENT=0','GO_OWNER_ACCOUNT_MOBILE_PRESENT=1']):
+                        raise ReviewError('GO_OWNER_MOBILE_RUNTIME_PROOF_MISSING')
+                    proof['owner_mobile_present'] = 'GO_OWNER_ACCOUNT_MOBILE_PRESENT=1' in output.splitlines()
             backup = backup_root/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')+'-'+os.urandom(4).hex())
             try:
                 apply_plan(project, changes, backup, (account.pw_uid,account.pw_gid), verify)
@@ -204,8 +232,14 @@ def main():
                 subprocess.run(['runuser','-u','fasakha','--',php,'artisan','route:clear'],cwd=project,capture_output=True,timeout=60)
                 subprocess.run(['runuser','-u','fasakha','--',php,'artisan','view:clear'],cwd=project,capture_output=True,timeout=60)
                 raise
-    print(json.dumps({'status':'GO_OWNER_MOBILE_FIX_READY','phone_form_ready':True,'phone_login_ready':True,
-        'password_change_required':False,'updated_files':sum(item['before']!=item['after'] for item in changes)}))
+    status = 'GO_OWNER_ACCOUNT_FIX_READY' if manifest['feature'] == 'owner-account-fix-20261101' else 'GO_OWNER_MOBILE_FIX_READY'
+    receipt = {'status':status,'phone_form_ready':True,'phone_login_ready':True,
+        'password_change_required':False,'updated_files':sum(item['before']!=item['after'] for item in changes)}
+    if manifest['feature'] == 'owner-account-fix-20261101':
+        receipt.update(proof)
+        receipt['account_role'] = 'owner'
+        receipt['phone_layout_ready'] = True
+    print(json.dumps(receipt))
 
 if __name__ == '__main__':
     try:
