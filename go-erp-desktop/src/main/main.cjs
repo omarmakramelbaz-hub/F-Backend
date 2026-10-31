@@ -377,17 +377,24 @@ function setOfflineMode(value, reason = '') {
   offlineMode = value;
   offline.setOffline(value).catch(() => {});
   notifyDashboard({ type: 'connection', online: !value });
-  if (!value) refreshWhenIdle();
+  if (!value) {
+    refreshSince = Date.now();
+    refreshWhenIdle();
+  }
 }
 
 // Windows whose current page came from the device's copy: reloaded from the dashboard once it is idle online.
 const fromCopy = new WeakSet();
 let refreshTimer = null;
+let refreshSince = 0;
 
 function refreshWhenIdle() {
   clearTimeout(refreshTimer);
   const contents = dashboardView && dashboardView.webContents;
   if (offlineMode || !contents || contents.isDestroyed() || !fromCopy.has(contents)) return;
+  // Dine-in orders opened offline move to the dashboard first (a few seconds), so the reloaded floor shows them on their
+  // tables and nobody seats a table that is already taken. Never more than a minute.
+  if (store.waitingMoves() > 0 && Date.now() - refreshSince < 60000) { refreshTimer = setTimeout(refreshWhenIdle, 2000); return; }
   contents.executeJavaScript('!window.DashboardSPA || window.DashboardSPA.isIdle()').then((idle) => {
     if (offlineMode || contents.isDestroyed()) return;
     if (!idle) { refreshTimer = setTimeout(refreshWhenIdle, 15000); return; }

@@ -454,6 +454,11 @@ class Store {
     });
   }
 
+  /** Moves of dine-in orders to the dashboard that are still waiting to be sent. */
+  waitingMoves() {
+    return this.db.prepare("SELECT COUNT(*) AS count FROM outbox WHERE kind = 'ticket_open' AND status = 'pending'").get().count;
+  }
+
   /**
    * The order is changed or paid here: a move to the dashboard not sent yet is called off (queued again later).
    * false: it is being sent right now, or the dashboard already has it.
