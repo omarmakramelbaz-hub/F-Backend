@@ -424,6 +424,29 @@ async function dashboardOffline() {
   await until(() => saved('/admin/employees') && deviceRows(userData, 'dashboard-copy.sqlite',
     "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND url LIKE '%/dashboard/js/branch-operations.js%'")[0].c === 1,
   'the employees page and its script are saved for offline use', 40000);
+  await until(() => saved('/admin/dining') && saved('/admin/phone-orders') && deviceRows(userData, 'dashboard-copy.sqlite',
+    "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND (url LIKE '%/dashboard/js/dining-pos.js%' OR url LIKE '%/dashboard/js/phone-orders.js%')")[0].c === 2,
+  'the dine-in and delivery pages and their scripts are saved for offline use', 40000);
+  // Online, a waiter seats table 1 and sends its order to the kitchen from the dashboard (2 × أرز صيادية = 80.00).
+  const seated = JSON.parse(await inDashboard(app, `(async () => {
+    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+    const post = (url, body) => fetch(url, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf }, body: JSON.stringify(body) }).then((response) => response.json());
+    const items = [{ product_id: 6, quantity: '2', quantity_mode: 'piece' }];
+    const quote = await post('/admin/dining/quote', { branch: 'f:100', items });
+    const saved = await post('/admin/dining/tickets/save', { branch: 'f:100', idempotency_key: crypto.randomUUID(), table_id: 1, items,
+      quote_hash: quote.quote_hash, waiter_name: 'حسن', guest_count: 2, customer_name: 'أسرة محمد' });
+    const sent = await post('/admin/dining/tickets/' + saved.ticket.id + '/action', { branch: 'f:100', idempotency_key: crypto.randomUUID(),
+      expected_revision: saved.ticket.revision, action: 'send_kitchen' });
+    return JSON.stringify({ id: sent.ticket.id, total: sent.ticket.total });
+  })()`));
+  assert.equal(seated.total, '80.00');
+  // The device keeps the branch's tables and open orders (refreshed by every sync).
+  await page.locator('.sync-badge').first().click();
+  await until(() => {
+    const copy = deviceRows(userData, 'goerp.sqlite', "SELECT service FROM branches WHERE value = 'f:100'")[0];
+    return !!(copy && copy.service && JSON.parse(copy.service).tickets.some((ticket) => ticket.id === seated.id));
+  }, 'the device has the open dine-in and delivery orders', 60000);
   // Online, the cashier page works from the dashboard as usual.
   await app.evaluate(({ webContents }) => {
     global.__dashboardConsole = [];
@@ -532,6 +555,84 @@ async function dashboardOffline() {
     throw error;
   }
   await dashboardShot(app, '17-dashboard-attendance-offline');
+  const report = async (label) => {
+    console.log(`DEBUG ${label}`, String(await inDashboard(app, `JSON.stringify({ url: location.href,
+      message: (document.querySelector('[data-dining-message] span, [data-phone-message] span, [role=status]') || {}).textContent,
+      state: (document.querySelector('[data-dining-state]') || {}).textContent, total: (document.querySelector('[data-dining-total="total"]') || {}).textContent,
+      modal: (document.querySelector('[data-dining-modal-content], [data-phone-modal-content]') || {}).innerText,
+      tables: Array.from(document.querySelectorAll('[data-dining-table]')).map((b) => b.innerText.replace(/\s+/g, ' ')).slice(0, 4) })`).catch((e) => 'ERR ' + e.message)));
+    console.log('DEBUG console', JSON.stringify((await app.evaluate(() => global.__dashboardConsole || [])).filter((line) => !/CKEDITOR|toastr|rateYo|firebase|jstree|ServiceWorker/.test(line)).slice(-10)));
+    console.log('DEBUG app', appLog.slice(-20).join(' | '));
+  };
+  const checked = async (check, label, timeout = 20000) => {
+    try { await until(async () => await inDashboard(app, check).catch(() => false), label, timeout); } catch (error) { await report(label); throw error; }
+  };
+  const dining = (code) => inDashboard(app, `(() => { const root = document.querySelector('#dining-pos'); ${code} })()`);
+  // The dine-in page offline: the floor from the device, table 1 busy with the dashboard's order, table 2 free.
+  await inDashboard(app, "location.href = '/admin/dining'");
+  await checked("document.querySelectorAll('[data-dining-table]').length === 2 && document.querySelectorAll('[data-dining-product]').length >= 3",
+    'the dine-in page opens offline with its tables and menu', 30000);
+  await dashboardShot(app, '18-dashboard-dining-offline');
+  const pay = async (phone, cash) => {
+    await dining(`const phone = root.querySelector('[data-dining-customer-phone]'); phone.value = '${phone}'; phone.dispatchEvent(new Event('input', { bubbles: true }));
+      phone.dispatchEvent(new Event('change', { bubbles: true })); const consent = root.querySelector('[data-dining-customer-consent]'); if (!consent.checked) consent.click();
+      root.querySelector('[data-dining-settle]').click();`);
+    await checked("!document.querySelector('[data-dining-cash-wrap]').hidden", 'the payment opens');
+    await dining(`const cash = root.querySelector('[data-dining-cash-received]'); cash.value = '${cash}'; cash.dispatchEvent(new Event('input', { bubbles: true }));
+      root.querySelector('[data-dining-settle]').click();`);
+  };
+  // Table 2: a new order on the device — kitchen ticket, bill, and payment (1 kg بوري مشوي 180 + 1 سلطة طحينة 25 = 205.00).
+  await dining("root.querySelector('[data-dining-table=\"2\"]').click();");
+  await checked("!!document.querySelector('[data-dining-open-customer]')", 'the new table asks for the customer');
+  await dining("const name = document.querySelector('[data-dining-open-customer]'); name.value = 'ضيف بدون نت'; name.form.requestSubmit();");
+  for (const name of ['بوري مشوي', 'سلطة طحينة']) {
+    await dining(`Array.from(root.querySelectorAll('[data-dining-product]')).find((button) => button.textContent.includes('${name}')).click();
+      const option = document.querySelector('[data-dining-modal]:not([hidden]) .dp-option-list button'); if (option) option.click();`);
+    await wait(300);
+  }
+  await checked("document.querySelector('[data-dining-total=\"total\"]').textContent.trim() === '205.00' && !document.querySelector('[data-dining-save]').disabled",
+    'the device prices the dine-in order');
+  await dining("root.querySelector('[data-dining-save]').click();");
+  await checked("!document.querySelector('[data-dining-request-bill]').disabled", 'the order is saved and sent to the kitchen on the device', 30000);
+  await dining("root.querySelector('[data-dining-request-bill]').click();");
+  await checked("!document.querySelector('[data-dining-settle]').disabled && /\\S/.test(document.querySelector('[data-dining-state]').textContent)", 'the bill is printed');
+  await pay('01012345678', '300');
+  await until(() => deviceRows(userData, 'goerp.sqlite', `SELECT COUNT(*) AS c FROM tickets WHERE channel = 'dine' AND status = 'paid'
+    AND json_extract(data, '$.kind') = 'local' AND json_extract(totals, '$.total_cents') = 20500`)[0].c === 1, 'the dine-in order is paid on the device', 30000)
+    .catch(async (error) => { await report('dine-in payment'); throw error; });
+  const kitchen = deviceRows(userData, 'goerp.sqlite', 'SELECT COUNT(*) AS c FROM kitchen_prints')[0].c;
+  assert.equal(kitchen, 1, 'The kitchen ticket was printed from the device');
+  // Table 1: the dashboard's own order, its bill printed and paid on the device.
+  await checked("Array.from(document.querySelectorAll('[data-dining-table]')).filter((button) => /is-free/.test(button.className)).length === 1", 'table 2 is free again');
+  await dining("root.querySelector('[data-dining-table=\"1\"]').click();");
+  await checked("document.querySelectorAll('[data-dining-lines] tr').length === 1 && !document.querySelector('[data-dining-request-bill]').disabled",
+    'the dashboard order opens from the device');
+  await dining("root.querySelector('[data-dining-request-bill]').click();");
+  await checked("!document.querySelector('[data-dining-settle]').disabled", 'the dashboard order\'s bill is printed on the device');
+  await pay('01098765432', '100');
+  await until(() => deviceRows(userData, 'goerp.sqlite', `SELECT COUNT(*) AS c FROM tickets WHERE status = 'paid' AND json_extract(data, '$.server_ticket_id') = ${seated.id}`)[0].c === 1,
+    'the dashboard order is paid on the device', 30000).catch(async (error) => { await report('dashboard order payment'); throw error; });
+  await checked("Array.from(document.querySelectorAll('[data-dining-table]')).every((button) => /is-free/.test(button.className))", 'both tables are free');
+  await dashboardShot(app, '19-dashboard-dining-paid-offline');
+
+  // The delivery page offline: the open order handed to the company, its bill printed and collected.
+  await inDashboard(app, "location.href = '/admin/phone-orders?view=orders'");
+  const card = "document.querySelector('[data-phone-column=\"%s\"] [data-phone-ticket]')";
+  await checked(`!!${card.replace('%s', 'preparing')}`, 'the delivery board opens offline with the open order', 30000);
+  await dashboardShot(app, '20-dashboard-delivery-offline');
+  const press = (column, label) => inDashboard(app, `Array.from(${card.replace('%s', column)}.querySelectorAll('button')).find((b) => b.textContent.includes('${label}')).click()`);
+  await press('preparing', 'اختيار شركة التوصيل');
+  await checked("!!document.querySelector('[data-phone-board-company]')", 'the courier choice opens');
+  await inDashboard(app, "(() => { const select = document.querySelector('[data-phone-board-company]'); select.value = select.options[1].value; select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  await checked(`!!${card.replace('%s', 'courier')}`, 'the order is with the courier', 30000);
+  await press('courier', 'طباعة الأوردر');
+  await checked(`!!${card.replace('%s', 'courier')} && /طباعة/.test(${card.replace('%s', 'courier')}.innerText) && !document.querySelector('[data-phone-modal]:not([hidden])')`, 'the delivery bill is printed');
+  await until(() => deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM outbox WHERE kind = 'ticket_action'")[0].c === 2, 'the delivery bill is recorded');
+  await press('courier', 'إنهاء الأوردر');
+  await checked("!!document.querySelector('[data-phone-settle-cash]')", 'the collection opens');
+  await inDashboard(app, "(() => { document.querySelector('[data-phone-settle-confirmed]').click(); document.querySelector('[data-phone-settle-submit]').click(); })()");
+  await checked(`!!${card.replace('%s', 'finished')}`, 'the delivery order is collected on the device', 30000);
+  await dashboardShot(app, '21-dashboard-delivery-collected-offline');
   // A page this account never saved explains that it needs the internet, inside the dashboard.
   await inDashboard(app, "window.DashboardSPA && window.DashboardSPA.visit('/admin/wallets/transactions')");
   await until(async () => /الصفحة دي محتاجة إنترنت/.test(await inDashboard(app, 'document.body.innerText').catch(() => '')), 'unsaved page message');
@@ -543,12 +644,22 @@ async function dashboardOffline() {
   await startServer();
   await page.locator('.sync-badge').first().click();
   await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].c === 1, 'the offline sale reaches the dashboard', 40000);
-  assert.equal(orderCount(), before + 1);
   assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].total_cents, 20500);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_expenses WHERE amount_cents = 8825 AND category = 'electricity'")[0].c === 1,
     'the offline expense reaches the dashboard', 40000);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 50 AND check_out IS NOT NULL")[0].c === 1,
     'the offline check-out reaches the dashboard', 40000);
+  // The dine-in order opened offline arrives as one invoice; the dashboard's own orders are closed once, with what the device did.
+  const local = deviceRows(userData, 'goerp.sqlite', "SELECT id FROM outbox WHERE kind = 'sale' AND json_extract(payload, '$.data.channel') = 'dine'")[0];
+  await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${local.id}' AND channel = 'dine' AND total_cents = 20500`)[0].c === 1,
+    'the offline dine-in order reaches the dashboard', 40000);
+  await until(() => serverRows(`SELECT payment_status FROM pos_service_tickets WHERE id = ${seated.id}`)[0].payment_status === 'paid', 'the dashboard order is closed', 40000);
+  assert.ok(serverRows(`SELECT bill_issued_at FROM pos_service_tickets WHERE id = ${seated.id}`)[0].bill_issued_at, 'with its bill printed');
+  assert.equal(serverRows('SELECT COUNT(*) AS c FROM pos_service_tables WHERE active_ticket_id IS NOT NULL')[0].c, 0, 'Every table is free');
+  await until(() => serverRows("SELECT payment_status FROM pos_service_tickets WHERE channel = 'phone'")[0].payment_status === 'paid', 'the delivery order is collected', 40000);
+  assert.equal(serverRows('SELECT COUNT(*) AS c FROM phone_delivery_dispatches')[0].c, 1, 'handed to the courier once');
+  assert.equal(serverRows("SELECT status FROM pos_service_tickets WHERE channel = 'phone'")[0].status, 'finished');
+  assert.equal(orderCount(), before + 4, 'The takeaway sale, the new dine-in order, the dashboard order and the delivery order: each once');
   await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
   await app.close();
 }
@@ -556,6 +667,7 @@ async function dashboardOffline() {
 async function main() {
   fs.mkdirSync(SHOTS, { recursive: true });
   execFileSync('php', [path.join(__dirname, 'seed.php')], { env: PHP_ENV, stdio: 'inherit' });
+  execFileSync('php', [path.join(__dirname, 'service-orders.php')], { env: PHP_ENV, stdio: 'inherit' });
   await startServer();
   await cashierDevice();
   if (!server) await startServer();

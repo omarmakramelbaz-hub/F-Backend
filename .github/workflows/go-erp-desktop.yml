@@ -10,10 +10,15 @@ on:
       - 'app/Providers/RouteServiceProvider.php'
       - 'app/Services/Dashboard/BranchPayroll.php'
       - 'resources/views/admin/takeaway/**'
-      - 'resources/views/admin/pos_service/context.blade.php'
+      - 'resources/views/admin/pos_service/**'
       - 'resources/lang/ar/takeaway.php'
       - 'resources/lang/ar/pos_service.php'
+      - 'resources/lang/ar/phone_orders.php'
+      - 'app/Services/Dashboard/PosService*.php'
+      - 'app/Services/Dashboard/PhoneDeliveryBoard.php'
       - 'public/dashboard/js/takeaway-pos.js'
+      - 'public/dashboard/js/dining-pos.js'
+      - 'public/dashboard/js/phone-orders.js'
       - 'public/dashboard/js/dashboard-print.js'
       - 'routes/desktop_sync.php'
       - 'database/migrations/2026_10_30_000001_create_desktop_sync_tables.php'
@@ -88,6 +93,10 @@ jobs:
           cmp "$RUNNER_TEMP/receipts.json" go-erp-desktop/test/fixtures/receipts.json
           php go-erp-desktop/test/receipt-fixtures.php labels > "$RUNNER_TEMP/labels.json"
           cmp "$RUNNER_TEMP/labels.json" go-erp-desktop/src/main/offline/labels.json
+      - name: The dine-in and delivery pages still answer in the shapes the app answers with offline
+        run: |
+          php go-erp-desktop/test/dining-capture.php "$RUNNER_TEMP/dining.json"
+          python3 -B go-erp-desktop/test/dining-shapes.py "$RUNNER_TEMP/dining.json" go-erp-desktop/test/fixtures/dining.json
       - name: Install the app's packages
         working-directory: go-erp-desktop
         run: npm ci
@@ -97,7 +106,7 @@ jobs:
       - name: Build the screens
         working-directory: go-erp-desktop
         run: npm run build
-      - name: End-to-end check (setup, offline sales, sync, offline sign-in)
+      - name: End-to-end check (setup, offline sales, dine-in and delivery, sync, offline sign-in)
         working-directory: go-erp-desktop
         env:
           GOERP_E2E_DIR: ${{ runner.temp }}/goerp-e2e

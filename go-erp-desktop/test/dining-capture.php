@@ -1,6 +1,8 @@
 <?php
 // Records the dashboard's own answers for the dine-in and delivery pages (as a branch cashier, on a fresh test database), so the tests
 // can check that the device answers in the same shape: php go-erp-desktop/test/dining-capture.php
+// Written to the fixture, or to the file given (CI compares the shapes with the fixture's).
+$target = $argv[1] ?? (__DIR__ . '/fixtures/dining.json');
 putenv('GOERP_E2E_DIR=' . sys_get_temp_dir() . '/goerp-dining-capture');
 $_SERVER['argv'] = ['seed'];
 ob_start(); require __DIR__ . '/e2e/seed.php'; ob_end_clean();
@@ -60,6 +62,6 @@ $call('GET', '/admin/phone-orders/board?branch=f:100');
 $call('POST', "/admin/phone-orders/tickets/$phone/settle", ['branch' => 'f:100', 'expected_revision' => 3, 'idempotency_key' => $key(), 'quote_hash' => $quote['quote_hash'] ?? '',
     'payment_method' => 'cash', 'cash_received' => '200.00', 'payment_confirmed' => true, 'payment_reference' => '']);
 $call('GET', '/admin/phone-orders/board?branch=f:100');
-file_put_contents(__DIR__ . '/fixtures/dining.json', json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+file_put_contents($target, json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 echo "captured " . count($out) . "\n";
 foreach ($out as $o) echo $o['status'] . ' ' . $o['method'] . ' ' . $o['path'] . "\n";
