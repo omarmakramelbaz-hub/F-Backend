@@ -280,6 +280,24 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(1, DB::table('branch_expenses')->count());
     }
 
+    public function test_an_expense_the_expenses_page_already_saved_online_is_not_recorded_again(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $key = (string) Str::uuid();
+        // The page's save reached the dashboard, then the connection dropped before the answer came back.
+        $this->actingAs(User::find(4), 'admin')->postJson('/admin/branch-expenses/save', ['branch' => 'f:100', 'idempotency_key' => $key,
+            'occurred_on' => '2026-10-30', 'category' => 'electricity', 'description' => 'فاتورة كهرباء', 'amount' => '350.50',
+            'payment_method' => 'cash'])->assertOk();
+        $this->assertSame(1, DB::table('branch_expenses')->count());
+        // The device then saved the same expense offline under the page's operation number.
+        $operation = $this->operation('expense', 4, ['category' => 'electricity', 'description' => 'فاتورة كهرباء', 'amount' => '350.50'], ['id' => $key]);
+        $result = $this->sync($device, ['operations' => [$operation]])->assertOk()->json()['results'][0];
+        $this->assertSame('applied', $result['status'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertTrue($result['expense']['already_saved']);
+        $this->assertSame((int) DB::table('branch_expenses')->value('id'), $result['expense']['id']);
+        $this->assertSame(1, DB::table('branch_expenses')->count(), 'Recorded once');
+    }
+
     public function test_an_owner_expense_can_be_approved_and_leaves_the_drawer(): void
     {
         $device = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->json();

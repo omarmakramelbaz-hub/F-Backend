@@ -13,6 +13,7 @@ const money = require('./money.cjs');
 const { PageCache } = require('./offline/cache.cjs');
 const { DashboardOffline, warmUpScript } = require('./offline/interceptor.cjs');
 const { TakeawayOffline } = require('./offline/takeaway.cjs');
+const { ExpensesOffline } = require('./offline/expenses.cjs');
 
 const SERVER = process.env.GOERP_SERVER || 'https://fasakhaninja.com';
 // Lets the automatic tests run the app on a separate data folder.
@@ -411,7 +412,7 @@ function inlineImages(html, base) {
     let url;
     try { url = new URL(src.replace(/&amp;/g, '&'), base).href; } catch { return match; }
     if (url.startsWith('data:')) return match;
-    const copy = offline.copyOf(url);
+    const copy = offline.printCopyOf(url);
     return copy ? `${start}data:${copy.contentType};base64,${copy.body.toString('base64')}${end}` : match;
   });
 }
@@ -642,7 +643,8 @@ app.whenReady().then(() => {
   const origin = new URL(SERVER).origin;
   pageCache = new PageCache(path.join(app.getPath('userData'), 'dashboard-copy.sqlite'), { now });
   offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
-    takeaway: new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
+    pages: [new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
+      new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() })],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
     onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
     onFromCopy: (contents) => fromCopy.add(contents),

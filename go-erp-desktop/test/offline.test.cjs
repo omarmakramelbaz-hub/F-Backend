@@ -223,3 +223,107 @@ test('saved pages are kept per account, files are shared, and the copy stays wit
   cache.forgetScope('u:4');
   assert.equal(cache.count('u:4', 'page'), 0);
 });
+
+// ---- the expenses page (مصروفات الفروع) answered from the device while offline ----
+const { ExpensesOffline, LOCAL_EXPENSE_BASE } = require('../src/main/offline/expenses.cjs');
+
+function expensesPage() {
+  let clock = Date.parse('2026-10-30T18:00:00Z');
+  const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
+  store.saveDevice({ id: 'device-1', code: 'A1B', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'المعادي', address: '', phone: '' }]);
+  store.replaceUsers([ACCOUNT, { ...ACCOUNT, id: 1, name: 'المالك', can_manage: true, can_reprint: true, can_approve_expenses: true }], 'h');
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1', catalog: { ...MENU, branch: { ...MENU.branch, name: 'المعادي' },
+    expense_categories: [{ key: 'electricity', name: 'كهرباء', stock: null }, { key: 'purchase_tomato', name: 'طماطم', stock: 'purchase_tomato' }] } }]);
+  const cache = new PageCache(':memory:', { now: () => new Date(clock) });
+  const page = new ExpensesOffline({ store, cache, origin: ORIGIN, now: () => new Date(clock) });
+  const ask = async (method, path, { user = ACCOUNT, body = null } = {}) => {
+    const url = new URL(ORIGIN + path);
+    const route = page.match(method, url.pathname);
+    assert.ok(route, `${method} ${path} is answered on the device`);
+    return page.answer(route, { user, url, body });
+  };
+  return { store, cache, ask, tick: (ms) => { clock += ms; } };
+}
+
+const expenseForm = (extra = {}) => ({ __files: [], branch: 'f:100', category: 'electricity', description: 'فاتورة كهرباء', amount: '350.50',
+  occurred_on: '2026-10-30', payment_method: 'cash', approve: '0', idempotency_key: '2b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', ...extra });
+
+test('the expenses page saves a cash expense on the device once, under the page\'s operation number', async () => {
+  const { store, ask } = expensesPage();
+  const saved = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm() });
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  const { expense } = saved.json;
+  assert.ok(expense.id > LOCAL_EXPENSE_BASE);
+  assert.deepEqual([expense.status, expense.amount, expense.occurred_on, expense.category_name, expense.payment_method],
+    ['pending', '350.50', '2026-10-30', 'كهرباء — فرع المعادي', 'cash']);
+  const [operation] = store.pendingOperations();
+  assert.equal(operation.id, expenseForm().idempotency_key);
+  assert.equal(operation.kind, 'expense');
+  assert.deepEqual([operation.data.category, operation.data.amount, operation.data.approve], ['electricity', '350.50', false]);
+  const again = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm() });
+  assert.equal(again.json.replayed, true);
+  assert.equal(again.json.expense.id, expense.id);
+  assert.equal(store.pendingOperations().length, 1, 'Never twice');
+  // What needs the internet says so.
+  const attached = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm({ idempotency_key: '3b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', __files: [{ field: 'attachment', name: 'فاتورة.jpg' }] }) });
+  assert.equal(attached.status, 422);
+  assert.match(attached.json.message, /المرفقات/);
+  const earlier = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm({ idempotency_key: '4b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', occurred_on: '2026-10-29' }) });
+  assert.equal(earlier.status, 422);
+  const approve = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm({ idempotency_key: '5b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', approve: '1' }) });
+  assert.equal(approve.status, 422, 'A cashier cannot approve');
+  const owner = { ...ACCOUNT, id: 1 };
+  const approved = await ask('POST', '/admin/branch-expenses/save', { user: owner, body: expenseForm({ idempotency_key: '6b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', approve: '1', amount: '75' }) });
+  assert.equal(approved.json.expense.status, 'approved');
+  const stock = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm({ idempotency_key: '7b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', category: 'purchase_tomato', amount: '60' }) });
+  assert.equal(stock.status, 422, 'A stock purchase needs its kilograms, like the dashboard');
+  assert.equal((await ask('GET', `/admin/branch-expenses/${expense.id}`)).json.expense.number, expense.number);
+  assert.equal((await ask('POST', `/admin/branch-expenses/${expense.id}/review`)).status, 409);
+});
+
+test('the expenses list is the last one seen online with this device\'s expenses on top', async () => {
+  const { cache, ask, tick } = expensesPage();
+  const listUrl = '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1';
+  // Nothing saved online for this list yet: only the device's expenses.
+  await ask('POST', '/admin/branch-expenses/save', { body: expenseForm() });
+  const alone = (await ask('GET', listUrl)).json;
+  assert.deepEqual(alone.items.map((item) => item.amount), ['350.50']);
+  assert.equal(alone.summary.pending, 1);
+  // The dashboard's list seen online earlier.
+  const server = { success: true, items: [{ id: 41, number: 'EXP-000041', amount: '100.00', status: 'approved', occurred_on: '2026-10-29' }],
+    filters: { branch: 'f:100', from: '2026-10-01', to: '2026-10-30' }, actors: [{ id: 4, name: 'كاشير' }], pagination: { page: 1, last_page: 1, total: 1 },
+    summary: { today: '0.00', month: '100.00', period: '100.00', average: '3.33', count: 1, pending: 0, top_category: 'gas', top_amount: '100.00' } };
+  tick(-60000);
+  cache.put('u:4', 'data', ORIGIN + listUrl, 'application/json', Buffer.from(JSON.stringify(server)));
+  tick(60000);
+  const merged = (await ask('GET', listUrl)).json;
+  assert.deepEqual(merged.items.map((item) => item.number), ['جهاز-1', 'EXP-000041']);
+  assert.deepEqual([merged.pagination.total, merged.summary.pending, merged.summary.period], [2, 1, '100.00']);
+  // Another filter of the same period uses the same base, filtered the same way; another period does not.
+  assert.deepEqual((await ask('GET', '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1&status=approved')).json.items
+    .map((item) => item.number), ['EXP-000041']);
+  assert.deepEqual((await ask('GET', '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1&status=pending')).json.items
+    .map((item) => item.number), ['جهاز-1']);
+  assert.equal((await ask('GET', '/admin/branch-expenses/data?branch=f:100&from=2026-09-01&to=2026-09-30')).json.items.length, 0);
+  // A lost answer is found again; the badge counts the device's pending expense.
+  const found = (await ask('GET', `/admin/branch-expenses/recover?branch=f:100&idempotency_key=${expenseForm().idempotency_key}`)).json;
+  assert.equal(found.found, true);
+  assert.equal((await ask('GET', '/admin/branch-expenses/recover?branch=f:100&idempotency_key=9b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f')).json.found, false);
+  assert.equal((await ask('GET', '/admin/branch-expenses/pending-count')).json.count, 1);
+});
+
+test('without a list seen online, the expenses page\'s own saved list is the base for its period', async () => {
+  const { cache, ask } = expensesPage();
+  const boot = { actor_id: 4, initial: { success: true, filters: { branch: 'f:100', from: '2026-10-01', to: '2026-10-30' }, actors: [],
+    items: [{ id: 7, number: 'EXP-000007', amount: '20.00', status: 'pending', category: 'gas', actor_id: 5, description: 'غاز' }],
+    pagination: { page: 1, last_page: 1, total: 1 }, summary: { today: '0.00', month: '0.00', period: '0.00', average: '0.00', count: 0, pending: 1,
+      top_category: null, top_amount: '0.00' } } };
+  const html = `<html><body data-dashboard-actor="4:admin"><script type="application/json" id="branch-expenses-bootstrap">${JSON.stringify(boot).replace(/</g, '\\u003C')}</script></body></html>`;
+  cache.put('u:4', 'page', ORIGIN + '/admin/branch-expenses', 'text/html', Buffer.from(html));
+  await ask('POST', '/admin/branch-expenses/save', { body: expenseForm() });
+  const list = (await ask('GET', '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1&search=&category=')).json;
+  assert.deepEqual(list.items.map((item) => item.number), ['جهاز-1', 'EXP-000007']);
+  assert.equal(list.summary.pending, 2);
+  const gas = (await ask('GET', '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1&category=gas')).json;
+  assert.deepEqual(gas.items.map((item) => item.number), ['EXP-000007'], 'Filters apply to the saved list too');
+});

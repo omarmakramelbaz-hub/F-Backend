@@ -176,6 +176,13 @@ class DesktopSyncOperations
             'supplier' => 'nullable|string|max:150', 'notes' => 'nullable|string|max:1000', 'quantity_kg' => 'nullable|string|max:14',
             'approve' => 'nullable|boolean',
         ])->validate();
+        // The dashboard's expenses page may have reached the server just before the connection dropped; the device
+        // then saved the same expense under the same operation number. The dashboard already has it: never twice.
+        $command = DB::table('branch_expense_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first(['expense_id']);
+        if ($command) {
+            $expense = app(BranchExpenses::class)->show((int) $command->expense_id, $actor)['expense'];
+            return ['expense' => ['id' => (int) $expense['id'], 'number' => (string) $expense['number'], 'status' => (string) $expense['status'], 'already_saved' => true]];
+        }
         $result = app(BranchExpenses::class)->save([
             'branch' => $branch, 'idempotency_key' => $id, 'occurred_on' => OperatingDay::date($when), 'category' => $data['category'],
             'description' => $data['description'] ?? '', 'amount' => $data['amount'], 'payment_method' => 'cash',

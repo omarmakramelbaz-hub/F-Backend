@@ -48,6 +48,13 @@ const MIGRATIONS = [
    INSERT OR REPLACE INTO counters (name, value) SELECT 'receipt_seq', COALESCE(MAX(seq), 0) FROM tickets;
    CREATE UNIQUE INDEX tickets_seq ON tickets (seq);
    ALTER TABLE branches ADD COLUMN today TEXT;`,
+  // Version 1.6.1: the dashboard's expenses page lists expenses saved on this device; they need a number too.
+  `ALTER TABLE journal ADD COLUMN seq INTEGER;
+   ALTER TABLE journal ADD COLUMN synced_at TEXT;
+   UPDATE journal SET seq = rowid;
+   UPDATE journal SET synced_at = created_at WHERE sync_status = 'synced';
+   INSERT OR REPLACE INTO counters (name, value) SELECT 'journal_seq', COALESCE(MAX(seq), 0) FROM journal;
+   CREATE UNIQUE INDEX journal_seq ON journal (seq);`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

@@ -15,7 +15,7 @@ const BUNDLED = { '/dashboard/branding/fasakhansta-logo-transparent.png': ['imag
 const STATIC_TYPES = new Set(['Stylesheet', 'Script', 'Font', 'Image', 'Media', 'Manifest']);
 const STATIC_CONTENT = /^(text\/css|(application|text)\/(x-)?javascript|application\/ecmascript|font\/|application\/(font|x-font)|image\/|audio\/)/;
 // Never kept: sign-in pages, one invoice's print or details, exports and private files.
-const SKIP_PATH = /\/(adminLogout|logout|login|signin|signout|print|details|export|download|attachment|identity-image|media)(\/|$)|\/print-jobs|\/pusher/i;
+const SKIP_PATH = /\/(adminLogout|logout|login|signin|signout|print|details|export|download|attachment|identity-image|media|report)(\/|$)|\/print-jobs|\/pusher/i;
 // The network could not deliver the request (no response at all). Aborted and blocked requests are left alone.
 const NETWORK_FAILURES = new Set(['Failed', 'TimedOut', 'ConnectionClosed', 'ConnectionReset', 'ConnectionRefused', 'ConnectionAborted',
   'ConnectionFailed', 'NameNotResolved', 'InternetDisconnected', 'AddressUnreachable']);
@@ -39,28 +39,51 @@ function header(headers, name) {
   return found ? headers[found] : '';
 }
 
-/** The JSON a page sent (CDP gives it as text, or as base64 parts in newer versions). */
+/** What a page sent: JSON, or a form's fields (CDP gives the body as text, or as base64 parts in newer versions). */
 function requestBody(request) {
   let text = request.postData;
   if (text === undefined && Array.isArray(request.postDataEntries)) {
     text = Buffer.concat(request.postDataEntries.map((entry) => Buffer.from(entry.bytes || '', 'base64'))).toString('utf8');
   }
   if (!text) return null;
+  const type = header(request.headers, 'content-type');
+  const boundary = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(type);
+  if (/multipart\/form-data/i.test(type) && boundary) return formFields(text, boundary[1] || boundary[2]);
+  if (/application\/x-www-form-urlencoded/i.test(type)) return Object.fromEntries(new URLSearchParams(text));
   try { return JSON.parse(text); } catch { return null; }
+}
+
+/** A multipart form's text fields; attached files are only listed (they need the internet). */
+function formFields(text, boundary) {
+  const fields = { __files: [] };
+  for (const part of text.split('--' + boundary)) {
+    const split = part.indexOf('\r\n\r\n');
+    if (split < 0) continue;
+    const head = part.slice(0, split);
+    let value = part.slice(split + 4);
+    if (value.endsWith('\r\n')) value = value.slice(0, -2);
+    const name = /name="([^"]*)"/i.exec(head);
+    if (!name) continue;
+    const file = /filename="([^"]*)"/i.exec(head);
+    if (file) { if (file[1]) fields.__files.push({ field: name[1], name: file[1] }); continue; }
+    fields[name[1]] = value;
+  }
+  return fields;
 }
 
 const wantsJson = (request) => /json/i.test(header(request.headers, 'accept')) || header(request.headers, 'x-requested-with') === 'XMLHttpRequest';
 
 class DashboardOffline {
   /**
-   * origin: the dashboard's address. cache: PageCache. takeaway: the cashier page's offline answers.
-   * user(): the signed-in account (from the device database) or null. Callbacks: onNetworkFailure(reason),
-   * onMissing(url) when a page was never saved, onFromCopy/onLive(contents) for the window's current page.
+   * origin: the dashboard's address. cache: PageCache. pages: the offline answers of the dashboard pages that work
+   * without the internet (the cashier page, expenses...). user(): the signed-in account (from the device database)
+   * or null. Callbacks: onNetworkFailure(reason), onMissing(url) when a page was never saved, onFromCopy/onLive(contents)
+   * for the window's current page.
    */
-  constructor({ origin, cache, takeaway, user, onNetworkFailure = () => {}, onMissing = () => {}, onFromCopy = () => {}, onLive = () => {} }) {
+  constructor({ origin, cache, pages, user, onNetworkFailure = () => {}, onMissing = () => {}, onFromCopy = () => {}, onLive = () => {} }) {
     this.origin = origin;
     this.cache = cache;
-    this.takeaway = takeaway;
+    this.pages = pages;
     this.user = user;
     this.onNetworkFailure = onNetworkFailure;
     this.onMissing = onMissing;
@@ -92,7 +115,8 @@ class DashboardOffline {
     // Online: responses (to save them, or to answer a failed one from the device), fonts, and invoices saved on this device.
     return [...READ_TYPES.map((resourceType) => ({ urlPattern: '*', resourceType, requestStage: 'Response' })),
       { urlPattern: '*', resourceType: 'Font', requestStage: 'Request' },
-      { urlPattern: this.origin + '/admin/takeaway/receipts/9*', requestStage: 'Request' }];
+      { urlPattern: this.origin + '/admin/takeaway/receipts/9*', requestStage: 'Request' },
+      { urlPattern: this.origin + '/admin/branch-expenses/8*', requestStage: 'Request' }];
   }
 
   async attach(contents) {
@@ -182,10 +206,14 @@ class DashboardOffline {
     const same = url.origin === this.origin;
     const user = this.user();
     if (same && user) {
-      const route = this.takeaway.match(request.method, url.pathname);
-      if (route && (offline || route.always)) {
-        const reply = await this.takeaway.answer(route, { user, url, body: requestBody(request) });
-        if (reply) return reply;
+      for (const page of this.pages) {
+        const route = page.match(request.method, url.pathname);
+        if (!route) continue;
+        if (offline || route.always) {
+          const reply = await page.answer(route, { user, url, body: requestBody(request) });
+          if (reply) return reply;
+        }
+        break;
       }
     }
     if (!offline) return null;
@@ -225,6 +253,19 @@ class DashboardOffline {
     }
     if (wantsJson(request)) return { status: 503, json: { success: false, message: NEEDS_INTERNET } };
     return null;
+  }
+
+  /**
+   * A picture to embed in a receipt before printing: the small logo shipped with the app, or a saved picture of at
+   * most 256 KB (a printed page is opened from its text, which Chromium limits to 2 MB).
+   */
+  printCopyOf(address) {
+    let url;
+    try { url = new URL(address); } catch { return null; }
+    const bundled = url.origin === this.origin && BUNDLED[url.pathname];
+    if (bundled) return { contentType: bundled[0], body: fs.readFileSync(bundled[1]) };
+    const file = this.cache.get('shared', 'file', address);
+    return file && file.body.length <= 256 * 1024 ? file : null;
   }
 
   /** A public file of the dashboard from the device's copy, or shipped with the app. */
@@ -267,7 +308,8 @@ class DashboardOffline {
     }
     if (!same || !url.pathname.startsWith('/admin') || SKIP_PATH.test(url.pathname)) return null;
     const user = this.user();
-    if (!user || this.takeaway.match('GET', url.pathname)) return null;
+    // What the device answers by itself offline is not kept; lists it adds its own records to are.
+    if (!user || this.pages.some((page) => { const route = page.match('GET', url.pathname); return route && !route.keepOnline; })) return null;
     const scope = this.scope(user);
     if (contentType.startsWith('text/html')) {
       // Only a page of this very account (the dashboard marks each page with its account).
@@ -309,23 +351,31 @@ function warmUpScript() {
       try { const url = new URL(link.href, location.href); return url.origin === location.origin ? url.pathname.replace(/\\/+$/, '') : null; } catch (_) { return null; }
     }).filter(Boolean));
     const pages = wanted.filter((page) => page === '/admin/dashboard' || menu.has(page));
-    const files = new Set([location.origin + '/dashboard/branding/fasakhansta-logo-transparent.png']);
+    const done = new Set();
+    const keep = async (files) => {
+      for (const file of files) {
+        if (done.has(file)) continue;
+        done.add(file);
+        try {
+          const same = new URL(file).origin === location.origin;
+          await (await fetch(file, same ? { credentials: 'same-origin' } : { mode: 'no-cors', credentials: 'omit' })).arrayBuffer();
+        } catch (_) {}
+      }
+    };
+    await keep([location.origin + '/dashboard/branding/fasakhansta-logo-transparent.png']);
+    // Each page with its own styles and scripts right after it, so every saved page is complete.
     for (const page of pages) {
       try {
         const response = await fetch(page, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/html' } });
         if (!response.ok || response.redirected) continue;
         const copy = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const files = [];
         copy.querySelectorAll('link[rel="stylesheet"][href], script[src]').forEach((node) => {
-          try { files.add(new URL(node.getAttribute('href') || node.getAttribute('src'), location.origin + page).href); } catch (_) {}
+          try { files.push(new URL(node.getAttribute('href') || node.getAttribute('src'), location.origin + page).href); } catch (_) {}
         });
+        await keep(files);
       } catch (_) {}
-      await new Promise((resolve) => setTimeout(resolve, 700));
-    }
-    for (const file of files) {
-      try {
-        const same = new URL(file).origin === location.origin;
-        await (await fetch(file, same ? { credentials: 'same-origin' } : { mode: 'no-cors', credentials: 'omit' })).arrayBuffer();
-      } catch (_) {}
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
     return pages.length;
   })()`;

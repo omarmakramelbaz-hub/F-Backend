@@ -177,7 +177,20 @@ function render(BrowserWindow, html, settings = {}, source = {}) {
       } catch { pageSize = undefined; }
       resolve({ window, pageSize });
     });
-    window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html), source.baseURL ? { baseURLForDataURL: source.baseURL } : {});
+    const address = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    if (address.length < 1900000) {
+      window.loadURL(address, source.baseURL ? { baseURLForDataURL: source.baseURL } : {});
+      return;
+    }
+    // Chromium refuses page addresses over 2 MB: a large receipt is opened from a temporary file instead.
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'goerp-print-')), 'receipt.html');
+    const base = source.baseURL ? `<base href="${String(source.baseURL).replace(/"/g, '&quot;')}">` : '';
+    fs.writeFileSync(file, /<head[^>]*>/i.test(html) ? html.replace(/<head([^>]*)>/i, `<head$1>${base}`) : base + html);
+    window.once('closed', () => fs.rm(path.dirname(file), { recursive: true, force: true }, () => {}));
+    window.loadFile(file);
   });
 }
 

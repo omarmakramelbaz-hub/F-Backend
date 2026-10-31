@@ -389,8 +389,22 @@ class Store {
     return catalog && Array.isArray(catalog.expense_categories) ? catalog.expense_categories : [];
   }
 
-  /** Same checks as the dashboard's expenses page, so the expense is not refused later. */
-  recordExpense(actor, branch, values) {
+  /**
+   * Same checks as the dashboard's expenses page, so the expense is not refused later. options.id: the dashboard
+   * page's operation number; saving it again returns the same expense.
+   */
+  recordExpense(actor, branch, values, options = {}) {
+    if (options.id) {
+      const existing = this.journalEntry(options.id);
+      if (existing) {
+        if (existing.kind !== 'expense' || existing.actor_id !== actor.id || existing.branch !== branch) {
+          const error = new Error('رقم العملية مستخدم لعملية مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ...existing, replayed: true };
+      }
+    }
     this.requireBranch(actor, branch, 'can_checkout');
     const category = this.expenseCategories(branch).find((item) => item.key === values.category);
     if (!category) throw new Error('اختر بند المصروف.');
@@ -415,7 +429,7 @@ class Store {
     if (approve && !actor.can_approve_expenses) throw new Error('اعتماد المصروفات للمالك والإدارة فقط.');
     const data = { category: category.key, description, amount: money.decimal(amount), supplier: text(values.supplier, 150),
       notes: text(values.notes, 1000), quantity_kg: quantity, approve };
-    return this.addJournal(actor, branch, 'expense', amount, data, { category_name: category.name });
+    return this.addJournal(actor, branch, 'expense', amount, data, { category_name: category.name }, options.id);
   }
 
   /** Cash a manager puts in or takes out of the drawer, with its reason. */
@@ -430,15 +444,15 @@ class Store {
   }
 
   /** The record and the operation that sends it to the dashboard are saved together. */
-  addJournal(actor, branch, kind, amount, data, extra) {
+  addJournal(actor, branch, kind, amount, data, extra, givenId = null) {
     return transaction(this.db, () => {
       const now = this.now();
       const stamp = now.toISOString();
-      const id = this.uuid();
+      const id = givenId || this.uuid();
       const operation = { id, kind, actor_id: actor.id, branch, occurred_at: stamp, data };
-      this.db.prepare(`INSERT INTO journal (id, kind, branch, actor_id, actor_name, business_date, amount_cents, data, created_at, sync_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
-        .run(id, kind, branch, actor.id, actor.name, rules.operatingDay(now), amount, JSON.stringify({ ...data, ...extra }), stamp);
+      this.db.prepare(`INSERT INTO journal (id, kind, branch, actor_id, actor_name, business_date, amount_cents, data, created_at, sync_status, seq)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`)
+        .run(id, kind, branch, actor.id, actor.name, rules.operatingDay(now), amount, JSON.stringify({ ...data, ...extra }), stamp, this.nextCounter('journal_seq'));
       this.db.prepare(`INSERT INTO outbox (id, kind, journal_id, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)`)
         .run(id, kind, id, JSON.stringify(operation), stamp, stamp);
       return this.journalEntry(id);
@@ -448,6 +462,19 @@ class Store {
   journalEntry(id) {
     const row = this.db.prepare('SELECT * FROM journal WHERE id = ?').get(id);
     return row ? { ...row, data: JSON.parse(row.data) } : null;
+  }
+
+  journalBySeq(seq) {
+    const row = this.db.prepare('SELECT * FROM journal WHERE seq = ?').get(seq);
+    return row ? { ...row, data: JSON.parse(row.data) } : null;
+  }
+
+  /** Expenses saved on this device for the given branches between two working days, newest first. */
+  deviceExpenses(branches, from, to) {
+    if (!branches.length) return [];
+    const marks = branches.map(() => '?').join(', ');
+    return this.db.prepare(`SELECT * FROM journal WHERE kind = 'expense' AND branch IN (${marks}) AND business_date BETWEEN ? AND ?
+      ORDER BY business_date DESC, seq DESC`).all(...branches, from, to).map((row) => ({ ...row, data: JSON.parse(row.data) }));
   }
 
   journal(branch, day, kinds = ['expense', 'till']) {
@@ -612,7 +639,7 @@ class Store {
               this.db.prepare(`UPDATE journal SET data = json_set(data, '$.server_checked_in_at', ?, '$.server_checked_out_at', ?) WHERE id = ?`)
                 .run(result.attendance.checked_in_at || null, result.attendance.checked_out_at || null, row.journal_id);
             }
-            this.db.prepare("UPDATE journal SET sync_status = 'synced', sync_error = NULL, server_ref = ? WHERE id = ?").run(reference, row.journal_id);
+            this.db.prepare("UPDATE journal SET sync_status = 'synced', sync_error = NULL, server_ref = ?, synced_at = ? WHERE id = ?").run(reference, now, row.journal_id);
           }
         } else if (result.status === 'rejected') {
           this.db.prepare("UPDATE outbox SET status = 'rejected', result = ?, last_error = ?, updated_at = ? WHERE id = ?")

@@ -408,12 +408,17 @@ async function dashboardOffline() {
   const saved = (pagePath) => deviceRows(userData, 'dashboard-copy.sqlite',
     `SELECT COUNT(*) AS c FROM entries WHERE scope = 'u:4' AND kind = 'page' AND path = '${pagePath}'`)[0].c === 1;
   await until(() => saved('/admin/takeaway'), 'the cashier page is saved for offline use', 40000);
+  await until(() => saved('/admin/branch-expenses') && deviceRows(userData, 'dashboard-copy.sqlite',
+    "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND url LIKE '%/dashboard/js/branch-expenses.js%'")[0].c === 1,
+  'the expenses page and its script are saved for offline use', 40000);
   // Online, the cashier page works from the dashboard as usual.
   await app.evaluate(({ webContents }) => {
     global.__dashboardConsole = [];
     for (const contents of webContents.getAllWebContents()) contents.on('console-message', (event) => {
       const message = event.message || '';
-      if (/error|fail|uncaught/i.test(message) || event.level === 'error' || event.level === 3) global.__dashboardConsole.push(String(message).slice(0, 300));
+      if (/error|fail|uncaught/i.test(message) || event.level === 'error' || event.level === 3) {
+        global.__dashboardConsole.push(`${String(event.sourceId || '').split('/').pop()}:${event.lineNumber || ''} ${String(message).slice(0, 300)}`);
+      }
     });
   });
   await inDashboard(app, "location.href = '/admin/takeaway'");
@@ -461,6 +466,35 @@ async function dashboardOffline() {
   assert.deepEqual(sale.map((row) => [row.channel, row.status, row.total]), [['takeaway', 'paid', 20500]]);
   await shot(page, '14-dashboard-sale-offline-status');
   await dashboardShot(app, '14-dashboard-sale-offline');
+  // The expenses page offline: an expense saved from the dashboard's own page goes to the device's journal.
+  await inDashboard(app, "location.href = '/admin/branch-expenses'");
+  // Ready once the page's own script drew its list (the page counter is filled).
+  try {
+    await until(async () => await inDashboard(app, "!!(document.querySelector('[data-expense-page]') && document.querySelector('[data-expense-page]').textContent.trim())").catch(() => false),
+      'the expenses page opens offline');
+  } catch (error) {
+    console.log('DEBUG expenses page', String(await inDashboard(app, `JSON.stringify({ url: location.href, ready: document.readyState, form: !!document.querySelector('[data-expense-form]'),
+      counter: (document.querySelector('[data-expense-page]') || {}).textContent, notice: (document.querySelector('[data-expense-message] span') || {}).textContent,
+      scripts: Array.from(document.scripts).map((s) => s.src).filter((src) => /branch-expenses|dashboard-spa/.test(src)) })`).catch((e) => 'ERR ' + e.message)));
+    console.log('DEBUG console', JSON.stringify((await app.evaluate(() => global.__dashboardConsole || [])).filter((line) => !/CKEDITOR|toastr|rateYo|firebase|jstree|ServiceWorker/.test(line)).slice(-15)));
+    console.log('DEBUG boot', String(await inDashboard(app, `(() => { try { const boot = JSON.parse(document.getElementById('branch-expenses-bootstrap').textContent);
+      return JSON.stringify({ keys: Object.keys(boot), initial: Object.keys(boot.initial || {}), pagination: boot.initial && boot.initial.pagination, items: boot.initial && (boot.initial.items || []).length }); } catch (e) { return 'ERR ' + e.message; } })()`).catch((e) => 'ERR ' + e.message)));
+    throw error;
+  }
+  await inDashboard(app, `(() => { const form = document.querySelector('[data-expense-form]');
+    form.elements.category.value = 'electricity'; form.elements.category.dispatchEvent(new Event('change', { bubbles: true }));
+    form.elements.amount.value = '88.25'; form.elements.description.value = 'كهرباء من غير نت';
+    form.querySelector('[data-expense-save]').click(); })()`);
+  try {
+    await until(async () => /جهاز-/.test(await inDashboard(app, "document.querySelector('[data-expense-rows]').innerText").catch(() => '')),
+      'the offline expense is listed on the expenses page', 20000);
+  } catch (error) {
+    console.log('DEBUG expense', String(await inDashboard(app, `JSON.stringify({ notice: (document.querySelector('[data-expense-message] span') || {}).textContent,
+      rows: document.querySelector('[data-expense-rows]').innerText.slice(0, 300), values: Object.fromEntries(Array.from(document.querySelector('[data-expense-form]').elements).filter((f) => f.name).map((f) => [f.name, f.value + (f.disabled ? ' (disabled)' : '')])),
+      options: Array.from(document.querySelector('[data-expense-form]').elements.category.options).map((o) => o.value).slice(0, 12) })`).catch((e) => 'ERR ' + e.message)));
+    throw error;
+  }
+  await dashboardShot(app, '16-dashboard-expense-offline');
   // A page this account never saved explains that it needs the internet, inside the dashboard.
   await inDashboard(app, "window.DashboardSPA && window.DashboardSPA.visit('/admin/wallets/transactions')");
   await until(async () => /الصفحة دي محتاجة إنترنت/.test(await inDashboard(app, 'document.body.innerText').catch(() => '')), 'unsaved page message');
@@ -474,6 +508,8 @@ async function dashboardOffline() {
   await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].c === 1, 'the offline sale reaches the dashboard', 40000);
   assert.equal(orderCount(), before + 1);
   assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].total_cents, 20500);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_expenses WHERE amount_cents = 8825 AND category = 'electricity'")[0].c === 1,
+    'the offline expense reaches the dashboard', 40000);
   await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
   await app.close();
 }
