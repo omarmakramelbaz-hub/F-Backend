@@ -6,8 +6,11 @@ Run as root on srv1836524 from a clean checkout:
 
 It downloads that exact version from the GitHub release, refuses it unless its SHA-512 matches the value given
 on the command line, then places it where the dashboard page reads published installers
-(/var/lib/go-erp-manual-updates/shared). The version shown before becomes "previous version". Nothing else
-changes: no site file, database, service or setting. Running it again with the same version changes nothing.
+(/var/lib/go-erp-manual-updates/shared). The dashboard reads them as the site user, through the folders' group,
+so both folders must belong to root and the site user's group. The new app version shown before becomes
+"previous version"; anything else there (a missing installer, the old program's builds) is not offered again.
+Nothing else changes: no site file, database, service or setting. Running it again with the same version changes
+nothing.
 """
 import argparse
 import base64
@@ -15,6 +18,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import socket
 import stat
@@ -22,6 +26,7 @@ import tempfile
 import urllib.request
 
 HOST = 'srv1836524'
+WEB_USER = 'fasakha'
 SHARED = Path('/var/lib/go-erp-manual-updates/shared')
 REPOSITORY = 'https://github.com/omarmakramelbaz-hub/F-Backend'
 FRAMEWORK = '8.83.29'
@@ -40,10 +45,11 @@ def need(value, reason):
         raise Stop('GO_ERP_DESKTOP_DOWNLOAD_' + reason)
 
 
-def directory(path, owner):
+def directory(path, owner, group):
     """The dashboard only reads root-owned 0750 folders; their group is the site's group."""
     info = path.lstat()
     need(stat.S_ISDIR(info.st_mode) and info.st_uid == owner and stat.S_IMODE(info.st_mode) == 0o750, 'FOLDER_' + path.name.upper())
+    need(info.st_gid == group, 'FOLDER_' + path.name.upper() + '_GROUP_NOT_THE_SITE_GROUP')
     return info
 
 
@@ -115,16 +121,31 @@ def record(version, sequence, revision, sha, size):
             'gui': {}}
 
 
-def publish(shared, version, expected_sha512, revision, opener=urllib.request.urlopen, owner=0):
+def offered_before(old, installers):
+    """The version shown before stays as "previous version" only if it is a new app installer still on disk."""
+    try:
+        sha, size = old['installer']['sha256'], old['installer']['bytes']
+        file = installers / (str(sha) + '.exe')
+        return (VERSION.match(str(old['version'])) is not None and REVISION.match(str(old['source_revision'])) is not None
+                and SHA256.match(str(sha)) is not None and type(size) is int and type(old['sequence']) is int and old['sequence'] > 0
+                and file.is_file() and not file.is_symlink() and file.stat().st_size == size)
+    except (KeyError, TypeError, OSError):
+        return False
+
+
+def publish(shared, version, expected_sha512, revision, opener=urllib.request.urlopen, owner=0, group=None):
     need(VERSION.match(version) is not None, 'VERSION')
     need(REVISION.match(revision) is not None, 'REVISION')
     need(len(expected_sha512) == 88, 'SHA512')
-    directory(shared, owner)
+    need(group is not None, 'SITE_GROUP')
+    directory(shared, owner, group)
     installers = shared / 'installers'
-    gid = directory(installers, owner).st_gid
+    gid = directory(installers, owner, group).st_gid
     downloads = shared / 'downloads.json'
     current = read_records(downloads)
-    old = current['current'] if current else None
+    old = current['current'] if current and isinstance(current.get('current'), dict) else None
+    if old and not offered_before(old, installers):
+        old = None
     if old and old.get('version') == version:
         existing = installers / (old['installer']['sha256'] + '.exe')
         if existing.is_file() and existing.stat().st_size == old['installer']['bytes']:
@@ -142,9 +163,9 @@ def publish(shared, version, expected_sha512, revision, opener=urllib.request.ur
             os.unlink(temporary)
     previous = None
     sequence = 1
-    if old and SHA256.match(str(old.get('installer', {}).get('sha256', ''))):
-        sequence = int(old.get('sequence', 0)) + 1
-        if old.get('source_revision') != revision and old['installer']['sha256'] != sha and old.get('version') != version:
+    if old:
+        sequence = old['sequence'] + 1
+        if old['source_revision'] != revision and old['installer']['sha256'] != sha and old['version'] != version:
             previous = old
     payload = {'format': 1, 'kind': 'go-erp-published-downloads', 'current': record(version, sequence, revision, sha, size),
                'previous': previous}
@@ -169,7 +190,8 @@ def main():
     options = parser.parse_args()
     need(os.geteuid() == 0 and socket.gethostname().split('.')[0] == HOST, 'ROOT_AND_HOST_REQUIRED')
     os.umask(0o077)
-    print(json.dumps(publish(SHARED, options.version, options.sha512, options.revision), sort_keys=True), flush=True)
+    group = pwd.getpwnam(WEB_USER).pw_gid
+    print(json.dumps(publish(SHARED, options.version, options.sha512, options.revision, group=group), sort_keys=True), flush=True)
 
 
 if __name__ == '__main__':

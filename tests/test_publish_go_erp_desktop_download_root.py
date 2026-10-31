@@ -46,8 +46,9 @@ class DownloadPublisherTests(unittest.TestCase):
         self.files[version] = data
         return base64.b64encode(hashlib.sha512(data).digest()).decode(), hashlib.sha256(data).hexdigest()
 
-    def publish(self, version, sha512, revision):
-        return publisher.publish(self.shared, version, sha512, revision, opener=self.opener, owner=os.getuid())
+    def publish(self, version, sha512, revision, group=None):
+        return publisher.publish(self.shared, version, sha512, revision, opener=self.opener, owner=os.getuid(),
+                                 group=os.getgid() if group is None else group)
 
     def records(self):
         return json.loads((self.shared / 'downloads.json').read_text())
@@ -98,6 +99,31 @@ class DownloadPublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(publisher.Stop, 'VERSION'):
             self.publish('1.4', sha512, 'a' * 40)
         self.assertEqual(self.urls, [])
+
+
+    def test_folders_the_site_cannot_read_stop_before_downloading(self):
+        sha512, _ = self.add('1.10.0')
+        with self.assertRaisesRegex(publisher.Stop, 'FOLDER_SHARED_GROUP_NOT_THE_SITE_GROUP'):
+            self.publish('1.10.0', sha512, 'a' * 40, group=os.getgid() + 1)
+        self.assertEqual(self.urls, [])
+        self.assertFalse((self.shared / 'downloads.json').exists())
+
+    def test_only_a_new_app_installer_still_on_disk_is_offered_as_the_previous_version(self):
+        first = self.add('1.9.0')
+        second = self.add('1.10.0')
+        self.publish('1.9.0', first[0], 'a' * 40)
+        # Its installer was removed (e.g. by another tool): it is not offered again.
+        os.unlink(str(self.shared / 'installers' / (first[1] + '.exe')))
+        result = self.publish('1.10.0', second[0], 'b' * 40)
+        self.assertEqual((result['previous_version'], self.records()['current']['sequence']), (None, 1))
+        # The old program's build left in the record is not offered either.
+        records = self.records()
+        records['current']['version'] = '0.4.4-preview.63'
+        (self.shared / 'downloads.json').write_text(json.dumps(records))
+        third = self.add('1.11.0')
+        result = self.publish('1.11.0', third[0], 'c' * 40)
+        self.assertEqual(result['previous_version'], None)
+        self.assertEqual(sorted(os.listdir(str(self.shared / 'installers'))), [third[1] + '.exe'])
 
 
 if __name__ == '__main__':

@@ -890,6 +890,45 @@ class DesktopSyncTest extends TestCase
             'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in', 'checked_in_at' => '2026-10-30 06:00:00'], User::find(4));
     }
 
+    /** The dashboard page "Desktop program", rendered inside a bare layout (the full dashboard layout needs every table). */
+    private function programPage(array $data): string
+    {
+        return view('admin.desktop-dashboard', $data)->render();
+    }
+
+    public function test_the_desktop_program_page_offers_the_new_app_and_no_longer_builds_the_old_one(): void
+    {
+        $layouts = sys_get_temp_dir().'/goerp-layout-'.Str::random(8);
+        mkdir($layouts.'/admin', 0700, true);
+        file_put_contents($layouts.'/admin/index.blade.php', "@yield('content')");
+        app('view')->getFinder()->prependLocation($layouts);
+        app('view')->getFinder()->flush();
+        $this->beforeApplicationDestroyed(function () use ($layouts) {
+            @unlink($layouts.'/admin/index.blade.php');
+            @rmdir($layouts.'/admin');
+            @rmdir($layouts);
+        });
+        $url = fn ($sha) => 'https://fasakhaninja.com/admin/desktop-dashboard/published/'.str_repeat($sha, 64);
+        $published = ['current' => ['ready' => true, 'version' => '1.10.0', 'url' => $url('a')],
+            'previous' => ['ready' => true, 'version' => '1.9.0', 'url' => $url('b')]];
+        $page = $this->programPage(['local' => false, 'release' => null, 'manualOwner' => true, 'publishedDownloads' => $published]);
+        $this->assertStringContainsString('تحميل التطبيق <bdi>1.10.0</bdi>', $page);
+        $this->assertStringContainsString('href="'.$url('a').'"', $page);
+        $this->assertStringContainsString('تحميل النسخة السابقة <bdi>1.9.0</bdi>', $page);
+        foreach (['تحديث التطبيق', 'go-erp-releases.js', 'data-go-erp-release', 'data-desktop-program'] as $old) {
+            $this->assertStringNotContainsString($old, $page, 'The old program\'s build and device setup are not offered');
+        }
+        $none = ['ready' => false, 'version' => null, 'url' => null];
+        $empty = $this->programPage(['local' => false, 'release' => ['version' => '0.4.4-preview.63'], 'manualOwner' => false,
+            'publishedDownloads' => ['current' => $none, 'previous' => $none]]);
+        $this->assertStringContainsString('ملف التثبيت غير متاح هنا حاليًا', $empty);
+        $this->assertStringNotContainsString('0.4.4-preview.63', $empty, 'The old program\'s installer is not offered for new devices');
+        // The old program's own copy of the page keeps its device setup.
+        $local = $this->programPage(['local' => true, 'release' => null, 'manualOwner' => false]);
+        $this->assertStringContainsString('data-desktop-program', $local);
+        $this->assertStringNotContainsString('data-go-erp-downloads', $local);
+    }
+
     public function test_a_revoked_device_and_a_wrong_token_are_refused(): void
     {
         $device = $this->enroll('01000000004', 'cashier-pass')->json();

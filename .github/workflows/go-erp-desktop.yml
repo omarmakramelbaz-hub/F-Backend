@@ -24,6 +24,7 @@ on:
       - 'app/Services/Dashboard/BranchCustomers.php'
       - 'app/Services/Dashboard/PosServicePhone.php'
       - 'resources/views/admin/phone_orders/index.blade.php'
+      - 'resources/views/admin/desktop-dashboard.blade.php'
       - 'public/dashboard/js/branch-print-receiver.js'
       - 'public/dashboard/js/takeaway-pos.js'
       - 'public/dashboard/js/dining-pos.js'
