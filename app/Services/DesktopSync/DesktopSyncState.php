@@ -14,6 +14,7 @@ use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayCatalog;
 use App\Services\Dashboard\TakeawayService;
 use App\Services\GoServices\Money;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -211,13 +212,50 @@ class DesktopSyncState
             } catch (HttpException $error) {
                 continue;
             }
-            $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets];
+            $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets, 'delivery' => $this->delivery($value, $actor)];
             $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             $entry = ['value' => $value, 'hash' => $hash];
             if (($known[$value] ?? null) !== $hash) $entry += $payload;
             $result[] = $entry;
         }
         return $result;
+    }
+
+    /**
+     * The branch's delivery settings (its pin and tariff), so the device prices a new delivery order offline exactly as
+     * PhoneDelivery::quote does. Null when the branch has none.
+     */
+    private function delivery(string $branch, object $actor): ?array
+    {
+        try {
+            $settings = app(\App\Services\Dashboard\PhoneDelivery::class)->settings($branch, $actor);
+        } catch (HttpException $error) {
+            return null;
+        }
+        return ['branch' => $settings['branch'], 'latitude' => $settings['latitude'], 'longitude' => $settings['longitude'], 'km_price' => $settings['km_price'],
+            'pricing_rates' => $settings['pricing_rates'], 'ready' => $settings['ready']];
+    }
+
+    /**
+     * The branches' saved delivery customers changed since the device's cursor (oldest first), so a returning customer's
+     * name, address and location are found offline. Up to 500 per sync; more follow on the next ones.
+     */
+    public function customers(object $device, ?string $cursor): array
+    {
+        if (! Schema::hasTable('branch_customers')) return ['items' => [], 'cursor' => $cursor, 'more' => false];
+        [$at, $id] = $cursor && preg_match('/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\|(\d+)$/', $cursor, $m) ? [$m[1], (int) $m[2]] : ['0000-00-00 00:00:00', 0];
+        $rows = DB::table('branch_customers')->whereIn('branch', $device->branch_values)
+            ->where(fn ($query) => $query->where('updated_at', '>', $at)->orWhere(fn ($same) => $same->where('updated_at', $at)->where('id', '>', $id)))
+            ->orderBy('updated_at')->orderBy('id')->limit(501)->get(['id', 'branch', 'name', 'phone', 'phone_key', 'address', 'area', 'delivery_notes',
+                'latitude', 'longitude', 'revision', 'updated_at'])->all();
+        $more = count($rows) > 500;
+        $rows = array_slice($rows, 0, 500);
+        $items = array_map(fn ($row) => ['id' => (int) $row->id, 'branch' => $row->branch, 'name' => (string) $row->name, 'phone' => (string) $row->phone,
+            'phone_key' => (string) $row->phone_key, 'address' => (string) $row->address, 'area' => (string) ($row->area ?? ''),
+            'delivery_notes' => (string) ($row->delivery_notes ?? ''), 'latitude' => is_numeric($row->latitude) ? (float) $row->latitude : null,
+            'longitude' => is_numeric($row->longitude) ? (float) $row->longitude : null, 'revision' => (int) $row->revision], $rows);
+        $last = end($rows);
+        return ['items' => $items, 'cursor' => $last ? Carbon::parse($last->updated_at)->format('Y-m-d H:i:s').'|'.$last->id : $cursor, 'more' => $more];
     }
 
     public function snapshot(object $device, string $id): ?array

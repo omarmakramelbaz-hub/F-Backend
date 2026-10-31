@@ -13,6 +13,7 @@ use App\Services\Dashboard\TakeawayAccess;
 use App\Services\Dashboard\TakeawayService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -25,7 +26,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -78,6 +79,7 @@ class DesktopSyncOperations
                 'ticket_batch' => $this->ticketBatch($actor, $values['branch'], $id, $values['data']),
                 'ticket_save' => $this->ticketSave($actor, $values['branch'], $id, $values['data']),
                 'ticket_cancel' => $this->ticketAction($actor, $values['branch'], $id, ['action' => 'cancel'] + $values['data']),
+                'customer_save' => $this->customerSave($actor, $values['branch'], $id, $values['data']),
                 default => $this->sale($device, $actor, $values['branch'], $id, $when, $values['data']),
             };
             $status = 'applied';
@@ -274,6 +276,7 @@ class DesktopSyncOperations
      */
     private function ticketOpen(User $actor, string $branch, string $id, array $data): array
     {
+        if (($data['channel'] ?? 'dine') === 'phone') return $this->phoneOpen($actor, $branch, $id, $data);
         $data = Validator::make($data, ['table_id' => 'required|integer|min:1', 'waiter_name' => 'required|string|max:100',
             'guest_count' => 'required|integer|min:1|max:200', 'customer_name' => 'nullable|string|max:100', 'customer_phone' => 'nullable|string|max:30',
             'items' => 'required|array|min:1|max:100', 'discount' => 'nullable|string|max:14', 'discount_reason' => 'nullable|string|max:500',
@@ -427,6 +430,77 @@ class DesktopSyncOperations
     {
         $total = (string) (json_decode($row->quote_snapshot, true)['total'] ?? '');
         return $this->sameCart($row, $expect) && $total !== '' && \App\Services\GoServices\Money::minor($total) === (int) ($expect['total_cents'] ?? -1);
+    }
+
+    /**
+     * A delivery order placed on the device while offline (located by the customer's coordinates, priced with the device's
+     * menu and the branch tariff) and still unpaid when the internet is back: it becomes a dashboard order at today's
+     * prices with the delivery fee the device charged, then what the device did follows (handed to the courier, bill).
+     */
+    private function phoneOpen(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['channel' => 'required|in:phone', 'items' => 'required|array|min:1|max:100', 'discount' => 'nullable|string|max:14',
+            'discount_reason' => 'nullable|string|max:500', 'customer_name' => 'required|string|max:100', 'customer_phone' => 'required|string|max:30',
+            'address' => 'required|string|max:500', 'area' => 'nullable|string|max:150', 'delivery_notes' => 'nullable|string|max:500', 'notes' => 'nullable|string|max:500',
+            'latitude' => 'required|numeric|between:-90,90', 'longitude' => 'required|numeric|between:-180,180', 'delivery_fee' => 'required|string|max:14',
+            'delivery_company_id' => 'nullable|integer|min:1', 'marketing_consent' => 'nullable|boolean', 'kitchen_sent' => 'nullable|boolean',
+            'kitchen_printed' => 'nullable|boolean', 'courier_company_id' => 'nullable|integer|min:1', 'bill_requested' => 'nullable|boolean'])->validate();
+        $tickets = app(PosServiceTicket::class);
+        $actor = $this->access->actor($actor);
+        $command = fn () => DB::table('pos_service_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if (! $command()) {
+            $delivery = app(\App\Services\Dashboard\PhoneDelivery::class)->quote(['branch' => $branch, 'latitude' => $data['latitude'],
+                'longitude' => $data['longitude'], 'location_confirmed' => true], $actor)['delivery'];
+            $values = ['branch' => $branch, 'idempotency_key' => $id, 'items' => $data['items'], 'discount' => $data['discount'] ?? '0.00',
+                'discount_reason' => $data['discount_reason'] ?? '', 'customer_name' => $data['customer_name'], 'customer_phone' => $data['customer_phone'],
+                'address' => $data['address'], 'area' => $data['area'] ?? '', 'delivery_notes' => $data['delivery_notes'] ?? '', 'notes' => $data['notes'] ?? '',
+                'latitude' => $delivery['latitude'], 'longitude' => $delivery['longitude'], 'location_confirmed' => true, 'delivery_quote_hash' => $delivery['delivery_quote_hash'],
+                'delivery_company_id' => $data['delivery_company_id'] ?? null, 'service_consent' => true, 'marketing_consent' => (bool) ($data['marketing_consent'] ?? false),
+                'send_to_kitchen' => (bool) ($data['kitchen_sent'] ?? false)];
+            // The customer was charged the device's delivery fee: kept, as a fee set by the cashier when it differs.
+            if ($delivery['delivery_fee'] !== $data['delivery_fee']) $values += ['delivery_fee_manual' => true, 'delivery_fee' => $data['delivery_fee']];
+            $values['quote_hash'] = $tickets->quote('phone', $values, $actor)['quote_hash'];
+            $tickets->save('phone', $values, $actor, true);
+            // Its kitchen ticket was printed on the device: the branch printer does not print it a second time.
+            if (! empty($data['kitchen_printed']) && Schema::hasTable('pos_branch_print_jobs')) {
+                DB::table('pos_branch_print_jobs')->where('branch', $branch)->where('ticket_id', $command()->ticket_id)->where('status', 'pending')
+                    ->update(['status' => 'invoked', 'invoked_at' => now('UTC'), 'updated_at' => now('UTC')]);
+            }
+        }
+        $ticket = $tickets->show('phone', (int) $command()->ticket_id, $actor)['ticket'];
+        $open = fn () => $ticket['payment_status'] === 'unpaid' && $ticket['status'] !== 'cancelled';
+        if (! empty($data['courier_company_id']) && $open() && in_array($ticket['status'], ['new', 'preparing'], true)) {
+            app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->dispatch(['branch' => $branch, 'idempotency_key' => $this->derivedKey($id, 'dispatch'),
+                'ticket_id' => (int) $ticket['id'], 'company_id' => (int) $data['courier_company_id'], 'expected_revision' => (int) $ticket['revision']], $actor);
+            $ticket = $tickets->show('phone', (int) $ticket['id'], $actor)['ticket'];
+        }
+        if (! empty($data['bill_requested']) && $open() && ! $ticket['bill_locked']) {
+            $ticket = $tickets->action('phone', (int) $ticket['id'], ['branch' => $branch, 'idempotency_key' => $this->derivedKey($id, 'request_bill'),
+                'expected_revision' => (int) $ticket['revision'], 'action' => 'request_bill'], $actor)['ticket'];
+        }
+        return ['ticket' => ['id' => (int) $ticket['id'], 'revision' => (int) $ticket['revision'], 'status' => (string) $ticket['status'],
+            'number' => (string) ($ticket['number'] ?? '')]];
+    }
+
+    /**
+     * A delivery customer saved on the device while offline (the delivery page's customer step): the branch's customer
+     * record with that number is created or updated, once.
+     */
+    private function customerSave(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['name' => 'required|string|max:100', 'phone' => 'required|string|max:30', 'address' => 'required|string|max:500',
+            'area' => 'nullable|string|max:150', 'delivery_notes' => 'nullable|string|max:500', 'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180'])->validate();
+        $actor = $this->access->actor($actor);
+        $done = DB::table('branch_operation_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first();
+        if ($done) {
+            $saved = json_decode($done->result, true)['customer'] ?? [];
+            return ['customer' => ['id' => (int) ($saved['id'] ?? 0), 'revision' => (int) ($saved['revision'] ?? 0)], 'already_saved' => true];
+        }
+        $row = DB::table('branch_customers')->where('branch', $branch)->where('phone_key', \App\Services\Dashboard\BranchCustomers::phoneKey($data['phone']))->first();
+        $result = app(\App\Services\Dashboard\BranchCustomers::class)->save(['branch' => $branch, 'idempotency_key' => $id] + $data
+            + ($row ? ['customer_id' => (int) $row->id, 'expected_revision' => (int) $row->revision] : []), $actor);
+        return ['customer' => ['id' => (int) $result['customer']['id'], 'revision' => (int) $result['customer']['revision']]];
     }
 
     /** The paid order as the device keeps it. */

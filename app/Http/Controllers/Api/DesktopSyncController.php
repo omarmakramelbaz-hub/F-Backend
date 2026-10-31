@@ -31,6 +31,7 @@ class DesktopSyncController extends Controller
             'want_catalogs' => 'nullable|boolean', 'catalog_hashes' => 'nullable|array|max:200',
             'catalog_hashes.*' => 'nullable|string|max:64',
             'want_service' => 'nullable|boolean', 'service_hashes' => 'nullable|array|max:200', 'service_hashes.*' => 'nullable|string|max:64',
+            'want_customers' => 'nullable|boolean', 'customers_cursor' => 'nullable|string|max:40',
         ]);
         $response = ['server_time' => now('UTC')->toIso8601String(), 'operating_day' => OperatingDay::metadata(),
             'kinds' => DesktopSyncOperations::KINDS, 'results' => $operations->apply($device, $values['operations'] ?? [])];
@@ -45,6 +46,8 @@ class DesktopSyncController extends Controller
         }
         // Open dine-in and delivery orders and the tables, every sync: what the device collects payment for offline.
         if ($values['want_service'] ?? false) $response['service'] = $state->service($device, $values['service_hashes'] ?? [], $users ?? []);
+        // Saved delivery customers changed since the device's copy: new delivery orders offline find returning customers.
+        if ($values['want_customers'] ?? false) $response['customers'] = $state->customers($device, $values['customers_cursor'] ?? null);
         return response()->json($response)->header('Cache-Control', 'no-store');
     }
 }

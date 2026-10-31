@@ -65,6 +65,12 @@ class DesktopSyncTest extends TestCase
         require_once database_path('migrations/2026_10_18_200000_scope_expense_categories_by_branch.php'); (new \ScopeExpenseCategoriesByBranch)->up();
         require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up();
         require_once database_path('migrations/2026_10_06_130000_create_phone_delivery_batches.php'); (new \CreatePhoneDeliveryBatches)->up();
+        require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php'); (new \CreatePosBranchPrintJobs)->up();
+        // The branch's delivery pin and tariff (resturants columns of the live site).
+        Schema::table('resturants', function (Blueprint $t) {
+            $t->decimal('lat', 10, 7)->nullable(); $t->decimal('lng', 10, 7)->nullable();
+            foreach (['km_price', 'default_0_1', 'default_1_2', 'default_2_3'] as $column) $t->decimal($column, 10, 2)->nullable();
+        });
         require_once database_path('migrations/2026_10_06_140000_add_employee_wallet_phone.php'); (new \AddEmployeeWalletPhone)->up();
         require_once database_path('migrations/2026_10_08_190000_add_employee_attendance_rules.php'); (new \AddEmployeeAttendanceRules)->up();
         require_once database_path('migrations/2026_10_18_160000_add_employee_part_time_schedule.php'); (new \AddEmployeePartTimeSchedule)->up();
@@ -336,7 +342,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -648,6 +654,78 @@ class DesktopSyncTest extends TestCase
         $this->assertSame('preparing', DB::table('pos_service_tickets')->where('id', $open['ticket']['id'])->value('status'));
         $this->assertSame('rejected', $this->sync($device, ['operations' => [$cancel('dine', (int) $open['ticket']['id'], $open['ticket']['quote_hash'], ' ')]])
             ->json('results')[0]['status'], 'A reason is required');
+    }
+
+    public function test_devices_receive_the_branch_delivery_tariff_and_its_saved_customers_since_their_copy(): void
+    {
+        DB::table('resturants')->where('id', 100)->update(['lat' => 29.9602, 'lng' => 31.2569, 'km_price' => '10.00', 'default_0_1' => '15.00',
+            'default_1_2' => '20.00', 'default_2_3' => '25.00']);
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $delivery = $this->sync($device, ['want_service' => true])->json('service')[0]['delivery'];
+        $this->assertSame([true, 29.9602, 31.2569, '10.00', '20.00', false], [$delivery['ready'], $delivery['latitude'], $delivery['longitude'],
+            $delivery['km_price'], $delivery['pricing_rates']['default_1_2'], $delivery['pricing_rates']['legacy']]);
+        $customer = fn (string $branch, string $phone, string $name, string $at) => DB::table('branch_customers')->insertGetId(['branch' => $branch, 'name' => $name,
+            'phone' => $phone, 'phone_key' => \App\Services\Dashboard\BranchCustomers::phoneKey($phone), 'address' => 'شارع ٩', 'area' => 'المعادي',
+            'latitude' => 29.97, 'longitude' => 31.25, 'revision' => 1, 'actor_id' => 1, 'created_at' => $at, 'updated_at' => $at]);
+        $first = $customer('f:100', '01011111111', 'منى', '2026-10-30 10:00:00');
+        $customer('f:100', '01022222222', 'سيد', '2026-10-30 11:00:00');
+        $customer('f:101', '01033333333', 'فرع تاني', '2026-10-30 12:00:00');
+        $page = $this->sync($device, ['want_customers' => true])->assertOk()->json('customers');
+        $this->assertSame(['منى', 'سيد'], array_column($page['items'], 'name'), 'Only this device\'s branches');
+        $this->assertSame([false, '2026-10-30 11:00:00|'.($first + 1)], [$page['more'], $page['cursor']]);
+        $this->assertSame([29.97, 31.25], [$page['items'][0]['latitude'], $page['items'][0]['longitude']]);
+        $this->assertSame([], $this->sync($device, ['want_customers' => true, 'customers_cursor' => $page['cursor']])->json('customers.items'));
+        DB::table('branch_customers')->where('id', $first)->update(['address' => 'شارع ١٠', 'revision' => 2, 'updated_at' => '2026-10-30 13:00:00']);
+        $changed = $this->sync($device, ['want_customers' => true, 'customers_cursor' => $page['cursor']])->json('customers.items');
+        $this->assertSame([[$first, 'شارع ١٠', 2]], array_map(fn ($item) => [$item['id'], $item['address'], $item['revision']], $changed));
+    }
+
+    public function test_a_delivery_customer_saved_offline_is_saved_for_the_branch_once(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $save = $this->operation('customer_save', 4, ['name' => 'منى', 'phone' => '01112223334', 'address' => 'شارع النصر', 'area' => 'المعادي',
+            'delivery_notes' => 'الدور التالت', 'latitude' => 29.97, 'longitude' => 31.25]);
+        $result = $this->sync($device, ['operations' => [$save]])->assertOk()->json('results')[0];
+        $this->assertSame(['applied', 1], [$result['status'], $result['customer']['revision']], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertSame($result, $this->sync($device, ['operations' => [$save]])->json('results')[0]);
+        $again = $this->operation('customer_save', 4, ['name' => 'منى أحمد', 'phone' => '+201112223334', 'address' => 'شارع النصر ٥']);
+        $updated = $this->sync($device, ['operations' => [$again]])->json('results')[0];
+        $this->assertSame([$result['customer']['id'], 2], [$updated['customer']['id'], $updated['customer']['revision']], 'The same customer, by number');
+        $row = DB::table('branch_customers')->first();
+        $this->assertSame([1, 'منى أحمد', 'شارع النصر ٥'], [DB::table('branch_customers')->count(), $row->name, $row->address]);
+    }
+
+    public function test_a_delivery_order_placed_offline_moves_to_the_dashboard_with_what_the_device_did(): void
+    {
+        DB::table('resturants')->where('id', 100)->update(['lat' => 29.9602, 'lng' => 31.2569, 'km_price' => '10.00', 'default_0_1' => '15.00',
+            'default_1_2' => '20.00', 'default_2_3' => '25.00']);
+        DB::table('branch_delivery_companies')->insert(['id' => 7, 'branch' => 'f:100', 'name' => 'شركة سريع', 'phone' => '01011112222',
+            'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        // About 1.1 km from the branch: the 1–2 km tier (20.00). 2 × 45.50 + 20.00 = 111.00
+        $order = ['channel' => 'phone', 'items' => [['product_id' => 2, 'quantity' => '2', 'quantity_mode' => 'piece', 'option_id' => '']],
+            'customer_name' => 'منى', 'customer_phone' => '01112223334', 'address' => 'شارع النصر', 'area' => 'المعادي', 'delivery_notes' => '',
+            'notes' => 'حار', 'latitude' => 29.9702, 'longitude' => 31.2569, 'delivery_fee' => '20.00', 'delivery_company_id' => 7, 'kitchen_sent' => true,
+            'kitchen_printed' => true, 'courier_company_id' => 7, 'bill_requested' => true];
+        $open = $this->operation('ticket_open', 4, $order);
+        $result = $this->sync($device, ['operations' => [$open]])->assertOk()->json('results')[0];
+        $this->assertSame(['applied', 'out_for_delivery'], [$result['status'], $result['ticket']['status']], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $row = DB::table('pos_service_tickets')->find($result['ticket']['id']);
+        $quote = json_decode($row->quote_snapshot, true);
+        $this->assertSame(['phone', 2000, '111.00', 'حار'], [$row->channel, (int) $row->delivery_cents, $quote['total'], $row->notes]);
+        $this->assertNotNull($row->bill_issued_at);
+        $this->assertSame(['invoked'], DB::table('pos_branch_print_jobs')->pluck('status')->all(), 'Printed on the device: not printed again');
+        $this->assertSame(1, DB::table('phone_delivery_dispatches')->where('ticket_id', $row->id)->count());
+        $this->assertSame($result, $this->sync($device, ['operations' => [$open]])->json('results')[0], 'Moved once');
+        // The device charged another delivery fee (its tariff copy was older): that fee is kept.
+        $other = $this->operation('ticket_open', 4, ['delivery_fee' => '30.00', 'kitchen_printed' => false, 'courier_company_id' => null,
+            'bill_requested' => false] + $order);
+        $moved = $this->sync($device, ['operations' => [$other]])->json('results')[0];
+        // Like the delivery page: sent to the kitchen on save, still new until it leaves with the courier.
+        $this->assertSame(['applied', 'new'], [$moved['status'], $moved['ticket']['status']], json_encode($moved, JSON_UNESCAPED_UNICODE));
+        $this->assertNotNull(DB::table('pos_service_tickets')->where('id', $moved['ticket']['id'])->value('last_kitchen_id'));
+        $this->assertSame(3000, (int) DB::table('pos_service_tickets')->where('id', $moved['ticket']['id'])->value('delivery_cents'));
+        $this->assertSame(['invoked', 'pending'], DB::table('pos_branch_print_jobs')->orderBy('id')->pluck('status')->all(), 'Not printed there yet: the branch printer prints it');
     }
 
     public function test_a_bill_printed_or_a_kitchen_ticket_sent_offline_reaches_the_dashboard_order_once(): void
