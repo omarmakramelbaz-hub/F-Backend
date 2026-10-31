@@ -88,6 +88,8 @@ foreach ([['morning', '10:00', '18:00'], ['evening', '20:00', '04:00']] as [$shi
         'late_half_hour_cents' => 1000, 'early_half_hour_cents' => 500, 'absence_cents' => 30000, 'revision' => 1, 'actor_id' => 1,
         'created_at' => now(), 'updated_at' => now()]);
 }
-DB::table('branch_employees')->insert(['id' => 50, 'branch' => 'f:100', 'name' => 'سعيد', 'job_title' => 'كاشير', 'shift' => 'صباحي',
-    'hired_on' => '2026-01-01', 'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+foreach ([[50, 'سعيد', 'كاشير'], [51, 'كريم', 'مساعد شيف']] as [$id, $name, $title]) {
+    DB::table('branch_employees')->insert(['id' => $id, 'branch' => 'f:100', 'name' => $name, 'job_title' => $title, 'shift' => 'صباحي',
+        'hired_on' => '2026-01-01', 'active' => true, 'revision' => 1, 'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+}
 echo "seeded\n";

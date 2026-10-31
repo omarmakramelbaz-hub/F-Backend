@@ -27,7 +27,7 @@
             <span v-else-if="item.checked_in_at" class="pill ok">تم الإرسال</span>
           </td>
           <td class="punch">
-            <template v-if="!item.checked_in_at && item.status !== 'preapproved_leave'">
+            <template v-if="!item.checked_in_at && !['preapproved_leave', 'unauthorized_absence'].includes(item.status)">
               <template v-if="item.employee.schedule_type === 'part_time'">
                 <button class="primary small" :disabled="busy" @click="punch(item, 'check_in', 'part_time')">حضور</button>
               </template>

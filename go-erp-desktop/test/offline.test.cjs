@@ -359,6 +359,7 @@ test('the employees page records a check-in and check-out on the device, once, w
   assert.equal((await ask('POST', '/admin/employees/attendance', punch)).json.replayed, true);
   assert.equal(store.pendingOperations().length, 1, 'Never twice');
   assert.equal((await ask('GET', `/admin/branch-operations/recover?branch=f:100&idempotency_key=${key}`)).json.found, true);
+  // A leave or absence needs a server that takes them from devices (see the next test).
   assert.equal((await ask('POST', '/admin/employees/attendance', { ...punch, idempotency_key: '9c8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', action: 'set_status', status: 'unauthorized_absence' })).status, 422);
   // The list seen online shows the device's punch.
   cache.put('u:4', 'data', ORIGIN + '/admin/employees/data?branch=f:100&day=2026-10-30&month=2026-10&page=1', 'application/json',
@@ -368,6 +369,75 @@ test('the employees page records a check-in and check-out on the device, once, w
   const list = (await ask('GET', '/admin/employees/data?branch=f:100&day=2026-10-30&month=2026-10&page=1')).json;
   assert.deepEqual([list.items[0].attendance.check_in, list.items[0].attendance.check_out, list.items[0].attendance.notes], ['10:40:00', '14:40:00', 'جه بدري']);
   assert.equal((await ask('GET', '/admin/employees/data?branch=f:100&day=2026-10-29&month=2026-10&page=1')).status, 503, 'Another day needs the internet');
+});
+
+test('the employees page records the day\'s leave or absence on the device, with the dashboard\'s rules', async () => {
+  const clock = Date.parse('2026-10-30T09:00:00Z'); // 11:00 in Cairo
+  const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
+  store.saveDevice({ id: 'device-1', code: 'A1B', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'المعادي', address: '', phone: '' }]);
+  store.replaceUsers([ACCOUNT], 'h');
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1',
+    // مها checked in on another device this morning.
+    attendance: [{ employee_id: 53, day: '2026-10-30', status: 'morning', checked_in_at: '2026-10-30T07:55:00+00:00', checked_out_at: null }],
+    catalog: { ...MENU, employees: [
+      { id: 50, name: 'سعيد', schedule_type: 'branch', shift: 'صباحي', has_salary: true },
+      { id: 51, name: 'كريم', schedule_type: 'branch', shift: 'مسائي', has_salary: false },
+      { id: 52, name: 'هاني', schedule_type: 'part_time', shift: '', attendance_shift: null, attendance_start: null, attendance_end: null, has_salary: true },
+      { id: 53, name: 'مها', schedule_type: 'branch', shift: 'صباحي', has_salary: true },
+      { id: 54, name: 'نادر', schedule_type: 'branch', shift: 'صباحي', has_salary: false }],
+    attendance_shifts: [{ shift: 'morning', starts_at: '10:00', ends_at: '18:00' }] } }]);
+  const page = new EmployeesOffline({ store, cache: new PageCache(':memory:', { now: () => new Date(clock) }), origin: ORIGIN, now: () => new Date(clock) });
+  const ask = async (method, path, body = null) => {
+    const url = new URL(ORIGIN + path);
+    return page.answer(page.match(method, url.pathname), { user: ACCOUNT, url, body });
+  };
+  let count = 0;
+  const key = () => `${String(++count).padStart(8, '0')}-1d2a-4c3b-9e8f-0a1b2c3d4e5f`;
+  const send = (employee, status, action, extra = {}) => ask('POST', '/admin/employees/attendance', { branch: 'f:100', employee_id: employee,
+    day: '2026-10-30', status, action, notes: '', expected_revision: null, idempotency_key: key(), ...extra });
+  const KINDS = ['attendance', 'attendance_status'];
+
+  // Until the server takes leave and absence from devices, the page says the device needs the internet once.
+  const early = await send(50, 'preapproved_leave', 'set_status');
+  assert.equal(early.status, 422);
+  assert.match(early.json.message, /مرة واحدة/);
+  store.set('server_kinds', KINDS);
+
+  const leave = await send(50, 'preapproved_leave', 'set_status', { notes: 'إجازة متفق عليها' });
+  assert.equal(leave.status, 200, JSON.stringify(leave.json));
+  assert.deepEqual([leave.json.attendance.status, leave.json.attendance.check_in, leave.json.attendance.checked_in_at, leave.json.attendance.notes],
+    ['preapproved_leave', null, null, 'إجازة متفق عليها']);
+  const [operation] = store.pendingOperations(50, KINDS);
+  assert.deepEqual([operation.kind, operation.data.action, operation.data.status, operation.data.day, operation.data.notes],
+    ['attendance_status', 'set_status', 'preapproved_leave', '2026-10-30', 'إجازة متفق عليها']);
+  assert.equal(store.pendingOperations(50, ['attendance']).length, 0, 'An older server never receives it');
+
+  // The dashboard's rules: the day's first status stays; a leave is valued from the salary, an absence from the shift's
+  // rule; a part-time employee needs their hours.
+  assert.equal((await send(50, 'unauthorized_absence', 'set_status')).status, 409);
+  assert.equal((await send(50, 'morning', 'check_in')).json.message, 'الموظف عليه إجازة مسجلة اليوم.');
+  assert.equal((await send(53, 'unauthorized_absence', 'set_status')).status, 409, 'Checked in on another device');
+  assert.equal((await send(54, 'morning', 'set_status')).json.message, 'اختر حالة الإجازة أو الغياب.');
+  assert.equal((await send(54, 'preapproved_leave', 'set_status')).json.message, 'سجّل راتب الموظف لحساب قيمة يوم الإجازة.');
+  assert.equal((await send(51, 'unauthorized_absence', 'set_status')).json.message, 'يجب أن يحدد الأونر مواعيد وخصومات هذا الفرع أولًا.', 'No evening rule here');
+  assert.equal((await send(52, 'unauthorized_absence', 'set_status')).json.message, 'أكمل مواعيد الدوام الجزئي في بيانات الموظف.');
+  assert.equal((await send(50, 'preapproved_leave', 'set_status', { day: '2026-10-29' })).status, 422, 'Only today offline');
+
+  const absent = await send(54, 'unauthorized_absence', 'set_status');
+  assert.equal(absent.status, 200, JSON.stringify(absent.json));
+  assert.equal((await send(54, 'morning', 'check_in')).json.message, 'تم تثبيت غياب نادر اليوم؛ لا يمكن تغييره بعد التسجيل.');
+  assert.equal(store.pendingOperations(50, KINDS).length, 2);
+
+  // The dashboard's answers: the leave recorded; the absence refused (another device recorded a check-in first).
+  const absence = store.pendingOperations(50, KINDS)[1];
+  store.applyResults([{ id: operation.id, status: 'applied', attendance: { employee_id: 50, day: '2026-10-30', status: 'preapproved_leave', checked_in_at: null, checked_out_at: null } },
+    { id: absence.id, status: 'rejected', error: 'تم تثبيت حالة الحضور لهذا اليوم؛ لا يمكن تغييرها بعد التسجيل.' }]);
+  assert.equal(store.journalEntry(operation.id).sync_status, 'synced');
+  const board = store.attendanceBoard('f:100', '2026-10-30');
+  assert.deepEqual([board.find((item) => item.employee.id === 50).status, board.find((item) => item.employee.id === 54).status],
+    ['preapproved_leave', 'unrecorded']);
+  assert.match(board.find((item) => item.employee.id === 54).error, /تم تثبيت/);
+  assert.deepEqual(store.rejectedOperations().map((item) => item.kind), ['غياب أو إجازة']);
 });
 
 // ---- the dine-in page (الصالة) answered from the device while offline ----

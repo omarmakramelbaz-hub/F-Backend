@@ -364,16 +364,19 @@ async function ownerDevice() {
   // The owner: the dashboard's own sign-out link signs out of the app as well.
   await signIn(page, '01000000001', 'root-pass', '.status-bar');
   await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens for the owner');
-  await app.evaluate(({ webContents }) => {
-    const dashboard = webContents.getAllWebContents().find((contents) => contents.getURL().includes('/admin/dashboard'));
-    return dashboard.executeJavaScript("location.href = '/admin/adminLogout'");
-  });
-  try {
-    await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 30000 });
-  } catch (error) {
+  // The sign-out link once the page has settled: a navigation started while the app still opens the dashboard is
+  // replaced by the app's own, as a click would be.
+  await until(async () => {
+    if (await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).isVisible().catch(() => false)) return true;
+    await app.evaluate(({ webContents }) => {
+      const dashboard = webContents.getAllWebContents().find((contents) => contents.getURL().includes('/admin/dashboard'));
+      if (dashboard && !dashboard.isLoading()) dashboard.executeJavaScript("location.href = '/admin/adminLogout'").catch(() => {});
+    });
+    return false;
+  }, "the dashboard's own sign-out signs out of the app", 45000).catch(async (error) => {
     console.log('DEBUG sign-out', JSON.stringify(await dashboardUrls(app)), appLog.slice(-20).join(' | '));
     throw error;
-  }
+  });
 
   // Back in on the device's screens: the owner switches between the two branches' menus.
   await signIn(page, '01000000001', 'root-pass', '.status-bar');
@@ -555,6 +558,19 @@ async function dashboardOffline() {
     throw error;
   }
   await dashboardShot(app, '17-dashboard-attendance-offline');
+  // The day's absence from the same page: كريم did not come. The dashboard applies its absence deduction once the internet is back.
+  const absentee = "document.querySelector('select[aria-label=\"الحضور — كريم\"]')";
+  await until(async () => await inDashboard(app, `!!${absentee}`).catch(() => false), 'كريم is on the employees page');
+  // Chosen again until the page takes it (it ignores a choice while it still finishes the previous save).
+  await until(async () => await inDashboard(app, `(() => { const select = ${absentee};
+    if (select.disabled) return select.options[0].textContent.includes('غياب بدون إذن');
+    select.value = 'unauthorized_absence'; select.dispatchEvent(new Event('change', { bubbles: true })); return false; })()`).catch(() => false),
+    'the offline absence shows on the employees page', 30000).catch(async (error) => {
+    console.log('DEBUG absence', String(await inDashboard(app, `JSON.stringify({ cell: ${absentee}.closest('.op-attendance-cell').innerText,
+      notice: Array.from(document.querySelectorAll('[role=status],[data-op-message],.op-message')).map((x) => x.textContent).join(' | ').slice(0, 400) })`).catch((e) => 'ERR ' + e.message)));
+    throw error;
+  });
+  assert.equal(deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM outbox WHERE kind = 'attendance_status' AND status = 'pending'")[0].c, 1);
   const report = async (label) => {
     console.log(`DEBUG ${label}`, String(await inDashboard(app, `JSON.stringify({ url: location.href,
       message: (document.querySelector('[data-dining-message] span, [data-phone-message] span, [role=status]') || {}).textContent,
@@ -709,6 +725,10 @@ async function dashboardOffline() {
     'the offline expense reaches the dashboard', 40000);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 50 AND check_out IS NOT NULL")[0].c === 1,
     'the offline check-out reaches the dashboard', 40000);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 51 AND status = 'unauthorized_absence'")[0].c === 1,
+    'the offline absence reaches the dashboard', 40000);
+  assert.equal(serverRows('SELECT SUM(amount_cents) AS c FROM branch_employee_entries WHERE employee_id = 51 AND voided_at IS NULL')[0].c, 30000,
+    "with the branch's absence deduction");
   // The dine-in order opened offline arrives as one invoice; the dashboard's own orders are closed once, with what the device did.
   const local = deviceRows(userData, 'goerp.sqlite', "SELECT id FROM outbox WHERE kind = 'sale' AND json_extract(payload, '$.data.channel') = 'dine'")[0];
   await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${local.id}' AND channel = 'dine' AND total_cents = 20500`)[0].c === 1,

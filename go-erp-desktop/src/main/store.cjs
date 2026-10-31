@@ -737,17 +737,18 @@ class Store {
   }
 
   /** The record and the operation that sends it to the dashboard are saved together. */
-  addJournal(actor, branch, kind, amount, data, extra, givenId = null) {
+  /** operationKind: what the server applies, when it differs from the journal's kind (a leave is an attendance entry). */
+  addJournal(actor, branch, kind, amount, data, extra, givenId = null, operationKind = kind) {
     return transaction(this.db, () => {
       const now = this.now();
       const stamp = now.toISOString();
       const id = givenId || this.uuid();
-      const operation = { id, kind, actor_id: actor.id, branch, occurred_at: stamp, data };
+      const operation = { id, kind: operationKind, actor_id: actor.id, branch, occurred_at: stamp, data };
       this.db.prepare(`INSERT INTO journal (id, kind, branch, actor_id, actor_name, business_date, amount_cents, data, created_at, sync_status, seq)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`)
         .run(id, kind, branch, actor.id, actor.name, rules.operatingDay(now), amount, JSON.stringify({ ...data, ...extra }), stamp, this.nextCounter('journal_seq'));
       this.db.prepare(`INSERT INTO outbox (id, kind, journal_id, payload, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)`)
-        .run(id, kind, id, JSON.stringify(operation), stamp, stamp);
+        .run(id, operationKind, id, JSON.stringify(operation), stamp, stamp);
       return this.journalEntry(id);
     });
   }
@@ -809,8 +810,9 @@ class Store {
   }
 
   /**
-   * Same order and shift rules as the dashboard; the server applies its deductions from these times. options.id: the
-   * dashboard page's operation number; saving it again returns the same punch.
+   * Same order and shift rules as the dashboard; the server applies its deductions from these times. A leave or an
+   * absence for the day (set_status) follows the dashboard's rules too: the first status of the day stays. options.id:
+   * the dashboard page's operation number; saving it again returns the same punch.
    */
   recordPunch(actor, branch, values, options = {}) {
     if (options.id) {
@@ -826,14 +828,32 @@ class Store {
     }
     this.requireBranch(actor, branch, 'can_checkout');
     const day = rules.operatingDay(this.now());
-    const action = values.action === 'check_out' ? 'check_out' : 'check_in';
+    const action = ['check_out', 'set_status'].includes(values.action) ? values.action : 'check_in';
     const state = this.attendanceBoard(branch, day).find((item) => item.employee.id === Number(values.employee_id));
     if (!state) throw new Error('الموظف غير موجود في هذا الفرع. اتصل بالإنترنت لتحديث قائمة الموظفين.');
     const partTime = state.employee.schedule_type === 'part_time';
     let status = values.status;
-    if (action === 'check_in') {
+    if (action === 'set_status') {
+      // BranchPayroll::attendance: the shift whose rule prices an absence, and the salary a leave is valued from.
+      const employee = state.employee;
+      if (!['preapproved_leave', 'unauthorized_absence'].includes(status)) throw new Error('اختر حالة الإجازة أو الغياب.');
+      if (state.status !== 'unrecorded') {
+        const error = new Error('تم تثبيت حالة الحضور لهذا اليوم؛ لا يمكن تغييرها بعد التسجيل.');
+        error.status = 409;
+        throw error;
+      }
+      if (partTime && !(employee.attendance_start && employee.attendance_end && ['morning', 'evening'].includes(employee.attendance_shift))) {
+        throw new Error('أكمل مواعيد الدوام الجزئي في بيانات الموظف.');
+      }
+      const shift = partTime ? employee.attendance_shift : ['evening', 'مسائي', 'مساء'].includes(employee.shift) ? 'evening' : 'morning';
+      if (status === 'unauthorized_absence' && !this.attendanceShifts(branch).some((rule) => rule.shift === shift)) {
+        throw new Error('يجب أن يحدد الأونر مواعيد وخصومات هذا الفرع أولًا.');
+      }
+      if (status === 'preapproved_leave' && employee.has_salary === false) throw new Error('سجّل راتب الموظف لحساب قيمة يوم الإجازة.');
+    } else if (action === 'check_in') {
       if (state.checked_in_at) throw new Error('تم تسجيل حضور ' + state.employee.name + ' اليوم بالفعل.');
       if (['preapproved_leave'].includes(state.status)) throw new Error('الموظف عليه إجازة مسجلة اليوم.');
+      if (state.status === 'unauthorized_absence') throw new Error('تم تثبيت غياب ' + state.employee.name + ' اليوم؛ لا يمكن تغييره بعد التسجيل.');
       if (partTime) status = 'part_time';
       else if (!['morning', 'evening'].includes(status)) throw new Error('اختر حضور صباحي أو مسائي.');
     } else {
@@ -844,7 +864,8 @@ class Store {
     const data = { employee_id: state.employee.id, day, status, action };
     const notes = String(values.notes ?? '').trim().slice(0, 1000);
     if (notes) data.notes = notes;
-    return this.addJournal(actor, branch, 'attendance', 0, data, { employee_name: state.employee.name }, options.id);
+    return this.addJournal(actor, branch, 'attendance', 0, data, { employee_name: state.employee.name }, options.id,
+      action === 'set_status' ? 'attendance_status' : 'attendance');
   }
 
   /**
@@ -983,7 +1004,9 @@ class Store {
   }
 
   rejectedOperations() {
-    const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف' };
+    const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف', attendance_status: 'غياب أو إجازة',
+      ticket_settle: 'تحصيل طلب', ticket_open: 'نقل طلب للداشبورد', ticket_action: 'إجراء على طلب', ticket_dispatch: 'تسليم طلب للمندوب',
+      ticket_batch: 'تحصيل طلبات المندوب', ticket_save: 'تعديل طلب', ticket_cancel: 'إلغاء طلب', customer_save: 'بيانات عميل' };
     return this.db.prepare(`SELECT o.id, o.kind, o.last_error, o.updated_at, t.local_number, t.branch, t.totals, j.amount_cents, j.branch AS journal_branch
       FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id LEFT JOIN journal j ON j.id = o.journal_id
       WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()

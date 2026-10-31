@@ -9,6 +9,8 @@ on:
       - 'app/Http/Controllers/Api/DesktopSyncController.php'
       - 'app/Providers/RouteServiceProvider.php'
       - 'app/Services/Dashboard/BranchPayroll.php'
+      - 'app/Services/Dashboard/EmployeeAttendanceRules.php'
+      - 'public/dashboard/js/branch-operations.js'
       - 'resources/views/admin/takeaway/**'
       - 'resources/views/admin/pos_service/**'
       - 'resources/views/admin/phone_orders/batch_receipt.blade.php'

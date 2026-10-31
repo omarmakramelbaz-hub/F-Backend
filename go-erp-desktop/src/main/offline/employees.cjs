@@ -1,8 +1,9 @@
 'use strict';
-// The dashboard's employees page (الموظفون والرواتب) while the internet is down: an employee's check-in or check-out
-// is recorded on the device with the device's (server-corrected) time, under the page's own operation number, and goes
-// to the dashboard with the 30-second sync, where the dashboard applies its late and early-leave rules. The list is the
-// last one seen online with this device's punches shown on it. Other changes on this page need the internet.
+// The dashboard's employees page (الموظفون والرواتب) while the internet is down: an employee's check-in or check-out,
+// or the day's leave or absence, is recorded on the device with the device's (server-corrected) time, under the page's
+// own operation number, and goes to the dashboard with the 30-second sync, where the dashboard applies its late,
+// early-leave, absence and leave rules. The list is the last one seen online with this device's records shown on it.
+// Other changes on this page need the internet.
 const rules = require('../rules.cjs');
 
 const BRANCH = /^(f|gs):[1-9][0-9]{0,18}$/;
@@ -70,8 +71,9 @@ class EmployeesOffline {
     const branch = String(values.branch || '');
     if (!BRANCH.test(branch) || !user.branches.includes(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
     if (!UUID.test(String(values.idempotency_key || ''))) throw new Reply(422, 'رقم العملية غير صالح.');
-    if (!['check_in', 'check_out'].includes(values.action)) {
-      throw new Reply(422, 'من غير نت البرنامج بيسجل الحضور والانصراف بس. الغياب والإجازات بيتسجلوا من الداشبورد لما النت يرجع.');
+    if (!['check_in', 'check_out', 'set_status'].includes(values.action)) throw new Reply(422, 'اختر تسجيل الحضور أو الانصراف.');
+    if (values.action === 'set_status' && !(this.store.get('server_kinds', []) || []).includes('attendance_status')) {
+      throw new Reply(422, 'تسجيل الغياب والإجازة من غير نت يحتاج اتصالًا بالإنترنت مرة واحدة لتحديث بيانات الداشبورد على الجهاز.');
     }
     const today = rules.operatingDay(this.now());
     if (values.day && values.day !== today) throw new Reply(422, 'من غير نت الحضور بيتسجل ليوم التشغيل الحالي بس.');
