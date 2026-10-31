@@ -29,12 +29,12 @@
         
         <label for="mobile"> 
         @lang('main.mobile')
-        @if($user->mobile)
+        @if(((int)$user->id !== 1 && $user->mobile) || ((int)$user->id === 1 && (int)auth('admin')->id() === 1))
             <!-- Button trigger modal -->
             <button type="button" class="btn" data-bs-toggle="modal" data-bs-target="#changeMobile">
              <i class="fa-solid fa-pencil"></i>
              ( 
-             @lang('main.change mobile') 
+             {{ (int)$user->id === 1 && !$user->mobile ? trans('main.add').' '.trans('main.mobile') : trans('main.change mobile') }}
              )
             </button>
         @endif

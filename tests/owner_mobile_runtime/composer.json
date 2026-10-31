@@ -1,0 +1,7 @@
+{
+  "name": "fasakhansta/owner-mobile-test-runtime",
+  "description": "Disposable tests of the real owner mobile service, session guard, controller and Blade views",
+  "require": {"php": "^8.2", "laravel/framework": "^8.83"},
+  "autoload": {"psr-4": {"App\\Services\\": "../../app/Services/"}},
+  "config": {"allow-plugins": false, "sort-packages": true}
+}

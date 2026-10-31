@@ -87,6 +87,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::post('charging/wallet',['App\Http\Controllers\Api\V1\User\WalletController','charging_wallet'])->name('vendor.charging_wallet');
             Route::get('get/charging/wallet',['App\Http\Controllers\Api\V1\User\WalletController','get_wallet'])->name('vendor.get_wallet');
         Route::post('update/phone',['App\Http\Controllers\Api\V1\Auth\AuthController','UpdatePhone'])->name('vendor.UpdatePhone');
+        Route::post('owner/mobile', [\App\Http\Controllers\Dashboard\OwnerMobileController::class, '__invoke'])->middleware('throttle:10,1')->name('owner.mobile.update');
             Route::post('update/orders/{order}/total/price', ['App\Http\Controllers\Api\V1\Vendor\OrderController','updateOrderTotalPrice'])->name('updateOrderTotalPrice');
 
         Route::get('/adminLogout', [HomeController::class, 'adminLogout']);
