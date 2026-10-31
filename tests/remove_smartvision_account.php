@@ -42,6 +42,15 @@ try {
     $db = fixture();
     $others = $db->query('SELECT * FROM users WHERE id<>560 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
     $orders = $db->query('SELECT * FROM orders')->fetchAll(PDO::FETCH_ASSOC);
+    $usersBefore = $db->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    $report = RemoveSmartVisionAccount::inspect($db);
+    check($report['status'] === 'SMARTVISION_LINKS_INSPECTED' && $report['read_only'], 'Read-only report missing');
+    check($report['target']['id'] === 560 && $report['owner_active'], 'Report has wrong account/owner');
+    check($report['linked'] === [] && $report['delete_triggers'] === [], 'Unlinked account report is wrong');
+    check($db->query('SELECT * FROM users ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $usersBefore, 'Inspection changed accounts');
+    check($db->query('SELECT * FROM orders')->fetchAll(PDO::FETCH_ASSOC) === $orders, 'Inspection changed history');
+    check(!str_contains(json_encode($report), 'hash') && !str_contains(json_encode($report), 'password'), 'Inspection exposed credentials');
+    check(!$db->inTransaction() && (int) $db->query('PRAGMA query_only')->fetchColumn() === 0, 'Inspection left connection state changed');
     $result = RemoveSmartVisionAccount::run($db, $directory, 'base64_encode');
     check($result['status'] === 'SMARTVISION_ACCOUNT_DELETED', 'Account not deleted');
     check($result['id'] === 560, 'Wrong account removed');
@@ -54,8 +63,10 @@ try {
     check((fileperms($files[0]) & 0077) === 0, 'Backup is not private');
     check(RemoveSmartVisionAccount::run($db, $directory, 'base64_encode')['status'] === 'SMARTVISION_ACCOUNT_ALREADY_ABSENT', 'Repeat is not safe');
     check(count(glob($directory.'/*.enc')) === 1, 'Repeat created another backup');
+    check(RemoveSmartVisionAccount::inspect($db)['status'] === 'SMARTVISION_ACCOUNT_ALREADY_ABSENT', 'Absent report failed');
 
     $db = fixture(); $db->exec("UPDATE users SET status='declined' WHERE id=1");
+    check(!RemoveSmartVisionAccount::inspect($db)['owner_active'], 'Inspection hid inactive owner');
     deny($db, $directory, 'SMARTVISION_ACTIVE_OWNER_REQUIRED');
     $db = fixture(); $db->exec("UPDATE users SET name='another account' WHERE id=560");
     deny($db, $directory, 'SMARTVISION_IDENTITY_MISMATCH');
@@ -74,13 +85,28 @@ try {
         $db = fixture();
         $db->exec('CREATE TABLE linked(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id) ON DELETE '.$action.')');
         $db->exec('INSERT INTO linked VALUES(5,560)');
+        $report = RemoveSmartVisionAccount::inspect($db);
+        check($report['foreign_keys_checked'] === 1 && count($report['linked']) === 1, 'Reference count is wrong');
+        check($report['linked'][0] === ['table' => 'linked', 'columns' => [['user_id', 'id']], 'rows' => 1, 'on_delete' => $action], 'Reference details are wrong');
+        check((int) $db->query('SELECT COUNT(*) FROM users')->fetchColumn() === 3
+            && (int) $db->query('SELECT user_id FROM linked')->fetchColumn() === 560, 'Inspection changed linked records');
         deny($db, $directory, 'SMARTVISION_LINKED_ROWS_REQUIRE_REVIEW');
         check($db->query('SELECT user_id FROM linked')->fetchColumn() == 560, $action.' modified linked history');
     }
     $db = fixture();
     $db->exec("CREATE TRIGGER destructive AFTER DELETE ON users BEGIN DELETE FROM orders; END");
+    check(RemoveSmartVisionAccount::inspect($db)['delete_triggers'] === ['destructive'], 'Inspection missed trigger');
     deny($db, $directory, 'SMARTVISION_DELETE_TRIGGER_REQUIRES_REVIEW');
     check($db->query('SELECT COUNT(*) FROM orders')->fetchColumn() == 1, 'Trigger deleted history');
+
+    $db = fixture();
+    $db->exec('CREATE TABLE linked(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id) ON DELETE CASCADE)');
+    $db->exec('INSERT INTO linked VALUES(5,1)');
+    $db->exec('PRAGMA query_only=ON');
+    $report = RemoveSmartVisionAccount::inspect($db);
+    check($report['foreign_keys_checked'] === 1 && $report['linked'] === [], 'Unrelated owner records were included');
+    check((int) $db->query('PRAGMA query_only')->fetchColumn() === 1, 'Original read-only state was lost');
+    $db->exec('PRAGMA query_only=OFF');
 
     $db = fixture();
     $db->exec("UPDATE users SET email=' ADMIN@SMARTVISION.COM ',name=' SmartVision ' WHERE id=560");
