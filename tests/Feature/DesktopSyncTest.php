@@ -381,6 +381,43 @@ class DesktopSyncTest extends TestCase
         }
     }
 
+    public function test_once_turned_on_the_server_records_an_unexcused_absence_after_the_deadline(): void
+    {
+        // What deployment/activate_employee_auto_absence_root.py sets up: the first day, and the lock the command takes.
+        $this->attendanceFixture();
+        $folder = sys_get_temp_dir().'/go-erp-auto-absence-'.Str::random(8);
+        mkdir($folder, 0750);
+        file_put_contents($folder.'/activation.json', json_encode(['starts_on' => '2026-11-02']));
+        touch($folder.'/install.lock');
+        chmod($folder.'/install.lock', 0600);
+        $this->beforeApplicationDestroyed(function () use ($folder) {
+            @unlink($folder.'/activation.json');
+            @unlink($folder.'/install.lock');
+            @rmdir($folder);
+        });
+        $absence = new \App\Services\Dashboard\EmployeeAutomaticAbsence(app(\App\Services\Dashboard\BranchOperations::class), $folder.'/activation.json');
+        $this->assertTrue($absence->ready());
+        // كريم recorded his attendance that day; سعيد and هاني recorded nothing.
+        DB::table('branch_employee_days')->insert(['branch' => 'f:100', 'employee_id' => 51, 'day' => '2026-11-02', 'status' => 'morning',
+            'check_in' => '10:05', 'checked_in_at' => '2026-11-02 08:05:00', 'attendance_rule_snapshot' => '{}', 'notes' => '', 'revision' => 1,
+            'actor_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        Carbon::setTestNow(Carbon::parse('2026-11-02 21:55:00', 'Africa/Cairo'));
+        $this->assertSame(0, $absence->run()['recorded'], 'Nothing before 22:00');
+        Carbon::setTestNow(Carbon::parse('2026-11-02 22:05:00', 'Africa/Cairo'));
+        $counts = $absence->run();
+        $this->assertSame([2, 0], [$counts['recorded'], $counts['errors']], json_encode($counts));
+        $days = DB::table('branch_employee_days')->where('day', '2026-11-02')->orderBy('employee_id')->pluck('status', 'employee_id')->all();
+        $this->assertSame([50 => 'unauthorized_absence', 51 => 'morning', 52 => 'unauthorized_absence'], $days);
+        $this->assertSame([30000, 0, 30000], [$this->deductions(50), $this->deductions(51), $this->deductions(52)], 'The branch\'s absence deduction');
+        $this->assertSame('غياب بدون إذن', DB::table('branch_employee_entries')->where('employee_id', 50)->value('reason'));
+        // Once only, and never for a day before the first day (2026-11-01 here).
+        $this->assertSame(0, $absence->run()['recorded']);
+        $this->assertSame(0, DB::table('branch_employee_days')->where('day', '2026-11-01')->count());
+        // Turned off (no activation file): nothing runs.
+        unlink($folder.'/activation.json');
+        $this->assertFalse($absence->ready());
+    }
+
     private function automaticAbsence(int $employee, bool $automatic = true): void
     {
         DB::table('branch_employee_days')->insert(['branch' => 'f:100', 'employee_id' => $employee, 'day' => '2026-10-30', 'status' => 'unauthorized_absence',
