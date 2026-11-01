@@ -35,6 +35,15 @@ real HTTPS with certificate validation and a random static document-root proof
 before publishing a login link. DNS/AutoSSL delays retain a blocked pending
 dashboard. There is no central-database or shared-browser-origin fallback.
 
+Installation first reads the cPanel subdomain inventory without a regex filter,
+before any application or database changes. Its CLI adapter handles API2 JSON
+envelopes and numeric/string success flags, while rejecting any explicit failure
+or unacknowledged mutation. Interrupted domain creation recognizes cPanel's `dir`
+field only when it matches the recorded document root. A failed call reports
+bounded, redacted API error fields, its operation and installation phase; raw CLI
+output and domain inventories are not printed. Permission and license failures
+are never treated as success, and failed mutations are not blindly retried.
+
 Primary edits, suspension and deletion write an immediate revision marker. An
 older worker cannot clear a future marker even before the primary transaction
 commits. SQL acknowledgement is conditional on revision. Interrupted publication

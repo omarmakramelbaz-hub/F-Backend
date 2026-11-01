@@ -218,7 +218,12 @@ def main():
     setup.chmod(0o644)
     initial = json.loads(run(['runuser', '-u', 'fasakha', '--', module.PHP, str(setup), '--inspect']))
     worker = module.Worker(initial)
-    worker.cpanel('listsubdomains', {'regex': '^go-[0-9a-f]{16}\\.' + re.escape(worker.domain) + '$'})
+    try:
+        worker.cpanel('listsubdomains', {})
+    except module.CpanelFailure as error:
+        error.cpanel_diagnostics['install_phase']='read_only_preflight'
+        error.cpanel_diagnostics['application_files_changed']=False
+        raise
     if worker.sql('SELECT CURRENT_USER()').strip().split('@')[0] != 'root':
         fail('GO_OWNER_MYSQL_ROOT_REQUIRED')
     socket_path = worker.sql('SELECT @@socket').strip()
@@ -320,6 +325,10 @@ def main():
             subprocess.run(['systemctl', 'start', 'go-owner-dashboards.timer'], capture_output=True)
         for command in ['route:clear', 'view:clear']:
             subprocess.run(['runuser', '-u', 'fasakha', '--', module.PHP, str(project / 'artisan'), command], capture_output=True)
+        error=sys.exc_info()[1]
+        if hasattr(error,'cpanel_diagnostics'):
+            error.cpanel_diagnostics['install_phase']='fixture_provisioning'
+            error.cpanel_diagnostics['application_source_restored']=True
         raise
 
 
@@ -328,7 +337,9 @@ if __name__ == '__main__':
         main()
     except Exception as error:
         code = str(error)
-        if isinstance(error,InstallFailure) and error.path is not None:
+        if isinstance(getattr(error,'cpanel_diagnostics',None),dict):
+            print(json.dumps({'status':'GO_OWNER_CPANEL_SUBDOMAIN_FAILED','cpanel':error.cpanel_diagnostics},ensure_ascii=False,indent=2),file=sys.stderr)
+        elif isinstance(error,InstallFailure) and error.path is not None:
             print(json.dumps({'status':code,'file':error.path}),file=sys.stderr)
         else:
             print(code if re.fullmatch(r'GO_OWNER_[A-Z_]+', code) else 'GO_OWNER_INSTALL_FAILED', file=sys.stderr)

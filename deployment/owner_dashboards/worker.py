@@ -36,6 +36,162 @@ class PendingHost(Failure):
     pass
 
 
+class CpanelFailure(Failure):
+    def __init__(self, diagnostics):
+        super().__init__('GO_OWNER_CPANEL_SUBDOMAIN_FAILED')
+        self.cpanel_diagnostics = diagnostics
+
+
+def api_success(value):
+    # CLI/API releases differ in whether their Boolean status is a JSON number or string.
+    return value is True or type(value) is int and value == 1 or type(value) is str and value == '1'
+
+
+def cpanel_document(output):
+    """Accept one JSON response, including a CLI warning before it; never infer success from text."""
+    if not isinstance(output, str):
+        raise ValueError('Missing cPanel output')
+    text = output.lstrip('\ufeff \t\r\n')
+    try:
+        value = json.loads(text)
+        if isinstance(value, dict):
+            return value
+    except (ValueError, TypeError):
+        pass
+    # Some installations print a startup warning before the JSON document.
+    # Inspect only complete documents beginning on a line and require a recognized API envelope.
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r'(?m)^\s*\{', text):
+        try:
+            value, length = decoder.raw_decode(text[match.end()-1:])
+        except ValueError:
+            continue
+        if isinstance(value, dict) and ('cpanelresult' in value or 'event' in value and 'data' in value):
+            if text[match.end()-1+length:].strip():
+                raise ValueError('Multiple or trailing CLI responses')
+            return value
+    raise ValueError('Unrecognized cPanel JSON')
+
+
+def cpanel_result(document, function):
+    """Normalize documented API2 envelopes, validating every available success indicator."""
+    result = document
+    envelopes = [result]
+    if 'metadata' in result and 'data' in result and 'cpanelresult' not in result:
+        if not isinstance(result['metadata'], dict) or not api_success(result['metadata'].get('result')):
+            raise ValueError('WHM rejected the call')
+        envelopes.append(result['metadata'])
+        result = result['data']
+        envelopes.append(result)
+    if isinstance(result, dict) and 'cpanelresult' in result:
+        result = result['cpanelresult']
+        envelopes.append(result)
+    if not isinstance(result, dict):
+        raise ValueError('Missing API result')
+    if isinstance(result.get('result'), dict) and 'event' not in result and 'data' not in result:
+        result = result['result']
+        envelopes.append(result)
+    for envelope in envelopes:
+        if not isinstance(envelope, dict):
+            raise ValueError('Missing API envelope')
+        if envelope.get('module', 'SubDomain') != 'SubDomain' or envelope.get('func', function) != function:
+            raise ValueError('Unexpected cPanel operation')
+        if envelope.get('error') or envelope.get('errors'):
+            raise ValueError('API reported errors')
+        for key in ['status', 'result']:
+            if key in envelope and not isinstance(envelope[key], dict) and not api_success(envelope[key]):
+                raise ValueError('API reported failure')
+        if 'event' in envelope and (not isinstance(envelope['event'], dict)
+                                   or not api_success(envelope['event'].get('result'))
+                                   or envelope['event'].get('error') or envelope['event'].get('errors')):
+            raise ValueError('API event reported failure')
+    if isinstance(result.get('event'), dict):
+        success = api_success(result['event'].get('result'))
+    elif 'status' in result:
+        success = api_success(result['status'])
+    else:
+        success = api_success(result.get('result'))
+    if not success:
+        raise ValueError('API rejected the call')
+    if 'data' not in result:
+        raise ValueError('Missing result data')
+    data = result['data']
+    if data is None and function == 'listsubdomains':
+        data = []
+    if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+        raise ValueError('Missing result data')
+    if any(any(key in row and not api_success(row[key]) for key in ['result', 'status'])
+           or row.get('error') or row.get('errors') for row in data):
+        raise ValueError('API data reported failure')
+    if function != 'listsubdomains' and (not data or any(not api_success(row.get('result')) for row in data)):
+        raise ValueError('Mutation not acknowledged')
+    return data
+
+
+def cpanel_diagnostics(done, document, function):
+    """Only status and bounded error fields leave the CLI; account data and credentials never do."""
+    result = document if isinstance(document, dict) else {}
+    containers = [result]
+    if isinstance(result.get('metadata'), dict):
+        containers.append(result['metadata'])
+    if isinstance(result.get('data'), dict) and isinstance(result.get('metadata'), dict):
+        result = result['data']
+        containers.append(result)
+    if isinstance(result.get('cpanelresult'), dict):
+        result = result['cpanelresult']
+        containers.append(result)
+    if isinstance(result.get('result'), dict) and 'event' not in result and 'data' not in result:
+        result = result['result']
+        containers.append(result)
+    reasons = []
+    for container in containers + [result.get('event')]:
+        if not isinstance(container, dict):
+            continue
+        for key in ['error', 'errors', 'reason']:
+            value = container.get(key)
+            if isinstance(value, str): reasons.append(value)
+            elif isinstance(value, list): reasons.extend(v for v in value if isinstance(v, str))
+    if isinstance(result.get('data'), list):
+        for row in result['data']:
+            if isinstance(row, dict) and (row.get('error') or row.get('errors') or 'result' in row and not api_success(row['result'])):
+                for key in ['reason', 'error', 'errors']:
+                    value = row.get(key)
+                    if isinstance(value, str): reasons.append(value)
+                    elif isinstance(value, list): reasons.extend(v for v in value if isinstance(v, str))
+    redacted = []
+    for reason in reasons[:3]:
+        reason = re.sub(r'(?i)(password|passwd|token|secret|api[_-]?key|authorization|cookie)\s*[:=]\s*(?:"[^"]*"|\x27[^\x27]*\x27|\S+)', r'\1=[redacted]', reason)
+        reason = re.sub(r'(?i)\b(?:basic|bearer)\s+[A-Za-z0-9+/=._-]+', '[redacted]', reason)
+        reason = re.sub(r'(?i)cpsess[a-z0-9]+', '[session redacted]', reason)
+        reason = re.sub(r'([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+:[^\s/@]+@', r'\1[redacted]@', reason)
+        reason = re.sub(r'\b[A-Za-z0-9_+/=.-]{40,}\b', '[long value redacted]', reason)
+        reason = re.sub(r'[\x00-\x1f\x7f]', ' ', reason)[:600]
+        if reason and reason not in redacted: redacted.append(reason)
+    combined = '\n'.join(v for v in [done.stdout, done.stderr] if isinstance(v, str)).lower()
+    category = next((name for name, words in [
+        ('license', ['license expired', 'license is not valid', 'licence', 'license file', 'license is invalid']),
+        ('permission', ['permission denied', 'access denied', 'not authorized', 'not permitted']),
+        ('account', ['user does not exist', 'unknown user', 'invalid user', 'account is suspended']),
+        ('module', ['unable to find module', 'could not find', 'unknown function', 'not implemented']),
+        ('cli_arguments', ['unknown option', 'unrecognized option', 'invalid option']),
+    ] if any(word in combined for word in words)), 'api_rejected' if document else 'invalid_json')
+    event = result.get('event') if isinstance(result.get('event'), dict) else {}
+    indicator = event.get('result', result.get('status', result.get('result')))
+    if not redacted:
+        redacted = [{'license':'cPanel reported a license problem.', 'permission':'cPanel denied the request.',
+                     'account':'cPanel could not load the requested account.', 'module':'cPanel could not load its API module or function.',
+                     'cli_arguments':'cPanel CLI rejected its command arguments.',
+                     'invalid_json':'cPanel CLI did not return a recognized JSON response.'}.get(category,'cPanel did not acknowledge the API request.')]
+    def safe_label(value):
+        return value if isinstance(value,str) and re.fullmatch(r'[a-zA-Z0-9_:.-]{1,80}',value) else None
+    return {'operation': 'SubDomain::' + function, 'read_only': function == 'listsubdomains',
+            'exit_code': done.returncode, 'json_received': isinstance(document, dict),
+            'api_module':safe_label(result.get('module')),'api_function':safe_label(result.get('func')),
+            'response_keys': sorted(k for k in result if k in {'apiversion','func','module','event','status','result','data','error','errors'}),
+            'api_status': indicator if type(indicator) in {int, str, bool} and str(indicator) in {'0','1','True','False'} else None,
+            'category': category, 'reasons': redacted}
+
+
 def identifier(value):
     if not isinstance(value, str) or not re.fullmatch(r'[a-zA-Z0-9_]+', value):
         raise Failure('GO_OWNER_SQL_IDENTIFIER')
@@ -345,19 +501,21 @@ Require all granted
         arguments = [binary, '--user=fasakha', '--output=json', 'SubDomain', function]
         arguments += [key + '=' + quote(value, safe='') for key, value in parameters.items()]
         done = subprocess.run(arguments, capture_output=True, text=True, timeout=90)
+        document = None
         try:
-            result = json.loads(done.stdout)['cpanelresult']
-            if done.returncode or result.get('event', {}).get('result') != 1 or (function != 'listsubdomains' and any(item.get('result') != 1 for item in result.get('data', []))):
+            document = cpanel_document(done.stdout)
+            if done.returncode:
                 raise ValueError()
-            return result.get('data', [])
+            return cpanel_result(document, function)
         except (ValueError, TypeError, KeyError):
-            raise Failure('GO_OWNER_CPANEL_SUBDOMAIN_FAILED') from None
+            raise CpanelFailure(cpanel_diagnostics(done, document, function)) from None
 
     def prepare_host(self, row, record, runtime, record_path):
         if not record.get('domain_created'):
             existing = self.cpanel('listsubdomains', {'regex': '^' + re.escape(runtime['host']) + '$'})
             if existing:
-                if not record.get('domain_creation_started') or len(existing) != 1 or existing[0].get('documentroot') != runtime['public']:
+                docroot = (existing[0].get('documentroot') or existing[0].get('dir')) if len(existing) == 1 else None
+                if not record.get('domain_creation_started') or not isinstance(docroot, str) or str(Path(docroot)) != runtime['public']:
                     raise Failure('GO_OWNER_UNOWNED_SUBDOMAIN')
                 record['domain_created'] = True
                 atomic(record_path, json.dumps(record))
