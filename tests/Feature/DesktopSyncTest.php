@@ -1017,6 +1017,91 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(0, DB::table('branch_shift_closings')->count());
     }
 
+    public function test_the_trial_operations_are_cleared_with_a_backup_that_puts_them_back(): void
+    {
+        // A trial period: sales before and after a shift closing, an expense, goods received; plus an app order (kept).
+        $this->shiftTables();
+        require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php'); (new \CreateBranchInventoryRecipes)->up();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $snapshot = $this->sync($device, ['want_catalogs' => true])->json()['branches'][0]['snapshot_id'];
+        $onion = (int) DB::table('stock_ingredients')->where('name', 'بصل')->value('id');
+        $operations = [$this->sale($snapshot, ['occurred_at' => '2026-10-30T09:00:00Z']),
+            $this->operation('shift_close', 1, ['previous_closing_id' => 0, 'counted_cash' => '271.00'], ['occurred_at' => '2026-10-30T10:00:00Z']),
+            $this->sale($snapshot, ['occurred_at' => '2026-10-30T10:30:00Z', 'data' => ['local_number' => 'D1-0002']]),
+            $this->operation('expense', 1, ['category' => 'packaging', 'amount' => '75', 'approve' => true]),
+            $this->operation('stock_receive', 4, ['ingredient_id' => $onion, 'unit' => 'kg', 'quantity' => '12.5'])];
+        foreach ($operations as $operation) $this->assertSame('applied', $this->sync($device, ['operations' => [$operation]])->json()['results'][0]['status']);
+        DB::table('orders')->insert(['resturant_id' => 100, 'status' => 'completed', 'total_price' => 50, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('branch_order_sequences')->insert([['branch' => 'f:100', 'channel' => 'takeaway', 'shift_sequence' => 2, 'last_number' => 1],
+            ['branch' => 'f:100', 'channel' => 'app', 'shift_sequence' => 2, 'last_number' => 7]]);
+        $table = DB::table('pos_service_tables')->insertGetId(['branch' => 'f:100', 'name' => 'ترابيزة 1', 'capacity' => 4, 'active' => true, 'revision' => 1,
+            'created_at' => now(), 'updated_at' => now()]);
+        $ticket = DB::table('pos_service_tickets')->insertGetId(['branch' => 'f:100', 'channel' => 'dine', 'actor_id' => 4, 'table_id' => $table,
+            'status' => 'open', 'payment_status' => 'unpaid', 'revision' => 1, 'business_date' => '2026-10-30', 'cart_snapshot' => '{}', 'quote_snapshot' => '{}',
+            'created_at' => now(), 'updated_at' => now()]);
+        DB::table('pos_service_tables')->where('id', $table)->update(['active_ticket_id' => $ticket]);
+        $drawer = (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents');
+        $this->assertGreaterThan(0, $drawer);
+        $stock = (int) DB::table('branch_inventory')->where('ingredient_id', $onion)->value('quantity_units');
+        $this->assertGreaterThan(0, $stock);
+        $count = fn (string $table) => DB::table($table)->count();
+        $before = array_map($count, ['takeaway_orders', 'takeaway_till_entries', 'branch_shift_closings', 'branch_expenses', 'branch_inventory_movements', 'pos_service_tickets']);
+
+        require_once base_path('deployment/reset_branch_operations.php');
+        $reset = new \GoErpBranchReset();
+        $plan = $reset->plan();
+        $this->assertSame(2, $plan['cleared']['takeaway_orders']['rows']);
+        $this->assertSame(['f:100' => 2], $plan['cleared']['takeaway_orders']['branches']);
+        $this->assertSame('75.00', $plan['cleared']['branch_expenses']['total']);
+        $this->assertSame(1, $plan['zeroed']['takeaway_tills']['to_change']);
+        $this->assertSame(1, $plan['order_numbers_restarting'], 'The cashier\'s numbering only; the app keeps counting');
+        $this->assertSame(1, $plan['kept']['customer app orders']);
+        $this->assertSame($before, array_map($count, ['takeaway_orders', 'takeaway_till_entries', 'branch_shift_closings', 'branch_expenses', 'branch_inventory_movements', 'pos_service_tickets']), 'The plan changes nothing');
+
+        // Anything recorded between the backup and the clearing stops it, with nothing changed.
+        $backup = json_decode(json_encode($reset->export()), true);
+        $this->assertSame('applied', $this->sync($device, ['operations' => [$this->sale($snapshot, ['data' => ['local_number' => 'D1-0003']])]])->json()['results'][0]['status']);
+        try {
+            $reset->apply($backup['fingerprint']);
+            $this->fail('A sale after the backup must stop the clearing');
+        } catch (\GoErpResetStop $stop) {
+            $this->assertSame('CHANGED_SINCE_BACKUP', $stop->getMessage());
+        }
+        $this->assertSame(3, $count('takeaway_orders'));
+
+        $backup = json_decode(json_encode($reset->export()), true);
+        $done = $reset->apply($backup['fingerprint']);
+        $this->assertSame(3, $done['deleted']['takeaway_orders']);
+        foreach (['takeaway_orders', 'takeaway_order_items', 'takeaway_till_entries', 'branch_shift_closings', 'branch_shift_sources', 'branch_shift_print_jobs',
+            'branch_expenses', 'branch_expense_commands', 'branch_inventory_movements', 'pos_service_tickets'] as $cleared) {
+            $this->assertSame(0, $count($cleared), $cleared.' is cleared');
+        }
+        $this->assertSame(0, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'), 'The drawer starts at zero');
+        $this->assertSame(0, (int) DB::table('branch_inventory')->where('ingredient_id', $onion)->value('quantity_units'), 'The stock starts at zero');
+        $this->assertNull(DB::table('pos_service_tables')->where('id', $table)->value('active_ticket_id'), 'Every table is free');
+        $this->assertSame(['app'], DB::table('branch_order_sequences')->pluck('channel')->all());
+        $this->assertSame(1, $count('orders'), 'The customer app\'s orders stay');
+        $this->assertSame(1, $count('users') > 0 ? 1 : 0);
+        // The device learns that the shift starts again from the beginning of the day.
+        $this->assertSame(0, $this->sync($device, ['want_service' => true])->json('service')[0]['shift']['previous_closing_id']);
+
+        // The backup puts everything back, exactly, while nothing new was recorded.
+        $back = $reset->restore($backup);
+        $this->assertSame(3, $back['restored']['takeaway_orders']);
+        $this->assertSame([3, $before[1] + 1, 1, 1, 1, 1], array_map($count, ['takeaway_orders', 'takeaway_till_entries', 'branch_shift_closings', 'branch_expenses', 'branch_inventory_movements', 'pos_service_tickets']));
+        $this->assertGreaterThan($drawer, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'), 'With the third sale');
+        $this->assertSame($stock, (int) DB::table('branch_inventory')->where('ingredient_id', $onion)->value('quantity_units'));
+        $this->assertSame($ticket, (int) DB::table('pos_service_tables')->where('id', $table)->value('active_ticket_id'));
+        $this->assertSame(['app', 'takeaway'], DB::table('branch_order_sequences')->orderBy('channel')->pluck('channel')->all());
+        // Once real work has recorded anything, a backup is not put back over it.
+        try {
+            $reset->restore($backup);
+            $this->fail('A restore over recorded operations must stop');
+        } catch (\GoErpResetStop $stop) {
+            $this->assertStringStartsWith('RECORDED_SINCE_RESET', $stop->getMessage());
+        }
+    }
+
     public function test_goods_received_offline_reach_the_stock_once_dated_when_the_device_recorded_them(): void
     {
         require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php'); (new \CreateBranchInventoryRecipes)->up();
