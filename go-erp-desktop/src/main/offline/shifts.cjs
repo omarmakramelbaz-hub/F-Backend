@@ -6,6 +6,7 @@
 // closed here. The page shows the shift as last synced, with this device's open orders and unreviewed expenses.
 const money = require('../money.cjs');
 const rules = require('../rules.cjs');
+const { branchProblem } = require('./access.cjs');
 const { LOCAL_EXPENSE_BASE } = require('./expenses.cjs');
 
 // Closings saved on this device get numbers far above the dashboard's own, so both never mix.
@@ -129,7 +130,8 @@ class ShiftsOffline {
 
   /** BranchShiftClosing::data for one branch: the synced shift, this device's open orders and unreviewed expenses. */
   state(user, branch, url) {
-    if (!BRANCH.test(branch) || !user.branches.includes(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    if (!BRANCH.test(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
     if (!branch.startsWith('f:')) throw new Reply(404, 'الفرع غير موجود.');
     const copy = this.store.service(branch);
     const saved = this.saved(user, branch, url);
@@ -183,7 +185,8 @@ class ShiftsOffline {
     const user = this.user({ user: who });
     const values = body && typeof body === 'object' ? body : {};
     const branch = String(values.branch || '');
-    if (!BRANCH.test(branch) || !user.branches.includes(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    if (!BRANCH.test(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
     const key = String(values.idempotency_key || '');
     if (!UUID.test(key)) throw new Reply(422, 'رقم العملية غير صالح.');
     const done = this.store.journalEntry(key);

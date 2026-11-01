@@ -7,6 +7,8 @@ $values = [
     'APP_URL' => 'http://127.0.0.1', 'DB_CONNECTION' => 'sqlite', 'DB_DATABASE' => $work.'/server.sqlite',
     'CACHE_DRIVER' => 'array', 'SESSION_DRIVER' => 'file', 'QUEUE_CONNECTION' => 'sync', 'BROADCAST_DRIVER' => 'log',
     'LOG_CHANNEL' => 'single', 'MAIL_MAILER' => 'log', 'DEBUGBAR_ENABLED' => 'false',
+    // As on the live server: the dashboard's «برنامج الكمبيوتر» page (where the app adds this device's part).
+    'DESKTOP_DASHBOARD_ENABLED' => 'true',
 ];
 foreach ($values as $key => $value) { putenv("$key=$value"); $_ENV[$key] = $value; $_SERVER[$key] = $value; }
 define('GOERP_ROOT', dirname(__DIR__, 3));

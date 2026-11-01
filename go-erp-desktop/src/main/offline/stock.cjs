@@ -1,4 +1,5 @@
 'use strict';
+const { branchProblem } = require('./access.cjs');
 // The dashboard's "إضافة بضاعة" page (branch stock) while the internet is down: goods received are saved in the
 // device's journal under the page's own operation number and go to the dashboard with the 30-second sync, where the
 // dashboard's own receipt applies (BranchInventory::receive). The balances and the latest movements are the last copy
@@ -154,7 +155,8 @@ class StockOffline {
     const user = this.user({ user: who });
     const values = body && typeof body === 'object' ? body : {};
     const branch = String(values.branch || '');
-    if (!BRANCH.test(branch) || !user.branches.includes(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    if (!BRANCH.test(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
     const key = String(values.idempotency_key || '');
     if (!UUID.test(key)) throw new Reply(422, 'رقم العملية غير صالح.');
     const done = this.store.journalEntry(key);
@@ -190,7 +192,8 @@ class StockOffline {
   data({ user: who, url }) {
     const user = this.user({ user: who });
     const branch = url.searchParams.get('branch') || '';
-    if (branch !== 'all' && (!BRANCH.test(branch) || !user.branches.includes(branch))) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    if (branch !== 'all' && !BRANCH.test(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    if (branch !== 'all') { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
     if (branch === 'all') {
       // Every branch at once is the dashboard's own view; offline the last copy is shown as it was.
       const copy = this.cache.get('u:' + user.id, 'data', url.href);

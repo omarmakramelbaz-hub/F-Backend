@@ -436,3 +436,36 @@ test('setting the device up again waits for unsent operations and open orders, t
   assert.equal(store.customersCursor(), null);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS c FROM tickets WHERE status = 'paid'").get().c, 1, 'Invoices stay on the device');
 });
+
+test('the orders holding back a new setup are listed with where they are, and the person can cancel them', () => {
+  const { store } = fixture();
+  const cashier = store.user(4);
+  // One left on the app's stand-in cashier, one opened on the dine-in page offline whose move the dashboard refused.
+  const held = store.saveTicket(cashier, { branch: 'f:100', channel: 'takeaway', data: {
+    items: [{ product_id: 2, quantity_mode: 'piece', quantity: '2' }], discount: '0.00' } });
+  store.set('server_kinds', ['ticket_open']);
+  store.createPageTicket(cashier, { id: 'page-1', branch: 'f:100', channel: 'dine', label: 'ترابيزة 3', data: { source: 'dashboard', kind: 'local',
+    revision: 1, status: 'open', table: { id: 3, name: 'ترابيزة 3', capacity: 4 }, waiter_name: '', guest_count: 2, items: [{ product_id: 1, option_id: '', quantity: '1' }],
+    discount: '0.00', discount_reason: '', priced: { items: [{ name: 'بلطي', option_label: 'الأساسي', quantity: '1' }], total_cents: 15360 }, kitchen: null, bill: null } });
+  assert.equal(store.queueTicketMoves(), 1);
+  store.applyResults([{ id: 'page-1', status: 'rejected', error: 'الطاولة مشغولة.' }]);
+  assert.deepEqual(store.releaseBlockers(), { pending: 0, open: 2 });
+  const [first, second] = store.openOrders();
+  assert.deepEqual({ ...first, created_at: undefined }, { id: held.id, branch: 'f:100', branch_name: 'فرع المعادي', channel: 'takeaway', label: '',
+    created_at: undefined, actor_name: 'كاشير', items: ['أرز (الأساسي) × 2'], total: '57.00', where: 'الكاشير البديل في البرنامج', problem: '' });
+  assert.equal(second.label, 'ترابيزة 3');
+  assert.deepEqual(second.items, ['بلطي (الأساسي) × 1']);
+  assert.equal(second.total, '153.60');
+  assert.equal(second.where, 'صفحة طلبات الصالة (اتفتح من غير نت)');
+  assert.equal(second.problem, 'الداشبورد رفض نقله: الطاولة مشغولة.');
+  // Only an account of the order's branch cancels it.
+  assert.throws(() => store.dropOpenOrder({ ...cashier, branches: ['f:101'] }, held.id), /الفرع غير متاح/);
+  assert.equal(store.dropOpenOrder(cashier, held.id), true);
+  assert.equal(store.ticket(held.id), null, 'A held order of the stand-in cashier is deleted, as its own delete button does');
+  assert.equal(store.dropOpenOrder(cashier, 'page-1'), true);
+  assert.equal(store.ticket('page-1').status, 'cancelled', 'An order of the dashboard page is kept, cancelled, and never sent');
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS c FROM outbox WHERE id = 'page-1'").get().c, 0, 'Its refused move is dropped');
+  assert.equal(store.dropOpenOrder(cashier, 'page-1'), false);
+  assert.deepEqual(store.releaseBlockers(), { pending: 0, open: 0 });
+  assert.deepEqual(store.openOrders(), []);
+});

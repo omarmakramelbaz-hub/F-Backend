@@ -25,14 +25,14 @@ function missingSpaPage(user, links) {
 <nav>${nav}</nav></div></section></div></div></body></html>`;
 }
 
-/** A whole window load with nothing saved for this account yet: offers the device's own screens. */
+/** A whole window load with nothing saved for this account yet: offers the app's stand-in cashier. */
 function nothingSavedPage() {
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>GO ERP</title><style>
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#091320;font-family:Almarai,Tahoma,sans-serif}${STYLE}</style></head>
 <body><main class="goerp-offline-page" role="status"><i class="goerp-offline-icon" aria-hidden="true">⚡</i>
 <h1>صفحات الداشبورد لسه متحفظتش على الجهاز للحساب ده</h1>
-<p>بتتحفظ أول مرة الحساب يفتح البرنامج والنت شغال. لحد ما النت يرجع اشتغل من شاشات الجهاز، وكل حاجة هتتزامن مع الداشبورد لوحدها.</p>
-<nav><button type="button" onclick="window.postMessage({goerp:'device-screens'},'*')">شاشات الجهاز</button></nav></main></body></html>`;
+<p>بتتحفظ أول مرة الحساب يفتح البرنامج والنت شغال. لحد ما النت يرجع اشتغل من الكاشير البديل في البرنامج، وكل حاجة هتتزامن مع الداشبورد لوحدها.</p>
+<nav><button type="button" onclick="window.postMessage({goerp:'device-screens'},'*')">الكاشير البديل</button></nav></main></body></html>`;
 }
 
 /** The dashboard's sign-in page asked for offline: the app itself signs out or back in. */

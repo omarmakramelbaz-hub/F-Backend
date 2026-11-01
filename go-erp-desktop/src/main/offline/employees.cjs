@@ -5,6 +5,7 @@
 // early-leave, absence and leave rules. The list is the last one seen online with this device's records shown on it.
 // Other changes on this page need the internet.
 const rules = require('../rules.cjs');
+const { branchProblem } = require('./access.cjs');
 
 const BRANCH = /^(f|gs):[1-9][0-9]{0,18}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -71,7 +72,8 @@ class EmployeesOffline {
     const user = this.user({ user: who });
     const values = body && typeof body === 'object' ? body : {};
     const branch = String(values.branch || '');
-    if (!BRANCH.test(branch) || !user.branches.includes(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    if (!BRANCH.test(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
     if (!UUID.test(String(values.idempotency_key || ''))) throw new Reply(422, 'رقم العملية غير صالح.');
     if (!['check_in', 'check_out', 'set_status'].includes(values.action)) throw new Reply(422, 'اختر تسجيل الحضور أو الانصراف.');
     if (values.action === 'set_status' && !(this.store.get('server_kinds', []) || []).includes('attendance_status')) {

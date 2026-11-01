@@ -329,7 +329,7 @@ async function cashierDevice() {
   await page.getByRole('button', { name: 'إعادة تجهيز الجهاز بحساب آخر' }).click();
   await page.getByLabel('كلمة مرور المالك للتأكيد').fill('root-pass');
   await page.getByRole('button', { name: 'إلغاء التجهيز الحالي' }).click();
-  await page.locator('[role=alert]', { hasText: 'طلب لسه مفتوح على الجهاز' }).waitFor({ timeout: 30000 }).catch(async (error) => {
+  await page.locator('[role=alert]', { hasText: 'لسه مفتوح' }).waitFor({ timeout: 30000 }).catch(async (error) => {
     console.log('DEBUG reset', (await page.locator('body').innerText().catch((e) => 'ERR ' + e.message)).slice(0, 1500),
       JSON.stringify(await page.evaluate(() => window.goerp.call('tickets:open')).catch((e) => 'ERR ' + e.message)).slice(0, 500));
     await shot(page, '12b-device-reset-debug');
@@ -337,8 +337,14 @@ async function cashierDevice() {
   });
   await shot(page, '12b-device-reset-refused-open-order');
   assert.equal(serverRows('SELECT COUNT(*) AS c FROM desktop_sync_devices WHERE revoked_at IS NOT NULL')[0].c, 0, 'Nothing changes while an order is open');
-  for (const ticket of await page.evaluate(() => window.goerp.call('tickets:open'))) {
-    await page.evaluate((id) => window.goerp.call('tickets:delete', { id }), ticket.id);
+  // The open orders are listed with where they are, and cancelled right there.
+  await page.locator('.open-orders tbody tr', { hasText: 'منى' }).waitFor();
+  assert.match(await page.locator('.open-orders tbody tr', { hasText: 'منى' }).innerText(), /الكاشير البديل في البرنامج/);
+  for (let left = await page.locator('.open-orders tbody tr').count(); left > 0; left--) {
+    const row = page.locator('.open-orders tbody tr').first();
+    await row.getByRole('button', { name: 'إلغاء الطلب' }).click();
+    await row.getByRole('button', { name: 'تأكيد الإلغاء' }).click();
+    await until(async () => (await page.locator('.open-orders tbody tr').count()) === left - 1, 'the open order is cancelled');
   }
   await page.getByRole('button', { name: 'إلغاء التجهيز الحالي' }).click();
   await page.getByRole('heading', { name: 'تجهيز الجهاز', exact: true }).waitFor({ timeout: 60000 });
@@ -381,11 +387,12 @@ async function ownerDevice() {
     console.log('DEBUG page', String(await inDashboard(app, "JSON.stringify({ ready: document.readyState, email: (document.querySelector('[name=email]') || {}).value, resources: performance.getEntriesByType('resource').map((r) => r.name.slice(0, 90) + ' ' + Math.round(r.duration)).slice(0, 40) })").catch((e) => 'ERR ' + e.message)));
     throw error;
   }
-  // The device's own screens are one click away; a branch cashier only sees its own branch there.
-  await page.getByRole('button', { name: 'شاشات الجهاز' }).click();
-  await page.locator('.pos').waitFor();
-  assert.equal(await page.locator('.side-branch').count(), 0, 'A branch cashier only sees its own branch');
-  await shot(page, '11-device-screens');
+  // «إعدادات البرنامج» opens the dashboard's own «برنامج الكمبيوتر» page, where the app adds this device's part.
+  await page.getByRole('button', { name: 'إعدادات البرنامج' }).click();
+  await until(async () => /الفروع المتجهزة للعمل بدون إنترنت\s*فرع المعادي، فرع مدينة نصر/.test(String(await inDashboard(app,
+    "(document.querySelector('[data-go-erp-device-part]') || {}).innerText || ''").catch(() => ''))), 'the program page shows this device', 30000);
+  assert.equal(await inDashboard(app, "document.querySelectorAll('[data-go-erp-device-part]').length"), 1);
+  await dashboardShot(app, '11-program-page-device');
   // Signing out of the app closes the dashboard and its session.
   await page.getByRole('button', { name: 'خروج' }).click();
   await until(async () => !(await dashboardUrls(app)).some((url) => url.includes('/admin/')), 'dashboard closes with the app sign-out');
@@ -399,7 +406,8 @@ async function ownerDevice() {
     if (await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).isVisible().catch(() => false)) return true;
     await app.evaluate(({ webContents }) => {
       const dashboard = webContents.getAllWebContents().find((contents) => contents.getURL().includes('/admin/dashboard'));
-      if (dashboard && !dashboard.isLoading()) dashboard.executeJavaScript("location.href = '/admin/adminLogout'").catch(() => {});
+      // The navbar's own link: the page's in-place navigation fetches it, then opens the sign-in page.
+      if (dashboard && !dashboard.isLoading()) dashboard.executeJavaScript("document.querySelector('a[href$=\"/admin/adminLogout\"]').click()").catch(() => {});
     });
     return false;
   }, "the dashboard's own sign-out signs out of the app", 45000).catch(async (error) => {
@@ -423,7 +431,8 @@ async function ownerDevice() {
     })`);
   });
   await page.locator('.status-error', { hasText: 'الطابعة المختارة مش موجودة' }).waitFor({ timeout: 20000 });
-  await page.getByRole('button', { name: 'شاشات الجهاز' }).click();
+  // The stand-in cashier (only when the dashboard cannot open at all) works on both of the owner's branches.
+  await page.evaluate(() => window.goerp.call('dashboard:hide'));
   await page.locator('.side-branch').selectOption({ label: 'فرع مدينة نصر' });
   await page.locator('.product', { hasText: 'بوري مشوي' }).waitFor();
   assert.deepEqual(await page.locator('.product .name').allTextContents(), ['بوري مشوي']);
@@ -848,6 +857,10 @@ async function shiftOffline() {
   });
   await until(async () => await shifts("return /جهاز-/.test(root.querySelector('[data-sh-history]').innerText)").catch(() => false), 'the closing is listed', 20000);
   await dashboardShot(app, '24-dashboard-shift-closed-offline');
+  // The navbar's sign-out link signs out of the app without the internet too; signing in again works offline.
+  await inDashboard(app, "document.querySelector('a[href$=\"/admin/adminLogout\"]').click()");
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 30000 });
+  await signIn(page, 'u1@example.test', 'root-pass', '.status-bar');
   // Back online: the closing reaches the dashboard once, dated when it was closed here.
   await startServer();
   await page.locator('.sync-badge').first().click();
@@ -856,6 +869,28 @@ async function shiftOffline() {
   const recorded = deviceRows(userData, 'goerp.sqlite', "SELECT created_at FROM journal WHERE kind = 'shift'")[0].created_at;
   assert.deepEqual([closing.counted_cents, closing.closed_at], [100000, new Date(recorded).toISOString().slice(0, 19).replace('T', ' ')]);
   assert.equal(serverRows(`SELECT COUNT(*) AS c FROM branch_shift_print_jobs WHERE closing_id = ${closing.id}`)[0].c, 1, 'Its report goes to the branch printer');
+
+  // The dashboard's «برنامج الكمبيوتر» page: this device's part, an order left open on it cancelled there, and the
+  // device set up again with another account from the page itself.
+  await page.evaluate(() => window.goerp.call('tickets:save', { channel: 'takeaway', label: 'طلب معلق', data: { items: [] } }));
+  await page.getByRole('button', { name: 'إعدادات البرنامج' }).click();
+  const part = (code) => inDashboard(app, `(() => { const root = document.querySelector('[data-go-erp-device-part]'); if (!root) return false; ${code} })()`);
+  await until(async () => await part("return /فرع المعادي، فرع مدينة نصر/.test(root.innerText)").catch(() => false), 'the program page shows this device', 30000);
+  const revoked = () => serverRows('SELECT COUNT(*) AS c FROM desktop_sync_devices WHERE revoked_at IS NOT NULL')[0].c;
+  const before = revoked();
+  await part("root.querySelector('[data-go-erp-device-reset]').click(); const input = root.querySelector('[data-go-erp-device-password]');"
+    + " input.value = 'root-pass'; root.querySelector('[data-go-erp-device-release]').click(); return true;");
+  await until(async () => await part("return /لسه مفتوح/.test(root.querySelector('[data-go-erp-device-release-error]').textContent)"
+    + " && /طلب معلق/.test(root.querySelector('[data-go-erp-device-orders]').innerText)").catch(() => false), 'the open order holds the new setup back', 60000);
+  assert.equal(revoked(), before, 'Nothing changes while an order is open');
+  await dashboardShot(app, '25-program-page-open-order');
+  await part("root.querySelector('[data-go-erp-device-cancel]').click(); return true;");
+  await part("root.querySelector('[data-go-erp-device-cancel-confirm]').click(); return true;");
+  await until(async () => await part("return root.querySelector('[data-go-erp-device-orders]').hidden").catch(() => false), 'the order is cancelled', 20000);
+  await part("root.querySelector('[data-go-erp-device-release]').click(); return true;");
+  await page.getByRole('heading', { name: 'تجهيز الجهاز', exact: true }).waitFor({ timeout: 60000 });
+  assert.equal(revoked(), before + 1, 'The old setup is stopped on the server');
+  await shot(page, '26-set-up-again-from-the-program-page');
   await app.close();
 }
 

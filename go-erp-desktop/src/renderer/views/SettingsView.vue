@@ -86,13 +86,37 @@
       </form>
       <div v-else class="actions"><button type="button" class="ghost" @click="releasing = true">إعادة تجهيز الجهاز بحساب آخر</button></div>
       <p v-if="releaseError" class="error small" role="alert">{{ releaseError }}</p>
+      <div v-if="openOrders.length" class="open-orders">
+        <h3>طلبات مفتوحة على الجهاز</h3>
+        <p class="muted small">كل طلب لازم يتحصّل من مكانه أو يتلغي من هنا قبل إعادة تجهيز الجهاز، عشان مفيش حاجة تضيع.</p>
+        <table class="list">
+          <thead><tr><th>الطلب</th><th>الفرع</th><th>الأصناف</th><th>الإجمالي</th><th>مكانه</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="order in openOrders" :key="order.id">
+              <td><b>{{ CHANNELS[order.channel] || order.channel }}{{ order.label ? ' · ' + order.label : '' }}</b>
+                <small class="muted">{{ dateTime(order.created_at) }}{{ order.actor_name ? ' · ' + order.actor_name : '' }}</small></td>
+              <td>{{ order.branch_name }}</td>
+              <td>{{ order.items.join('، ') || '—' }}</td>
+              <td>{{ order.total || '—' }}</td>
+              <td>{{ order.where }}<small v-if="order.problem" class="error">{{ order.problem }}</small></td>
+              <td>
+                <template v-if="confirming === order.id">
+                  <button type="button" class="danger-outline" @click="cancelOrder(order.id)">تأكيد الإلغاء</button>
+                  <button type="button" class="ghost" @click="confirming = null">رجوع</button>
+                </template>
+                <button v-else type="button" class="danger-outline" @click="confirming = order.id">إلغاء الطلب</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
-import { call, since, dateTime } from '../api.js';
+import { call, since, dateTime, CHANNELS } from '../api.js';
 import SyncBadge from '../components/SyncBadge.vue';
 
 const props = defineProps({ info: Object, sync: Object, syncNow: Function });
@@ -101,6 +125,23 @@ const releasing = ref(false);
 const releaseBusy = ref(false);
 const releasePassword = ref('');
 const releaseError = ref('');
+const openOrders = ref([]);
+const confirming = ref(null);
+
+async function loadOpenOrders() {
+  try { openOrders.value = await call('setup:open-orders'); } catch { openOrders.value = []; }
+}
+
+async function cancelOrder(id) {
+  releaseError.value = '';
+  try {
+    await call('setup:cancel-order', { id });
+    confirming.value = null;
+  } catch (problem) {
+    releaseError.value = problem.message;
+  }
+  await loadOpenOrders();
+}
 
 /** Drops this device's setup (after sending everything) so it can be set up again with another account. */
 async function release() {
@@ -112,6 +153,7 @@ async function release() {
     emit('reset');
   } catch (problem) {
     releaseError.value = problem.message;
+    await loadOpenOrders();
   } finally {
     releaseBusy.value = false;
   }
@@ -170,6 +212,6 @@ function openDashboard() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadSync(), loadPrinters()]);
+  await Promise.all([loadSync(), loadPrinters(), loadOpenOrders()]);
 });
 </script>

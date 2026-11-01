@@ -55,6 +55,58 @@ class Store {
       open: this.db.prepare("SELECT COUNT(*) AS c FROM tickets WHERE status = 'open'").get().c };
   }
 
+  /**
+   * The orders still open on this device, as the person sees them before setting it up again: what it is, where it was
+   * opened, and why it did not move to the dashboard yet.
+   */
+  openOrders() {
+    const branches = new Map(this.branches().map((branch) => [branch.value, branch.name]));
+    const moves = new Map(this.db.prepare("SELECT id, status FROM outbox WHERE kind = 'ticket_open'").all().map((row) => [row.id, row.status]));
+    return this.db.prepare("SELECT * FROM tickets WHERE status = 'open' ORDER BY created_at").all().map((row) => {
+      const ticket = presentTicket(row);
+      const data = ticket.data || {};
+      const page = data.source === 'dashboard';
+      let priced = page ? data.priced : null;
+      if (!priced) {
+        try { priced = this.quoteTicket(ticket.branch, ticket.channel, data).quote; } catch { priced = null; }
+      }
+      // 2.000 → 2 and 1.500 → 1.5, as people write them.
+      const amount = (value) => { const text = String(value ?? ''); return /^\d+\.\d+$/.test(text) ? text.replace(/0+$/, '').replace(/\.$/, '') : text; };
+      const items = priced && Array.isArray(priced.items)
+        ? priced.items.map((line) => `${line.name}${line.option_label ? ` (${line.option_label})` : ''} × ${amount(line.quantity)}`)
+        : (data.items || []).map(() => 'صنف');
+      const move = moves.get(ticket.id);
+      const where = !page ? `الكاشير البديل في البرنامج${data.out_at ? ' — خرج مع المندوب' : ''}`
+        : `${ticket.channel === 'phone' ? 'صفحة طلبات الدليفري' : 'صفحة طلبات الصالة'} (اتفتح من غير نت)`;
+      const problem = move === 'rejected' ? `الداشبورد رفض نقله: ${ticket.sync_error || 'تم رفض العملية.'}`
+        : move === 'pending' ? 'لسه بيتنقل للداشبورد.' : '';
+      return { id: ticket.id, branch: ticket.branch, branch_name: branches.get(ticket.branch) || ticket.branch, channel: ticket.channel,
+        label: ticket.label || (data.table && data.table.name) || data.customer_name || '', created_at: ticket.created_at, actor_name: ticket.actor_name,
+        items, total: priced && Number.isFinite(priced.total_cents) ? money.decimal(priced.total_cents) : '', where, problem };
+    });
+  }
+
+  /**
+   * The person cancels an order still open here (to set the device up again): an order of the device's cashier is
+   * deleted, as its own delete button does; one opened on the dashboard's page is cancelled and never sent.
+   */
+  dropOpenOrder(actor, id) {
+    const ticket = this.ticket(id);
+    if (!ticket || ticket.status !== 'open') return false;
+    this.requireBranch(actor, ticket.branch, 'can_checkout');
+    return transaction(this.db, () => {
+      if (ticket.data && ticket.data.source === 'dashboard') {
+        if (!this.cancelTicketMove(id)) throw new Error('الطلب ده بيتنقل للداشبورد دلوقتي. استنى ثواني وحاول تاني.');
+        const data = { ...ticket.data, status: 'cancelled', cancel_reason: 'اتلغى من الجهاز قبل إعادة تجهيزه' };
+        delete data.move_op;
+        this.updatePageTicket(id, data, 'cancelled');
+      } else {
+        this.db.prepare("DELETE FROM tickets WHERE id = ? AND status = 'open'").run(id);
+      }
+      return true;
+    });
+  }
+
   /** The downloaded dashboard password hash of an account on this device (to confirm it is really that person). */
   passwordHash(userId) {
     const row = this.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId);

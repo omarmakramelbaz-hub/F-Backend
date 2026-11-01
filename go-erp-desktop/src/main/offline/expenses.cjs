@@ -5,6 +5,7 @@
 // App\Http\Controllers\Dashboard\BranchExpensesController / App\Services\Dashboard\BranchExpenses.
 const money = require('../money.cjs');
 const rules = require('../rules.cjs');
+const { branchProblem } = require('./access.cjs');
 
 // Expenses saved on this device get numbers far above the dashboard's own, so both never mix.
 const LOCAL_EXPENSE_BASE = 8000000000000;
@@ -111,7 +112,7 @@ class ExpensesOffline {
     const values = this.fields(body);
     const branch = String(values.branch || '');
     if (!BRANCH.test(branch)) throw invalid('branch', 'اختر الفرع.');
-    if (!user.branches.includes(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
     if (!UUID.test(String(values.idempotency_key || ''))) throw invalid('idempotency_key', 'رقم العملية غير صالح.');
     if (values.expense_id) throw new Reply(403, 'تعديل المصروفات المسجلة غير متاح.');
     if (values.payment_method && values.payment_method !== 'cash') throw invalid('payment_method', 'المصروف من غير نت بيتسجل كاش من الدرج بس.');
@@ -129,7 +130,8 @@ class ExpensesOffline {
   /** The branches a list covers: one, or every branch of this device the account has. */
   scope(user, value) {
     if (value && value !== 'all') {
-      if (!BRANCH.test(value) || !user.branches.includes(value)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+      if (!BRANCH.test(value)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+      { const problem = branchProblem(this.store, user, value); if (problem) throw new Reply(problem.status, problem.message); }
       return [value];
     }
     return this.store.branches().map((branch) => branch.value).filter((branch) => user.branches.includes(branch));

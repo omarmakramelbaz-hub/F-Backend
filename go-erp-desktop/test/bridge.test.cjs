@@ -26,3 +26,15 @@ test('every action the screens call is allowed by the bridge and handled by the 
   const main = fs.readFileSync(path.join(SOURCE, 'main/main.cjs'), 'utf8');
   assert.deepEqual([...allowed].filter((channel) => !main.includes(`'${channel}':`)), [], 'Allowed by the bridge but handled nowhere');
 });
+
+test('the «برنامج الكمبيوتر» page asks the app only for the device actions it handles', () => {
+  const preload = fs.readFileSync(path.join(SOURCE, 'main/dashboard-preload.cjs'), 'utf8');
+  const used = new Set([...preload.matchAll(/device\('([a-z-]+)'/g)].map((found) => found[1]));
+  assert.ok(used.has('release') && used.has('cancel-order') && used.has('state'));
+  const main = fs.readFileSync(path.join(SOURCE, 'main/main.cjs'), 'utf8');
+  const actions = main.match(/const DEVICE_ACTIONS = \{([\s\S]*?)\n\};/)[1];
+  assert.deepEqual([...used].filter((action) => !new RegExp(`^  ('${action}'|${action}):`, 'm').test(actions)), [], 'Asked by the page but not handled');
+  // Only from that page, in the dashboard window's own frame.
+  assert.match(main, /event\.sender !== dashboardView\.webContents/);
+  assert.match(main, /url\.pathname\.replace\(\/\\\/\+\$\/, ''\) !== PROGRAM_PAGE/);
+});

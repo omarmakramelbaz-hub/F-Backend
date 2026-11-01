@@ -25,10 +25,13 @@ const SIGNAL_TYPES = new Set(['Document', 'XHR', 'Fetch']);
 // Responses read online. Fonts are not among them: Chromium fails a font whose response is intercepted, so fonts are
 // only watched at the request and downloaded a second time for the copy.
 const READ_TYPES = ['Document', 'Stylesheet', 'Image', 'Media', 'Script', 'XHR', 'Fetch', 'Other'];
+// The dashboard's own sign-out link (navbar: /admin/adminLogout).
+const SIGN_OUT = /^\/admin\/(adminLogout|logout)\/?$/i;
 const NEEDS_INTERNET = 'هذه العملية تحتاج اتصالًا بالإنترنت. الكاشير والصفحات المحفوظة تعمل الآن من الجهاز، وكل شيء يتزامن مع الداشبورد عند رجوع النت.';
 // Pages saved for offline use as soon as an account opens the dashboard online (those in its own menu).
 const WARM_PAGES = ['/admin/dashboard', '/admin/takeaway', '/admin/dining', '/admin/phone-orders', '/admin/branch-orders', '/admin/branch-expenses',
-  '/admin/branch-shifts', '/admin/employees', '/admin/customers', '/admin/delivery-companies', '/admin/branch-stock', '/admin/print-settings'];
+  '/admin/branch-shifts', '/admin/employees', '/admin/customers', '/admin/delivery-companies', '/admin/branch-stock', '/admin/print-settings',
+  '/admin/desktop-dashboard'];
 
 function header(headers, name) {
   if (!headers) return '';
@@ -97,9 +100,11 @@ class DashboardOffline {
    * origin: the dashboard's address. cache: PageCache. pages: the offline answers of the dashboard pages that work
    * without the internet (the cashier page, expenses...). user(): the signed-in account (from the device database)
    * or null. Callbacks: onNetworkFailure(reason), onMissing(url) when a page was never saved, onFromCopy/onLive(contents)
-   * for the window's current page.
+   * for the window's current page, onSignOut(now) when the dashboard's own sign-out is asked for (now: without the
+   * internet, where the app signs out right away).
    */
-  constructor({ origin, cache, pages, user, onNetworkFailure = () => {}, onMissing = () => {}, onFromCopy = () => {}, onLive = () => {} }) {
+  constructor({ origin, cache, pages, user, onNetworkFailure = () => {}, onMissing = () => {}, onFromCopy = () => {}, onLive = () => {},
+    onSignOut = () => {} }) {
     this.origin = origin;
     this.cache = cache;
     this.pages = pages;
@@ -108,6 +113,7 @@ class DashboardOffline {
     this.onMissing = onMissing;
     this.onFromCopy = onFromCopy;
     this.onLive = onLive;
+    this.onSignOut = onSignOut;
     this.offline = false;
     this.attached = new Set();
     this.fonts = new Set();
@@ -122,6 +128,11 @@ class DashboardOffline {
     return !!user && this.cache.count(this.scope(user), 'page') > 0;
   }
 
+  /** Whether this account's copy of one page is saved on the device. */
+  hasPage(user, pagePath) {
+    return !!user && this.cache.has(this.scope(user), 'page', pagePath);
+  }
+
   /** Where the window opens offline: the cashier page, the home page, or the last saved page. */
   landing(user) {
     const scope = this.scope(user);
@@ -134,6 +145,9 @@ class DashboardOffline {
     // Online: responses (to save them, or to answer a failed one from the device), fonts, and invoices saved on this device.
     return [...READ_TYPES.map((resourceType) => ({ urlPattern: '*', resourceType, requestStage: 'Response' })),
       { urlPattern: '*', resourceType: 'Font', requestStage: 'Request' },
+      // The dashboard's sign-out, before the page's in-place navigation fetches it: the app signs out with it.
+      { urlPattern: this.origin + '/admin/adminLogout*', requestStage: 'Request' },
+      { urlPattern: this.origin + '/admin/logout*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/takeaway/receipts/9*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/branch-expenses/8*', requestStage: 'Request' },
       // Dine-in orders opened on this device while offline, and the kitchen tickets printed here.
@@ -179,10 +193,28 @@ class DashboardOffline {
     return contents.debugger.sendCommand(method, params).catch(() => null);
   }
 
+  /**
+   * The dashboard's sign-out, however the page asks for it: its link opened as a page, or fetched by the page's in-place
+   * navigation. Online the dashboard signs out and the app follows once the sign-in page opens; without the internet
+   * (or when the request cannot reach the dashboard) the app signs out right away and answers the request itself.
+   */
+  isSignOut(address) {
+    try {
+      const url = new URL(address);
+      return url.origin === this.origin && SIGN_OUT.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
   async paused(contents, params) {
     try {
       if (params.responseErrorReason) return await this.failed(contents, params);
       if (params.responseStatusCode !== undefined) return await this.responded(contents, params);
+      if (this.isSignOut(params.request.url)) {
+        this.onSignOut(this.offline);
+        if (this.offline) return await this.fulfill(contents, params.requestId, { status: 200, html: signedOutPage() });
+      }
       const reply = await this.answer(contents, params, this.offline);
       if (reply) return await this.fulfill(contents, params.requestId, reply);
       if (this.offline) return await this.send(contents, 'Fetch.failRequest', { requestId: params.requestId, errorReason: 'InternetDisconnected' });
@@ -214,6 +246,10 @@ class DashboardOffline {
   /** The network gave no answer: answer from the device when it can (the dashboard dedupes a resent sale). */
   async failed(contents, params) {
     const reason = params.responseErrorReason;
+    if (NETWORK_FAILURES.has(reason) && this.isSignOut(params.request.url)) {
+      this.onSignOut(true);
+      return this.fulfill(contents, params.requestId, { status: 200, html: signedOutPage() });
+    }
     let reply = null;
     if (NETWORK_FAILURES.has(reason)) {
       const signal = reason !== 'Failed' && SIGNAL_TYPES.has(params.resourceType) && new URL(params.request.url).origin === this.origin;

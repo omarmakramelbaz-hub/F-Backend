@@ -87,7 +87,10 @@ test('the cashier page lists the branch menu cards like the dashboard', async ()
   assert.equal((await ask('GET', '/admin/takeaway/catalog?branch=f:100&catalog_only=1')).json.today, undefined);
   const paged = (await ask('GET', '/admin/takeaway/catalog?branch=f:100&per_page=2&page=9')).json;
   assert.deepEqual([paged.pagination.page, paged.pagination.last_page, paged.items.length], [2, 2, 1]);
-  assert.equal((await ask('GET', '/admin/takeaway/catalog?branch=f:101')).status, 403, 'Another branch');
+  // A branch this device was not set up for: said plainly (the page shows "no permission" for 403).
+  const elsewhere = await ask('GET', '/admin/takeaway/catalog?branch=f:101');
+  assert.equal(elsewhere.status, 422, 'Another branch');
+  assert.match(elsewhere.json.message, /مش متجهز على الجهاز ده.*الجهاز متجهز لـ: فرع المعادي/);
 });
 
 test('quotes use the synced menu prices and the dashboard discount rules', async () => {
@@ -579,7 +582,8 @@ test('the stock page records goods received on the device, shows them on the bal
   assert.equal(await refused({ ingredient_id: 999 }), 'اختر صنفًا من قائمة البضاعة فقط.');
   assert.equal(await refused({ quantity: '1.2345' }), 'أدخل كمية حتى ثلاث منازل عشرية.');
   assert.equal(await refused({ quantity: '0' }), 'الكمية يجب أن تكون موجبة وحتى مليون.');
-  assert.equal((await ask('POST', '/admin/branch-stock/receive', { ...receipt, branch: 'f:101', idempotency_key: crypto.randomUUID() })).status, 403);
+  assert.equal((await ask('POST', '/admin/branch-stock/receive', { ...receipt, branch: 'f:101', idempotency_key: crypto.randomUUID() })).status, 422,
+    'A branch this device was not set up for');
 
   // The balances and the latest movements: the device's receipt on top, with the balance it left (Cairo time).
   const list = (await ask('GET', address)).json;

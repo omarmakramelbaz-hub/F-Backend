@@ -1,4 +1,5 @@
 'use strict';
+const { branchProblem } = require('./access.cjs');
 // The dashboard's cashier page (تيك أواي) while the internet is down: the same requests, answered from the device's
 // database in the same shape as App\Http\Controllers\Dashboard\TakeawayController / TakeawayService. Prices come from
 // the branch's synced menu version, so the dashboard accepts every sale when the device sends it (30-second sync).
@@ -94,7 +95,7 @@ class TakeawayOffline {
 
   branch(user, value) {
     if (typeof value !== 'string' || !BRANCH.test(value)) throw invalid('branch', 'اختر الفرع.');
-    if (!user.branches.includes(value)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, value); if (problem) throw new Reply(problem.status, problem.message); }
     const catalog = this.store.catalog(value);
     if (!catalog) throw new Reply(503, 'لم يتم تنزيل مينيو هذا الفرع على الجهاز بعد. اتصل بالإنترنت مرة واحدة للمزامنة.');
     return catalog;

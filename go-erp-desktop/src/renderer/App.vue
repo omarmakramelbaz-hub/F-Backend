@@ -12,11 +12,25 @@
     <span v-if="statusNotice" class="status-notice" role="status" :title="statusNotice">{{ statusNotice }}</span>
     <span v-if="printProblem" class="status-error" role="alert" :title="printProblem">{{ printProblem }}</span>
     <span class="spacer"></span>
-    <button type="button" @click="useDevice" title="شاشات البرنامج نفسه: تشتغل بإنترنت أو من غيره"><i class="fas fa-desktop" aria-hidden="true"></i> شاشات الجهاز</button>
+    <button type="button" @click="openSettings" title="الطابعة والمزامنة وإعادة تجهيز الجهاز"><i class="fas fa-cog" aria-hidden="true"></i> إعدادات البرنامج</button>
     <button type="button" @click="logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> خروج</button>
   </footer>
 
-  <!-- The device's own screens, in the dashboard's look: used offline, or when picked -->
+  <!-- The app's own settings (printer, sync, setting the device up again), opened from the bar under the dashboard -->
+  <div v-else-if="settingsOnly" class="app-settings">
+    <header class="app-settings-head">
+      <h1><i class="fas fa-cog" aria-hidden="true"></i> إعدادات البرنامج</h1>
+      <span class="spacer"></span>
+      <span class="status-who">{{ currentBranch.name }} · {{ info.session.user.name }}</span>
+      <button type="button" class="primary" @click="backToDashboard"><i class="fas fa-arrow-right" aria-hidden="true"></i> رجوع للداشبورد</button>
+    </header>
+    <main class="content">
+      <SettingsView :info="info" :sync="sync" :sync-now="syncNow" @reset="refresh" />
+    </main>
+  </div>
+
+  <!-- A stand-in cashier in the dashboard's look: only when the dashboard cannot open at all (no internet, and this
+       account's pages were never saved on this device) -->
   <div v-else class="shell">
     <aside class="side">
       <div class="side-brand" v-html="sidebarLogo"></div>
@@ -76,6 +90,7 @@ const info = ref(null);
 const sync = ref({});
 const view = ref('pos');
 const dashboardShown = ref(false);
+const settingsOnly = ref(false);
 const banner = ref(null);
 const printProblem = ref('');
 const offlineMode = ref(false);
@@ -124,6 +139,7 @@ async function syncNow() {
  */
 async function afterSignIn() {
   await refresh();
+  settingsOnly.value = false;
   view.value = 'pos';
   if (!info.value.embed) return;
   if (!(await openDashboard())) banner.value = noCopyBanner();
@@ -135,17 +151,29 @@ async function openDashboard(page) {
 }
 
 function noCopyBanner() {
-  return { kind: 'offline', text: 'مفيش إنترنت، وصفحات الداشبورد لسه متحفظتش على الجهاز للحساب ده (بتتحفظ أول مرة يفتح والنت شغال). اشتغل من شاشات الجهاز، وكل حاجة هتتزامن لوحدها لما النت يرجع.', back: false };
+  return { kind: 'offline', text: 'مفيش إنترنت، وصفحات الداشبورد لسه متحفظتش على الجهاز للحساب ده (بتتحفظ أول مرة الحساب يفتح والنت شغال). لحد ما النت يرجع اشتغل من الكاشير البديل ده، وكل حاجة هتتزامن مع الداشبورد لوحدها.', back: false };
 }
 
-async function useDevice() {
+/**
+ * The app's settings (this device's setup, open orders, printers) live on the dashboard's «برنامج الكمبيوتر» page;
+ * only when that page cannot open (no internet, never saved) the app shows its own copy of them.
+ */
+async function openSettings() {
+  banner.value = null;
+  if (await openDashboard('program')) return;
   await call('dashboard:hide');
+  view.value = 'settings';
+  settingsOnly.value = true;
+}
+
+async function backToDashboard() {
+  settingsOnly.value = false;
   view.value = 'pos';
-  banner.value = { kind: 'info', text: 'شاشات الجهاز شغالة بإنترنت أو من غيره، وكل اللي بيتسجل هنا بيتزامن مع الداشبورد.', back: true };
+  if (!(await openDashboard())) banner.value = info.value.dashboard_copy ? offlineBanner() : noCopyBanner();
 }
 
 function offlineBanner() {
-  return { kind: 'offline', text: 'مفيش إنترنت دلوقتي — كمّل شغلك من شاشات الجهاز، وكل حاجة هتتزامن مع الداشبورد لوحدها لما النت يرجع.', back: false };
+  return { kind: 'offline', text: 'مفيش إنترنت دلوقتي، والصفحة دي مش محفوظة على الجهاز — كمّل من الكاشير البديل ده، وكل حاجة هتتزامن مع الداشبورد لوحدها لما النت يرجع.', back: false };
 }
 
 /** The internet dropped: the dashboard keeps working from the device; the device's screens show a notice. */
@@ -159,6 +187,7 @@ async function goOffline() {
 /** The dashboard window could not show its page at all: the device's own screens take over. */
 async function dashboardUnavailable() {
   if (dashboardShown.value) await call('dashboard:hide');
+  settingsOnly.value = false;
   view.value = 'pos';
   banner.value = info.value && info.value.session && !info.value.dashboard_copy ? noCopyBanner() : offlineBanner();
 }
@@ -171,6 +200,7 @@ async function changeBranch(value) {
 async function logout() {
   await call('auth:logout');
   banner.value = null;
+  settingsOnly.value = false;
   await refresh();
   view.value = 'pos';
 }
@@ -186,7 +216,10 @@ onMounted(async () => {
     }
   }));
   stops.push(onDashboardEvent((event) => {
-    if (event.type === 'shown') dashboardShown.value = true;
+    if (event.type === 'shown') {
+      dashboardShown.value = true;
+      settingsOnly.value = false;
+    }
     else if (event.type === 'hidden') dashboardShown.value = false;
     else if (event.type === 'connection') {
       offlineMode.value = !event.online;
@@ -195,6 +228,12 @@ onMounted(async () => {
     else if (event.type === 'unavailable') dashboardUnavailable();
     else if (event.type === 'missing-page') notice('الصفحة دي محتاجة إنترنت أول مرة، ففتحنا صفحة محفوظة على الجهاز.');
     else if (event.type === 'signed-out') logout();
+    else if (event.type === 'device-reset') {
+      // Set up again from the «برنامج الكمبيوتر» page: the setup screen opens.
+      settingsOnly.value = false;
+      banner.value = null;
+      refresh();
+    }
     else if (event.type === 'print-error') {
       printProblem.value = event.error;
       clearTimeout(printTimer);

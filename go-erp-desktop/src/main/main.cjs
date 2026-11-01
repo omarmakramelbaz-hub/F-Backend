@@ -172,9 +172,12 @@ const handlers = {
       if (!left.pending && !left.open) break;
     }
     const left = store.releaseBlockers();
-    if (left.pending || left.open) {
-      const parts = [left.pending ? `${left.pending} عملية لسه ما اتبعتتش للداشبورد` : '', left.open ? `${left.open} طلب لسه مفتوح على الجهاز` : ''].filter(Boolean);
-      throw new Error(`فيه ${parts.join(' و')}. لما يتبعتوا أو يتقفلوا أعد المحاولة، عشان مفيش حاجة تضيع.`);
+    if (left.open) {
+      throw new Error(`فيه ${left.open === 1 ? 'طلب لسه مفتوح' : `${left.open} طلبات لسه مفتوحة`} على الجهاز (تحت). حصّله من مكانه أو ألغيه من هنا، `
+        + 'وبعدين اضغط «إلغاء التجهيز الحالي» تاني، عشان مفيش حاجة تضيع.');
+    }
+    if (left.pending) {
+      throw new Error(`فيه ${left.pending} عملية لسه ما اتبعتتش للداشبورد. استنى المزامنة (كل ٣٠ ثانية) وأعد المحاولة، عشان مفيش حاجة تضيع.`);
     }
     if (sync.state.device_revoked) {
       console.log('[goerp] set up again: the server had already stopped this device');
@@ -208,6 +211,19 @@ const handlers = {
     // The dashboard finds an account by email, or by its mobile typed with one extra leading zero.
     dashboardLogin = { login: user.email ? String(user.email) : '0' + String(user.mobile), password: String(values.password || '') };
     return current;
+  },
+
+  // The orders still open on this device (they hold back setting it up again), and cancelling one of them.
+  'setup:open-orders': () => {
+    requireSession();
+    return store.openOrders();
+  },
+
+  'setup:cancel-order': (values) => {
+    const session = requireSession();
+    const done = store.dropOpenOrder(session.user, String((values && values.id) || ''));
+    if (done) console.log('[goerp] an open order was cancelled before setting the device up again');
+    return done;
   },
 
   'auth:logout': async () => {
@@ -394,7 +410,9 @@ const handlers = {
   },
 };
 
-const DASHBOARD_PAGES = { home: '/admin/dashboard', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses' };
+// The dashboard's «برنامج الكمبيوتر» page: inside the app it also shows this device's part (setup, orders, printers).
+const PROGRAM_PAGE = '/admin/desktop-dashboard';
+const DASHBOARD_PAGES = { home: '/admin/dashboard', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses', program: PROGRAM_PAGE };
 const BAR_HEIGHT = 34; // the app's status bar stays visible under the dashboard
 const EMBED = process.env.GOERP_DASHBOARD_VIEW !== 'off';
 let dashboardView = null;
@@ -489,6 +507,7 @@ function createDashboardView() {
   dashboardLoggingOut = false;
   dashboardLastAutoLogin = 0;
   const contents = dashboardView.webContents;
+  fullScreenKey(contents);
   contents.setWindowOpenHandler(({ url }) => {
     // Print views and other dashboard pop-ups open as app windows with the same session; other sites open in the browser.
     if (sameServer(url)) {
@@ -563,8 +582,9 @@ async function showDashboard(page) {
   const user = sessionUser();
   let path = DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home;
   if (offlineMode) {
-    // Offline the dashboard opens from this account's saved pages; without any, the device's screens are used.
+    // Offline the dashboard opens from this account's saved pages; without any, the app's own screens are used.
     if (!offline.hasCopy(user)) return false;
+    if (page === 'program' && !offline.hasPage(user, PROGRAM_PAGE)) return false;
     if (!page || page === 'home') path = offline.landing(user) || path;
   }
   const target = SERVER + path;
@@ -598,6 +618,8 @@ async function onDashboardLoad(contents) {
   let url;
   try { url = new URL(contents.getURL()); } catch { return; }
   if (!sameServer(url.href)) return;
+  // The app answered the sign-out itself (no internet) and is already signing out.
+  if (/^\/admin\/(adminLogout|logout)\/?$/i.test(url.pathname)) return;
   if (url.pathname.replace(/\/+$/, '') === '/admin/login') {
     if (dashboardLoggingOut) {
       dashboardLoggingOut = false;
@@ -657,6 +679,47 @@ ipcMain.on('dashboard:device-screens', (event) => {
   hideDashboard();
 });
 
+/**
+ * This device's part of the «برنامج الكمبيوتر» page, drawn there by the dashboard preload: only from that page in
+ * the app's dashboard window, and only these actions.
+ */
+const DEVICE_ACTIONS = {
+  state: () => {
+    const session = requireSession();
+    const status = sync.status();
+    return { version: app.getVersion(), device: publicDevice(), branches: store.branches().map((branch) => ({ value: branch.value, name: branch.name })),
+      user: { id: session.user.id, name: session.user.name }, sync: { online: status.online, last_sync_at: status.last_sync_at, pending: status.pending || 0,
+        rejected: status.rejected || 0, last_error: status.last_error || '' }, rejected: store.rejectedOperations(), orders: store.openOrders(),
+      print: printSettings(), autostart: autostart() };
+  },
+  sync: () => handlers['sync:now'](),
+  'cancel-order': (values) => handlers['setup:cancel-order'](values),
+  release: async (values) => {
+    const result = await handlers['setup:release'](values);
+    notifyDashboard({ type: 'device-reset' });
+    return result;
+  },
+  printers: () => handlers['print:printers'](),
+  'print-settings': (values) => { requireSession(); return handlers['print:settings'](values); },
+  'print-test': () => handlers['print:test'](),
+  autostart: (values) => handlers['app:autostart'](values),
+};
+
+ipcMain.handle('dashboard:device', async (event, request) => {
+  const refused = { ok: false, error: 'طلب غير مسموح.' };
+  if (!dashboardView || event.sender !== dashboardView.webContents || !event.senderFrame || event.senderFrame.parent) return refused;
+  let url;
+  try { url = new URL(event.senderFrame.url); } catch { return refused; }
+  if (!sameServer(url.href) || url.pathname.replace(/\/+$/, '') !== PROGRAM_PAGE) return refused;
+  const action = DEVICE_ACTIONS[String((request && request.action) || '')];
+  if (!action) return { ok: false, error: 'طلب غير معروف.' };
+  try {
+    return { ok: true, value: await action((request && request.values) || {}) };
+  } catch (error) {
+    return { ok: false, error: error && error.message ? error.message : 'حدث خطأ غير متوقع.' };
+  }
+});
+
 ipcMain.on('dashboard:print-receipt', async (event, values) => {
   const sender = event.sender;
   const fromDashboard = (dashboardView && sender === dashboardView.webContents)
@@ -683,11 +746,28 @@ function registerHandlers() {
   }
 }
 
+/** F11 switches full screen on and off wherever the keyboard is (the dashboard or the app's own screens). */
+function fullScreenKey(contents) {
+  contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.key !== 'F11') return;
+    event.preventDefault();
+    if (input.isAutoRepeat || !mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1366, height: 860, minWidth: 1024, minHeight: 680, title: 'GO ERP', autoHideMenuBar: true,
     backgroundColor: '#091320', show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
-  mainWindow.once('ready-to-show', () => { mainWindow.maximize(); mainWindow.show(); });
+  // Opens full screen; F11 leaves it (to the maximized window) and goes back to it.
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize();
+    mainWindow.show();
+    mainWindow.setFullScreen(true);
+  });
+  mainWindow.on('leave-full-screen', () => { if (!mainWindow.isMaximized()) mainWindow.maximize(); });
+  fullScreenKey(mainWindow.webContents);
   for (const event of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) mainWindow.on(event, layoutDashboard);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
   mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
@@ -717,6 +797,15 @@ app.whenReady().then(() => {
       new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), recoverers: [(entry, user) => stockPage.recovered(entry, user)] }),
       dinePage, deliveryPage, shiftsPage],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
+    onSignOut: (now) => {
+      if (!dashboardLoggingOut) console.log('[goerp] the dashboard\'s own sign-out');
+      dashboardLoggingOut = true;
+      if (!now) return; // online: once the sign-in page opens
+      // Without the internet the sign-in page never opens: the app signs out right away.
+      dashboardLoggingOut = false;
+      console.log('[goerp] signed out of the app with the dashboard (without the internet)');
+      notifyDashboard({ type: 'signed-out' });
+    },
     onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
     onFromCopy: (contents) => fromCopy.add(contents),
     onLive: (contents) => fromCopy.delete(contents) });
