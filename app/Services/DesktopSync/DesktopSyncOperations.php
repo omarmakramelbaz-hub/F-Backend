@@ -5,6 +5,7 @@ namespace App\Services\DesktopSync;
 use App\Models\User;
 use App\Services\Dashboard\BranchExpenses;
 use App\Services\Dashboard\BranchPayroll;
+use App\Services\Dashboard\BranchStock;
 use App\Services\Dashboard\CustomerDirectory;
 use App\Services\Dashboard\DesktopPosQuote;
 use App\Services\Dashboard\OperatingDay;
@@ -26,7 +27,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -73,6 +74,7 @@ class DesktopSyncOperations
                 'till' => $this->till($actor, $values['branch'], $id, $values['data']),
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
                 'attendance_status' => $this->attendance($actor, $values['branch'], $id, $when, $values['data'], true),
+                'stock_receive' => $this->stockReceive($actor, $values['branch'], $id, $when, $values['data']),
                 'ticket_settle' => $this->ticketSettle($actor, $values['branch'], $id, $values['data']),
                 'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
                 'ticket_action' => $this->ticketAction($actor, $values['branch'], $id, $values['data']),
@@ -232,6 +234,31 @@ class DesktopSyncOperations
         $time = fn ($value) => $value ? Carbon::parse($value, 'UTC')->toIso8601String() : null;
         return ['attendance' => ['employee_id' => (int) $day['employee_id'], 'day' => (string) $day['day'], 'status' => (string) $day['status'],
             'checked_in_at' => $time($day['checked_in_at']), 'checked_out_at' => $time($day['checked_out_at'])]];
+    }
+
+    /**
+     * Goods received on the device's "إضافة بضاعة" page: the dashboard's own receipt (BranchStock::receive, its checks
+     * and stock movement) under the page's operation number, dated when the device recorded it rather than when the
+     * sync reached the dashboard. A receipt the page saved online before the connection dropped is the same receipt.
+     */
+    private function stockReceive(User $actor, string $branch, string $id, Carbon $when, array $data): array
+    {
+        $data = Validator::make($data, [
+            'ingredient_id' => 'required|integer|min:1', 'unit' => 'required|in:kg,piece', 'quantity' => 'required|string|max:16',
+            'supplier' => 'nullable|string|max:150', 'notes' => 'nullable|string|max:500',
+        ])->validate();
+        $command = DB::table('branch_operation_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first(['result']);
+        $result = $command ? (json_decode($command->result, true) ?: []) : null;
+        if (! $result || empty($result['receipt'])) {
+            $values = ['branch' => $branch, 'idempotency_key' => $id, 'ingredient_id' => (int) $data['ingredient_id'], 'unit' => $data['unit'],
+                'quantity' => $data['quantity'], 'supplier' => trim((string) ($data['supplier'] ?? '')), 'notes' => trim((string) ($data['notes'] ?? ''))];
+            $result = app(BranchStock::class)->receive($values, $actor);
+            if (empty($result['replayed']) && ! empty($result['receipt']['id']) && isset($result['receipt']['ingredient_id']) && Schema::hasTable('branch_inventory_movements')) {
+                DB::table('branch_inventory_movements')->where('id', (int) $result['receipt']['id'])->where('source_id', $actor->id.':'.$id)
+                    ->update(['created_at' => $when->copy()->setTimezone('UTC')->toDateTimeString()]);
+            }
+        }
+        return ['receipt' => $result['receipt'], 'stock' => $result['stock'] ?? null];
     }
 
     /**

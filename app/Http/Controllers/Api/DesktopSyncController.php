@@ -23,6 +23,17 @@ class DesktopSyncController extends Controller
             $values['branches'] ?? null))->header('Cache-Control', 'no-store');
     }
 
+    /**
+     * The device stops its setup (the app first sends everything it recorded): its key no longer works, and the app
+     * can be set up again, with any account.
+     */
+    public function release(Request $request, DesktopSyncDevices $devices)
+    {
+        $device = $devices->authenticate($request->header('X-GO-ERP-Device'), $request->bearerToken());
+        $devices->release($device);
+        return response()->json(['released' => true])->header('Cache-Control', 'no-store');
+    }
+
     public function sync(Request $request, DesktopSyncDevices $devices, DesktopSyncOperations $operations, DesktopSyncState $state)
     {
         $device = $devices->authenticate($request->header('X-GO-ERP-Device'), $request->bearerToken());

@@ -342,7 +342,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -890,6 +890,36 @@ class DesktopSyncTest extends TestCase
             'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in', 'checked_in_at' => '2026-10-30 06:00:00'], User::find(4));
     }
 
+    public function test_goods_received_offline_reach_the_stock_once_dated_when_the_device_recorded_them(): void
+    {
+        require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php'); (new \CreateBranchInventoryRecipes)->up();
+        $onion = (int) DB::table('stock_ingredients')->where('name', 'بصل')->value('id');
+        $bread = (int) DB::table('stock_ingredients')->where('name', 'خبز بلدي')->value('id');
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $received = $this->operation('stock_receive', 4, ['ingredient_id' => $onion, 'unit' => 'kg', 'quantity' => '12.5', 'supplier' => 'سوق العبور',
+            'notes' => ''], ['occurred_at' => '2026-10-30T07:15:00Z']); // 09:15 in Cairo, synced at 14:00
+        $halfBread = $this->operation('stock_receive', 4, ['ingredient_id' => $bread, 'unit' => 'piece', 'quantity' => '2.5']);
+        $wrongUnit = $this->operation('stock_receive', 4, ['ingredient_id' => $bread, 'unit' => 'kg', 'quantity' => '3']);
+        $results = $this->sync($device, ['operations' => [$received, $halfBread, $wrongUnit]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'rejected', 'rejected'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame(['توريد القطع يجب أن يكون عددًا صحيحًا.', 'وحدة البضاعة مختلفة.'], [$results[1]['error'], $results[2]['error']]);
+        $this->assertSame(['12.5', $received['id']], [$results[0]['stock']['quantity'], $results[0]['receipt']['idempotency_key']]);
+        $movement = DB::table('branch_inventory_movements')->first();
+        $this->assertSame(['2026-10-30 07:15:00', 'سوق العبور', 12500000, 'receipt'],
+            [Carbon::parse($movement->created_at)->format('Y-m-d H:i:s'), $movement->supplier, (int) $movement->quantity_units, $movement->source_type]);
+        // Sent again: the same receipt, never twice.
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$received]])->json()['results'][0]);
+        $this->assertSame(1, DB::table('branch_inventory_movements')->count());
+        // The page's own receipt reached the dashboard before the connection dropped; the device saved it under the same number.
+        $key = (string) Str::uuid();
+        $this->actingAs(User::find(4), 'admin')->postJson('/admin/branch-stock/receive', ['branch' => 'f:100', 'idempotency_key' => $key,
+            'ingredient_id' => $onion, 'unit' => 'kg', 'quantity' => '1', 'supplier' => '', 'notes' => ''])->assertOk();
+        $same = $this->operation('stock_receive', 4, ['ingredient_id' => $onion, 'unit' => 'kg', 'quantity' => '1', 'supplier' => '', 'notes' => ''], ['id' => $key]);
+        $this->assertSame('applied', $this->sync($device, ['operations' => [$same]])->json()['results'][0]['status']);
+        $this->assertSame(2, DB::table('branch_inventory_movements')->count());
+        $this->assertSame(13500000, (int) DB::table('branch_inventory')->where('ingredient_id', $onion)->value('quantity_units'));
+    }
+
     /** The dashboard page "Desktop program", rendered inside a bare layout (the full dashboard layout needs every table). */
     private function programPage(array $data): string
     {
@@ -915,6 +945,7 @@ class DesktopSyncTest extends TestCase
         $this->assertStringContainsString('تحميل التطبيق <bdi>1.10.0</bdi>', $page);
         $this->assertStringContainsString('href="'.$url('a').'"', $page);
         $this->assertStringContainsString('تحميل النسخة السابقة <bdi>1.9.0</bdi>', $page);
+        $this->assertStringContainsString('«إعادة تجهيز الجهاز بحساب آخر»', $page, 'How to set the device up again with another account');
         foreach (['تحديث التطبيق', 'go-erp-releases.js', 'data-go-erp-release', 'data-desktop-program'] as $old) {
             $this->assertStringNotContainsString($old, $page, 'The old program\'s build and device setup are not offered');
         }
@@ -927,6 +958,20 @@ class DesktopSyncTest extends TestCase
         $local = $this->programPage(['local' => true, 'release' => null, 'manualOwner' => false]);
         $this->assertStringContainsString('data-desktop-program', $local);
         $this->assertStringNotContainsString('data-go-erp-downloads', $local);
+    }
+
+    public function test_a_device_released_to_be_set_up_again_stops_and_any_account_sets_it_up_again(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $headers = ['X-GO-ERP-Device' => $device['device']['id'], 'Authorization' => 'Bearer '.$device['token']];
+        $this->withHeaders($headers)->postJson('/api/desktop-sync/v1/release', [])->assertOk()->assertExactJson(['released' => true]);
+        $this->assertNotNull(DB::table('desktop_sync_devices')->where('id', $device['device']['id'])->value('revoked_at'));
+        $this->sync($device, [])->assertStatus(401);
+        $this->withHeaders($headers)->postJson('/api/desktop-sync/v1/release', [])->assertStatus(401);
+        // The same computer set up again, with the owner's account this time.
+        $again = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->assertOk()->json();
+        $this->assertNotSame($device['device']['id'], $again['device']['id']);
+        $this->sync($again, ['want_users' => true])->assertOk();
     }
 
     public function test_a_revoked_device_and_a_wrong_token_are_refused(): void

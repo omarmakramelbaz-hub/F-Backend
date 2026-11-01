@@ -83,6 +83,13 @@ class DesktopSyncDevices
         return ['choose_branches' => false, 'device' => ['id' => $id, 'branches' => $branches], 'token' => $token];
     }
 
+    /** The device's own request to stop: from now on its key is refused, as for a device the owner stopped. */
+    public function release(object $device): void
+    {
+        DB::table('desktop_sync_devices')->where('id', $device->id)->whereNull('revoked_at')
+            ->update(['revoked_at' => now('UTC'), 'updated_at' => now('UTC')]);
+    }
+
     public function authenticate(?string $id, ?string $token): object
     {
         abort_unless($this->ready(), 503, 'خدمة برنامج الكمبيوتر لم تُجهز بعد على السرفر.');
