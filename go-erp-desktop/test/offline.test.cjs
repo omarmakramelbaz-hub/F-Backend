@@ -440,6 +440,94 @@ test('the employees page records the day\'s leave or absence on the device, with
   assert.deepEqual(store.rejectedOperations().map((item) => item.kind), ['غياب أو إجازة']);
 });
 
+// ---- the stock page (إضافة بضاعة): goods received on the device while offline ----
+const { StockOffline } = require('../src/main/offline/stock.cjs');
+
+test('the stock page records goods received on the device, shows them on the balances and recovers them', async () => {
+  let clock = Date.parse('2026-10-30T07:15:00Z'); // 09:15 in Cairo
+  const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
+  store.saveDevice({ id: 'device-1', code: 'A1B', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'المعادي', address: '', phone: '' }]);
+  store.replaceUsers([ACCOUNT], 'h');
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1', attendance: [], catalog: MENU }]);
+  const cache = new PageCache(':memory:', { now: () => new Date(clock) });
+  const page = new StockOffline({ store, cache, origin: ORIGIN, now: () => new Date(clock) });
+  const employees = new EmployeesOffline({ store, cache, origin: ORIGIN, now: () => new Date(clock), recoverers: [(entry, user) => page.recovered(entry, user)] });
+  const ask = async (method, path, body = null, handler = page) => {
+    const url = new URL(ORIGIN + path);
+    return handler.answer(handler.match(method, url.pathname), { user: ACCOUNT, url, body });
+  };
+  // The branch's list as the page last read it online (BranchInventory::listing).
+  const onion = { id: 16, name: 'بصل', unit: 'kg', unit_label: 'كجم' };
+  const bread = { id: 20, name: 'خبز بلدي', unit: 'piece', unit_label: 'قطعة' };
+  const listing = (onionQuantity) => ({ success: true, branch: { value: 'f:100', kind: 'f', id: 100, name: 'المعادي' },
+    items: [{ ...onion, stock: { ingredient_id: 16, unit: 'kg', unit_label: 'كجم', quantity: onionQuantity, negative: false, revision: 4, minimum: '5' } },
+      { ...bread, stock: { ingredient_id: 20, unit: 'piece', unit_label: 'قطعة', quantity: '0', negative: false, revision: 0 } }],
+    ingredients: [onion, bread], can_manage_recipes: false, unconfigured_count: 0, unmapped_sales: [], legacy: [],
+    pagination: { page: 1, last_page: 1, total: 2 },
+    history: [{ id: 9, name: 'بصل', unit_label: 'كجم', quantity: '3.25', balance: '3.25', source_type: 'receipt', source_id: '4:x', actor: 'كاشير المعادي',
+      supplier: null, notes: null, created_at: '2026-10-29 20:00' }] });
+  const address = '/admin/branch-stock/data?branch=f:100&search=&page=1';
+  cache.put('u:4', 'data', ORIGIN + address, 'application/json', Buffer.from(JSON.stringify(listing('3.25'))));
+  clock += 60000;
+  const key = '5b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f';
+  const receipt = { branch: 'f:100', ingredient_id: 16, quantity: '12.5', unit: 'kg', supplier: 'سوق العبور', notes: '', idempotency_key: key };
+
+  // Until the server takes receipts from devices, the page says the device needs the internet once.
+  const early = await ask('POST', '/admin/branch-stock/receive', receipt);
+  assert.equal(early.status, 422);
+  assert.match(early.json.message, /مرة واحدة/);
+  store.set('server_kinds', ['stock_receive']);
+
+  const saved = await ask('POST', '/admin/branch-stock/receive', receipt);
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  // The page checks the answer is its own receipt (branch, item, unit, quantity, operation number).
+  assert.deepEqual([saved.json.receipt.branch, saved.json.receipt.ingredient_id, saved.json.receipt.unit, saved.json.receipt.quantity, saved.json.receipt.idempotency_key],
+    ['f:100', 16, 'kg', '12.5', key]);
+  assert.deepEqual([saved.json.stock.quantity, saved.json.stock.unit_label, saved.json.stock.minimum], ['15.75', 'كجم', '5']);
+  const [operation] = store.pendingOperations(50, ['stock_receive']);
+  assert.deepEqual([operation.id, operation.kind, operation.data], [key, 'stock_receive',
+    { ingredient_id: 16, unit: 'kg', quantity: '12.5', supplier: 'سوق العبور', notes: '' }]);
+  const again = await ask('POST', '/admin/branch-stock/receive', receipt);
+  assert.deepEqual([again.json.replayed, again.json.receipt.id, store.pendingOperations(50, ['stock_receive']).length], [true, saved.json.receipt.id, 1], 'Never twice');
+
+  // The dashboard's own checks.
+  const refused = async (values) => (await ask('POST', '/admin/branch-stock/receive', { ...receipt, idempotency_key: crypto.randomUUID(), ...values })).json.message;
+  assert.equal(await refused({ ingredient_id: 20, unit: 'piece', quantity: '2.5' }), 'توريد القطع يجب أن يكون عددًا صحيحًا.');
+  assert.equal(await refused({ ingredient_id: 20, unit: 'kg', quantity: '3' }), 'وحدة البضاعة مختلفة.');
+  assert.equal(await refused({ ingredient_id: 999 }), 'اختر صنفًا من قائمة البضاعة فقط.');
+  assert.equal(await refused({ quantity: '1.2345' }), 'أدخل كمية حتى ثلاث منازل عشرية.');
+  assert.equal(await refused({ quantity: '0' }), 'الكمية يجب أن تكون موجبة وحتى مليون.');
+  assert.equal((await ask('POST', '/admin/branch-stock/receive', { ...receipt, branch: 'f:101', idempotency_key: crypto.randomUUID() })).status, 403);
+
+  // The balances and the latest movements: the device's receipt on top, with the balance it left (Cairo time).
+  const list = (await ask('GET', address)).json;
+  assert.deepEqual(list.items.map((item) => item.stock.quantity), ['15.75', '0']);
+  assert.deepEqual([list.history[0].name, list.history[0].quantity, list.history[0].balance, list.history[0].supplier, list.history[0].created_at, list.history[0].source_type],
+    ['بصل', '12.5', '15.75', 'سوق العبور', '2026-10-30 09:16', 'receipt']);
+  assert.equal(list.history[1].id, 9);
+  // Another search uses the same list, filtered here.
+  const searched = (await ask('GET', '/admin/branch-stock/data?branch=f:100&search=' + encodeURIComponent('خبز') + '&page=1')).json;
+  assert.deepEqual(searched.items.map((item) => item.name), ['خبز بلدي']);
+
+  // The page's check of a receipt whose answer was lost goes through the employees page's address.
+  const recovered = (await ask('GET', `/admin/branch-operations/recover?branch=f:100&idempotency_key=${key}`, null, employees)).json;
+  assert.deepEqual([recovered.found, recovered.receipt.idempotency_key, recovered.receipt.quantity, recovered.stock.quantity], [true, key, '12.5', '15.75']);
+
+  // Sent: still added until the page reads the list from the dashboard again, then counted once.
+  clock += 60000;
+  store.applyResults([{ id: key, status: 'applied', receipt: { id: 77 }, stock: { quantity: '15.75' } }]);
+  assert.equal((await ask('GET', address)).json.items[0].stock.quantity, '15.75');
+  clock += 60000;
+  cache.put('u:4', 'data', ORIGIN + address, 'application/json', Buffer.from(JSON.stringify(listing('15.75'))));
+  assert.equal((await ask('GET', address)).json.items[0].stock.quantity, '15.75', 'Not counted twice');
+  // A receipt the dashboard refused is not added.
+  const second = { ...receipt, quantity: '2', idempotency_key: crypto.randomUUID() };
+  assert.equal((await ask('POST', '/admin/branch-stock/receive', second)).json.stock.quantity, '17.75');
+  store.applyResults([{ id: second.idempotency_key, status: 'rejected', error: 'وحدة البضاعة مختلفة.' }]);
+  assert.equal((await ask('GET', address)).json.items[0].stock.quantity, '15.75');
+  assert.deepEqual(store.rejectedOperations().map((item) => item.kind), ['إضافة بضاعة']);
+});
+
 // ---- the dine-in page (الصالة) answered from the device while offline ----
 const { ServiceOffline, LOCAL_TICKET_BASE, LOCAL_KITCHEN_BASE } = require('../src/main/offline/service.cjs');
 

@@ -412,3 +412,27 @@ test('accounts sign in with the dashboard rule, also when the stored mobile star
   store.replaceUsers([{ ...CASHIER, id: 7, mobile: '0502353511' }], 'hash-3');
   assert.equal(who('0502353511'), 7, 'Typed exactly as stored is accepted when no other account matches');
 });
+
+test('setting the device up again waits for unsent operations and open orders, then forgets only the setup', () => {
+  const { store } = fixture();
+  const cashier = store.user(4);
+  assert.equal(store.passwordHash(4), CASHIER.password_hash, 'The password is checked against the downloaded hash');
+  assert.deepEqual(store.releaseBlockers(), { pending: 0, open: 0 });
+  // An order still open here, then paid: its sale is waiting to be sent.
+  const ticket = store.saveTicket(cashier, { branch: 'f:100', channel: 'takeaway', data: {
+    items: [{ product_id: 2, quantity_mode: 'piece', quantity: '1' }], discount: '0.00', cash_received: '' } });
+  assert.deepEqual(store.releaseBlockers(), { pending: 0, open: 1 });
+  store.deleteTicket(cashier, ticket.id);
+  sell(store, cashier);
+  assert.deepEqual(store.releaseBlockers(), { pending: 1, open: 0 });
+  const [operation] = store.pendingOperations();
+  store.applyResults([{ id: operation.id, status: 'applied', receipt: { id: 9, number: 'POS-000009' } }]);
+  assert.deepEqual(store.releaseBlockers(), { pending: 0, open: 0 });
+  // Dropping the setup keeps the invoices; the next setup reads accounts and saved customers from the start.
+  store.set('customers_cursor', '2026-10-30T09:00:00Z#5');
+  store.forgetDevice();
+  assert.equal(store.device(), null);
+  assert.equal(store.userCount(), 0);
+  assert.equal(store.customersCursor(), null);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS c FROM tickets WHERE status = 'paid'").get().c, 1, 'Invoices stay on the device');
+});

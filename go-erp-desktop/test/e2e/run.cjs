@@ -322,6 +322,35 @@ async function cashierDevice() {
     [{ category: 'electricity', amount_cents: 12050, status: 'pending', actor_id: 4 }, { category: 'packaging', amount_cents: 7500, status: 'approved', actor_id: 1 }]);
   assert.deepEqual(serverRows("SELECT kind, amount_cents FROM takeaway_till_entries WHERE kind IN ('expense', 'cash_in', 'cash_out') ORDER BY id")
     .map((row) => ({ ...row })), [{ kind: 'expense', amount_cents: -7500 }, { kind: 'cash_in', amount_cents: 50000 }, { kind: 'cash_out', amount_cents: -10000 }]);
+
+  // The same computer set up again with another account: refused while an order is still open on it (nothing may be
+  // lost), then the old setup is stopped on the server and the setup screen takes the other branch's cashier.
+  await page.getByRole('button', { name: 'الإعدادات والمزامنة' }).click();
+  await page.getByRole('button', { name: 'إعادة تجهيز الجهاز بحساب آخر' }).click();
+  await page.getByLabel('كلمة مرور المالك للتأكيد').fill('root-pass');
+  await page.getByRole('button', { name: 'إلغاء التجهيز الحالي' }).click();
+  await page.locator('[role=alert]', { hasText: 'طلب لسه مفتوح على الجهاز' }).waitFor({ timeout: 30000 }).catch(async (error) => {
+    console.log('DEBUG reset', (await page.locator('body').innerText().catch((e) => 'ERR ' + e.message)).slice(0, 1500),
+      JSON.stringify(await page.evaluate(() => window.goerp.call('tickets:open')).catch((e) => 'ERR ' + e.message)).slice(0, 500));
+    await shot(page, '12b-device-reset-debug');
+    throw error;
+  });
+  await shot(page, '12b-device-reset-refused-open-order');
+  assert.equal(serverRows('SELECT COUNT(*) AS c FROM desktop_sync_devices WHERE revoked_at IS NOT NULL')[0].c, 0, 'Nothing changes while an order is open');
+  for (const ticket of await page.evaluate(() => window.goerp.call('tickets:open'))) {
+    await page.evaluate((id) => window.goerp.call('tickets:delete', { id }), ticket.id);
+  }
+  await page.getByRole('button', { name: 'إلغاء التجهيز الحالي' }).click();
+  await page.getByRole('heading', { name: 'تجهيز الجهاز', exact: true }).waitFor({ timeout: 60000 });
+  assert.equal(serverRows('SELECT COUNT(*) AS c FROM desktop_sync_devices WHERE revoked_at IS NOT NULL')[0].c, 1, 'The old setup is stopped on the server');
+  await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill('01000000005');
+  await page.getByLabel('كلمة المرور', { exact: true }).fill('other-pass');
+  await page.getByLabel('اسم الجهاز').fill('كاشير مدينة نصر');
+  await page.getByRole('button', { name: 'تجهيز الجهاز', exact: true }).click();
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+  await signIn(page, '01000000005', 'other-pass');
+  assert.deepEqual(serverRows('SELECT branches FROM desktop_sync_devices WHERE revoked_at IS NULL').map((row) => row.branches), ['["f:101"]']);
+  await shot(page, '12c-device-set-up-again');
   await app.close();
   assert.deepEqual(problems, []);
 }
@@ -427,6 +456,9 @@ async function dashboardOffline() {
   await until(() => saved('/admin/employees') && deviceRows(userData, 'dashboard-copy.sqlite',
     "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND url LIKE '%/dashboard/js/branch-operations.js%'")[0].c === 1,
   'the employees page and its script are saved for offline use', 40000);
+  await until(() => saved('/admin/branch-stock') && deviceRows(userData, 'dashboard-copy.sqlite',
+    "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND url LIKE '%/dashboard/js/branch-stock.js%'")[0].c === 1,
+  'the stock page and its script are saved for offline use', 40000);
   await until(() => saved('/admin/dining') && saved('/admin/phone-orders') && deviceRows(userData, 'dashboard-copy.sqlite',
     "SELECT COUNT(*) AS c FROM entries WHERE kind = 'file' AND (url LIKE '%/dashboard/js/dining-pos.js%' OR url LIKE '%/dashboard/js/phone-orders.js%')")[0].c === 2,
   'the dine-in and delivery pages and their scripts are saved for offline use', 40000);
@@ -571,6 +603,27 @@ async function dashboardOffline() {
     throw error;
   });
   assert.equal(deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM outbox WHERE kind = 'attendance_status' AND status = 'pending'")[0].c, 1);
+  // The stock page offline: 12.5 kg of onions received, from the dashboard's own page.
+  await inDashboard(app, "location.href = '/admin/branch-stock'");
+  const stockPage = (code) => inDashboard(app, `(() => { const root = document.querySelector('#branch-stock'); ${code} })()`);
+  await until(async () => await stockPage("return !!root && Array.from(root.querySelectorAll('[data-stock-product] option')).some((o) => o.textContent.includes('بصل'))")
+    .catch(() => false), 'the stock page opens offline with its items', 30000);
+  // Submitted once the page is ready (it ignores a submit while it still loads); never again once the device has it.
+  await until(async () => {
+    if (deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM journal WHERE kind = 'stock'")[0].c > 0) return true;
+    await stockPage(`const select = root.querySelector('[data-stock-product]');
+      select.value = Array.from(select.options).find((o) => o.textContent.includes('بصل')).value; select.dispatchEvent(new Event('change', { bubbles: true }));
+      const form = root.querySelector('[data-stock-form]'); form.elements.quantity.value = '12.5'; form.elements.unit.value = 'kg';
+      form.elements.supplier.value = 'سوق العبور'; root.querySelector('[data-stock-save]').click();`).catch(() => {});
+    return false;
+  }, 'the goods received are saved on the device', 30000);
+  await until(async () => await stockPage("return /تمت إضافة البضاعة. الرصيد الآن: 12.5 كجم/.test(root.querySelector('[data-stock-message]').textContent)")
+    .catch(() => false), 'the page shows the new balance', 20000).catch(async (error) => {
+    console.log('DEBUG stock', String(await stockPage("return JSON.stringify({ message: root.querySelector('[data-stock-message]').textContent, current: (root.querySelector('[data-stock-current]') || {}).textContent })").catch((e) => 'ERR ' + e.message)));
+    throw error;
+  });
+  await dashboardShot(app, '17b-dashboard-stock-offline');
+  assert.equal(deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM outbox WHERE kind = 'stock_receive' AND status = 'pending'")[0].c, 1);
   const report = async (label) => {
     console.log(`DEBUG ${label}`, String(await inDashboard(app, `JSON.stringify({ url: location.href,
       message: (document.querySelector('[data-dining-message] span, [data-phone-message] span, [role=status]') || {}).textContent,
@@ -729,6 +782,13 @@ async function dashboardOffline() {
     'the offline absence reaches the dashboard', 40000);
   assert.equal(serverRows('SELECT SUM(amount_cents) AS c FROM branch_employee_entries WHERE employee_id = 51 AND voided_at IS NULL')[0].c, 30000,
     "with the branch's absence deduction");
+  // The goods received offline: one receipt on the branch's stock, dated when the device recorded it.
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_inventory_movements WHERE source_type = 'receipt' AND quantity_units = 12500000")[0].c === 1,
+    'the goods received offline reach the dashboard', 40000);
+  const movement = serverRows("SELECT created_at, supplier, balance_units FROM branch_inventory_movements WHERE source_type = 'receipt'")[0];
+  const recorded = deviceRows(userData, 'goerp.sqlite', "SELECT created_at FROM journal WHERE kind = 'stock'")[0].created_at;
+  assert.deepEqual([movement.supplier, movement.balance_units, movement.created_at],
+    ['سوق العبور', 12500000, new Date(recorded).toISOString().slice(0, 19).replace('T', ' ')]);
   // The dine-in order opened offline arrives as one invoice; the dashboard's own orders are closed once, with what the device did.
   const local = deviceRows(userData, 'goerp.sqlite', "SELECT id FROM outbox WHERE kind = 'sale' AND json_extract(payload, '$.data.channel') = 'dine'")[0];
   await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${local.id}' AND channel = 'dine' AND total_cents = 20500`)[0].c === 1,

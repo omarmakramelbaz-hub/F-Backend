@@ -37,12 +37,28 @@ class Store {
 
   device() { return this.get('device'); }
 
-  /** Drops the device's sign-up and downloaded accounts; invoices and unsent operations stay. */
+  /**
+   * Drops the device's sign-up and downloaded accounts; invoices and unsent operations stay. The saved delivery
+   * customers are read again from the start by the next setup (it may cover other branches).
+   */
   forgetDevice() {
     transaction(this.db, () => {
-      this.db.prepare("DELETE FROM meta WHERE key IN ('device', 'users_hash')").run();
+      this.db.prepare("DELETE FROM meta WHERE key IN ('device', 'users_hash', 'customers_cursor')").run();
       this.db.prepare('DELETE FROM users').run();
+      this.db.prepare('DELETE FROM directory').run();
     });
+  }
+
+  /** What dropping this device's setup now would leave behind: operations not sent yet, and orders still open here. */
+  releaseBlockers() {
+    return { pending: this.db.prepare("SELECT COUNT(*) AS c FROM outbox WHERE status = 'pending'").get().c,
+      open: this.db.prepare("SELECT COUNT(*) AS c FROM tickets WHERE status = 'open'").get().c };
+  }
+
+  /** The downloaded dashboard password hash of an account on this device (to confirm it is really that person). */
+  passwordHash(userId) {
+    const row = this.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId);
+    return row ? row.password_hash : null;
   }
 
   replaceUsers(users, hash) {
@@ -725,6 +741,35 @@ class Store {
     return this.addJournal(actor, branch, 'expense', amount, data, { category_name: category.name }, options.id);
   }
 
+  /**
+   * Goods received on the dashboard's stock page offline (BranchInventory::receive; the page checked the item and the
+   * quantity), sent to the dashboard as stock_receive under the page's operation number.
+   */
+  recordStockReceipt(actor, branch, values, options = {}) {
+    if (options.id) {
+      const existing = this.journalEntry(options.id);
+      if (existing) {
+        if (existing.kind !== 'stock' || existing.actor_id !== actor.id || existing.branch !== branch) {
+          const error = new Error('رقم العملية مستخدم لعملية مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ...existing, replayed: true };
+      }
+    }
+    this.requireBranch(actor, branch, 'can_checkout');
+    const data = { ingredient_id: Number(values.ingredient_id), unit: values.unit, quantity: String(values.quantity),
+      supplier: String(values.supplier || ''), notes: String(values.notes || '') };
+    return this.addJournal(actor, branch, 'stock', 0, data, { units: values.units, name: values.name, unit_label: values.unit_label },
+      options.id, 'stock_receive');
+  }
+
+  /** Goods received on this device for a branch, oldest first. */
+  deviceStockReceipts(branch) {
+    return this.db.prepare("SELECT * FROM journal WHERE kind = 'stock' AND branch = ? ORDER BY seq").all(branch)
+      .map((row) => ({ ...row, data: JSON.parse(row.data) }));
+  }
+
   /** Cash a manager puts in or takes out of the drawer, with its reason. */
   recordTill(actor, branch, values) {
     this.requireBranch(actor, branch, 'can_manage');
@@ -1006,7 +1051,8 @@ class Store {
   rejectedOperations() {
     const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف', attendance_status: 'غياب أو إجازة',
       ticket_settle: 'تحصيل طلب', ticket_open: 'نقل طلب للداشبورد', ticket_action: 'إجراء على طلب', ticket_dispatch: 'تسليم طلب للمندوب',
-      ticket_batch: 'تحصيل طلبات المندوب', ticket_save: 'تعديل طلب', ticket_cancel: 'إلغاء طلب', customer_save: 'بيانات عميل' };
+      ticket_batch: 'تحصيل طلبات المندوب', ticket_save: 'تعديل طلب', ticket_cancel: 'إلغاء طلب', customer_save: 'بيانات عميل',
+      stock_receive: 'إضافة بضاعة' };
     return this.db.prepare(`SELECT o.id, o.kind, o.last_error, o.updated_at, t.local_number, t.branch, t.totals, j.amount_cents, j.branch AS journal_branch
       FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id LEFT JOIN journal j ON j.id = o.journal_id
       WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()

@@ -23,12 +23,14 @@ const wall = (iso) => (iso ? CAIRO.format(new Date(iso)) : null);
 const utc = (iso) => (iso ? new Date(iso).toISOString().slice(0, 19).replace('T', ' ') : null);
 
 class EmployeesOffline {
-  constructor({ store, cache, origin, now = () => new Date(), kick = () => {} }) {
+  /** recoverers: other pages that check a lost answer through the same address (e.g. goods received). */
+  constructor({ store, cache, origin, now = () => new Date(), kick = () => {}, recoverers = [] }) {
     this.store = store;
     this.cache = cache;
     this.origin = origin;
     this.now = now;
     this.kick = kick;
+    this.recoverers = recoverers;
   }
 
   match(method, pathname) {
@@ -89,6 +91,12 @@ class EmployeesOffline {
     const user = this.user({ user: who });
     const key = url.searchParams.get('idempotency_key') || '';
     const entry = UUID.test(key) ? this.store.journalEntry(key) : null;
+    if (entry && entry.kind !== 'attendance' && entry.branch === (url.searchParams.get('branch') || '')) {
+      for (const recover of this.recoverers) {
+        const answer = recover(entry, user);
+        if (answer) return json(answer);
+      }
+    }
     if (!entry || entry.kind !== 'attendance' || entry.actor_id !== user.id || entry.branch !== (url.searchParams.get('branch') || '')) {
       // The delivery board's hand-off to a courier and its batch collection, done on this device, are recovered the same way.
       const done = UUID.test(key) ? this.store.pageCommand(key) : null;

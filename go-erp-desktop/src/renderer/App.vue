@@ -52,7 +52,7 @@
       <CashView v-else-if="view === 'cash'" :key="'c' + info.session.branch" :session="info.session" @changed="refreshSync" />
       <AttendanceView v-else-if="view === 'attendance'" :key="'a' + info.session.branch" @changed="refreshSync" />
       <ReportsView v-else-if="view === 'reports'" :key="'t' + info.session.branch" />
-      <SettingsView v-else :info="info" :sync="sync" :sync-now="syncNow" />
+      <SettingsView v-else :info="info" :sync="sync" :sync-now="syncNow" @reset="refresh" />
     </main>
   </div>
 </template>

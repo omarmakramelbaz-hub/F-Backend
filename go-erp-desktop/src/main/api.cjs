@@ -46,6 +46,11 @@ class Api {
   sync(device, token, body) {
     return this.request('/api/desktop-sync/v1/sync', body, { 'X-GO-ERP-Device': device.id, Authorization: 'Bearer ' + token });
   }
+
+  /** The device gives up its setup: its key stops working, so it can be set up again (with any account). */
+  release(device, token) {
+    return this.request('/api/desktop-sync/v1/release', {}, { 'X-GO-ERP-Device': device.id, Authorization: 'Bearer ' + token });
+  }
 }
 
 module.exports = { Api, ApiError };

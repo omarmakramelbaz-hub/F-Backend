@@ -54,6 +54,8 @@ require_once database_path('migrations/2026_10_18_200000_scope_expense_categorie
 require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up();
 require_once database_path('migrations/2026_10_06_130000_create_phone_delivery_batches.php'); (new \CreatePhoneDeliveryBatches)->up();
 require_once database_path('migrations/2026_10_04_000001_create_pos_branch_print_jobs.php'); (new \CreatePosBranchPrintJobs)->up();
+// The stock page (إضافة بضاعة): the goods list, balances and movements.
+require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php'); (new \CreateBranchInventoryRecipes)->up();
 require_once database_path('migrations/2026_10_06_140000_add_employee_wallet_phone.php'); (new \AddEmployeeWalletPhone)->up();
 require_once database_path('migrations/2026_10_08_190000_add_employee_attendance_rules.php'); (new \AddEmployeeAttendanceRules)->up();
 require_once database_path('migrations/2026_10_18_160000_add_employee_part_time_schedule.php'); (new \AddEmployeePartTimeSchedule)->up();

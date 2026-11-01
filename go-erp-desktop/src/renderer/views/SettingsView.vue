@@ -70,6 +70,23 @@
           <label class="check"><input type="checkbox" v-model="autostart" @change="setAutostart"> تشغيل البرنامج تلقائيًا مع فتح ويندوز</label>
       <p class="muted small">نسخة احتياطية من بيانات الجهاز بتتعمل كل يوم، وبيتحفظ آخر ٧ أيام.</p>
     </section>
+
+    <section class="card">
+      <h2>إعادة تجهيز الجهاز</h2>
+      <p class="muted">لتجهيز الجهاز ده بحساب تاني (فرع تاني أو حساب الأونر): البرنامج بيبعت كل عمليات الجهاز للداشبورد الأول، وبعدها
+        يلغي التجهيز الحالي ويفتح شاشة تجهيز الجهاز، وتسجّل فيها بأي حساب من الداشبورد. محتاج إنترنت، ومن غير فواتير أو طلبات مفتوحة على الجهاز.</p>
+      <form v-if="releasing" class="form-grid" @submit.prevent="release">
+        <label>كلمة مرور {{ info.session.user.name }} للتأكيد
+          <input v-model="releasePassword" type="password" autocomplete="current-password" required :disabled="releaseBusy">
+        </label>
+        <div class="actions">
+          <button class="danger-outline" :disabled="releaseBusy || !releasePassword">{{ releaseBusy ? 'جاري إرسال العمليات للداشبورد…' : 'إلغاء التجهيز الحالي' }}</button>
+          <button type="button" class="ghost" :disabled="releaseBusy" @click="releasing = false; releaseError = ''">رجوع</button>
+        </div>
+      </form>
+      <div v-else class="actions"><button type="button" class="ghost" @click="releasing = true">إعادة تجهيز الجهاز بحساب آخر</button></div>
+      <p v-if="releaseError" class="error small" role="alert">{{ releaseError }}</p>
+    </section>
   </div>
 </template>
 
@@ -79,6 +96,26 @@ import { call, since, dateTime } from '../api.js';
 import SyncBadge from '../components/SyncBadge.vue';
 
 const props = defineProps({ info: Object, sync: Object, syncNow: Function });
+const emit = defineEmits(['reset']);
+const releasing = ref(false);
+const releaseBusy = ref(false);
+const releasePassword = ref('');
+const releaseError = ref('');
+
+/** Drops this device's setup (after sending everything) so it can be set up again with another account. */
+async function release() {
+  releaseError.value = '';
+  releaseBusy.value = true;
+  try {
+    await call('setup:release', { password: releasePassword.value });
+    releasePassword.value = '';
+    emit('reset');
+  } catch (problem) {
+    releaseError.value = problem.message;
+  } finally {
+    releaseBusy.value = false;
+  }
+}
 const busy = ref(false);
 const rejected = ref([]);
 const printers = ref([]);

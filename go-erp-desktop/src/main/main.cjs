@@ -15,6 +15,7 @@ const { DashboardOffline, warmUpScript } = require('./offline/interceptor.cjs');
 const { TakeawayOffline } = require('./offline/takeaway.cjs');
 const { ExpensesOffline } = require('./offline/expenses.cjs');
 const { EmployeesOffline } = require('./offline/employees.cjs');
+const { StockOffline } = require('./offline/stock.cjs');
 const { ServiceOffline } = require('./offline/service.cjs');
 const { DeliveryOffline } = require('./offline/delivery.cjs');
 
@@ -146,6 +147,54 @@ const handlers = {
     resetDashboard();
     sync.state.device_revoked = false;
     return true;
+  },
+
+  /**
+   * The person sets this device up again, e.g. with another account (another branch, or the owner's). Everything
+   * recorded here goes to the dashboard first; with anything still unsent, or an order still open here, nothing
+   * changes. Then the server stops the old setup and the app shows the setup screen.
+   */
+  'setup:release': async (values) => {
+    const session = requireSession();
+    if (!auth.verifyPassword(String((values && values.password) || ''), store.passwordHash(session.user.id))) {
+      throw new Error('كلمة المرور غير صحيحة.');
+    }
+    const device = store.device();
+    if (!device) throw new Error('الجهاز غير مجهز.');
+    const offline = new Error('إعادة تجهيز الجهاز محتاجة إنترنت عشان الجهاز يبعت كل عملياته للداشبورد الأول. اتصل بالإنترنت وحاول تاني.');
+    // Open dine-in and delivery orders move to the dashboard on one pass and are sent on the next.
+    for (let pass = 0; pass < 4; pass++) {
+      await sync.run();
+      if (sync.state.device_revoked) break;
+      if (sync.state.online === false) throw offline;
+      const left = store.releaseBlockers();
+      if (!left.pending && !left.open) break;
+    }
+    const left = store.releaseBlockers();
+    if (left.pending || left.open) {
+      const parts = [left.pending ? `${left.pending} عملية لسه ما اتبعتتش للداشبورد` : '', left.open ? `${left.open} طلب لسه مفتوح على الجهاز` : ''].filter(Boolean);
+      throw new Error(`فيه ${parts.join(' و')}. لما يتبعتوا أو يتقفلوا أعد المحاولة، عشان مفيش حاجة تضيع.`);
+    }
+    if (sync.state.device_revoked) {
+      console.log('[goerp] set up again: the server had already stopped this device');
+    } else {
+      try {
+        await api.release(device, openToken(device));
+        console.log('[goerp] set up again: the server stopped the old setup');
+      } catch (error) {
+        console.log(`[goerp] set up again: the server answered ${error.status}`);
+        if (error.status === 0) throw offline;
+        if (error.status === 404) throw new Error('إعادة تجهيز الجهاز محتاجة تحديث السرفر الأول. لم يتغير أي شيء على الجهاز.');
+        if (error.status !== 401) throw error; // 401: the server had already stopped it
+      }
+    }
+    store.forgetDevice();
+    pageCache.forgetAll();
+    current = null;
+    dashboardLogin = null;
+    await resetDashboard();
+    sync.state.device_revoked = false;
+    return { done: true };
   },
 
   'auth:login': async (values) => {
@@ -656,10 +705,12 @@ app.whenReady().then(() => {
   sync = new SyncEngine({ store, api, token: () => openToken(store.device()) });
   const origin = new URL(SERVER).origin;
   pageCache = new PageCache(path.join(app.getPath('userData'), 'dashboard-copy.sqlite'), { now });
+  const stockPage = new StockOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() });
   offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
     pages: [new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
       new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
-      new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
+      stockPage,
+      new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), recoverers: [(entry, user) => stockPage.recovered(entry, user)] }),
       new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'dine' }),
       new DeliveryOffline({ store, origin, now, kick: () => sync.kick() })],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
