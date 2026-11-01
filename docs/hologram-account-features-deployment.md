@@ -29,15 +29,24 @@ bash "$go_account_run" "$go_account_revision" --apply
 
 `--check` is an optional read-only source/host preflight. `--apply` includes those
 checks, so a separate probe step is unnecessary. The manifest contains exactly
-13 bounded application changes and 10 small root worker/probe/assets files.
-The model weights are downloaded only from the audio agent's pinned manifest,
+12 bounded application changes and 10 small root worker/probe/assets files.
+The model weights are downloaded only from the pinned assets manifest,
 outside the web root, when ABI/capacity permit generation.
+
+The provider loads the standalone voice routes through Laravel's cache-aware
+`loadRoutesFrom` method. The route file declares its own `admin` prefix and
+`web`, `lang`, and `IsAdmin` middleware. Legacy includes inside another route
+group are ignored, and a per-application marker prevents duplicate registration.
+Production `routes/admin.php` is excluded from both the deployment manifest and
+its allowed paths; its contents and metadata remain untouched.
 
 The installer preserves unrelated production source, snapshots existing PHP route
 caches, applies atomic bounded changes, clears scoped routes/views as `fasakha`,
 and prewarms only dashboard account types in central plus every validated active
 tenant. Tenant config caches and their signatures remain untouched. A runtime
-validation failure rolls application source and saved route caches back.
+validation failure rolls application source and saved route caches back. A fresh
+PHP process verifies exactly one status/audio route, each with its expected URI
+and all three required middleware after clearing routes.
 
 The worker scripts/assets are root:fasakha0640 inside root:fasakha0750 directories.
 Worker configuration/receipt are root-owned under `/etc/go-hologram-voice`.

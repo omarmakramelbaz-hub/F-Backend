@@ -26,12 +26,13 @@ ALLOWED = {
     'app/Console/Commands/PrewarmHomeHologramVoice.php',
     'config/home_hologram_voice.php',
     'routes/hologram_voice.php',
-    'routes/admin.php',
     'public/dashboard/js/home-hud.js',
     'public/dashboard/js/home-overview.js',
 }
-ROUTE_HOOK_BEFORE = "    Route::group([ 'middleware' => 'IsAdmin'], function () {\n        require __DIR__.'/owner_dashboards.php';\n"
-ROUTE_HOOK_AFTER = ROUTE_HOOK_BEFORE + "        require __DIR__.'/hologram_voice.php';\n"
+OBSERVER_BEFORE = "        User::observe(UserObserver::class);\n"
+OBSERVER_AFTER = OBSERVER_BEFORE + "        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n"
+LOADER_BEFORE = "        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n"
+LOADER_AFTER = LOADER_BEFORE + "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n"
 
 
 def digest(value):
@@ -86,15 +87,24 @@ def build():
         current = (ROOT / relative).read_bytes()
         prior = baseline(relative)
         if prior is None:
-            entries.append(encoded(relative, current))
+            item = encoded(relative, current)
+            if relative == 'routes/hologram_voice.php':
+                previous = subprocess.check_output(['git', 'show', '8a6c341c02d7e727389ac58e12cc72c9525d7b78:' + relative], cwd=ROOT)
+                item['upgrade_from_sha256'] = digest(previous)
+            entries.append(item)
         elif prior == current:
             raise RuntimeError('Release allowlist contains an unchanged path: ' + relative)
         else:
-            if relative == 'routes/admin.php':
-                old, new = ROUTE_HOOK_BEFORE.encode(), ROUTE_HOOK_AFTER.encode()
-                if prior.count(old) != 1 or current.count(new) != 1 or prior.replace(old, new, 1) != current:
-                    raise RuntimeError('Voice route must be the unique reviewed authenticated include')
-                edits = [dict(before=ROUTE_HOOK_BEFORE, after=ROUTE_HOOK_AFTER)]
+            if relative == 'app/Providers/AppServiceProvider.php':
+                edits = [dict(before=OBSERVER_BEFORE, after=OBSERVER_AFTER), dict(before=LOADER_BEFORE, after=LOADER_AFTER)]
+                reviewed = prior
+                for edit in edits:
+                    old, new = edit['before'].encode(), edit['after'].encode()
+                    if reviewed.count(old) != 1:
+                        raise RuntimeError('Provider hook must be unique')
+                    reviewed = reviewed.replace(old, new, 1)
+                if reviewed != current:
+                    raise RuntimeError('Unreviewed provider change')
             else:
                 edits = bounded(prior, current)
             entries.append(dict(path=relative, kind='patch', before_sha256=digest(prior),

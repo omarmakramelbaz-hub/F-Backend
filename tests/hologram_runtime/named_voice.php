@@ -101,5 +101,71 @@ try{
  $originalRoot=$voice->fixtureRoot;$voice->fixtureRoot=$originalRoot.'/blocked';file_put_contents($voice->fixtureRoot,'not a directory');same('unavailable',$freshLogin($actor)['state'],'Unwritable cache reports unavailable without breaking login');same(false,$voice->writePrewarmInventory([],[]),'Failed private inventory write cannot report successful rollout');
  Auth::guard('admin')->logout();$loginRequest=Request::create('https://fixture.invalid/admin/signin','POST',['email'=>'hologram-fixture@example.invalid','password'=>'FixtureOnly123']);$loginRequest->setLaravelSession($session);$app->instance('request',$loginRequest);$home=app(App\Http\Controllers\Dashboard\HomeController::class);same(302,$home->signin($loginRequest)->getStatusCode(),'Successful login remains independent of an unavailable voice spool');same(10,Auth::guard('admin')->id(),'Voice failure cannot prevent actual account authentication');
  $dashboard=Request::create('https://fixture.invalid/admin/dashboard');$dashboard->setLaravelSession($session);$app->instance('request',$dashboard);same(200,$home->index($dashboard,new HologramFixtureOverview(app(App\Services\Dashboard\TakeawayAccess::class)))->getStatusCode(),'Authenticated dashboard still loads when name audio is unavailable');same('unavailable',$capture->boot['greeting']['audio']['state'],'Failed preparation is explicit without another speaker/name');unlink($voice->fixtureRoot);$voice->fixtureRoot=$originalRoot;
+
+ // Exercise framework route loading rather than reproducing provider behavior.
+ // The standalone source must also survive legacy includes without nesting its
+ // admin prefix or exposing a route outside the dashboard guard.
+ $router=app('router');$savedRoutes=$router->getRoutes();
+ $routeFile=$root.'/routes/hologram_voice.php';$loadedKey='go.hologram.voice.routes.loaded';
+ $savedLoaded=$app->bound($loadedKey)?$app->make($loadedKey):null;
+ $hadView=$app->bound('view');$savedView=$hadView?$app->make('view'):null;
+ $routeTemp=sys_get_temp_dir().'/hologram-routes-'.bin2hex(random_bytes(6));mkdir($routeTemp,0700,true);
+ $cacheEnv=Illuminate\Support\Env::getRepository();$savedCacheEnv=$cacheEnv->get('APP_ROUTES_CACHE');
+ $assertVoiceRoutes=function($routes,string $reason):void{
+  if(method_exists($routes,'refreshNameLookups'))$routes->refreshNameLookups();
+  $named=array_values(array_filter($routes->getRoutes(),fn($route)=>str_starts_with((string)$route->getName(),'dashboard.hologram-voice.')));
+  same(2,count($named),$reason.': exactly two voice routes are registered');
+  foreach(['status','audio']as$endpoint){$route=$routes->getByName('dashboard.hologram-voice.'.$endpoint);same('admin/dashboard/hologram-voice/{ticket}/'.$endpoint,$route->uri(),$reason.': URI owns exactly one admin prefix');same(['web','lang','IsAdmin'],$route->gatherMiddleware(),$reason.': web session, language and real dashboard guard are explicit');same(['GET','HEAD'],$route->methods(),$reason.': only safe read methods are exposed');same('[a-f0-9]{64}',$route->wheres['ticket']??null,$reason.': opaque ticket is constrained before controller execution');}
+ };
+ $resetVoiceRoutes=function()use($router,$app,$loadedKey):void{$router->setRoutes(new Illuminate\Routing\RouteCollection());$app->forgetInstance($loadedKey);};
+ try{
+  $cacheEnv->clear('APP_ROUTES_CACHE');$cacheEnv->set('APP_ROUTES_CACHE',$routeTemp.'/cache/routes-v7.php');
+  $resetVoiceRoutes();
+  $app->instance('view',new class {public function composer($views,$callback):void{}});
+  Illuminate\Support\Facades\Route::get('/fixture-public',fn()=>null)->name('fixture.public');
+  (new App\Providers\AppServiceProvider($app))->boot();
+  $assertVoiceRoutes($router->getRoutes(),'Actual production provider boot');
+  same([],$router->getRoutes()->getByName('fixture.public')->gatherMiddleware(),'Standalone provider does not change unrelated route middleware');
+  $compiledVoiceRoutes=$router->getRoutes()->compile();
+
+  foreach(['before','after']as$order){
+   $resetVoiceRoutes();
+   if($order==='before'){
+    Illuminate\Support\Facades\Route::prefix('admin')->middleware('IsAdmin')->group(function()use($routeFile){require $routeFile;});
+    same(0,count($router->getRoutes()),'Legacy grouped include before provider does not register nested routes');
+    same(false,$app->bound($loadedKey),'Legacy grouped no-op cannot block later standalone registration');
+   }
+   $hologramRouteProvider->load($routeFile);
+   require $routeFile;
+   Illuminate\Support\Facades\Route::prefix('admin')->middleware('IsAdmin')->group(function()use($routeFile){require $routeFile;});
+   $hologramRouteProvider->load($routeFile);
+   $assertVoiceRoutes($router->getRoutes(),'Provider with repeated and legacy grouped includes '.$order);
+  }
+  $resetVoiceRoutes();require $routeFile;$hologramRouteProvider->load($routeFile);
+  $assertVoiceRoutes($router->getRoutes(),'Legacy top-level include before provider');
+  foreach(['/dashboard/hologram-voice/'.str_repeat('a',64).'/status','/admin/admin/dashboard/hologram-voice/'.str_repeat('a',64).'/audio','/admin/dashboard/hologram-voice/'.str_repeat('A',64).'/status','/admin/dashboard/hologram-voice/short/audio']as$invalidPath){try{$router->getRoutes()->match(Request::create('https://fixture.invalid'.$invalidPath));throw new RuntimeException('Unexpected voice route outside protected exact namespace');}catch(Symfony\Component\HttpKernel\Exception\NotFoundHttpException $expected){$checks++;}}
+
+  $resetVoiceRoutes();$cachePath=$app->getCachedRoutesPath();mkdir(dirname($cachePath),0700,true);file_put_contents($cachePath,'<?php /* Disposable cache-presence fixture. */');
+  same(true,$app->routesAreCached(),'Real Laravel Application detects disposable route cache');
+  $hologramRouteProvider->load($routeFile);
+  same(0,count($router->getRoutes()),'Real loadRoutesFrom skips source while route cache exists');
+  same(false,$app->bound($loadedKey),'Cached load skips source entirely rather than relying on the include guard');
+  $router->setCompiledRoutes($compiledVoiceRoutes);$hologramRouteProvider->load($routeFile);
+  $assertVoiceRoutes($router->getRoutes(),'Actual compiled route collection after cached provider skip');
+  unlink($cachePath);
+
+  $otherApp=new Illuminate\Foundation\Application($root);
+  $otherApp->instance('config',new Illuminate\Config\Repository(['app'=>['url'=>'https://another-fixture.invalid']]));
+  $otherApp->register(Illuminate\Events\EventServiceProvider::class);$otherApp->register(Illuminate\Filesystem\FilesystemServiceProvider::class);$otherApp->register(Illuminate\Routing\RoutingServiceProvider::class);
+  Illuminate\Support\Facades\Facade::clearResolvedInstance('router');Illuminate\Support\Facades\Facade::setFacadeApplication($otherApp);
+  same(false,$otherApp->bound($loadedKey),'A separate application does not inherit a process-global route-loaded flag');
+  (new HologramRouteProvider($otherApp))->load($routeFile);
+  $assertVoiceRoutes($otherApp->make('router')->getRoutes(),'Separate application route registration');
+ }finally{
+  Illuminate\Container\Container::setInstance($app);Illuminate\Support\Facades\Facade::setFacadeApplication($app);Illuminate\Support\Facades\Facade::clearResolvedInstance('router');
+  $router->setRoutes($savedRoutes);$cacheEnv->clear('APP_ROUTES_CACHE');if($savedCacheEnv!==null)$cacheEnv->set('APP_ROUTES_CACHE',$savedCacheEnv);$app->forgetInstance($loadedKey);if($savedLoaded!==null)$app->instance($loadedKey,$savedLoaded);
+  if($hadView)$app->instance('view',$savedView);else$app->forgetInstance('view');
+  app('files')->deleteDirectory($routeTemp);
+ }
  echo 'PASS authenticated named voice protocol: '.($checks-$before)." assertions\n";
 }finally{app()->forgetInstance('owner.dashboard.runtime');app('files')->deleteDirectory($voice->fixtureRoot);}

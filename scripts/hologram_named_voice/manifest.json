@@ -43,11 +43,15 @@
       "path": "app/Providers/AppServiceProvider.php",
       "kind": "patch",
       "before_sha256": "5d073092da81c63eb6343a1eff7518fb31244c002d1cfb838e09be93ccc3f031",
-      "after_sha256": "a3044db5abdfd9a87efa78c96ce7077f4de9caf66603916156c0bcd5557623a1",
+      "after_sha256": "e77e877d163384fff8acb28df10a804a243783dc2377fd37ac20f680f4188748",
       "edits": [
         {
-          "before": "    public function boot()\n    {\n        Paginator::useBootstrap();\n        User::observe(UserObserver::class);\n        User::observe(\\App\\Observers\\CustomerDirectoryUserObserver::class);\n        \\App\\Models\\UserAddress::observe(\\App\\Observers\\CustomerDirectoryAddressObserver::class);\n        Order::observe(\\App\\Observers\\CustomerDirectoryOrderObserver::class);\n        Order::observe(OrderCompetitionObserver::class);\n",
-          "after": "    public function boot()\n    {\n        Paginator::useBootstrap();\n        User::observe(UserObserver::class);\n        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n        User::observe(\\App\\Observers\\CustomerDirectoryUserObserver::class);\n        \\App\\Models\\UserAddress::observe(\\App\\Observers\\CustomerDirectoryAddressObserver::class);\n        Order::observe(\\App\\Observers\\CustomerDirectoryOrderObserver::class);\n        Order::observe(OrderCompetitionObserver::class);\n"
+          "before": "        User::observe(UserObserver::class);\n",
+          "after": "        User::observe(UserObserver::class);\n        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n"
+        },
+        {
+          "before": "        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n",
+          "after": "        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n"
         }
       ]
     },
@@ -168,24 +172,13 @@
       ]
     },
     {
-      "path": "routes/admin.php",
-      "kind": "patch",
-      "before_sha256": "50e94064c26c7c14389e501bdb217bcd2bcda6e4b6cfa5d17b7c0d6d6663ad05",
-      "after_sha256": "d2195e3e8b7ebfa19346f1d3c62c570ce88d5e025eeba2965e1aecbf7e860690",
-      "edits": [
-        {
-          "before": "    Route::group([ 'middleware' => 'IsAdmin'], function () {\n        require __DIR__.'/owner_dashboards.php';\n",
-          "after": "    Route::group([ 'middleware' => 'IsAdmin'], function () {\n        require __DIR__.'/owner_dashboards.php';\n        require __DIR__.'/hologram_voice.php';\n"
-        }
-      ]
-    },
-    {
       "path": "routes/hologram_voice.php",
       "kind": "new",
       "before_sha256": null,
-      "after_sha256": "83664f9609de03ec0a8cd2104f1e44a31c72e2938719ac04518a5895e0664c70",
+      "after_sha256": "a9ff409f9ca3fc7c580a2c66b60d7af2f950b437fcda88edea7c91532029a628",
       "encoding": "utf-8",
-      "content": "<?php\nuse App\\Http\\Controllers\\Dashboard\\HomeHologramVoiceController;\nuse Illuminate\\Support\\Facades\\Route;\n\n// Included inside the existing authenticated admin group; no actor/text/path input.\nRoute::get('dashboard/hologram-voice/{ticket}/status', [HomeHologramVoiceController::class, 'status'])\n    ->where('ticket', '[a-f0-9]{64}')->name('dashboard.hologram-voice.status');\nRoute::get('dashboard/hologram-voice/{ticket}/audio', [HomeHologramVoiceController::class, 'audio'])\n    ->where('ticket', '[a-f0-9]{64}')->name('dashboard.hologram-voice.audio');\n"
+      "content": "<?php\nuse App\\Http\\Controllers\\Dashboard\\HomeHologramVoiceController;\nuse Illuminate\\Support\\Facades\\Route;\n\n// The provider loads this standalone group with Laravel's route-cache guard.\n// A legacy include inside another group must not duplicate or alter its prefix.\nif (app('router')->getGroupStack() || app()->bound('go.hologram.voice.routes.loaded')) return;\napp()->instance('go.hologram.voice.routes.loaded', true);\n\nRoute::prefix('admin')->middleware(['web', 'lang', 'IsAdmin'])->group(function () {\n    Route::get('dashboard/hologram-voice/{ticket}/status', [HomeHologramVoiceController::class, 'status'])\n        ->where('ticket', '[a-f0-9]{64}')->name('dashboard.hologram-voice.status');\n    Route::get('dashboard/hologram-voice/{ticket}/audio', [HomeHologramVoiceController::class, 'audio'])\n        ->where('ticket', '[a-f0-9]{64}')->name('dashboard.hologram-voice.audio');\n});\n",
+      "upgrade_from_sha256": "83664f9609de03ec0a8cd2104f1e44a31c72e2938719ac04518a5895e0664c70"
     }
   ],
   "worker_files": [

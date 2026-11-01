@@ -127,7 +127,15 @@ $session=$app->make('session.store');$session->start();
 $app->make('redirect')->setSession($session);
 Illuminate\Support\Facades\Route::get('/admin/dashboard/overview',fn()=>null)->name('dashboard.overview');
 $app->make('router')->aliasMiddleware('IsAdmin',App\Http\Middleware\IsAdmin::class);
-Illuminate\Support\Facades\Route::prefix('admin')->middleware('IsAdmin')->group(function(){require dirname(__DIR__,2).'/routes/hologram_voice.php';});
+// Requests below already carry the isolated array session. Keep the real guard
+// and language middleware while checking the standalone file's web declaration.
+$app->make('router')->middlewareGroup('web',[]);
+$app->make('router')->aliasMiddleware('lang',App\Http\Middleware\lang::class);
+class HologramRouteProvider extends Illuminate\Support\ServiceProvider {
+    public function load(string $path): void {$this->loadRoutesFrom($path);}
+}
+$hologramRouteProvider=new HologramRouteProvider($app);
+$hologramRouteProvider->load(dirname(__DIR__,2).'/routes/hologram_voice.php');
 $app->make('router')->getRoutes()->refreshNameLookups();
 class HologramFixtureVoice extends App\Services\Dashboard\HomeHologramVoice {
     public string $fixtureRoot; public int $fixtureNow=1793563200; public ?string $fixtureScope=null;

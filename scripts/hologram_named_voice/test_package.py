@@ -20,9 +20,6 @@ MANIFEST = json.loads((HERE / 'manifest.json').read_text())
 MARKED = 'app/Http/Controllers/Dashboard/HomeController.php'
 MARKER = b'\n// Independent production adjustment preserved by V6 activation.\n'
 ROUTES = 'routes/admin.php'
-OWNER_ROUTES = b"        require __DIR__.'/owner_dashboards.php';\n"
-VOICE_ROUTES = b"        require __DIR__.'/hologram_voice.php';\n"
-AUTH_GROUP = b"    Route::group([ 'middleware' => 'IsAdmin'], function () {\n"
 
 
 class PackageTests(unittest.TestCase):
@@ -88,74 +85,106 @@ class PackageTests(unittest.TestCase):
                     expected += MARKER
                 self.assertEqual(change['after'], expected)
 
-    def test_route_install_preserves_live_insertions_before_inbox_and_original_auth_group(self):
-        insertions = [
-            b'\n',
-            b'\n        // Independently deployed authenticated route.\n',
-            b"        Route::get('live-account-status', [HomeController::class, 'overview'])->name('live-account-status');\n\n",
-            b"\n        require __DIR__.'/independent_admin_extension.php';\n\n",
+    def test_independent_live_admin_routes_are_untouched_during_install_and_retry(self):
+        self.assertNotIn(ROUTES, build.ALLOWED)
+        self.assertNotIn(ROUTES, DEPLOY.ALLOWED)
+        self.assertNotIn(ROUTES, {entry['path'] for entry in MANIFEST['files']})
+        variants = [
+            build.baseline(ROUTES),
+            b"<?php\r\n// Live deployment uses a different route layout.\r\nRoute::middleware(['IsAdmin'])->group(function () {\r\n    require __DIR__.'/independent_admin_routes.php';\r\n});\r\n",
+            b"<?php\n// No owner-dashboard or inbox anchors are required.\nRoute::get('/health', fn () => 'ok');\n",
         ]
-        for inserted in insertions:
-            for newline in [b'\n', b'\r\n']:
-                with self.subTest(inserted=inserted, newline=newline), tempfile.TemporaryDirectory() as temporary:
-                    project = Path(temporary)
-                    self.fixture(project)
-                    target = project / ROUTES
-                    original = target.read_bytes()
-                    self.assertEqual(original.count(OWNER_ROUTES), 1)
-                    live = original.replace(OWNER_ROUTES, OWNER_ROUTES + inserted, 1)
-                    live = live.replace(b'\n', newline)
-                    target.write_bytes(live)
-                    changes = DEPLOY.plan(project, MANIFEST)
-                    change = next(c for c in changes if c['path'] == ROUTES)
-                    expected = live.replace(OWNER_ROUTES.replace(b'\n', newline),
-                                            (OWNER_ROUTES + VOICE_ROUTES).replace(b'\n', newline), 1)
-                    self.assertEqual(change['after'], expected)
-                    self.assertEqual(target.read_bytes(), live, 'Planning must not write the live route file')
-                    self.assertIn((AUTH_GROUP + OWNER_ROUTES + VOICE_ROUTES).replace(b'\n', newline), change['after'])
-                    self.assertEqual(change['after'].count(b"require __DIR__.'/hologram_voice.php';"), 1)
-                    self.assertTrue(change['compatible_live_changes'])
-                    # A retry after interruption must preserve the live addition
-                    # and must not register the voice routes a second time.
-                    target.write_bytes(change['after'])
-                    repeated = next(c for c in DEPLOY.plan(project, MANIFEST) if c['path'] == ROUTES)
-                    self.assertEqual(repeated['before'], repeated['after'])
-
-    def test_route_install_refuses_unauthenticated_or_ambiguous_owner_hook_without_writes(self):
-        for replacement in [
-            AUTH_GROUP.replace(b"'IsAdmin'", b"'lang'"),
-            b'    // Authentication was removed locally.\n',
-            AUTH_GROUP + OWNER_ROUTES + b'    });\n' + AUTH_GROUP,
-        ]:
-            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as temporary:
-                project = Path(temporary)
-                originals = self.fixture(project)
-                target = project / ROUTES
-                live = originals[ROUTES].replace(AUTH_GROUP, replacement, 1)
-                target.write_bytes(live)
-                originals[ROUTES] = live
-                with self.assertRaisesRegex(RuntimeError, 'SOURCE_CHANGED.*routes/admin.php'):
-                    DEPLOY.plan(project, MANIFEST)
-                for relative, content in originals.items():
-                    self.assertEqual((project / relative).read_bytes(), content)
-                for entry in MANIFEST['files']:
-                    if entry['kind'] == 'new':
-                        self.assertFalse((project / entry['path']).exists())
-
-    def test_route_install_refuses_an_existing_voice_hook_outside_reviewed_authenticated_location(self):
-        for inserted in [
-            b"require __DIR__.'/hologram_voice.php';\n",
-            b"Route::group(['middleware' => 'lang'], function () {\n    require __DIR__.'/hologram_voice.php';\n});\n",
-        ]:
-            with self.subTest(inserted=inserted), tempfile.TemporaryDirectory() as temporary:
-                project = Path(temporary)
+        for live in variants:
+            with self.subTest(live=live[:80]), tempfile.TemporaryDirectory() as temporary:
+                stage = Path(temporary)
+                project = stage / 'project'
+                project.mkdir()
                 self.fixture(project)
                 target = project / ROUTES
-                live = target.read_bytes() + inserted
+                target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(live)
-                with self.assertRaisesRegex(RuntimeError, 'SOURCE_CHANGED.*routes/admin.php'):
-                    DEPLOY.plan(project, MANIFEST)
+                target.chmod(0o640)
+                original_stat = target.stat()
+                changes = DEPLOY.plan(project, MANIFEST)
+                self.assertNotIn(ROUTES, {change['path'] for change in changes})
+                DEPLOY.apply_plan(project, changes, stage / 'backup', (os.getuid(), os.getgid()), lambda: None)
                 self.assertEqual(target.read_bytes(), live)
+                self.assertEqual(target.stat().st_ino, original_stat.st_ino)
+                self.assertEqual(target.stat().st_mtime_ns, original_stat.st_mtime_ns)
+                self.assertEqual(target.stat().st_mode, original_stat.st_mode)
+                self.assertFalse((stage / 'backup' / ROUTES).exists())
+                self.assertTrue(all(change['before'] == change['after'] for change in DEPLOY.plan(project, MANIFEST)))
+                self.assertEqual(target.read_bytes(), live)
+
+    def test_manifest_cannot_reintroduce_admin_route_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.fixture(project)
+            bad = copy.deepcopy(MANIFEST)
+            bad['files'][0]['path'] = ROUTES
+            with self.assertRaisesRegex(RuntimeError, 'UNREVIEWED_PATH'):
+                DEPLOY.plan(project, bad)
+
+    def test_exact_prior_approved_voice_routes_upgrade_replay_and_rollback(self):
+        # Freeze the small 8a6 fixture here; the regression must not require that
+        # extra git object in a shallow checkout.
+        legacy_routes = b"""<?php
+use App\\Http\\Controllers\\Dashboard\\HomeHologramVoiceController;
+use Illuminate\\Support\\Facades\\Route;
+
+// Included inside the existing authenticated admin group; no actor/text/path input.
+Route::get('dashboard/hologram-voice/{ticket}/status', [HomeHologramVoiceController::class, 'status'])
+    ->where('ticket', '[a-f0-9]{64}')->name('dashboard.hologram-voice.status');
+Route::get('dashboard/hologram-voice/{ticket}/audio', [HomeHologramVoiceController::class, 'audio'])
+    ->where('ticket', '[a-f0-9]{64}')->name('dashboard.hologram-voice.audio');
+"""
+        provider_path = 'app/Providers/AppServiceProvider.php'
+        voice_path = 'routes/hologram_voice.php'
+        observer = b'        User::observe(UserObserver::class);\n'
+        legacy_provider = build.baseline(provider_path).replace(
+            observer, observer + b'        User::observe(\\App\\Observers\\HomeHologramVoiceObserver::class);\n', 1)
+        self.assertEqual(build.digest(legacy_routes), '83664f9609de03ec0a8cd2104f1e44a31c72e2938719ac04518a5895e0664c70')
+        self.assertEqual(build.digest(legacy_provider), 'a3044db5abdfd9a87efa78c96ce7077f4de9caf66603916156c0bcd5557623a1')
+        for fail_verification in [False, True]:
+            with self.subTest(fail_verification=fail_verification), tempfile.TemporaryDirectory() as temporary:
+                stage = Path(temporary)
+                project = stage / 'project'
+                project.mkdir()
+                originals = self.fixture(project)
+                for relative, content in [(provider_path, legacy_provider), (voice_path, legacy_routes)]:
+                    target = project / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(content)
+                    originals[relative] = content
+                changes = DEPLOY.plan(project, MANIFEST)
+                def verify():
+                    self.assertEqual((project / voice_path).read_bytes(), (build.ROOT / voice_path).read_bytes())
+                    self.assertEqual((project / provider_path).read_bytes(), (build.ROOT / provider_path).read_bytes())
+                    if fail_verification:
+                        raise RuntimeError('injected upgrade verification failure')
+                if fail_verification:
+                    with self.assertRaisesRegex(RuntimeError, 'injected upgrade verification failure'):
+                        DEPLOY.apply_plan(project, changes, stage / 'backup', (os.getuid(), os.getgid()), verify)
+                    for relative, content in originals.items():
+                        self.assertEqual((project / relative).read_bytes(), content)
+                    for entry in MANIFEST['files']:
+                        if entry['path'] not in originals:
+                            self.assertFalse((project / entry['path']).exists())
+                else:
+                    DEPLOY.apply_plan(project, changes, stage / 'backup', (os.getuid(), os.getgid()), verify)
+                    self.assertTrue(all(change['before'] == change['after'] for change in DEPLOY.plan(project, MANIFEST)))
+                    self.assertEqual((stage / 'backup' / voice_path).read_bytes(), legacy_routes)
+                    self.assertEqual((stage / 'backup' / provider_path).read_bytes(), legacy_provider)
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            self.fixture(project)
+            target = project / voice_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            unreviewed = legacy_routes + b'// Independent route changes must not be overwritten.\n'
+            target.write_bytes(unreviewed)
+            with self.assertRaisesRegex(RuntimeError, 'SOURCE_CHANGED.*routes/hologram_voice.php'):
+                DEPLOY.plan(project, MANIFEST)
+            self.assertEqual(target.read_bytes(), unreviewed)
 
     def test_failed_verification_restores_every_original_and_removes_new_files(self):
         with tempfile.TemporaryDirectory() as temporary:

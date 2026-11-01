@@ -32,7 +32,6 @@ ALLOWED = {
     'app/Console/Commands/PrewarmHomeHologramVoice.php',
     'config/home_hologram_voice.php',
     'routes/hologram_voice.php',
-    'routes/admin.php',
     'public/dashboard/js/home-hud.js',
     'public/dashboard/js/home-overview.js',
 }
@@ -96,7 +95,9 @@ def plan(project, manifest):
         kind = entry.get('kind')
         if kind == 'new':
             after = payload(entry)
-            if entry.get('before_sha256') is not None or before is not None and before != after:
+            approved_upgrade = (relative == 'routes/hologram_voice.php' and before is not None
+                and digest(before) == entry.get('upgrade_from_sha256'))
+            if entry.get('before_sha256') is not None or before is not None and before != after and not approved_upgrade:
                 raise ReviewError('GO_HOLOGRAM_SOURCE_CHANGED: ' + relative)
         elif kind == 'patch' and before is not None:
             if not re.fullmatch(r'[0-9a-f]{64}', entry.get('before_sha256', '')):
@@ -114,11 +115,6 @@ def plan(project, manifest):
                     raise ReviewError('GO_HOLOGRAM_PATCH_INVALID')
                 old = old.replace('\n', newline).encode('utf-8')
                 new = new.replace('\n', newline).encode('utf-8')
-                if relative == 'routes/admin.php' and b'hologram_voice.php' in before:
-                    # A previous approved insertion is safe to replay. A hook
-                    # elsewhere must never become a second or unauthenticated include.
-                    if before.count(b'hologram_voice.php') != 1 or before.count(new) != 1:
-                        raise ReviewError('GO_HOLOGRAM_SOURCE_CHANGED: ' + relative)
                 if after.count(new) == 1 and after.replace(new, b'', 1).count(old) == 0:
                     continue
                 if after.count(old) != 1 or after.count(new) != 0:
@@ -394,9 +390,13 @@ try {
         if($kernel->call('route:clear',[],$quiet)!==0||$kernel->call('view:clear',[],$quiet)!==0)throw new RuntimeException('CLEAR');
         echo json_encode(['ok'=>true]).PHP_EOL;exit;
     }
-    foreach(['dashboard.hologram-voice.status','dashboard.hologram-voice.audio'] as $name){
-        $route=app('router')->getRoutes()->getByName($name);
-        if(!$route||!in_array('IsAdmin',$route->gatherMiddleware(),true))throw new RuntimeException('ROUTE');
+    foreach(['status','audio'] as $action){
+        $name='dashboard.hologram-voice.'.$action;
+        $matches=[];foreach(app('router')->getRoutes() as $candidate)if($candidate->getName()===$name)$matches[]=$candidate;
+        if(count($matches)!==1)throw new RuntimeException('ROUTE_COUNT');
+        $route=$matches[0];
+        if($route->uri()!=='admin/dashboard/hologram-voice/{ticket}/'.$action
+            ||array_diff(['web','lang','IsAdmin'],$route->gatherMiddleware()))throw new RuntimeException('ROUTE');
     }
     $output=new \Symfony\Component\Console\Output\BufferedOutput;
     $code=$kernel->call('hologram-voice:prewarm',[],$output);
