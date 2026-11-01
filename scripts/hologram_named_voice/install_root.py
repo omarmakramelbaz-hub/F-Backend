@@ -114,6 +114,11 @@ def plan(project, manifest):
                     raise ReviewError('GO_HOLOGRAM_PATCH_INVALID')
                 old = old.replace('\n', newline).encode('utf-8')
                 new = new.replace('\n', newline).encode('utf-8')
+                if relative == 'routes/admin.php' and b'hologram_voice.php' in before:
+                    # A previous approved insertion is safe to replay. A hook
+                    # elsewhere must never become a second or unauthenticated include.
+                    if before.count(b'hologram_voice.php') != 1 or before.count(new) != 1:
+                        raise ReviewError('GO_HOLOGRAM_SOURCE_CHANGED: ' + relative)
                 if after.count(new) == 1 and after.replace(new, b'', 1).count(old) == 0:
                     continue
                 if after.count(old) != 1 or after.count(new) != 0:

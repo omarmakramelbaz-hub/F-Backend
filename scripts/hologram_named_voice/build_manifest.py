@@ -30,6 +30,8 @@ ALLOWED = {
     'public/dashboard/js/home-hud.js',
     'public/dashboard/js/home-overview.js',
 }
+ROUTE_HOOK_BEFORE = "    Route::group([ 'middleware' => 'IsAdmin'], function () {\n        require __DIR__.'/owner_dashboards.php';\n"
+ROUTE_HOOK_AFTER = ROUTE_HOOK_BEFORE + "        require __DIR__.'/hologram_voice.php';\n"
 
 
 def digest(value):
@@ -88,8 +90,15 @@ def build():
         elif prior == current:
             raise RuntimeError('Release allowlist contains an unchanged path: ' + relative)
         else:
+            if relative == 'routes/admin.php':
+                old, new = ROUTE_HOOK_BEFORE.encode(), ROUTE_HOOK_AFTER.encode()
+                if prior.count(old) != 1 or current.count(new) != 1 or prior.replace(old, new, 1) != current:
+                    raise RuntimeError('Voice route must be the unique reviewed authenticated include')
+                edits = [dict(before=ROUTE_HOOK_BEFORE, after=ROUTE_HOOK_AFTER)]
+            else:
+                edits = bounded(prior, current)
             entries.append(dict(path=relative, kind='patch', before_sha256=digest(prior),
-                                after_sha256=digest(current), edits=bounded(prior, current)))
+                                after_sha256=digest(current), edits=edits))
     voice = ROOT / 'scripts/hologram_voice'
     asset_manifest = json.loads((voice / 'assets.json').read_text())
     worker_sources = {'worker.py': voice / 'worker.py', 'bootstrap_runtime.py': voice / 'bootstrap_runtime.py',

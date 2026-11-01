@@ -7,8 +7,8 @@ test "$#" -eq 2
 go_account_revision="$1"
 [[ "$go_account_revision" =~ ^[0-9a-f]{40}$ ]]
 test "$2" = --apply || test "$2" = --check
-INSTALL_SHA256=8c9c1893c84142f151fd4a92e47246877df724d88b0a635f91afc5d90b4612e0
-MANIFEST_SHA256=96963221afb44475292dc0b06618be8399dea4cf70f940af2ada7582db80167e
+INSTALL_SHA256=e55ed7cf3ab03c1374062c15a81a8a154cf1b1dd87cfced9daf1e0b6e8081d37
+MANIFEST_SHA256=86293f08fe17d6ccf3c6a234e51f21f3434dd1df8de4ada375a64f44a9f38c11
 PROBE_SHA256=9a98d66d77500d144f8313de8fd7d60f77211c265b22410557653761ebe0357d
 go_account_stage=$(mktemp -d /var/tmp/go-account-entry.XXXXXXXX)
 trap 'rm -rf -- "$go_account_stage"' EXIT
