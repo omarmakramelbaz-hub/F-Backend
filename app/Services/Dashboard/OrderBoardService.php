@@ -120,6 +120,36 @@ class OrderBoardService
         return $keys;
     }
 
+    /** Read-only opening counters use the board's exact membership and payment rules. */
+    public function hologramCounts($actor, array $restaurantIds): array
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $counts = ['available'=>false, 'open'=>0, 'completed'=>0];
+        $keys = array_map(fn ($id) => 'f:'.(int)$id, $restaurantIds);
+        foreach (['legacy', 'website'] as $source) {
+            if ($source === 'legacy' && (!$this->has('orders', 'resturant_id') || !$this->has('orders', 'type') || !$this->has('orders', 'id'))) continue;
+            $base = $this->query($source, $actor, ['app'=>'fasakhansta']);
+            if (!$base) continue;
+            // Never let an unrestricted board administrator escape the grants
+            // of a desktop workspace or an independently owned branch tree.
+            if ($source === 'legacy') $base->whereIn('resturant_id', $restaurantIds)->where('type', 'current');
+            else $base->whereIn('branch', $keys);
+            $counts['available'] = true;
+            foreach (['new', 'preparing', 'courier'] as $group) {
+                $query = clone $base;
+                $this->forGroup($query, $source, $group);
+                $counts['open'] += $query->count();
+            }
+            // Match the board's actual ended tab, including cancellations,
+            // rather than silently changing the meaning to successful sales.
+            $completed = clone $base;
+            $this->forGroup($completed, $source, 'completed');
+            $counts['completed'] += $completed->count();
+        }
+        if (!$counts['available']) $counts['open'] = $counts['completed'] = null;
+        return $counts;
+    }
+
     /** Authorize a transition without hydrating receipt lines, payments or customer display data. */
     public function actionState(string $source, int $id, $actor, GoStoreBoardActions $stores): array
     {
