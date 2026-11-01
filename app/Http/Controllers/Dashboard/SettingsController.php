@@ -134,6 +134,10 @@ class SettingsController extends Controller
 
     }
     public function updateEnv(){
+        if(\App\Services\OwnerDashboards\Runtime::tenant()){
+            \App\Services\OwnerDashboards\PaymentSettings::save(request()->only(\App\Services\OwnerDashboards\PaymentSettings::KEYS));
+            return redirect()->back()->with('success',trans('main.UpdatedSuccessfully'));
+        }
         // some code
         $env_update = $this->changeEnv([
             'PAYMOB_API_KEY'=> request('PAYMOB_API_KEY'),

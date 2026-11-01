@@ -16,6 +16,7 @@ class IsAdmin
      */
     public function handle($request, Closure $next, $guard = null) {
         if (Auth::guard('admin')->check()) {
+            \App\Services\OwnerDashboards\AccountPolicy::enforce($request,Auth::guard('admin')->user());
             session()->put('guard', 'admin');
             session()->put('id_user', Auth::guard('admin')->id());
             if(config('desktop_dashboard.local')===true&&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true')

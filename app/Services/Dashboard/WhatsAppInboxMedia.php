@@ -230,7 +230,7 @@ class WhatsAppInboxMedia
 
     private function privateAttachmentDirectory(): array
     {
-        $directory = $this->attachmentDirectory ?? dirname(base_path()) . '/whatsapp-attachment-tmp';
+        $directory = $this->attachmentDirectory ?? (\App\Services\OwnerDashboards\Runtime::tenant()?storage_path('app/private/whatsapp-attachment-tmp'):dirname(base_path()).'/whatsapp-attachment-tmp');
         $parent = dirname($directory); $parentInfo = @lstat($parent);
         if (realpath($parent) !== $parent || !$parentInfo || !in_array($parentInfo['uid'], [0, posix_geteuid()], true)
             || ($parentInfo['mode'] & 0022) || !is_writable($parent)) throw new HttpException(503);
@@ -341,7 +341,7 @@ class WhatsAppInboxMedia
     private function cachePath(string $key): ?string
     {
         try {
-            $directory = $this->cacheDirectory ?? dirname(base_path()) . '/whatsapp-private-images';
+            $directory = $this->cacheDirectory ?? (\App\Services\OwnerDashboards\Runtime::tenant()?storage_path('app/private/whatsapp-private-images'):dirname(base_path()).'/whatsapp-private-images');
             if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) return null;
             if (is_link($directory) || realpath($directory) !== $directory) return null;
             $info = lstat($directory);

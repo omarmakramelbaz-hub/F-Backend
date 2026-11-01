@@ -156,6 +156,11 @@ class UserRepository implements UserRepositoryInterface
 
     public function updateUser($userId, array $newDetails) 
     {
+        if(\App\Services\OwnerDashboards\Runtime::tenant()&&(int)$userId===1){
+            abort_unless((int)auth('admin')->id()===1,403);
+            $newDetails['account_type']='admin';$newDetails['status']='accepted';
+            $newDetails['added_by']=1;$newDetails['owner_resturant_id']=null;
+        }
         // The reviewed desktop public-profile context cannot enter role, credential,
         // pending-application, media or financial mutations from this legacy form.
         $profile=\App\Services\Dashboard\DesktopDashboardUserProfiles::repositoryUpdate((int)$userId,$newDetails);

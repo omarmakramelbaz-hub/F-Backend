@@ -256,6 +256,13 @@
                     </li>
                 @endif
 
+                @if(\App\Services\OwnerDashboards\Runtime::primary(auth('admin')->user()))
+                <li class="nav-item">
+                    <a href="{{ route('owners.index') }}" class="nav-link {{ request()->is('admin/owners*') ? 'active' : '' }}">
+                        <i class="nav-icon fas fa-crown"></i><p>الأونرز واللوحات المستقلة</p>
+                    </a>
+                </li>
+                @endif
                 <!-- المديرين -->
                 @if (
                         Auth::guard('admin')->user()->can('admin-create') ||

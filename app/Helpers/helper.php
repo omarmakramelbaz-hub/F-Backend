@@ -22,13 +22,14 @@ use Illuminate\Support\Facades\Http;
 
  function getCitiesInCountry()
     {
+        if(\App\Services\OwnerDashboards\Runtime::tenant()&&!config('services.maps.browser_key'))return [];
         $cities = [];
         $nextPageToken = null;
 
         do {
             $response = Http::get('https://maps.googleapis.com/maps/api/place/textsearch/json', [
                 'query' => 'city in Egypt',
-                'key' => 'AIzaSyBDfirv6d7BiO-9YnsU5zCHEn9iM9iNtuM',
+                'key' => (\App\Services\OwnerDashboards\Runtime::tenant()?config('services.maps.browser_key'):'AIzaSyBDfirv6d7BiO-9YnsU5zCHEn9iM9iNtuM'),
                 'pagetoken' => $nextPageToken,
             ]);
 
@@ -55,6 +56,7 @@ use Illuminate\Support\Facades\Http;
     }
 
 function getCityName($latitude,$longitude){
+    if(\App\Services\OwnerDashboards\Runtime::tenant()&&!config('services.maps.browser_key'))return null;
     $client = new Client();
                         $ignoreWords = ['ثان','مركز' ,'مدينة','قسم', 'اول','أول'];
 
@@ -62,7 +64,7 @@ function getCityName($latitude,$longitude){
         $response = $client->get($url, [
             'query' => [
                 'latlng' => "{$latitude},{$longitude}",
-                'key' => 'AIzaSyBDfirv6d7BiO-9YnsU5zCHEn9iM9iNtuM',
+                'key' => (\App\Services\OwnerDashboards\Runtime::tenant()?config('services.maps.browser_key'):'AIzaSyBDfirv6d7BiO-9YnsU5zCHEn9iM9iNtuM'),
                 'language' => 'ar' // Request results in Arabic
             ]
         ]);

@@ -215,7 +215,7 @@ $(document).ready(function() {
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js') }}"></script>
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js') }}"></script>
 
-@unless(config('desktop_dashboard.local'))
+@unless(config('desktop_dashboard.local') || \App\Services\OwnerDashboards\Runtime::tenant())
 <script>
 console.log('fgdfgdfdbfgdfgfgdfgdfgdfgdgdf',firebaseConfig)
 // // Ensure Service Worker is supported
@@ -409,7 +409,7 @@ function sendTokenToServer(token){
  }
 
 </script>
-@else
+@elseif(config('desktop_dashboard.local'))
 <script>
 // A previous preview may retain its old FCM worker in this local profile.
 if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {

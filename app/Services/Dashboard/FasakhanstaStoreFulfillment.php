@@ -19,6 +19,7 @@ class FasakhanstaStoreFulfillment
 
     public static function restaurantId(int $origin): int
     {
+        if(\App\Services\OwnerDashboards\Runtime::tenant())return $origin;
         if ($origin < 1 || in_array($origin, FasakhanstaDeliveryOrigin::PHYSICAL_BRANCH_IDS, true)) return $origin;
         $row = DB::table('resturants')->where('id', $origin)->first();
         return $row && self::isStore($row) ? self::RESTAURANT_ID : $origin;
@@ -27,6 +28,7 @@ class FasakhanstaStoreFulfillment
     /** Accounting ownership: a store contributes to Shubra, and is not counted twice as a branch. */
     public static function sourceRestaurantIdsForBranch(int $branchId): array
     {
+        if(\App\Services\OwnerDashboards\Runtime::tenant())return [$branchId];
         if ($branchId !== self::RESTAURANT_ID) {
             return self::restaurantId($branchId) === $branchId ? [$branchId] : [];
         }

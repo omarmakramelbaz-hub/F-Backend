@@ -18,7 +18,7 @@ class EmployeeAutomaticAbsence
     public function __construct(BranchOperations $ops,?string $activationPath=null)
     {
         $this->ops=$ops;
-        $this->activationPath=$activationPath??dirname(base_path()).'/employee-auto-absence-backups/activation.json';
+        $this->activationPath=$activationPath??(\App\Services\OwnerDashboards\Runtime::tenant()?storage_path('app/private/employee-auto-absence/activation.json'):dirname(base_path()).'/employee-auto-absence-backups/activation.json');
     }
 
     public function ready(): bool

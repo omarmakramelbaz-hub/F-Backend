@@ -162,7 +162,7 @@
 }
 
     </style>
-    @unless(config('desktop_dashboard.local'))
+    @unless(config('desktop_dashboard.local') || \App\Services\OwnerDashboards\Runtime::tenant())
      <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js') }}"></script>
      <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js') }}"></script>
     <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js') }}"></script>

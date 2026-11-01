@@ -56,6 +56,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
     Route::post('/signin', [HomeController::class, 'signin'])->name('admin.login')->middleware('adminGuest');
 
     Route::group([ 'middleware' => 'IsAdmin'], function () {
+        require __DIR__.'/owner_dashboards.php';
         Route::get('dashboard-inbox/notifications', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'notifications'])->name('dashboard-inbox.notifications');
         Route::post('dashboard-inbox/notifications/read', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'readNotifications'])->name('dashboard-inbox.notifications.read');
         Route::get('dashboard-inbox/support', [\App\Http\Controllers\Dashboard\DashboardInboxController::class, 'support'])->name('dashboard-inbox.support');

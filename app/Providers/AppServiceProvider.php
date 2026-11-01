@@ -57,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register()
     {
+        $this->app->register(\App\Providers\OwnerDashboardServiceProvider::class);
         $this->app->bind(UserAuthRepositoryInterface::class, UserAuthRepository::class);
         $this->app->bind(AuthRepositoryInterface::class, AuthRepository::class);
 

@@ -43,6 +43,7 @@ class FasakhanstaDeliveryOrigin
 
     public static function isConfiguredOrigin(string $value): bool
     {
+        if(\App\Services\OwnerDashboards\Runtime::tenant())return false;
         return preg_match('/\Af:([1-9][0-9]{0,18})\z/', $value, $match)
             && (string) (int) $match[1] === $match[1]
             && isset(self::CAIRO_ORIGINS[(int) $match[1]]);

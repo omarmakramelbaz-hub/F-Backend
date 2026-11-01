@@ -33,7 +33,7 @@
     placeShortcut('desktop-dashboard', 'print-settings');
     function section(node) {
         const routes = paths(node).join(' ');
-        if (/\/admin\/(users|roles|pending_vendors)/.test(routes)) return 'people';
+        if (/\/admin\/(owners|users|roles|pending_vendors)/.test(routes)) return 'people';
         if (/\/admin\/(orders|resturant-reports|reports)/.test(routes)) return 'orders';
         if (/\/admin\/(resturants|categorys|products)/.test(routes)) return 'catalog';
         if (/\/admin\/(fcm_notifications|bulk-notifications|coupon_wheels|chat|banners|slidears|advertisings|services|question_answers|contacts|features)/.test(routes)) return 'communication';
