@@ -3,11 +3,17 @@
 import json
 import sys
 
+# Each line's stock recipe (BranchInventory), added where the stock system is installed: the dashboard's own record
+# for deducting stock, which none of the pages read and the device does not answer with offline.
+SERVER_ONLY = {'inventory'}
+
 
 def keys(value, path=''):
     found = set()
     if isinstance(value, dict):
         for key, item in value.items():
+            if key in SERVER_ONLY and path.endswith('items[]'):
+                continue
             found.add(path + '.' + key)
             found |= keys(item, path + '.' + key)
     elif isinstance(value, list) and value:
