@@ -612,6 +612,30 @@ async function dashboardOffline() {
     throw error;
   });
   assert.equal(deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM outbox WHERE kind = 'attendance_status' AND status = 'pending'")[0].c, 1);
+  // An advance for سعيد from the same page's own form: saved on the device, and on his row at once.
+  await until(async () => {
+    if (deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM journal WHERE kind = 'employee_entry'")[0].c > 0) return true;
+    await inDashboard(app, `(() => {
+      const form = document.querySelector('dialog[open] form.op-entry-form');
+      if (!form) {
+        const add = Array.from(document.querySelectorAll('[data-op-entry="advance"]')).find((button) => /سعيد/.test((button.closest('tr') || {}).innerText || ''));
+        if (add && !add.disabled) add.click();
+        return false;
+      }
+      form.elements.amount.value = '75';
+      form.elements.reason.value = 'ظروف شخصية'; form.elements.reason.dispatchEvent(new Event('change', { bubbles: true }));
+      form.requestSubmit(); return true; })()`).catch(() => {});
+    return false;
+  }, 'the advance is saved on the device', 30000);
+  await until(async () => /75\.00/.test(await inDashboard(app, `(Array.from(document.querySelectorAll('[data-op-total="advance"]'))
+    .find((button) => /سعيد/.test(button.getAttribute('aria-label') || '')) || {}).textContent || ''`).catch(() => '')), 'the advance shows on سعيد\'s row', 20000)
+    .catch(async (error) => {
+      console.log('DEBUG advance', String(await inDashboard(app, `JSON.stringify({ notice: Array.from(document.querySelectorAll('[role=status],[data-op-message],.op-message'))
+        .map((x) => x.textContent).join(' | ').slice(0, 400), dialog: (document.querySelector('dialog[open]') || {}).innerText })`).catch((e) => 'ERR ' + e.message)));
+      throw error;
+    });
+  await dashboardShot(app, '17a-dashboard-advance-offline');
+  assert.equal(deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM outbox WHERE kind = 'employee_entry' AND status = 'pending'")[0].c, 1);
   // The stock page offline: 12.5 kg of onions received, from the dashboard's own page.
   await inDashboard(app, "location.href = '/admin/branch-stock'");
   const stockPage = (code) => inDashboard(app, `(() => { const root = document.querySelector('#branch-stock'); ${code} })()`);
@@ -791,6 +815,9 @@ async function dashboardOffline() {
     'the offline absence reaches the dashboard', 40000);
   assert.equal(serverRows('SELECT SUM(amount_cents) AS c FROM branch_employee_entries WHERE employee_id = 51 AND voided_at IS NULL')[0].c, 30000,
     "with the branch's absence deduction");
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_entries WHERE kind = 'advance' AND employee_id = 50 AND amount_cents = 7500")[0].c === 1,
+    'the offline advance reaches the dashboard', 40000);
+  assert.deepEqual({ ...serverRows("SELECT reason, actor_id FROM branch_employee_entries WHERE kind = 'advance'")[0] }, { reason: 'ظروف شخصية', actor_id: 4 });
   // The goods received offline: one receipt on the branch's stock, dated when the device recorded it.
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_inventory_movements WHERE source_type = 'receipt' AND quantity_units = 12500000")[0].c === 1,
     'the goods received offline reach the dashboard', 40000);

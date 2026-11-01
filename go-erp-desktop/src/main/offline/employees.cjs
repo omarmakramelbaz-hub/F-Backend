@@ -2,13 +2,18 @@
 // The dashboard's employees page (الموظفون والرواتب) while the internet is down: an employee's check-in or check-out,
 // or the day's leave or absence, is recorded on the device with the device's (server-corrected) time, under the page's
 // own operation number, and goes to the dashboard with the 30-second sync, where the dashboard applies its late,
-// early-leave, absence and leave rules. The list is the last one seen online with this device's records shown on it.
-// Other changes on this page need the internet.
+// early-leave, absence and leave rules. Deductions, bonuses (the owner's) and advances are recorded the same way. The
+// list is the last one seen online with this device's records shown on it. Other changes on this page need the internet.
 const rules = require('../rules.cjs');
+const money = require('../money.cjs');
 const { branchProblem } = require('./access.cjs');
 
 const BRANCH = /^(f|gs):[1-9][0-9]{0,18}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DAY = /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/;
+const KINDS = ['bonus', 'deduction', 'advance'];
+/** BranchPayroll::canVoidEntries: the installation's owner (account 1) alone gives bonuses. */
+const owner = (user) => user.id === 1 && user.account_type === 'admin';
 
 class Reply extends Error {
   constructor(status, message) {
@@ -17,6 +22,7 @@ class Reply extends Error {
   }
 }
 const json = (body, status = 200) => ({ status, json: body });
+const read = (copy) => { try { return JSON.parse(copy.body.toString('utf8')); } catch { return null; } };
 
 const CAIRO = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 /** The dashboard keeps punch times as Cairo wall time (check_in) and UTC (checked_in_at). */
@@ -37,6 +43,8 @@ class EmployeesOffline {
   match(method, pathname) {
     if (method === 'POST' && pathname === '/admin/employees/attendance') return { handle: (request) => this.punch(request) };
     if (method === 'GET' && pathname === '/admin/employees/data') return { keepOnline: true, handle: (request) => this.data(request) };
+    if (method === 'POST' && pathname === '/admin/employees/entry') return { handle: (request) => this.entry(request) };
+    if (method === 'GET' && pathname === '/admin/employees/entries') return { keepOnline: true, handle: (request) => this.entries(request) };
     if (method === 'GET' && pathname === '/admin/branch-operations/recover') return { handle: (request) => this.recover(request) };
     return null;
   }
@@ -88,11 +96,110 @@ class EmployeesOffline {
     return json({ success: true, attendance, replayed: !!entry.replayed });
   }
 
+  // ---- POST /admin/employees/entry: a deduction, bonus or advance (BranchPayroll::entry) ----
+  entry({ user: who, body }) {
+    const user = this.user({ user: who });
+    const values = body && typeof body === 'object' ? body : {};
+    const branch = String(values.branch || '');
+    if (!BRANCH.test(branch)) throw new Reply(403, 'الفرع غير متاح لهذا الحساب.');
+    { const problem = branchProblem(this.store, user, branch); if (problem) throw new Reply(problem.status, problem.message); }
+    if (!UUID.test(String(values.idempotency_key || ''))) throw new Reply(422, 'رقم العملية غير صالح.');
+    // A resend of one saved here is the same entry.
+    if (this.store.journalEntry(values.idempotency_key)) {
+      const again = this.store.recordEmployeeEntry(user, branch, {}, { id: values.idempotency_key });
+      return json({ success: true, entry: this.present(again), replayed: true });
+    }
+    if (!(this.store.get('server_kinds', []) || []).includes('employee_entry')) {
+      throw new Reply(422, 'تسجيل الخصومات والمكافآت والسلف من غير نت يحتاج تحديث السرفر، واتصالًا بالإنترنت مرة واحدة بعده.');
+    }
+    const kind = String(values.kind || '');
+    if (!KINDS.includes(kind)) throw new Reply(422, 'نوع الحركة غير صالح.');
+    if (kind === 'bonus' && !owner(user)) throw new Reply(403, 'إضافة المكافآت متاحة للأونر فقط.');
+    if (!user.can_checkout) throw new Reply(403, 'لا تملك صلاحية تنفيذ العملية.');
+    const day = String(values.day || '');
+    if (!DAY.test(day)) throw new Reply(422, 'التاريخ غير صالح.');
+    if (day > rules.operatingDay(this.now())) throw new Reply(422, 'لا يمكن التسجيل ليوم تشغيل مستقبلي.');
+    let cents;
+    try { cents = money.minor(String(values.amount ?? '')); } catch { throw new Reply(422, 'أدخل مبلغًا صحيحًا بمنزلتين عشريتين.'); }
+    if (cents < 1 || cents > 100000000) throw new Reply(422, 'المبلغ خارج الحدود المسموحة.');
+    const reason = String(values.reason ?? '').trim();
+    if (!reason) throw new Reply(422, 'اكتب سبب الحركة.');
+    if (reason.length > 500) throw new Reply(422, 'السبب أطول من المسموح (٥٠٠ حرف).');
+    const notes = String(values.notes ?? '');
+    if (notes.length > 1000) throw new Reply(422, 'الملاحظات أطول من المسموح (١٠٠٠ حرف).');
+    const state = this.store.attendanceBoard(branch, day).find((item) => item.employee.id === Number(values.employee_id));
+    if (!state) throw new Reply(422, 'الموظف غير موجود في هذا الفرع. اتصل بالإنترنت لتحديث قائمة الموظفين.');
+    if (this.monthClosed(user, branch, state.employee.id, day.slice(0, 7))) throw new Reply(409, 'تم إقفال هذا الشهر. لا يمكن تغيير حركاته.');
+    const entry = this.store.recordEmployeeEntry(user, branch, { employee_id: state.employee.id, employee_name: state.employee.name, day, kind,
+      amount: String(values.amount), reason, notes }, { id: values.idempotency_key });
+    if (!entry.replayed) this.kick();
+    return json({ success: true, entry: this.present(entry), replayed: !!entry.replayed });
+  }
+
+  /** An entry recorded here, as the dashboard returns its entries. */
+  present(entry) {
+    const data = entry.data;
+    const cents = money.minor(data.amount);
+    return { id: null, branch: entry.branch, employee_id: data.employee_id, day: data.day, kind: data.kind, amount_cents: cents,
+      amount: money.decimal(cents), reason: data.reason, notes: data.notes || '', actor_id: entry.actor_id, revision: 1,
+      created_at: utc(entry.created_at), device: { pending: entry.sync_status !== 'synced', error: entry.sync_error || null } };
+  }
+
+  /** Whether the saved lists show that employee's month as closed or paid (the dashboard then refuses any change to it). */
+  monthClosed(user, branch, employeeId, month) {
+    const scope = 'u:' + user.id;
+    const latest = this.cache.get(scope, 'data', this.origin + '/admin/employees/data', { pathOnly: true });
+    const lists = [latest && read(latest), (this.pageList(scope) || {}).list].filter(Boolean);
+    return lists.some((list) => list.filters && list.filters.month === month && Array.isArray(list.items) && list.items.some((item) => item
+      && item.branch === branch && Number(item.id) === employeeId && item.statement && ['closed', 'paid'].includes(item.statement.status)));
+  }
+
+  /** A record of this device that a list saved at storedAt does not have yet: not sent then, or sent after it. */
+  fresh(entry, storedAt) {
+    if (entry.sync_status !== 'synced' || !entry.synced_at || !storedAt) return true;
+    return entry.synced_at > storedAt;
+  }
+
+  // ---- GET /admin/employees/entries: one day's deductions, bonuses or advances of an employee ----
+  entries({ user: who, url }) {
+    const user = this.user({ user: who });
+    const query = url.searchParams;
+    const branch = query.get('branch') || '';
+    const employeeId = Number(query.get('employee_id'));
+    const day = query.get('day') || '';
+    const kind = query.get('kind') || '';
+    if (!user.branches.includes(branch) || !KINDS.includes(kind) || !DAY.test(day) || !(employeeId > 0)) throw new Reply(422, 'البيانات غير صالحة.');
+    const scope = 'u:' + user.id;
+    const copy = this.cache.get(scope, 'data', url.href);
+    const base = copy && read(copy);
+    const items = base && Array.isArray(base.items) ? base.items.slice() : [];
+    let storedAt = copy ? copy.storedAt : null;
+    if (!base) {
+      // Without this list saved: what the dashboard had that day, from the saved employees list, in one line.
+      const list = this.listFor(scope, { day });
+      const item = list && list.list.items.find((row) => row && row.branch === branch && Number(row.id) === employeeId);
+      const listed = item && item.daily && item.daily[kind] ? money.minor(item.daily[kind].amount || '0') : 0;
+      storedAt = list ? list.storedAt : null;
+      if (listed > 0) items.push({ id: null, time: '—', amount: money.decimal(listed), reason: 'مسجلة على الداشبورد', notes: 'التفاصيل بتظهر لما النت يرجع' });
+    }
+    for (const entry of this.store.employeeEntries(branch, { day })) {
+      if (entry.data.employee_id !== employeeId || entry.data.kind !== kind || !this.fresh(entry, storedAt)) continue;
+      items.push({ id: null, time: wall(entry.created_at).slice(0, 5), amount: money.decimal(money.minor(entry.data.amount)), reason: entry.data.reason,
+        notes: entry.data.notes || '', device: { pending: entry.sync_status !== 'synced' } });
+    }
+    const total = items.reduce((sum, item) => sum + money.minor(item.amount), 0);
+    return json({ success: true, employee: (base && base.employee) || { id: employeeId, branch }, day, kind, count: items.length,
+      total: money.decimal(total), items, device_copy: true });
+  }
+
   // ---- GET /admin/branch-operations/recover: a punch whose answer was lost ----
   recover({ user: who, url }) {
     const user = this.user({ user: who });
     const key = url.searchParams.get('idempotency_key') || '';
     const entry = UUID.test(key) ? this.store.journalEntry(key) : null;
+    if (entry && entry.kind === 'employee_entry' && entry.actor_id === user.id && entry.branch === (url.searchParams.get('branch') || '')) {
+      return json({ success: true, found: true, replayed: true, entry: this.present(entry) });
+    }
     if (entry && entry.kind !== 'attendance' && entry.branch === (url.searchParams.get('branch') || '')) {
       for (const recover of this.recoverers) {
         const answer = recover(entry, user);
@@ -110,7 +217,7 @@ class EmployeesOffline {
     return json({ success: true, found: true, replayed: true, attendance: this.day(entry.branch, entry.data.employee_id, entry.data.day) });
   }
 
-  /** The list embedded in the saved copy of the employees page (the page shows it first, without asking). */
+  /** The list embedded in the saved copy of the employees page (the page shows it first, without asking), and when it was saved. */
   pageList(scope) {
     for (const kind of ['page', 'spa']) {
       const copy = this.cache.get(scope, kind, this.origin + '/admin/employees', { pathOnly: true });
@@ -118,9 +225,26 @@ class EmployeesOffline {
       const found = /<script type="application\/json" id="branch-operations-bootstrap">([\s\S]*?)<\/script>/.exec(copy.body.toString('utf8'));
       try {
         const boot = found && JSON.parse(found[1]);
-        if (boot && boot.initial) return boot.initial;
+        if (boot && boot.initial) return { list: boot.initial, storedAt: copy.storedAt };
       } catch { /* an unreadable copy is no base */ }
     }
+    return null;
+  }
+
+  /** The saved list for these filters: the last one seen online, or the one in the saved page. */
+  listFor(scope, filters, exactUrl = null) {
+    const same = (seen) => seen && seen.filters && Array.isArray(seen.items)
+      && Object.keys(filters).every((key) => !filters[key] || String(seen.filters[key] || '') === String(filters[key]));
+    if (exactUrl) {
+      const exact = this.cache.get(scope, 'data', exactUrl);
+      const list = exact && read(exact);
+      if (list && Array.isArray(list.items)) return { list, storedAt: exact.storedAt };
+    }
+    const latest = this.cache.get(scope, 'data', this.origin + '/admin/employees/data', { pathOnly: true });
+    const seen = latest && read(latest);
+    if (same(seen)) return { list: seen, storedAt: latest.storedAt };
+    const page = this.pageList(scope);
+    if (page && same(page.list)) return page;
     return null;
   }
 
@@ -129,28 +253,45 @@ class EmployeesOffline {
     const user = this.user({ user: who });
     const query = url.searchParams;
     const scope = 'u:' + user.id;
-    const read = (copy) => { try { return JSON.parse(copy.body.toString('utf8')); } catch { return null; } };
-    const same = (filters) => ['branch', 'day', 'month'].every((key) => !query.get(key) || String(filters[key] || '') === query.get(key));
-    let base = null;
-    const exact = this.cache.get(scope, 'data', url.href);
-    if (exact) base = read(exact);
-    if (!base) {
-      const latest = this.cache.get(scope, 'data', url.href, { pathOnly: true });
-      const seen = latest && read(latest);
-      if (seen && seen.filters && same(seen.filters)) base = seen;
-    }
-    if (!base) {
-      const initial = this.pageList(scope);
-      if (initial && initial.filters && same(initial.filters)) base = initial;
-    }
-    if (!base || !Array.isArray(base.items)) throw new Reply(503, 'القايمة دي محتاجة إنترنت. قايمة اليوم المحفوظة على الجهاز شغالة، والحضور والانصراف بيتسجلوا عادي.');
+    const found = this.listFor(scope, { branch: query.get('branch'), day: query.get('day'), month: query.get('month') }, url.href);
+    if (!found) throw new Reply(503, 'القايمة دي محتاجة إنترنت. قايمة اليوم المحفوظة على الجهاز شغالة، والحضور والانصراف بيتسجلوا عادي.');
+    const base = found.list;
     const day = (base.filters && base.filters.day) || rules.operatingDay(this.now());
+    const month = (base.filters && base.filters.month) || day.slice(0, 7);
+    // Deductions, bonuses and advances recorded here and not in that list yet: on the day, and in the month's pay.
+    const added = { bonus: 0, deduction: 0, advance: 0 };
+    let netChange = 0;
     base.items = base.items.map((item) => {
       if (!item || !user.branches.includes(item.branch)) return item;
+      let next = item;
       const punches = this.store.journal(item.branch, day, ['attendance']).filter((entry) => entry.data.employee_id === Number(item.id));
-      if (!punches.length) return item;
-      return { ...item, attendance: this.day(item.branch, item.id, day, item.attendance || {}) };
+      if (punches.length) next = { ...next, attendance: this.day(item.branch, item.id, day, item.attendance || {}) };
+      for (const entry of this.store.employeeEntries(item.branch)) {
+        if (entry.data.employee_id !== Number(item.id) || !this.fresh(entry, found.storedAt)) continue;
+        const { kind } = entry.data;
+        const cents = money.minor(entry.data.amount);
+        if (entry.data.day === day) {
+          const before = (next.daily && next.daily[kind]) || { count: 0, amount: '0.00' };
+          next = { ...next, daily: { ...(next.daily || {}), [kind]: { count: Number(before.count || 0) + 1, amount: money.decimal(money.minor(before.amount || '0') + cents) } } };
+          added[kind] += cents;
+        }
+        if (next.statement && String(entry.data.day).slice(0, 7) === (next.statement.month || month)) {
+          const change = kind === 'bonus' ? cents : -cents;
+          const statement = { ...next.statement, [kind]: money.decimal(money.minor(next.statement[kind] || '0') + cents),
+            net: money.decimal(money.minor(next.statement.net || '0') + change) };
+          if (Number.isInteger(statement.net_cents)) statement.net_cents += change;
+          next = { ...next, statement };
+          netChange += change;
+        }
+      }
+      return next;
     });
+    if (base.summary) {
+      const summary = { ...base.summary };
+      for (const kind of KINDS) if (added[kind]) summary[kind] = money.decimal(money.minor(summary[kind] || '0') + added[kind]);
+      if (netChange) summary.net = money.decimal(money.minor(summary.net || '0') + netChange);
+      base.summary = summary;
+    }
     base.device_copy = true;
     return json(base);
   }

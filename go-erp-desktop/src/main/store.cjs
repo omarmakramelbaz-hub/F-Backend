@@ -817,6 +817,39 @@ class Store {
   }
 
   /**
+   * A deduction, bonus or advance recorded on the dashboard's employees page offline (the page checked it), sent to the
+   * dashboard as employee_entry under the page's operation number.
+   */
+  recordEmployeeEntry(actor, branch, values, options = {}) {
+    if (options.id) {
+      const existing = this.journalEntry(options.id);
+      if (existing) {
+        if (existing.kind !== 'employee_entry' || existing.actor_id !== actor.id || existing.branch !== branch) {
+          const error = new Error('رقم العملية مستخدم لعملية مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ...existing, replayed: true };
+      }
+    }
+    this.requireBranch(actor, branch, 'can_checkout');
+    const data = { employee_id: Number(values.employee_id), day: String(values.day), kind: values.kind, amount: String(values.amount),
+      reason: String(values.reason), notes: String(values.notes || '') };
+    return this.addJournal(actor, branch, 'employee_entry', money.minor(values.amount), data, { employee_name: String(values.employee_name || '') },
+      options.id, 'employee_entry');
+  }
+
+  /**
+   * Deductions, bonuses and advances recorded on this device for a branch, on one day or in one month (YYYY-MM), oldest
+   * first. One the dashboard refused is left out: it is not on the dashboard.
+   */
+  employeeEntries(branch, { day = null, month = null } = {}) {
+    return this.db.prepare("SELECT * FROM journal WHERE kind = 'employee_entry' AND branch = ? AND sync_status != 'rejected' ORDER BY seq").all(branch)
+      .map((row) => ({ ...row, data: JSON.parse(row.data) }))
+      .filter((entry) => (!day || entry.data.day === day) && (!month || String(entry.data.day).slice(0, 7) === month));
+  }
+
+  /**
    * A shift an owner or admin closed on the dashboard's shift page offline (the page checked it), sent to the dashboard
    * as shift_close: alone, after everything recorded before it and before anything recorded after it.
    */
@@ -1143,7 +1176,7 @@ class Store {
     const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف', attendance_status: 'غياب أو إجازة',
       ticket_settle: 'تحصيل طلب', ticket_open: 'نقل طلب للداشبورد', ticket_action: 'إجراء على طلب', ticket_dispatch: 'تسليم طلب للمندوب',
       ticket_batch: 'تحصيل طلبات المندوب', ticket_save: 'تعديل طلب', ticket_cancel: 'إلغاء طلب', customer_save: 'بيانات عميل',
-      stock_receive: 'إضافة بضاعة', shift_close: 'تقفيل وردية' };
+      stock_receive: 'إضافة بضاعة', shift_close: 'تقفيل وردية', employee_entry: 'خصم أو مكافأة أو سلفة موظف' };
     return this.db.prepare(`SELECT o.id, o.kind, o.last_error, o.updated_at, t.local_number, t.branch, t.totals, j.amount_cents, j.branch AS journal_branch
       FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id LEFT JOIN journal j ON j.id = o.journal_id
       WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()

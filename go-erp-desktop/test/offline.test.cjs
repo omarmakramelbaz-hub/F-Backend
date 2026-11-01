@@ -374,6 +374,104 @@ test('the employees page records a check-in and check-out on the device, once, w
   assert.equal((await ask('GET', '/admin/employees/data?branch=f:100&day=2026-10-29&month=2026-10&page=1')).status, 503, 'Another day needs the internet');
 });
 
+test('the employees page records deductions, bonuses and advances on the device and shows them on the saved list', async () => {
+  let clock = Date.parse('2026-10-30T09:00:00Z'); // 11:00 in Cairo
+  const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
+  store.saveDevice({ id: 'device-1', code: 'A1B', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'المعادي', address: '', phone: '' }]);
+  const OWNER = { ...ACCOUNT, id: 1, name: 'المالك', can_manage: true };
+  store.replaceUsers([ACCOUNT, OWNER], 'h');
+  store.applyBranches([{ value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1', attendance: [], catalog: { ...MENU,
+    employees: [{ id: 50, name: 'سعيد', schedule_type: 'branch', shift: 'صباحي' }, { id: 51, name: 'كريم', schedule_type: 'branch', shift: 'صباحي' }],
+    attendance_shifts: [{ shift: 'morning', starts_at: '10:00', ends_at: '18:00' }] } }]);
+  const cache = new PageCache(':memory:', { now: () => new Date(clock) });
+  const page = new EmployeesOffline({ store, cache, origin: ORIGIN, now: () => new Date(clock) });
+  const ask = async (method, path, body = null, user = ACCOUNT) => {
+    const url = new URL(ORIGIN + path);
+    return page.answer(page.match(method, url.pathname), { user, url, body });
+  };
+  let count = 0;
+  const key = () => `${String(++count).padStart(8, '0')}-2d2a-4c3b-9e8f-0a1b2c3d4e5f`;
+  const form = (employee, kind, amount, reason, extra = {}) => ({ branch: 'f:100', employee_id: employee, day: '2026-10-30', kind, amount, reason,
+    notes: '', idempotency_key: key(), ...extra });
+  const add = (body, user = ACCOUNT) => ask('POST', '/admin/employees/entry', body, user);
+  // The list seen online at 11:00: a deduction of 20.00 already on the dashboard.
+  const listUrl = '/admin/employees/data?branch=f:100&day=2026-10-30&month=2026-10&page=1';
+  const zero = { count: 0, amount: '0.00' };
+  const saveList = (saeed, karim, summary) => cache.put('u:4', 'data', ORIGIN + listUrl, 'application/json', Buffer.from(JSON.stringify({ success: true,
+    filters: { branch: 'f:100', day: '2026-10-30', month: '2026-10' }, summary,
+    items: [{ id: 50, branch: 'f:100', name: 'سعيد', attendance: null, ...saeed }, { id: 51, branch: 'f:100', name: 'كريم', attendance: null, ...karim }] })));
+  const month = (values) => ({ month: '2026-10', status: 'draft', bonus: '0.00', deduction: '0.00', advance: '0.00', ...values });
+  saveList({ daily: { bonus: zero, deduction: { count: 1, amount: '20.00' }, advance: zero }, statement: month({ deduction: '20.00', net: '980.00', net_cents: 98000 }) },
+    { daily: { bonus: zero, deduction: zero, advance: zero }, statement: month({ net: '1000.00', net_cents: 100000 }) },
+    { deduction: '20.00', bonus: '0.00', advance: '0.00', net: '1980.00' });
+  clock += 60000; // 11:01
+
+  // Until the server takes them from devices, the page says what is needed.
+  const early = await add(form(50, 'advance', '150', 'سلفة'));
+  assert.equal(early.status, 422);
+  assert.match(early.json.message, /تحديث السرفر/);
+  store.set('server_kinds', ['employee_entry']);
+
+  // An advance, a deduction, and the owner's bonus, with the dashboard's checks.
+  const advanceForm = form(50, 'advance', '150', 'سلفة شخصية', { notes: 'سيتم الخصم من الراتب الشهري' });
+  const advance = await add(advanceForm);
+  assert.equal(advance.status, 200, JSON.stringify(advance.json));
+  assert.deepEqual([advance.json.success, advance.json.entry.kind, advance.json.entry.amount, advance.json.entry.reason, advance.json.replayed],
+    [true, 'advance', '150.00', 'سلفة شخصية', false]);
+  assert.equal((await add(form(51, 'deduction', '25.50', 'تأخير'))).status, 200);
+  assert.equal((await add(form(51, 'bonus', '100', 'مكافأة أداء'))).json.message, 'إضافة المكافآت متاحة للأونر فقط.');
+  assert.equal((await add(form(51, 'bonus', '100', 'مكافأة أداء'), OWNER)).status, 200);
+  assert.equal((await add(form(50, 'deduction', '0', 'تأخير'))).json.message, 'المبلغ خارج الحدود المسموحة.');
+  assert.equal((await add(form(50, 'deduction', '10.555', 'تأخير'))).json.message, 'أدخل مبلغًا صحيحًا بمنزلتين عشريتين.');
+  assert.equal((await add(form(50, 'deduction', '10', '  '))).json.message, 'اكتب سبب الحركة.');
+  assert.equal((await add(form(50, 'deduction', '10', 'تأخير', { day: '2026-10-31' }))).json.message, 'لا يمكن التسجيل ليوم تشغيل مستقبلي.');
+  assert.equal((await add(form(50, 'gift', '10', 'تأخير'))).json.message, 'نوع الحركة غير صالح.');
+  assert.equal((await add(form(99, 'deduction', '10', 'تأخير'))).status, 422, 'Not an employee of this branch');
+
+  // Each goes to the dashboard once, under the page's operation number.
+  const operations = store.pendingOperations();
+  assert.deepEqual(operations.map((op) => [op.id === advanceForm.idempotency_key, op.kind, op.actor_id, op.data.employee_id, op.data.kind, op.data.amount,
+    op.data.reason, op.data.notes]), [[true, 'employee_entry', 4, 50, 'advance', '150', 'سلفة شخصية', 'سيتم الخصم من الراتب الشهري'],
+    [false, 'employee_entry', 4, 51, 'deduction', '25.50', 'تأخير', ''], [false, 'employee_entry', 1, 51, 'bonus', '100', 'مكافأة أداء', '']]);
+  assert.equal((await add(advanceForm)).json.replayed, true);
+  assert.equal(store.pendingOperations().length, 3, 'Never twice');
+  assert.equal((await ask('GET', `/admin/branch-operations/recover?branch=f:100&idempotency_key=${advanceForm.idempotency_key}`)).json.found, true);
+  assert.deepEqual(store.cashSummary('f:100', '2026-10-30').drawer_movement_cents, 0, 'An advance is not a drawer movement, as on the dashboard');
+
+  // The saved list with them: on the day, in the month's pay, and in the totals.
+  const list = (await ask('GET', listUrl)).json;
+  const [saeed, karim] = list.items;
+  assert.deepEqual([saeed.daily.advance, saeed.daily.deduction], [{ count: 1, amount: '150.00' }, { count: 1, amount: '20.00' }]);
+  assert.deepEqual([saeed.statement.advance, saeed.statement.net, saeed.statement.net_cents], ['150.00', '830.00', 83000]);
+  assert.deepEqual([karim.daily.deduction, karim.daily.bonus], [{ count: 1, amount: '25.50' }, { count: 1, amount: '100.00' }]);
+  assert.deepEqual([karim.statement.deduction, karim.statement.bonus, karim.statement.net], ['25.50', '100.00', '1074.50']);
+  assert.deepEqual(list.summary, { deduction: '45.50', bonus: '100.00', advance: '150.00', net: '1904.50' });
+
+  // The day's details: the dashboard's own in one line, and those recorded here.
+  const deductions = (await ask('GET', '/admin/employees/entries?branch=f:100&employee_id=50&day=2026-10-30&kind=deduction')).json;
+  assert.deepEqual([deductions.total, deductions.items.map((item) => [item.reason, item.amount])], ['20.00', [['مسجلة على الداشبورد', '20.00']]]);
+  const advances = (await ask('GET', '/admin/employees/entries?branch=f:100&employee_id=50&day=2026-10-30&kind=advance')).json;
+  assert.deepEqual([advances.total, advances.items.map((item) => [item.time, item.reason, item.amount, item.notes])],
+    ['150.00', [['11:01', 'سلفة شخصية', '150.00', 'سيتم الخصم من الراتب الشهري']]]);
+
+  // Sent after that list was saved: still added. A list saved after the dashboard has it already includes it.
+  clock += 60000;
+  store.applyResults([{ id: operations[0].id, status: 'applied', entry: { id: 7, employee_id: 50, day: '2026-10-30', kind: 'advance', amount_cents: 15000 } },
+    { id: operations[1].id, status: 'rejected', error: 'تم إقفال هذا الشهر. لا يمكن تغيير حركاته.' }]);
+  let again = (await ask('GET', listUrl)).json;
+  assert.deepEqual(again.items[0].daily.advance, { count: 1, amount: '150.00' });
+  assert.deepEqual(again.items[1].daily.deduction, zero, 'One the dashboard refused is not on it');
+  clock += 60000;
+  saveList({ daily: { bonus: zero, deduction: { count: 1, amount: '20.00' }, advance: { count: 1, amount: '150.00' } },
+    statement: month({ deduction: '20.00', advance: '150.00', net: '830.00', net_cents: 83000 }) },
+  { daily: { bonus: zero, deduction: zero, advance: zero }, statement: month({ net: '1000.00', net_cents: 100000, status: 'closed' }) },
+  { deduction: '20.00', bonus: '0.00', advance: '150.00', net: '1830.00' });
+  again = (await ask('GET', listUrl)).json;
+  assert.deepEqual([again.items[0].daily.advance, again.items[0].statement.net], [{ count: 1, amount: '150.00' }, '830.00'], 'Not twice');
+  // That list shows كريم's month closed: the dashboard refuses any change to it.
+  assert.equal((await add(form(51, 'deduction', '5', 'تأخير'))).json.message, 'تم إقفال هذا الشهر. لا يمكن تغيير حركاته.');
+});
+
 test('the employees page records the day\'s leave or absence on the device, with the dashboard\'s rules', async () => {
   const clock = Date.parse('2026-10-30T09:00:00Z'); // 11:00 in Cairo
   const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
