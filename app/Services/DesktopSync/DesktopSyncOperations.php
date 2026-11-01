@@ -28,7 +28,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close', 'employee_entry'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -76,6 +76,7 @@ class DesktopSyncOperations
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
                 'attendance_status' => $this->attendance($actor, $values['branch'], $id, $when, $values['data'], true),
                 'stock_receive' => $this->stockReceive($actor, $values['branch'], $id, $when, $values['data']),
+                'employee_entry' => $this->employeeEntry($actor, $values['branch'], $id, $values['data']),
                 'shift_close' => $this->shiftClose($actor, $values['branch'], $id, $when, $values['data']),
                 'ticket_settle' => $this->ticketSettle($actor, $values['branch'], $id, $values['data']),
                 'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
@@ -236,6 +237,27 @@ class DesktopSyncOperations
         $time = fn ($value) => $value ? Carbon::parse($value, 'UTC')->toIso8601String() : null;
         return ['attendance' => ['employee_id' => (int) $day['employee_id'], 'day' => (string) $day['day'], 'status' => (string) $day['status'],
             'checked_in_at' => $time($day['checked_in_at']), 'checked_out_at' => $time($day['checked_out_at'])]];
+    }
+
+    /**
+     * A deduction, bonus or advance recorded on the employees page while the internet was down: the dashboard's own
+     * entry (BranchPayroll::entry, its checks: a bonus stays the owner's, a closed month refuses it) under the page's
+     * operation number. An entry the page saved online before the connection dropped is the same entry, never twice.
+     */
+    private function employeeEntry(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, ['employee_id' => 'required|integer|min:1', 'day' => 'required|date_format:Y-m-d',
+            'kind' => 'required|in:bonus,deduction,advance', 'amount' => 'required|string|max:14', 'reason' => 'required|string|max:500',
+            'notes' => 'nullable|string|max:1000'])->validate();
+        if (trim((string) ($data['notes'] ?? '')) === '') unset($data['notes']);
+        $command = DB::table('branch_operation_commands')->where('branch', $branch)->where('actor_id', $actor->id)->where('request_key', $id)->first(['result']);
+        $result = $command ? (json_decode($command->result, true) ?: []) : null;
+        if (! $result || empty($result['entry'])) {
+            $result = app(BranchPayroll::class)->entry(['branch' => $branch, 'idempotency_key' => $id] + $data, $actor);
+        }
+        $entry = $result['entry'];
+        return ['entry' => ['id' => (int) $entry['id'], 'employee_id' => (int) $entry['employee_id'], 'day' => (string) $entry['day'],
+            'kind' => (string) $entry['kind'], 'amount_cents' => (int) $entry['amount_cents']]];
     }
 
     /**

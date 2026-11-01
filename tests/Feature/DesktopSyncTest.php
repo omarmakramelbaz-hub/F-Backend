@@ -342,7 +342,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close', 'employee_entry'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -888,6 +888,31 @@ class DesktopSyncTest extends TestCase
         $this->assertSame('rejected', $this->sync($device, ['operations' => [$late]])->json()['results'][0]['status']);
         $this->assertSame($results[0], $this->sync($device, ['operations' => [$leave]])->json()['results'][0]);
         $this->assertSame(2, DB::table('branch_employee_days')->count());
+    }
+
+    public function test_deductions_bonuses_and_advances_recorded_on_the_device_follow_the_dashboard(): void
+    {
+        $this->attendanceFixture();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $entry = fn (int $actor, int $employee, string $kind, string $amount, string $reason, string $notes = '') => $this->operation('employee_entry', $actor,
+            ['employee_id' => $employee, 'day' => '2026-10-30', 'kind' => $kind, 'amount' => $amount, 'reason' => $reason, 'notes' => $notes]);
+        $advance = $entry(4, 50, 'advance', '150', 'سلفة شخصية', 'سيتم الخصم من الراتب الشهري');
+        $deduction = $entry(4, 51, 'deduction', '25.50', 'تأخير');
+        $cashiersBonus = $entry(4, 52, 'bonus', '100', 'مكافأة أداء');
+        $ownersBonus = $entry(1, 52, 'bonus', '100', 'مكافأة أداء');
+        $results = $this->sync($device, ['operations' => [$advance, $deduction, $cashiersBonus, $ownersBonus]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'applied', 'rejected', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('إضافة المكافآت متاحة للأونر فقط.', $results[2]['error'], 'A bonus stays the owner\'s, as on the dashboard');
+        $this->assertSame(['employee_id' => 50, 'day' => '2026-10-30', 'kind' => 'advance', 'amount_cents' => 15000], array_diff_key($results[0]['entry'], ['id' => 0]));
+        $rows = DB::table('branch_employee_entries')->orderBy('id')->get(['employee_id', 'kind', 'amount_cents', 'reason', 'notes', 'actor_id'])
+            ->map(fn ($row) => array_values((array) $row))->all();
+        $this->assertEquals([[50, 'advance', 15000, 'سلفة شخصية', 'سيتم الخصم من الراتب الشهري', 4], [51, 'deduction', 2550, 'تأخير', '', 4],
+            [52, 'bonus', 10000, 'مكافأة أداء', '', 1]], $rows);
+        // A resend, or an entry the page saved online under the same number before the connection dropped: never twice.
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$advance]])->json()['results'][0]);
+        $this->assertSame(3, DB::table('branch_employee_entries')->count());
+        $statement = app(\App\Services\Dashboard\BranchPayroll::class)->statement(['branch' => 'f:100', 'employee_id' => 50, 'month' => '2026-10'], User::find(1));
+        $this->assertSame('150.00', $statement['statement']['advance'], 'The advance comes off the month\'s pay');
     }
 
     public function test_an_automatic_absence_gives_way_to_a_leave_recorded_on_the_device_before_the_deadline(): void
