@@ -1011,6 +1011,8 @@ class DesktopSyncTest extends TestCase
         $this->assertStringContainsString('href="'.$url('a').'"', $page);
         $this->assertStringContainsString('تحميل النسخة السابقة <bdi>1.9.0</bdi>', $page);
         $this->assertStringContainsString('«إعادة تجهيز الجهاز بحساب آخر»', $page, 'How to set the device up again with another account');
+        $this->assertStringContainsString('<div data-go-erp-device></div>', $page, 'Where the app draws this device\'s part of the page');
+        $this->assertStringNotContainsString('شاشات الجهاز', $page, 'The app has no separate screens to send people to');
         foreach (['تحديث التطبيق', 'go-erp-releases.js', 'data-go-erp-release', 'data-desktop-program'] as $old) {
             $this->assertStringNotContainsString($old, $page, 'The old program\'s build and device setup are not offered');
         }
