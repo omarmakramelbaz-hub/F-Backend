@@ -7,8 +7,8 @@ test "$#" -eq 2
 go_hologram_revision="$1"
 [[ "$go_hologram_revision" =~ ^[0-9a-f]{40}$ ]]
 test "$2" = --apply || test "$2" = --check
-APPLY_SHA256=ced930db75175709fefd23d39a1938a1e462bf720bb78d4a8f91ff3670e1ae39
-MANIFEST_SHA256=9a3c9204713b336cfab24055a4e01bf23f04a9b880322f62ad20679f918208f0
+APPLY_SHA256=37f7a50da99e25513a0fb6fbb4fb0c97d1f5121d4a363b0c75bc290e179e48f9
+MANIFEST_SHA256=f95ce2477bb223012906f7dab92a02b8f90231c4e92b1e4ac1cec1551c9f2d4f
 [[ "$APPLY_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
 go_hologram_stage=$(mktemp -d /var/tmp/go-hologram-entry.XXXXXXXX)

@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 
-FEATURE = 'hologram-energy-20261101-v4'
+FEATURE = 'hologram-energy-20261101-v5'
 BASE_REVISION = '39ea43ff587d5e8f1285c811f7e11b02a137ecc2'
 # This exact list is finalized alongside the generated, pinned manifest.
 ALLOWED = {

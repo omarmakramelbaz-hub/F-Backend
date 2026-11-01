@@ -11,7 +11,7 @@
     var enter = root.querySelector('[data-hud-enter]'), announcement = root.querySelector('[data-hud-announcement]');
     var robotCanvas = root.querySelector('[data-hud-robot]');
     var robot = null;
-    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: true}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
+    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: false}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
     var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, greetingReady = true, greetingTimer = 0, muted = false, mouthFrame = 0;
     var currentActor = document.body.dataset.dashboardActor || '';
     var bg = root.querySelector('[data-hud-background]'), bgContext = bg ? bg.getContext('2d') : null, bgFrame = 0, bgLast = 0;

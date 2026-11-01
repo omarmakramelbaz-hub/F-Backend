@@ -1,7 +1,7 @@
-/* GO hologram v3: native three-dimensional surfaces, contour shaders and a moving point cloud. */
+/* GO hologram v5: native three-dimensional surfaces, contour shaders and a moving point cloud. */
 (function (window, document) {
     'use strict';
-    if (window.GoHologram && window.GoHologram.version >= 3) return;
+    if (window.GoHologram && window.GoHologram.version >= 5) return;
 
     var items = [], frame = 0, queued = false, TAU = Math.PI * 2;
     var ASSEMBLY_DURATION = 5.6, EMITTER = [0, -.32, .64];
@@ -26,8 +26,8 @@
             if (!item.canvas.isConnected) { item.destroy(); return; }
             if (!moving(item)) { item.last = 0; return; }
             if (!item.last || now - item.last >= item.interval - 1) {
-                // Keep the sixty-second glance tied to visible wall time even on a slow GPU.
-                if (item.last) item.elapsed += Math.max(0, (now - item.last) / 1000);
+                // Keep the living energy tied to visible wall time even on a slow GPU.
+                if (item.last) { item.adaptDensity(now - item.last); item.elapsed += Math.max(0, (now - item.last) / 1000); }
                 item.last = now;
                 item.render(item.elapsed);
             }
@@ -77,9 +77,10 @@
         return [x, y, z];
     }
     function bodyPoint(v, phi) {
-        var radius = shoulderWidth(v), shoulder = ease((v - .38) / .38);
+        var shoulder = ease((v - .38) / .38), taper = ease((v - .35) / .35);
+        var radius = shoulderWidth(v) * (1 - .20 * taper);
         var depth = (.14 + .29 * ease((v - .30) / .64)) * ease(v / .10), c = Math.cos(phi);
-        return [radius * Math.sin(phi), .90 - v * 1.40 + .045 * c * shoulder, depth * c - .05 * (1 - shoulder)];
+        return [radius * Math.sin(phi), .90 - v * 1.40 - .14 * ease((v - .48) / .36) + .045 * c * shoulder, depth * c - .05 * (1 - shoulder)];
     }
     function earPoint(side) {
         return function (v, phi) {
@@ -268,7 +269,7 @@
         '   float arrival=assemblyArrival(vLocal,vPart);float reveal=smoothstep(arrival-.04,arrival+.62,uTime);',
         '   alpha*=uReduced>.5?1.:reveal;',
         ' }',
-        ' float fade=smoothstep(-.50,-.06,vLocal.y);',
+        ' float fade=smoothstep(-.68,-.18,vLocal.y);',
         ' if(uPointPass>.5)fade=mix(1.,fade,vPhase);',
         ' if(vPart<2.5)alpha*=mix(fade,1.,head);',
         ' if(alpha<.001)discard;',
@@ -318,7 +319,7 @@
         '   weight=smoothstep(.35,.70,p.y);fade=smoothstep(0.,.08,q)*(1.-smoothstep(.92,1.,q));vWarm=step(.40,seed);',
         ' }else if(group<8.){',
         '   float q=fract(seed+t*(.13+lane*.05)),u=1.-q,side=group<7.?-1.:1.;',
-        '   p=vec3(side*1.32,-.18,.06)*u*u*u+3.*vec3(side*1.18,.16,.12)*u*u*q+3.*vec3(side*.18,.20,.10)*u*q*q+vec3(0.,.36,.045)*q*q*q;',
+        '   p=vec3(side*1.056,-.18,.06)*u*u*u+3.*vec3(side*.944,.16,.12)*u*u*q+3.*vec3(side*.144,.20,.10)*u*q*q+vec3(0.,.36,.045)*q*q*q;',
         '   fade=smoothstep(0.,.08,q)*(1.-smoothstep(.92,1.,q));vWarm=step(.72,seed);',
         ' }else{',
         '   float a=seed*6.2831853+t*(1.4+lane*.7)+.25*sin(t*1.8+seed*10.);float radius=.27*sqrt(lane)*(1.+uFlowVoice*.10);',
@@ -339,6 +340,43 @@
         ' vec3 blue=vec3(.025,.56,1.),orange=vec3(1.,.42,.025);vec3 color=mix(blue,orange,vWarm);',
         ' color+=mix(vec3(.18,.48,.55),vec3(.30,.38,.10),vWarm)*exp(-d*d*12.);',
         ' float alpha=glow*vEnergyAlpha;if(alpha<.001)discard;gl_FragColor=vec4(color*alpha,alpha);}'
+    ].join('\n');
+
+    function buildSwarm(compact) {
+        var random = randomGenerator(92531), count = compact ? 4096 : 2097152, data = new Float32Array(count * 4);
+        for (var i = 0; i < data.length; i++) data[i] = random();
+        var motes = compact ? 48 : 768;
+        for (i = 0; i < count; i++) data[i * 4 + 2] = i < motes ? .99965 + data[i * 4 + 2] * .00035 : data[i * 4 + 2] * .9996;
+        return {data: data, count: count, motes: motes};
+    }
+    var SWARM_VERTEX = [
+        'precision highp float;attribute vec4 aSwarm;uniform mat4 uProjection;uniform mat4 uView;uniform float uSwarmTime;uniform float uDpr;uniform float uDensityGain;',
+        'varying float vSwarmWarm;varying float vSwarmAlpha;',
+        'void main(){float t=uSwarmTime,seed=aSwarm.x,lane=aSwarm.y,depth=aSwarm.z;vec3 p;',
+        ' float spread=fract(seed*19.37+lane*43.13+aSwarm.w*11.7);float a=lane*6.2831853+t*(.12+depth*.14);',
+        ' if(aSwarm.w<.45){',
+        '   float h=fract(seed+t*(.018+depth*.016)),vertical=h*2.-1.;',
+        '   float radius=(.43+.65*spread)*sqrt(max(0.,1.-vertical*vertical));',
+        '   a+=sin(h*7.+t*.24)*.30;radius*=.96+.14*sin(a*3.+h*9.-t*.13)+.09*sin(h*17.+a*2.+t*.21);',
+        '   p=vec3(cos(a)*radius,1.12+vertical*(.72+.30*spread)+.06*sin(a*2.1+h*17.+t*.37),sin(a)*radius*.72);',
+        ' }else{',
+        '   float q=fract(seed+t*(.025+depth*.018)),h=.60-q*1.26;',
+        '   float radius=.27+1.12*smoothstep(.05,1.,q)+spread*.40;',
+        '   a+=sin(q*9.-t*.20)*.35;',
+        '   p=vec3(cos(a)*radius,h+sin(a*2.+t*.24)*.065,sin(a)*(.28+spread*.25));',
+        ' }',
+        ' float medium=step(.986,depth),bright=step(.99965,depth);vSwarmWarm=step(.55,fract(lane*7.13+seed*3.71));',
+        ' float pulse=.64+.36*sin(seed*38.+t*(1.0+lane));',
+        ' vSwarmAlpha=mix(mix(.010,.12,medium),1.1,bright)*pulse*mix(uDensityGain,1.,bright)*smoothstep(5.6,7.4,t)*(1.-smoothstep(.68,1.,spread)*mix(.90,.25,bright));',
+        ' gl_PointSize=(mix(1.05,1.75,medium)+bright*(2.4+seed*1.8))*uDpr;',
+        ' gl_Position=uProjection*uView*vec4(p,1.);',
+        '}'
+    ].join('\n');
+    var SWARM_FRAGMENT = [
+        'precision highp float;varying float vSwarmWarm;varying float vSwarmAlpha;',
+        'void main(){float d=length(gl_PointCoord-.5)*2.;float glow=exp(-d*d*3.8)*(1.-smoothstep(.78,1.,d));',
+        ' vec3 color=mix(vec3(.015,.55,1.),vec3(1.,.25,.025),vSwarmWarm);',
+        ' float alpha=glow*vSwarmAlpha;if(alpha<.0001)discard;gl_FragColor=vec4(color*alpha,alpha);}'
     ].join('\n');
 
     function shader(gl, type, source) {
@@ -363,15 +401,6 @@
         matrix[13] = fullViewport ? -.52 : -.52; matrix[14] = -6.2;
         return matrix;
     }
-    function glance(time) {
-        if (time < 60) return 0;
-        var phase = time % 60;
-        if (phase < 2.5) return -Math.PI / 2 * ease(phase / 2.5);
-        if (phase < 6) return mix(-Math.PI / 2, Math.PI / 2, ease((phase - 2.5) / 3.5));
-        if (phase < 9) return Math.PI / 2 * (1 - ease((phase - 6) / 3));
-        return 0;
-    }
-
     function Hologram(canvas, options) {
         this.canvas = canvas; this.options = options; this.compact = !!options.compact;
         this.fullViewport = !!options.fullViewport || (!!options.background && !this.compact);
@@ -383,7 +412,8 @@
         this.reduced = typeof options.reducedMotion === 'boolean' ? options.reducedMotion : !!(media && media.matches);
         this.gl = canvas.getContext('webgl', {alpha: true, antialias: true, premultipliedAlpha: true, depth: true, powerPreference: this.compact ? 'low-power' : 'high-performance'});
         if (!this.gl) throw new Error('GO hologram requires WebGL');
-        this.mesh = buildMesh(this.compact); this.particles = buildParticles(this.compact); this.energyParticles = buildEnergy(this.compact);
+        this.mesh = buildMesh(this.compact); this.particles = buildParticles(this.compact); this.energyParticles = buildEnergy(this.compact); this.swarmParticles = buildSwarm(this.compact);
+        this.swarmCount = 0; this.swarmLimit = 0; this.swarmSlow = 0; this.swarmFast = 0; this.lastSwarmDrawCount = 0;
         this.prepare();
         var self = this;
         this.onResize = function () { self.resize(); };
@@ -393,19 +423,15 @@
         };
         this.onLost = function (event) { event.preventDefault(); self.lost = true; canvas.dataset.goHologramState = 'recovering'; };
         this.onRestored = function () { if (self.dead) return; self.lost = false; self.prepare(); self.resize(); wake(); };
-        this.onPointer = function (event) {
-            var box = canvas.getBoundingClientRect(); self.gazeX = clamp((event.clientX - box.left) / box.width * 2 - 1, -1, 1); self.gazeY = clamp((event.clientY - box.top) / box.height * 2 - 1, -1, 1);
-        };
         canvas.addEventListener('webglcontextlost', this.onLost);
         canvas.addEventListener('webglcontextrestored', this.onRestored);
-        if (options.interactive && !this.compact) document.addEventListener('pointermove', this.onPointer, {passive: true});
         if (window.ResizeObserver) { this.resizeObserver = new window.ResizeObserver(this.onResize); this.resizeObserver.observe(canvas); } else window.addEventListener('resize', this.onResize);
         if (window.IntersectionObserver) {
             this.intersectionObserver = new window.IntersectionObserver(function (entries) { self.visible = entries[0].isIntersecting; self.last = 0; if (active(self)) self.render(self.reduced ? 6 : self.elapsed); wake(); }, {threshold: 0});
             this.intersectionObserver.observe(canvas);
         }
         if (media) { if (media.addEventListener) media.addEventListener('change', this.onMotion); else if (media.addListener) media.addListener(this.onMotion); }
-        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = 'webgl-geometry-v3'; this.resize();
+        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = 'webgl-geometry-v5'; this.resize();
     }
     Hologram.prototype.prepare = function () {
         var gl = this.gl; gl.getExtension('OES_standard_derivatives'); this.program = makeProgram(gl); gl.useProgram(this.program);
@@ -434,6 +460,11 @@
         for (i = 0; i < names.length; i++) this.energyUniforms[names[i]] = gl.getUniformLocation(this.energyProgram, names[i]);
         this.energyBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.energyBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, this.energyParticles.data, gl.STATIC_DRAW);
+        this.swarmProgram = makeProgram(gl, SWARM_VERTEX, SWARM_FRAGMENT);
+        this.swarmAttribute = gl.getAttribLocation(this.swarmProgram, 'aSwarm'); this.swarmUniforms = {};
+        names = ['uProjection', 'uView', 'uSwarmTime', 'uDpr', 'uDensityGain'];
+        for (i = 0; i < names.length; i++) this.swarmUniforms[names[i]] = gl.getUniformLocation(this.swarmProgram, names[i]);
+        this.swarmBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.swarmBuffer); gl.bufferData(gl.ARRAY_BUFFER, this.swarmParticles.data, gl.STATIC_DRAW);
         gl.getExtension('OES_standard_derivatives'); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
         gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
         this.canvas.dataset.goHologramState = 'ready';
@@ -476,18 +507,17 @@
         if (this.width < 2 || this.height < 2) return;
         this.ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1, Math.sqrt(4000000 / (this.width * this.height))));
         this.canvas.width = Math.round(this.width * this.ratio); this.canvas.height = Math.round(this.height * this.ratio);
+        var density = this.compact ? 4096 : this.width < 700 ? 131072 : 2097152;
+        if (typeof this.options.swarmCount === 'number') density = clamp(Math.floor(this.options.swarmCount), 1024, this.swarmParticles.count);
+        if (density !== this.swarmLimit) { this.swarmLimit = density; this.swarmCount = density; this.swarmSlow = 0; this.swarmFast = 0; }
         this.allocateTarget();
         this.projection = projection(this.width / this.height); this.view = viewMatrix(this.fullViewport);
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height); this.last = 0;
         this.render(this.reduced ? 6 : this.elapsed); wake();
     };
     Hologram.prototype.pose = function (time) {
-        var intro = this.compact || this.reduced ? 0 : .40 * (1 - ease((time - 2.6) / 2.5));
-        var turn = this.reduced ? 0 : glance(time), looking = time >= 60 && time % 60 <= 9;
-        var idle = this.reduced || looking ? 0 : Math.sin(time * .29) * .032 + this.gazeX * .10;
-        this.headYaw = turn + intro + idle;
-        this.bodyYaw = (turn + intro) * .08 + (this.reduced ? 0 : Math.sin(time * .22) * .009);
-        this.pitch = this.reduced ? 0 : Math.sin(time * .42) * .014 + this.gazeY * .035 * (looking ? 0 : 1);
+        // The V5 face always looks forward; particles and speech carry the motion.
+        this.headYaw = 0; this.bodyYaw = 0; this.pitch = 0;
         var level = this.explicitVoice ? this.voiceLevel : this.speaking ? .36 + .24 * Math.sin(time * 12.7) + .18 * Math.sin(time * 19.1) : 0;
         this.level = this.reduced ? 0 : clamp(level, 0, 1); this.mouthOpen = this.level * .095;
     };
@@ -519,6 +549,27 @@
         var trails = [.18, .12, .06, 0];
         for (var i = 0; i < trails.length; i++) { gl.uniform1f(u.uTrail, trails[i]); gl.drawArrays(gl.POINTS, 0, this.energyParticles.count); }
     };
+    Hologram.prototype.adaptDensity = function (frameMs) {
+        if (this.options.adaptiveParticles === false || this.compact || !this.lastSwarmDrawCount) return;
+        if (frameMs > 220 && this.swarmCount > 65536) { this.swarmCount = Math.max(65536, this.swarmCount / 4); this.swarmSlow = 0; this.swarmFast = 0; return; }
+        if (frameMs > 78) { this.swarmSlow++; this.swarmFast = 0; }
+        else if (frameMs < 40) { this.swarmFast++; this.swarmSlow = Math.max(0, this.swarmSlow - 1); }
+        else { this.swarmSlow = Math.max(0, this.swarmSlow - 1); this.swarmFast = 0; }
+        if (this.swarmSlow >= 8 && this.swarmCount > 65536) { this.swarmCount = Math.max(65536, this.swarmCount / 2); this.swarmSlow = 0; }
+        if (this.swarmFast >= 120 && this.swarmCount < this.swarmLimit) { this.swarmCount = Math.min(this.swarmLimit, this.swarmCount * 2); this.swarmFast = 0; }
+    };
+    Hologram.prototype.renderSwarm = function (time) {
+        var flowTime = this.reduced ? 8 : this.compact ? time + 8 : time;
+        this.lastSwarmDrawCount = 0;
+        if (flowTime <= ASSEMBLY_DURATION || !this.swarmCount) return;
+        var gl = this.gl, u = this.swarmUniforms;
+        gl.useProgram(this.swarmProgram); gl.bindBuffer(gl.ARRAY_BUFFER, this.swarmBuffer);
+        gl.enableVertexAttribArray(this.swarmAttribute); gl.vertexAttribPointer(this.swarmAttribute, 4, gl.FLOAT, false, 16, 0);
+        gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
+        gl.uniform1f(u.uSwarmTime, flowTime); gl.uniform1f(u.uDpr, this.ratio); gl.uniform1f(u.uDensityGain, Math.min(2.2, Math.sqrt(this.swarmLimit / this.swarmCount)));
+        gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+        this.lastSwarmDrawCount = this.swarmCount; gl.drawArrays(gl.POINTS, 0, this.swarmCount);
+    };
     Hologram.prototype.render = function (time) {
         if (this.dead || this.lost || this.width < 2 || this.height < 2) return;
         this.pose(time);
@@ -542,7 +593,7 @@
         for (var i = 0; i < shells.length; i++) { gl.uniform1f(u.uExpand, shells[i]); gl.drawElements(gl.TRIANGLES, this.mesh.indices.length, gl.UNSIGNED_SHORT, 0); }
         gl.uniform1f(u.uExpand, 0); gl.uniform1f(u.uGlowPass, 0); gl.uniform1f(u.uPointPass, 1); gl.disable(gl.CULL_FACE);
         this.bind(true); gl.drawArrays(gl.POINTS, 0, this.particles.count);
-        this.renderEnergy(time);
+        this.renderEnergy(time); this.renderSwarm(time);
         gl.depthMask(true); gl.disable(gl.BLEND);
         // A broad, continuous energy envelope from a separable generated-light blur.
         gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.useProgram(this.blurProgram);
@@ -594,7 +645,7 @@
                 weight = ease((p[1] - .35) / .35); warm = seed >= .40;
             } else if (group < 8) {
                 q = fract(seed + flowTime * (.13 + lane * .05)); var u = 1 - q, side = group < 7 ? -1 : 1;
-                p = [side * 1.32 * u * u * u + 3 * side * 1.18 * u * u * q + 3 * side * .18 * u * q * q, -.18 * u * u * u + 3 * .16 * u * u * q + 3 * .20 * u * q * q + .36 * q * q * q, .06 * u * u * u + 3 * .12 * u * u * q + 3 * .10 * u * q * q + .045 * q * q * q];
+                p = [side * 1.056 * u * u * u + 3 * side * .944 * u * u * q + 3 * side * .144 * u * q * q, -.18 * u * u * u + 3 * .16 * u * u * q + 3 * .20 * u * q * q + .36 * q * q * q, .06 * u * u * u + 3 * .12 * u * u * q + 3 * .10 * u * q * q + .045 * q * q * q];
                 warm = seed >= .72;
             } else {
                 a = seed * TAU + flowTime * (1.4 + lane * .7) + .25 * Math.sin(flowTime * 1.8 + seed * 10); radius = .27 * Math.sqrt(lane) * (1 + self.level * .10);
@@ -609,6 +660,27 @@
         var samples = ids.filter(function (id) { return id < self.energyParticles.count; }).map(sample);
         this.headYaw = saved[0]; this.bodyYaw = saved[1]; this.pitch = saved[2]; this.level = saved[3]; this.mouthOpen = saved[4];
         return {enabled: flowTime > 5.6, count: this.energyParticles.count, pass: 'internal-energy', trail_count: 4, samples: samples};
+    };
+    Hologram.prototype.swarm = function (time) {
+        time = Math.max(0, Number(time) || 0); var t = this.reduced ? 8 : this.compact ? time + 8 : time, self = this;
+        var f = 1 / Math.tan(29 * Math.PI / 360) * Math.min(1, this.width / this.height / 1.18);
+        function fract(v) { return v - Math.floor(v); }
+        function sample(id) {
+            var d = self.swarmParticles.data, i = id * 4, seed = d[i], lane = d[i + 1], depth = d[i + 2], group = d[i + 3], spread = fract(seed * 19.37 + lane * 43.13 + group * 11.7), a = lane * 6.2831853 + t * (.12 + depth * .14), p;
+            if (group < .45) {
+                var h = fract(seed + t * (.018 + depth * .016)), vertical = h * 2 - 1, radius = (.43 + .65 * spread) * Math.sqrt(Math.max(0, 1 - vertical * vertical));
+                a += Math.sin(h * 7 + t * .24) * .30; radius *= .96 + .14 * Math.sin(a * 3 + h * 9 - t * .13) + .09 * Math.sin(h * 17 + a * 2 + t * .21);
+                p = [Math.cos(a) * radius, 1.12 + vertical * (.72 + .30 * spread) + .06 * Math.sin(a * 2.1 + h * 17 + t * .37), Math.sin(a) * radius * .72];
+            } else {
+                var q = fract(seed + t * (.025 + depth * .018)), height = .60 - q * 1.26;
+                radius = .27 + 1.12 * ease((q - .05) / .95) + spread * .40; a += Math.sin(q * 9 - t * .20) * .35;
+                p = [Math.cos(a) * radius, height + Math.sin(a * 2 + t * .24) * .065, Math.sin(a) * (.28 + spread * .25)];
+            }
+            return {id: id, pass: 'outer-swarm', position: p, projected_position: {x: self.width / 2 + p[0] / (6.2 - p[2]) * f * self.height / 2, y: self.height / 2 - (p[1] - .52) / (6.2 - p[2]) * f * self.height / 2}, color: fract(lane * 7.13 + seed * 3.71) >= .55 ? 'orange' : 'blue', bright: depth >= .99965, size: (depth >= .986 ? 1.75 : 1.05) + (depth >= .99965 ? 2.4 + seed * 1.8 : 0)};
+        }
+        var ids = [], limit = Math.min(this.swarmCount, 150000);
+        for (var i = 0; i < limit && ids.length < 12; i++) if (this.swarmParticles.data[i * 4 + 2] >= .99965) ids.push(i);
+        return {enabled: t > ASSEMBLY_DURATION, pass: 'outer-swarm', capacity: this.swarmParticles.count, count: this.swarmCount, visibleMotes: this.swarmParticles.motes, submitted: this.lastSwarmDrawCount, drawCalls: t > ASSEMBLY_DURATION ? 1 : 0, trails: 1, adaptive: this.options.adaptiveParticles !== false, samples: ids.map(sample)};
     };
     Hologram.prototype.assembly = function (time) {
         // Bounded inspection of the exact procedural path. This does not render,
@@ -670,11 +742,10 @@
         if (this.resizeObserver) this.resizeObserver.disconnect(); else window.removeEventListener('resize', this.onResize);
         if (this.intersectionObserver) this.intersectionObserver.disconnect();
         this.canvas.removeEventListener('webglcontextlost', this.onLost); this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
-        if (this.options.interactive && !this.compact) document.removeEventListener('pointermove', this.onPointer);
         if (media) { if (media.removeEventListener) media.removeEventListener('change', this.onMotion); else if (media.removeListener) media.removeListener(this.onMotion); }
         if (!this.lost) {
-            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer); gl.deleteBuffer(this.energyBuffer);
-            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteProgram(this.blurProgram); gl.deleteProgram(this.energyProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
+            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer); gl.deleteBuffer(this.energyBuffer); gl.deleteBuffer(this.swarmBuffer);
+            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteProgram(this.blurProgram); gl.deleteProgram(this.energyProgram); gl.deleteProgram(this.swarmProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
             if (this.bloomTargets) this.bloomTargets.forEach(function (target) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.framebuffer); });
         }
         items = items.filter(function (item) { return item !== this; }, this);
@@ -682,7 +753,7 @@
         if (!items.some(moving) && frame) { window.cancelAnimationFrame(frame); frame = 0; }
     };
     window.GoHologram = {
-        version: 3,
+        version: 5,
         mount: function (canvas, options) {
             if (!canvas || typeof canvas.getContext !== 'function') return null;
             if (canvas.__goHologram && !canvas.__goHologram.dead) return canvas.__goHologram.api;
@@ -702,7 +773,8 @@
                 setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 6 : item.elapsed); wake(); },
                 assembly: function (time) { return item.assembly(time); },
                 energy: function (time) { return item.internalFlow(time); },
-                diagnostics: function () { return {version: 3, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
+                swarm: function (time) { return item.swarm(time); },
+                diagnostics: function () { return {version: 5, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, swarmParticles: item.swarmCount, swarmCapacity: item.swarmParticles.count, swarmVisibleMotes: item.swarmParticles.motes, swarmTier: item.compact ? 'compact' : item.swarmCount < item.swarmLimit ? 'adaptive' : item.swarmLimit < 2097152 ? 'mobile' : 'desktop-full', swarmSubmitted: item.lastSwarmDrawCount, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
             };
             item.api = api; canvas.__goHologram = item; items.push(item); wake(); return api;
         }

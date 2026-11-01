@@ -7,7 +7,7 @@ const read=name=>fs.readFileSync(path.join(repo,name),'utf8');
 const labels={employees:'الموظفين والرواتب',customers:'العملاء',expenses:'المصروفات',drawer:'تقفيل الوردية',stock:'مخزون البضاعة','ch-app':'طلبات التطبيق','ch-takeaway':'تيك أواي','ch-phone':'دليفري','ch-dine':'صالة','pending-expenses':'مصروفات منتظرة'};
 function metrics(){return{scope:'all',scope_label:'جميع الفروع المصرّح بها',branch_count:4,updated_at:'2026-11-01T20:00:00+02:00',cards:Object.entries(labels).map(([key,label],i)=>({key,label,url:'/admin/'+key,count:i+1,count_label:key.startsWith('ch-')?'غير منتهية':'إجمالي',secondary_count:key==='stock'?4:key==='ch-app'?11374:null,secondary_label:key==='stock'?'وصلت للحد الأدنى':key==='ch-app'?'منتهية · جميع الفروع المصرّح بها':null,warning:key==='stock',available:true}))};}
 function html(url){
- if(url.searchParams.has('robotonly')) return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010b14}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas data-hud-robot aria-hidden="true"></canvas><script src="/dashboard/js/go-hologram.js"></script><script>window.motionRobot=GoHologram.mount(document.querySelector('canvas'),{background:true,fullViewport:true,interactive:true});</script></body></html>`;
+ if(url.searchParams.has('robotonly')) return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010b14}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas data-hud-robot aria-hidden="true"></canvas><script src="/dashboard/js/go-hologram.js"></script><script>window.motionRobot=GoHologram.mount(document.querySelector('canvas'),{background:true,fullViewport:true,interactive:false,adaptiveParticles:false});</script></body></html>`;
  let partial=read('resources/views/admin/home_hud.blade.php').replace(/\{\{--[\s\S]*?--\}\}/g,'').replace(/\{\{\s*!empty\([^}]+\}\}/g,'1').replace(/\{\{\s*auth\('admin'\)->user\(\)->name\s*\}\}/g,'عمر');
  partial=partial.replace("@include('admin.partials.go_hud_mark')",read('resources/views/admin/partials/go_hud_mark.blade.php'));
  // Resolve Blade asset helpers in shared production markup.
@@ -40,13 +40,14 @@ if(require.main===module)(async()=>{
    window.SpeechSynthesisUtterance=function(text){this.text=text;};
    window.fetch=(url,options={})=>new Promise((resolve,reject)=>{const request={url:String(url),options,resolve,reject,aborted:false};fixture.calls.push(request);if(options.signal)options.signal.addEventListener('abort',()=>{request.aborted=true;reject(new DOMException('Aborted','AbortError'));});});
    window.fixture.reply=(i,data,status=200,redirected=false)=>fixture.calls[i].resolve({status,ok:status>=200&&status<300,redirected,json:()=>Promise.resolve(data)});
-   if(!location.search.includes('real'))window.GoHologram={version:location.search.includes('v3delay')?3:undefined,mount:(canvas,options)=>{const robot={dead:false,speaking:false,alert:false,destroy(){this.dead=true},setSpeaking(v){this.speaking=v},setVoiceLevel(v){this.voiceLevel=v},setAlert(v){this.alert=v}};fixture.mounted.push(robot);return robot;}};
+   if(!location.search.includes('real'))window.GoHologram={version:location.search.includes('v3delay')?3:undefined,mount:(canvas,options)=>{const robot={options,dead:false,speaking:false,alert:false,destroy(){this.dead=true},setSpeaking(v){this.speaking=v},setVoiceLevel(v){this.voiceLevel=v},setAlert(v){this.alert=v}};fixture.mounted.push(robot);return robot;}};
   });
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.clock.install();await page.goto(origin+'/fixture');
   equal(await page.locator('.hud-card').count(),10,'All ten authorized entries remain');
   equal(await page.locator('[data-hud-right] .hud-card').count(),5,'Five cards on right');
   equal(await page.locator('[data-hud-left] .hud-card').count(),5,'Five cards on left');
+  equal(await page.evaluate(()=>fixture.mounted[0].options.interactive),false,'Production opening explicitly disables pointer-driven robot rotation');
   equal(await page.evaluate(()=>fixture.plays),1,'Login plays reviewed local greeting once');
   check((await page.evaluate(()=>fixture.audio[0].src)).endsWith('/go-welcome-omar.mp3'),'Named login uses reviewed local personalized recording');
   equal(await page.evaluate(()=>fixture.speech.length),0,'No unrelated native/system voice may substitute the reviewed recording');
@@ -146,8 +147,8 @@ if(require.main===module)(async()=>{
    check(layout.cards.every((c,i,a)=>a.every((b,j)=>i===j||c.x+c.w<=b.x+1||b.x+b.w<=c.x+1||c.y+c.h<=b.y+1||b.y+b.h<=c.y+1)),'Cards never overlap at '+size.width+'x'+size.height);
    const canvas=await visual.locator('[data-hud-robot]').evaluate(c=>({w:c.width,h:c.height,ready:!!c.__goHologram}));check(canvas.ready&&canvas.w>0&&canvas.h>0,'Real canvas mounted at '+size.width+'x'+size.height);
    if(size.width===1672){
-    const pose=await visual.locator('[data-hud-robot]').evaluate(c=>{const r=c.__goHologram;r.render(0);const idle=r.headYaw;r.render(62);const left=r.headYaw;r.render(66);const right=r.headYaw;r.render(70);return{idle,left,right,end:r.headYaw};});
-    check(Math.abs(pose.left)>.2&&Math.abs(pose.right)>.2&&pose.left*pose.right<0,'Minute cycle visibly looks both directions');check(Math.abs(pose.end)<.05,'Minute cycle returns naturally to center');
+    const posture=await visual.locator('[data-hud-robot]').evaluate(c=>{const r=c.__goHologram,states=[];for(const t of[0,30,60,62.5,66,120,180]){r.pose(t);states.push({head:r.headYaw,body:r.bodyYaw,pitch:r.pitch});}for(const g of[-1,1]){r.api.setGaze(g,g);r.pose(62.5);states.push({head:r.headYaw,body:r.bodyYaw,pitch:r.pitch});}r.api.setGaze(0,0);return states;});
+    check(posture.every(p=>p.head===0&&p.body===0&&p.pitch===0),'Hologram keeps a fixed posture through minute boundaries and gaze input');
     const out=process.env.HOLOGRAM_SCREENSHOTS||path.join(repo,'../analysis');fs.mkdirSync(out,{recursive:true});await visual.screenshot({path:path.join(out,'hologram-desktop.png'),fullPage:true});
    }
    if(size.width===390){const out=process.env.HOLOGRAM_SCREENSHOTS||path.join(repo,'../analysis');await visual.screenshot({path:path.join(out,'hologram-mobile.png'),fullPage:true});}
@@ -163,7 +164,9 @@ if(require.main===module)(async()=>{
    check(chrome.avatarBackground==='rgba(0, 0, 0, 0)'&&chrome.avatarImage==='none'&&chrome.avatarBorder==='0px'&&chrome.avatarShadow==='none','Sidebar robot has no rectangular own background in '+mode);
    check(chrome.parentBackground==='rgba(0, 0, 0, 0)'&&chrome.parentImage==='none'&&chrome.parentBorder==='0px'&&chrome.parentShadow==='none','Actual branding parent has no rectangular panel in '+mode);
    const alpha=await reduced.locator('[data-go-sidebar-robot]').evaluate(c=>{const r=c.__goHologram;r.render(3);const gl=r.gl,out=[];for(const[x,y]of[[0,0],[c.width-1,0],[0,c.height-1],[c.width-1,c.height-1]]){const pixel=new Uint8Array(4);gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);out.push(pixel[3]);}return out;});
-   equal(alpha,[0,0,0,0],'Real WebGL corner pixels stay transparent in '+mode);
+   // The tiny collapsed canvas can receive <1.2% alpha from the requested outer swarm's bloom.
+   if(mode==='collapsed')check(alpha.every(a=>a<=3),'Collapsed canvas has no visible rectangular backdrop beyond faint particle glow');
+   else equal(alpha,[0,0,0,0],'Real WebGL corner pixels stay transparent in '+mode);
   }
 
   await reduced.close();
@@ -171,12 +174,12 @@ if(require.main===module)(async()=>{
   await scoped.waitForFunction(()=>document.querySelector('[data-go-sidebar-robot]').__goHologram.elapsed>0,null,{timeout:5000});
   equal(await scoped.evaluate(()=>DashboardSPA.ready()),true,'Real SPA owns the current page');
   const earlier=await scoped.locator('[data-go-sidebar-robot]').evaluate(c=>c.__goHologram.elapsed);
-  await scoped.locator('[data-hud-robot]').evaluate(c=>{const r=c.__goHologram;window.rendererCleanupEvidence={gl:r.gl,energyProgram:r.energyProgram,energyBuffer:r.energyBuffer,blurProgram:r.blurProgram};});
+  await scoped.locator('[data-hud-robot]').evaluate(c=>{const r=c.__goHologram;window.rendererCleanupEvidence={gl:r.gl,energyProgram:r.energyProgram,energyBuffer:r.energyBuffer,blurProgram:r.blurProgram,swarmProgram:r.swarmProgram,swarmBuffer:r.swarmBuffer};});
   await scoped.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
   await scoped.waitForFunction(time=>document.querySelector('[data-go-sidebar-robot]').__goHologram.elapsed>time,earlier,{timeout:5000});
   check(await scoped.locator('[data-go-sidebar-robot]').evaluate((c,time)=>c.__goHologram.elapsed>time,earlier),'Shared sidebar animation survives cancellation of actual SPA page callbacks');
   equal(await scoped.locator('[data-hud-robot]').evaluate(c=>!!c.__goHologram),false,'SPA cleanup destroys only the opening instance');
-  check(await scoped.evaluate(()=>{const e=rendererCleanupEvidence,s=document.querySelector('[data-go-sidebar-robot]').__goHologram;return !e.gl.isProgram(e.energyProgram)&&!e.gl.isProgram(e.blurProgram)&&!e.gl.isBuffer(e.energyBuffer)&&!!s&&s.gl.isProgram(s.energyProgram); }),'SPA leave releases main energy/bloom GPU resources while the sidebar program survives');
+  check(await scoped.evaluate(()=>{const e=rendererCleanupEvidence,s=document.querySelector('[data-go-sidebar-robot]').__goHologram;return !e.gl.isProgram(e.energyProgram)&&!e.gl.isProgram(e.blurProgram)&&!e.gl.isBuffer(e.energyBuffer)&&!e.gl.isProgram(e.swarmProgram)&&!e.gl.isBuffer(e.swarmBuffer)&&!!s&&s.gl.isProgram(s.energyProgram)&&s.gl.isProgram(s.swarmProgram); }),'SPA leave releases main energy/bloom/swarm GPU resources while the sidebar programs survive');
   equal(await scoped.locator('#go-hud').isVisible(),false,'bfcache cleanup cannot leave an inert opening overlay visible');
   await scoped.close();equal(errors,[],'No browser runtime errors');await context.close();
   console.log('PASS hologram browser: '+checks+' assertions');
