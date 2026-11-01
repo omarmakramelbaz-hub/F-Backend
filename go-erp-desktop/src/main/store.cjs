@@ -43,7 +43,7 @@ class Store {
    */
   forgetDevice() {
     transaction(this.db, () => {
-      this.db.prepare("DELETE FROM meta WHERE key IN ('device', 'users_hash', 'customers_cursor')").run();
+      this.db.prepare("DELETE FROM meta WHERE key IN ('device', 'users_hash', 'customers_cursor', 'remembered_sign_in')").run();
       this.db.prepare('DELETE FROM users').run();
       this.db.prepare('DELETE FROM directory').run();
     });

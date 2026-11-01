@@ -36,6 +36,10 @@
                 @click="showPassword = !showPassword"><i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'" aria-hidden="true"></i></button>
             </div>
           </div>
+          <label class="dashboard-login-remember" for="login-remember">
+            <input id="login-remember" v-model="remember" type="checkbox">
+            <span>تذكرني</span>
+          </label>
           <button class="dashboard-login-submit" :disabled="busy">
             <span>{{ busy ? 'جاري التحقق…' : 'تسجيل دخول' }}</span><i class="fas fa-arrow-left" aria-hidden="true"></i>
           </button>
@@ -51,7 +55,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { call } from '../api.js';
 import SyncBadge from '../components/SyncBadge.vue';
 import HudBackdrop from '../components/HudBackdrop.vue';
@@ -61,8 +65,21 @@ const emit = defineEmits(['signed-in', 'sync-now', 'reset']);
 const login = ref('');
 const password = ref('');
 const showPassword = ref(false);
+const remember = ref(false);
 const error = ref('');
 const busy = ref(false);
+
+// «تذكرني»: the account kept on this device is filled in, ready to sign in.
+onMounted(async () => {
+  try {
+    const saved = await call('auth:remembered');
+    if (saved && saved.remember && !login.value) {
+      login.value = saved.login;
+      password.value = saved.password;
+      remember.value = true;
+    }
+  } catch { /* the screen works without it */ }
+});
 const branchNames = computed(() => props.info.branches.map((branch) => branch.name).join('، '));
 
 async function reset() {
@@ -79,7 +96,7 @@ async function submit() {
   error.value = '';
   busy.value = true;
   try {
-    await call('auth:login', { login: login.value, password: password.value });
+    await call('auth:login', { login: login.value, password: password.value, remember: remember.value });
     password.value = '';
     emit('signed-in');
   } catch (problem) {

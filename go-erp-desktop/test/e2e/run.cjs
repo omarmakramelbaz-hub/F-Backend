@@ -245,7 +245,20 @@ async function cashierDevice() {
   // The owner's delivery order: 240 - 10 discount + 20 delivery = 250.00.
   await page.getByRole('button', { name: 'خروج' }).click();
   await stopServer();
-  await signIn(page, '01000000001', 'root-pass');
+  // «تذكرني»: the owner's sign-in is kept on this device; after signing out it is filled in, ready to sign in again.
+  await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill('01000000001');
+  await page.getByLabel('كلمة المرور', { exact: true }).fill('root-pass');
+  await page.getByLabel('تذكرني').check();
+  await page.getByRole('button', { name: 'تسجيل دخول' }).click();
+  await page.locator('.pos').waitFor();
+  await page.getByRole('button', { name: 'خروج' }).click();
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor();
+  await until(async () => (await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').inputValue()) === '01000000001', 'the remembered account is filled in');
+  assert.equal(await page.getByLabel('تذكرني').isChecked(), true);
+  // Without a keyring on this machine the password is never kept in the clear: then only the account is filled in.
+  if (!(await page.getByLabel('كلمة المرور', { exact: true }).inputValue())) await page.getByLabel('كلمة المرور', { exact: true }).fill('root-pass');
+  await page.getByRole('button', { name: 'تسجيل دخول' }).click();
+  await page.locator('.pos').waitFor();
   await page.getByRole('button', { name: 'دليفري' }).click();
   await addItem(page, 'كابوريا', '1');
   await page.getByLabel('هاتف العميل').fill('01099887766');

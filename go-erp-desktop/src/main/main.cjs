@@ -57,6 +57,31 @@ function publicDevice() {
   return device ? { id: device.id, name: device.name, code: device.code, server: device.server } : null;
 }
 
+/**
+ * «تذكرني» on the sign-in screen: the account's sign-in is kept on this device for the next time, the password sealed
+ * by the operating system (as the device's own key) and never kept in the clear. Signing in without it forgets it.
+ */
+function rememberSignIn(values) {
+  if (!values || !values.remember) {
+    store.set('remembered_sign_in', null);
+    return;
+  }
+  const login = String(values.login || '').trim().slice(0, 200);
+  const password = String(values.password || '');
+  store.set('remembered_sign_in', safeStorage.isEncryptionAvailable()
+    ? { login, sealed: safeStorage.encryptString(password).toString('base64') } : { login });
+}
+
+function rememberedSignIn() {
+  const saved = store.get('remembered_sign_in');
+  if (!saved || !saved.login) return { remember: false, login: '', password: '' };
+  let password = '';
+  if (saved.sealed) {
+    try { password = safeStorage.decryptString(Buffer.from(saved.sealed, 'base64')); } catch { password = ''; }
+  }
+  return { remember: true, login: saved.login, password };
+}
+
 function requireSession() {
   if (!current) throw new Error('سجّل الدخول أولًا.');
   // Permissions are re-read from the latest synced accounts on every action.
@@ -203,8 +228,12 @@ const handlers = {
     return { done: true };
   },
 
+  // «تذكرني»: what the sign-in screen starts with.
+  'auth:remembered': () => rememberedSignIn(),
+
   'auth:login': async (values) => {
     const user = auth.login(store, values.login, values.password);
+    rememberSignIn(values);
     const usable = user.branches.filter((value) => store.catalog(value));
     const branch = usable.includes(values.branch) ? values.branch : (usable[0] || user.branches[0]);
     // A previous account's dashboard session never carries over to the next person.

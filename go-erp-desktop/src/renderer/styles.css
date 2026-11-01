@@ -293,3 +293,6 @@ td.punch { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; 
   .hud-backdrop-figure { width: 100%; opacity: .35; }
 }
 .hud-login .dashboard-login-input-wrap > input:focus, .hud-login .dashboard-login-input-wrap > input:focus-visible { outline: none; box-shadow: none; }
+
+.hud-login .dashboard-login-remember { display: inline-flex; flex-direction: row; align-items: center; gap: 9px; color: #dcfaff; }
+.hud-login .dashboard-login-remember input { accent-color: #28def5; }
