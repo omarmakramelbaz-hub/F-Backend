@@ -2,7 +2,7 @@
     'use strict';
     if (window.GoHologramShell || !window.GoHologram) return;
     var canvas = document.querySelector('[data-go-sidebar-robot]');
-    var robot = canvas ? window.GoHologram.mount(canvas, {compact: true, background: false, imageSrc: canvas.dataset.goHologramSrc}) : null;
+    var robot = canvas ? window.GoHologram.mount(canvas, {compact: true, background: false}) : null;
     function alertState(event) { if (robot) robot.setAlert(!!(event.detail && event.detail.pending && event.detail.pending.length)); }
     document.addEventListener('dashboard:order-alert-state', alertState);
     if (window.DashboardOrderAlerts) alertState({detail: window.DashboardOrderAlerts.state()});

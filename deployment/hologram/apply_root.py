@@ -15,25 +15,23 @@ import subprocess
 import sys
 import tempfile
 
-FEATURE = 'hologram-opening-20261101'
-BASE_REVISION = 'f50a603b95f94b4168eb40fe0ac7ff26528f1d1b'
+FEATURE = 'hologram-live-3d-20261101-v2'
+BASE_REVISION = '39ea43ff587d5e8f1285c811f7e11b02a137ecc2'
 # This exact list is finalized alongside the generated, pinned manifest.
 ALLOWED = {
     'app/Http/Controllers/Dashboard/HomeController.php',
-    'app/Services/Dashboard/HomeHologramMetrics.php',
-    'app/Services/Dashboard/OrderBoardService.php',
+    'app/Services/Dashboard/HomeHologramVoice.php',
     'public/dashboard/js/home-hud.js',
     'public/dashboard/js/go-hologram.js',
     'public/dashboard/js/go-hologram-shell.js',
     'public/dashboard/css/home-hud.css',
     'public/dashboard/css/go-hologram.css',
-    'public/dashboard/branding/go-hologram-bust.webp',
+    'public/dashboard/audio/go-welcome.mp3',
+    'public/dashboard/audio/go-welcome.envelope.json',
+    'public/dashboard/audio/go-welcome-omar.mp3',
+    'public/dashboard/audio/go-welcome-omar.envelope.json',
     'resources/views/admin/home_hud.blade.php',
-    'resources/views/admin/layouts/menu.blade.php',
-    'resources/views/admin/layouts/header.blade.php',
-    'resources/views/admin/layouts/footer.blade.php',
     'resources/views/admin/partials/go_hologram_sidebar.blade.php',
-    'resources/views/admin/partials/go_hud_mark.blade.php',
 }
 
 
@@ -258,6 +256,11 @@ try {
         if(proc_close($process)!==0)throw new RuntimeException('GO_HOLOGRAM_VIEW_LINT_FAILED');
     }
     if(!app('router')->getRoutes()->getByName('admin_dash'))throw new RuntimeException('GO_HOLOGRAM_HOME_ROUTE_MISSING');
+    $voice=app(\App\Services\Dashboard\HomeHologramVoice::class);
+    foreach(['Omar','General Account'] as $name) {
+        $audio=$voice->forActor((object)['name'=>$name]);
+        if(!is_array($audio)||!isset($audio['url'],$audio['envelope']['values'])||count($audio['envelope']['values'])<1)throw new RuntimeException('GO_HOLOGRAM_LOCAL_VOICE_MISSING');
+    }
     echo "GO_HOLOGRAM_RUNTIME_VERIFIED\n";
 }catch(Throwable $error){
     $message=preg_match('/^GO_HOLOGRAM_[A-Z_]+$/D',$error->getMessage())?$error->getMessage():'GO_HOLOGRAM_RUNTIME_CHECK_FAILED';
@@ -320,7 +323,7 @@ def main():
         changes=plan(project,manifest)
         runtimes=tenant_runtimes()
         if sys.argv[2]=='--check':
-            print(json.dumps({'status':'GO_HOLOGRAM_CHECK_READY','files':len(changes),
+            print(json.dumps({'status':'GO_HOLOGRAM_CHECK_READY','feature':FEATURE,'base_revision':BASE_REVISION,'files':len(changes),
                               'changed_files':sum(item['before']!=item['after'] for item in changes),
                               'tenant_contexts':len(runtimes)}))
             return
@@ -357,7 +360,7 @@ def main():
                     except BaseException:
                         pass
                 raise
-    print(json.dumps({'status':'GO_HOLOGRAM_OPENING_READY','changed_files':sum(item['before']!=item['after'] for item in changes),
+    print(json.dumps({'status':'GO_HOLOGRAM_OPENING_READY','feature':FEATURE,'base_revision':BASE_REVISION,'changed_files':sum(item['before']!=item['after'] for item in changes),
                       'verified_tenant_contexts':len(runtimes),'backup':str(backup),
                       'database_changes':False,'desktop_rebuilt':False}))
 

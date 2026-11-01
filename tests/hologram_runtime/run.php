@@ -156,6 +156,28 @@ $controller->signin($login);
 same(10,Illuminate\Support\Facades\Auth::guard('admin')->id(),'Actual login authenticates branch account');
 same(true,is_string($session->get('go_hologram_login.nonce'))&&strlen($session->get('go_hologram_login.nonce'))>10,'Actual successful login writes unique greeting stamp');
 same(false,$session->has('go_hud_intro'),'Actual login resets visual intro gate');
-echo "PASS hologram real SQLite counters and controller sessions: $checks assertions\n";
 
-
+// Voice asset selection and corrupt/missing-envelope refusal remain isolated.
+$voice=app(App\Services\Dashboard\HomeHologramVoice::class);
+same(null,$voice->forActor(null),'Anonymous entry has no greeting audio');
+$publicPath=app('path.public');$voiceTemp=sys_get_temp_dir().'/hologram-voice-'.bin2hex(random_bytes(6));
+mkdir($voiceTemp.'/dashboard/audio',0700,true);app()->instance('path.public',$voiceTemp);
+try {
+    $audioDir=$voiceTemp.'/dashboard/audio/';
+    $valid=['sample_rate'=>50,'values'=>[0,.25,1,.3,0]];
+    foreach(['go-welcome','go-welcome-omar']as$base){file_put_contents($audioDir.$base.'.mp3','fixture-only');file_put_contents($audioDir.$base.'.envelope.json',json_encode($valid));}
+    foreach(['Omar Makram','عمر مكرم']as$name){$selected=$voice->forActor((object)['name'=>$name]);same(true,str_ends_with($selected['url'],'/go-welcome-omar.mp3'),'Explicit Omar name selects personalized reference recording');same(50,$selected['envelope']['sample_rate'],'Audio envelope keeps its actual50Hztimebase');}
+    foreach(['عمرو','Actor10']as$name)same(true,str_ends_with($voice->forActor((object)['name'=>$name])['url'],'/go-welcome.mp3'),'Other names must never hear Omar addressed to them');
+    file_put_contents($audioDir.'go-welcome.envelope.json',json_encode(['sample_rate'=>50,'values'=>[1.1]]));
+    same(null,$voice->forActor((object)['name'=>'Actor10']),'Out-of-range amplitude fails closed without systemvoice fallback');
+    file_put_contents($audioDir.'go-welcome.envelope.json',json_encode(['sample_rate'=>0,'values'=>[.4]]));
+    same(null,$voice->forActor((object)['name'=>'Actor10']),'Invalid timebase is refused');
+    file_put_contents($audioDir.'go-welcome.envelope.json','invalid');
+    same(null,$voice->forActor((object)['name'=>'Actor10']),'Corrupt audio envelope is refused');
+    unlink($audioDir.'go-welcome-omar.mp3');
+    same(null,$voice->forActor((object)['name'=>'Omar']),'Missing reviewed recording cannot silently substitute another voice');
+} finally {
+    app()->instance('path.public',$publicPath);
+    foreach(glob($voiceTemp.'/dashboard/audio/*')as$file)unlink($file);rmdir($voiceTemp.'/dashboard/audio');rmdir($voiceTemp.'/dashboard');rmdir($voiceTemp);
+}
+echo "PASS hologram real SQLite counters, controller sessions and local voice selection: $checks assertions\n";

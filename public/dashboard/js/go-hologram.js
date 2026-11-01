@@ -1,445 +1,457 @@
-/* GO's decorative hologram. Local Canvas 2D geometry; no network, video or WebGL dependency. */
+/* GO hologram v2: native three-dimensional surfaces, contour shaders and a moving point cloud. */
 (function (window, document) {
     'use strict';
-    if (window.GoHologram && window.GoHologram.version === 1) return;
+    if (window.GoHologram && window.GoHologram.version >= 2) return;
 
-    var instances = [], frame = 0, queued = false, imageCache = Object.create(null);
-    var motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
-    var TAU = Math.PI * 2;
-
-    function smooth(v) { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); }
+    var items = [], frame = 0, queued = false, TAU = Math.PI * 2;
+    var media = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function ease(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
     function mix(a, b, t) { return a + (b - a) * t; }
-    function eligible(item) {
-        return !item.dead && item.visible && item.canvas.isConnected && !document.hidden && item.width > 1 && item.height > 1;
-    }
-    function animate(item) { return eligible(item) && !item.reduced; }
+    function active(item) { return !item.dead && !item.lost && item.visible && item.canvas.isConnected && !document.hidden && item.width > 1 && item.height > 1; }
+    function moving(item) { return active(item) && !item.reduced; }
     function wake() {
-        if (frame || queued || !instances.some(animate)) return;
+        if (frame || queued || !items.some(moving)) return;
         queued = true;
-        // DashboardSPA scopes page callbacks. A microtask schedules this shared shell loop
-        // after that scope exits, so leaving the home page cannot stop the sidebar robot.
+        // The shared shell loop must be scheduled after DashboardSPA's PageScope exits.
         Promise.resolve().then(function () {
             queued = false;
-            if (!frame && instances.some(animate)) frame = window.requestAnimationFrame(tick);
+            if (!frame && items.some(moving)) frame = window.requestAnimationFrame(tick);
         });
     }
     function tick(now) {
         frame = 0;
-        instances.slice().forEach(function (item) {
+        items.slice().forEach(function (item) {
             if (!item.canvas.isConnected) { item.destroy(); return; }
-            if (!animate(item)) { item.last = 0; return; }
+            if (!moving(item)) { item.last = 0; return; }
             if (!item.last || now - item.last >= item.interval - 1) {
-                var dt = item.last ? Math.min(.1, (now - item.last) / 1000) : 0;
+                // Keep the sixty-second glance tied to visible wall time even on a slow GPU.
+                if (item.last) item.elapsed += Math.max(0, (now - item.last) / 1000);
                 item.last = now;
-                item.elapsed += dt;
-                item.speech = mix(item.speech, item.speaking ? 1 : 0, Math.min(1, dt * 8));
-                item.alarm = mix(item.alarm, item.alert ? 1 : 0, Math.min(1, dt * 5));
                 item.render(item.elapsed);
             }
         });
         wake();
     }
-    function refreshVisibility() {
-        instances.forEach(function (item) {
+    function visibility() {
+        items.forEach(function (item) {
             item.last = 0;
-            if (eligible(item)) item.render(item.reduced ? 0 : item.elapsed);
+            if (active(item)) item.render(item.reduced ? 3 : item.elapsed);
         });
         if (document.hidden && frame) { window.cancelAnimationFrame(frame); frame = 0; }
         wake();
     }
-    document.addEventListener('visibilitychange', refreshVisibility);
+    document.addEventListener('visibilitychange', visibility);
+    function randomGenerator(seed) { return function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
 
-    function seeded(seed) {
-        return function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    // All meshes are constructed here from smooth mathematical surfaces. UVs describe
+    // the physical surface; no raster assets are involved in construction or shading.
+    function headPoint(v, phi) {
+        var theta = v * Math.PI, c = Math.cos(theta), s = Math.sin(theta);
+        var jaw = 1 - .27 * ease((-c - .05) / .95), front = Math.max(0, Math.cos(phi));
+        var x = .465 * s * jaw * Math.sin(phi);
+        var y = 1.18 + .675 * c;
+        var z = .392 * s * Math.cos(phi) * (1 - .045 * Math.max(0, -c));
+        // A continuous forehead/cheek/chin profile with no abrupt profile knots.
+        z += Math.pow(front, 8) * (.024 * Math.exp(-Math.pow((y - 1.08) / .17, 2)) + .030 * Math.exp(-Math.pow((y - .72) / .12, 2)));
+        return [x, y, z];
     }
-    function loadArtwork(source, notify) {
-        var state = imageCache[source];
-        if (!state) {
-            state = {image: new window.Image(), ready: false, failed: false, listeners: []};
-            imageCache[source] = state;
-            state.image.decoding = 'async';
-            state.image.onload = function () {
-                state.ready = state.image.naturalWidth > 0;
-                state.failed = !state.ready;
-                state.listeners.splice(0).forEach(function (listener) { listener(state); });
-            };
-            state.image.onerror = function () {
-                state.failed = true;
-                state.listeners.splice(0).forEach(function (listener) { listener(state); });
-            };
-            state.image.src = source;
-        }
-        if (state.ready || state.failed) notify(state); else state.listeners.push(notify);
-        return state;
+    function bodyPoint(v, phi) {
+        var baseY = .64 - v * 1.86;
+        var shoulder = 1 / (1 + Math.exp((baseY + .045) / .125)), radius = .202 + 1.29 * shoulder;
+        var depth = .185 + .30 * ease((v - .19) / .64);
+        var c = Math.cos(phi), y = baseY + .10 * c * shoulder;
+        return [radius * Math.sin(phi), y, depth * c];
     }
-    function profile(v) {
-        var stops = [[-1, 0], [-.95, .39], [-.8, .75], [-.6, .94], [-.36, 1], [-.08, .99], [.2, .94], [.45, .83], [.7, .65], [.9, .38], [1, .09]];
-        for (var i = 1; i < stops.length; i++) {
-            if (v <= stops[i][0]) return mix(stops[i - 1][1], stops[i][1], smooth((v - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0])));
-        }
-        return .09;
+    function earPoint(side) {
+        return function (v, phi) {
+            var theta = v * Math.PI, s = Math.sin(theta), c = Math.cos(phi);
+            return [side * .440 + .045 * s * Math.sin(phi), 1.01 + .105 * Math.cos(theta), -.018 + .065 * s * c];
+        };
     }
-    function line(points, group) { return {points: new Float32Array(points), group: group || 0}; }
-    function geometry(compact) {
-        var head = [], torso = [], outline = [], ears = [], sparks = [], nerves = [], random = seeded(4127);
-        var rows = compact ? 27 : 43, steps = compact ? 34 : 56;
-        for (var row = 0; row <= rows; row++) {
-            var v = -.985 + row / rows * 1.97, width = profile(v) * 132, points = [];
-            for (var col = 0; col <= steps; col++) {
-                var angle = col / steps * Math.PI, front = Math.sin(angle);
-                points.push(Math.cos(angle) * width, -178 + v * 174 - front * 9, front * width * .73);
-            }
-            head.push(line(points, 1));
-        }
-        // The silhouette follows the cheek and narrow chin, rather than a mechanical mask.
-        [-1, 1].forEach(function (side) {
-            var points = [];
-            for (var i = 0; i <= 70; i++) {
-                var v = -1 + i / 70 * 2;
-                points.push(side * profile(v) * 132, -178 + v * 174, 0);
-            }
-            outline.push(line(points, 1));
-            var ear = [];
-            for (i = 0; i <= 30; i++) {
-                var angle = -Math.PI / 2 + i / 30 * Math.PI;
-                ear.push(side * (125 + Math.cos(angle) * 18), -119 + Math.sin(angle) * 34, 5 + Math.cos(angle) * 12);
-            }
-            ears.push(line(ear, 1));
-            var shoulderCount = compact ? 15 : 27;
-            for (i = 0; i < shoulderCount; i++) {
-                var curve = [], q = i / (shoulderCount - 1);
-                // Curves follow the throat into the trapezius and the rounded shoulder cap.
-                var anchors = [
-                    [side * (26 + q * 36), -12 + q * 9, 37],
-                    [side * (28 + q * 35), 64 + q * 29, 43],
-                    [side * (53 + q * 38), 125 + q * 20, 55],
-                    [side * (139 + q * 48), 157 + q * 27, 65],
-                    [side * (256 + q * 45), 176 + q * 55, 48],
-                    [side * (340 + q * 36), 246 + q * 64, 15],
-                    [side * (376 + q * 48), 378 + q * 26, -18]
-                ];
-                for (var a = 0; a < anchors.length - 1; a++) {
-                    var p0 = anchors[Math.max(0, a - 1)], p1 = anchors[a], p2 = anchors[a + 1], p3 = anchors[Math.min(anchors.length - 1, a + 2)];
-                    for (var k = 0; k < 10; k++) {
-                        var u = k / 10, u2 = u * u, u3 = u2 * u;
-                        for (var axis = 0; axis < 3; axis++) curve.push(.5 * ((2 * p1[axis]) + (-p0[axis] + p2[axis]) * u + (2 * p0[axis] - 5 * p1[axis] + 4 * p2[axis] - p3[axis]) * u2 + (-p0[axis] + 3 * p1[axis] - 3 * p2[axis] + p3[axis]) * u3));
-                    }
+    function buildMesh(compact) {
+        var vertices = [], indices = [];
+        function add(fn, part, rows, cols) {
+            var offset = vertices.length / 9, epsilon = .00015;
+            for (var row = 0; row <= rows; row++) {
+                var v = row / rows;
+                for (var col = 0; col <= cols; col++) {
+                    var phi = col / cols * TAU, p = fn(v, phi);
+                    var a = fn(clamp(v - epsilon, 0, 1), phi), b = fn(clamp(v + epsilon, 0, 1), phi);
+                    var c = fn(v, phi - epsilon), d = fn(v, phi + epsilon);
+                    var ax = b[0] - a[0], ay = b[1] - a[1], az = b[2] - a[2];
+                    var bx = d[0] - c[0], by = d[1] - c[1], bz = d[2] - c[2];
+                    var nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+                    var length = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                    if (length < 1e-10) { nx = 0; ny = row === 0 ? 1 : -1; nz = 0; length = 1; }
+                    vertices.push(p[0], p[1], p[2], nx / length, ny / length, nz / length, col / cols, v, part);
                 }
-                torso.push(line(curve, 0));
-                if (i === shoulderCount - 1) outline.push(line(curve, 0));
             }
-            // Chest strands converge on the central energy point, with no platform or orbit rings.
-            for (i = 0; i < (compact ? 9 : 16); i++) {
-                var chest = [], portion = i / 16;
-                for (k = 0; k <= 36; k++) {
-                    var t = k / 36;
-                    chest.push(side * (10 + i * 15) * (1 - .48 * t), 171 + i * 7 + 223 * t, 46 + Math.sin(t * Math.PI) * 21 - portion * 25);
-                }
-                torso.push(line(chest));
+            for (var r = 0; r < rows; r++) for (var k = 0; k < cols; k++) {
+                var i = offset + r * (cols + 1) + k;
+                indices.push(i, i + cols + 1, i + 1, i + 1, i + cols + 1, i + cols + 2);
             }
-        });
-        for (var n = 0; n < (compact ? 8 : 16); n++) {
-            var side = n % 2 ? -1 : 1, points = [], startX = side * (9 + random() * 40);
-            for (var j = 0; j <= 21; j++) {
-                var u = j / 21, taper = Math.pow(1 - u, 1.3);
-                points.push(startX * taper + Math.sin(u * 15 + n * 1.6) * (3 + 4 * Math.sin(u * Math.PI)), -7 + u * 300, 54 + Math.sin(u * Math.PI) * 12);
-            }
-            nerves.push(line(points));
         }
-        var all = head.concat(torso);
-        for (var s = 0; s < (compact ? 190 : 640); s++) {
-            var curve = all[Math.floor(random() * all.length)], idx = Math.floor(random() * curve.points.length / 3) * 3;
-            sparks.push({x: curve.points[idx] + (random() - .5) * 30, y: curve.points[idx + 1] + (random() - .5) * 28,
-                z: curve.points[idx + 2] + (random() - .5) * 25, group: curve.group, phase: random() * TAU, r: .4 + random() * .95, warm: random() > .92});
+        add(headPoint, 1, compact ? 56 : 96, compact ? 80 : 144);
+        add(bodyPoint, 0, compact ? 60 : 112, compact ? 80 : 144);
+        add(earPoint(-1), 2, compact ? 20 : 32, compact ? 32 : 48);
+        add(earPoint(1), 2, compact ? 20 : 32, compact ? 32 : 48);
+        return {vertices: new Float32Array(vertices), indices: new Uint16Array(indices), vertexCount: vertices.length / 9};
+    }
+    function buildParticles(compact) {
+        var random = randomGenerator(58219), count = compact ? 1100 : 14000, result = [];
+        for (var i = 0; i < count; i++) {
+            var head = i % 5 < 2, v = .025 + random() * .95, phi = random() * TAU;
+            var fn = head ? headPoint : bodyPoint, p = fn(v, phi);
+            var radial = head ? .013 : .018;
+            var outward = .008 + random() * .032;
+            if (head) { p[0] += p[0] / .465 * outward; p[1] += (p[1] - 1.18) / .675 * outward; p[2] += p[2] / .392 * outward; }
+            else { p[0] += p[0] / 1.545 * outward; p[2] += (p[2] < 0 ? -1 : 1) * outward; }
+            var dx = (random() - .5) * radial, dy = (random() - .5) * radial, dz = (random() - .5) * radial;
+            result.push(p[0] + dx, p[1] + dy, p[2] + dz, 0, 0, 1, phi / TAU, v, head ? 1 : 0, random(), .55 + random() * 1.05);
         }
-        return {head: head, torso: torso, outline: outline, ears: ears, sparks: sparks, nerves: nerves};
+        return {vertices: new Float32Array(result), count: count};
+    }
+
+    var VERTEX = [
+        'precision highp float;',
+        'attribute vec3 aPosition; attribute vec3 aNormal; attribute vec2 aUV; attribute float aPart; attribute float aPhase; attribute float aSize;',
+        'uniform mat4 uProjection; uniform mat4 uView; uniform float uHeadYaw; uniform float uBodyYaw; uniform float uPitch;',
+        'uniform float uTime; uniform float uVoice; uniform float uPointPass; uniform float uExpand; uniform float uDpr; uniform float uCompact; uniform float uAspect; uniform float uScatter; uniform float uReduced;',
+        'varying vec3 vNormal; varying vec3 vPosition; varying vec3 vLocal; varying vec2 vUV; varying float vPart; varying float vAlpha; varying float vPhase;',
+        'mat3 yaw(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}',
+        'mat3 pitch(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}',
+        'void main(){',
+        ' vec3 p=aPosition,n=aNormal; vLocal=aPosition; vUV=aUV; vPart=aPart; vPhase=aPhase;',
+        ' float head=step(.5,aPart);',
+        // Real lower-face vertex displacement: jaw opening and flowing lips/waves.
+        ' float mouth=exp(-pow((p.y-.965)/.135,2.))*exp(-pow(p.x/.27,4.))*smoothstep(.10,.31,p.z)*head;',
+        ' float jaw=(1.-smoothstep(.82,1.08,p.y))*smoothstep(-.08,.20,p.z)*head;',
+        ' p.y-=uVoice*.095*jaw;',
+        ' p.y+=mouth*sin(p.x*27.-uTime*7.)*uVoice*.024;',
+        ' p.z+=mouth*(uVoice*.045+sin(p.x*24.-uTime*5.)*uVoice*.018);',
+        ' p+=n*uExpand;',
+        ' float neck=smoothstep(.08,.65,p.y)*(1.-head); float angle=mix(uBodyYaw,uHeadYaw,head+neck*.36);',
+        ' vec3 pivot=mix(vec3(0.,.10,0.),vec3(0.,.53,-.035),head);',
+        ' mat3 rotation=yaw(angle)*pitch(uPitch*mix(.12,1.,head));',
+        ' p=rotation*(p-pivot)+pivot; n=rotation*n;',
+        ' p.y+=sin(uTime*1.12)*.004*(1.-uReduced);',
+        ' float intro=smoothstep(0.,2.2,uTime); vAlpha=1.;',
+        ' if(uPointPass>.5){',
+        '   float delay=aPhase*.72; float assemble=smoothstep(delay,delay+1.4,uTime);',
+        '   float phase=fract(uTime/(10.+aPhase*10.)+aPhase);',
+        '   float detach=smoothstep(.08,.30,phase)*(1.-smoothstep(.63,.96,phase));',
+        '   detach*=step(.85,aPhase)*uScatter*intro*(1.-uReduced);',
+        '   float spread=max(1.-assemble,detach);',
+        '   vec3 farPoint=vec3(sin(aPhase*173.1)*2.8*uAspect,cos(aPhase*137.2)*2.1+.2,sin(aPhase*71.9)*.9);',
+        '   if(uCompact>.5)farPoint=vec3(sin(aPhase*173.1)*.15,-.78+cos(aPhase*173.1)*.1,.52);',
+        '   p=mix(p,farPoint,spread);',
+        '   p+=vec3(sin(uTime*.8+aPhase*63.),cos(uTime*.6+aPhase*43.),sin(uTime*.7+aPhase*31.))*.013*(1.-uReduced);',
+        '   vAlpha=.48+.32*sin(aPhase*67.+uTime*1.7); vAlpha*=mix(1.,.22,detach);',
+        ' }',
+        ' vPosition=p; vNormal=n;',
+        ' gl_Position=uProjection*uView*vec4(p,1.);',
+        ' gl_PointSize=clamp(aSize*uDpr*(uCompact>.5?2.0:2.6),1.5,5.5);',
+        '}'
+    ].join('\n');
+    var FRAGMENT = [
+        '#extension GL_OES_standard_derivatives : enable',
+        'precision highp float;',
+        'uniform float uTime; uniform float uVoice; uniform float uAlert; uniform float uGlowPass; uniform float uPointPass; uniform float uCompact; uniform float uReduced;',
+        'varying vec3 vNormal; varying vec3 vPosition; varying vec3 vLocal; varying vec2 vUV; varying float vPart; varying float vAlpha; varying float vPhase;',
+        'float contour(float value,float width){float d=abs(fract(value+.5)-.5);float pixel=max(fwidth(value),.0008);return exp(-pow(d/(pixel*width),2.));}',
+        'void main(){',
+        ' vec3 eye=normalize(vec3(0.,.20,6.2)-vPosition); vec3 normal=normalize(vNormal);',
+        ' float facing=abs(dot(normal,eye)); float rim=pow(1.-facing,2.0);',
+        ' float head=step(.5,vPart); float ear=step(1.5,vPart);',
+        ' float front=smoothstep(.06,.32,vLocal.z)*head;',
+        ' float lower=exp(-pow((vLocal.y-.98)/.25,2.))*exp(-pow(vLocal.x/.35,4.))*front*(1.-ear);',
+        ' vec3 cyan=vec3(.01,.73,1.0), ice=vec3(.42,.95,1.0);',
+        ' float wave=sin(vLocal.x*28.-uTime*(2.5+uVoice*5.))*.11*(.25+uVoice)*lower;',
+        ' float latitude=vUV.y*mix(48.,43.,head)+wave;',
+        ' float chest=1.-smoothstep(-.10,.23,vLocal.y);',
+        ' float pectoral=length(vec2((sqrt(vLocal.x*vLocal.x+.0049)-.79)*1.12,(vLocal.y+1.30)*1.25))*27.;',
+        ' float stream=vUV.x*71.+sin(vUV.y*11.)*.25;',
+        ' float longitude=mix(stream,vUV.x*58.,head);',
+        ' float lat=contour(latitude,.58), latGlow=contour(latitude,2.0);',
+        ' float lon=mix(contour(longitude,.50),contour(pectoral,.55),chest*(1.-head));',
+        ' float lonGlow=mix(contour(longitude,1.6),contour(pectoral,1.6),chest*(1.-head));',
+        ' float neural=exp(-pow(vLocal.x/.14,2.))*chest*(1.-head);',
+        ' float neuralPhase=vLocal.x*27.+sin(vLocal.y*11.)*.14;',
+        ' lon=mix(lon,contour(neuralPhase,.45)*.50,neural*.85);',
+        ' lonGlow=mix(lonGlow,contour(neuralPhase,1.5)*.15,neural*.85);',
+        ' float collar=contour((vLocal.y+.13+.18*pow(abs(vLocal.x)-.66,2.))*29.,.65)*(1.-smoothstep(.28,.45,vLocal.y))*smoothstep(-.42,-.24,vLocal.y);',
+        ' float lines=mix(lon*.70+lat*.035+collar*.28,lat*.95+lon*.06,head);',
+        ' float lineGlow=mix(lonGlow*.15+latGlow*.035,latGlow*.18,head);',
+        ' if(ear>.5){lines=contour(vUV.y*17.,.65)*.85;lineGlow=contour(vUV.y*17.,2.)*.18;}',
+        ' float intersection=lat*lon; float current=pow(.5+.5*sin(vUV.y*39.+vUV.x*76.-uTime*2.1),18.);',
+        ' vec3 color=cyan*(lines*.8+lineGlow+rim*.9)+ice*(lines*.17+intersection*.5);',
+        ' float softFill=.018+pow(max(0.,dot(normal,normalize(vec3(-.5,1.,1.)))),2.)*.035;',
+        ' color+=cyan*softFill;',
+        ' vec3 amber=vec3(1.0,.38,.008), yellow=vec3(1.,.91,.22);',
+        ' float warmth=clamp(lower*1.65,0.,1.);',
+        ' float core=exp(-pow((vLocal.y-.97)/.18,2.)-pow(vLocal.x/.23,2.))*front;',
+        ' vec3 hot=amber*(.55+latGlow*.70+lat*.90)+yellow*(core*.34+lat*(.55+uVoice*.60));',
+        ' color=mix(color,hot,warmth);',
+        ' float trunk=(1.-head)*(1.-smoothstep(.48,.68,vLocal.y))*smoothstep(-1.1,-.70,vLocal.y);',
+        ' float veins=contour(vLocal.x*17.+sin(vLocal.y*13.)*.7, .8)*exp(-pow(vLocal.x/(.075+.07*max(0.,vLocal.y+.6)),2.))*trunk;',
+        ' color+=vec3(1.,.57,.06)*veins*(.40+uVoice*.35);',
+        ' float nucleus=exp(-dot((vLocal-vec3(0.,-.81,.48))*vec3(15.,20.,18.),(vLocal-vec3(0.,-.81,.48))*vec3(15.,20.,18.)))*(1.-head);',
+        ' color+=vec3(.45,1.,1.)*nucleus*2.5;',
+        ' color+=ice*intersection*current*.5;',
+        ' float alpha=clamp(lines*.80+lineGlow*.30+rim*.70+softFill+warmth*.66+veins*.40+nucleus,0.,.98);',
+        ' if(uGlowPass>.5){alpha=pow(1.-facing,3.)*.075;color=mix(vec3(.0,.42,1.),vec3(.0,.85,1.),rim);}',
+        ' if(uPointPass>.5){',
+        '   float d=length(gl_PointCoord-.5)*2.; float edge=exp(-d*d*4.)*(1.-smoothstep(.72,1.,d));',
+        '   color=mix(vec3(.05,.85,1.),vec3(1.,.63,.08),lower*.8); color+=vec3(.28,.55,.58)*(1.-d);',
+        '   alpha=edge*vAlpha*(.72+uAlert*.25);',
+        ' } else {',
+        '   float reveal=smoothstep(.10,1.8,uTime)*smoothstep(vLocal.y-1.,vLocal.y+.30,-1.5+uTime*2.2);',
+        '   alpha*=uReduced>.5?1.:reveal;',
+        ' }',
+        ' float fade=smoothstep(-1.08,-.35,vLocal.y); alpha*=mix(fade,1.,head);',
+        ' if(alpha<.001)discard;',
+        ' color*=1.+uAlert*.13;',
+        ' gl_FragColor=vec4(color*alpha,alpha);',
+        '}'
+    ].join('\n');
+    var POST_VERTEX = 'attribute vec2 aQuad;varying vec2 vUV;void main(){vUV=aQuad*.5+.5;gl_Position=vec4(aQuad,0.,1.);}';
+    var POST_FRAGMENT = [
+        'precision highp float;varying vec2 vUV;uniform sampler2D uScene;uniform vec2 uTexel;',
+        'void main(){',
+        ' vec4 base=texture2D(uScene,vUV);vec4 bloom=base*.25;',
+        ' vec2 d=uTexel;',
+        ' bloom+=texture2D(uScene,vUV+vec2(d.x,0.))*.125;',
+        ' bloom+=texture2D(uScene,vUV-vec2(d.x,0.))*.125;',
+        ' bloom+=texture2D(uScene,vUV+vec2(0.,d.y))*.125;',
+        ' bloom+=texture2D(uScene,vUV-vec2(0.,d.y))*.125;',
+        ' bloom+=texture2D(uScene,vUV+d)*.0625;',
+        ' bloom+=texture2D(uScene,vUV-d)*.0625;',
+        ' bloom+=texture2D(uScene,vUV+vec2(d.x,-d.y))*.0625;',
+        ' bloom+=texture2D(uScene,vUV+vec2(-d.x,d.y))*.0625;',
+        ' vec3 color=base.rgb+bloom.rgb*.52;',
+        ' gl_FragColor=vec4(color,max(base.a,bloom.a*.90));',
+        '}'
+    ].join('\n');
+
+    function shader(gl, type, source) {
+        var result = gl.createShader(type); gl.shaderSource(result, source); gl.compileShader(result);
+        if (!gl.getShaderParameter(result, gl.COMPILE_STATUS)) { var message = gl.getShaderInfoLog(result); gl.deleteShader(result); throw new Error(message || 'GO hologram shader compilation failed'); }
+        return result;
+    }
+    function makeProgram(gl, vertexSource, fragmentSource) {
+        var vertex = shader(gl, gl.VERTEX_SHADER, vertexSource || VERTEX), fragment = shader(gl, gl.FRAGMENT_SHADER, fragmentSource || FRAGMENT);
+        var result = gl.createProgram(); gl.attachShader(result, vertex); gl.attachShader(result, fragment); gl.linkProgram(result);
+        gl.deleteShader(vertex); gl.deleteShader(fragment);
+        if (!gl.getProgramParameter(result, gl.LINK_STATUS)) { var message = gl.getProgramInfoLog(result); gl.deleteProgram(result); throw new Error(message || 'GO hologram linking failed'); }
+        return result;
+    }
+    function projection(aspect) {
+        var f = 1 / Math.tan(35 * Math.PI / 360), near = .1, far = 40, matrix = new Float32Array(16);
+        matrix[0] = f / aspect; matrix[5] = f; matrix[10] = (far + near) / (near - far); matrix[11] = -1; matrix[14] = 2 * far * near / (near - far);
+        return matrix;
+    }
+    function viewMatrix(fullViewport) {
+        var matrix = new Float32Array(16); matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
+        matrix[13] = fullViewport ? -.08 : -.20; matrix[14] = -6.2;
+        return matrix;
+    }
+    function glance(time) {
+        if (time < 60) return 0;
+        var phase = time % 60;
+        if (phase < 2.5) return -Math.PI / 2 * ease(phase / 2.5);
+        if (phase < 6) return mix(-Math.PI / 2, Math.PI / 2, ease((phase - 2.5) / 3.5));
+        if (phase < 9) return Math.PI / 2 * (1 - ease((phase - 6) / 3));
+        return 0;
     }
 
     function Hologram(canvas, options) {
-        this.canvas = canvas;
-        this.options = options;
-        this.ctx = canvas.getContext('2d', {alpha: true});
-        this.compact = !!options.compact;
-        this.interval = this.compact ? 1000 / 15 : 1000 / 30;
-        this.reduced = typeof options.reducedMotion === 'boolean' ? options.reducedMotion : !!(motionQuery && motionQuery.matches);
-        this.visible = true; this.dead = false; this.speaking = false; this.alert = false;
-        this.speech = 0; this.alarm = 0; this.last = 0; this.elapsed = 0;
-        this.width = 0; this.height = 0; this.scale = 1; this.originY = 0;
-        this.mesh = geometry(this.compact);
-        this.headYaw = 0; this.bodyYaw = 0; this.pitch = 0; this.breath = 0;
-        this.px = 0; this.py = 0;
+        this.canvas = canvas; this.options = options; this.compact = !!options.compact;
+        this.fullViewport = !!options.fullViewport || (!!options.background && !this.compact);
+        this.interval = 1000 / (this.compact ? 15 : 30);
+        this.visible = true; this.dead = false; this.lost = false; this.last = 0; this.elapsed = 0;
+        this.width = 0; this.height = 0; this.speaking = false; this.alert = false;
+        this.voiceLevel = 0; this.explicitVoice = false; this.mouthOpen = 0; this.gazeX = 0; this.gazeY = 0;
+        this.headYaw = 0; this.bodyYaw = 0; this.pitch = 0; this.px = 0; this.py = 0;
+        this.reduced = typeof options.reducedMotion === 'boolean' ? options.reducedMotion : !!(media && media.matches);
+        this.gl = canvas.getContext('webgl', {alpha: true, antialias: true, premultipliedAlpha: true, depth: true, powerPreference: this.compact ? 'low-power' : 'high-performance'});
+        if (!this.gl) throw new Error('GO hologram requires WebGL');
+        this.mesh = buildMesh(this.compact); this.particles = buildParticles(this.compact);
+        this.prepare();
         var self = this;
-        if (options.imageSrc) {
-            this.artwork = loadArtwork(options.imageSrc, function (state) {
-                if (self.dead) return;
-                self.artwork = state;
-                if (eligible(self)) self.render(self.reduced ? 0 : self.elapsed);
-                wake();
-            });
-        }
         this.onResize = function () { self.resize(); };
         this.onMotion = function () {
-            if (typeof self.options.reducedMotion !== 'boolean') self.reduced = !!(motionQuery && motionQuery.matches);
-            self.last = 0;
-            if (eligible(self)) self.render(self.reduced ? 0 : self.elapsed);
-            wake();
+            if (typeof options.reducedMotion !== 'boolean') self.reduced = !!(media && media.matches);
+            self.last = 0; if (active(self)) self.render(self.reduced ? 3 : self.elapsed); wake();
         };
-        canvas.setAttribute('aria-hidden', 'true');
-        if (window.ResizeObserver) { this.resizeObserver = new window.ResizeObserver(this.onResize); this.resizeObserver.observe(canvas); }
-        else window.addEventListener('resize', this.onResize);
+        this.onLost = function (event) { event.preventDefault(); self.lost = true; canvas.dataset.goHologramState = 'recovering'; };
+        this.onRestored = function () { if (self.dead) return; self.lost = false; self.prepare(); self.resize(); wake(); };
+        this.onPointer = function (event) {
+            var box = canvas.getBoundingClientRect(); self.gazeX = clamp((event.clientX - box.left) / box.width * 2 - 1, -1, 1); self.gazeY = clamp((event.clientY - box.top) / box.height * 2 - 1, -1, 1);
+        };
+        canvas.addEventListener('webglcontextlost', this.onLost);
+        canvas.addEventListener('webglcontextrestored', this.onRestored);
+        if (options.interactive && !this.compact) document.addEventListener('pointermove', this.onPointer, {passive: true});
+        if (window.ResizeObserver) { this.resizeObserver = new window.ResizeObserver(this.onResize); this.resizeObserver.observe(canvas); } else window.addEventListener('resize', this.onResize);
         if (window.IntersectionObserver) {
-            this.intersectionObserver = new window.IntersectionObserver(function (entries) {
-                self.visible = entries[0].isIntersecting;
-                self.last = 0;
-                if (eligible(self)) self.render(self.reduced ? 0 : self.elapsed);
-                wake();
-            }, {threshold: 0});
+            this.intersectionObserver = new window.IntersectionObserver(function (entries) { self.visible = entries[0].isIntersecting; self.last = 0; if (active(self)) self.render(self.reduced ? 3 : self.elapsed); wake(); }, {threshold: 0});
             this.intersectionObserver.observe(canvas);
         }
-        if (motionQuery) {
-            if (motionQuery.addEventListener) motionQuery.addEventListener('change', this.onMotion);
-            else if (motionQuery.addListener) motionQuery.addListener(this.onMotion);
-        }
-        this.resize();
+        if (media) { if (media.addEventListener) media.addEventListener('change', this.onMotion); else if (media.addListener) media.addListener(this.onMotion); }
+        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = 'webgl-geometry-v2'; this.resize();
     }
+    Hologram.prototype.prepare = function () {
+        var gl = this.gl; gl.getExtension('OES_standard_derivatives'); this.program = makeProgram(gl); gl.useProgram(this.program);
+        var names = ['aPosition', 'aNormal', 'aUV', 'aPart', 'aPhase', 'aSize']; this.attributes = {};
+        for (var i = 0; i < names.length; i++) this.attributes[names[i]] = gl.getAttribLocation(this.program, names[i]);
+        names = ['uProjection', 'uView', 'uHeadYaw', 'uBodyYaw', 'uPitch', 'uTime', 'uVoice', 'uPointPass', 'uExpand', 'uDpr', 'uCompact', 'uAspect', 'uScatter', 'uReduced', 'uAlert', 'uGlowPass']; this.uniforms = {};
+        for (i = 0; i < names.length; i++) this.uniforms[names[i]] = gl.getUniformLocation(this.program, names[i]);
+        this.vertexBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer); gl.bufferData(gl.ARRAY_BUFFER, this.mesh.vertices, gl.STATIC_DRAW);
+        this.indexBuffer = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.mesh.indices, gl.STATIC_DRAW);
+        this.particleBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer); gl.bufferData(gl.ARRAY_BUFFER, this.particles.vertices, gl.STATIC_DRAW);
+        this.postProgram = makeProgram(gl, POST_VERTEX, POST_FRAGMENT);
+        this.quadAttribute = gl.getAttribLocation(this.postProgram, 'aQuad');
+        this.sceneUniform = gl.getUniformLocation(this.postProgram, 'uScene');
+        this.texelUniform = gl.getUniformLocation(this.postProgram, 'uTexel');
+        this.quadBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        gl.getExtension('OES_standard_derivatives'); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+        gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
+        this.canvas.dataset.goHologramState = 'ready';
+    };
+    Hologram.prototype.allocateTarget = function () {
+        var gl = this.gl;
+        if (this.sceneTexture) gl.deleteTexture(this.sceneTexture);
+        if (this.sceneFramebuffer) gl.deleteFramebuffer(this.sceneFramebuffer);
+        if (this.sceneDepth) gl.deleteRenderbuffer(this.sceneDepth);
+        // This texture contains only geometry rendered by this engine. Allocation
+        // supplies null data; no photographs or face sprites are ever uploaded.
+        this.sceneTexture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.canvas.width, this.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        this.sceneDepth = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, this.sceneDepth);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, this.canvas.width, this.canvas.height);
+        this.sceneFramebuffer = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.sceneTexture, 0);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sceneDepth);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('GO hologram render target unavailable');
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    };
     Hologram.prototype.resize = function () {
-        if (this.dead) return;
-        var box = this.canvas.getBoundingClientRect(), width = Math.round(box.width), height = Math.round(box.height);
-        if (width < 2 || height < 2) { this.width = width; this.height = height; return; }
-        var ratio = Math.min(1.5, window.devicePixelRatio || 1);
-        this.width = width; this.height = height;
-        if (this.canvas.width !== Math.round(width * ratio)) this.canvas.width = Math.round(width * ratio);
-        if (this.canvas.height !== Math.round(height * ratio)) this.canvas.height = Math.round(height * ratio);
-        this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-        this.scale = Math.min(width * .94 / 900, height * .94 / 800) * (this.options.scale || 1);
-        this.originY = (height - 800 * this.scale) / 2 + 352 * this.scale + (this.options.offsetY || 0);
-        this.render(this.reduced ? 0 : this.elapsed);
-        this.last = 0; wake();
-    };
-    Hologram.prototype.project = function (x, y, z, group) {
-        var yaw = group ? this.headYaw : this.bodyYaw, c = Math.cos(yaw), s = Math.sin(yaw);
-        var rx = x * c + z * s, rz = -x * s + z * c, pivot = group ? -3 : 135;
-        var pitch = group ? this.pitch : this.pitch * .15;
-        var ry = (y - pivot) * Math.cos(pitch) - rz * Math.sin(pitch) + pivot;
-        var perspective = 1600 / (1600 - rz);
-        this.px = rx * perspective + (group ? this.headYaw * 10 : 0);
-        this.py = ry + this.breath * (group ? 1 : .65);
-    };
-    Hologram.prototype.path = function (curve) {
-        var p = curve.points, ctx = this.ctx;
-        ctx.beginPath();
-        for (var i = 0; i < p.length; i += 3) {
-            this.project(p[i], p[i + 1], p[i + 2], curve.group);
-            if (i === 0) ctx.moveTo(this.px, this.py); else ctx.lineTo(this.px, this.py);
-        }
-    };
-    Hologram.prototype.curves = function (curves, color, width, alpha) {
-        var ctx = this.ctx;
-        ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = alpha;
-        for (var i = 0; i < curves.length; i++) { this.path(curves[i]); ctx.stroke(); }
-        ctx.globalAlpha = 1;
-    };
-    Hologram.prototype.glow = function (x, y, radius, color, strength, squash) {
-        var ctx = this.ctx;
-        ctx.save(); ctx.translate(x, y); if (squash) ctx.scale(1, squash);
-        var gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
-        gradient.addColorStop(0, 'rgba(' + color + ',' + strength + ')');
-        gradient.addColorStop(.38, 'rgba(' + color + ',' + strength * .34 + ')');
-        gradient.addColorStop(1, 'rgba(' + color + ',0)');
-        ctx.fillStyle = gradient; ctx.fillRect(-radius, -radius, radius * 2, radius * 2); ctx.restore();
+        if (this.dead || this.lost) return;
+        var box = this.canvas.getBoundingClientRect(); this.width = Math.round(box.width); this.height = Math.round(box.height);
+        if (this.width < 2 || this.height < 2) return;
+        this.ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1, Math.sqrt(4000000 / (this.width * this.height))));
+        this.canvas.width = Math.round(this.width * this.ratio); this.canvas.height = Math.round(this.height * this.ratio);
+        this.allocateTarget();
+        this.projection = projection(this.width / this.height); this.view = viewMatrix(this.fullViewport);
+        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height); this.last = 0;
+        this.render(this.reduced ? 3 : this.elapsed); wake();
     };
     Hologram.prototype.pose = function (time) {
-        var look = 0, phase = time % 60;
-        // Every minute: turn left, look across to the right, settle naturally at the centre.
-        if (time >= 60 && phase < 9) {
-            if (phase < 2.5) look = -.40 * smooth(phase / 2.5);
-            else if (phase < 6) look = mix(-.40, .40, smooth((phase - 2.5) / 3.5));
-            else look = .40 * (1 - smooth((phase - 6) / 3));
-        }
-        this.headYaw = look + (this.reduced ? 0 : Math.sin(time * .39) * .016);
-        this.bodyYaw = look * .18 + (this.reduced ? 0 : Math.sin(time * .25) * .007);
-        this.pitch = this.reduced ? 0 : Math.sin(time * .55) * .012 + Math.abs(look) * .026;
-        this.breath = this.reduced ? 0 : Math.sin(time * 1.12) * 1.4;
+        var turn = this.reduced ? 0 : glance(time), looking = time >= 60 && time % 60 <= 9;
+        var idle = this.reduced || looking ? 0 : Math.sin(time * .29) * .032 + this.gazeX * .10;
+        this.headYaw = turn + idle;
+        this.bodyYaw = turn * .08 + (this.reduced ? 0 : Math.sin(time * .22) * .009);
+        this.pitch = this.reduced ? 0 : Math.sin(time * .42) * .014 + this.gazeY * .035 * (looking ? 0 : 1);
+        var level = this.explicitVoice ? this.voiceLevel : this.speaking ? .36 + .24 * Math.sin(time * 12.7) + .18 * Math.sin(time * 19.1) : 0;
+        this.level = this.reduced ? 0 : clamp(level, 0, 1); this.mouthOpen = this.level * .095;
     };
-    Hologram.prototype.background = function (time) {
-        if (!this.options.background || this.compact) return;
-        var ctx = this.ctx, width = this.width / this.scale, height = this.height / this.scale;
-        ctx.lineWidth = .7;
-        for (var i = 0; i < 12; i++) {
-            var side = i % 2 ? 1 : -1, y = -height / 2 + (i / 12) * height, drift = Math.sin(time * .16 + i) * 13;
-            ctx.strokeStyle = 'rgba(28,171,216,' + (.045 + .012 * Math.sin(time * .3 + i)) + ')';
-            ctx.beginPath(); ctx.moveTo(side * width * .58, y + drift);
-            ctx.bezierCurveTo(side * width * .32, y + 80, side * 240, 260 + drift, side * 22, 280); ctx.stroke();
-        }
-    };
-    Hologram.prototype.face = function (time) {
-        var ctx = this.ctx, energy = .68 + this.speech * .32 + this.alarm * .19;
-        var beat = this.reduced ? .8 : .8 + .12 * Math.sin(time * 2.7) + this.speech * .12 * Math.sin(time * 17);
-        this.project(0, -132, 91, 1);
-        this.glow(this.px, this.py, 131, '255,137,0', .40 * energy, .82);
-        this.glow(this.px, this.py, 86, '255,205,28', .60 * energy, .66);
-        var rows = this.compact ? 12 : 21;
-        ctx.lineCap = 'round';
-        for (var i = 0; i < rows; i++) {
-            var v = i / (rows - 1), y = -220 + v * 170;
-            var halfWidth = 100 * Math.pow(Math.sin(Math.PI * (v * .84 + .08)), .72);
-            var fade = Math.pow(Math.sin(Math.PI * (v * .86 + .07)), .75);
-            for (var pass = 0; pass < 2; pass++) {
-                ctx.beginPath();
-                for (var j = 0; j <= 38; j++) {
-                    var x = -halfWidth + 2 * halfWidth * j / 38, edge = Math.sin(j / 38 * Math.PI);
-                    var wave = this.reduced ? 0 : Math.sin(x * .067 - time * (2.4 + this.speech * 5) + i * .31) * (2 + this.speech * 4) * edge;
-                    this.project(x, y - edge * 6 + wave, 70 + edge * 26, 1);
-                    if (j === 0) ctx.moveTo(this.px, this.py); else ctx.lineTo(this.px, this.py);
-                }
-                ctx.lineWidth = pass ? 1.25 : 5.5;
-                ctx.strokeStyle = pass ? 'rgba(255,234,123,' + Math.min(.98, fade * beat * energy).toFixed(3) + ')' : 'rgba(255,133,5,' + (fade * .22 * energy).toFixed(3) + ')';
-                ctx.stroke();
-            }
-        }
-    };
-    Hologram.prototype.renderArtwork = function (time) {
-        var ctx = this.ctx, image = this.artwork.image;
-        var sourceWidth = image.naturalWidth, sourceHeight = image.naturalHeight;
-        var fit = Math.min(this.width * .98 / sourceWidth, this.height * .98 / sourceHeight) * (this.options.scale || 1);
-        var breath = this.reduced ? 0 : Math.sin(time * 1.12);
-        var drawWidth = sourceWidth * fit * (1 + breath * .0016);
-        var drawHeight = sourceHeight * fit * (1 + breath * .0025);
-        var left = (this.width - drawWidth) / 2;
-        var top = (this.height - drawHeight) / 2 + (this.options.offsetY || 0) - breath * .6;
-        this.pose(time);
-        ctx.save();
-        ctx.imageSmoothingEnabled = true;
-        if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
-        var turning = !this.reduced && time >= 60 && time % 60 < 9;
-        if (!turning) {
-            // The approved artwork is drawn unchanged while idle; there is no second
-            // procedural face or body layered over it.
-            ctx.drawImage(image, left, top, drawWidth, drawHeight);
-        } else {
-            // A continuous perspective warp around the throat lets the featureless
-            // holographic head look left/right while the shoulders follow gently.
-            // Only the nine-second glance uses bands; idle costs a single image draw.
-            var bands = this.compact ? 45 : 112;
-            for (var row = 0; row < bands; row++) {
-                var v = (row + .5) / bands;
-                var headWeight = 1 - smooth((v - .48) / .19);
-                var yaw = this.headYaw * headWeight + this.bodyYaw * (1 - headWeight);
-                var squash = 1 - .09 * Math.abs(yaw / .4);
-                var width = drawWidth * squash, shift = Math.sin(yaw) * drawWidth * .085;
-                var x = (this.width - width) / 2 + shift;
-                var sy = row / bands * sourceHeight, sh = Math.min(sourceHeight - sy, sourceHeight / bands);
-                var dy = top + row / bands * drawHeight, dh = sh / sourceHeight * drawHeight;
-                // Whole-width bands preserve contour continuity: splitting down the
-                // face would leave a bright seam in this translucent artwork.
-                ctx.drawImage(image, 0, sy, sourceWidth, sh, x, dy, width, dh + .05);
-            }
-        }
-        ctx.globalCompositeOperation = 'lighter';
-        var faceX = this.width / 2 + Math.sin(this.headYaw) * drawWidth * .085;
-        var faceY = top + drawHeight * .30;
-        if (this.speech > .01 || this.alarm > .01) {
-            var amplitude = .07 * this.speech * (.6 + .4 * Math.sin(time * 17)) + .035 * this.alarm;
-            this.glow(faceX, faceY, drawWidth * .15, '255,177,17', amplitude, .68);
-            this.glow(this.width / 2, top + drawHeight * .84, drawWidth * .065, '40,235,255', amplitude * .7);
-        }
-        // Small travelling energy specks make the space around the figure live,
-        // while preserving all the detailed contours in the approved artwork.
-        if (!this.reduced) {
-            var count = this.compact ? 16 : 62;
-            for (var i = 0; i < count; i++) {
-                var seed = this.mesh.sparks[i];
-                var phase = seed.phase, orbit = .20 + (i % 7) * .045;
-                var vertical = (time * (.022 + i % 3 * .003) + phase / TAU) % 1;
-                var particleX = this.width / 2 + Math.sin(phase) * drawWidth * orbit + Math.sin(time * .28 + phase) * 3;
-                var particleY = top + drawHeight * (.92 - vertical * .85);
-                var alpha = Math.sin(vertical * Math.PI) * (.18 + .13 * Math.sin(time * 1.4 + phase));
-                ctx.fillStyle = 'rgba(30,220,255,' + Math.max(0, alpha).toFixed(3) + ')';
-                ctx.beginPath(); ctx.arc(particleX, particleY, this.compact ? .5 : .65, 0, TAU); ctx.fill();
-            }
-        }
-        ctx.restore();
+    Hologram.prototype.bind = function (particles) {
+        var gl = this.gl, attributes = this.attributes, stride = particles ? 44 : 36;
+        gl.bindBuffer(gl.ARRAY_BUFFER, particles ? this.particleBuffer : this.vertexBuffer);
+        [['aPosition', 3, 0], ['aNormal', 3, 12], ['aUV', 2, 24], ['aPart', 1, 32]].forEach(function (entry) {
+            var index = attributes[entry[0]]; if (index < 0) return; gl.enableVertexAttribArray(index); gl.vertexAttribPointer(index, entry[1], gl.FLOAT, false, stride, entry[2]);
+        });
+        ['aPhase', 'aSize'].forEach(function (name, i) {
+            var index = attributes[name]; if (index < 0) return;
+            if (particles) { gl.enableVertexAttribArray(index); gl.vertexAttribPointer(index, 1, gl.FLOAT, false, stride, 36 + i * 4); }
+            else { gl.disableVertexAttribArray(index); gl.vertexAttrib1f(index, i === 0 ? 0 : 1); }
+        });
+        if (!particles) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     };
     Hologram.prototype.render = function (time) {
-        if (this.dead || this.width < 2 || this.height < 2) return;
-        var ctx = this.ctx, mesh = this.mesh, scale = this.scale;
-        ctx.clearRect(0, 0, this.width, this.height);
-        if (this.artwork && this.artwork.ready) { this.renderArtwork(time); return; }
-        // Do not flash a differently proportioned procedural robot while the local
-        // artwork decodes. Its stable aspect-fit box is ready before the first paint.
-        if (this.artwork && !this.artwork.failed) return;
-        ctx.save(); ctx.translate(this.width / 2, this.originY); ctx.scale(scale, scale);
-        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        if (this.dead || this.lost || this.width < 2 || this.height < 2) return;
         this.pose(time);
-        this.background(time);
-        ctx.globalCompositeOperation = 'lighter';
-        this.glow(0, -160, 255, '0,154,221', .055);
-        this.glow(0, 180, 340, '0,167,221', .022);
-        this.curves(mesh.torso, '#00a8e7', 5, .045);
-        this.curves(mesh.torso, '#07c9f3', 1.1, .28);
-        this.curves(mesh.torso, '#8aecff', .42, .46);
-        this.curves(mesh.head, '#00c9ff', 7, .08);
-        this.curves(mesh.head, '#00bded', 2.2, .29);
-        this.curves(mesh.head, '#9af0ff', .65, .70);
-        this.curves(mesh.outline, '#00aaff', 12, .11);
-        this.curves(mesh.outline, '#03ddff', 4.0, .65);
-        this.curves(mesh.outline, '#c5f9ff', 1.0, .93);
-        this.curves(mesh.ears, '#03cfff', 7, .20);
-        this.curves(mesh.ears, '#a7f2ff', 1.1, .86);
-        var sparks = mesh.sparks;
-        for (var i = 0; i < sparks.length; i++) {
-            var spark = sparks[i], drift = this.reduced ? 0 : Math.sin(time * .55 + spark.phase) * 3;
-            this.project(spark.x + drift, spark.y + drift * .8, spark.z, spark.group);
-            var alpha = this.reduced ? .6 : .28 + .39 * (.5 + .5 * Math.sin(time * 1.15 + spark.phase));
-            ctx.fillStyle = spark.warm ? 'rgba(255,175,47,' + alpha.toFixed(3) + ')' : 'rgba(43,220,255,' + alpha.toFixed(3) + ')';
-            ctx.beginPath(); ctx.arc(this.px, this.py, spark.r * (1 + this.alarm * .35), 0, TAU); ctx.fill();
-        }
-        this.face(time);
-        this.curves(mesh.nerves, '#fa9b00', 4.7, .12);
-        this.curves(mesh.nerves, '#ffc13c', .8, .62 + this.speech * .22);
-        this.project(0, 288, 63, 0);
-        var chestX = this.px, chestY = this.py;
-        var pulse = this.reduced ? 1 : 1 + .1 * Math.sin(time * 2.2);
-        this.glow(chestX, chestY, 56 * pulse, '0,219,255', .40);
-        this.glow(chestX, chestY, 19 * pulse, '78,245,255', .96);
-        ctx.fillStyle = '#e7ffff'; ctx.beginPath(); ctx.arc(chestX, chestY, 3.2, 0, TAU); ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
-        // A gradual lower-body fade avoids the appearance of a solid cut-out sprite.
-        ctx.globalCompositeOperation = 'destination-out';
-        var fade = ctx.createLinearGradient(0, 302, 0, 430);
-        fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
-        ctx.fillStyle = fade; ctx.fillRect(-650, 302, 1300, 150);
-        ctx.restore();
+        var gl = this.gl, u = this.uniforms; gl.useProgram(this.program);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
+        gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
+        gl.uniform1f(u.uTime, this.reduced ? 3 : Math.max(0, time)); gl.uniform1f(u.uHeadYaw, this.headYaw); gl.uniform1f(u.uBodyYaw, this.bodyYaw); gl.uniform1f(u.uPitch, this.pitch);
+        gl.uniform1f(u.uVoice, this.level); gl.uniform1f(u.uAlert, this.alert ? 1 : 0); gl.uniform1f(u.uCompact, this.compact ? 1 : 0); gl.uniform1f(u.uDpr, this.ratio);
+        gl.uniform1f(u.uAspect, this.width / this.height); gl.uniform1f(u.uScatter, this.fullViewport && !this.compact ? 1 : 0); gl.uniform1f(u.uReduced, this.reduced ? 1 : 0);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+        this.bind(false); gl.uniform1f(u.uPointPass, 0); gl.uniform1f(u.uGlowPass, 0); gl.uniform1f(u.uExpand, 0);
+        // Depth prepass: the hidden ear, back of the head and far shoulder really occlude.
+        gl.disable(gl.BLEND); gl.colorMask(false, false, false, false); gl.depthMask(true); gl.depthFunc(gl.LEQUAL);
+        gl.drawElements(gl.TRIANGLES, this.mesh.indices.length, gl.UNSIGNED_SHORT, 0);
+        gl.colorMask(true, true, true, true); gl.depthMask(false); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.drawElements(gl.TRIANGLES, this.mesh.indices.length, gl.UNSIGNED_SHORT, 0);
+        // Expanded back-face shells create a soft physical rim without a low-resolution
+        // post-processing raster or external resources. Contours stay native-resolution.
+        gl.cullFace(gl.FRONT); gl.uniform1f(u.uGlowPass, 1); gl.blendFunc(gl.ONE, gl.ONE);
+        var shells = this.compact ? [.018] : [.012, .035];
+        for (var i = 0; i < shells.length; i++) { gl.uniform1f(u.uExpand, shells[i]); gl.drawElements(gl.TRIANGLES, this.mesh.indices.length, gl.UNSIGNED_SHORT, 0); }
+        gl.uniform1f(u.uExpand, 0); gl.uniform1f(u.uGlowPass, 0); gl.uniform1f(u.uPointPass, 1); gl.disable(gl.CULL_FACE);
+        this.bind(true); gl.drawArrays(gl.POINTS, 0, this.particles.count);
+        gl.depthMask(true); gl.disable(gl.BLEND);
+        // A native-resolution crisp pass plus a small procedural light bloom.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.useProgram(this.postProgram);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer); gl.enableVertexAttribArray(this.quadAttribute);
+        gl.vertexAttribPointer(this.quadAttribute, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
+        gl.uniform1i(this.sceneUniform, 0); gl.uniform2f(this.texelUniform, this.ratio / this.canvas.width, this.ratio / this.canvas.height);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    };
+    Hologram.prototype.project = function (x, y, z, group) {
+        var yaw = group ? this.headYaw : this.bodyYaw, pivotY = group ? .53 : .10, pivotZ = group ? -.035 : 0;
+        var cy = Math.cos(yaw), sy = Math.sin(yaw), pitch = this.pitch * (group ? 1 : .12), cp = Math.cos(pitch), sp = Math.sin(pitch);
+        var yy = (y - pivotY) * cp - (z - pivotZ) * sp;
+        var zz = (y - pivotY) * sp + (z - pivotZ) * cp;
+        var xx = x * cy + zz * sy, depth = -x * sy + zz * cy + pivotZ;
+        var f = 1 / Math.tan(35 * Math.PI / 360), cameraY = this.fullViewport ? .08 : .20;
+        this.px = this.width / 2 + xx / (6.2 - depth) * f * this.height / 2;
+        this.py = this.height / 2 - (yy + pivotY - cameraY) / (6.2 - depth) * f * this.height / 2;
+        return {x: this.px, y: this.py, z: depth};
     };
     Hologram.prototype.destroy = function () {
-        if (this.dead) return;
-        this.dead = true;
+        if (this.dead) return; this.dead = true;
         if (this.resizeObserver) this.resizeObserver.disconnect(); else window.removeEventListener('resize', this.onResize);
         if (this.intersectionObserver) this.intersectionObserver.disconnect();
-        if (motionQuery) {
-            if (motionQuery.removeEventListener) motionQuery.removeEventListener('change', this.onMotion);
-            else if (motionQuery.removeListener) motionQuery.removeListener(this.onMotion);
+        this.canvas.removeEventListener('webglcontextlost', this.onLost); this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
+        if (this.options.interactive && !this.compact) document.removeEventListener('pointermove', this.onPointer);
+        if (media) { if (media.removeEventListener) media.removeEventListener('change', this.onMotion); else if (media.removeListener) media.removeListener(this.onMotion); }
+        if (!this.lost) {
+            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer);
+            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
         }
-        instances = instances.filter(function (item) { return item !== this; }, this);
+        items = items.filter(function (item) { return item !== this; }, this);
         if (this.canvas.__goHologram === this) delete this.canvas.__goHologram;
-        if (!instances.some(animate) && frame) { window.cancelAnimationFrame(frame); frame = 0; }
+        if (!items.some(moving) && frame) { window.cancelAnimationFrame(frame); frame = 0; }
     };
     window.GoHologram = {
-        version: 1,
+        version: 2,
         mount: function (canvas, options) {
             if (!canvas || typeof canvas.getContext !== 'function') return null;
-            if (!canvas.getContext('2d')) return null;
             if (canvas.__goHologram && !canvas.__goHologram.dead) return canvas.__goHologram.api;
-            var item = new Hologram(canvas, options || {});
-            if (!item.ctx) return null;
+            var item;
+            try { item = new Hologram(canvas, options || {}); }
+            catch (error) {
+                canvas.dataset.goHologramState = 'unavailable';
+                canvas.dispatchEvent(new window.CustomEvent('go:hologram-error', {detail: {message: String(error.message || error)}}));
+                return null;
+            }
             var api = {
                 destroy: function () { item.destroy(); },
-                setSpeaking: function (value) { item.speaking = !!value; wake(); },
+                setSpeaking: function (value) { item.speaking = !!value; if (!value) { item.voiceLevel = 0; item.explicitVoice = false; } wake(); },
+                setVoiceLevel: function (value) { item.voiceLevel = clamp(Number(value) || 0, 0, 1); item.explicitVoice = true; wake(); },
                 setAlert: function (value) { item.alert = !!value; wake(); },
-                setVisible: function (value) { item.visible = !!value; item.last = 0; if (eligible(item)) item.render(item.reduced ? 0 : item.elapsed); wake(); }
+                setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); },
+                setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 3 : item.elapsed); wake(); },
+                diagnostics: function () { return {version: 2, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
             };
-            item.api = api; canvas.__goHologram = item; instances.push(item); wake();
-            return api;
+            item.api = api; canvas.__goHologram = item; items.push(item); wake(); return api;
         }
     };
 })(window, document);

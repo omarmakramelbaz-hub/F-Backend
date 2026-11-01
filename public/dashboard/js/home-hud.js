@@ -10,8 +10,9 @@
     var freshness = root.querySelector('[data-hud-freshness]'), live = root.querySelector('.hud-live'), voiceButton = root.querySelector('[data-hud-voice]');
     var enter = root.querySelector('[data-hud-enter]'), announcement = root.querySelector('[data-hud-announcement]');
     var robotCanvas = root.querySelector('[data-hud-robot]');
-    var robot = window.GoHologram ? window.GoHologram.mount(robotCanvas, {background: true, imageSrc: robotCanvas.dataset.goHologramSrc}) : null;
-    var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, muted = false;
+    var robot = null;
+    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: true}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
+    var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, muted = false, mouthFrame = 0;
     var currentActor = document.body.dataset.dashboardActor || '';
     var bg = root.querySelector('[data-hud-background]'), bgContext = bg ? bg.getContext('2d') : null, bgFrame = 0, bgLast = 0;
     var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -105,22 +106,44 @@
     }
     function onData(event) { if (event.detail && event.detail.hologram) fill(event.detail.hologram); }
     function alertState(event) { if (robot) robot.setAlert(!!(event.detail && event.detail.pending && event.detail.pending.length)); }
-    function speaking(on) { if (robot) robot.setSpeaking(on); var refocus = !on && document.activeElement === voiceButton; voiceButton.hidden = !on; if (refocus && !root.hidden) enter.focus({preventScroll: true}); }
-    function stopSpeech() { pendingGreeting = false; speechQueued = false; if (speech && window.speechSynthesis) window.speechSynthesis.cancel(); speech = null; speaking(false); }
+    function speaking(on) {
+        if (robot) robot.setSpeaking(on); var refocus = !on && document.activeElement === voiceButton;
+        voiceButton.hidden = !on;
+        if (on) { voiceButton.dataset.action = 'mute'; voiceButton.textContent = 'كتم الترحيب'; voiceButton.setAttribute('aria-label', 'كتم الترحيب'); }
+        if (refocus && !root.hidden) enter.focus({preventScroll: true});
+    }
+    function mouth() {
+        mouthFrame = 0;
+        if (!speech || speech.paused || speech.ended || disposed) { if (robot && robot.setVoiceLevel) robot.setVoiceLevel(0); return; }
+        var envelope = boot.greeting.audio.envelope, index = Math.floor(speech.currentTime * envelope.sample_rate);
+        var level = index >= 0 && index < envelope.values.length ? Number(envelope.values[index]) : 0;
+        if (robot && robot.setVoiceLevel) robot.setVoiceLevel(Math.max(0, Math.min(1, isFinite(level) ? level : 0)));
+        mouthFrame = requestAnimationFrame(mouth);
+    }
+    function stopSpeech() {
+        pendingGreeting = false; speechQueued = false; if (mouthFrame) cancelAnimationFrame(mouthFrame); mouthFrame = 0;
+        if (speech) { speech.onplaying = speech.onended = speech.onerror = null; speech.pause(); }
+        speech = null; if (robot && robot.setVoiceLevel) robot.setVoiceLevel(0); speaking(false);
+    }
     function sayGreeting() {
         if (!pendingGreeting || speechQueued || disposed || root.hidden || document.hidden || muted || greetingDone) return;
-        if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) { pendingGreeting = false; return; }
-        var who = boot.greeting && String(boot.greeting.name || '').trim();
-        // Native English synthesis is an offline-capable fallback. Never claim it is the reference recording's exact voice.
-        var sentence = 'Welcome' + (who ? ', ' + who : '') + '. I am GO, your smart business assistant. Choose a section to get started, and let us get to work.';
-        speech = new SpeechSynthesisUtterance(sentence); speech.lang = 'en-US'; speech.rate = .92; speech.pitch = .72; speech.volume = .85;
-        var voices = window.speechSynthesis.getVoices(), chosen = voices.find(function (v) { return /^en[-_]/i.test(v.lang) && /David|Daniel|Alex|\bmale\b/i.test(v.name); }) || voices.find(function (v) { return /^en[-_]/i.test(v.lang); });
-        if (chosen) speech.voice = chosen;
-        speech.onstart = function () { greetingDone = true; pendingGreeting = false; speaking(true); };
-        speech.onend = function () { speechQueued = false; speech = null; speaking(false); };
-        speech.onerror = function (event) { speechQueued = false; speech = null; speaking(false); if (event.error !== 'not-allowed') pendingGreeting = false; };
+        var audio = boot.greeting && boot.greeting.audio, url = audio && safeURL(audio.url);
+        if (!url || !audio.envelope || !Array.isArray(audio.envelope.values) || !audio.envelope.values.length || !window.Audio) { pendingGreeting = false; return; }
+        // Only the reviewed, reference-conditioned local recording may speak.
+        // Never substitute an unrelated browser/system voice.
+        speech = new Audio(url); speech.preload = 'auto'; speech.volume = .85;
+        speech.onplaying = function () { greetingDone = true; pendingGreeting = false; speaking(true); if (!mouthFrame) mouthFrame = requestAnimationFrame(mouth); };
+        speech.onended = function () { stopSpeech(); };
+        speech.onerror = function () { stopSpeech(); };
         speechQueued = true;
-        try { window.speechSynthesis.speak(speech); } catch (_) { speechQueued = false; pendingGreeting = false; speech = null; }
+        try {
+            var attempt = speech.play();
+            if (attempt && attempt.catch) attempt.catch(function (error) {
+                speechQueued = false; speech = null;
+                if (!error || error.name !== 'NotAllowedError') { pendingGreeting = false; return; }
+                if (!disposed && !root.hidden) { voiceButton.dataset.action = 'play'; voiceButton.textContent = 'تشغيل الترحيب'; voiceButton.setAttribute('aria-label', 'تشغيل الترحيب'); voiceButton.hidden = false; }
+            });
+        } catch (_) { stopSpeech(); }
     }
     function greeting() {
         if (!boot.greeting || !boot.greeting.nonce) return;
@@ -145,8 +168,9 @@
     on(enter, 'click', leave); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'dashboard:order-alert-state', alertState);
     on(document, 'visibilitychange', visibility); on(document, 'dashboard:before-unload', dispose); on(window, 'pagehide', dispose);
     on(window, 'resize', wakeBackground); if (reduce && reduce.addEventListener) on(reduce, 'change', wakeBackground);
-    on(root, 'pointerdown', sayGreeting, {capture: true}); on(root, 'keydown', sayGreeting, {capture: true});
-    on(voiceButton, 'click', function () { muted = true; stopSpeech(); });
+    function resumeGreeting(event) { if (!voiceButton.contains(event.target)) sayGreeting(); }
+    on(root, 'pointerdown', resumeGreeting, {capture: true}); on(root, 'keydown', resumeGreeting, {capture: true});
+    on(voiceButton, 'click', function () { if (voiceButton.dataset.action === 'play') { sayGreeting(); return; } muted = true; stopSpeech(); });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(dispose);
     fill((boot.initial || {}).hologram); if (!metric) { freshness.textContent = 'جار تحميل العدّادات'; refresh(); } else schedule();
     if (window.DashboardOrderAlerts) alertState({detail: window.DashboardOrderAlerts.state()});

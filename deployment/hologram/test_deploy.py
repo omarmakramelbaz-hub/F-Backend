@@ -18,7 +18,7 @@ class HologramDeployment(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='hologram-deploy-test-')
         self.root=Path(self.temp.name);self.project=self.root/'application';self.project.mkdir()
         self.existing='app/Http/Controllers/Dashboard/HomeController.php'
-        self.new='app/Services/Dashboard/HomeHologramMetrics.php'
+        self.new='app/Services/Dashboard/HomeHologramVoice.php'
         target=self.project/self.existing;target.parent.mkdir(parents=True)
         self.old=b'<?php\n// unique reviewed marker\nreturn 1;\n'
         self.after=self.old.replace(b'return 1;',b'return 2;')
@@ -89,7 +89,7 @@ class HologramDeployment(unittest.TestCase):
     def test_binary_asset_is_verified_and_preserved_byte_for_byte(self):
         content=b'RIFF\x00\xffWEBP\x81\x00\xfe'
         manifest=copy.deepcopy(self.manifest)
-        relative='public/dashboard/branding/go-hologram-bust.webp'
+        relative='public/dashboard/audio/go-welcome.mp3'
         manifest['files'].append({'path':relative,'kind':'new','before_sha256':None,
             'after_sha256':DEPLOY.digest(content),'encoding':'base64','content':base64.b64encode(content).decode()})
         self.apply(manifest)
