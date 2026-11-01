@@ -19,7 +19,7 @@ for go_file in install_root.py worker.py manifest.json central_setup.php tenant_
 done
 printf '%s  %s\n' \
     6b1c996221f3810730a76d8df2da1fdf7abf993cf19c100ddaf8b2e5f4125d2d "$go_stage/install_root.py" \
-    bb13131908b76a0b3de35de935effa91f2a543f2ac80f7e9a2ef3f3c907c223b "$go_stage/worker.py" \
+    70ded7a038b422da6697e48829ca6676deabec3a9f2b232aa6dc3b795eef356f "$go_stage/worker.py" \
     968617f2419ff0e54eb65f07dd79fa544a4a06baabbac375bc3af1d9b103f483 "$go_stage/manifest.json" \
     aaafdab079dc8c1ae59ed773f1d5cf6d7382163e9f55420b2d3c5c2a35f63ea4 "$go_stage/central_setup.php" \
     45adcae4adae5c352773d9c2f489c28267275c4ae79ca985a4643e54633805e0 "$go_stage/tenant_http.php" \

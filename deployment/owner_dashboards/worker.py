@@ -488,7 +488,7 @@ Require all granted
                 stream.seek(0); stream.truncate(); stream.flush(); os.fsync(stream.fileno())
 
     def tick(self):
-        for raw in self.registry('WHERE revision<>applied_revision ORDER BY created_at LIMIT 4'):
+        for raw in self.registry('WHERE revision<>applied_revision ORDER BY updated_at,created_at LIMIT 4'):
             try:
                 self.apply(raw)
             except PendingHost as error:
