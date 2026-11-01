@@ -5,6 +5,7 @@ namespace App\Services\DesktopSync;
 use App\Models\User;
 use App\Services\Dashboard\BranchExpenses;
 use App\Services\Dashboard\BranchPayroll;
+use App\Services\Dashboard\BranchShiftClosing;
 use App\Services\Dashboard\BranchStock;
 use App\Services\Dashboard\CustomerDirectory;
 use App\Services\Dashboard\DesktopPosQuote;
@@ -27,7 +28,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -75,6 +76,7 @@ class DesktopSyncOperations
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
                 'attendance_status' => $this->attendance($actor, $values['branch'], $id, $when, $values['data'], true),
                 'stock_receive' => $this->stockReceive($actor, $values['branch'], $id, $when, $values['data']),
+                'shift_close' => $this->shiftClose($actor, $values['branch'], $id, $when, $values['data']),
                 'ticket_settle' => $this->ticketSettle($actor, $values['branch'], $id, $values['data']),
                 'ticket_open' => $this->ticketOpen($actor, $values['branch'], $id, $values['data']),
                 'ticket_action' => $this->ticketAction($actor, $values['branch'], $id, $values['data']),
@@ -234,6 +236,39 @@ class DesktopSyncOperations
         $time = fn ($value) => $value ? Carbon::parse($value, 'UTC')->toIso8601String() : null;
         return ['attendance' => ['employee_id' => (int) $day['employee_id'], 'day' => (string) $day['day'], 'status' => (string) $day['status'],
             'checked_in_at' => $time($day['checked_in_at']), 'checked_out_at' => $time($day['checked_out_at'])]];
+    }
+
+    /**
+     * The shift an owner or admin closed on the device while the internet was down: the dashboard's own close
+     * (BranchShiftClosing::close, its checks, report and branch printing). The device sends it alone, once everything it
+     * recorded before it is in and before anything it recorded after it, so the shift counts exactly those; it is dated
+     * when the device closed it. Another closing since, an invoice still open or an expense waiting for review refuses
+     * it, as on the page. A close the page saved online before the connection dropped is the same closing.
+     */
+    private function shiftClose(User $actor, string $branch, string $id, Carbon $when, array $data): array
+    {
+        $data = Validator::make($data, ['previous_closing_id' => 'required|integer|min:0', 'counted_cash' => 'required|string|max:14',
+            'notes' => 'nullable|string|max:1000'])->validate();
+        $shifts = app(BranchShiftClosing::class);
+        $done = $shifts->recover(['branch' => $branch, 'idempotency_key' => $id], $actor);
+        if (! empty($done['found'])) return ['closing' => $done['closing']];
+        return DB::transaction(function () use ($shifts, $actor, $branch, $id, $when, $data) {
+            $current = $shifts->data(['branch' => $branch], $actor);
+            abort_unless((int) $current['previous_closing_id'] === (int) $data['previous_closing_id'], 409,
+                'تم إغلاق وردية أخرى قبل وصول قفلة الجهاز. راجع الوردية من الداشبورد.');
+            $closing = $shifts->close(['branch' => $branch, 'idempotency_key' => $id, 'previous_closing_id' => $current['previous_closing_id'],
+                'review_token' => $current['review_token'], 'counted_cash' => $data['counted_cash'], 'notes' => $data['notes'] ?? ''], $actor)['closing'];
+            // Closed when the device closed it: never before the shift started, never after it reached the dashboard.
+            $row = DB::table('branch_shift_closings')->where('id', $closing['id'])->first();
+            $at = $when->copy()->setTimezone('UTC');
+            if ($at->lt(Carbon::parse($row->closed_at, 'UTC')) && $at->gt(Carbon::parse($row->started_at, 'UTC'))) {
+                $snapshot = json_decode($row->snapshot, true);
+                $snapshot['closed_at'] = $at->copy()->setTimezone('Africa/Cairo')->format('Y-m-d H:i:s');
+                DB::table('branch_shift_closings')->where('id', $row->id)
+                    ->update(['closed_at' => $at->toDateTimeString(), 'snapshot' => json_encode($snapshot, JSON_UNESCAPED_UNICODE)]);
+            }
+            return ['closing' => $shifts->recover(['branch' => $branch, 'idempotency_key' => $id], $actor)['closing']];
+        });
     }
 
     /**

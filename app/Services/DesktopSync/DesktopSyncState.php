@@ -219,13 +219,37 @@ class DesktopSyncState
             } catch (HttpException $error) {
                 continue;
             }
-            $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets, 'delivery' => $this->delivery($value, $actor)];
+            $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets, 'delivery' => $this->delivery($value, $actor),
+                'shift' => $this->shift($value)];
             $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             $entry = ['value' => $value, 'hash' => $hash];
             if (($known[$value] ?? null) !== $hash) $entry += $payload;
             $result[] = $entry;
         }
         return $result;
+    }
+
+    /**
+     * The branch's current shift as the shift page starts it (BranchShiftClosing::data): the last closing, when this
+     * shift started and the latest closings, so an owner or admin can close the shift on the device while the internet
+     * is down. Null before the shift page is installed.
+     */
+    private function shift(string $branch): ?array
+    {
+        if (! Schema::hasTable('branch_shift_closings')) return null;
+        $rows = DB::table('branch_shift_closings')->where('branch', $branch)->orderByDesc('sequence')->limit(10)->get();
+        $last = $rows->first();
+        $time = fn ($value) => Carbon::parse($value, 'UTC')->setTimezone('Africa/Cairo')->format('Y-m-d H:i:s');
+        // Expenses waiting for review stop a closing (BranchShiftClosing::pendingExpenses).
+        $expenses = Schema::hasTable('branch_expenses') ? DB::table('branch_expenses')->where('branch', $branch)->where('status', 'pending')->orderBy('id')
+            ->limit(100)->get(['id', 'occurred_on', 'description', 'category'])->map(fn ($row) => ['id' => (int) $row->id,
+                'number' => 'EXP-'.str_pad((string) $row->id, 6, '0', STR_PAD_LEFT), 'occurred_on' => (string) $row->occurred_on,
+                'description' => (string) $row->description, 'category' => (string) $row->category])->values()->all() : [];
+        return ['previous_closing_id' => $last ? (int) $last->id : 0, 'pending_expenses' => $expenses,
+            'started_at' => $time($last ? $last->closed_at : OperatingDay::start()->utc()->toDateTimeString()),
+            'history' => $rows->map(fn ($row) => ['id' => (int) $row->id, 'number' => 'SHIFT-'.str_pad((string) $row->id, 6, '0', STR_PAD_LEFT),
+                'sequence' => (int) $row->sequence, 'branch' => (string) $row->branch, 'started_at' => $time($row->started_at),
+                'closed_at' => $time($row->closed_at), 'print_url' => route('branch-shifts.print', ['id' => $row->id])])->values()->all()];
     }
 
     /**

@@ -342,7 +342,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 
@@ -888,6 +888,71 @@ class DesktopSyncTest extends TestCase
         $this->expectException(\Illuminate\Validation\ValidationException::class);
         app(\App\Services\Dashboard\BranchPayroll::class)->attendance(['branch' => 'f:100', 'idempotency_key' => (string) Str::uuid(), 'employee_id' => 50,
             'day' => '2026-10-30', 'status' => 'morning', 'action' => 'check_in', 'checked_in_at' => '2026-10-30 06:00:00'], User::find(4));
+    }
+
+    /** The shift page's tables, and the app orders and carts the shift report reads. */
+    private function shiftTables(): void
+    {
+        require_once database_path('migrations/2026_10_04_100000_create_branch_shift_closings.php'); (new \CreateBranchShiftClosings)->up();
+        Schema::create('orders', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('resturant_id'); $t->string('type')->default('current'); $t->string('status')->nullable();
+            $t->string('payment_type')->nullable(); $t->string('transfer_price_by')->nullable(); $t->decimal('total_price', 14, 2)->default(0);
+            $t->decimal('delivery_price', 14, 2)->default(0); $t->decimal('user_tax', 14, 2)->default(0); $t->timestamps();
+        });
+        Schema::create('carts', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('order_id'); $t->decimal('price', 14, 2)->default(0); $t->string('qty')->default('1');
+            $t->decimal('updated_total', 14, 2)->nullable();
+        });
+    }
+
+    public function test_a_shift_closed_on_the_device_counts_what_it_recorded_before_and_is_dated_then(): void
+    {
+        $this->shiftTables();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $state = $this->sync($device, ['want_catalogs' => true, 'want_service' => true])->assertOk()->json();
+        $snapshot = $state['branches'][0]['snapshot_id'];
+        $this->assertSame(['previous_closing_id' => 0, 'pending_expenses' => [], 'started_at' => '2026-10-30 06:00:00', 'history' => []],
+            $state['service'][0]['shift']);
+        // Offline: a sale, the owner closes the shift at 12:00 Cairo, then a sale of the next shift; all sent at 14:00.
+        $before = $this->sale($snapshot, ['occurred_at' => '2026-10-30T09:00:00Z']);
+        $close = $this->operation('shift_close', 1, ['previous_closing_id' => 0, 'counted_cash' => '271.00', 'notes' => 'قفلة من غير نت'],
+            ['occurred_at' => '2026-10-30T10:00:00Z']);
+        $after = $this->sale($snapshot, ['occurred_at' => '2026-10-30T10:30:00Z', 'data' => ['local_number' => 'D1-0002']]);
+        $results = $this->sync($device, ['operations' => [$before]])->json()['results'];
+        $results = array_merge($results, $this->sync($device, ['operations' => [$close]])->json()['results']);
+        $results = array_merge($results, $this->sync($device, ['operations' => [$after]])->json()['results']);
+        $this->assertSame(['applied', 'applied', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $closing = DB::table('branch_shift_closings')->first();
+        $this->assertSame([27100, 27100, 0, '2026-10-30 10:00:00'], [(int) $closing->counted_cents, (int) $closing->expected_cents,
+            (int) $closing->variance_cents, Carbon::parse($closing->closed_at)->format('Y-m-d H:i:s')]);
+        $report = json_decode($closing->snapshot, true);
+        $this->assertSame(['2026-10-30 12:00:00', '271.00', 'قفلة من غير نت'], [$report['closed_at'], $report['counted_cash'], $report['notes']]);
+        $first = (int) DB::table('takeaway_orders')->orderBy('id')->value('id');
+        $this->assertSame([['source' => 'pos', 'source_id' => $first]], DB::table('branch_shift_sources')->get(['source', 'source_id'])
+            ->map(fn ($row) => ['source' => $row->source, 'source_id' => (int) $row->source_id])->all(), 'Only the sale before the closing');
+        $this->assertSame('SHIFT-'.str_pad((string) $closing->id, 6, '0', STR_PAD_LEFT), $results[1]['closing']['number']);
+        $this->assertSame(1, DB::table('branch_shift_print_jobs')->where('closing_id', $closing->id)->count(), 'The branch printer prints its report');
+        // The next shift starts when the device closed it; the device learns the new closing.
+        $shift = $this->sync($device, ['want_service' => true])->json('service')[0]['shift'];
+        $this->assertSame([(int) $closing->id, '2026-10-30 12:00:00'], [$shift['previous_closing_id'], $shift['started_at']]);
+        // Sent again: the same closing.
+        $this->assertSame($results[1], $this->sync($device, ['operations' => [$close]])->json()['results'][0]);
+        // A second closing made on another device first: this one is refused, as on the page.
+        $stale = $this->operation('shift_close', 1, ['previous_closing_id' => 0, 'counted_cash' => '0.00']);
+        $refused = $this->sync($device, ['operations' => [$stale]])->json()['results'][0];
+        $this->assertSame(['rejected', 'تم إغلاق وردية أخرى قبل وصول قفلة الجهاز. راجع الوردية من الداشبورد.'], [$refused['status'], $refused['error']]);
+        $this->assertSame(1, DB::table('branch_shift_closings')->count());
+    }
+
+    public function test_a_shift_closed_on_the_device_waits_for_open_invoices_like_the_page(): void
+    {
+        $this->shiftTables();
+        $this->openTable();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $close = $this->operation('shift_close', 1, ['previous_closing_id' => 0, 'counted_cash' => '0.00']);
+        $result = $this->sync($device, ['operations' => [$close]])->json()['results'][0];
+        $this->assertSame(['rejected', 'برجاء إغلاق الفواتير أولًا.'], [$result['status'], $result['error']]);
+        $this->assertSame(0, DB::table('branch_shift_closings')->count());
     }
 
     public function test_goods_received_offline_reach_the_stock_once_dated_when_the_device_recorded_them(): void
