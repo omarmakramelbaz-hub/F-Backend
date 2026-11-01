@@ -1,0 +1,6 @@
+{
+  "name": "fasakhansta/hologram-metrics-test-runtime",
+  "description": "Disposable in-memory tests of production opening counters and authorization scope",
+  "require": {"php": "^8.2", "ext-pdo_sqlite": "*", "laravel/framework": "^8.83"},
+  "config": {"allow-plugins": false, "sort-packages": true}
+}

@@ -3,7 +3,7 @@
     <!-- Brand Logo -->
     <!--<hr>-->
     <div class="brand-link dashboard-brand">
-        @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-brand-logo go-erp-platform-logo'])
+        @include('admin.partials.go_hologram_sidebar')
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
     </div>
     <hr>

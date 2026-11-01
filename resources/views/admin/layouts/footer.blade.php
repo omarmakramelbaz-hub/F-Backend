@@ -187,6 +187,9 @@ $(document).ready(function() {
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
 <script src="{{ asset('dashboard/js/dashboard-order-alerts.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-order-alerts.js')) }}" data-sound-url="{{ asset('sounds/mixkit-correct-answer-reward-952.wav') }}" data-sound-actor="{{ auth('admin')->user()->id }}" data-sound-feed="{{ route('getOrders', ['alerts_only' => 1]) }}"></script>
+{{-- Shared robot renderer and sidebar belong to the persistent shell, outside page scopes. --}}
+<script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>
+<script src="{{ asset('dashboard/js/go-hologram-shell.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram-shell.js')) }}"></script>
 <div data-dashboard-page-scripts hidden>
 <script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')

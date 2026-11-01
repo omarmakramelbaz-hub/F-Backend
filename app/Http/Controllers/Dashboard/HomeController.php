@@ -77,14 +77,21 @@ class HomeController extends Controller
         // The GO control room plays its start-up sequence once per sign-in (sign-out clears the session).
         $boot['intro']=!$request->session()->has('go_hud_intro');$request->session()->put('go_hud_intro',true);
         $boot['hud_links']=\App\Services\Dashboard\HomeHudLinks::for(auth('admin')->user());
+        $boot['initial']['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user(),$boot['hud_links']);
+        // A refresh, section change or idle return must never replay the voice.
+        $boot['greeting']=$request->session()->pull('go_hologram_login');
         return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
     }
 
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
+        if($request->query('section')==='hologram')return response()->json([
+            'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user())
+        ])->header('Cache-Control','private, no-store');
         $data=$request->query('section')==='drawers'
             ?$overview->drawers($request->query(),auth('admin')->user())
             :$overview->data($request->query(),auth('admin')->user());
+        if($request->query('section')!=='drawers')$data['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user());
         return response()->json($data)->header('Cache-Control','private, no-store');
     }
 
@@ -115,8 +122,10 @@ class HomeController extends Controller
             $request->session()->regenerate();
             session()->forget('id_user');
             session()->put('id_user', auth('admin')->id());
-            if ($user->account_type === 'vendor') { return redirect('admin/applies-orders'); }
-            if ($user->account_type === 'resturant_owner') { return redirect('admin/resturants'); }
+            $request->session()->forget('go_hud_intro');
+            $request->session()->put('go_hologram_login',[
+                'nonce'=>(string)\Illuminate\Support\Str::uuid(),'name'=>(string)$user->name,
+            ]);
             return redirect('admin/dashboard');
         }
         return redirect()->back()->withInput($request->only('email', 'remember'))
