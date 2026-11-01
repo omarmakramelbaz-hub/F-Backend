@@ -503,8 +503,10 @@ function createDashboardView() {
   const allowed = new Set(['notifications', 'geolocation', 'clipboard-sanitized-write', 'fullscreen']);
   dashboardSession.setPermissionRequestHandler((webContents, permission, callback) => callback(allowed.has(permission)));
   // backgroundThrottling off: new-order alerts keep sounding while the device's screens are in front.
+  // The GO opening greets the person after signing in, as in a browser: the app signs the dashboard in itself, without a
+  // click inside it, so its sound may play without one.
   const dashboardPreferences = { partition: 'persist:dashboard', sandbox: true, contextIsolation: true, backgroundThrottling: false,
-    preload: path.join(__dirname, 'dashboard-preload.cjs') };
+    autoplayPolicy: 'no-user-gesture-required', preload: path.join(__dirname, 'dashboard-preload.cjs') };
   dashboardView = new WebContentsView({ webPreferences: dashboardPreferences });
   dashboardView.setBackgroundColor('#091320'); // the dashboard's own dark background, never a white flash
   dashboardSignedIn = false;

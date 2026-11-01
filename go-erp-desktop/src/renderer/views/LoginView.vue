@@ -1,11 +1,7 @@
 <template>
-  <div class="login-page dashboard-login-page">
+  <div class="login-page dashboard-login-page hud-login">
+    <HudBackdrop />
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
-      <section class="dashboard-login-identity" aria-label="فسخانستا وجو">
-        <div class="dashboard-login-brand" v-html="logo"></div>
-        <p class="dashboard-login-brand-title go-erp-tagline" lang="en" dir="ltr">THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR</p>
-        <p class="dashboard-login-brand-subtitle">لوحة واحدة لإدارة التطبيقات والطلبات</p>
-      </section>
 
       <section class="dashboard-login-form-panel">
         <span class="dashboard-login-eyebrow">لوحة التحكم</span>
@@ -58,7 +54,7 @@
 import { computed, ref } from 'vue';
 import { call } from '../api.js';
 import SyncBadge from '../components/SyncBadge.vue';
-import logo from '../assets/go-erp-login.svg?raw';
+import HudBackdrop from '../components/HudBackdrop.vue';
 
 const props = defineProps({ info: Object, sync: Object });
 const emit = defineEmits(['signed-in', 'sync-now', 'reset']);

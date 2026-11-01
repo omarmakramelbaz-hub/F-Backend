@@ -89,7 +89,8 @@ import AttendanceView from './views/AttendanceView.vue';
 import ReportsView from './views/ReportsView.vue';
 import SettingsView from './views/SettingsView.vue';
 import SyncBadge from './components/SyncBadge.vue';
-import loginLogo from './assets/go-erp-login.svg?raw';
+// The GO mark of the dashboard's opening, on the app's loading screens.
+import loginLogo from './assets/go-hud-mark.svg?raw';
 import sidebarLogo from './assets/go-erp-sidebar.svg?raw';
 
 const info = ref(null);
