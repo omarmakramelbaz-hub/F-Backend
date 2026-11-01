@@ -4,7 +4,7 @@
     var root=document.getElementById('home-overview');if(!root)return;
     var boot=JSON.parse(document.getElementById('home-overview-bootstrap').textContent),text=boot.labels,form=root.querySelector('[data-ho-filters]');
     var data=boot.initial,period=data.filters.period,disposed=false,controller,sequence=0,timer,listeners=[],editing=false,lastLoaded=Date.now(),ownerObserver,ownerFrame;
-    var drawerController,drawerSequence=0,drawerMessage='',drawerUpdated='',drawerTimer,syncTimer,syncQueued=false,syncVersion=0,lastSyncAt='',nativeEpoch=0,nativeOff;
+    var drawerController,drawerSequence=0,drawerMessage='',drawerUpdated='',drawerTimer,syncTimer,syncQueued=false,syncVersion=0,lastSyncAt='',nativeEpoch=0,nativeOff,drawerAuthRefused=false;
     var colors={app:'#508ef2',takeaway:'#f8b758',phone:'#67c4a1',dine:'#ad8ee6'},icons={app:'mobile-alt',takeaway:'shopping-bag',phone:'motorcycle',dine:'utensils'};
     var numbers=new Intl.NumberFormat(boot.locale==='ar'?'ar-EG-u-nu-latn':'en-GB',{maximumFractionDigits:2});
     function $(name){return root.querySelector('[data-ho-'+name+']');}
@@ -101,6 +101,7 @@
     function cancelDrawers(clear){
         clearTimeout(drawerTimer);drawerSequence++;if(drawerController)drawerController.abort();drawerController=null;drawerMessage='';
         if(clear){drawerUpdated='';if(data.owner_drawer)data.owner_drawer={ready:false,loaded:false,total_cents:null,branches:{}};}
+        drawerState(false);
     }
     function resetDrawers(){
         cancelDrawers(true);
@@ -110,6 +111,12 @@
     function branchKeys(value){return value.branch_cards.map(function(branch){return branch.value;}).sort().join('|');}
     function sameFilters(a,b){return ['branch','period','from','to'].every(function(key){return a[key]===b[key];});}
     function authRefused(response){return response.status===401||response.status===403||(response.redirected&&typeof response.url==='string'&&/\/admin\/login\/?$/.test(new URL(response.url,location.href).pathname));}
+    function drawerState(loading,refused){
+        if(refused)drawerAuthRefused=true;
+        var state={loading:loading,auth_refused:drawerAuthRefused,filters:Object.assign({},data.filters),branch_keys:data.branch_cards.map(function(branch){return branch.value;}),owner_drawer:data.owner_drawer};
+        // The following script can mount after an already-started finance read.
+        root.goHomeDrawersState=state;document.dispatchEvent(new CustomEvent('go:home-drawers-state',{detail:state}));
+    }
     function queueDrawers(){
         clearTimeout(drawerTimer);drawerTimer=setTimeout(function(){if(!disposed&&!document.hidden&&!editing){if(syncQueued)drainSyncedRefresh();else loadDrawers();}},0);
     }
@@ -120,14 +127,14 @@
     async function loadDrawers(){
         if(disposed||drawerController||controller||editing||!data.owner_drawer||!boot.drawer_url)return;
         var at=new AbortController(),current=++drawerSequence,overviewSequence=sequence,version=syncVersion,query=Object.assign({},data.filters);drawerController=at;
-        drawerMessage=text.drawers_loading;renderOwnerDrawers();
+        drawerMessage=text.drawers_loading;renderOwnerDrawers();drawerState(true);
         var timeout=setTimeout(function(){at.abort();},15000);
         try{
             var url=new URL(boot.drawer_url,location.href);if(url.origin!==location.origin)throw Error();
             Object.keys(query).forEach(function(key){url.searchParams.set(key,query[key]);});
             var response=await fetch(url.href,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'},signal:at.signal});
             if(disposed||current!==drawerSequence||overviewSequence!==sequence||version!==syncVersion)return;
-            if(authRefused(response)){drawerUpdated='';data.owner_drawer={ready:false,loaded:false,total_cents:null,branches:{}};throw Error();}
+            if(authRefused(response)){drawerUpdated='';data.owner_drawer={ready:false,loaded:false,total_cents:null,branches:{}};drawerState(false,true);throw Error();}
             var result=await response.json();
             if(disposed||current!==drawerSequence||overviewSequence!==sequence||version!==syncVersion)return;
             if(!response.ok||!result.success||!result.filters||!result.owner_drawer||result.owner_drawer.loaded!==true
@@ -137,9 +144,11 @@
                 ||Object.keys(drawer.branches).some(function(key){return !keys.includes(key);})
                 ||(drawer.ready&&(!Number.isSafeInteger(drawer.total_cents)||keys.some(function(key){return !drawer.branches[key]||!Number.isSafeInteger(drawer.branches[key].expected_cents);})))
                 ||(!drawer.ready&&(drawer.total_cents!==null||Object.keys(drawer.branches).length)))throw Error();
-            data.owner_drawer=drawer;drawerUpdated=result.updated_at;drawerMessage='';document.dispatchEvent(new CustomEvent('go:home-data',{detail:data}));
+            // Keep the finance read's timestamp when lightweight overview data
+            // later reuses this drawer, rather than making old cash look fresh.
+            drawer.updated_at=result.updated_at;data.owner_drawer=drawer;drawerUpdated=result.updated_at;drawerMessage='';document.dispatchEvent(new CustomEvent('go:home-data',{detail:data}));
         }catch(_){if(!disposed&&current===drawerSequence&&overviewSequence===sequence)drawerMessage=text.drawers_failed;}
-        finally{clearTimeout(timeout);if(!disposed&&current===drawerSequence){drawerController=null;renderOwnerDrawers();drainSyncedRefresh();}}
+        finally{clearTimeout(timeout);if(!disposed&&current===drawerSequence){drawerController=null;renderOwnerDrawers();drawerState(false);drainSyncedRefresh();}}
     }
     function renderOwner(){
         var p=data.owner_platform,n=$('platform');n.replaceChildren();
@@ -206,13 +215,24 @@
     }
     function periodButtons(){root.querySelectorAll('[data-ho-period]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.hoPeriod===period));});$('dates').hidden=period!=='custom';}
     function params(){var p={branch:form.elements.branch.value,period:period};if(period==='custom'){p.from=form.elements.from.value;p.to=form.elements.to.value;}return p;}
+    function focusOwnerDrawers(){
+        if(disposed||!data.owner_drawer||data.filters.branch!=='')return;
+        var title=root.querySelector('#ho-drawers-title');if(!title)return;
+        title.tabIndex=-1;title.focus({preventScroll:true});title.scrollIntoView({behavior:window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
+    }
+    on(document,'go:owner-drawers-open',function(){
+        if(disposed||!data.owner_drawer)return;
+        var changed=data.filters.branch!==''||form.elements.branch.value!==''||editing;form.elements.branch.value='';
+        if(window.jQuery)window.jQuery(form.elements.branch).trigger('change.select2');
+        if(changed)refresh(true).then(focusOwnerDrawers);else{if(!data.owner_drawer.loaded)queueDrawers();focusOwnerDrawers();}
+    });
     async function refresh(changed){
         if(disposed)return;if(controller)controller.abort();controller=new AbortController();var current=++sequence,query=params(),at=controller,version=syncVersion,updated=false;
         var previous={drawer:data.owner_drawer,filters:Object.assign({},data.filters),branches:branchKeys(data),at:drawerUpdated};
         editing=false;syncQueued=false;if(changed)resetDrawers();else {cancelDrawers(false);renderOwnerDrawers();}
         if(changed){$('content').hidden=true;note(text.loading);}root.setAttribute('aria-busy','true');$('refresh').disabled=true;
         var timeout=setTimeout(function(){at.abort();},15000);
-        try{var url=new URL(boot.url,location.href);if(url.origin!==location.origin)throw Error(text.failed);Object.keys(query).forEach(function(k){url.searchParams.set(k,query[k]);});var response=await fetch(url.href,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'},signal:at.signal});if(disposed||sequence!==current||version!==syncVersion)return;if(authRefused(response)){resetDrawers();throw Error(text.failed);}var result;try{result=await response.json();}catch(_){throw Error(text.failed);}if(!response.ok||!result.success)throw Error(result.message||text.failed);if(disposed||sequence!==current||version!==syncVersion)return;
+        try{var url=new URL(boot.url,location.href);if(url.origin!==location.origin)throw Error(text.failed);Object.keys(query).forEach(function(k){url.searchParams.set(k,query[k]);});var response=await fetch(url.href,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'},signal:at.signal});if(disposed||sequence!==current||version!==syncVersion)return;if(authRefused(response)){resetDrawers();drawerState(false,true);throw Error(text.failed);}var result;try{result=await response.json();}catch(_){throw Error(text.failed);}if(!response.ok||!result.success)throw Error(result.message||text.failed);if(disposed||sequence!==current||version!==syncVersion)return;
             if(!changed&&result.owner_drawer&&previous.drawer&&previous.drawer.loaded&&previous.drawer.ready&&sameFilters(previous.filters,result.filters)&&previous.branches===branchKeys(result)){result.owner_drawer=previous.drawer;drawerUpdated=previous.at;}else drawerUpdated='';
             data=result;updated=true;document.dispatchEvent(new CustomEvent('go:home-data',{detail:data}));if(data.operating_day){form.elements.from.max=data.operating_day.date;form.elements.to.max=data.operating_day.date;}lastLoaded=Date.now();note('');render();form.elements.from.value=data.filters.from;form.elements.to.value=data.filters.to;var locationUrl=new URL(location.href);['branch','period','from','to'].forEach(function(k){locationUrl.searchParams.delete(k);});Object.keys(query).forEach(function(k){if(query[k])locationUrl.searchParams.set(k,query[k]);});history.replaceState(history.state,'',locationUrl.href);
         }catch(error){if(disposed||sequence!==current)return;note(changed?(error.name==='AbortError'?text.failed:error.message):text.stale);if(changed)$('content').hidden=true;}

@@ -204,6 +204,7 @@ const syncState = (minute, changes = {}) => ({...initialSync, refreshedAt: '2026
         await scoped.reply(8, {success: false}, 403);
         check(await scoped.total.textContent(), '—', 'A denied permission clears previously visible financial data.');
         check((await scoped.status.textContent()).includes(labels.drawers_last_updated), false, 'A denied read does not preserve a cached-authority timestamp.');
+        check(await scoped.page.evaluate(()=>document.getElementById('home-overview').goHomeDrawersState.auth_refused),true,'Cached authorization refusal survives the finance request finally event.');
         await scoped.periodic(); await scoped.wait(10); await scoped.reply(9, overview('f:101')); await scoped.wait(11);
         await scoped.reply(10, drawerResponse('f:101', null)); check(await scoped.total.textContent(), '—', 'Malformed totals are not coerced into zero.');
         await scoped.periodic(); await scoped.wait(12); await scoped.reply(11, overview('f:101')); await scoped.wait(13);

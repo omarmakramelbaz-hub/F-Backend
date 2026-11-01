@@ -1,9 +1,9 @@
 <?php
 namespace App\Services\Dashboard;
 
-use Illuminate\Support\Facades\{DB, Schema};
+use Illuminate\Support\Facades\{DB, Route, Schema};
 
-/** Actor-scoped, lifetime read counters for the live opening; no monetary data. */
+/** Actor-scoped opening metrics; Owner balances load through their existing protected read. */
 class HomeHologramMetrics
 {
     private TakeawayAccess $access;
@@ -26,6 +26,7 @@ class HomeHologramMetrics
         $keys = array_column($branches, 'value');
         $ids = array_column($branches, 'id');
         $central = $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
+        $owner = (int)$actor->id === 1 && $central;
         $aggregate = $central || $actor->account_type === 'resturant_owner';
         $links = $links ?? HomeHudLinks::for($actor);
         $specs = [
@@ -108,10 +109,31 @@ class HomeHologramMetrics
         if (isset($cards['drawer']) && $this->has('branch_shift_closings', ['branch'])) {
             $set('drawer', count($keys));
         }
+        if ($owner && isset($cards['drawer'])) {
+            // Keep the initial and frequent opening request lightweight. The
+            // existing owner_drawer read applies the full current-cash formula,
+            // including app collections and delivery adjustments. A till sum or
+            // a branch-count must never be substituted for that monetary value.
+            $cards['drawer']['label'] = 'رصيد الفروع';
+            $cards['drawer']['count'] = null;
+            $cards['drawer']['count_label'] = 'ج.م';
+            $cards['drawer']['available'] = false;
+            $cards['drawer']['value_type'] = 'currency';
+            $cards['drawer']['currency'] = 'EGP';
+            $cards['drawer']['amount_cents'] = null;
+            $cards['drawer']['loading'] = true;
+            $cards['drawer']['action'] = 'owner-balances';
+            $cards['drawer']['balance_scope'] = 'all';
+            $cards['drawer']['balance_branches'] = array_values($keys);
+            $cards['drawer']['balance_url'] = Route::has('dashboard.overview')
+                ? route('dashboard.overview', ['section'=>'drawers']) : null;
+            if (Route::has('admin_dash')) $cards['drawer']['url'] = route('admin_dash').'#ho-drawers-title';
+        }
         foreach ($cards as &$card) {
             // Opening links use the account's branch scope, never a stale home
             // filter belonging to another account in the same browser session.
             $query = [];
+            if ($owner && $card['key'] === 'drawer') continue;
             if (count($keys) === 1) $query['branch'] = $keys[0];
             elseif ($central && in_array($card['key'], ['expenses', 'pending-expenses', 'stock', 'drawer', 'employees', 'customers'], true)) $query['branch'] = 'all';
             if ($card['key'] === 'pending-expenses') $query['status'] = 'pending';

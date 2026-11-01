@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "voice_version": "go-approved-qwen-base-1.7b-q4-4283-atempo085-v1",
+  "template_version": "welcome-name-approved-tail-v1",
+  "platform": "linux-x86_64",
+  "model_revision": "ca27d74bc954b73dadab5b71ca265d87fc861a7c",
+  "downloads": [
+    {
+      "name": "Qwen3-TTS-12Hz-1.7B-Base-Q4_K_M.gguf",
+      "url": "https://huggingface.co/ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF/resolve/ca27d74bc954b73dadab5b71ca265d87fc861a7c/Qwen3-TTS-12Hz-1.7B-Base-Q4_K_M.gguf",
+      "sha256": "8d18c94acb2addd042f97da63c98be144eafa76d0d9495177eab65130cf85129",
+      "size": 1035965280
+    },
+    {
+      "name": "mmproj-Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf",
+      "url": "https://huggingface.co/ggml-org/Qwen3-TTS-12Hz-1.7B-Base-GGUF/resolve/ca27d74bc954b73dadab5b71ca265d87fc861a7c/mmproj-Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf",
+      "sha256": "6fd65188839bcd6ecc91b277ad471e22a0edfada4699a0fe82f1165c18cfcce2",
+      "size": 446422912
+    },
+    {
+      "name": "llama-b12032-bin-ubuntu-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12032/llama-b12032-bin-ubuntu-x64.tar.gz",
+      "sha256": "9f10432ca3f66ef003a7a540aaffb9da0acadaefd05404521b9ab7a2436af304",
+      "size": 22886629
+    }
+  ],
+  "local_assets": [
+    {
+      "path": "assets/common-tail.wav",
+      "sha256": "b4f4c1c79180185562afdda2161a8e2bc79e60433e764ea8c7293df6882f1828",
+      "size": 325648
+    },
+    {
+      "path": "assets/office-admin.envelope.json",
+      "sha256": "ddf64d68e0fa97b185c96e60a68e0dbd42524129a2739f8d455461397a137cfa",
+      "size": 2563
+    },
+    {
+      "path": "assets/office-admin.mp3",
+      "sha256": "7971198dca67cf4ac285c5863e9b80b1ef6b7529b11d57250e1448ce755efe3a",
+      "size": 104877
+    },
+    {
+      "path": "assets/omar.envelope.json",
+      "sha256": "91fe536cd9626728baa2ebab0bdda37452ebd1136ffdecc6b81273c176e08455",
+      "size": 2278
+    },
+    {
+      "path": "assets/omar.mp3",
+      "sha256": "7f31862c28dc62a809c575bfa1643b947d6a439a79ae99b3d3d979b9d05de1c1",
+      "size": 95085
+    },
+    {
+      "path": "assets/reference.wav",
+      "sha256": "fbcb0fd60ee4284510f4c315364741052dff3639b3533da97219f641de885470",
+      "size": 576078
+    }
+  ],
+  "reference": "assets/reference.wav",
+  "common_tail": "assets/common-tail.wav",
+  "common_tail_pcm_sha256": "0f8c12920381b3907bebf7495da0ca33bc2cc46ed424376c84d9304f60dcab10",
+  "approved_tail_source_sha256": "d154487e2f826975d003a7063051d65b6bae74c43f5c1b0f1cb66af88a58ecf4",
+  "approved_tail_source_start_seconds": 0.82,
+  "sampler": {
+    "seed": 4283,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 50,
+    "repeat_penalty": 1.05,
+    "n_predict": 350
+  },
+  "postprocessing": {
+    "filter": "atempo=0.85,loudnorm=I=-18:TP=-1.5:LRA=7",
+    "sample_rate": 24000,
+    "channels": 1,
+    "mp3_bitrate": "96k"
+  },
+  "prepared": [
+    {
+      "spoken_name": "Office Admin",
+      "audio": "assets/office-admin.mp3",
+      "envelope": "assets/office-admin.envelope.json",
+      "duration_seconds": 8.640458333333333
+    },
+    {
+      "spoken_name": "Omar",
+      "audio": "assets/omar.mp3",
+      "envelope": "assets/omar.envelope.json",
+      "duration_seconds": 7.843416666666666
+    }
+  ]
+}
