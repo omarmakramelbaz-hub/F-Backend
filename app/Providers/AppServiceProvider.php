@@ -80,6 +80,8 @@ class AppServiceProvider extends ServiceProvider
     {
         Paginator::useBootstrap();
         User::observe(UserObserver::class);
+        User::observe(\App\Observers\HomeHologramVoiceObserver::class);
+        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));
         User::observe(\App\Observers\CustomerDirectoryUserObserver::class);
         \App\Models\UserAddress::observe(\App\Observers\CustomerDirectoryAddressObserver::class);
         Order::observe(\App\Observers\CustomerDirectoryOrderObserver::class);

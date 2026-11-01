@@ -711,6 +711,8 @@ jobs:
           retention-days: 3
           overwrite: true
   windows-installer:
+    # Dashboard-only review keeps native/runtime checks without building a Windows installer.
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/hologram-live-3d-review-20261101'
     needs: [original-runtime, connected-native]
     runs-on: windows-latest
     timeout-minutes: 60

@@ -80,6 +80,7 @@ class HomeController extends Controller
         $boot['initial']['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user(),$boot['hud_links']);
         // A refresh, section change or idle return must never replay the voice.
         $boot['greeting']=$request->session()->pull('go_hologram_login');
+        if(is_array($boot['greeting']))$boot['greeting']['audio']=app(\App\Services\Dashboard\HomeHologramVoice::class)->forLogin(auth('admin')->user(),$request,$boot['greeting']);
         return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
     }
 

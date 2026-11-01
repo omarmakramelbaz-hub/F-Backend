@@ -25,7 +25,15 @@ class HomeHudLinks
             $add(['ch-dine'], 'dining.index');
             $add(['expenses', 'expenses-today'], 'branch-expenses.index');
             if (count(app(BranchStock::class)->branches($user))) $add(['stock'], 'branch-stock.index');
-            if (count(app(BranchShiftClosing::class)->branches($user))) $add(['drawer'], 'branch-shifts.index');
+            if (count(app(BranchShiftClosing::class)->branches($user))) {
+                $add(['drawer'], 'branch-shifts.index');
+                // The primary Owner (also id 1 in an isolated owner database)
+                // reads balances. Other admins retain the existing close page.
+                $actor = app(TakeawayAccess::class)->actor($user);
+                if ((int)$actor->id === 1 && $actor->account_type === 'admin' && empty($actor->owner_resturant_id) && Route::has('admin_dash')) {
+                    $links['drawer'] = route('admin_dash').'#ho-drawers-title';
+                }
+            }
             $add(['sales', 'active', 'branches', 'cancelled'], 'branch-orders.index');
             $add(['customers'], 'customers.index');
             if (in_array($user->account_type ?? null, ['admin', 'vendor', 'resturant_owner'], true)) $add(['employees'], 'employees.index');

@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\{Facade, DB, Schema};
 use App\Services\Dashboard\{HomeHologramMetrics,TakeawayAccess,OrderBoardService};
 final class HologramFixtureUser extends Illuminate\Foundation\Auth\User {
     protected $table='users'; protected $guarded=[];
-    public function can($ability, $arguments=[]) { return (int)$this->id===1; }
+    public function can($ability, $arguments=[]) { return (int)$this->id===1 || ((int)$this->id===2 && $ability==='order-list'); }
 }
 class_alias(HologramFixtureUser::class,'App\\Models\\User');
 $app = new Application($root);
@@ -126,22 +126,42 @@ $app->instance(Illuminate\Contracts\Routing\ResponseFactory::class,$capture=new 
 $session=$app->make('session.store');$session->start();
 $app->make('redirect')->setSession($session);
 Illuminate\Support\Facades\Route::get('/admin/dashboard/overview',fn()=>null)->name('dashboard.overview');
+$app->make('router')->aliasMiddleware('IsAdmin',App\Http\Middleware\IsAdmin::class);
+// Requests below already carry the isolated array session. Keep the real guard
+// and language middleware while checking the standalone file's web declaration.
+$app->make('router')->middlewareGroup('web',[]);
+$app->make('router')->aliasMiddleware('lang',App\Http\Middleware\lang::class);
+class HologramRouteProvider extends Illuminate\Support\ServiceProvider {
+    public function load(string $path): void {$this->loadRoutesFrom($path);}
+}
+$hologramRouteProvider=new HologramRouteProvider($app);
+$hologramRouteProvider->load(dirname(__DIR__,2).'/routes/hologram_voice.php');
 $app->make('router')->getRoutes()->refreshNameLookups();
+class HologramFixtureVoice extends App\Services\Dashboard\HomeHologramVoice {
+    public string $fixtureRoot; public int $fixtureNow=1793563200; public ?string $fixtureScope=null;
+    public function __construct(string $root) {$this->fixtureRoot=$root;}
+    protected function root(): string {return $this->fixtureRoot;}
+    protected function now(): int {return $this->fixtureNow;}
+    protected function scope(): string {return $this->fixtureScope??parent::scope();}
+}
+$voiceTemp=sys_get_temp_dir().'/hologram-voice-'.bin2hex(random_bytes(6));
+$app->instance(App\Services\Dashboard\HomeHologramVoice::class,new HologramFixtureVoice($voiceTemp));
 Illuminate\Support\Facades\Auth::guard('admin')->login(HologramFixtureUser::findOrFail(10));
 $request=Illuminate\Http\Request::create('/admin/dashboard');$request->setLaravelSession($session);
 $controller=app(App\Http\Controllers\Dashboard\HomeController::class);
 $overview=new HologramFixtureOverview(app(TakeawayAccess::class));
-$session->put('go_hologram_login',['nonce'=>'fixture-nonce','name'=>'Actor 10']);
+$session->put('go_hologram_login',['nonce'=>'fixture-login-nonce-one','name'=>'Actor 10']);
 $response=$controller->index($request,$overview);
-same('fixture-nonce',$capture->boot['greeting']['nonce'],'Only first dashboard after login receives greeting nonce');
+same('fixture-login-nonce-one',$capture->boot['greeting']['nonce'],'Only first dashboard after login receives greeting nonce');
+same('pending',$capture->boot['greeting']['audio']['state'],'Fresh login receives a nonblocking named-audio readiness descriptor');
 same(true,$capture->boot['intro'],'Initial dashboard receives visual intro');
 same(true,$response->headers->hasCacheControlDirective('private')&&$response->headers->hasCacheControlDirective('no-store'),'Account bootstrap is never shared cache');
 $controller->index($request,$overview);
 same(null,$capture->boot['greeting'],'Refresh/return cannot replay greeting');
 same(false,$capture->boot['intro'],'Refresh does not restart visual intro');
-$session->put('go_hologram_login',['nonce'=>'new-login-nonce','name'=>'Actor 10']);$session->forget('go_hud_intro');
+$session->put('go_hologram_login',['nonce'=>'fixture-login-nonce-two','name'=>'Actor 10']);$session->forget('go_hud_intro');
 $controller->index($request,$overview);
-same('new-login-nonce',$capture->boot['greeting']['nonce'],'A subsequent explicit login may greet once again');
+same('fixture-login-nonce-two',$capture->boot['greeting']['nonce'],'A subsequent explicit login may greet once again');
 $cheap=Illuminate\Http\Request::create('/admin/dashboard/overview?section=hologram');
 $payload=json_decode($controller->overview($cheap,$overview)->getContent(),true);
 same(true,$payload['success'],'Cheap live-counter endpoint is usable');
@@ -156,6 +176,7 @@ $controller->signin($login);
 same(10,Illuminate\Support\Facades\Auth::guard('admin')->id(),'Actual login authenticates branch account');
 same(true,is_string($session->get('go_hologram_login.nonce'))&&strlen($session->get('go_hologram_login.nonce'))>10,'Actual successful login writes unique greeting stamp');
 same(false,$session->has('go_hud_intro'),'Actual login resets visual intro gate');
-echo "PASS hologram real SQLite counters and controller sessions: $checks assertions\n";
 
-
+// Per-account cache, authorization and publication coverage lives in named_voice.php.
+app('files')->deleteDirectory($voiceTemp);
+echo "PASS hologram real SQLite counters, controller sessions and named-login gate: $checks assertions\n";

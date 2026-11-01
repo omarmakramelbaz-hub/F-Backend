@@ -1,0 +1,11 @@
+{
+  "reference": "aa21e6a",
+  "description": "Approved single-emitter construction method; hashes allow verification without repository history.",
+  "sha256": {
+    "emitterAndDuration": "f6c81510297268a2af84a6674cc8fa4b343d2a69a3592230c83484134f81bd65",
+    "arrivalFor": "0225c3b2a1782e1ecebc8c002612e245a40abc05b947be91272dbfbfb5bac38b",
+    "arrivalShaderAndFountain": "0fd7b4b128009c261c809368a47c7a15b9146f5108f1ecdbacb3f28ea15d2d1e",
+    "particleFlightAndScatter": "2e4a3d89d099fc7f0fd601b995d58b7a87880ae2673242be56cb3612e3bd945f",
+    "surfaceArrivalReveal": "510271307528abb96c4ce80b3aae7f430d0197c99666b11119762fd46895159d"
+  }
+}

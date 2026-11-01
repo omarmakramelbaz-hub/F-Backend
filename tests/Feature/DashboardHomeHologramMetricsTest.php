@@ -173,4 +173,38 @@ class DashboardHomeHologramMetricsTest extends TestCase
         DB::table('branch_stock_minimums')->where('branch', 'f:100')->where('stock_item_id', 2)->update(['unit'=>'kg', 'minimum_units'=>0]);
         $this->assertSame(2, $this->cards(10)['stock']['secondary_count']); // Missing recorded balance is zero, same as goods screen.
     }
+
+    public function test_only_primary_owner_receives_lazy_currency_card_and_other_admin_keeps_shift_card(): void
+    {
+        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php');
+        (new \CreatePermissionTables)->up();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        DB::table('users')->insert(['id'=>50, 'name'=>'Central admin', 'account_type'=>'admin']);
+        $permission = \Spatie\Permission\Models\Permission::create(['name'=>'order-list', 'guard_name'=>'admin']);
+        DB::table('model_has_permissions')->insert(['permission_id'=>$permission->id, 'model_type'=>User::class, 'model_id'=>50]);
+        $shifts = \Mockery::mock(\App\Services\Dashboard\BranchShiftClosing::class);
+        $shifts->shouldNotReceive('ownerBalances');
+        $this->app->instance(\App\Services\Dashboard\BranchShiftClosing::class, $shifts);
+        $links = ['drawer'=>route('branch-shifts.index')];
+        $owner = app(HomeHologramMetrics::class)->data($this->actor(1), $links)['cards'][0];
+        $this->assertSame('رصيد الفروع', $owner['label']);
+        $this->assertSame('currency', $owner['value_type']); $this->assertSame('EGP', $owner['currency']);
+        $this->assertNull($owner['amount_cents']); $this->assertNull($owner['count']);
+        $this->assertTrue($owner['loading']); $this->assertFalse($owner['available']);
+        $this->assertSame('owner-balances', $owner['action']); $this->assertSame('all', $owner['balance_scope']);
+        $this->assertSame(['f:100', 'f:101', 'f:200'], $owner['balance_branches']);
+        $this->assertSame(route('dashboard.overview', ['section'=>'drawers']), $owner['balance_url']);
+        $this->assertSame(route('admin_dash').'#ho-drawers-title', $owner['url']);
+        $admin = app(HomeHologramMetrics::class)->data($this->actor(50), $links)['cards'][0];
+        $this->assertSame('تقفيل الوردية', $admin['label']); $this->assertSame(3, $admin['count']);
+        $this->assertSame(route('branch-shifts.index').'?branch=all', $admin['url']);
+        foreach (['value_type', 'amount_cents', 'currency', 'loading', 'action', 'balance_url', 'balance_branches'] as $key) {
+            $this->assertArrayNotHasKey($key, $admin);
+        }
+        // Isolated owner databases also use the id-1 admin identity. The
+        // central-platform-only Runtime::primary flag deliberately excludes it.
+        $this->app->instance('owner.dashboard.runtime', ['prefix'=>'fixture_owner']);
+        $tenant = app(HomeHologramMetrics::class)->data($this->actor(1), $links)['cards'][0];
+        $this->assertSame('رصيد الفروع', $tenant['label']); $this->assertSame('currency', $tenant['value_type']);
+    }
 }
