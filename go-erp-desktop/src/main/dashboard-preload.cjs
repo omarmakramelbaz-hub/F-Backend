@@ -13,6 +13,54 @@ window.addEventListener('message', (event) => {
     base: String(event.data.base || '') });
 });
 
+// ---- without the internet: the branches this device was not set up for ----
+
+// The pages' branch lists (takeaway, dine-in, delivery, expenses, stock, shift, employees) use the dashboard's branch
+// keys. While the pages run from the device, a branch it was not set up for has nothing here (menu, orders, shift), so
+// it is shown as such and cannot be picked; online every branch is back as the dashboard offers it.
+const BRANCH_VALUE = /^[a-z]+:[0-9]+$/;
+const NOT_HERE = ' — مش متجهز على الجهاز';
+let deviceBranches = null; // the device's branches while the pages run from it; null online
+let marking = false;
+
+function markBranches() {
+  if (marking) return;
+  marking = true;
+  try {
+    for (const select of document.querySelectorAll('select')) {
+      for (const option of select.options) {
+        if (!BRANCH_VALUE.test(option.value)) continue;
+        const away = !!deviceBranches && !deviceBranches.includes(option.value);
+        const marked = option.hasAttribute('data-goerp-not-here');
+        if (away && !marked) {
+          option.setAttribute('data-goerp-not-here', option.textContent);
+          option.textContent += NOT_HERE;
+          option.disabled = true;
+        } else if (!away && marked) {
+          option.textContent = option.getAttribute('data-goerp-not-here');
+          option.removeAttribute('data-goerp-not-here');
+          option.disabled = false;
+        }
+      }
+    }
+  } finally {
+    marking = false;
+  }
+}
+
+function useBranches(state) {
+  deviceBranches = state && state.offline && Array.isArray(state.branches) && state.branches.length ? state.branches : null;
+  markBranches();
+}
+
+ipcRenderer.on('goerp:branches', (event, state) => useBranches(state));
+window.addEventListener('DOMContentLoaded', () => {
+  ipcRenderer.invoke('dashboard:branches').then(useBranches).catch(() => {});
+  // Lists the pages fill or refill later are marked as they appear.
+  new MutationObserver(() => { if (deviceBranches) markBranches(); })
+    .observe(document.documentElement, { childList: true, subtree: true });
+});
+
 // ---- this device, on the «برنامج الكمبيوتر» page ----
 
 const PROGRAM_PAGE = '/admin/desktop-dashboard';

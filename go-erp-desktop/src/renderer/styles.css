@@ -253,3 +253,7 @@ td.punch { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; 
 .app-settings-head .status-who { font-size: 13px; color: #b8c4d4; }
 .app-settings .content { flex: 1 1 auto; }
 .open-orders .list td small { display: block; }
+
+/* The dashboard opening after signing in. */
+.splash.opening { align-content: center; gap: 18px; }
+.splash.opening p { margin: 0; text-align: center; color: #b8c4d4; font-size: 15px; }

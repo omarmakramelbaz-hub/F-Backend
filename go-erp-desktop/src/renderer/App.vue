@@ -16,6 +16,12 @@
     <button type="button" @click="logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> خروج</button>
   </footer>
 
+  <!-- The dashboard opening after signing in: shown once its first page is there -->
+  <div v-else-if="opening" class="splash opening" role="status">
+    <div v-html="loginLogo"></div>
+    <p>جاري فتح الداشبورد…</p>
+  </div>
+
   <!-- The app's own settings (printer, sync, setting the device up again), opened from the bar under the dashboard -->
   <div v-else-if="settingsOnly" class="app-settings">
     <header class="app-settings-head">
@@ -91,6 +97,7 @@ const sync = ref({});
 const view = ref('pos');
 const dashboardShown = ref(false);
 const settingsOnly = ref(false);
+const opening = ref(false);
 const banner = ref(null);
 const printProblem = ref('');
 const offlineMode = ref(false);
@@ -186,6 +193,7 @@ async function goOffline() {
 
 /** The dashboard window could not show its page at all: the device's own screens take over. */
 async function dashboardUnavailable() {
+  opening.value = false;
   if (dashboardShown.value) await call('dashboard:hide');
   settingsOnly.value = false;
   view.value = 'pos';
@@ -201,6 +209,7 @@ async function logout() {
   await call('auth:logout');
   banner.value = null;
   settingsOnly.value = false;
+  opening.value = false;
   await refresh();
   view.value = 'pos';
 }
@@ -216,9 +225,11 @@ onMounted(async () => {
     }
   }));
   stops.push(onDashboardEvent((event) => {
-    if (event.type === 'shown') {
+    if (event.type === 'opening') opening.value = true;
+    else if (event.type === 'shown') {
       dashboardShown.value = true;
       settingsOnly.value = false;
+      opening.value = false;
     }
     else if (event.type === 'hidden') dashboardShown.value = false;
     else if (event.type === 'connection') {

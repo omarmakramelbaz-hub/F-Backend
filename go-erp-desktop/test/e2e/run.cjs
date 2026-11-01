@@ -891,6 +891,37 @@ async function shiftOffline() {
   await page.getByRole('heading', { name: 'تجهيز الجهاز', exact: true }).waitFor({ timeout: 60000 });
   assert.equal(revoked(), before + 1, 'The old setup is stopped on the server');
   await shot(page, '26-set-up-again-from-the-program-page');
+
+  // Set up again by the owner for one branch only. Without the internet the pages run from the device, so their branch
+  // lists show the owner's other branch as not set up here, and it cannot be picked; online it is back.
+  await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill('u1@example.test');
+  await page.getByLabel('كلمة المرور', { exact: true }).fill('root-pass');
+  await page.getByRole('button', { name: 'تجهيز الجهاز', exact: true }).click();
+  await page.getByText('اختر فروع هذا الجهاز').waitFor({ timeout: 20000 });
+  await page.getByLabel('فرع المعادي').check();
+  await page.getByRole('button', { name: 'تأكيد الفروع' }).click();
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+  await signIn(page, 'u1@example.test', 'root-pass', '.status-bar');
+  await until(() => deviceRows(userData, 'dashboard-copy.sqlite',
+    "SELECT COUNT(*) AS c FROM entries WHERE scope = 'u:1' AND kind = 'page' AND path = '/admin/takeaway'")[0].c === 1, 'the cashier page is saved again', 60000);
+  const branchOptions = async () => JSON.parse(await inDashboard(app,
+    "JSON.stringify(Array.from(document.querySelectorAll('[data-pos-branch] option')).map((o) => [o.value, o.textContent.trim(), o.disabled]))").catch(() => null) || '[]');
+  await stopServer();
+  await inDashboard(app, "location.href = '/admin/takeaway'");
+  await until(async () => {
+    const list = await branchOptions();
+    return list.some(([value, text, disabled]) => value === 'f:101' && disabled && /فرع مدينة نصر — مش متجهز على الجهاز/.test(text))
+      && list.some(([value, text, disabled]) => value === 'f:100' && !disabled && text === 'فرع المعادي');
+  }, 'offline, the branch not set up here is marked', 40000).catch(async (error) => {
+    console.log('DEBUG branches', JSON.stringify(await branchOptions()));
+    throw error;
+  });
+  await dashboardShot(app, '27-offline-branch-not-set-up-here');
+  await startServer();
+  await until(async () => {
+    const list = await branchOptions();
+    return list.some(([value]) => value === 'f:101') && list.every(([, text, disabled]) => !disabled && !/مش متجهز/.test(text));
+  }, 'online, every branch is back', 90000);
   await app.close();
 }
 

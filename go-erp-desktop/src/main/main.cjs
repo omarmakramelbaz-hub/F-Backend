@@ -143,6 +143,7 @@ const handlers = {
     if (!sync.state.device_revoked) throw new Error('الجهاز يعمل بشكل طبيعي.');
     store.forgetDevice();
     pageCache.forgetAll();
+    warmedAt.clear(); // the next sign-in saves the pages for offline use again
     current = null;
     dashboardLogin = null;
     resetDashboard();
@@ -194,6 +195,7 @@ const handlers = {
     }
     store.forgetDevice();
     pageCache.forgetAll();
+    warmedAt.clear(); // the next sign-in saves the pages for offline use again
     current = null;
     dashboardLogin = null;
     await resetDashboard();
@@ -446,6 +448,7 @@ function setOfflineMode(value, reason = '') {
   offlineMode = value;
   offline.setOffline(value).catch(() => {});
   notifyDashboard({ type: 'connection', online: !value });
+  sendDeviceBranches();
   if (!value) {
     refreshSince = Date.now();
     refreshWhenIdle();
@@ -503,6 +506,7 @@ function createDashboardView() {
   const dashboardPreferences = { partition: 'persist:dashboard', sandbox: true, contextIsolation: true, backgroundThrottling: false,
     preload: path.join(__dirname, 'dashboard-preload.cjs') };
   dashboardView = new WebContentsView({ webPreferences: dashboardPreferences });
+  dashboardView.setBackgroundColor('#091320'); // the dashboard's own dark background, never a white flash
   dashboardSignedIn = false;
   dashboardLoggingOut = false;
   dashboardLastAutoLogin = 0;
@@ -534,6 +538,8 @@ function createDashboardView() {
   contents.on('did-fail-load', (event, code, description, url, mainFrame) => {
     if (!mainFrame || code === -3) return; // -3: replaced by another load
     // Neither the dashboard nor a saved copy could show the page: the app's own screens take over.
+    clearTimeout(dashboardWaiting);
+    dashboardWaiting = null;
     notifyDashboard({ type: 'unavailable' });
   });
 }
@@ -597,6 +603,23 @@ async function showDashboard(page) {
     dashboardView.webContents.loadURL(target);
   }
   if (!current || !mainWindow || mainWindow.isDestroyed() || !dashboardView) return false;
+  if (!dashboardShown && !dashboardSignedIn) {
+    // Shown once its first page is there: the app signs the dashboard in first, so neither an empty window nor the
+    // dashboard's sign-in page shows in between. Never more than 15 seconds.
+    notifyDashboard({ type: 'opening' });
+    clearTimeout(dashboardWaiting);
+    dashboardWaiting = setTimeout(attachDashboard, 15000);
+    return true;
+  }
+  return attachDashboard();
+}
+
+let dashboardWaiting = null; // a dashboard window opening, not shown yet
+
+function attachDashboard() {
+  clearTimeout(dashboardWaiting);
+  dashboardWaiting = null;
+  if (!current || !mainWindow || mainWindow.isDestroyed() || !dashboardView) return false;
   if (!dashboardShown) {
     mainWindow.contentView.addChildView(dashboardView);
     dashboardShown = true;
@@ -608,6 +631,8 @@ async function showDashboard(page) {
 }
 
 function hideDashboard() {
+  clearTimeout(dashboardWaiting);
+  dashboardWaiting = null;
   if (dashboardView && dashboardShown && mainWindow && !mainWindow.isDestroyed()) mainWindow.contentView.removeChildView(dashboardView);
   dashboardShown = false;
   notifyDashboard({ type: 'hidden' });
@@ -657,9 +682,12 @@ async function onDashboardLoad(contents) {
     return;
   }
   dashboardTarget = null;
+  if (dashboardWaiting && dashboardView && contents === dashboardView.webContents) attachDashboard();
 }
 
 async function resetDashboard() {
+  clearTimeout(dashboardWaiting);
+  dashboardWaiting = null;
   for (const popup of dashboardPopups) if (!popup.isDestroyed()) popup.destroy();
   dashboardPopups.clear();
   if (dashboardView) {
@@ -677,6 +705,24 @@ async function resetDashboard() {
 ipcMain.on('dashboard:device-screens', (event) => {
   if (!dashboardView || event.sender !== dashboardView.webContents) return;
   hideDashboard();
+});
+
+/**
+ * Without the internet the dashboard pages run from this device, which has only the branches it was set up for: the
+ * dashboard preload marks the other branches in the pages' branch lists as not set up here.
+ */
+function deviceBranches() {
+  return { offline: offlineMode, branches: store.device() ? store.branches().map((branch) => branch.value) : [] };
+}
+
+function sendDeviceBranches() {
+  const contents = dashboardView && dashboardView.webContents;
+  if (contents && !contents.isDestroyed()) contents.send('goerp:branches', deviceBranches());
+}
+
+ipcMain.handle('dashboard:branches', (event) => {
+  if (!dashboardView || event.sender !== dashboardView.webContents) return { offline: false, branches: [] };
+  return deviceBranches();
 });
 
 /**
@@ -758,14 +804,10 @@ function fullScreenKey(contents) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1366, height: 860, minWidth: 1024, minHeight: 680, title: 'GO ERP', autoHideMenuBar: true,
-    backgroundColor: '#091320', show: false,
+    backgroundColor: '#091320', show: false, fullscreen: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
-  // Opens full screen; F11 leaves it (to the maximized window) and goes back to it.
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.maximize();
-    mainWindow.show();
-    mainWindow.setFullScreen(true);
-  });
+  // Opens full screen straight away; F11 leaves it (to the maximized window) and goes back to it.
+  mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('leave-full-screen', () => { if (!mainWindow.isMaximized()) mainWindow.maximize(); });
   fullScreenKey(mainWindow.webContents);
   for (const event of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) mainWindow.on(event, layoutDashboard);
