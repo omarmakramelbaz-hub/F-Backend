@@ -167,12 +167,16 @@ if(require.main===module)(async()=>{
   }
 
   await reduced.close();
-  const scoped=await context.newPage();scoped.on('pageerror',e=>errors.push(e.message));await scoped.goto(origin+'/fixture?real=1&silent=1&spa=1');await scoped.waitForTimeout(250);
+  const scoped=await context.newPage();scoped.on('pageerror',e=>errors.push(e.message));await scoped.goto(origin+'/fixture?real=1&silent=1&spa=1');
+  await scoped.waitForFunction(()=>document.querySelector('[data-go-sidebar-robot]').__goHologram.elapsed>0,null,{timeout:5000});
   equal(await scoped.evaluate(()=>DashboardSPA.ready()),true,'Real SPA owns the current page');
   const earlier=await scoped.locator('[data-go-sidebar-robot]').evaluate(c=>c.__goHologram.elapsed);
-  await scoped.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));await scoped.waitForTimeout(260);
+  await scoped.locator('[data-hud-robot]').evaluate(c=>{const r=c.__goHologram;window.rendererCleanupEvidence={gl:r.gl,energyProgram:r.energyProgram,energyBuffer:r.energyBuffer,blurProgram:r.blurProgram};});
+  await scoped.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
+  await scoped.waitForFunction(time=>document.querySelector('[data-go-sidebar-robot]').__goHologram.elapsed>time,earlier,{timeout:5000});
   check(await scoped.locator('[data-go-sidebar-robot]').evaluate((c,time)=>c.__goHologram.elapsed>time,earlier),'Shared sidebar animation survives cancellation of actual SPA page callbacks');
   equal(await scoped.locator('[data-hud-robot]').evaluate(c=>!!c.__goHologram),false,'SPA cleanup destroys only the opening instance');
+  check(await scoped.evaluate(()=>{const e=rendererCleanupEvidence,s=document.querySelector('[data-go-sidebar-robot]').__goHologram;return !e.gl.isProgram(e.energyProgram)&&!e.gl.isProgram(e.blurProgram)&&!e.gl.isBuffer(e.energyBuffer)&&!!s&&s.gl.isProgram(s.energyProgram); }),'SPA leave releases main energy/bloom GPU resources while the sidebar program survives');
   equal(await scoped.locator('#go-hud').isVisible(),false,'bfcache cleanup cannot leave an inert opening overlay visible');
   await scoped.close();equal(errors,[],'No browser runtime errors');await context.close();
   console.log('PASS hologram browser: '+checks+' assertions');

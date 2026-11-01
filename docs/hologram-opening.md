@@ -1,10 +1,12 @@
-# Holographic opening — reference anatomy and single-emitter assembly
+# Holographic opening — abstract energy robot
 
-The opening replaces the solar scene with a cyan humanoid and a live background.
-The current revision uses actual procedural 3D geometry, a single-emitter build
-sequence and bundled local MP3 recordings. It retains the accepted voice assets
-from the unactivated V2 review while revising anatomy and assembly against the
-supplied reference. Section counts retain account authorization and branch scope. The
+The opening replaces the solar scene with an abstract futuristic energy robot
+and a live background. Review revision V4 uses a faceless cyan energy envelope,
+a turbulent orange/yellow core and visibly moving internal blue/orange currents.
+It retains V3's approved single-emitter construction, arrival, turn and scatter
+timing, together with the accepted local MP3 recordings and greeting delay.
+It does not introduce a realistic human face or a solid robot helmet.
+Section counts retain account authorization and branch scope. The
 opening never blocks access to the regular dashboard. The sidebar uses the same
 character at a smaller scale. The spoken English greeting belongs to sign-in,
 not refresh, ordinary navigation, or an idle return to the opening.
@@ -40,8 +42,8 @@ The visible opening requests the count-only `section=hologram` response every
 document is hidden; failures retain prior values with a freshness warning. A
 missing optional data source appears as unavailable, not a fabricated zero.
 
-The full-size and sidebar characters use the same native WebGL 1 engine (renderer
-API version 3). The main character has 33,684 mesh vertices, 14,000 surface
+The full-size and sidebar characters use the same native WebGL 1 engine. This
+V4 art revision retains renderer API version 3. The main character has 33,684 mesh vertices, 14,000 surface
 particles and one startup emitter. The compact sidebar uses a lower-density
 mesh and 1,100 surface particles.
 The engine builds head, torso and ear surfaces from procedural coordinates and
@@ -49,16 +51,22 @@ renders the moving wire contours and lighting directly. No character bitmap,
 external model file, or framed image rectangle is drawn. The translucent main
 canvas and its live background span the viewport.
 
+After the 5.6-second construction completes, a separate pass adds 5,400 bounded
+internal energy points in four short trails. Orange and blue currents remain
+inside the envelope and move independently of the original construction stream.
+The sidebar uses 900 internal current points. Procedural surface turbulence and
+generated bloom give the core an energy appearance without a character texture.
+
 Construction starts from one cyan emitter near the bottom centre. Only that
 point is visible during approximately the first 0.48 seconds. Branching, hooked
 streams deposit the left torso, neck, head edge, face and opposite shoulder in
-sequence; the reference-informed bust finishes assembling at about 5.6 seconds.
+sequence; the abstract energy form finishes assembling at about 5.6 seconds.
 The startup emitter then fades between 5.6 and 7.2 seconds. Full-viewport ambient
 scatter begins after construction rather than competing with the single source.
 The compact sidebar and reduced-motion scene begin in their completed state.
 
 Head/neck rotation can reach both 90-degree side profiles, with a visible turn
-scheduled every 60 seconds. The mouth surface deforms from the recording's
+scheduled every 60 seconds. The lower-face energy surface deforms from the recording's
 measured amplitude envelope rather than an unrelated repeating speech animation.
 Background strands/particles remain live. Rendering targets 30 fps on the main
 scene and 15 fps on the sidebar; hidden scenes pause and reduced-motion users get
@@ -75,10 +83,10 @@ consumed by the first dashboard response. Refresh, section navigation and idle
 return do not replay it. Playback respects the browser's user-gesture/audio
 restrictions, and the mute control stops it.
 
-For the actual V3 main renderer with motion enabled, the approved recording waits
+For the actual API-v3 main renderer with motion enabled, the approved recording waits
 6.2 seconds so construction completes first. Early pointer or keyboard input
 cannot bypass that gate. Leaving or hiding the opening cancels pending playback.
-Reduced-motion and non-V3 fallback paths do not wait for the construction effect.
+Reduced-motion and older fallback paths do not wait for the construction effect.
 If browser autoplay is blocked, the opening offers a visible play-greeting control;
 a successful retry stays audible, and the same control then becomes mute.
 
@@ -105,8 +113,9 @@ Build after the final reviewed source changes. Rebuild the manifest after any
 payload/installer change. The final operator command must pin the launcher hash
 and a complete immutable commit revision.
 
-This is an incremental 13-file V3 activation against the live V1 baseline; the
-unactivated V2 draft is not a deployment precondition. It does not republish the V1 counter
+This is an incremental 13-file V4 review package against the live V1 baseline;
+neither unactivated V2 nor V3 is a deployment precondition. Review publication
+does not activate this package. It does not republish the V1 counter
 SQL or replace its metric service. Existing branch/count authorization remains
 unchanged. The old V1 bitmap may remain on disk but the new main/sidebar views
 and renderer do not reference or load it.

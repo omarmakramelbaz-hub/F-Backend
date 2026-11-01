@@ -83,8 +83,8 @@
     }
     function earPoint(side) {
         return function (v, phi) {
-            var theta = v * Math.PI, s = Math.sin(theta);
-            return [side * .482 + .041 * s * Math.sin(phi), .945 + .105 * Math.cos(theta), -.018 + .070 * s * Math.cos(phi)];
+            var theta = v * Math.PI, s = 1 - Math.abs(v * 2 - 1);
+            return [side * (.474 + .042 * s), .945 + .083 * Math.cos(theta), -.025 + .025 * s * Math.cos(phi)];
         };
     }
     function buildMesh(compact) {
@@ -210,7 +210,7 @@
     var FRAGMENT = [
         '#extension GL_OES_standard_derivatives : enable',
         'precision highp float;',
-        'uniform float uTime; uniform float uVoice; uniform float uAlert; uniform float uGlowPass; uniform float uPointPass; uniform float uCompact; uniform float uReduced;',
+        'uniform float uTime; uniform float uVoice; uniform float uAlert; uniform float uGlowPass; uniform float uPointPass; uniform float uCompact; uniform float uReduced; uniform float uExpand;',
         'varying vec3 vNormal; varying vec3 vPosition; varying vec3 vLocal; varying vec2 vUV; varying float vPart; varying float vAlpha; varying float vPhase;',
         ARRIVAL_SHADER,
         'float contour(float value,float width){float d=abs(fract(value+.5)-.5);float pixel=max(fwidth(value),.0008);return exp(-pow(d/(pixel*width),2.));}',
@@ -219,10 +219,11 @@
         ' float facing=abs(dot(normal,eye)); float rim=pow(1.-facing,2.0);',
         ' float head=step(.5,vPart)*(1.-step(2.5,vPart)); float ear=step(1.5,vPart)*(1.-step(2.5,vPart));',
         ' float front=smoothstep(.06,.32,vLocal.z)*head;',
-        ' float lower=exp(-pow((vLocal.y-.85)/.25,2.))*exp(-pow(vLocal.x/.35,4.))*front*(1.-ear);',
+        ' float lower=exp(-pow((vLocal.y-.85)/.225,2.))*exp(-pow(vLocal.x/.36,4.))*front*(1.-ear);',
         ' vec3 cyan=vec3(.01,.73,1.0), ice=vec3(.42,.95,1.0);',
-        ' float wave=sin(vLocal.x*28.-uTime*(2.5+uVoice*5.))*.11*(.25+uVoice)*lower;',
-        ' float latitude=vUV.y*mix(48.,43.,head)+wave;',
+        ' float wave=(sin(vLocal.x*24.-uTime*2.7)+.40*sin(vLocal.x*43.+uTime*3.9+vLocal.y*9.)+.22*sin(vLocal.x*63.-uTime*5.1))*(.43+uVoice*.30)*lower;',
+        ' float fluid=(sin(vLocal.x*9.+vLocal.y*6.+uTime*.38)*.28+sin(vLocal.x*19.-vLocal.y*8.-uTime*.27)*.13)*head;',
+        ' float latitude=vUV.y*mix(48.,43.,head)+wave+fluid;',
         ' float chest=1.-smoothstep(.16,.34,vLocal.y);',
         ' float pectoral=length(vec2((sqrt(vLocal.x*vLocal.x+.0049)-.79)*1.12,(vLocal.y+1.05)*1.05))*9.0;',
         ' float stream=vUV.x*24.+sin(vUV.y*11.)*.25;',
@@ -235,17 +236,18 @@
         ' lon*=1.-neural*.85;',
         ' lonGlow*=1.-neural*.85;',
         ' float collar=contour((vLocal.y+.13+.18*pow(abs(vLocal.x)-.66,2.))*29.,.65)*(1.-smoothstep(.28,.45,vLocal.y))*smoothstep(-.42,-.24,vLocal.y);',
-        ' float lines=mix(lon*.31,lat*.95+lon*.06,head);',
-        ' float lineGlow=mix(lonGlow*.075,latGlow*.18,head);',
-        ' if(ear>.5){lines=contour(vUV.y*17.,.65)*.85;lineGlow=contour(vUV.y*17.,2.)*.18;}',
+        ' float breakage=.57+.43*smoothstep(-.25,.65,sin(vLocal.x*16.+vLocal.y*12.-uTime*.36)+.40*sin(vLocal.x*31.-vLocal.y*13.+uTime*.22));',
+        ' float lines=mix(lon*.39,lat*.44*breakage+lon*.018,head);',
+        ' float lineGlow=mix(lonGlow*.075,latGlow*.12*breakage,head);',
+        ' if(ear>.5){lines=contour(vUV.y*3.+vUV.x*2.,.65)*.07;lineGlow=lines*.20;rim*=.18;}',
         ' float intersection=lat*lon; float current=pow(.5+.5*sin(vUV.y*39.+vUV.x*76.-uTime*2.1),18.);',
-        ' vec3 color=cyan*(lines*.8+lineGlow+rim*.9)+ice*(lines*.17+intersection*.5);',
-        ' float softFill=.018+pow(max(0.,dot(normal,normalize(vec3(-.5,1.,1.)))),2.)*.035;',
+        ' vec3 color=cyan*(lines*.8+lineGlow+rim*mix(3.8,2.35,head))+ice*(lines*.12+intersection*.20);',
+        ' float softFill=.045+pow(max(0.,dot(normal,normalize(vec3(-.5,1.,1.)))),2.)*.035;',
         ' color+=cyan*softFill;',
         ' vec3 amber=vec3(1.0,.38,.008), yellow=vec3(1.,.91,.22);',
         ' float warmth=clamp(lower*1.65,0.,1.);',
-        ' float core=exp(-pow((vLocal.y-.84)/.18,2.)-pow(vLocal.x/.23,2.))*front;',
-        ' vec3 hot=amber*(.55+latGlow*.70+lat*.90)+yellow*(core*.34+lat*(.55+uVoice*.60));',
+        ' float core=exp(-pow((vLocal.y-.84)/.16,2.)-pow(vLocal.x/.26,2.))*front;',
+        ' vec3 hot=amber*(.55+latGlow*.70+lat*.90)+yellow*(core*.52+lat*(.60+uVoice*.60));',
         ' color=mix(color,hot,warmth);',
         ' float trunk=(1.-head)*(1.-smoothstep(.48,.68,vLocal.y))*smoothstep(-.36,-.25,vLocal.y);',
         ' float neuralWidth=.035+.235*smoothstep(-.32,.52,vLocal.y);',
@@ -254,9 +256,9 @@
         ' color+=vec3(1.,.57,.06)*veins*(.64+uVoice*.26);',
         ' float nucleus=exp(-dot((vLocal-vec3(0.,-.32,.43))*vec3(15.,20.,18.),(vLocal-vec3(0.,-.32,.43))*vec3(15.,20.,18.)))*(1.-head);',
         ' color+=vec3(.45,1.,1.)*nucleus*.18;',
-        ' color+=ice*intersection*current*.5;',
-        ' float alpha=clamp(lines*.80+lineGlow*.30+rim*.70+softFill+warmth*.66+veins*.56+nucleus,0.,.98);',
-        ' if(uGlowPass>.5){alpha=pow(1.-facing,3.)*.075;color=mix(vec3(.0,.42,1.),vec3(.0,.85,1.),rim);}',
+        ' color+=ice*intersection*current*.20;',
+        ' float alpha=clamp(lines*.80+lineGlow*.30+rim*.94+softFill+warmth*.72+veins*.56+nucleus+.08*head+.045*(1.-head),0.,.98);',
+        ' if(uGlowPass>.5){alpha=pow(1.-facing,3.)*.18*exp(-uExpand*65.)*mix(1.5,1.,head)*(1.-ear*.82);color=vec3(.0,.72,1.);}',
         ' if(uPointPass>.5){',
         '   float d=length(gl_PointCoord-.5)*2.; float edge=exp(-d*d*4.)*(1.-smoothstep(.72,1.,d));',
         '   color=mix(vec3(.05,.85,1.),vec3(1.,.63,.08),lower*.8*smoothstep(.9,1.,vPhase)); color+=vec3(.28,.55,.58)*(1.-d);',
@@ -275,22 +277,68 @@
         '}'
     ].join('\n');
     var POST_VERTEX = 'attribute vec2 aQuad;varying vec2 vUV;void main(){vUV=aQuad*.5+.5;gl_Position=vec4(aQuad,0.,1.);}';
+    var BLUR_FRAGMENT = [
+        'precision highp float;varying vec2 vUV;uniform sampler2D uScene;uniform vec2 uDirection;',
+        'void main(){vec4 c=texture2D(uScene,vUV)*.227027;',
+        ' c+=(texture2D(uScene,vUV+uDirection*1.384615)+texture2D(uScene,vUV-uDirection*1.384615))*.316216;',
+        ' c+=(texture2D(uScene,vUV+uDirection*3.230769)+texture2D(uScene,vUV-uDirection*3.230769))*.070270;',
+        ' gl_FragColor=c;}'
+    ].join('\n');
     var POST_FRAGMENT = [
-        'precision highp float;varying vec2 vUV;uniform sampler2D uScene;uniform vec2 uTexel;',
+        'precision highp float;varying vec2 vUV;uniform sampler2D uScene;uniform sampler2D uBloom;uniform vec2 uTexel;',
+        'void main(){vec4 base=texture2D(uScene,vUV),halo=texture2D(uBloom,vUV);',
+        ' vec4 near=(texture2D(uScene,vUV+uTexel)+texture2D(uScene,vUV-uTexel)+texture2D(uScene,vUV+vec2(uTexel.x,-uTexel.y))+texture2D(uScene,vUV+vec2(-uTexel.x,uTexel.y)))*.25;',
+        ' vec3 color=base.rgb+near.rgb*.18+halo.rgb*1.05;',
+        ' gl_FragColor=vec4(color,max(base.a,halo.a*.90));}'
+    ].join('\n');
+
+    // A separate emissive volume pass. The approved construction particles above
+    // are untouched; these coherent internal currents begin only after construction.
+    function buildEnergy(compact) {
+        var random = randomGenerator(71823), count = compact ? 900 : 5400, data = [];
+        for (var i = 0; i < count; i++) data.push(random(), random(), i % 10, .65 + random() * .80);
+        return {data: new Float32Array(data), count: count};
+    }
+    var ENERGY_VERTEX = [
+        'precision highp float;attribute vec4 aEnergy;',
+        'uniform mat4 uProjection;uniform mat4 uView;uniform float uFlowTime;uniform float uTrail;uniform float uHeadYaw;uniform float uBodyYaw;uniform float uPitch;uniform float uDpr;uniform float uFlowVoice;',
+        'varying float vWarm;varying float vEnergyAlpha;',
+        'mat3 yaw(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}',
+        'mat3 pitch(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}',
         'void main(){',
-        ' vec4 base=texture2D(uScene,vUV);vec4 bloom=base*.25;',
-        ' vec2 d=uTexel;',
-        ' bloom+=texture2D(uScene,vUV+vec2(d.x,0.))*.125;',
-        ' bloom+=texture2D(uScene,vUV-vec2(d.x,0.))*.125;',
-        ' bloom+=texture2D(uScene,vUV+vec2(0.,d.y))*.125;',
-        ' bloom+=texture2D(uScene,vUV-vec2(0.,d.y))*.125;',
-        ' bloom+=texture2D(uScene,vUV+d)*.0625;',
-        ' bloom+=texture2D(uScene,vUV-d)*.0625;',
-        ' bloom+=texture2D(uScene,vUV+vec2(d.x,-d.y))*.0625;',
-        ' bloom+=texture2D(uScene,vUV+vec2(-d.x,d.y))*.0625;',
-        ' vec3 color=base.rgb+bloom.rgb*.52;',
-        ' gl_FragColor=vec4(color,max(base.a,bloom.a*.90));',
+        ' float seed=aEnergy.x,lane=aEnergy.y,group=aEnergy.z,t=max(0.,uFlowTime-uTrail);vec3 p;float weight=0.;float fade=1.;',
+        ' if(group<4.){',
+        '   float h=fract(seed+t*(.105+lane*.035));float radius=.44*pow(max(0.,sin(h*3.14159265)),.60)*(.35+.50*lane);',
+        '   float a=group*1.5707963+h*7.8-t*1.2+lane*.9+sin(h*8.+t*.6)*.28;',
+        '   p=vec3(cos(a)*radius,.50+1.25*h,sin(a)*radius*.68+.015);weight=1.;',
+        '   fade=smoothstep(0.,.10,h)*(1.-smoothstep(.90,1.,h));vWarm=step(.88,seed);',
+        ' }else if(group<6.){',
+        '   float q=fract(seed+t*(.19+lane*.05));float branch=(floor(lane*12.)-5.5)/5.5;',
+        '   p=vec3(branch*(.02+.20*pow(q,1.4))+.014*sin(q*13.+branch*4.+t*.6),-.28+.98*q,.045+.11*(1.-q)*sin(branch*4.+q*7.));',
+        '   weight=smoothstep(.35,.70,p.y);fade=smoothstep(0.,.08,q)*(1.-smoothstep(.92,1.,q));vWarm=step(.40,seed);',
+        ' }else if(group<8.){',
+        '   float q=fract(seed+t*(.13+lane*.05)),u=1.-q,side=group<7.?-1.:1.;',
+        '   p=vec3(side*1.32,-.18,.06)*u*u*u+3.*vec3(side*1.18,.16,.12)*u*u*q+3.*vec3(side*.18,.20,.10)*u*q*q+vec3(0.,.36,.045)*q*q*q;',
+        '   fade=smoothstep(0.,.08,q)*(1.-smoothstep(.92,1.,q));vWarm=step(.72,seed);',
+        ' }else{',
+        '   float a=seed*6.2831853+t*(1.4+lane*.7)+.25*sin(t*1.8+seed*10.);float radius=.27*sqrt(lane)*(1.+uFlowVoice*.10);',
+        '   p=vec3(cos(a)*radius,.85+sin(a)*radius*.65+.018*sin(t*3.+seed*9.)-uFlowVoice*.035,.08+sin(a*.7+seed*10.)*.14);',
+        '   weight=1.;vWarm=1.;',
+        ' }',
+        ' float angle=mix(uBodyYaw,uHeadYaw,weight);vec3 pivot=mix(vec3(0.,.10,0.),vec3(0.,.53,-.035),weight);',
+        ' p=yaw(angle)*pitch(uPitch*mix(.12,1.,weight))*(p-pivot)+pivot;',
+        ' gl_Position=uProjection*uView*vec4(p,1.);',
+        ' gl_PointSize=clamp(aEnergy.w*uDpr*3.4,1.7,6.0);',
+        ' if(group>=6.&&group<8.)fade*=.32+.18*pow(.5+.5*sin(seed*28.+t*3.),4.);',
+        ' vEnergyAlpha=fade*(.30+.13*sin(seed*31.+t*.8))*exp(-uTrail*9.)*smoothstep(5.6,6.5,uFlowTime)*(1.+uFlowVoice*.20);',
         '}'
+    ].join('\n');
+    var ENERGY_FRAGMENT = [
+        'precision highp float;varying float vWarm;varying float vEnergyAlpha;',
+        'void main(){float d=length(gl_PointCoord-.5)*2.;float glow=exp(-d*d*4.5)*(1.-smoothstep(.74,1.,d));',
+        ' vec3 blue=vec3(.025,.56,1.),orange=vec3(1.,.42,.025);vec3 color=mix(blue,orange,vWarm);',
+        ' color+=mix(vec3(.18,.48,.55),vec3(.30,.38,.10),vWarm)*exp(-d*d*12.);',
+        ' float alpha=glow*vEnergyAlpha;if(alpha<.001)discard;gl_FragColor=vec4(color*alpha,alpha);}'
     ].join('\n');
 
     function shader(gl, type, source) {
@@ -335,7 +383,7 @@
         this.reduced = typeof options.reducedMotion === 'boolean' ? options.reducedMotion : !!(media && media.matches);
         this.gl = canvas.getContext('webgl', {alpha: true, antialias: true, premultipliedAlpha: true, depth: true, powerPreference: this.compact ? 'low-power' : 'high-performance'});
         if (!this.gl) throw new Error('GO hologram requires WebGL');
-        this.mesh = buildMesh(this.compact); this.particles = buildParticles(this.compact);
+        this.mesh = buildMesh(this.compact); this.particles = buildParticles(this.compact); this.energyParticles = buildEnergy(this.compact);
         this.prepare();
         var self = this;
         this.onResize = function () { self.resize(); };
@@ -372,14 +420,27 @@
         this.quadAttribute = gl.getAttribLocation(this.postProgram, 'aQuad');
         this.sceneUniform = gl.getUniformLocation(this.postProgram, 'uScene');
         this.texelUniform = gl.getUniformLocation(this.postProgram, 'uTexel');
+        this.bloomUniform = gl.getUniformLocation(this.postProgram, 'uBloom');
+        this.blurProgram = makeProgram(gl, POST_VERTEX, BLUR_FRAGMENT);
+        this.blurAttribute = gl.getAttribLocation(this.blurProgram, 'aQuad');
+        this.blurSceneUniform = gl.getUniformLocation(this.blurProgram, 'uScene');
+        this.blurDirectionUniform = gl.getUniformLocation(this.blurProgram, 'uDirection');
         this.quadBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        this.energyProgram = makeProgram(gl, ENERGY_VERTEX, ENERGY_FRAGMENT);
+        this.energyAttribute = gl.getAttribLocation(this.energyProgram, 'aEnergy');
+        this.energyUniforms = {};
+        names = ['uProjection', 'uView', 'uFlowTime', 'uTrail', 'uHeadYaw', 'uBodyYaw', 'uPitch', 'uDpr', 'uFlowVoice'];
+        for (i = 0; i < names.length; i++) this.energyUniforms[names[i]] = gl.getUniformLocation(this.energyProgram, names[i]);
+        this.energyBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.energyBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, this.energyParticles.data, gl.STATIC_DRAW);
         gl.getExtension('OES_standard_derivatives'); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
         gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
         this.canvas.dataset.goHologramState = 'ready';
     };
     Hologram.prototype.allocateTarget = function () {
         var gl = this.gl;
+        if (this.bloomTargets) this.bloomTargets.forEach(function (target) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.framebuffer); });
         if (this.sceneTexture) gl.deleteTexture(this.sceneTexture);
         if (this.sceneFramebuffer) gl.deleteFramebuffer(this.sceneFramebuffer);
         if (this.sceneDepth) gl.deleteRenderbuffer(this.sceneDepth);
@@ -395,6 +456,18 @@
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.sceneTexture, 0);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sceneDepth);
         if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('GO hologram render target unavailable');
+        this.bloomWidth = Math.max(1, Math.ceil(this.width / 4)); this.bloomHeight = Math.max(1, Math.ceil(this.height / 4));
+        this.bloomTargets = [];
+        for (var b = 0; b < 2; b++) {
+            var texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.bloomWidth, this.bloomHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            var framebuffer = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('GO hologram bloom target unavailable');
+            this.bloomTargets.push({texture: texture, framebuffer: framebuffer});
+        }
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     };
     Hologram.prototype.resize = function () {
@@ -431,6 +504,21 @@
         });
         if (!particles) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
     };
+    Hologram.prototype.renderEnergy = function (time) {
+        var flowTime = this.reduced ? 8 : this.compact ? time + 8 : time;
+        if (flowTime <= ASSEMBLY_DURATION) return;
+        var gl = this.gl, u = this.energyUniforms;
+        gl.useProgram(this.energyProgram); gl.bindBuffer(gl.ARRAY_BUFFER, this.energyBuffer);
+        gl.enableVertexAttribArray(this.energyAttribute); gl.vertexAttribPointer(this.energyAttribute, 4, gl.FLOAT, false, 16, 0);
+        gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
+        gl.uniform1f(u.uFlowTime, flowTime); gl.uniform1f(u.uHeadYaw, this.headYaw); gl.uniform1f(u.uBodyYaw, this.bodyYaw);
+        gl.uniform1f(u.uPitch, this.pitch); gl.uniform1f(u.uDpr, this.ratio); gl.uniform1f(u.uFlowVoice, this.level);
+        // X-ray emission is deliberate: the currents are inside the bounded head,
+        // neck and torso volume and must remain visible through a translucent shell.
+        gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+        var trails = [.18, .12, .06, 0];
+        for (var i = 0; i < trails.length; i++) { gl.uniform1f(u.uTrail, trails[i]); gl.drawArrays(gl.POINTS, 0, this.energyParticles.count); }
+    };
     Hologram.prototype.render = function (time) {
         if (this.dead || this.lost || this.width < 2 || this.height < 2) return;
         this.pose(time);
@@ -450,17 +538,30 @@
         // Expanded back-face shells create a soft physical rim without a low-resolution
         // post-processing raster or external resources. Contours stay native-resolution.
         gl.cullFace(gl.FRONT); gl.uniform1f(u.uGlowPass, 1); gl.blendFunc(gl.ONE, gl.ONE);
-        var shells = this.compact ? [.018] : [.012, .035];
+        var shells = this.compact ? [.006, .017] : [.003, .009, .018, .030];
         for (var i = 0; i < shells.length; i++) { gl.uniform1f(u.uExpand, shells[i]); gl.drawElements(gl.TRIANGLES, this.mesh.indices.length, gl.UNSIGNED_SHORT, 0); }
         gl.uniform1f(u.uExpand, 0); gl.uniform1f(u.uGlowPass, 0); gl.uniform1f(u.uPointPass, 1); gl.disable(gl.CULL_FACE);
         this.bind(true); gl.drawArrays(gl.POINTS, 0, this.particles.count);
+        this.renderEnergy(time);
         gl.depthMask(true); gl.disable(gl.BLEND);
-        // A native-resolution crisp pass plus a small procedural light bloom.
+        // A broad, continuous energy envelope from a separable generated-light blur.
+        gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.useProgram(this.blurProgram);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer); gl.enableVertexAttribArray(this.blurAttribute);
+        gl.vertexAttribPointer(this.blurAttribute, 2, gl.FLOAT, false, 0, 0); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(this.blurSceneUniform, 0);
+        gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
+        for (var blur = 0; blur < 2; blur++) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomTargets[blur].framebuffer);
+            gl.bindTexture(gl.TEXTURE_2D, blur ? this.bloomTargets[0].texture : this.sceneTexture);
+            gl.uniform2f(this.blurDirectionUniform, blur ? 0 : 1 / this.bloomWidth, blur ? 1 / this.bloomHeight : 0);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.useProgram(this.postProgram);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer); gl.enableVertexAttribArray(this.quadAttribute);
         gl.vertexAttribPointer(this.quadAttribute, 2, gl.FLOAT, false, 0, 0);
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.bloomTargets[1].texture); gl.uniform1i(this.bloomUniform, 1);
         gl.uniform1i(this.sceneUniform, 0); gl.uniform2f(this.texelUniform, this.ratio / this.canvas.width, this.ratio / this.canvas.height);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     };
@@ -474,6 +575,40 @@
         this.px = this.width / 2 + xx / (6.2 - depth) * f * this.height / 2;
         this.py = this.height / 2 - (yy + pivotY - cameraY) / (6.2 - depth) * f * this.height / 2;
         return {x: this.px, y: this.py, z: depth};
+    };
+    Hologram.prototype.internalFlow = function (time) {
+        time = Math.max(0, Number(time) || 0);
+        var flowTime = this.reduced ? 8 : this.compact ? time + 8 : time;
+        var saved = [this.headYaw, this.bodyYaw, this.pitch, this.level, this.mouthOpen]; this.pose(time);
+        var self = this, f = 1 / Math.tan(29 * Math.PI / 360) * Math.min(1, this.width / this.height / 1.18);
+        function fract(v) { return v - Math.floor(v); }
+        function sample(id) {
+            var offset = id * 4, data = self.energyParticles.data, seed = data[offset], lane = data[offset + 1], group = data[offset + 2], p, weight = 0, warm;
+            if (group < 4) {
+                var h = fract(seed + flowTime * (.105 + lane * .035)), radius = .44 * Math.pow(Math.max(0, Math.sin(h * Math.PI)), .60) * (.35 + .50 * lane);
+                var a = group * 1.5707963 + h * 7.8 - flowTime * 1.2 + lane * .9 + Math.sin(h * 8 + flowTime * .6) * .28;
+                p = [Math.cos(a) * radius, .50 + 1.25 * h, Math.sin(a) * radius * .68 + .015]; weight = 1; warm = seed >= .88;
+            } else if (group < 6) {
+                var q = fract(seed + flowTime * (.19 + lane * .05)), branch = (Math.floor(lane * 12) - 5.5) / 5.5;
+                p = [branch * (.02 + .20 * Math.pow(q, 1.4)) + .014 * Math.sin(q * 13 + branch * 4 + flowTime * .6), -.28 + .98 * q, .045 + .11 * (1 - q) * Math.sin(branch * 4 + q * 7)];
+                weight = ease((p[1] - .35) / .35); warm = seed >= .40;
+            } else if (group < 8) {
+                q = fract(seed + flowTime * (.13 + lane * .05)); var u = 1 - q, side = group < 7 ? -1 : 1;
+                p = [side * 1.32 * u * u * u + 3 * side * 1.18 * u * u * q + 3 * side * .18 * u * q * q, -.18 * u * u * u + 3 * .16 * u * u * q + 3 * .20 * u * q * q + .36 * q * q * q, .06 * u * u * u + 3 * .12 * u * u * q + 3 * .10 * u * q * q + .045 * q * q * q];
+                warm = seed >= .72;
+            } else {
+                a = seed * TAU + flowTime * (1.4 + lane * .7) + .25 * Math.sin(flowTime * 1.8 + seed * 10); radius = .27 * Math.sqrt(lane) * (1 + self.level * .10);
+                p = [Math.cos(a) * radius, .85 + Math.sin(a) * radius * .65 + .018 * Math.sin(flowTime * 3 + seed * 9) - self.level * .035, .08 + Math.sin(a * .7 + seed * 10) * .14]; weight = 1; warm = true;
+            }
+            var local = p.slice(), angle = mix(self.bodyYaw, self.headYaw, weight), pitch = self.pitch * mix(.12, 1, weight), pivotY = mix(.10, .53, weight), pivotZ = mix(0, -.035, weight);
+            var y = (p[1] - pivotY) * Math.cos(pitch) - (p[2] - pivotZ) * Math.sin(pitch), z = (p[1] - pivotY) * Math.sin(pitch) + (p[2] - pivotZ) * Math.cos(pitch);
+            p = [p[0] * Math.cos(angle) + z * Math.sin(angle), y + pivotY, -p[0] * Math.sin(angle) + z * Math.cos(angle) + pivotZ];
+            return {id: id, pass: 'internal-energy', group: group, color: warm ? 'orange' : 'blue', local_position: local, position: p, projected_position: {x: self.width / 2 + p[0] / (6.2 - p[2]) * f * self.height / 2, y: self.height / 2 - (p[1] - .52) / (6.2 - p[2]) * f * self.height / 2}};
+        }
+        var ids = [0, 1, 4, 5, 6, 7, 8, 9, 101, 205, 318, 429];
+        var samples = ids.filter(function (id) { return id < self.energyParticles.count; }).map(sample);
+        this.headYaw = saved[0]; this.bodyYaw = saved[1]; this.pitch = saved[2]; this.level = saved[3]; this.mouthOpen = saved[4];
+        return {enabled: flowTime > 5.6, count: this.energyParticles.count, pass: 'internal-energy', trail_count: 4, samples: samples};
     };
     Hologram.prototype.assembly = function (time) {
         // Bounded inspection of the exact procedural path. This does not render,
@@ -538,8 +673,9 @@
         if (this.options.interactive && !this.compact) document.removeEventListener('pointermove', this.onPointer);
         if (media) { if (media.removeEventListener) media.removeEventListener('change', this.onMotion); else if (media.removeListener) media.removeListener(this.onMotion); }
         if (!this.lost) {
-            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer);
-            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
+            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer); gl.deleteBuffer(this.energyBuffer);
+            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteProgram(this.blurProgram); gl.deleteProgram(this.energyProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
+            if (this.bloomTargets) this.bloomTargets.forEach(function (target) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.framebuffer); });
         }
         items = items.filter(function (item) { return item !== this; }, this);
         if (this.canvas.__goHologram === this) delete this.canvas.__goHologram;
@@ -565,6 +701,7 @@
                 setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); },
                 setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 6 : item.elapsed); wake(); },
                 assembly: function (time) { return item.assembly(time); },
+                energy: function (time) { return item.internalFlow(time); },
                 diagnostics: function () { return {version: 3, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
             };
             item.api = api; canvas.__goHologram = item; items.push(item); wake(); return api;
