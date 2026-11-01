@@ -1,9 +1,10 @@
-# Holographic opening — native geometry revision
+# Holographic opening — reference anatomy and single-emitter assembly
 
 The opening replaces the solar scene with a cyan humanoid and a live background.
-This second revision replaces the first revision's bitmap character with actual
-procedural 3D geometry and replaces browser speech synthesis with bundled local
-MP3 recordings. Section counts retain account authorization and branch scope. The
+The current revision uses actual procedural 3D geometry, a single-emitter build
+sequence and bundled local MP3 recordings. It retains the accepted voice assets
+from the unactivated V2 review while revising anatomy and assembly against the
+supplied reference. Section counts retain account authorization and branch scope. The
 opening never blocks access to the regular dashboard. The sidebar uses the same
 character at a smaller scale. The spoken English greeting belongs to sign-in,
 not refresh, ordinary navigation, or an idle return to the opening.
@@ -40,12 +41,21 @@ document is hidden; failures retain prior values with a freshness warning. A
 missing optional data source appears as unavailable, not a fabricated zero.
 
 The full-size and sidebar characters use the same native WebGL 1 engine (renderer
-API version 2). The main character has 33,684 mesh vertices and 14,000 independent
-particles; the compact sidebar uses a lower-density mesh and 1,100 particles.
+API version 3). The main character has 33,684 mesh vertices, 14,000 surface
+particles and one startup emitter. The compact sidebar uses a lower-density
+mesh and 1,100 surface particles.
 The engine builds head, torso and ear surfaces from procedural coordinates and
 renders the moving wire contours and lighting directly. No character bitmap,
 external model file, or framed image rectangle is drawn. The translucent main
 canvas and its live background span the viewport.
+
+Construction starts from one cyan emitter near the bottom centre. Only that
+point is visible during approximately the first 0.48 seconds. Branching, hooked
+streams deposit the left torso, neck, head edge, face and opposite shoulder in
+sequence; the reference-informed bust finishes assembling at about 5.6 seconds.
+The startup emitter then fades between 5.6 and 7.2 seconds. Full-viewport ambient
+scatter begins after construction rather than competing with the single source.
+The compact sidebar and reduced-motion scene begin in their completed state.
 
 Head/neck rotation can reach both 90-degree side profiles, with a visible turn
 scheduled every 60 seconds. The mouth surface deforms from the recording's
@@ -64,6 +74,13 @@ A one-shot server session marker is set after successful password login and
 consumed by the first dashboard response. Refresh, section navigation and idle
 return do not replay it. Playback respects the browser's user-gesture/audio
 restrictions, and the mute control stops it.
+
+For the actual V3 main renderer with motion enabled, the approved recording waits
+6.2 seconds so construction completes first. Early pointer or keyboard input
+cannot bypass that gate. Leaving or hiding the opening cancels pending playback.
+Reduced-motion and non-V3 fallback paths do not wait for the construction effect.
+If browser autoplay is blocked, the opening offers a visible play-greeting control;
+a successful retry stays audible, and the same control then becomes mute.
 
 Both MP3 recordings were generated locally with speaker conditioning from the
 user-supplied reference recording. This uses the reference voice as conditioning;
@@ -88,7 +105,8 @@ Build after the final reviewed source changes. Rebuild the manifest after any
 payload/installer change. The final operator command must pin the launcher hash
 and a complete immutable commit revision.
 
-This is an incremental 13-file V2 activation. It does not republish the V1 counter
+This is an incremental 13-file V3 activation against the live V1 baseline; the
+unactivated V2 draft is not a deployment precondition. It does not republish the V1 counter
 SQL or replace its metric service. Existing branch/count authorization remains
 unchanged. The old V1 bitmap may remain on disk but the new main/sidebar views
 and renderer do not reference or load it.
@@ -135,3 +153,9 @@ for authenticated browser verification of each role and its live counts.
 Run `python3 deployment/hologram/test_deploy.py` for isolated tests of source
 drift refusal, exact payload hashes, idempotence, preservation of unrelated live
 edits, rollback, concurrent changes, CRLF source and symlink/path boundaries.
+
+Run `python3 deployment/hologram/verify_manifest.py` after building the manifest
+to replay every packaged file against the immutable Git baseline in disposable
+directories. It verifies actual installation, repeat/no-op behavior, rollback,
+byte-exact binary assets and preservation of an unrelated live controller edit.
+It also refuses stale manifests that no longer match the reviewed source.

@@ -1,9 +1,10 @@
-/* GO hologram v2: native three-dimensional surfaces, contour shaders and a moving point cloud. */
+/* GO hologram v3: native three-dimensional surfaces, contour shaders and a moving point cloud. */
 (function (window, document) {
     'use strict';
-    if (window.GoHologram && window.GoHologram.version >= 2) return;
+    if (window.GoHologram && window.GoHologram.version >= 3) return;
 
     var items = [], frame = 0, queued = false, TAU = Math.PI * 2;
+    var ASSEMBLY_DURATION = 5.6, EMITTER = [0, -.32, .64];
     var media = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
     function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
     function ease(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
@@ -36,7 +37,7 @@
     function visibility() {
         items.forEach(function (item) {
             item.last = 0;
-            if (active(item)) item.render(item.reduced ? 3 : item.elapsed);
+            if (active(item)) item.render(item.reduced ? 6 : item.elapsed);
         });
         if (document.hidden && frame) { window.cancelAnimationFrame(frame); frame = 0; }
         wake();
@@ -46,27 +47,44 @@
 
     // All meshes are constructed here from smooth mathematical surfaces. UVs describe
     // the physical surface; no raster assets are involved in construction or shading.
+    function controlCurve(points) {
+        var slopes = [], tangents = [];
+        for (var i = 0; i < points.length - 1; i++) slopes[i] = (points[i + 1][1] - points[i][1]) / (points[i + 1][0] - points[i][0]);
+        tangents[0] = slopes[0]; tangents[points.length - 1] = slopes[slopes.length - 1];
+        for (i = 1; i < points.length - 1; i++) {
+            if (slopes[i - 1] * slopes[i] <= 0) tangents[i] = 0;
+            else { var h0 = points[i][0] - points[i - 1][0], h1 = points[i + 1][0] - points[i][0], w0 = 2 * h1 + h0, w1 = h1 + 2 * h0; tangents[i] = (w0 + w1) / (w0 / slopes[i - 1] + w1 / slopes[i]); }
+        }
+        return function (value) {
+            value = clamp(value, 0, 1);
+            for (var j = 0; j < points.length - 1; j++) if (value <= points[j + 1][0]) {
+                var h = points[j + 1][0] - points[j][0], t = (value - points[j][0]) / h, t2 = t * t, t3 = t2 * t;
+                return (2 * t3 - 3 * t2 + 1) * points[j][1] + (t3 - 2 * t2 + t) * h * tangents[j] + (-2 * t3 + 3 * t2) * points[j + 1][1] + (t3 - t2) * h * tangents[j + 1];
+            }
+            return points[points.length - 1][1];
+        };
+    }
+    // Anatomical control curves: broad forehead, cheekbone break, defined jaw and chin.
+    // Tangents are shared across knots, avoiding the scalloping of zero-slope segments.
+    var headWidth = controlCurve([[0, 0], [.02, .17], [.065, .34], [.13, .48], [.24, .55], [.42, .565], [.56, .575], [.66, .535], [.76, .44], [.86, .34], [.94, .22], [.98, .12], [1, 0]]);
+    var headDepth = controlCurve([[0, 0], [.06, .22], [.18, .37], [.45, .425], [.65, .38], [.80, .28], [.94, .14], [.98, .075], [1, 0]]);
+    var shoulderWidth = controlCurve([[0, 0], [.085, .22], [.18, .285], [.33, .29], [.40, .34], [.45, .43], [.50, .68], [.55, 1.02], [.61, 1.25], [.71, 1.43], [.86, 1.51], [1, 1.55]]);
     function headPoint(v, phi) {
-        var theta = v * Math.PI, c = Math.cos(theta), s = Math.sin(theta);
-        var jaw = 1 - .27 * ease((-c - .05) / .95), front = Math.max(0, Math.cos(phi));
-        var x = .465 * s * jaw * Math.sin(phi);
-        var y = 1.18 + .675 * c;
-        var z = .392 * s * Math.cos(phi) * (1 - .045 * Math.max(0, -c));
-        // A continuous forehead/cheek/chin profile with no abrupt profile knots.
-        z += Math.pow(front, 8) * (.024 * Math.exp(-Math.pow((y - 1.08) / .17, 2)) + .030 * Math.exp(-Math.pow((y - .72) / .12, 2)));
+        var front = Math.max(0, Math.cos(phi));
+        var x = headWidth(v) * .88 * Math.sin(phi), y = 1.80 - v * 1.35;
+        var z = headDepth(v) * Math.cos(phi) + .14 * ease((v - .82) / .18);
+        z += Math.pow(front, 8) * (.045 * Math.exp(-Math.pow((y - 1.03) / .14, 2)) + .040 * Math.exp(-Math.pow((y - .60) / .09, 2)));
         return [x, y, z];
     }
     function bodyPoint(v, phi) {
-        var baseY = .64 - v * 1.86;
-        var shoulder = 1 / (1 + Math.exp((baseY + .045) / .125)), radius = .202 + 1.29 * shoulder;
-        var depth = .185 + .30 * ease((v - .19) / .64);
-        var c = Math.cos(phi), y = baseY + .10 * c * shoulder;
-        return [radius * Math.sin(phi), y, depth * c];
+        var radius = shoulderWidth(v), shoulder = ease((v - .38) / .38);
+        var depth = (.14 + .29 * ease((v - .30) / .64)) * ease(v / .10), c = Math.cos(phi);
+        return [radius * Math.sin(phi), .90 - v * 1.40 + .045 * c * shoulder, depth * c - .05 * (1 - shoulder)];
     }
     function earPoint(side) {
         return function (v, phi) {
-            var theta = v * Math.PI, s = Math.sin(theta), c = Math.cos(phi);
-            return [side * .440 + .045 * s * Math.sin(phi), 1.01 + .105 * Math.cos(theta), -.018 + .065 * s * c];
+            var theta = v * Math.PI, s = Math.sin(theta);
+            return [side * .482 + .041 * s * Math.sin(phi), .945 + .105 * Math.cos(theta), -.018 + .070 * s * Math.cos(phi)];
         };
     }
     function buildMesh(compact) {
@@ -105,28 +123,54 @@
             var fn = head ? headPoint : bodyPoint, p = fn(v, phi);
             var radial = head ? .013 : .018;
             var outward = .008 + random() * .032;
-            if (head) { p[0] += p[0] / .465 * outward; p[1] += (p[1] - 1.18) / .675 * outward; p[2] += p[2] / .392 * outward; }
+            if (head) { p[0] += p[0] / .575 * outward; p[1] += (p[1] - 1.125) / .675 * outward; p[2] += p[2] / .425 * outward; }
             else { p[0] += p[0] / 1.545 * outward; p[2] += (p[2] < 0 ? -1 : 1) * outward; }
             var dx = (random() - .5) * radial, dy = (random() - .5) * radial, dz = (random() - .5) * radial;
             result.push(p[0] + dx, p[1] + dy, p[2] + dz, 0, 0, 1, phi / TAU, v, head ? 1 : 0, random(), .55 + random() * 1.05);
         }
-        return {vertices: new Float32Array(result), count: count};
+        result.push(EMITTER[0], EMITTER[1], EMITTER[2], 0, 0, 1, 0, 0, 3, 0, 18);
+        return {vertices: new Float32Array(result), count: count + 1};
     }
 
+    function arrivalFor(p, part) {
+        if (part > .5) return 2.75 + ease((p[0] + .51) / 1.02) * 1.20 + ease((p[2] - .02) / .30) * .65 + clamp((p[1] - .45) / 1.35, 0, 1) * .15;
+        var height = clamp((p[1] + .32) / 1.22, 0, 1), side = ease((p[0] + .14) / .34);
+        var left = 1.50 + height * 1.25 + Math.min(1, Math.abs(p[0]) / 1.55) * .15;
+        var right = 4.35 + height * .55 + Math.abs(p[0]) * .18;
+        var central = 1 - ease((Math.abs(p[0]) - .06) / .14);
+        return mix(mix(left, right, side), .95 + height * 2.20, central * .90);
+    }
+    var ARRIVAL_SHADER = [
+        'float assemblyArrival(vec3 p,float part){',
+        ' if(part>.5)return 2.75+smoothstep(-.51,.51,p.x)*1.20+smoothstep(.02,.32,p.z)*.65+clamp((p.y-.45)/1.35,0.,1.)*.15;',
+        ' float height=clamp((p.y+.32)/1.22,0.,1.),side=smoothstep(-.14,.20,p.x);',
+        ' float left=1.50+height*1.25+min(1.,abs(p.x)/1.55)*.15;',
+        ' float right=4.35+height*.55+abs(p.x)*.18;',
+        ' float central=1.-smoothstep(.06,.20,abs(p.x));',
+        ' return mix(mix(left,right,side),.95+height*2.20,central*.90);',
+        '}',
+        'vec3 fountain(vec3 target,float part,float seed,float q){',
+        ' vec3 emitter=vec3(0.,-.32,.64);',
+        ' vec3 c1=emitter+vec3(.72+sin(seed*51.7)*.08,.18+cos(seed*67.3)*.07,sin(seed*31.1)*.08);',
+        ' vec3 c2=part>.5?vec3(-1.75+cos(seed*23.4)*.10,1.98+sin(seed*42.2)*.12,-.08+cos(seed*17.4)*.09):vec3(target.x*1.25-.12,target.y+.68,target.z+sin(seed*27.1)*.12);',
+        ' float u=1.-q;return emitter*u*u*u+3.*c1*u*u*q+3.*c2*u*q*q+target*q*q*q;',
+        '}'
+    ].join('\n');
     var VERTEX = [
         'precision highp float;',
         'attribute vec3 aPosition; attribute vec3 aNormal; attribute vec2 aUV; attribute float aPart; attribute float aPhase; attribute float aSize;',
         'uniform mat4 uProjection; uniform mat4 uView; uniform float uHeadYaw; uniform float uBodyYaw; uniform float uPitch;',
         'uniform float uTime; uniform float uVoice; uniform float uPointPass; uniform float uExpand; uniform float uDpr; uniform float uCompact; uniform float uAspect; uniform float uScatter; uniform float uReduced;',
         'varying vec3 vNormal; varying vec3 vPosition; varying vec3 vLocal; varying vec2 vUV; varying float vPart; varying float vAlpha; varying float vPhase;',
+        ARRIVAL_SHADER,
         'mat3 yaw(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}',
         'mat3 pitch(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}',
         'void main(){',
         ' vec3 p=aPosition,n=aNormal; vLocal=aPosition; vUV=aUV; vPart=aPart; vPhase=aPhase;',
-        ' float head=step(.5,aPart);',
+        ' float head=step(.5,aPart)*(1.-step(2.5,aPart));',
         // Real lower-face vertex displacement: jaw opening and flowing lips/waves.
-        ' float mouth=exp(-pow((p.y-.965)/.135,2.))*exp(-pow(p.x/.27,4.))*smoothstep(.10,.31,p.z)*head;',
-        ' float jaw=(1.-smoothstep(.82,1.08,p.y))*smoothstep(-.08,.20,p.z)*head;',
+        ' float mouth=exp(-pow((p.y-.85)/.135,2.))*exp(-pow(p.x/.27,4.))*smoothstep(.10,.31,p.z)*head;',
+        ' float jaw=(1.-smoothstep(.69,.98,p.y))*smoothstep(-.08,.20,p.z)*head;',
         ' p.y-=uVoice*.095*jaw;',
         ' p.y+=mouth*sin(p.x*27.-uTime*7.)*uVoice*.024;',
         ' p.z+=mouth*(uVoice*.045+sin(p.x*24.-uTime*5.)*uVoice*.018);',
@@ -136,22 +180,31 @@
         ' mat3 rotation=yaw(angle)*pitch(uPitch*mix(.12,1.,head));',
         ' p=rotation*(p-pivot)+pivot; n=rotation*n;',
         ' p.y+=sin(uTime*1.12)*.004*(1.-uReduced);',
-        ' float intro=smoothstep(0.,2.2,uTime); vAlpha=1.;',
+        ' vAlpha=1.;',
         ' if(uPointPass>.5){',
-        '   float delay=aPhase*.72; float assemble=smoothstep(delay,delay+1.4,uTime);',
-        '   float phase=fract(uTime/(10.+aPhase*10.)+aPhase);',
-        '   float detach=smoothstep(.08,.30,phase)*(1.-smoothstep(.63,.96,phase));',
-        '   detach*=step(.85,aPhase)*uScatter*intro*(1.-uReduced);',
-        '   float spread=max(1.-assemble,detach);',
-        '   vec3 farPoint=vec3(sin(aPhase*173.1)*2.8*uAspect,cos(aPhase*137.2)*2.1+.2,sin(aPhase*71.9)*.9);',
-        '   if(uCompact>.5)farPoint=vec3(sin(aPhase*173.1)*.15,-.78+cos(aPhase*173.1)*.1,.52);',
-        '   p=mix(p,farPoint,spread);',
-        '   p+=vec3(sin(uTime*.8+aPhase*63.),cos(uTime*.6+aPhase*43.),sin(uTime*.7+aPhase*31.))*.013*(1.-uReduced);',
-        '   vAlpha=.48+.32*sin(aPhase*67.+uTime*1.7); vAlpha*=mix(1.,.22,detach);',
+        '   if(aPart>2.5){',
+        '     p=vec3(0.,-.32,.64);',
+        '     vAlpha=smoothstep(.035,.20,uTime)*((1.-smoothstep(5.6,7.2,uTime))*.94+.035);',
+        '     if(uCompact>.5||uReduced>.5)vAlpha=.035;',
+        '   }else{',
+        '     float arrival=assemblyArrival(aPosition,aPart)+(aPhase-.5)*.25;',
+        '     float flight=aPart>.5?2.65:1.45+abs(aPosition.x)*.15;',
+        '     float birth=max(.48,arrival-flight);',
+        '     float q=smoothstep(birth,arrival,uTime);vPhase=q;',
+        '     p=fountain(p,aPart,aPhase,q);',
+        '     float phase=fract(max(0.,uTime-5.6)/(10.+aPhase*10.)+aPhase);',
+        '     float detach=smoothstep(.08,.30,phase)*(1.-smoothstep(.63,.96,phase));',
+        '     detach*=step(.94,aPhase)*uScatter*smoothstep(5.7,7.0,uTime)*(1.-uReduced);',
+        '     vec3 farPoint=vec3(sin(aPhase*173.1)*2.8*uAspect,cos(aPhase*137.2)*2.1+.52,sin(aPhase*71.9)*.9);',
+        '     p=mix(p,farPoint,detach);',
+        '     p+=vec3(sin(uTime*.8+aPhase*63.),cos(uTime*.6+aPhase*43.),sin(uTime*.7+aPhase*31.))*.009*(1.-uReduced)*q;',
+        '     vAlpha=(.48+.32*sin(aPhase*67.+uTime*1.7))*mix(1.,.08,detach)*smoothstep(birth,birth+.07,uTime);',
+        '   }',
         ' }',
         ' vPosition=p; vNormal=n;',
         ' gl_Position=uProjection*uView*vec4(p,1.);',
-        ' gl_PointSize=clamp(aSize*uDpr*(uCompact>.5?2.0:2.6),1.5,5.5);',
+        ' gl_PointSize=aPart>2.5?mix(52.,7.,smoothstep(5.5,7.2,uTime))*uDpr:clamp(aSize*uDpr*(uCompact>.5?2.0:2.6),1.5,5.5);',
+        ' if(aPart>2.5&&(uCompact>.5||uReduced>.5))gl_PointSize=7.*uDpr;',
         '}'
     ].join('\n');
     var FRAGMENT = [
@@ -159,30 +212,31 @@
         'precision highp float;',
         'uniform float uTime; uniform float uVoice; uniform float uAlert; uniform float uGlowPass; uniform float uPointPass; uniform float uCompact; uniform float uReduced;',
         'varying vec3 vNormal; varying vec3 vPosition; varying vec3 vLocal; varying vec2 vUV; varying float vPart; varying float vAlpha; varying float vPhase;',
+        ARRIVAL_SHADER,
         'float contour(float value,float width){float d=abs(fract(value+.5)-.5);float pixel=max(fwidth(value),.0008);return exp(-pow(d/(pixel*width),2.));}',
         'void main(){',
-        ' vec3 eye=normalize(vec3(0.,.20,6.2)-vPosition); vec3 normal=normalize(vNormal);',
+        ' vec3 eye=normalize(vec3(0.,.52,6.2)-vPosition); vec3 normal=normalize(vNormal);',
         ' float facing=abs(dot(normal,eye)); float rim=pow(1.-facing,2.0);',
-        ' float head=step(.5,vPart); float ear=step(1.5,vPart);',
+        ' float head=step(.5,vPart)*(1.-step(2.5,vPart)); float ear=step(1.5,vPart)*(1.-step(2.5,vPart));',
         ' float front=smoothstep(.06,.32,vLocal.z)*head;',
-        ' float lower=exp(-pow((vLocal.y-.98)/.25,2.))*exp(-pow(vLocal.x/.35,4.))*front*(1.-ear);',
+        ' float lower=exp(-pow((vLocal.y-.85)/.25,2.))*exp(-pow(vLocal.x/.35,4.))*front*(1.-ear);',
         ' vec3 cyan=vec3(.01,.73,1.0), ice=vec3(.42,.95,1.0);',
         ' float wave=sin(vLocal.x*28.-uTime*(2.5+uVoice*5.))*.11*(.25+uVoice)*lower;',
         ' float latitude=vUV.y*mix(48.,43.,head)+wave;',
-        ' float chest=1.-smoothstep(-.10,.23,vLocal.y);',
-        ' float pectoral=length(vec2((sqrt(vLocal.x*vLocal.x+.0049)-.79)*1.12,(vLocal.y+1.30)*1.25))*27.;',
-        ' float stream=vUV.x*71.+sin(vUV.y*11.)*.25;',
+        ' float chest=1.-smoothstep(.16,.34,vLocal.y);',
+        ' float pectoral=length(vec2((sqrt(vLocal.x*vLocal.x+.0049)-.79)*1.12,(vLocal.y+1.05)*1.05))*9.0;',
+        ' float stream=vUV.x*24.+sin(vUV.y*11.)*.25;',
         ' float longitude=mix(stream,vUV.x*58.,head);',
         ' float lat=contour(latitude,.58), latGlow=contour(latitude,2.0);',
-        ' float lon=mix(contour(longitude,.50),contour(pectoral,.55),chest*(1.-head));',
-        ' float lonGlow=mix(contour(longitude,1.6),contour(pectoral,1.6),chest*(1.-head));',
+        ' float lon=mix(contour(pectoral,.55)*chest,contour(longitude,.50),head);',
+        ' float lonGlow=mix(contour(pectoral,1.6)*chest,contour(longitude,1.6),head);',
         ' float neural=exp(-pow(vLocal.x/.14,2.))*chest*(1.-head);',
         ' float neuralPhase=vLocal.x*27.+sin(vLocal.y*11.)*.14;',
-        ' lon=mix(lon,contour(neuralPhase,.45)*.50,neural*.85);',
-        ' lonGlow=mix(lonGlow,contour(neuralPhase,1.5)*.15,neural*.85);',
+        ' lon*=1.-neural*.85;',
+        ' lonGlow*=1.-neural*.85;',
         ' float collar=contour((vLocal.y+.13+.18*pow(abs(vLocal.x)-.66,2.))*29.,.65)*(1.-smoothstep(.28,.45,vLocal.y))*smoothstep(-.42,-.24,vLocal.y);',
-        ' float lines=mix(lon*.70+lat*.035+collar*.28,lat*.95+lon*.06,head);',
-        ' float lineGlow=mix(lonGlow*.15+latGlow*.035,latGlow*.18,head);',
+        ' float lines=mix(lon*.31,lat*.95+lon*.06,head);',
+        ' float lineGlow=mix(lonGlow*.075,latGlow*.18,head);',
         ' if(ear>.5){lines=contour(vUV.y*17.,.65)*.85;lineGlow=contour(vUV.y*17.,2.)*.18;}',
         ' float intersection=lat*lon; float current=pow(.5+.5*sin(vUV.y*39.+vUV.x*76.-uTime*2.1),18.);',
         ' vec3 color=cyan*(lines*.8+lineGlow+rim*.9)+ice*(lines*.17+intersection*.5);',
@@ -190,26 +244,31 @@
         ' color+=cyan*softFill;',
         ' vec3 amber=vec3(1.0,.38,.008), yellow=vec3(1.,.91,.22);',
         ' float warmth=clamp(lower*1.65,0.,1.);',
-        ' float core=exp(-pow((vLocal.y-.97)/.18,2.)-pow(vLocal.x/.23,2.))*front;',
+        ' float core=exp(-pow((vLocal.y-.84)/.18,2.)-pow(vLocal.x/.23,2.))*front;',
         ' vec3 hot=amber*(.55+latGlow*.70+lat*.90)+yellow*(core*.34+lat*(.55+uVoice*.60));',
         ' color=mix(color,hot,warmth);',
-        ' float trunk=(1.-head)*(1.-smoothstep(.48,.68,vLocal.y))*smoothstep(-1.1,-.70,vLocal.y);',
-        ' float veins=contour(vLocal.x*17.+sin(vLocal.y*13.)*.7, .8)*exp(-pow(vLocal.x/(.075+.07*max(0.,vLocal.y+.6)),2.))*trunk;',
-        ' color+=vec3(1.,.57,.06)*veins*(.40+uVoice*.35);',
-        ' float nucleus=exp(-dot((vLocal-vec3(0.,-.81,.48))*vec3(15.,20.,18.),(vLocal-vec3(0.,-.81,.48))*vec3(15.,20.,18.)))*(1.-head);',
-        ' color+=vec3(.45,1.,1.)*nucleus*2.5;',
+        ' float trunk=(1.-head)*(1.-smoothstep(.48,.68,vLocal.y))*smoothstep(-.36,-.25,vLocal.y);',
+        ' float neuralWidth=.035+.235*smoothstep(-.32,.52,vLocal.y);',
+        ' float neuralField=vLocal.x/neuralWidth*4.5+sin(vLocal.y*18.+vLocal.x*15.)*.27+sin(vLocal.y*35.+vLocal.x*29.)*.12;',
+        ' float veins=contour(neuralField,.70)*exp(-pow(vLocal.x/neuralWidth,4.))*trunk;',
+        ' color+=vec3(1.,.57,.06)*veins*(.64+uVoice*.26);',
+        ' float nucleus=exp(-dot((vLocal-vec3(0.,-.32,.43))*vec3(15.,20.,18.),(vLocal-vec3(0.,-.32,.43))*vec3(15.,20.,18.)))*(1.-head);',
+        ' color+=vec3(.45,1.,1.)*nucleus*.18;',
         ' color+=ice*intersection*current*.5;',
-        ' float alpha=clamp(lines*.80+lineGlow*.30+rim*.70+softFill+warmth*.66+veins*.40+nucleus,0.,.98);',
+        ' float alpha=clamp(lines*.80+lineGlow*.30+rim*.70+softFill+warmth*.66+veins*.56+nucleus,0.,.98);',
         ' if(uGlowPass>.5){alpha=pow(1.-facing,3.)*.075;color=mix(vec3(.0,.42,1.),vec3(.0,.85,1.),rim);}',
         ' if(uPointPass>.5){',
         '   float d=length(gl_PointCoord-.5)*2.; float edge=exp(-d*d*4.)*(1.-smoothstep(.72,1.,d));',
-        '   color=mix(vec3(.05,.85,1.),vec3(1.,.63,.08),lower*.8); color+=vec3(.28,.55,.58)*(1.-d);',
-        '   alpha=edge*vAlpha*(.72+uAlert*.25);',
+        '   color=mix(vec3(.05,.85,1.),vec3(1.,.63,.08),lower*.8*smoothstep(.9,1.,vPhase)); color+=vec3(.28,.55,.58)*(1.-d);',
+        '   alpha=edge*vAlpha*(mix(.40,.72,head)+uAlert*.20);',
+        '   if(vPart>2.5){color=vec3(.03,.78,1.)+vec3(.97,.22,0.)*exp(-d*d*13.);alpha=edge*vAlpha;}',
         ' } else {',
-        '   float reveal=smoothstep(.10,1.8,uTime)*smoothstep(vLocal.y-1.,vLocal.y+.30,-1.5+uTime*2.2);',
+        '   float arrival=assemblyArrival(vLocal,vPart);float reveal=smoothstep(arrival-.04,arrival+.62,uTime);',
         '   alpha*=uReduced>.5?1.:reveal;',
         ' }',
-        ' float fade=smoothstep(-1.08,-.35,vLocal.y); alpha*=mix(fade,1.,head);',
+        ' float fade=smoothstep(-.50,-.06,vLocal.y);',
+        ' if(uPointPass>.5)fade=mix(1.,fade,vPhase);',
+        ' if(vPart<2.5)alpha*=mix(fade,1.,head);',
         ' if(alpha<.001)discard;',
         ' color*=1.+uAlert*.13;',
         ' gl_FragColor=vec4(color*alpha,alpha);',
@@ -247,13 +306,13 @@
         return result;
     }
     function projection(aspect) {
-        var f = 1 / Math.tan(35 * Math.PI / 360), near = .1, far = 40, matrix = new Float32Array(16);
+        var f = 1 / Math.tan(29 * Math.PI / 360) * Math.min(1, aspect / 1.18), near = .1, far = 40, matrix = new Float32Array(16);
         matrix[0] = f / aspect; matrix[5] = f; matrix[10] = (far + near) / (near - far); matrix[11] = -1; matrix[14] = 2 * far * near / (near - far);
         return matrix;
     }
     function viewMatrix(fullViewport) {
         var matrix = new Float32Array(16); matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
-        matrix[13] = fullViewport ? -.08 : -.20; matrix[14] = -6.2;
+        matrix[13] = fullViewport ? -.52 : -.52; matrix[14] = -6.2;
         return matrix;
     }
     function glance(time) {
@@ -282,7 +341,7 @@
         this.onResize = function () { self.resize(); };
         this.onMotion = function () {
             if (typeof options.reducedMotion !== 'boolean') self.reduced = !!(media && media.matches);
-            self.last = 0; if (active(self)) self.render(self.reduced ? 3 : self.elapsed); wake();
+            self.last = 0; if (active(self)) self.render(self.reduced ? 6 : self.elapsed); wake();
         };
         this.onLost = function (event) { event.preventDefault(); self.lost = true; canvas.dataset.goHologramState = 'recovering'; };
         this.onRestored = function () { if (self.dead) return; self.lost = false; self.prepare(); self.resize(); wake(); };
@@ -294,11 +353,11 @@
         if (options.interactive && !this.compact) document.addEventListener('pointermove', this.onPointer, {passive: true});
         if (window.ResizeObserver) { this.resizeObserver = new window.ResizeObserver(this.onResize); this.resizeObserver.observe(canvas); } else window.addEventListener('resize', this.onResize);
         if (window.IntersectionObserver) {
-            this.intersectionObserver = new window.IntersectionObserver(function (entries) { self.visible = entries[0].isIntersecting; self.last = 0; if (active(self)) self.render(self.reduced ? 3 : self.elapsed); wake(); }, {threshold: 0});
+            this.intersectionObserver = new window.IntersectionObserver(function (entries) { self.visible = entries[0].isIntersecting; self.last = 0; if (active(self)) self.render(self.reduced ? 6 : self.elapsed); wake(); }, {threshold: 0});
             this.intersectionObserver.observe(canvas);
         }
         if (media) { if (media.addEventListener) media.addEventListener('change', this.onMotion); else if (media.addListener) media.addListener(this.onMotion); }
-        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = 'webgl-geometry-v2'; this.resize();
+        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = 'webgl-geometry-v3'; this.resize();
     }
     Hologram.prototype.prepare = function () {
         var gl = this.gl; gl.getExtension('OES_standard_derivatives'); this.program = makeProgram(gl); gl.useProgram(this.program);
@@ -347,13 +406,14 @@
         this.allocateTarget();
         this.projection = projection(this.width / this.height); this.view = viewMatrix(this.fullViewport);
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height); this.last = 0;
-        this.render(this.reduced ? 3 : this.elapsed); wake();
+        this.render(this.reduced ? 6 : this.elapsed); wake();
     };
     Hologram.prototype.pose = function (time) {
+        var intro = this.compact || this.reduced ? 0 : .40 * (1 - ease((time - 2.6) / 2.5));
         var turn = this.reduced ? 0 : glance(time), looking = time >= 60 && time % 60 <= 9;
         var idle = this.reduced || looking ? 0 : Math.sin(time * .29) * .032 + this.gazeX * .10;
-        this.headYaw = turn + idle;
-        this.bodyYaw = turn * .08 + (this.reduced ? 0 : Math.sin(time * .22) * .009);
+        this.headYaw = turn + intro + idle;
+        this.bodyYaw = (turn + intro) * .08 + (this.reduced ? 0 : Math.sin(time * .22) * .009);
         this.pitch = this.reduced ? 0 : Math.sin(time * .42) * .014 + this.gazeY * .035 * (looking ? 0 : 1);
         var level = this.explicitVoice ? this.voiceLevel : this.speaking ? .36 + .24 * Math.sin(time * 12.7) + .18 * Math.sin(time * 19.1) : 0;
         this.level = this.reduced ? 0 : clamp(level, 0, 1); this.mouthOpen = this.level * .095;
@@ -377,7 +437,7 @@
         var gl = this.gl, u = this.uniforms; gl.useProgram(this.program);
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
         gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
-        gl.uniform1f(u.uTime, this.reduced ? 3 : Math.max(0, time)); gl.uniform1f(u.uHeadYaw, this.headYaw); gl.uniform1f(u.uBodyYaw, this.bodyYaw); gl.uniform1f(u.uPitch, this.pitch);
+        gl.uniform1f(u.uTime, this.reduced ? 6 : this.compact ? Math.max(6, time + 6) : Math.max(0, time)); gl.uniform1f(u.uHeadYaw, this.headYaw); gl.uniform1f(u.uBodyYaw, this.bodyYaw); gl.uniform1f(u.uPitch, this.pitch);
         gl.uniform1f(u.uVoice, this.level); gl.uniform1f(u.uAlert, this.alert ? 1 : 0); gl.uniform1f(u.uCompact, this.compact ? 1 : 0); gl.uniform1f(u.uDpr, this.ratio);
         gl.uniform1f(u.uAspect, this.width / this.height); gl.uniform1f(u.uScatter, this.fullViewport && !this.compact ? 1 : 0); gl.uniform1f(u.uReduced, this.reduced ? 1 : 0);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
@@ -410,10 +470,65 @@
         var yy = (y - pivotY) * cp - (z - pivotZ) * sp;
         var zz = (y - pivotY) * sp + (z - pivotZ) * cp;
         var xx = x * cy + zz * sy, depth = -x * sy + zz * cy + pivotZ;
-        var f = 1 / Math.tan(35 * Math.PI / 360), cameraY = this.fullViewport ? .08 : .20;
+        var f = 1 / Math.tan(29 * Math.PI / 360) * Math.min(1, this.width / this.height / 1.18), cameraY = this.fullViewport ? .52 : .52;
         this.px = this.width / 2 + xx / (6.2 - depth) * f * this.height / 2;
         this.py = this.height / 2 - (yy + pivotY - cameraY) / (6.2 - depth) * f * this.height / 2;
         return {x: this.px, y: this.py, z: depth};
+    };
+    Hologram.prototype.assembly = function (time) {
+        // Bounded inspection of the exact procedural path. This does not render,
+        // change playback, or introduce a debug surface into the product UI.
+        time = Math.max(0, Number(time) || 0);
+        var shaderTime = this.reduced ? 6 : this.compact ? Math.max(6, time + 6) : time;
+        var saved = [this.headYaw, this.bodyYaw, this.pitch, this.level, this.mouthOpen];
+        this.pose(time);
+        var item = this, cameraY = .52;
+        var f = 1 / Math.tan(29 * Math.PI / 360) * Math.min(1, this.width / this.height / 1.18);
+        function camera(p) { return {x: item.width / 2 + p[0] / (6.2 - p[2]) * f * item.height / 2, y: item.height / 2 - (p[1] - cameraY) / (6.2 - p[2]) * f * item.height / 2}; }
+        function posePoint(local, part) {
+            var p = local.slice(), head = part > .5 && part < 2.5 ? 1 : 0;
+            var mouth = Math.exp(-Math.pow((p[1] - .85) / .135, 2)) * Math.exp(-Math.pow(p[0] / .27, 4)) * ease((p[2] - .10) / .21) * head;
+            var jaw = (1 - ease((p[1] - .69) / .29)) * ease((p[2] + .08) / .28) * head;
+            p[1] -= item.level * .095 * jaw;
+            p[1] += mouth * Math.sin(p[0] * 27 - shaderTime * 7) * item.level * .024;
+            p[2] += mouth * (item.level * .045 + Math.sin(p[0] * 24 - shaderTime * 5) * item.level * .018);
+            var neck = ease((p[1] - .08) / .57) * (1 - head), yaw = mix(item.bodyYaw, item.headYaw, head + neck * .36);
+            var pivotY = mix(.10, .53, head), pivotZ = mix(0, -.035, head), pitch = item.pitch * mix(.12, 1, head);
+            var y = (p[1] - pivotY) * Math.cos(pitch) - (p[2] - pivotZ) * Math.sin(pitch);
+            var z = (p[1] - pivotY) * Math.sin(pitch) + (p[2] - pivotZ) * Math.cos(pitch);
+            var result = [p[0] * Math.cos(yaw) + z * Math.sin(yaw), y + pivotY, -p[0] * Math.sin(yaw) + z * Math.cos(yaw) + pivotZ];
+            if (!item.reduced) result[1] += Math.sin(shaderTime * 1.12) * .004;
+            return result;
+        }
+        function sample(id) {
+            var offset = id * 11, data = item.particles.vertices;
+            var local = [data[offset], data[offset + 1], data[offset + 2]], part = data[offset + 8], seed = data[offset + 9];
+            var arrival = arrivalFor(local, part) + (seed - .5) * .25;
+            var flight = part > .5 ? 2.65 : 1.45 + Math.abs(local[0]) * .15, birth = Math.max(.48, arrival - flight);
+            var q = ease((shaderTime - birth) / (arrival - birth)), target = posePoint(local, part), u = 1 - q;
+            var c1 = [EMITTER[0] + .72 + Math.sin(seed * 51.7) * .08, EMITTER[1] + .18 + Math.cos(seed * 67.3) * .07, EMITTER[2] + Math.sin(seed * 31.1) * .08];
+            var c2 = part > .5 ? [-1.75 + Math.cos(seed * 23.4) * .10, 1.98 + Math.sin(seed * 42.2) * .12, -.08 + Math.cos(seed * 17.4) * .09] : [target[0] * 1.25 - .12, target[1] + .68, target[2] + Math.sin(seed * 27.1) * .12];
+            var position = [0, 0, 0];
+            for (var axis = 0; axis < 3; axis++) position[axis] = EMITTER[axis] * u * u * u + 3 * c1[axis] * u * u * q + 3 * c2[axis] * u * q * q + target[axis] * q * q * q;
+            var phase = Math.max(0, shaderTime - 5.6) / (10 + seed * 10) + seed; phase -= Math.floor(phase);
+            var detached = ease((phase - .08) / .22) * (1 - ease((phase - .63) / .33)) * (seed >= .94 ? 1 : 0) * (item.fullViewport && !item.compact ? 1 : 0) * ease((shaderTime - 5.7) / 1.3) * (item.reduced ? 0 : 1);
+            var far = [Math.sin(seed * 173.1) * 2.8 * item.width / item.height, Math.cos(seed * 137.2) * 2.1 + .52, Math.sin(seed * 71.9) * .9];
+            var noise = item.reduced ? [0, 0, 0] : [Math.sin(shaderTime * .8 + seed * 63) * .009, Math.cos(shaderTime * .6 + seed * 43) * .009, Math.sin(shaderTime * .7 + seed * 31) * .009];
+            for (axis = 0; axis < 3; axis++) { position[axis] = mix(position[axis], far[axis], detached) + noise[axis] * q; target[axis] += noise[axis]; }
+            return {id: id, birth: birth, arrival: arrival, local_target: local, target: target, position: position, projected_position: camera(position), active: shaderTime >= birth, arrived: shaderTime >= arrival && detached < .00001, detached: detached};
+        }
+        if (!this.surfaceArrival) {
+            this.surfaceArrival = {headFirst: Infinity, headLast: 0, torsoFirst: Infinity, torsoLast: 0};
+            for (var i = 0; i < this.mesh.vertices.length; i += 9) {
+                var p = [this.mesh.vertices[i], this.mesh.vertices[i + 1], this.mesh.vertices[i + 2]], part = this.mesh.vertices[i + 8], value = arrivalFor(p, part), prefix = part > .5 ? 'head' : 'torso';
+                this.surfaceArrival[prefix + 'First'] = Math.min(this.surfaceArrival[prefix + 'First'], value);
+                this.surfaceArrival[prefix + 'Last'] = Math.max(this.surfaceArrival[prefix + 'Last'], value);
+            }
+        }
+        var ids = [0, 1, 2, 3, 4, 21, 83, 199, 405, 717, 1133, 2003, 3001, 4209, 6059, 7999, 10999, 13999];
+        var particles = ids.filter(function (id) { return id < item.particles.count - 1; }).map(sample);
+        this.headYaw = saved[0]; this.bodyYaw = saved[1]; this.pitch = saved[2]; this.level = saved[3]; this.mouthOpen = saved[4];
+        return {duration: ASSEMBLY_DURATION, emitter: EMITTER.slice(), emitter_projected: camera(EMITTER), particles: particles, surfaceArrival: this.surfaceArrival};
     };
     Hologram.prototype.destroy = function () {
         if (this.dead) return; this.dead = true;
@@ -431,7 +546,7 @@
         if (!items.some(moving) && frame) { window.cancelAnimationFrame(frame); frame = 0; }
     };
     window.GoHologram = {
-        version: 2,
+        version: 3,
         mount: function (canvas, options) {
             if (!canvas || typeof canvas.getContext !== 'function') return null;
             if (canvas.__goHologram && !canvas.__goHologram.dead) return canvas.__goHologram.api;
@@ -448,8 +563,9 @@
                 setVoiceLevel: function (value) { item.voiceLevel = clamp(Number(value) || 0, 0, 1); item.explicitVoice = true; wake(); },
                 setAlert: function (value) { item.alert = !!value; wake(); },
                 setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); },
-                setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 3 : item.elapsed); wake(); },
-                diagnostics: function () { return {version: 2, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
+                setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 6 : item.elapsed); wake(); },
+                assembly: function (time) { return item.assembly(time); },
+                diagnostics: function () { return {version: 3, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
             };
             item.api = api; canvas.__goHologram = item; items.push(item); wake(); return api;
         }

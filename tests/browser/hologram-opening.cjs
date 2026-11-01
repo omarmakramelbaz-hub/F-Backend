@@ -7,10 +7,10 @@ const read=name=>fs.readFileSync(path.join(repo,name),'utf8');
 const labels={employees:'الموظفين والرواتب',customers:'العملاء',expenses:'المصروفات',drawer:'تقفيل الوردية',stock:'مخزون البضاعة','ch-app':'طلبات التطبيق','ch-takeaway':'تيك أواي','ch-phone':'دليفري','ch-dine':'صالة','pending-expenses':'مصروفات منتظرة'};
 function metrics(){return{scope:'all',scope_label:'جميع الفروع المصرّح بها',branch_count:4,updated_at:'2026-11-01T20:00:00+02:00',cards:Object.entries(labels).map(([key,label],i)=>({key,label,url:'/admin/'+key,count:i+1,count_label:key.startsWith('ch-')?'غير منتهية':'إجمالي',secondary_count:key==='stock'?4:key==='ch-app'?11374:null,secondary_label:key==='stock'?'وصلت للحد الأدنى':key==='ch-app'?'منتهية · جميع الفروع المصرّح بها':null,warning:key==='stock',available:true}))};}
 function html(url){
- if(url.searchParams.has('robotonly')) return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010b14}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas data-hud-robot aria-hidden="true"></canvas><script src="/dashboard/js/go-hologram.js"></script><script>window.motionRobot=GoHologram.mount(document.querySelector('canvas'),{background:true});</script></body></html>`;
+ if(url.searchParams.has('robotonly')) return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#010b14}canvas{display:block;width:100vw;height:100vh}</style></head><body><canvas data-hud-robot aria-hidden="true"></canvas><script src="/dashboard/js/go-hologram.js"></script><script>window.motionRobot=GoHologram.mount(document.querySelector('canvas'),{background:true,fullViewport:true,interactive:true});</script></body></html>`;
  let partial=read('resources/views/admin/home_hud.blade.php').replace(/\{\{--[\s\S]*?--\}\}/g,'').replace(/\{\{\s*!empty\([^}]+\}\}/g,'1').replace(/\{\{\s*auth\('admin'\)->user\(\)->name\s*\}\}/g,'عمر');
  partial=partial.replace("@include('admin.partials.go_hud_mark')",read('resources/views/admin/partials/go_hud_mark.blade.php'));
- // Strip optional asset helper strings used by the renderer's local texture.
+ // Resolve Blade asset helpers in shared production markup.
  partial=partial.replace(/\{\{\s*asset\('([^']+)'\)\s*\}\}/g,(_,p)=>'/'+p);
  partial=partial.replace(/\{\{--[\s\S]*?--\}\}/g,'');
  assert(!/@(?:include|if|php)|\{\{/.test(partial),'Fixture must use production markup with only Blade values substituted');
@@ -40,7 +40,7 @@ if(require.main===module)(async()=>{
    window.SpeechSynthesisUtterance=function(text){this.text=text;};
    window.fetch=(url,options={})=>new Promise((resolve,reject)=>{const request={url:String(url),options,resolve,reject,aborted:false};fixture.calls.push(request);if(options.signal)options.signal.addEventListener('abort',()=>{request.aborted=true;reject(new DOMException('Aborted','AbortError'));});});
    window.fixture.reply=(i,data,status=200,redirected=false)=>fixture.calls[i].resolve({status,ok:status>=200&&status<300,redirected,json:()=>Promise.resolve(data)});
-   if(!location.search.includes('real'))window.GoHologram={mount:(canvas,options)=>{const robot={dead:false,speaking:false,alert:false,destroy(){this.dead=true},setSpeaking(v){this.speaking=v},setVoiceLevel(v){this.voiceLevel=v},setAlert(v){this.alert=v}};fixture.mounted.push(robot);return robot;}};
+   if(!location.search.includes('real'))window.GoHologram={version:location.search.includes('v3delay')?3:undefined,mount:(canvas,options)=>{const robot={dead:false,speaking:false,alert:false,destroy(){this.dead=true},setSpeaking(v){this.speaking=v},setVoiceLevel(v){this.voiceLevel=v},setAlert(v){this.alert=v}};fixture.mounted.push(robot);return robot;}};
   });
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.clock.install();await page.goto(origin+'/fixture');
@@ -113,6 +113,28 @@ if(require.main===module)(async()=>{
   equal(await page.evaluate(()=>fixture.plays),0,'Normal home entry does not greet');
   await page.clock.runFor(15010);await page.evaluate(()=>fixture.reply(0,{},403));await page.waitForTimeout(0);
   equal(await page.locator('.hud-card').count(),0,'Lost authorization clears sensitive counters');
+  // Freeze before navigation so the construction gate is measured exactly from page initialization.
+  await page.clock.pauseAt(await page.evaluate(()=>Date.now()+1000));
+  await page.goto(origin+'/fixture?nonce=login-v3-ready&v3delay=1');
+  equal(await page.evaluate(()=>fixture.plays),0,'V3 waits for emitter construction before greeting');
+  await page.locator('[data-hud-robot]').dispatchEvent('pointerdown');
+  await page.locator('[data-hud-robot]').dispatchEvent('keydown',{key:'ArrowRight'});
+  equal(await page.evaluate(()=>fixture.plays),0,'Early pointer and keyboard activity cannot bypass construction gate');
+  await page.clock.runFor(6100);
+  equal(await page.evaluate(()=>fixture.plays),0,'Greeting remains silent through the first 6.1 seconds');
+  await page.clock.runFor(200);
+  equal(await page.evaluate(()=>fixture.plays),1,'Greeting starts once after 6.2-second construction');
+  await page.evaluate(()=>fixture.audio[0].currentTime=.04);await page.clock.runFor(40);
+  equal(await page.evaluate(()=>fixture.mounted[0].voiceLevel),.85,'Delayed V3 greeting still drives synchronized mouth amplitude');
+  await page.clock.runFor(3000);await page.locator('[data-hud-robot]').dispatchEvent('pointerdown');
+  equal(await page.evaluate(()=>fixture.plays),1,'Finishing construction and later interaction never replay greeting');
+  await page.goto(origin+'/fixture?nonce=login-v3-cancel&v3delay=1');
+  await page.clock.runFor(1000);await page.locator('[data-hud-enter]').dispatchEvent('click');await page.clock.runFor(7000);
+  equal(await page.evaluate(()=>fixture.plays),0,'Leaving during construction cancels the pending greeting timer');
+  equal(await page.evaluate(()=>fixture.mounted[0].dead),true,'Leaving during construction destroys the main renderer');
+  await page.emulateMedia({reducedMotion:'reduce'});await page.goto(origin+'/fixture?nonce=login-v3-reduced&v3delay=1');
+  equal(await page.evaluate(()=>fixture.plays),1,'Reduced-motion V3 skips construction wait and greets immediately');
+  await page.clock.resume();
   await page.close();
   // Production renderer and responsive DOM. No metric or audio network operations.
   for(const size of [{width:1672,height:941},{width:1366,height:768},{width:1024,height:768},{width:800,height:600},{width:390,height:844},{width:320,height:568}]){

@@ -12,7 +12,7 @@
     var robotCanvas = root.querySelector('[data-hud-robot]');
     var robot = null;
     try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: true}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
-    var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, muted = false, mouthFrame = 0;
+    var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, greetingReady = true, greetingTimer = 0, muted = false, mouthFrame = 0;
     var currentActor = document.body.dataset.dashboardActor || '';
     var bg = root.querySelector('[data-hud-background]'), bgContext = bg ? bg.getContext('2d') : null, bgFrame = 0, bgLast = 0;
     var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -121,12 +121,13 @@
         mouthFrame = requestAnimationFrame(mouth);
     }
     function stopSpeech() {
+        clearTimeout(greetingTimer); greetingTimer = 0;
         pendingGreeting = false; speechQueued = false; if (mouthFrame) cancelAnimationFrame(mouthFrame); mouthFrame = 0;
         if (speech) { speech.onplaying = speech.onended = speech.onerror = null; speech.pause(); }
         speech = null; if (robot && robot.setVoiceLevel) robot.setVoiceLevel(0); speaking(false);
     }
     function sayGreeting() {
-        if (!pendingGreeting || speechQueued || disposed || root.hidden || document.hidden || muted || greetingDone) return;
+        if (!pendingGreeting || !greetingReady || speechQueued || disposed || root.hidden || document.hidden || muted || greetingDone) return;
         var audio = boot.greeting && boot.greeting.audio, url = audio && safeURL(audio.url);
         if (!url || !audio.envelope || !Array.isArray(audio.envelope.values) || !audio.envelope.values.length || !window.Audio) { pendingGreeting = false; return; }
         // Only the reviewed, reference-conditioned local recording may speak.
@@ -149,7 +150,11 @@
         if (!boot.greeting || !boot.greeting.nonce) return;
         var key = 'go-hologram-greeting:' + currentActor, nonce = String(boot.greeting.nonce);
         try { if (sessionStorage.getItem(key) === nonce) return; sessionStorage.setItem(key, nonce); } catch (_) { /* Server consumes the nonce even without session storage. */ }
-        pendingGreeting = true; sayGreeting();
+        pendingGreeting = true;
+        if (robot && window.GoHologram.version >= 3 && !(reduce && reduce.matches)) {
+            greetingReady = false;
+            greetingTimer = setTimeout(function () { greetingTimer = 0; greetingReady = true; sayGreeting(); }, 6200);
+        } else sayGreeting();
     }
     function leave() { if (disposed) return; root.hidden = true; dispose(); var title = document.querySelector('#ho-title, #branch-home h1'); if (title) { title.tabIndex = -1; title.focus({preventScroll: true}); } }
     function keydown(event) {
