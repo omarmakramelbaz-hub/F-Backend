@@ -43,6 +43,14 @@ class DashboardHomeOverviewTest extends TestCase
         Schema::disableForeignKeyConstraints();foreach(['branch_recipe_sales','branch_stock_recipes','branch_inventory_movements','branch_inventory','stock_ingredients','branch_shift_sources','branch_shift_closings','branch_expense_commands','branch_expenses','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_stores','order_board_clocks','carts','orders','wallets','settings','pending_vendors','resturant_products','resturants','users'] as $t)Schema::dropIfExists($t);Schema::enableForeignKeyConstraints();
     }
     private function actor(int $id=1): User {return User::withoutGlobalScopes()->findOrFail($id);}
+    private function permissionCatalog(): void
+    {
+        // Controller responses also include independently tested HUD links,
+        // which consult the normal persisted permission catalog.
+        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php');
+        (new \CreatePermissionTables)->up();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+    }
     private function overview(array $filters=[],int $actor=1): array {return app(HomeOverview::class)->data($filters,$this->actor($actor));}
     private function drawers(array $filters=[],int $actor=1): array {return app(HomeOverview::class)->drawers($filters,$this->actor($actor));}
     private function denied(callable $fn,int $code): void {try{$fn();$this->fail('Expected denial');}catch(HttpException $e){$this->assertSame($code,$e->getStatusCode());}}
@@ -202,6 +210,7 @@ class DashboardHomeOverviewTest extends TestCase
     }
     public function test_owner_platform_counts_separate_customers_partners_stores_and_pending_requests(): void
     {
+        $this->permissionCatalog();
         // Accepted and rejected applications must not appear in the pending tile.
         foreach([[2,'accepted','delegate','plumber'],[3,'accepted','delegate','store_owner'],[4,'pending','vendor','store_owner'],[5,'pending','delegate','electrician'],[6,'declined','vendor','store_owner'],[7,'pending','vendor',null],[8,'pending','user',null],[9,'pending','delegate','store_owner']] as [$id,$status,$type,$profession])
             DB::table('pending_vendors')->insert(['id'=>$id,'status'=>$status,'type'=>$type,'profession_key'=>$profession]);
@@ -248,6 +257,7 @@ class DashboardHomeOverviewTest extends TestCase
     }
     public function test_dashboard_endpoint_is_private_and_branch_filters_cannot_bypass_authorization(): void
     {
+        $this->permissionCatalog();
         $this->actingAs($this->actor(10),'admin');$this->getJson('/admin/dashboard/overview?branch=f:100')->assertOk()->assertJsonPath('can_view_financials',false)->assertHeader('Cache-Control','no-store, private');
         $this->getJson('/admin/dashboard/overview?branch=f:101')->assertNotFound();
         $this->actingAs($this->actor(20),'admin');$this->getJson('/admin/dashboard/overview')->assertForbidden();
@@ -264,7 +274,11 @@ class DashboardHomeOverviewTest extends TestCase
 
     public function test_initial_and_periodic_owner_overview_never_reconstruct_shift_drawers(): void
     {
-        $shift=\Mockery::mock(BranchShiftClosing::class);$shift->shouldNotReceive('ownerBalances');
+        $this->permissionCatalog();
+        // HUD navigation may perform the real, inexpensive branch authorization
+        // lookup. Reconstructing financial drawer balances remains forbidden.
+        $shift=\Mockery::mock(BranchShiftClosing::class,[app(\App\Services\Dashboard\TakeawayAccess::class)])->makePartial();
+        $shift->shouldNotReceive('ownerBalances');
         $this->app->instance(BranchShiftClosing::class,$shift);
         foreach([[],['branch'=>'f:100'],['period'=>'week'],['period'=>'custom','from'=>'2026-10-01','to'=>'2026-10-05']] as $filters){
             $data=$this->overview($filters);$this->assertSame(['ready'=>false,'loaded'=>false,'total_cents'=>null,'branches'=>[]],$data['owner_drawer']);
