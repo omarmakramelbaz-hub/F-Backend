@@ -409,6 +409,17 @@ class ServiceOffline {
       ...this.summary(user, value, catalog, copy) });
   }
 
+  /** This page's orders still open (not paid, not cancelled): what the shift page asks to close first. */
+  openOrders(user, branch) {
+    const copy = this.store.service(branch) || {};
+    const items = this.store.pageTickets(branch, this.channel).filter((ticket) => ticket.data.kind === 'local' && ticket.status !== 'moved')
+      .map((ticket) => this.presentLocal(user, ticket, false));
+    for (const server of copy.tickets || []) {
+      if (server.channel === this.channel) items.push(this.presentServer(user, server, this.store.serviceOverlay(Number(server.id)), false));
+    }
+    return items.filter((item) => item.payment_status !== 'paid' && !['paid', 'cancelled', 'canceled'].includes(item.status));
+  }
+
   // ---- GET tickets/{id} ----
   show({ user: who }, id) {
     const user = this.user({ user: who });

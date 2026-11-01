@@ -16,6 +16,7 @@ const { TakeawayOffline } = require('./offline/takeaway.cjs');
 const { ExpensesOffline } = require('./offline/expenses.cjs');
 const { EmployeesOffline } = require('./offline/employees.cjs');
 const { StockOffline } = require('./offline/stock.cjs');
+const { ShiftsOffline } = require('./offline/shifts.cjs');
 const { ServiceOffline } = require('./offline/service.cjs');
 const { DeliveryOffline } = require('./offline/delivery.cjs');
 
@@ -706,13 +707,15 @@ app.whenReady().then(() => {
   const origin = new URL(SERVER).origin;
   pageCache = new PageCache(path.join(app.getPath('userData'), 'dashboard-copy.sqlite'), { now });
   const stockPage = new StockOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() });
+  const dinePage = new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'dine' });
+  const deliveryPage = new DeliveryOffline({ store, origin, now, kick: () => sync.kick() });
+  const shiftsPage = new ShiftsOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), services: [dinePage, deliveryPage] });
   offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
     pages: [new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
       new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
       stockPage,
       new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), recoverers: [(entry, user) => stockPage.recovered(entry, user)] }),
-      new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'dine' }),
-      new DeliveryOffline({ store, origin, now, kick: () => sync.kick() })],
+      dinePage, deliveryPage, shiftsPage],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
     onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
     onFromCopy: (contents) => fromCopy.add(contents),

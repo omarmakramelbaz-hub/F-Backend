@@ -319,7 +319,7 @@ class Store {
         if (!entry || !entry.value || !Array.isArray(entry.tickets)) continue;
         this.db.prepare('UPDATE branches SET service = ?, service_hash = ? WHERE value = ?')
           .run(JSON.stringify({ tables: entry.tables || [], policy: entry.policy || {}, tickets: entry.tickets, delivery: entry.delivery ?? null,
-            received_at: this.now().toISOString() }),
+            shift: entry.shift ?? null, received_at: this.now().toISOString() }),
             entry.hash, entry.value);
       }
     });
@@ -764,6 +764,38 @@ class Store {
       options.id, 'stock_receive');
   }
 
+  /**
+   * A shift an owner or admin closed on the dashboard's shift page offline (the page checked it), sent to the dashboard
+   * as shift_close: alone, after everything recorded before it and before anything recorded after it.
+   */
+  recordShiftClose(actor, branch, values, options = {}) {
+    if (options.id) {
+      const existing = this.journalEntry(options.id);
+      if (existing) {
+        if (existing.kind !== 'shift' || existing.actor_id !== actor.id || existing.branch !== branch) {
+          const error = new Error('رقم الإغلاق مستخدم لبيانات مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ...existing, replayed: true };
+      }
+    }
+    this.requireBranch(actor, branch, 'can_close_shift');
+    const data = { previous_closing_id: Number(values.previous_closing_id), counted_cash: String(values.counted_cash), notes: String(values.notes || '') };
+    return this.addJournal(actor, branch, 'shift', 0, data, { started_at: values.started_at || '' }, options.id, 'shift_close');
+  }
+
+  /** Shifts closed on this device for a branch, oldest first. */
+  deviceShiftClosings(branch) {
+    return this.db.prepare("SELECT * FROM journal WHERE kind = 'shift' AND branch = ? ORDER BY seq").all(branch)
+      .map((row) => ({ ...row, data: JSON.parse(row.data) }));
+  }
+
+  /** Shift closings waiting to be sent. */
+  waitingShiftClose() {
+    return this.db.prepare("SELECT COUNT(*) AS c FROM outbox WHERE kind = 'shift_close' AND status = 'pending'").get().c;
+  }
+
   /** Goods received on this device for a branch, oldest first. */
   deviceStockReceipts(branch) {
     return this.db.prepare("SELECT * FROM journal WHERE kind = 'stock' AND branch = ? ORDER BY seq").all(branch)
@@ -993,8 +1025,14 @@ class Store {
     if (known && !known.length) return [];
     const filter = known ? ` AND kind IN (${known.map(() => '?').join(', ')})` : '';
     // In the order they were done (an order changed, then its bill printed, then paid).
-    return this.db.prepare(`SELECT id, payload FROM outbox WHERE status = 'pending'${filter} ORDER BY created_at, rowid LIMIT ?`).all(...(known || []), limit)
-      .map((row) => JSON.parse(row.payload));
+    const operations = this.db.prepare(`SELECT id, payload FROM outbox WHERE status = 'pending'${filter} ORDER BY created_at, rowid LIMIT ?`)
+      .all(...(known || []), limit).map((row) => JSON.parse(row.payload));
+    // A shift closing counts what the dashboard has when it arrives: it goes alone, once everything recorded before it
+    // is in, and before anything recorded after it.
+    const closing = operations.findIndex((operation) => operation.kind === 'shift_close');
+    if (closing > 0) return operations.slice(0, closing);
+    if (closing === 0) return operations.slice(0, 1);
+    return operations;
   }
 
   applyResults(results) {
@@ -1019,7 +1057,8 @@ class Store {
           } else if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ?, synced_at = ? WHERE id = ?")
             .run(receipt.id ?? null, receipt.number ?? null, now, row.ticket_id);
           if (row.journal_id) {
-            const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}` : null;
+            const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}`
+              : result.closing && result.closing.number ? String(result.closing.number) : null;
             if (result.attendance) {
               // The server keeps the first punch of the day; show the time it recorded.
               this.db.prepare(`UPDATE journal SET data = json_set(data, '$.server_checked_in_at', ?, '$.server_checked_out_at', ?) WHERE id = ?`)
@@ -1052,7 +1091,7 @@ class Store {
     const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف', attendance_status: 'غياب أو إجازة',
       ticket_settle: 'تحصيل طلب', ticket_open: 'نقل طلب للداشبورد', ticket_action: 'إجراء على طلب', ticket_dispatch: 'تسليم طلب للمندوب',
       ticket_batch: 'تحصيل طلبات المندوب', ticket_save: 'تعديل طلب', ticket_cancel: 'إلغاء طلب', customer_save: 'بيانات عميل',
-      stock_receive: 'إضافة بضاعة' };
+      stock_receive: 'إضافة بضاعة', shift_close: 'تقفيل وردية' };
     return this.db.prepare(`SELECT o.id, o.kind, o.last_error, o.updated_at, t.local_number, t.branch, t.totals, j.amount_cents, j.branch AS journal_branch
       FROM outbox o LEFT JOIN tickets t ON t.id = o.ticket_id LEFT JOIN journal j ON j.id = o.journal_id
       WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()

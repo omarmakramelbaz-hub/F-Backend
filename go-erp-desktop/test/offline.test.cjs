@@ -440,6 +440,88 @@ test('the employees page records the day\'s leave or absence on the device, with
   assert.deepEqual(store.rejectedOperations().map((item) => item.kind), ['غياب أو إجازة']);
 });
 
+// ---- the shift page (تقفيل الوردية): an owner or admin closes the shift on the device while offline ----
+const { ShiftsOffline, LOCAL_SHIFT_BASE } = require('../src/main/offline/shifts.cjs');
+
+test('the shift page closes the shift on the device once nothing is open, and the closing goes alone, in its place', async () => {
+  const dining = diningPage({ kinds: ['sale', 'expense', 'till', 'ticket_settle', 'ticket_open', 'ticket_action', 'shift_close'] });
+  const { store } = dining;
+  const OWNER = { ...ACCOUNT, id: 1, name: 'المالك', can_manage: true, can_close_shift: true, can_approve_expenses: true };
+  store.replaceUsers([ACCOUNT, OWNER], 'h-shift');
+  const copy = serviceCopy();
+  const shift = { previous_closing_id: 5, started_at: '2026-10-30 06:00:00', history: [{ id: 5, number: 'SHIFT-000005', sequence: 5, branch: 'f:100',
+    started_at: '2026-10-29 06:00:00', closed_at: '2026-10-30 06:00:00', print_url: ORIGIN + '/admin/branch-shifts/5/print' }] };
+  store.applyService([{ ...copy, hash: 'service-shift', shift }]);
+  const phone = new ServiceOffline({ store, origin: ORIGIN, now: () => store.now(), kick: () => {}, channel: 'phone' });
+  const page = new ShiftsOffline({ store, cache: new PageCache(':memory:', { now: () => store.now() }), origin: ORIGIN, now: () => store.now(),
+    services: [dining.page, phone] });
+  const ask = async (method, path, body = null, user = OWNER) => {
+    const url = new URL(ORIGIN + path);
+    return page.answer(page.match(method, url.pathname), { user, url, body });
+  };
+  const address = '/admin/branch-shifts/data?branch=f:100';
+  let count = 0;
+  const key = () => `30000000-0000-4000-8000-${String(++count).padStart(12, '0')}`;
+  const close = (extra = {}) => ask('POST', '/admin/branch-shifts/close', { branch: 'f:100', previous_closing_id: 5, review_token: 'x'.repeat(64),
+    counted_cash: '1250.50', notes: 'قفلة الليل', idempotency_key: key(), ...extra });
+
+  // Owners and admins only, as on the dashboard.
+  assert.equal((await ask('GET', address, null, ACCOUNT)).json.message, 'تقفيل الوردية متاح للأونر والأدمن فقط.');
+  // The shift as last synced, with this device's open orders: the dashboard's order on table 1.
+  const state = (await ask('GET', address)).json;
+  assert.deepEqual([state.previous_closing_id, state.report.started_at, state.history.map((closing) => closing.number)],
+    [5, '2026-10-30 06:00:00', ['SHIFT-000005']]);
+  assert.deepEqual([state.report.pending_invoices.total, state.report.pending_invoices.counts, state.report.pending_invoices.items[0].label],
+    [1, { dine: 1, phone: 0, app: 0 }, 'الصالة']);
+  assert.equal((await close()).json.message, 'برجاء إغلاق الفواتير أولًا.');
+  // The order was paid; an expense on the dashboard still waits for review, then one saved here without approval.
+  store.applyService([{ ...copy, hash: 'service-shift-2', tickets: [], shift: { ...shift, pending_expenses: [{ id: 3, number: 'EXP-000003',
+    occurred_on: '2026-10-30', description: 'كهرباء', category: 'electricity' }] } }]);
+  const waiting = (await ask('GET', address)).json.report;
+  assert.deepEqual([waiting.pending_expenses, waiting.pending_expense_items[0].number], [1, 'EXP-000003']);
+  assert.equal((await close()).json.message, 'لا يمكن إغلاق الوردية قبل تسوية المصروفات المعلقة باعتمادها أو رفضها.');
+  store.applyService([{ ...copy, hash: 'service-shift-3', tickets: [], shift: { ...shift, pending_expenses: [] } }]);
+  const owner = store.user(1);
+  const expense = store.addJournal(store.user(4), 'f:100', 'expense', 5000, { category: 'gas', description: 'غاز', amount: '50.00', approve: false }, {}, null);
+  assert.equal((await close()).json.message, 'لا يمكن إغلاق الوردية قبل تسوية المصروفات المعلقة باعتمادها أو رفضها.');
+  store.applyResults([{ id: expense.id, status: 'rejected', error: 'مرفوض' }]);
+  assert.equal((await close({ previous_closing_id: 4 })).json.message, 'تم إغلاق وردية من جهاز آخر. حدّث الصفحة وراجع الفترة الجديدة.');
+  assert.equal((await close({ counted_cash: '12,5' })).json.message, 'أدخل الكاش الفعلي بقيمة صحيحة.');
+
+  // Cash put in before the closing, the closing, cash taken out after it.
+  const before = store.addJournal(owner, 'f:100', 'till', 10000, { direction: 'in', reason: 'فكة' }, {}, null);
+  const closing = await close();
+  assert.equal(closing.status, 200, JSON.stringify(closing.json));
+  const local = closing.json.closing;
+  assert.ok(local.id > LOCAL_SHIFT_BASE);
+  assert.deepEqual([local.number, local.started_at, local.print_url], [`جهاز-${local.id - LOCAL_SHIFT_BASE}`, '2026-10-30 06:00:00',
+    `${ORIGIN}/admin/branch-shifts/${local.id}/print`]);
+  const after = store.addJournal(owner, 'f:100', 'till', 2000, { direction: 'out', reason: 'مشتريات' }, {}, null);
+  assert.equal((await close()).json.message, 'فيه قفلة وردية للفرع ده محفوظة على الجهاز ولسه ما وصلتش للداشبورد. القفلة الجاية بعد ما توصل.');
+  // The page's lists show it; its answer can be checked again; its report prints once the dashboard has it.
+  assert.deepEqual((await ask('GET', address)).json.history.map((item) => item.number), [local.number, 'SHIFT-000005']);
+  const recovered = (await ask('GET', `/admin/branch-shifts/recover?branch=f:100&idempotency_key=${closing.json.closing && store.journalBySeq(local.id - LOCAL_SHIFT_BASE).id}`)).json;
+  assert.deepEqual([recovered.found, recovered.closing.id], [true, local.id]);
+  const details = await ask('GET', `/admin/branch-shifts/${local.id}/details`);
+  assert.match(details.html, /1250\.50/);
+  assert.match(details.html, /قفلة الليل/);
+  assert.equal((await ask('POST', '/admin/branch-shifts/reprint', { closing_id: local.id, idempotency_key: key() })).status, 409);
+  assert.equal(await ask('POST', '/admin/branch-shifts/reprint', { closing_id: 5, idempotency_key: key() }), null, 'The dashboard prints its own closings');
+
+  // Sent in order: what was recorded before it, then the closing alone, then what came after it.
+  const kinds = ['sale', 'expense', 'till', 'shift_close'];
+  const sent = () => store.pendingOperations(50, kinds).map((operation) => operation.kind + ':' + operation.id);
+  const closeOperation = store.pendingOperations(50, ['shift_close'])[0];
+  assert.deepEqual(closeOperation.data, { previous_closing_id: 5, counted_cash: '1250.50', notes: 'قفلة الليل' });
+  assert.deepEqual(sent(), [`till:${before.id}`]);
+  store.applyResults([{ id: before.id, status: 'applied' }]);
+  assert.deepEqual(sent(), [`shift_close:${closeOperation.id}`]);
+  store.applyResults([{ id: closeOperation.id, status: 'applied', closing: { id: 6, number: 'SHIFT-000006' } }]);
+  assert.deepEqual(sent(), [`till:${after.id}`]);
+  assert.equal(store.journalEntry(closeOperation.id).server_ref, 'SHIFT-000006');
+  assert.deepEqual(store.rejectedOperations().map((item) => item.kind), ['مصروف']);
+});
+
 // ---- the stock page (إضافة بضاعة): goods received on the device while offline ----
 const { StockOffline } = require('../src/main/offline/stock.cjs');
 

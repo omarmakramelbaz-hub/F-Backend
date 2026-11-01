@@ -91,8 +91,10 @@ class SyncEngine extends EventEmitter {
       this.store.set('last_sync_at', syncedAt);
       if (response.server_time) this.store.set('server_offset_ms', Date.parse(response.server_time) - this.now());
       this.state = { ...this.state, online: true, last_sync_at: syncedAt, last_error: null };
-      // A full batch means more operations (or saved customers) are waiting: continue right away.
+      // A full batch means more operations (or saved customers) are waiting: continue right away. So does a shift
+      // closing that waited for the operations recorded before it.
       if (operations.length >= 50 || moreCustomers) next = 1000;
+      if (!operations.some((operation) => operation.kind === 'shift_close') && this.store.waitingShiftClose() > 0) next = 1000;
       // The dashboard is reachable: dine-in orders opened offline and still unpaid continue there.
       if (this.store.queueTicketMoves() > 0) next = 1000;
     } finally {
