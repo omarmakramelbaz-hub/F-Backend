@@ -1102,6 +1102,34 @@ class DesktopSyncTest extends TestCase
         }
     }
 
+    public function test_the_dashboard_sign_in_page_takes_the_go_opening_look_and_keeps_its_form(): void
+    {
+        $page = $this->get('/admin/login')->assertOk()->getContent();
+        foreach (['hud-login', 'data-login-hologram', 'data-login-lines', 'THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR'] as $part) {
+            $this->assertStringContainsString($part, $page);
+        }
+        // The form the app fills in to sign the dashboard in stays exactly as it was.
+        foreach (['data-dashboard-login', 'name="email"', 'name="password"', 'name="_token"', 'data-password-toggle', 'name="remember"'] as $part) {
+            $this->assertStringContainsString($part, $page);
+        }
+        $this->assertStringNotContainsString('go-hologram.js', $page, 'Without the hologram on the server, the GO logo stands in');
+        // With the opening's hologram and GO mark on the server, the page uses them.
+        $script = public_path('dashboard/js/go-hologram.js');
+        $mark = resource_path('views/admin/partials/go_hud_mark.blade.php');
+        @mkdir(dirname($script), 0777, true);
+        file_put_contents($script, '/* GO hologram */');
+        file_put_contents($mark, '<svg data-test-go-mark></svg>');
+        try {
+            app('view')->getFinder()->flush();
+            $page = $this->get('/admin/login')->assertOk()->getContent();
+            $this->assertMatchesRegularExpression('#dashboard/js/go-hologram\.js\?v=\d+#', $page);
+            $this->assertSame(2, substr_count($page, 'data-test-go-mark'), 'The GO mark in the corner, and in place of a hologram that cannot run');
+        } finally {
+            @unlink($script);
+            @unlink($mark);
+        }
+    }
+
     public function test_goods_received_offline_reach_the_stock_once_dated_when_the_device_recorded_them(): void
     {
         require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php'); (new \CreateBranchInventoryRecipes)->up();

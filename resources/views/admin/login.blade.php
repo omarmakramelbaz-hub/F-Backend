@@ -17,17 +17,53 @@
     @endif
     <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261017-go-solar-1">
+    <style>
+        /* Signing in through the GO opening (home-hud.css), as in the GO ERP app: its background, the live hologram on one
+           side, and the form as one of its cards on the other. */
+        .login-page.dashboard-login-page.hud-login{position:relative;isolation:isolate;display:flex;align-items:center;justify-content:flex-start;min-height:100vh;min-height:100dvh;padding:3vh 6vw;overflow:auto;color:#e9f7ff;background:radial-gradient(ellipse at 50% 53%,#062331 0%,#03131f 39%,#010b14 76%)}
+        .hud-backdrop{position:fixed;inset:0;z-index:-1;pointer-events:none}
+        .hud-backdrop-lines{position:absolute;inset:0;width:100%;height:100%;opacity:.65}
+        .hud-backdrop-figure{position:absolute;top:0;bottom:0;left:0;width:58%}
+        html[dir="ltr"] .hud-backdrop-figure{left:auto;right:0}
+        .hud-backdrop-figure canvas{display:block;width:100%;height:100%}
+        .hud-backdrop-still{position:absolute;top:50%;left:50%;width:min(360px,60%);transform:translate(-50%,-50%);filter:drop-shadow(0 0 18px #41dfff55)}
+        .hud-backdrop-still svg,.hud-backdrop-brand svg{display:block;width:100%;height:auto}
+        .hud-backdrop-brand{position:absolute;left:3%;bottom:5%;width:54px;filter:drop-shadow(0 0 4px #41dfff66)}
+        .hud-backdrop-tagline{position:absolute;left:50%;bottom:1.6%;transform:translateX(-50%);margin:0;white-space:nowrap;font-size:10px;letter-spacing:.08em;color:#73939f}
+        .hud-login .dashboard-login{display:block;width:min(430px,100%);padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+        .hud-login .dashboard-login-form-panel{padding:30px 30px 22px;border:1px solid #13bcd1a6;border-radius:14px;background:linear-gradient(125deg,#042031e0,#01111bf0);box-shadow:inset 0 1px 0 #c8f7ff0d,0 24px 70px #000a;backdrop-filter:blur(4px)}
+        .hud-login .dashboard-login-eyebrow{color:#ffa322}
+        .hud-login .dashboard-login-form-panel h1{color:#f1f9ff}
+        .hud-login .dashboard-login-description{color:#98b8c8;margin-bottom:24px}
+        .hud-login .dashboard-login-field>label,.hud-login .dashboard-login-remember{color:#dcfaff}
+        .hud-login .dashboard-login-remember input{accent-color:#28def5}
+        .hud-login .dashboard-login-input-wrap{border-color:#13bcd17a;background:#021723cc}
+        .hud-login .dashboard-login-input-wrap:focus-within{border-color:#28def5;box-shadow:0 0 0 3px #28def51f}
+        .hud-login .dashboard-login-input-wrap>i,.hud-login .dashboard-password-toggle{color:#30e5f8}
+        .hud-login .dashboard-login-input-wrap>input{background:transparent;color:#eef9ff}
+        .hud-login .dashboard-login-input-wrap>input:focus,.hud-login .dashboard-login-input-wrap>input:focus-visible{outline:none;box-shadow:none}
+        .hud-login .dashboard-login-input-wrap>input::placeholder{color:#6f93a3}
+        .hud-login .dashboard-login-input-wrap>input:-webkit-autofill{-webkit-text-fill-color:#eef9ff;box-shadow:inset 0 0 0 1000px #021723}
+        .hud-login .dashboard-login-submit{border:1px solid #1bd2f1;border-radius:12px;background:linear-gradient(#062134,#020f1c);box-shadow:inset 0 1px 0 #d6fcff22,0 6px 22px #0007;color:#f1f9ff;font-weight:400;font-size:16px}
+        .hud-login .dashboard-login-submit>i{color:#ffa322}
+        .hud-login .dashboard-login-submit:hover{background:#073148;border-color:#1bd2f1;box-shadow:0 0 20px #1bd2f122}
+        @media (max-width:900px){.login-page.dashboard-login-page.hud-login{justify-content:center}.hud-backdrop-figure{width:100%;opacity:.35}}
+    </style>
 </head>
 @php $isArabic = app()->getLocale() === 'ar'; @endphp
-<body class="login-page dashboard-login-page">
+@php $goMark = view()->exists('admin.partials.go_hud_mark') ? 'admin.partials.go_hud_mark' : null; @endphp
+<body class="login-page dashboard-login-page hud-login">
+    <div class="hud-backdrop" aria-hidden="true" data-login-hud>
+        <canvas class="hud-backdrop-lines" data-login-lines></canvas>
+        {{-- The visible GO mark comes first: the hidden one below uses its colour gradient. --}}
+        @if($goMark)<span class="hud-backdrop-brand">@include($goMark)</span>@endif
+        <div class="hud-backdrop-figure">
+            <canvas data-login-hologram></canvas>
+            <span class="hud-backdrop-still" data-login-still hidden>@if($goMark)@include($goMark)@else @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-login-logo go-erp-platform-logo'])@endif</span>
+        </div>
+        <p class="hud-backdrop-tagline" lang="en" dir="ltr">THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR</p>
+    </div>
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
-        <section class="dashboard-login-identity" aria-label="{{ $isArabic ? 'فسخانستا وجو' : 'Fasakhansta and GO' }}">
-            <div class="dashboard-login-brand">
-                @include('admin.partials.go_erp_logo', ['logoClass' => 'dashboard-login-logo go-erp-platform-logo'])
-            </div>
-            <p class="dashboard-login-brand-title go-erp-tagline" lang="en" dir="ltr">THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR</p>
-            <p class="dashboard-login-brand-subtitle">{{ $isArabic ? 'لوحة واحدة لإدارة التطبيقات والطلبات' : 'One dashboard for your applications and orders' }}</p>
-        </section>
 
         <section class="dashboard-login-form-panel">
             <span class="dashboard-login-eyebrow">{{ $isArabic ? 'لوحة التحكم' : 'Dashboard' }}</span>
@@ -84,6 +120,46 @@
             </form>
         </section>
     </main>
+    @if(is_file(public_path('dashboard/js/go-hologram.js')))
+    <script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>
+    @endif
+    <script>
+        // The opening's live background and hologram (the same engine); without WebGL the GO mark stands in for it.
+        (function () {
+            const lines = document.querySelector('[data-login-lines]');
+            const figure = document.querySelector('[data-login-hologram]');
+            const still = document.querySelector('[data-login-still]');
+            let robot = null;
+            try { robot = window.GoHologram ? window.GoHologram.mount(figure, { background: false, interactive: false }) : null; } catch (error) { robot = null; }
+            if (!robot && figure && still) { figure.hidden = true; still.hidden = false; }
+            const reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+            let frame = 0, last = 0;
+            function draw(now) {
+                frame = 0;
+                if (!lines || document.hidden) return;
+                if (!last || now - last > 50) {
+                    last = now;
+                    const w = lines.clientWidth, h = lines.clientHeight, t = reduce && reduce.matches ? 0 : now / 1000;
+                    if (lines.width !== w || lines.height !== h) { lines.width = w; lines.height = h; }
+                    const c = lines.getContext('2d');
+                    c.clearRect(0, 0, w, h); c.lineWidth = .7;
+                    for (let i = 0; i < 18; i++) {
+                        const fromLeft = i % 2 === 0, x0 = fromLeft ? -20 : w + 20, y0 = (i / 18) * h, y1 = h * .54 + Math.sin(t * .25 + i) * h * .03;
+                        const x1 = w * (fromLeft ? .36 : .64), x2 = w * (fromLeft ? .25 : .75), y2 = y0 + Math.sin(i * 2 + t * .14) * h * .16;
+                        c.strokeStyle = 'rgba(37,189,225,.15)'; c.beginPath(); c.moveTo(x0, y0); c.bezierCurveTo(x1, y2, x2, y1, w * .5, h * .7); c.stroke();
+                        const p = (t * .025 + i / 18) % 1, q = 1 - p;
+                        const x = q*q*q*x0 + 3*q*q*p*x1 + 3*q*p*p*x2 + p*p*p*w*.5, y = q*q*q*y0 + 3*q*q*p*y2 + 3*q*p*p*y1 + p*p*p*h*.7;
+                        c.fillStyle = i % 7 === 0 ? '#ffb63a' : '#55dff3'; c.globalAlpha = .45; c.beginPath(); c.arc(x, y, 1.4, 0, 6.283); c.fill(); c.globalAlpha = 1;
+                    }
+                }
+                if (!reduce || !reduce.matches) frame = requestAnimationFrame(draw);
+            }
+            function wake() { if (!frame && !document.hidden) { last = 0; frame = requestAnimationFrame(draw); } }
+            document.addEventListener('visibilitychange', wake);
+            wake();
+            window.addEventListener('pagehide', function (event) { if (!event.persisted && robot) { robot.destroy(); robot = null; } });
+        }());
+    </script>
     <script>
         (function () {
             const form = document.querySelector('[data-dashboard-login]');
