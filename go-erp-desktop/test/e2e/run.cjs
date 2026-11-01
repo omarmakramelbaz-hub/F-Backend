@@ -812,6 +812,53 @@ async function dashboardOffline() {
   await app.close();
 }
 
+async function shiftOffline() {
+  // The owner closes the branch's shift on the dashboard's own page with the internet down; back online the dashboard
+  // records it, dated when it was closed on the device, and sends its report to the branch printer.
+  execFileSync('php', [path.join(__dirname, 'shift-tables.php')], { env: PHP_ENV, stdio: 'inherit' });
+  const userData = path.join(WORK, 'owner-device');
+  const app = await launch(userData, process.env.GOERP_E2E_EXECUTABLE || undefined, process.env.GOERP_E2E_EXECUTABLE ? [] : [APP], true);
+  const page = await firstWindow(app);
+  currentPage = page;
+  await page.getByRole('heading', { name: 'الدخول إلى لوحة التحكم' }).waitFor({ timeout: 20000 });
+  await signIn(page, 'u1@example.test', 'root-pass', '.status-bar');
+  await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens for the owner');
+  const shifts = (code) => inDashboard(app, `(() => { const root = document.querySelector('#branch-shifts'); if (!root) return false; ${code} })()`);
+  const period = "return /بداية الوردية/.test((root.querySelector('[data-sh-period]') || {}).textContent || '')";
+  // Online: the shift page once (saved on the device), and a sync that brings the branch's shift.
+  await inDashboard(app, "location.href = '/admin/branch-shifts?branch=f:100'");
+  await until(async () => await shifts(period).catch(() => false), 'the shift page opens online', 30000);
+  await page.locator('.sync-badge').first().click();
+  await until(() => deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM branches WHERE value = 'f:100' AND json_extract(service, '$.shift.previous_closing_id') = 0")[0].c === 1,
+    'the device has the branch\'s shift', 30000);
+  // The internet goes down: the same page, closed from the device.
+  await stopServer();
+  await inDashboard(app, "location.href = '/admin/branch-shifts?branch=f:100'");
+  await until(async () => await shifts("const select = root.querySelector('[data-sh-branch]');"
+    + " if (select.value !== 'f:100') { select.value = 'f:100'; select.dispatchEvent(new Event('change', { bubbles: true })); return false; }"
+    + ' ' + period.replace('return ', 'return ')).catch(() => false), 'the branch\'s shift shows offline', 30000);
+  await until(async () => await shifts("return root.querySelector('[data-sh-form]') && !root.querySelector('.sh-close').disabled").catch(() => false),
+    'the closing form is ready offline', 30000);
+  await shifts("root.querySelector('[data-sh-counted]').value = '1000.00'; root.querySelector('[data-sh-notes]').value = 'قفلة من غير نت';"
+    + " root.querySelector('[data-sh-form]').requestSubmit(); return true;");
+  await until(async () => await shifts("return /تم حفظ القفلة/.test(root.querySelector('[data-sh-message]').textContent)").catch(() => false),
+    'the shift is closed on the device', 30000).catch(async (error) => {
+    console.log('DEBUG shift', String(await shifts("return JSON.stringify({ message: root.querySelector('[data-sh-message]').textContent, period: root.querySelector('[data-sh-period]').textContent, warning: root.querySelector('[data-sh-pending-warning]').textContent })").catch((e) => 'ERR ' + e.message)));
+    throw error;
+  });
+  await until(async () => await shifts("return /جهاز-/.test(root.querySelector('[data-sh-history]').innerText)").catch(() => false), 'the closing is listed', 20000);
+  await dashboardShot(app, '24-dashboard-shift-closed-offline');
+  // Back online: the closing reaches the dashboard once, dated when it was closed here.
+  await startServer();
+  await page.locator('.sync-badge').first().click();
+  await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_shift_closings')[0].c === 1, 'the shift closed offline reaches the dashboard', 40000);
+  const closing = serverRows('SELECT id, counted_cents, closed_at FROM branch_shift_closings')[0];
+  const recorded = deviceRows(userData, 'goerp.sqlite', "SELECT created_at FROM journal WHERE kind = 'shift'")[0].created_at;
+  assert.deepEqual([closing.counted_cents, closing.closed_at], [100000, new Date(recorded).toISOString().slice(0, 19).replace('T', ' ')]);
+  assert.equal(serverRows(`SELECT COUNT(*) AS c FROM branch_shift_print_jobs WHERE closing_id = ${closing.id}`)[0].c, 1, 'Its report goes to the branch printer');
+  await app.close();
+}
+
 async function main() {
   fs.mkdirSync(SHOTS, { recursive: true });
   execFileSync('php', [path.join(__dirname, 'seed.php')], { env: PHP_ENV, stdio: 'inherit' });
@@ -822,6 +869,8 @@ async function main() {
   await ownerDevice();
   if (!server) await startServer();
   await dashboardOffline();
+  if (!server) await startServer();
+  await shiftOffline();
   await stopServer();
   console.log('GO ERP desktop end-to-end check passed. Screenshots: ' + SHOTS);
 }
