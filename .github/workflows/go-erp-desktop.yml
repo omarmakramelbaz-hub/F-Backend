@@ -67,6 +67,8 @@ on:
       - 'tests/test_tune_server_root.py'
       - 'deployment/cleanup_server_root.py'
       - 'tests/test_cleanup_server_root.py'
+      - 'deployment/analyze_live_server_root.py'
+      - 'tests/test_analyze_live_server_root.py'
       - 'public/sounds/go-delivery-order.wav'
       - '.github/workflows/go-erp-desktop.yml'
   pull_request:
@@ -121,7 +123,7 @@ jobs:
       - name: The app orders board («مندوب الفرع» prints) and the GO opening's counters (the owner's drawers)
         run: vendor/bin/phpunit --filter 'DashboardOrderBoardTest|DashboardHomeHologramMetricsTest'
       - name: Server installer tests
-        run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py tests/test_publish_go_erp_desktop_download_root.py tests/test_activate_employee_auto_absence_root.py tests/test_reset_branch_operations_root.py tests/test_install_login_hud_root.py tests/test_install_dashboard_branch_updates_root.py tests/test_backup_server_full_root.py tests/test_compare_live_code_root.py tests/test_inspect_live_server_root.py tests/test_tune_server_root.py tests/test_cleanup_server_root.py
+        run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py tests/test_publish_go_erp_desktop_download_root.py tests/test_activate_employee_auto_absence_root.py tests/test_reset_branch_operations_root.py tests/test_install_login_hud_root.py tests/test_install_dashboard_branch_updates_root.py tests/test_backup_server_full_root.py tests/test_compare_live_code_root.py tests/test_inspect_live_server_root.py tests/test_tune_server_root.py tests/test_cleanup_server_root.py tests/test_analyze_live_server_root.py
       - name: Order alerts (one feed for every tab; delivery orders sent to a branch ring with their own tone)
         run: |
           node tests/order_alerts_shared_feed_test.js
