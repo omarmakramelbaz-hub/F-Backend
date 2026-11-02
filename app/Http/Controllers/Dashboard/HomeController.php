@@ -77,14 +77,22 @@ class HomeController extends Controller
         // The GO control room plays its start-up sequence once per sign-in (sign-out clears the session).
         $boot['intro']=!$request->session()->has('go_hud_intro');$request->session()->put('go_hud_intro',true);
         $boot['hud_links']=\App\Services\Dashboard\HomeHudLinks::for(auth('admin')->user());
+        $boot['initial']['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user(),$boot['hud_links']);
+        // A refresh, section change or idle return must never replay the voice.
+        $boot['greeting']=$request->session()->pull('go_hologram_login');
+        if(is_array($boot['greeting']))$boot['greeting']['audio']=app(\App\Services\Dashboard\HomeHologramVoice::class)->forActor(auth('admin')->user());
         return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
     }
 
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
+        if($request->query('section')==='hologram')return response()->json([
+            'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user())
+        ])->header('Cache-Control','private, no-store');
         $data=$request->query('section')==='drawers'
             ?$overview->drawers($request->query(),auth('admin')->user())
             :$overview->data($request->query(),auth('admin')->user());
+        if($request->query('section')!=='drawers')$data['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user());
         return response()->json($data)->header('Cache-Control','private, no-store');
     }
 
@@ -94,61 +102,35 @@ class HomeController extends Controller
     }
 
     public function signin(Request $request){
-        // dd(($request->account_type));
         $request->validate([
-            'email' => 'required',
-            'password' => 'required',
+            'email' => 'required|string|max:255',
+            'password' => 'required|string',
             'remember' => 'nullable|boolean',
         ]);
-   
-   
-        $email         = $request->email;
-         // Remove the first 0 from the mobile number if it exists
-    if (substr($email, 0, 1) === '0') {
-        $email = substr($email, 1);
-    }
-    
-        $password     = $request->password;
-    // Find user by email
-    // $user = User::where('email', $email)->whereIn('account_type',['admin', 'vendor','resturant_owner'])->first();
-    // $attempt='email';
-    // if(!$user){
-    //   $user = User::where('mobile', $email)->whereIn('account_type',['admin', 'vendor','resturant_owner'])->first();
-    // $attempt='mobile';  
-    // }
-     $user=User::where(function ($query) use ($email) {
-        $query->where('mobile', $email)
-              ->orWhere('email', $email);
-    })
-    ->whereIn('account_type', ['admin', 'vendor','resturant_owner'])
-    ->first();
-    // dd($user);
-    // Check if user exists and account type is valid
-    if ($user && in_array($user->account_type, ['admin', 'vendor','resturant_owner'])) {
-        // dd($user->mobile,$password,Hash::check($password, $user->password));
-        if (Auth::guard('admin')->attempt(['mobile' => $user->mobile ,'password'=> $password, 'account_type' => $user->account_type], $request->boolean('remember'))) {
+        $identity = trim($request->input('email'));
+        $mobiles = \App\Services\Dashboard\DashboardLoginIdentity::mobileVariants($identity);
+        $user = User::where(function ($query) use ($identity, $mobiles) {
+            $query->where('email', $identity)->orWhere('mobile', $identity);
+            if ($mobiles !== []) { $query->orWhereIn('mobile', $mobiles); }
+        })->whereIn('account_type', \App\Services\Dashboard\DashboardLoginIdentity::ACCOUNT_TYPES)->first();
+
+        // Authenticate the exact selected account, including legacy owners without a mobile.
+        if ($user && Auth::guard('admin')->attempt([
+            'id' => $user->getAuthIdentifier(),
+            'account_type' => $user->account_type,
+            'password' => $request->input('password'),
+        ], $request->boolean('remember'))) {
             $request->session()->regenerate();
             session()->forget('id_user');
-
-            // dd(auth('admin')->user()->id);
-            session()->put('id_user', auth('admin')->user()->id);
-           if($user->account_type=='admin'){
+            session()->put('id_user', auth('admin')->id());
+            $request->session()->forget('go_hud_intro');
+            $request->session()->put('go_hologram_login',[
+                'nonce'=>(string)\Illuminate\Support\Str::uuid(),'name'=>(string)$user->name,
+            ]);
             return redirect('admin/dashboard');
-           }elseif($user->account_type=='vendor'){
-                           session()->put('id_user', auth('admin')->user()->id);
-
-               return redirect('admin/applies-orders');
-           }
-           elseif($user->account_type=='resturant_owner'){
-                           session()->put('id_user', auth('admin')->user()->id);
-
-               return redirect('admin/resturants');
-           }
         }
-    }
-        
         return redirect()->back()->withInput($request->only('email', 'remember'))
-            ->with('error',trans('main.invalid data'));
+            ->with('error', trans('main.invalid data'));
     }
 
     public function adminLogout()

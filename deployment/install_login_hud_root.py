@@ -35,6 +35,8 @@ SITE = Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
 BACKUPS = Path('/var/lib/go-erp-login-hud')
 PAGE = 'resources/views/admin/login.blade.php'
+# The new page waits here until installed: the repository's PAGE stays the one the live server runs.
+NEW_PAGE = 'deployment/login_hud/login.blade.php'
 NEEDS = ('public/dashboard/js/go-hologram.js', 'resources/views/admin/partials/go_hud_mark.blade.php')
 PROBE_URL = 'https://fasakhaninja.com/admin/login'
 MARKER = b'data-login-hologram'
@@ -64,7 +66,7 @@ def live_page(site):
 
 
 def new_page(package):
-    data = (package / PAGE).read_bytes()
+    data = (package / NEW_PAGE).read_bytes()
     need(MARKER in data and b'data-dashboard-login' in data and b'name="email"' in data and b'name="password"' in data, 'NEW_PAGE_INCOMPLETE')
     return data
 

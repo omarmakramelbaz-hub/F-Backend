@@ -7,7 +7,7 @@
             <div class="container-fluid">
                 <div class="row justify-content-between align-items-center gy-2  mb-2">
                     <div class="col-auto">
-                        <h1 class="m-0 text-dark">@lang('main.edit') {{__('main.'.request('account_type'))}}</h1>
+                        <h1 class="m-0 text-dark">@lang('main.edit') {{ \App\Services\Dashboard\DashboardAccountRole::label($user) }}</h1>
                     </div><!-- /.col -->
                     <div class="col-auto">
                         <ol class="breadcrumb float-sm-left">
@@ -43,36 +43,40 @@
                                   <div class="modal-dialog modal-dialog-centered" role="document">
                                     <div class="modal-content">
                                       <div class="modal-header">
-                                        <h5 class="modal-title" id="exampleModalLabel"> @lang('main.change mobile')</h5>
+                                        <h5 class="modal-title" id="exampleModalLabel">{{ (int)$user->id === 1 && !$user->mobile ? trans('main.add').' '.trans('main.mobile') : trans('main.change mobile') }}</h5>
                                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                         <!--<button type="button" class="close" data-dismiss="modal" aria-label="Close">-->
                                         <!--  <span aria-hidden="true">&times;</span>-->
                                         <!--</button>-->
                                       </div>
                                       <div class="modal-body">
-                                        <form method="post" action="{{route('vendor.UpdatePhone')}}">
+                                        <form method="post" action="{{ (int)$user->id === 1 ? route('owner.mobile.update') : route('vendor.UpdatePhone') }}">
                                             @csrf
                                             <input type="hidden" name="user_id" value="{{$user->id}}"/>
                                         <div class="row gy-3 p-md-4">
                                             <div class="col-md-12">
-                                                <label for="mobile"> @lang('main.mobile')</label><span class="text-danger">*</span>
-                                                <span class="country_code">20+</span>
-                                                <input type="text" name="mobile" value="{{ old('mobile', $user->mobile) }}" class="form-control @error('mobile') is-invalid @enderror"
-                                                    id="mobile" placeholder="@lang('main.enter') @lang('main.mobile')">
+                                                <label for="change-mobile"> @lang('main.mobile')</label><span class="text-danger">*</span>
+                                                <div class="go-mobile-input" dir="ltr">
+                                                <span class="go-mobile-prefix" dir="ltr">+20</span>
+                                                <input type="tel" inputmode="tel" autocomplete="tel-national" name="mobile" value="{{ old('mobile', $user->mobile) }}" class="form-control @error('mobile', (int)$user->id === 1 ? 'ownerMobile' : 'default') is-invalid @enderror"
+                                                    id="change-mobile" dir="ltr" placeholder="@lang('main.enter') @lang('main.mobile')">
+                                                </div>
+                                                @error('mobile', (int)$user->id === 1 ? 'ownerMobile' : 'default')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
                                             </div>
                                             <div class="form-group col-md-12">
                                                 <label for="password"> @lang('main.current_password')</label><span class="text-danger">*</span>
                                                 <input type="password" name="current_password" value=""
-                                                    class="form-control @error('password') is-invalid @enderror" id="oldPassword" required
+                                                    class="form-control @error('current_password', (int)$user->id === 1 ? 'ownerMobile' : 'default') is-invalid @enderror" id="oldPassword" autocomplete="current-password" required
                                                     placeholder="@lang('main.EnterPassword')">
                                                 <button type="button" class="show-pass" toggle="#oldPassword">
                                                     <i class="fa fa-eye-slash"></i>
                                                 </button>
+                                                @error('current_password', (int)$user->id === 1 ? 'ownerMobile' : 'default')<div class="invalid-feedback">{{ $message }}</div>@enderror
                                             </div>
                                             
                                           
                                             <div class="col-sm-6">
-                                                <button type="sumbit" class="btn btn-primary">@lang('main.Save changes')</button>
+                                                <button type="submit" class="btn btn-primary">@lang('main.Save changes')</button>
                                             </div>
                                             </form>
                                         </div>
@@ -91,6 +95,11 @@
 @push('custom-js')
 <script>
         $(document).ready(function () {
+             @if(session('owner_mobile_open'))
+             if (window.bootstrap && document.getElementById('changeMobile')) {
+                 bootstrap.Modal.getOrCreateInstance(document.getElementById('changeMobile')).show();
+             }
+             @endif
              $(document).on('change','#category-dd',function(e){
                 var idcategory = $(e.target).val();
                 $("#gate-dd").html('');

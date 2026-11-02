@@ -27,7 +27,8 @@ class LoginHudTests(unittest.TestCase):
         self.live = self.site / installer.PAGE
         self.live.write_bytes(BASE)
         os.chmod(str(self.live), 0o644)
-        (self.package / installer.PAGE).write_bytes((ROOT / installer.PAGE).read_bytes())
+        (self.package / installer.NEW_PAGE).parent.mkdir(parents=True)
+        (self.package / installer.NEW_PAGE).write_bytes((ROOT / installer.NEW_PAGE).read_bytes())
         self.backups = base / 'go-erp-login-hud'
         self.calls = []
         self.original = (installer.BASE_SHA256, installer.artisan)
@@ -41,6 +42,12 @@ class LoginHudTests(unittest.TestCase):
     def apply(self, served=True):
         return installer.apply(self.site, self.package, self.backups, '/php', 'nobody', check=lambda: served)
 
+    def test_the_repository_keeps_the_live_page_and_the_new_one_apart(self):
+        live = (ROOT / installer.PAGE).read_bytes()
+        self.assertEqual(hashlib.sha256(live).hexdigest(), self.original[0], 'The repository has the page the live server runs')
+        self.assertNotIn(installer.MARKER, live)
+        self.assertIn(installer.MARKER, (ROOT / installer.NEW_PAGE).read_bytes())
+
     def test_the_plan_only_reads(self):
         result = installer.plan(self.site, self.package)
         self.assertEqual((result['result'], result['live_page'], result['hologram_on_server']), ('GO_ERP_LOGIN_HUD_PLAN', 'base', False))
@@ -50,7 +57,7 @@ class LoginHudTests(unittest.TestCase):
     def test_installed_with_the_previous_page_kept(self):
         result = self.apply()
         self.assertEqual(result['result'], 'GO_ERP_LOGIN_HUD_INSTALLED')
-        self.assertEqual(self.live.read_bytes(), (ROOT / installer.PAGE).read_bytes())
+        self.assertEqual(self.live.read_bytes(), (ROOT / installer.NEW_PAGE).read_bytes())
         self.assertEqual(stat.S_IMODE(self.live.stat().st_mode), 0o644, 'The page keeps its mode')
         backup = Path(result['backup'])
         self.assertEqual((backup.read_bytes(), stat.S_IMODE(backup.stat().st_mode), stat.S_IMODE(self.backups.stat().st_mode)), (BASE, 0o600, 0o700))

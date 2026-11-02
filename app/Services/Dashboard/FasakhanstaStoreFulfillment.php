@@ -79,6 +79,15 @@ class FasakhanstaStoreFulfillment
             abort_unless($source, 422, 'صنف الإستور غير مرتبط بمينيو الإستور: #'.$sourceProductId);
             if (!isset($mappedProducts[$sourceProductId])) {
                 $candidates = (int) ($source->product_id ?? 0) > 0 ? ($shared[(int) $source->product_id] ?? []) : [];
+                if (count($candidates) > 1) {
+                    // The shared product identifies a family: regular/plus/top meals,
+                    // jar weights and herring varieties can share it. Resolve only an
+                    // exact displayed SKU within that family; never choose its first row.
+                    $name = self::normalizedName((string) ($source->product_name ?? ''));
+                    $named = array_values(array_filter($candidates, static fn ($candidate) => $name !== ''
+                        && self::normalizedName((string) ($candidate->product_name ?? '')) === $name));
+                    if ($named) $candidates = $named;
+                }
                 if (!$candidates) $candidates = $names[self::normalizedName((string) ($source->product_name ?? ''))] ?? [];
                 abort_unless(count($candidates) === 1, 422, (count($candidates) > 1
                     ? 'يوجد أكثر من ربط لصنف الإستور في فرع شبرا: '
