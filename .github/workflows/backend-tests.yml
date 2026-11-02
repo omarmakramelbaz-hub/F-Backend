@@ -1,0 +1,48 @@
+name: Backend tests
+
+# The refactor's safety net: every PHP test, on the libraries the live server runs (composer.lock), whenever the
+# backend changes. Tests only ever use an in-memory database and test-only keys (phpunit.xml).
+on:
+  push:
+    branches: ['claude/go-erp-desktop-v2']
+    paths:
+      - 'app/**'
+      - 'bootstrap/**'
+      - 'config/**'
+      - 'database/**'
+      - 'resources/**'
+      - 'routes/**'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'phpunit.xml'
+      - '.github/workflows/backend-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phpunit:
+    name: Every PHP test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, zip, bcmath
+          coverage: none
+      - name: Install the libraries the live server runs
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare the isolated runtime
+        run: |
+          mkdir -p storage/framework/{cache/data,sessions,views} storage/logs bootstrap/cache
+          cp .env.example .env
+      - name: Run every test
+        run: vendor/bin/phpunit --colors=never

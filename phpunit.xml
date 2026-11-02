@@ -19,10 +19,14 @@
     </coverage>
     <php>
         <server name="APP_ENV" value="testing"/>
+        <!-- Test-only keys: never the site's. -->
+        <server name="APP_KEY" value="base64:Z28tZXJwLXRlc3RzLW9ubHktbm90LXRoZS1zaXRlcyE="/>
+        <server name="JWT_SECRET" value="go-erp-tests-only-jwt-secret-not-the-sites"/>
         <server name="BCRYPT_ROUNDS" value="4"/>
         <server name="CACHE_DRIVER" value="array"/>
-        <!-- <server name="DB_CONNECTION" value="sqlite"/> -->
-        <!-- <server name="DB_DATABASE" value=":memory:"/> -->
+        <!-- Tests create and drop tables: they only ever run on an in-memory database, never on the site's. -->
+        <server name="DB_CONNECTION" value="sqlite"/>
+        <server name="DB_DATABASE" value=":memory:"/>
         <server name="MAIL_MAILER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>

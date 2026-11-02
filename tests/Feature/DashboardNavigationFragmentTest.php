@@ -19,6 +19,10 @@ class DashboardNavigationFragmentTest extends DashboardHomeOverviewTest
     protected function setUp(): void
     {
         parent::setUp();
+        // The parent's own tests run in DashboardHomeOverviewTest; here they would meet this class's extra
+        // fixtures (a pending expense, an order-list grant) they were never written for.
+        if((new \ReflectionMethod($this,$this->getName(false)))->getDeclaringClass()->getName()!==self::class)
+            $this->markTestSkipped('Runs in DashboardHomeOverviewTest.');
         config(['desktop_dashboard.local'=>false,'desktop_dashboard.enabled'=>true,
             'session.driver'=>'array','services.fcm.project_id'=>'fasakhaninjatest']);
         require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php');

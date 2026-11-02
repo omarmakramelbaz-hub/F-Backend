@@ -12,7 +12,6 @@ Homestead.json
 Homestead.yaml
 npm-debug.log
 yarn-error.log
-composer.lock
 storage/app/firebase.json
 public/firebase_credentials.json
 error_log

@@ -357,6 +357,26 @@ class DashboardPosServiceTest extends TestCase
 
     public static function serviceChannels(): array {return [['dine'],['phone']];}
 
+    public function test_a_delivery_order_can_be_cancelled_while_prepared_but_not_once_with_the_courier(): void
+    {
+        $command=fn(int $key,int $revision,string $action)=>['branch'=>'f:100','idempotency_key'=>$this->key($key),'expected_revision'=>$revision,
+            'action'=>$action,'reason'=>'Customer cancelled'];
+        $ticket=$this->tickets()->save('phone',$this->savePayload('phone'),$this->actor())['ticket'];
+        $sent=$this->tickets()->action('phone',$ticket['id'],$command(200,1,'send_kitchen'),$this->actor())['ticket'];
+        $this->assertTrue($sent['kitchen_sent']);
+        $this->tickets()->action('phone',$ticket['id'],$command(201,2,'cancel'),$this->actor());
+        $this->assertSame('cancelled',DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('status'));
+        $this->assertSame('Customer cancelled',DB::table('pos_service_tickets')->where('id',$ticket['id'])->value('cancel_reason'));
+
+        $payload=$this->savePayload('phone',3);
+        $other=$this->tickets()->save('phone',$payload,$this->actor())['ticket'];
+        $this->tickets()->action('phone',$other['id'],$command(202,1,'send_kitchen'),$this->actor());
+        $this->tickets()->action('phone',$other['id'],$command(203,2,'dispatch'),$this->actor());
+        $this->assertSame('out_for_delivery',DB::table('pos_service_tickets')->where('id',$other['id'])->value('status'));
+        $this->denied(fn()=>$this->tickets()->action('phone',$other['id'],$command(204,3,'cancel'),$this->actor()));
+        $this->assertSame('out_for_delivery',DB::table('pos_service_tickets')->where('id',$other['id'])->value('status'));
+    }
+
     /** @dataProvider serviceChannels */
     public function test_sent_kitchen_cannot_be_cancelled_or_emptied_but_can_be_revised(string $channel): void
     {
@@ -372,9 +392,12 @@ class DashboardPosServiceTest extends TestCase
             return $rows;
         };
         $afterSend=$state();
-        $cancel=['branch'=>'f:100','idempotency_key'=>$this->key(101),'expected_revision'=>2,'action'=>'cancel','reason'=>'Customer left'];
-        $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$cancel,$this->actor()));
-        $this->assertSame($afterSend,$state(),'Rejected cancellation must retain the ticket, kitchen, commands, table and finances.');
+        if($channel==='dine'){
+            // A delivery order may still be cancelled while it is prepared (see the test below); a table's may not.
+            $cancel=['branch'=>'f:100','idempotency_key'=>$this->key(101),'expected_revision'=>2,'action'=>'cancel','reason'=>'Customer left'];
+            $this->denied(fn()=>$this->tickets()->action($channel,$ticket['id'],$cancel,$this->actor()));
+            $this->assertSame($afterSend,$state(),'Rejected cancellation must retain the ticket, kitchen, commands, table and finances.');
+        }
         $v['ticket_id']=$ticket['id'];$v['expected_revision']=2;$v['idempotency_key']=$this->key(102);$v['items']=[];
         $this->denied(fn()=>$this->tickets()->save($channel,$v,$this->actor()));
         $this->assertSame($afterSend,$state(),'Rejected emptying must not persist any part of the edit.');

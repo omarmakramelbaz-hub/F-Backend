@@ -315,6 +315,12 @@ class DashboardOrderPaymentTest extends TestCase
     {
         Schema::drop('payments');
         Schema::drop('go_service_payments');
+        // Online checkouts reach the board only once their payment is confirmed (since the operating-day rules);
+        // without payment tables nothing can confirm one, so it stays off the board like a failed payment.
+        $data = (new OrderBoardService())->data(Request::create('/admin/order-review'), $this->actor());
+        $this->assertSame(['new' => 0, 'preparing' => 0, 'courier' => 0, 'completed' => 0], $data['counts']);
+        // Every other order is still shown.
+        $this->order(['payment_type' => 'cash']);
         $data = (new OrderBoardService())->data(Request::create('/admin/order-review'), $this->actor());
         $this->assertSame(1, $data['counts']['completed']);
         $this->assertFalse($data['groups']['completed'][0]['payment_failed']);
