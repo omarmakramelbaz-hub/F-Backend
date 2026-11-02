@@ -28,6 +28,8 @@ const SIGNAL_TYPES = new Set(['Document', 'XHR', 'Fetch']);
 // Responses read online. Fonts are not among them: Chromium fails a font whose response is intercepted, so fonts are
 // only watched at the request and downloaded a second time for the copy.
 const READ_TYPES = ['Document', 'Stylesheet', 'Image', 'Media', 'Script', 'XHR', 'Fetch', 'Other'];
+// An app order's print page on the app orders board.
+const BOARD_PRINT = /^\/admin\/order-board\/(legacy|store|service|partner_service|website)\/[1-9][0-9]{0,18}\/print$/;
 // The dashboard's own sign-out link (navbar: /admin/adminLogout).
 const SIGN_OUT = /^\/admin\/(adminLogout|logout)\/?$/i;
 // Pages saved for offline use as soon as an account opens the dashboard online (those in its own menu).
@@ -318,7 +320,9 @@ class DashboardOffline {
         if (document) this.onFromCopy(contents);
         if (kind === 'data') return { status: 200, body: copy.body, contentType: copy.contentType };
         // A page saved before the dashboard's current look opens in that look (the GO opening and sidebar).
-        const page = fromDevice(currentLook(copy.body, { origin: this.origin, name: user.name, counters: () => savedCounters(this.cache, scope, this.origin) }));
+        let page = fromDevice(currentLook(copy.body, { origin: this.origin, name: user.name, counters: () => savedCounters(this.cache, scope, this.origin) }));
+        // A page whose orders this device acted on shows them as it left them (the app orders board).
+        for (const each of this.pages) if (typeof each.overlay === 'function') page = each.overlay(user, url, page, copy.storedAt);
         return { status: 200, body: withoutMap(page), contentType: copy.contentType };
       }
     }
@@ -395,8 +399,12 @@ class DashboardOffline {
       if (this.cache.fresh('shared', 'file', request.url, 24 * 3600 * 1000)) return null;
       return { scope: 'shared', kind: 'file', contentType: contentType || 'application/octet-stream', max: 10 * 1024 * 1024, accept: () => true };
     }
-    if (!same || !url.pathname.startsWith('/admin') || SKIP_PATH.test(url.pathname)) return null;
     const user = this.user();
+    // An app order's print page, so «مندوب الفرع» prints it without the internet too (it is the receipt, not a page).
+    if (same && user && BOARD_PRINT.test(url.pathname) && contentType.startsWith('text/html')) {
+      return { scope: this.scope(user), kind: 'page', contentType, max: 2 * 1024 * 1024, accept: (body) => body.toString('utf8').includes('data-app-invoice') };
+    }
+    if (!same || !url.pathname.startsWith('/admin') || SKIP_PATH.test(url.pathname)) return null;
     // What the device answers by itself offline is not kept; lists it adds its own records to are.
     if (!user || this.pages.some((page) => { const route = page.match('GET', url.pathname); return route && !route.keepOnline; })) return null;
     const scope = this.scope(user);
@@ -434,10 +442,11 @@ class DashboardOffline {
  * use, the home page's numbers as the page asks for them when it opens, and the dashboard's lists in `data`, so they
  * open offline as the dashboard has them now. Plain page reads, one after another.
  */
-function warmUpScript({ pages = WARM_PAGES, data = [] } = {}) {
+function warmUpScript({ pages = WARM_PAGES, data = [], prints = [] } = {}) {
   return `(async () => {
     const wanted = ${JSON.stringify(pages)};
     const lists = ${JSON.stringify(data)};
+    const prints = ${JSON.stringify(prints)};
     const menu = new Set(Array.from(document.querySelectorAll('#dashboard-sidebar a[href]')).map((link) => {
       try { const url = new URL(link.href, location.href); return url.origin === location.origin ? url.pathname.replace(/\\/+$/, '') : null; } catch (_) { return null; }
     }).filter(Boolean));
@@ -505,6 +514,13 @@ function warmUpScript({ pages = WARM_PAGES, data = [] } = {}) {
       try {
         await (await fetch(address, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })).arrayBuffer();
       } catch (_) {}
+      await pause(250);
+    }
+    // Pages printed from the device offline (an app order's print page): read like the print does.
+    for (const address of prints) {
+      if (done.has(address)) continue;
+      done.add(address);
+      try { await (await fetch(address, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/html' } })).arrayBuffer(); } catch (_) {}
       await pause(250);
     }
     return chosen.length;

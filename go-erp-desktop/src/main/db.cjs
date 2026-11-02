@@ -75,6 +75,14 @@ const MIGRATIONS = [
    ALTER TABLE kitchen_prints ADD COLUMN branch TEXT;
    ALTER TABLE kitchen_prints ADD COLUMN job_status TEXT;
    ALTER TABLE kitchen_prints ADD COLUMN claim_token TEXT;`,
+  // Version 1.17: the app orders board offline. Each action taken on an order without the internet (accept,
+  // «مندوب الفرع», delivered...) with the card as it shows it; sent to the board's own action once online.
+  `CREATE TABLE board_commands (
+     id TEXT PRIMARY KEY, actor_id INTEGER NOT NULL, actor_name TEXT NOT NULL, source TEXT NOT NULL, order_id INTEGER NOT NULL,
+     order_number TEXT NOT NULL DEFAULT '', action TEXT NOT NULL, fields TEXT NOT NULL, card TEXT NOT NULL, from_group TEXT NOT NULL,
+     to_group TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL, updated_at TEXT NOT NULL, done_at TEXT);
+   CREATE INDEX board_commands_status ON board_commands (status, created_at);`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

@@ -446,6 +446,24 @@ class DashboardOrderBoardTest extends TestCase
         $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertSee($print, false);
     }
 
+    public function test_the_desktop_app_reads_the_board_markup_of_this_fixture_offline(): void
+    {
+        // go-erp-desktop/src/main/offline/orders.cjs moves these cards on the board offline; its tests use this markup.
+        Carbon::setTestNow(Carbon::parse('2026-11-02 12:00:00', 'Africa/Cairo'));
+        $this->legacy(1, ['created_at'=>'2026-11-02 11:50:00']);
+        $this->legacy(2, ['status'=>'pending', 'accepted_notify'=>'yes', 'created_at'=>'2026-11-02 11:40:00']);
+        $this->legacy(3, ['status'=>'accepted', 'accepted_notify'=>'yes', 'delegate_from_out'=>'in_resturant', 'created_at'=>'2026-11-02 11:30:00']);
+        $this->actingAs($this->actor(10), 'admin');
+        $this->app['session']->start();
+        $this->app['session']->put('_token', 'csrf-token');
+        $board = app(OrderBoardService::class)->data(Request::create('/admin/applies-orders', 'GET'), $this->actor(10));
+        $html = view('admin.orders.board_columns', compact('board'))->render();
+        $fixture = base_path('go-erp-desktop/test/fixtures/board-columns.html');
+        if (getenv('GOERP_WRITE_FIXTURES')) file_put_contents($fixture, $html);
+        $this->assertSame(file_get_contents($fixture), $html,
+            'The app orders board markup changed: run this test with GOERP_WRITE_FIXTURES=1 and check go-erp-desktop/test/orders-board.test.cjs');
+    }
+
     public function test_invoice_keeps_full_saved_item_amount_and_matches_existing_order_total(): void
     {
         Schema::table('orders', function (Blueprint $t) {

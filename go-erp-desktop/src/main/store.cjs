@@ -51,7 +51,8 @@ class Store {
 
   /** What dropping this device's setup now would leave behind: operations not sent yet, and orders still open here. */
   releaseBlockers() {
-    return { pending: this.db.prepare("SELECT COUNT(*) AS c FROM outbox WHERE status = 'pending'").get().c,
+    return { pending: this.db.prepare("SELECT COUNT(*) AS c FROM outbox WHERE status = 'pending'").get().c
+      + this.db.prepare("SELECT COUNT(*) AS c FROM board_commands WHERE status = 'pending'").get().c,
       open: this.db.prepare("SELECT COUNT(*) AS c FROM tickets WHERE status = 'open'").get().c };
   }
 
@@ -1169,7 +1170,69 @@ class Store {
   outboxStats() {
     const row = this.db.prepare(`SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected FROM outbox`).get();
-    return { pending: row.pending || 0, rejected: row.rejected || 0 };
+    // Actions on the app orders board taken offline wait with them.
+    const board = this.db.prepare(`SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected FROM board_commands`).get();
+    return { pending: (row.pending || 0) + (board.pending || 0), rejected: (row.rejected || 0) + (board.rejected || 0) };
+  }
+
+  // ---- the app orders board offline: actions taken without the internet, sent to the board's action once online ----
+
+  /** An action on an app order taken on this device; `card` is the order's card as the board shows it now. */
+  recordBoardCommand(actor, values) {
+    const stamp = this.now().toISOString();
+    this.db.prepare(`INSERT INTO board_commands (id, actor_id, actor_name, source, order_id, order_number, action, fields, card, from_group, to_group,
+      status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+      .run(values.id, actor.id, actor.name, values.source, values.order_id, values.order_number || '', values.action, JSON.stringify(values.fields),
+        values.card, values.from_group, values.to_group, stamp, stamp);
+    return this.boardCommand(values.id);
+  }
+
+  boardCommand(id) {
+    const row = this.db.prepare('SELECT * FROM board_commands WHERE id = ?').get(id);
+    return row ? presentBoardCommand(row) : null;
+  }
+
+  /** The actions not yet on the dashboard, oldest first (one account's, or every account's). */
+  pendingBoardCommands(actorId = null) {
+    const rows = actorId === null
+      ? this.db.prepare("SELECT * FROM board_commands WHERE status = 'pending' ORDER BY created_at, rowid").all()
+      : this.db.prepare("SELECT * FROM board_commands WHERE status = 'pending' AND actor_id = ? ORDER BY created_at, rowid").all(actorId);
+    return rows.map(presentBoardCommand);
+  }
+
+  /** An account's actions the dashboard took since a time (a copy saved before then does not show them yet). */
+  recentBoardCommands(actorId, since) {
+    return this.db.prepare("SELECT * FROM board_commands WHERE status = 'done' AND actor_id = ? AND done_at > ? ORDER BY created_at, rowid")
+      .all(actorId, String(since)).map(presentBoardCommand);
+  }
+
+  /** The newest action on each order still shown on this device (pending), for the board's cards. */
+  boardOverlay(actorId) {
+    const latest = new Map();
+    for (const command of this.pendingBoardCommands(actorId)) latest.set(command.source + ':' + command.order_id, command);
+    return latest;
+  }
+
+  /** The dashboard took the action (done) or refused it (rejected, with its reason); a refusal also stops the ones after it. */
+  finishBoardCommand(id, status, error = null) {
+    const stamp = this.now().toISOString();
+    this.atomically(() => {
+      const row = this.db.prepare('SELECT * FROM board_commands WHERE id = ?').get(id);
+      if (!row || row.status !== 'pending') return;
+      this.db.prepare('UPDATE board_commands SET status = ?, error = ?, attempts = attempts + 1, updated_at = ?, done_at = ? WHERE id = ?')
+        .run(status, error, stamp, stamp, id);
+      if (status !== 'rejected') return;
+      this.db.prepare(`UPDATE board_commands SET status = 'rejected', error = ?, updated_at = ?, done_at = ?
+        WHERE status = 'pending' AND source = ? AND order_id = ? AND actor_id = ?`)
+        .run('ما اتبعتش: الإجراء اللي قبله على نفس الطلب اترفض.', stamp, stamp, row.source, row.order_id, row.actor_id);
+    });
+  }
+
+  /** Tried and not answered (no internet, a session to renew): tried again with the next sync. */
+  retryBoardCommand(id, error = null) {
+    this.db.prepare('UPDATE board_commands SET attempts = attempts + 1, error = ?, updated_at = ? WHERE id = ? AND status = ?')
+      .run(error, this.now().toISOString(), id, 'pending');
   }
 
   rejectedOperations() {
@@ -1182,8 +1245,22 @@ class Store {
       WHERE o.status = 'rejected' ORDER BY o.updated_at DESC LIMIT 200`).all()
       .map((row) => ({ id: row.id, kind: labels[row.kind] || row.kind, error: row.last_error, at: row.updated_at,
         local_number: row.local_number, branch: row.branch || row.journal_branch,
-        total: row.totals ? money.decimal(JSON.parse(row.totals).total_cents) : (row.amount_cents != null ? money.decimal(row.amount_cents) : null) }));
+        total: row.totals ? money.decimal(JSON.parse(row.totals).total_cents) : (row.amount_cents != null ? money.decimal(row.amount_cents) : null) }))
+      .concat(this.db.prepare("SELECT * FROM board_commands WHERE status = 'rejected' ORDER BY updated_at DESC LIMIT 100").all()
+        .map((row) => ({ id: row.id, kind: 'طلب تطبيق: ' + (BOARD_ACTIONS[row.action] || row.action), error: row.error, at: row.updated_at,
+          local_number: row.order_number || ('#' + row.order_id), branch: null, total: null })))
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
   }
+}
+
+// The app orders board's actions, as its buttons name them.
+const BOARD_ACTIONS = { accept: 'قبول وإرسال للمطبخ', reject: 'رفض الطلب', prepare: 'مندوب الفرع', dispatch: 'طلب مندوب', ready: 'جاهز',
+  complete: 'تم التسليم', cancel: 'إلغاء الطلب' };
+
+function presentBoardCommand(row) {
+  return { id: row.id, actor_id: row.actor_id, actor_name: row.actor_name, source: row.source, order_id: row.order_id, order_number: row.order_number,
+    action: row.action, fields: JSON.parse(row.fields), card: row.card, from_group: row.from_group, to_group: row.to_group, status: row.status,
+    error: row.error, attempts: row.attempts, created_at: row.created_at, updated_at: row.updated_at, done_at: row.done_at };
 }
 
 function cleanTicketData(data) {

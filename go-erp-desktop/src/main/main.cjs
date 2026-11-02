@@ -13,6 +13,7 @@ const money = require('./money.cjs');
 const { PageCache } = require('./offline/cache.cjs');
 const { DashboardOffline, warmUpScript, WARM_PAGES, REFRESHED_DATA } = require('./offline/interceptor.cjs');
 const { HomeOffline } = require('./offline/home.cjs');
+const { OrdersBoardOffline, replayScript } = require('./offline/orders.cjs');
 const { TakeawayOffline } = require('./offline/takeaway.cjs');
 const { ExpensesOffline } = require('./offline/expenses.cjs');
 const { EmployeesOffline } = require('./offline/employees.cjs');
@@ -32,6 +33,7 @@ let store;
 let api;
 let sync;
 let pageCache; // the dashboard pages and files saved on this device
+let boardPage; // the app orders board offline (actions taken without the internet)
 let offline; // answers the dashboard window from the device while the internet is down
 let offlineMode = false;
 let mainWindow = null;
@@ -540,6 +542,8 @@ function warmUp(contents, { soon = false } = {}) {
   pageCache.forgetOlder('u:' + user.id, 'data', week);
   const lists = pageCache.recent('u:' + user.id, 'data', { since: week, limit: 200 })
     .filter((address) => { try { return REFRESHED_DATA.test(new URL(address).pathname); } catch { return false; } }).slice(0, 20);
+  // The print pages of the app orders on the board, so «مندوب الفرع» prints them offline too.
+  const prints = boardPage ? boardPage.printPages(user) : [];
   const reading = {};
   warming.set(user.id, reading);
   const done = () => { if (warming.get(user.id) === reading) warming.delete(user.id); };
@@ -553,11 +557,37 @@ function warmUp(contents, { soon = false } = {}) {
     const started = Date.now();
     const stuck = setTimeout(done, 5 * 60 * 1000);
     // Recorded once read: a reading cut short (the page reloaded, the internet dropped) is done again with the next sync.
-    contents.executeJavaScript(warmUpScript({ pages: all ? WARM_PAGES : [DASHBOARD_PAGES.home], data: lists }))
+    contents.executeJavaScript(warmUpScript({ pages: all ? WARM_PAGES : [DASHBOARD_PAGES.home], data: lists, prints }))
       .then(() => { copyLog('read'); if (!offlineMode) warmedAt.set(user.id, { numbers: started, pages: all ? started : last.pages }); })
       .catch((error) => copyLog('cut short: ' + (error && error.message)))
       .finally(() => { clearTimeout(stuck); done(); });
   }, soon ? 1500 : 4000);
+}
+
+// Actions on app orders taken offline go to the board's own action once the dashboard answers again, in their order and
+// as the account that took them (the dashboard's session is that account's).
+let replaying = false;
+
+function replayBoard() {
+  const user = sessionUser();
+  const contents = dashboardView && dashboardView.webContents;
+  if (replaying || !user || offlineMode || !dashboardSignedIn || !contents || contents.isDestroyed() || contents.isLoading()) return;
+  const commands = store.pendingBoardCommands(user.id);
+  if (!commands.length) return;
+  replaying = true;
+  contents.executeJavaScript(replayScript(commands.slice(0, 20)))
+    .then((results) => {
+      for (const result of Array.isArray(results) ? results : []) {
+        if (!result || !result.id) continue;
+        if (result.done) store.finishBoardCommand(result.id, 'done');
+        else if (result.rejected) store.finishBoardCommand(result.id, 'rejected', result.message || 'الداشبورد رفض الإجراء على الطلب.');
+        else store.retryBoardCommand(result.id, result.error || null);
+      }
+      console.log(`[goerp] app order actions sent: ${(results || []).filter((result) => result && result.done).length} of ${commands.length}`);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sync:status', sync.status());
+    })
+    .catch(() => {})
+    .finally(() => { replaying = false; });
 }
 
 /** Pictures of a receipt (the logo) from the device's copy, so it prints the same with the internet down. */
@@ -777,6 +807,7 @@ async function onDashboardLoad(contents) {
   // A reading going on in the page before this one ended with it.
   warming.clear();
   warmUp(contents);
+  setTimeout(replayBoard, 2000);
   if (dashboardTarget && !url.href.startsWith(dashboardTarget)) {
     const target = dashboardTarget;
     dashboardTarget = null;
@@ -934,12 +965,13 @@ app.whenReady().then(() => {
   const dinePage = new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'dine' });
   const deliveryPage = new DeliveryOffline({ store, origin, now, kick: () => sync.kick() });
   const shiftsPage = new ShiftsOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), services: [dinePage, deliveryPage] });
+  boardPage = new OrdersBoardOffline({ store, cache: pageCache, origin, now });
   offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
     pages: [new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),
       new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
       stockPage,
       new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), recoverers: [(entry, user) => stockPage.recovered(entry, user)] }),
-      dinePage, deliveryPage, shiftsPage, new HomeOffline({ cache: pageCache, origin })],
+      dinePage, deliveryPage, shiftsPage, new HomeOffline({ cache: pageCache, origin }), boardPage],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
     onSignOut: (now) => {
       if (!dashboardLoggingOut) console.log('[goerp] the dashboard\'s own sign-out');
@@ -960,8 +992,10 @@ app.whenReady().then(() => {
       if (status.online === false) setOfflineMode(true, 'sync: ' + (status.last_error || ''));
       else if (status.online === true) {
         setOfflineMode(false, 'sync');
-        // The saved pages and numbers follow the dashboard with the sync (see warmUp).
+        // The saved pages and numbers follow the dashboard with the sync (see warmUp); actions on app orders taken
+        // offline reach the dashboard with it (see replayBoard).
         if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents);
+        replayBoard();
       }
       // Saved pages of accounts no longer on this device are removed.
       if (store.userCount()) {
