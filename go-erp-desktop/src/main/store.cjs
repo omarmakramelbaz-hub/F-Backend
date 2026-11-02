@@ -372,7 +372,7 @@ class Store {
         if (!entry || !entry.value || !Array.isArray(entry.tickets)) continue;
         this.db.prepare('UPDATE branches SET service = ?, service_hash = ? WHERE value = ?')
           .run(JSON.stringify({ tables: entry.tables || [], policy: entry.policy || {}, tickets: entry.tickets, delivery: entry.delivery ?? null,
-            shift: entry.shift ?? null, received_at: this.now().toISOString() }),
+            shift: entry.shift ?? null, finished: Array.isArray(entry.finished) ? entry.finished : [], received_at: this.now().toISOString() }),
             entry.hash, entry.value);
       }
     });

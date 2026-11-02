@@ -773,6 +773,14 @@ class ServiceOffline {
         orders.push({ ...this.presentServer(user, server, overlay, false), courier_company: courier, batch_print_url: null,
           completed_at: record ? cairoIso(record.paid_at) : (overlay && overlay.cancelled ? overlay.updated_at : null) });
       }
+      // The board's finished column as the dashboard last showed it (orders collected or cancelled there), unless this
+      // device has them already.
+      for (const done of (copy && copy.finished) || []) {
+        if (!done || orders.some((order) => Number(order.id) === Number(done.id))) continue;
+        const courier = done.courier_company || null;
+        if (company && !(courier && Number(courier.id) === company)) continue;
+        orders.push(done);
+      }
       // Orders placed on this device while offline.
       for (const local of this.store.pageTickets(value, 'phone')) {
         if (local.data.kind !== 'local' || local.status === 'moved') continue;

@@ -554,6 +554,37 @@ class DesktopSyncTest extends TestCase
         $this->assertArrayNotHasKey('tickets', $again, 'Unchanged orders are not resent');
     }
 
+    public function test_old_unpaid_dine_in_orders_never_hide_the_delivery_orders_and_the_finished_column_comes_too(): void
+    {
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $phone = $this->phoneOrder();
+        // Many old dine-in orders never closed, recorded before it.
+        $old = (array) $phone;
+        unset($old['id']);
+        $rows = [];
+        for ($i = 0; $i < \App\Services\DesktopSync\DesktopSyncState::OPEN_PER_CHANNEL + 1; $i++) {
+            $rows[] = array_merge($old, ['channel' => 'dine', 'status' => 'open', 'customer_phone' => null, 'phone_key' => null, 'delivery_cents' => 0,
+                'business_date' => '2026-09-01', 'created_at' => '2026-09-01 10:00:00', 'updated_at' => '2026-09-01 10:00:00']);
+        }
+        foreach (array_chunk($rows, 100) as $chunk) DB::table('pos_service_tickets')->insert($chunk);
+        $newest = $this->phoneOrder();
+        // A delivery order already collected today.
+        $collected = $this->phoneOrder();
+        DB::table('pos_service_tickets')->where('id', $collected->id)->update(['payment_status' => 'paid', 'status' => 'finished']);
+        $service = $this->sync($device, ['want_service' => true])->assertOk()->json('service')[0];
+        $phones = array_values(array_filter($service['tickets'], fn ($ticket) => $ticket['channel'] === 'phone'));
+        $this->assertSame([$phone->id, $newest->id], array_column($phones, 'id'), 'Every open delivery order, old and new');
+        $dine = array_column(array_filter($service['tickets'], fn ($ticket) => $ticket['channel'] === 'dine'), 'id');
+        $this->assertCount(\App\Services\DesktopSync\DesktopSyncState::OPEN_PER_CHANNEL, $dine, 'The newest dine-in orders');
+        $this->assertNotContains((int) DB::table('pos_service_tickets')->where('channel', 'dine')->min('id'), $dine, 'The oldest one stays on the dashboard');
+        $ids = array_column($service['tickets'], 'id');
+        $sorted = $ids;
+        sort($sorted);
+        $this->assertSame($sorted, $ids, 'Oldest first, as the pages list them');
+        $this->assertSame([$collected->id], array_column($service['finished'], 'id'), 'The board\'s finished column');
+        $this->assertSame('paid', $service['finished'][0]['payment_status']);
+    }
+
     public function test_an_order_open_on_the_dashboard_is_paid_offline_once_and_frees_its_table(): void
     {
         $open = $this->openTable();

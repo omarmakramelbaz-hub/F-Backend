@@ -1386,6 +1386,25 @@ test('the delivery board offline: hand an order to a courier, print its bill and
     409, 'Closed');
 });
 
+test('the delivery board offline keeps the orders the dashboard finished: its finished column as last synced, with this device\'s own', async () => {
+  const { store, ask } = deliveryPage();
+  const done = PHONE.finished.columns.finished.items[0];
+  const earlier = { ...done, id: 90, status: 'cancelled', payment_status: 'unpaid', courier_company: null };
+  store.applyService([{ ...serviceCopy(), hash: 'service-finished', tickets: [DASHBOARD[3].json.ticket, { ...PHONE.show.ticket, courier_company: null }],
+    finished: [{ ...done, id: 95 }, earlier] }]);
+  const board = (await ask('GET', '/admin/phone-orders/board?branch=f:100&preparing_page=1&courier_page=1&finished_page=1')).json.columns;
+  assert.deepEqual(board.preparing.items.map((item) => item.id), [PHONE.show.ticket.id], 'The open orders stay');
+  assert.deepEqual(board.finished.items.map((item) => [item.id, item.status]), [[95, done.status], [90, 'cancelled']], 'Newest first, as on the dashboard');
+  assert.deepEqual(shape(board.finished.items[0]), shape(done), 'In the dashboard\'s own format');
+  assert.deepEqual(board.finished.pagination, { page: 1, last_page: 1, total: 2 });
+  // Filtered by delivery company like the dashboard: the cancelled one had none.
+  const company = done.courier_company && done.courier_company.id;
+  if (company) {
+    const only = (await ask('GET', `/admin/phone-orders/board?branch=f:100&delivery_company_id=${company}`)).json.columns.finished.items;
+    assert.deepEqual(only.map((item) => item.id), [95]);
+  }
+});
+
 test('orders a courier brought back are collected together offline: one batch, its receipt, then the dashboard\'s own batch', async () => {
   const { store, ask, key } = deliveryPage();
   const BATCH = DASHBOARD[21].json;

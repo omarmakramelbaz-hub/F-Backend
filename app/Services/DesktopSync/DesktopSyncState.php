@@ -194,9 +194,13 @@ class DesktopSyncState
         return is_array($today) ? $today + ['as_of' => now('UTC')->toIso8601String()] : null;
     }
 
+    /** Open orders sent per channel: the newest ones, so old unpaid dine-in orders never hide the day's delivery orders. */
+    public const OPEN_PER_CHANNEL = 300;
+
     /**
      * Each branch's dine-in tables and its open dine-in and delivery orders, in the dashboard pages' own format, so the
-     * device shows them and collects their payment while offline. Sent only when they changed since the device's copy.
+     * device shows them and collects their payment while offline, with the delivery board's finished column (its first
+     * page, as the board shows it). Sent only when they changed since the device's copy.
      */
     public function service(object $device, array $known, array $users): array
     {
@@ -207,8 +211,12 @@ class DesktopSyncState
             if (! $actor) continue;
             try {
                 $tables = app(PosServiceTable::class)->listing($value, $actor);
-                $rows = DB::table('pos_service_tickets')->where('branch', $value)->where('payment_status', 'unpaid')
-                    ->where('status', '!=', 'cancelled')->orderBy('id')->limit(300)->get()->all();
+                $rows = [];
+                foreach (['dine', 'phone'] as $channel) {
+                    array_push($rows, ...DB::table('pos_service_tickets')->where('branch', $value)->where('channel', $channel)
+                        ->where('payment_status', 'unpaid')->where('status', '!=', 'cancelled')->orderByDesc('id')->limit(self::OPEN_PER_CHANNEL)->get()->all());
+                }
+                usort($rows, fn ($a, $b) => (int) $a->id <=> (int) $b->id);
                 $tickets = app(PosServiceTicket::class)->presentMany($rows, true, $actor);
                 // The delivery board shows the company each order was handed to (PhoneDeliveryBoard::listing).
                 $handoffs = Schema::hasTable('phone_delivery_dispatches') ? DB::table('phone_delivery_dispatches')
@@ -220,7 +228,7 @@ class DesktopSyncState
                 continue;
             }
             $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets, 'delivery' => $this->delivery($value, $actor),
-                'shift' => $this->shift($value)];
+                'shift' => $this->shift($value), 'finished' => $this->finished($value, $actor)];
             $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             $entry = ['value' => $value, 'hash' => $hash];
             if (($known[$value] ?? null) !== $hash) $entry += $payload;
@@ -282,6 +290,16 @@ class DesktopSyncState
             'history' => $rows->map(fn ($row) => ['id' => (int) $row->id, 'number' => 'SHIFT-'.str_pad((string) $row->id, 6, '0', STR_PAD_LEFT),
                 'sequence' => (int) $row->sequence, 'branch' => (string) $row->branch, 'started_at' => $time($row->started_at),
                 'closed_at' => $time($row->closed_at), 'print_url' => route('branch-shifts.print', ['id' => $row->id])])->values()->all()];
+    }
+
+    /** The delivery board's finished column, its first page (PhoneDeliveryBoard::listing): paid or cancelled, newest first. */
+    private function finished(string $branch, object $actor): array
+    {
+        try {
+            return app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->listing(['branch' => $branch], $actor)['columns']['finished']['items'] ?? [];
+        } catch (HttpException $error) {
+            return [];
+        }
     }
 
     /**
