@@ -588,6 +588,19 @@ async function dashboardOffline() {
     phone.dispatchEvent(new Event('input', { bubbles: true })); phone.dispatchEvent(new Event('change', { bubbles: true }));
     const consent = root.querySelector('[data-pos-customer-consent]'); if (!consent.checked) consent.click();`);
   await until(async () => (await step("return root.querySelector('[data-pos-total=\"total\"]').textContent")) === '205.00', 'the device prices the invoice');
+  // An item already in the invoice changes weight from the pad: 1 kg بوري مشوي → ½ kg (90.00 + 25.00), then 1 kg again.
+  const lineQuantity = (name) => `Array.from(root.querySelectorAll('[data-pos-lines] tr')).find((row) => row.textContent.includes('${name}')).querySelector('[data-pos-line-quantity]')`;
+  const total = () => step("return root.querySelector('[data-pos-total=\"total\"]').textContent");
+  await step(`${lineQuantity('بوري مشوي')}.click();`);
+  await until(async () => await inDashboard(app, "!!document.querySelector('.go-qty-pad [data-go-qty-quick=\"0.5\"]')"), 'the quantity pad opens on the invoice line');
+  await dashboardShot(app, '13b-dashboard-cashier-quantity-pad');
+  await inDashboard(app, "document.querySelector('.go-qty-pad [data-go-qty-quick=\"0.5\"]').click(); document.querySelector('.go-qty-pad [data-go-qty-confirm]').click();");
+  await until(async () => (await total()) === '115.00', 'half a kilo is priced on the device');
+  assert.equal(await step(`return ${lineQuantity('بوري مشوي')}.value`), '0.500');
+  await step(`${lineQuantity('بوري مشوي')}.click();`);
+  await until(async () => await inDashboard(app, "!!document.querySelector('.go-qty-pad [data-go-qty-key=\"1\"]')"), 'the pad opens again');
+  await inDashboard(app, "document.querySelector('.go-qty-pad [data-go-qty-key=\"1\"]').click(); document.querySelector('.go-qty-pad [data-go-qty-confirm]').click();");
+  await until(async () => (await total()) === '205.00', 'back to one kilo');
   await step(`const cash = root.querySelector('[data-pos-cash-received]'); cash.value = '300';
     cash.dispatchEvent(new Event('input', { bubbles: true })); root.querySelector('[data-pos-finish]').click();`);
   await until(async () => (await step("const saved = root.querySelector('[data-pos-saved]'); return !saved.hidden && saved.textContent")) || false,

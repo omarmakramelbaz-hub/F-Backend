@@ -85,6 +85,7 @@
 @push('custom-js')
 <script type="application/json" id="dining-bootstrap">@json($dining)</script>
 <script type="application/json" id="dining-translations">@json(trans('dining'))</script>
+<script src="{{ asset('dashboard/js/pos-line-quantity.js') }}?v={{ filemtime(public_path('dashboard/js/pos-line-quantity.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dining-pos.js') }}?v={{ filemtime(public_path('dashboard/js/dining-pos.js')) }}"></script>
 @endpush
 

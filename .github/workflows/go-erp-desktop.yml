@@ -47,6 +47,9 @@ on:
       - 'resources/views/admin/login.blade.php'
       - 'deployment/login_hud/login.blade.php'
       - 'public/dashboard/js/dashboard-order-alerts.js'
+      - 'public/dashboard/js/pos-line-quantity.js'
+      - 'tests/pos_line_quantity_test.js'
+      - 'resources/views/admin/dining/index.blade.php'
       - 'tests/order_alerts_shared_feed_test.js'
       - 'tests/order_alerts_delivery_tone_test.js'
       - 'public/dashboard/js/order-board.js'
@@ -130,6 +133,8 @@ jobs:
         run: |
           node tests/order_alerts_shared_feed_test.js
           node tests/order_alerts_delivery_tone_test.js
+      - name: An item's quantity in an invoice (".5", "0,5" and Arabic digits are read; money boxes never touched)
+        run: node tests/pos_line_quantity_test.js
       - name: The dashboard's own attendance rules still pass (BranchPayroll gained the device punch option)
         run: |
           composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-progress --no-scripts

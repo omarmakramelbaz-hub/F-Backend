@@ -71,5 +71,6 @@
 @push('custom-js')
 <script type="application/json" id="takeaway-bootstrap">@json($pos)</script>
 <script type="application/json" id="takeaway-translations">@json(trans('takeaway'))</script>
+<script src="{{ asset('dashboard/js/pos-line-quantity.js') }}?v={{ filemtime(public_path('dashboard/js/pos-line-quantity.js')) }}"></script>
 <script src="{{ asset('dashboard/js/takeaway-pos.js') }}?v={{ filemtime(public_path('dashboard/js/takeaway-pos.js')) }}"></script>
 @endpush
