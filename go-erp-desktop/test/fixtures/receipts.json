@@ -1144,6 +1144,134 @@
                 "idempotency_key": "00000000-0000-4000-9000-000000000003"
             },
             "html": "<!doctype html>\n<html lang=\"ar\" dir=\"rtl\" data-dashboard-receipt=\"phone-batch\">\n<head><meta charset=\"utf-8\"><title>إيصال تحصيل الطلبات #5000000000003</title>\n<style>@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}body{font:12px Tahoma,Arial;color:#000;width:72mm;margin:0 auto;overflow-wrap:anywhere}header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}h1{font-size:17px}p{margin:7px 0}table{width:100%;border-collapse:collapse;margin:14px 0}th,td{padding:9px 3px;border-bottom:1px dashed #333;text-align:start}tr{break-inside:avoid}tfoot{font-size:16px;font-weight:bold}footer{margin-top:15px;font-size:11px}</style></head>\n<body><header><img src=\"https://fasakhaninja.com/dashboard/branding/fasakhansta-logo-transparent.png\" alt=\"فسخانستا\"><h1>إيصال تحصيل الطلبات</h1><p>فرع المعادي</p><bdi>#5000000000003</bdi><p><bdi>2026-10-31 22:40</bdi></p></header>\n<p>شركة المندوب: شركة سريع</p>\n<p>الكاشير: كاشير المعادي</p>\n<table><thead><tr><th>رقم الطلب</th><th>الإجمالي النهائي</th></tr></thead><tbody><tr><td><bdi>#31</bdi></td><td><bdi>105.00</bdi></td></tr><tr><td><bdi>#7000000000004</bdi></td><td><bdi>75.50</bdi></td></tr></tbody><tfoot><tr><td>الإجمالي النهائي</td><td><bdi>180.50</bdi> ج.م</td></tr></tfoot></table>\n<p>وسيلة الدفع: كاش</p>\n<p>المبلغ المستلم: <bdi>200.00</bdi></p><p>الباقي: <bdi>19.50</bdi></p><p>مرجع المعاملة: <bdi>وصل ٥</bdi></p><footer>تم تحصيل قيمة هذه الطلبات. إعادة الطباعة لا تسجل تحصيلًا جديدًا.</footer></body></html>\n"
+        },
+        {
+            "name": "closing invoice preview",
+            "kind": "shift",
+            "preview": true,
+            "dashboard_print": false,
+            "report": {
+                "number": "SHIFT-000006",
+                "sequence": 6,
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 1,
+                    "name": "المالك"
+                },
+                "started_at": "2026-10-30 06:00:00",
+                "closed_at": "2026-10-30 23:15:00",
+                "channels": {
+                    "dine": {
+                        "count": 2,
+                        "gross": "400.00"
+                    },
+                    "takeaway": {
+                        "count": 4,
+                        "gross": "530.00"
+                    },
+                    "phone": {
+                        "count": 2,
+                        "gross": "360.00"
+                    },
+                    "app": {
+                        "count": 1,
+                        "gross": "120.00"
+                    }
+                },
+                "sales_total": "1410.00",
+                "delivery_total": "80.00",
+                "expenses_total": "125.00",
+                "net_sales": "1205.00",
+                "opening_cash": "500.00",
+                "cash_sales": "1110.00",
+                "app_branch_cash": "0.00",
+                "cash_delivery": "60.00",
+                "cash_expenses": "125.00",
+                "other_cash_movements": "-50.00",
+                "counted_cash": "1350.00",
+                "expected_cash": "1375.00",
+                "variance_label": "عجز",
+                "variance": "-25.00",
+                "noncash_sales": "180.00",
+                "app_outside_drawer": "100.00",
+                "pending_expenses": 0,
+                "unsettled_app_cash": 2,
+                "notes": "قفلة الليل & <العد> \"٢\" 'ب'",
+                "drawer_preserved": true
+            },
+            "html": "<!doctype html><html lang=\"ar\" dir=\"rtl\"\n data-dashboard-invoice-details=\"1\"\n><head><meta charset=\"utf-8\">\n<title>قفلة الوردية SHIFT-000006</title><style>\n*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000;font:10px/1.35 Tahoma,Arial,sans-serif}.shift-paper{width:100%;max-width:80mm;padding:2mm;margin:0 auto;overflow-wrap:anywhere}h1{font-size:15px;text-align:center;margin:3px 0 6px}h2{font-size:11px;margin:8px 0 3px}p{margin:3px 0;line-height:1.45}bdi{direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-variant-numeric:tabular-nums}table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:9px;margin:7px 0}th,td{padding:3px 1px;border-bottom:1px dashed #999;text-align:right;vertical-align:top}td:last-child,th:last-child{text-align:left;white-space:nowrap}tr{break-inside:avoid;page-break-inside:avoid}.total td{font-weight:bold;border-top:1px solid #000}.cash-box{border:1px solid #000;padding:5px;margin-top:7px;break-inside:avoid;page-break-inside:avoid}.cash-box div{display:flex;justify-content:space-between;align-items:baseline;gap:4px;padding:4px 0}.cash-box strong{white-space:nowrap}.cash-box div:last-child{font-size:11px;font-weight:bold;border-top:1px dashed #777}.muted{font-size:8px;color:#222}.screen-notice{text-align:center;margin:30px}@page{size:auto;margin:0}@media  screen{.shift-paper{display:none}}@media  print{html,body{width:100%}.screen-notice{display:none}.shift-paper{display:block}}\n@media  screen{html,body{background:#f5f6f8}.screen-notice{font-size:12px;margin:12px;color:#4b5563}.shift-paper{display:block;background:#fff;max-width:95mm;padding:5mm;margin:0 auto 12px;box-shadow:0 1px 8px #00000014}}\n</style></head><body><p class=\"screen-notice\">\nمعاينة فاتورة الإغلاق المحفوظة — للأونر والأدمن فقط.\n</p><article class=\"shift-paper\"><h1>قفلة الوردية</h1><p><strong>فرع المعادي</strong></p><p>SHIFT-000006 · وردية 6</p><p>الكاشير: المالك</p><p>من: <bdi>2026-10-30 06:00:00</bdi></p><p>إلى: <bdi>2026-10-30 23:15:00</bdi></p>\n<table><colgroup><col style=\"width:42%\"><col style=\"width:16%\"><col style=\"width:42%\"></colgroup><thead><tr><th>القناة</th><th>عدد</th><th>المبيعات</th></tr></thead><tbody>\n<tr><td>الصالة</td><td>2</td><td><bdi>400.00</bdi></td></tr>\n<tr><td>التيك أواي</td><td>4</td><td><bdi>530.00</bdi></td></tr>\n<tr><td>الدليفري</td><td>2</td><td><bdi>360.00</bdi></td></tr>\n<tr><td>التطبيق</td><td>1</td><td><bdi>120.00</bdi></td></tr>\n<tr class=\"total\"><td colspan=\"2\">إجمالي المبيعات</td><td><bdi>1410.00</bdi></td></tr><tr><td colspan=\"2\">يخصم: خدمة التوصيل</td><td><bdi>80.00</bdi></td></tr><tr><td colspan=\"2\">يخصم: صافي المصروفات المعتمدة</td><td><bdi>125.00</bdi></td></tr><tr class=\"total\"><td colspan=\"2\">صافي المبيعات بعد الخصم</td><td><bdi>1205.00</bdi></td></tr></tbody></table>\n<h2>حساب نقدية الفرع</h2><table><colgroup><col style=\"width:60%\"><col style=\"width:40%\"></colgroup><tbody>\n<tr><td>النقدية أول الوردية</td><td><bdi>500.00</bdi></td></tr>\n<tr><td>تحصيل نقدي من نقاط البيع</td><td><bdi>1110.00</bdi></td></tr>\n<tr><td>تحصيل التطبيق النقدي بالفرع</td><td><bdi>0.00</bdi></td></tr>\n<tr><td>يخصم: توصيل محصل نقدًا</td><td><bdi>60.00</bdi></td></tr>\n<tr><td>يخصم: مصروفات نقدية</td><td><bdi>125.00</bdi></td></tr>\n<tr><td>إيداعات / سحوبات أخرى</td><td><bdi>-50.00</bdi></td></tr>\n</tbody></table>\n<div class=\"cash-box\"><div><span>الكاش الفعلي</span><strong><bdi>1350.00</bdi> ج</strong></div><div><span>النقدية</span><strong><bdi>1375.00</bdi> ج</strong></div><div><span>الفرق — عجز</span><strong><bdi>-25.00</bdi> ج</strong></div></div>\n<p class=\"muted\">مدفوعات نقاط البيع غير النقدية: <bdi>180.00</bdi> ج</p><p class=\"muted\">مبيعات التطبيق المحصلة خارج الدرج بعد التوصيل: <bdi>100.00</bdi> ج</p>\n<p>طلبات تطبيق نقدية لم تثبت تسويتها: 2</p>\n<p>ملاحظات: قفلة الليل &amp; &lt;العد&gt; &quot;٢&quot; &#039;ب&#039;</p>\n<p>إغلاق للمراجعة فقط — رصيد الدرج مستمر دون تصفير.</p>\n<p class=\"muted\">القفلة سجل ثابت للعدّ, وليست إيصال سحب أو تحويل. جميع القيم بالجنيه المصري.</p><p>توقيع الكاشير: ........................</p></article></body></html>\n"
+        },
+        {
+            "name": "closing invoice print page",
+            "kind": "shift",
+            "preview": false,
+            "dashboard_print": false,
+            "report": {
+                "number": "SHIFT-000006",
+                "sequence": 6,
+                "branch": {
+                    "value": "f:100",
+                    "id": 100,
+                    "kind": "f",
+                    "name": "فرع المعادي",
+                    "label": "فرع المعادي",
+                    "address": "شارع ٩ - المعادي",
+                    "phone": "01000000000"
+                },
+                "cashier": {
+                    "id": 1,
+                    "name": "المالك"
+                },
+                "started_at": "2026-10-30 06:00:00",
+                "closed_at": "2026-10-30 23:15:00",
+                "channels": {
+                    "dine": {
+                        "count": 2,
+                        "gross": "400.00"
+                    },
+                    "takeaway": {
+                        "count": 4,
+                        "gross": "530.00"
+                    },
+                    "phone": {
+                        "count": 2,
+                        "gross": "360.00"
+                    },
+                    "app": {
+                        "count": 1,
+                        "gross": "120.00"
+                    }
+                },
+                "sales_total": "1410.00",
+                "delivery_total": "80.00",
+                "expenses_total": "125.00",
+                "net_sales": "1205.00",
+                "opening_cash": "500.00",
+                "cash_sales": "1110.00",
+                "app_branch_cash": "0.00",
+                "cash_delivery": "60.00",
+                "cash_expenses": "125.00",
+                "other_cash_movements": "-50.00",
+                "counted_cash": "1350.00",
+                "expected_cash": "1375.00",
+                "variance_label": "مطابق",
+                "variance": "0.00",
+                "noncash_sales": "180.00",
+                "app_outside_drawer": "100.00",
+                "pending_expenses": 1,
+                "unsettled_app_cash": 0,
+                "notes": "",
+                "drawer_preserved": false
+            },
+            "html": "<!doctype html><html lang=\"ar\" dir=\"rtl\"\n data-dashboard-receipt=\"branch-shift\"\n><head><meta charset=\"utf-8\">\n<meta name=\"dashboard-print-document\" content=\"receipt\">\n<title>قفلة الوردية SHIFT-000006</title><style>\n*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000;font:10px/1.35 Tahoma,Arial,sans-serif}.shift-paper{width:100%;max-width:80mm;padding:2mm;margin:0 auto;overflow-wrap:anywhere}h1{font-size:15px;text-align:center;margin:3px 0 6px}h2{font-size:11px;margin:8px 0 3px}p{margin:3px 0;line-height:1.45}bdi{direction:ltr;unicode-bidi:isolate;white-space:nowrap;font-variant-numeric:tabular-nums}table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:9px;margin:7px 0}th,td{padding:3px 1px;border-bottom:1px dashed #999;text-align:right;vertical-align:top}td:last-child,th:last-child{text-align:left;white-space:nowrap}tr{break-inside:avoid;page-break-inside:avoid}.total td{font-weight:bold;border-top:1px solid #000}.cash-box{border:1px solid #000;padding:5px;margin-top:7px;break-inside:avoid;page-break-inside:avoid}.cash-box div{display:flex;justify-content:space-between;align-items:baseline;gap:4px;padding:4px 0}.cash-box strong{white-space:nowrap}.cash-box div:last-child{font-size:11px;font-weight:bold;border-top:1px dashed #777}.muted{font-size:8px;color:#222}.screen-notice{text-align:center;margin:30px}@page{size:auto;margin:0}@media  screen{.shift-paper{display:none}}@media  print{html,body{width:100%}.screen-notice{display:none}.shift-paper{display:block}}\n</style></head><body><p class=\"screen-notice\">\n القفلة محفوظة وجاهزة للطباعة. تظهر الأرصدة في الورقة المطبوعة فقط.\n</p><article class=\"shift-paper\"><h1>قفلة الوردية</h1><p><strong>فرع المعادي</strong></p><p>SHIFT-000006 · وردية 6</p><p>الكاشير: المالك</p><p>من: <bdi>2026-10-30 06:00:00</bdi></p><p>إلى: <bdi>2026-10-30 23:15:00</bdi></p>\n<table><colgroup><col style=\"width:42%\"><col style=\"width:16%\"><col style=\"width:42%\"></colgroup><thead><tr><th>القناة</th><th>عدد</th><th>المبيعات</th></tr></thead><tbody>\n<tr><td>الصالة</td><td>2</td><td><bdi>400.00</bdi></td></tr>\n<tr><td>التيك أواي</td><td>4</td><td><bdi>530.00</bdi></td></tr>\n<tr><td>الدليفري</td><td>2</td><td><bdi>360.00</bdi></td></tr>\n<tr><td>التطبيق</td><td>1</td><td><bdi>120.00</bdi></td></tr>\n<tr class=\"total\"><td colspan=\"2\">إجمالي المبيعات</td><td><bdi>1410.00</bdi></td></tr><tr><td colspan=\"2\">يخصم: خدمة التوصيل</td><td><bdi>80.00</bdi></td></tr><tr><td colspan=\"2\">يخصم: صافي المصروفات المعتمدة</td><td><bdi>125.00</bdi></td></tr><tr class=\"total\"><td colspan=\"2\">صافي المبيعات بعد الخصم</td><td><bdi>1205.00</bdi></td></tr></tbody></table>\n<h2>حساب نقدية الفرع</h2><table><colgroup><col style=\"width:60%\"><col style=\"width:40%\"></colgroup><tbody>\n<tr><td>النقدية أول الوردية</td><td><bdi>500.00</bdi></td></tr>\n<tr><td>تحصيل نقدي من نقاط البيع</td><td><bdi>1110.00</bdi></td></tr>\n<tr><td>تحصيل التطبيق النقدي بالفرع</td><td><bdi>0.00</bdi></td></tr>\n<tr><td>يخصم: توصيل محصل نقدًا</td><td><bdi>60.00</bdi></td></tr>\n<tr><td>يخصم: مصروفات نقدية</td><td><bdi>125.00</bdi></td></tr>\n<tr><td>إيداعات / سحوبات أخرى</td><td><bdi>-50.00</bdi></td></tr>\n</tbody></table>\n<div class=\"cash-box\"><div><span>الكاش الفعلي</span><strong><bdi>1350.00</bdi> ج</strong></div><div><span>النقدية</span><strong><bdi>1375.00</bdi> ج</strong></div><div><span>الفرق — مطابق</span><strong><bdi>0.00</bdi> ج</strong></div></div>\n<p class=\"muted\">مدفوعات نقاط البيع غير النقدية: <bdi>180.00</bdi> ج</p><p class=\"muted\">مبيعات التطبيق المحصلة خارج الدرج بعد التوصيل: <bdi>100.00</bdi> ج</p>\n<p>مصروفات غير معتمدة لم تخصم: 1</p>\n<p class=\"muted\">القفلة سجل ثابت للعدّ, وليست إيصال سحب أو تحويل. جميع القيم بالجنيه المصري.</p><p>توقيع الكاشير: ........................</p></article></body></html>\n"
         }
     ]
 }

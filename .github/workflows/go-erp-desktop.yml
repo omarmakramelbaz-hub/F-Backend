@@ -14,6 +14,8 @@ on:
       - 'resources/views/admin/takeaway/**'
       - 'resources/views/admin/pos_service/**'
       - 'resources/views/admin/phone_orders/batch_receipt.blade.php'
+      - 'resources/views/admin/branch_shifts/receipt.blade.php'
+      - 'app/Services/Dashboard/BranchShiftClosing.php'
       - 'resources/lang/ar/takeaway.php'
       - 'resources/lang/ar/pos_service.php'
       - 'resources/lang/ar/phone_orders.php'

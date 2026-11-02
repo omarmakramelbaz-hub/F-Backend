@@ -3,13 +3,15 @@
 const { EventEmitter } = require('node:events');
 
 class SyncEngine extends EventEmitter {
-  constructor({ store, api, token, intervalMs = 30000, refreshEveryMs = 5 * 60 * 1000, now = () => Date.now() }) {
+  constructor({ store, api, token, intervalMs = 30000, refreshEveryMs = 5 * 60 * 1000, runningEveryMs = 2 * 60 * 1000, now = () => Date.now() }) {
     super();
     this.store = store;
     this.api = api;
     this.token = token; // () => the device token, decrypted only when needed
     this.intervalMs = intervalMs;
     this.refreshEveryMs = refreshEveryMs;
+    this.runningEveryMs = runningEveryMs;
+    this.lastRunning = 0;
     this.now = now;
     this.timer = null;
     this.running = null;
@@ -59,6 +61,7 @@ class SyncEngine extends EventEmitter {
       // A server from before expenses and cash moves only knew sales.
       const operations = this.store.pendingOperations(50, this.store.get('server_kinds', ['sale']));
       const refresh = forceRefresh || !this.lastRefresh || this.now() - this.lastRefresh >= this.refreshEveryMs || this.store.userCount() === 0;
+      const running = !this.lastRunning || this.now() - this.lastRunning >= this.runningEveryMs;
       this.emit('status', { ...this.status(), running: true });
       let response;
       // Being sent now: a move of an order to the dashboard can no longer be called off (see Store#cancelTicketMove).
@@ -70,6 +73,8 @@ class SyncEngine extends EventEmitter {
           want_service: true, service_hashes: this.store.serviceHashes(),
           // The branches' saved delivery customers changed since the device's copy (new delivery orders offline).
           want_customers: true, customers_cursor: this.store.customersCursor(),
+          // The open shift's figures (its closing report so far), every two minutes: a closing made offline reports them.
+          ...(running ? { want_running: true, running_hashes: this.store.runningHashes() } : {}),
         });
       } catch (error) {
         if (process.env.GOERP_DEBUG_SYNC) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} sync failed: ${error.status} ${error.cause || ''}`);
@@ -85,6 +90,8 @@ class SyncEngine extends EventEmitter {
       if (response.users) this.store.replaceUsers(response.users, response.users_hash);
       if (response.branches) this.store.applyBranches(response.branches);
       if (Array.isArray(response.service)) this.store.applyService(response.service);
+      if (Array.isArray(response.running)) this.store.applyRunning(response.running);
+      if (running) this.lastRunning = this.now();
       const moreCustomers = response.customers ? this.store.applyCustomers(response.customers) : false;
       if (refresh) this.lastRefresh = this.now();
       const syncedAt = new Date(this.now()).toISOString();

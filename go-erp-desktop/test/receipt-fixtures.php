@@ -108,16 +108,30 @@ $batch = ['id' => 5000000000003, 'branch' => $branch, 'cashier' => ['id' => 4, '
 $cases[] = ['name' => 'courier batch receipt', 'kind' => 'batch', 'dashboard_print' => true, 'batch' => $batch];
 $cases[] = ['name' => 'courier batch receipt without a courier name', 'kind' => 'batch', 'dashboard_print' => false, 'batch' => array_merge($batch, ['courier_name' => '', 'payment_reference' => 'وصل ٥'])];
 
+// The branch's closing invoice (admin.branch_shifts.receipt): a closing made offline shows and prints it from the device.
+$shift = ['number' => 'SHIFT-000006', 'sequence' => 6, 'branch' => $branch, 'cashier' => ['id' => 1, 'name' => 'المالك'],
+    'started_at' => '2026-10-30 06:00:00', 'closed_at' => '2026-10-30 23:15:00',
+    'channels' => ['dine' => ['count' => 2, 'gross' => '400.00'], 'takeaway' => ['count' => 4, 'gross' => '530.00'], 'phone' => ['count' => 2, 'gross' => '360.00'], 'app' => ['count' => 1, 'gross' => '120.00']],
+    'sales_total' => '1410.00', 'delivery_total' => '80.00', 'expenses_total' => '125.00', 'net_sales' => '1205.00', 'opening_cash' => '500.00', 'cash_sales' => '1110.00',
+    'app_branch_cash' => '0.00', 'cash_delivery' => '60.00', 'cash_expenses' => '125.00', 'other_cash_movements' => '-50.00', 'counted_cash' => '1350.00',
+    'expected_cash' => '1375.00', 'variance_label' => 'عجز', 'variance' => '-25.00', 'noncash_sales' => '180.00', 'app_outside_drawer' => '100.00',
+    'pending_expenses' => 0, 'unsettled_app_cash' => 2, 'notes' => 'قفلة الليل & <العد> "٢" \'ب\'', 'drawer_preserved' => true];
+$cases[] = ['name' => 'closing invoice preview', 'kind' => 'shift', 'preview' => true, 'dashboard_print' => false, 'report' => $shift];
+$cases[] = ['name' => 'closing invoice print page', 'kind' => 'shift', 'preview' => false, 'dashboard_print' => false,
+    'report' => array_merge($shift, ['variance_label' => 'مطابق', 'variance' => '0.00', 'pending_expenses' => 1, 'unsettled_app_cash' => 0, 'notes' => '', 'drawer_preserved' => false])];
+
 foreach ($cases as &$case) {
     $kind = $case['kind'] ?? 'receipt';
     $path = $kind === 'kitchen' ? 'dining/kitchen/5/print' : ($kind === 'ticket' ? 'dining/tickets/12/'.($case['preview'] ? 'details' : 'print')
-        : ($kind === 'batch' ? 'phone-orders/batches/5000000000003/print' : 'takeaway/receipts/9000000000001/'.($case['preview'] ? 'details' : 'print')));
+        : ($kind === 'batch' ? 'phone-orders/batches/5000000000003/print' : ($kind === 'shift' ? 'branch-shifts/6/'.($case['preview'] ? 'details' : 'print')
+        : 'takeaway/receipts/9000000000001/'.($case['preview'] ? 'details' : 'print'))));
     $request = Illuminate\Http\Request::create('https://fasakhaninja.com/admin/'.$path, 'GET', $case['dashboard_print'] ? ['dashboard_print' => '1'] : []);
     app()->instance('request', $request);
     app('url')->setRequest($request);
     $case['html'] = match ($kind) {
         'kitchen' => view('admin.pos_service.kitchen', ['kitchen' => $case['kitchen']])->render(),
         'batch' => view('admin.phone_orders.batch_receipt', ['batch' => $case['batch']])->render(),
+        'shift' => view('admin.branch_shifts.receipt', ['report' => $case['report'], 'preview' => $case['preview']])->render(),
         'ticket' => view('admin.pos_service.ticket', ['ticket' => $case['ticket'], 'preview' => $case['preview']])->render(),
         default => view('admin.takeaway.receipt', ['receipt' => $case['receipt'], 'preview' => $case['preview']])->render(),
     };

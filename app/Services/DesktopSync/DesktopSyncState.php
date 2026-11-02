@@ -230,6 +230,38 @@ class DesktopSyncState
     }
 
     /**
+     * Each branch's open shift as its closing would report it now (BranchShiftClosing's own figures: sales by channel,
+     * expenses, the drawer's cash), so a shift closed on the device while the internet is down shows and prints the same
+     * report, with the device's own records added. Sent when the device asks, and only when it changed since its copy.
+     * The figures of a closing stay for the closing's report: the shift page itself never shows them.
+     */
+    public function running(object $device, array $known, array $users): array
+    {
+        if (! Schema::hasTable('branch_shift_closings')) return [];
+        $keys = ['started_at', 'channels', 'sales_total', 'delivery_total', 'expenses_total', 'net_sales', 'opening_cash', 'cash_sales', 'noncash_sales',
+            'app_branch_cash', 'app_outside_drawer', 'cash_delivery', 'cash_expenses', 'other_cash_movements', 'expected_cash', 'unsettled_app_cash'];
+        $result = [];
+        foreach ($device->branch_values as $value) {
+            if (! str_starts_with($value, 'f:')) continue;
+            $actor = $this->catalogActor($device, $value, $users);
+            if (! $actor) continue;
+            try {
+                $review = app(BranchShiftClosing::class)->desktopReview(['branch' => $value], $actor);
+            } catch (\Throwable $error) {
+                // The sync goes on without it: the device's report then counts its own records only.
+                if (! $error instanceof HttpException) report($error);
+                continue;
+            }
+            $figures = ['previous_closing_id' => (int) $review['previous_closing_id']] + array_intersect_key($review['snapshot'], array_flip($keys));
+            $hash = hash('sha256', json_encode($figures, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $entry = ['value' => $value, 'hash' => $hash];
+            if (($known[$value] ?? null) !== $hash) $entry['report'] = $figures;
+            $result[] = $entry;
+        }
+        return $result;
+    }
+
+    /**
      * The branch's current shift as the shift page starts it (BranchShiftClosing::data): the last closing, when this
      * shift started and the latest closings, so an owner or admin can close the shift on the device while the internet
      * is down. Null before the shift page is installed.

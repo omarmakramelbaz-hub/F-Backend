@@ -964,7 +964,9 @@ app.whenReady().then(() => {
   const stockPage = new StockOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() });
   const dinePage = new ServiceOffline({ store, origin, now, kick: () => sync.kick(), channel: 'dine' });
   const deliveryPage = new DeliveryOffline({ store, origin, now, kick: () => sync.kick() });
-  const shiftsPage = new ShiftsOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), services: [dinePage, deliveryPage] });
+  // A closing made offline prints its device report on this device's receipt printer (the print window without one).
+  const shiftsPage = new ShiftsOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), services: [dinePage, deliveryPage],
+    print: (html) => printing.print(BrowserWindow, html, printSettings(), { partition: 'persist:dashboard', baseURL: origin }) });
   boardPage = new OrdersBoardOffline({ store, cache: pageCache, origin, now });
   offline = new DashboardOffline({ origin, cache: pageCache, user: sessionUser,
     pages: [new TakeawayOffline({ store, origin, now, kick: () => sync.kick() }),

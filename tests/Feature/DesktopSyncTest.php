@@ -1006,6 +1006,31 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(1, DB::table('branch_shift_closings')->count());
     }
 
+    public function test_devices_asking_for_it_receive_the_open_shift_figures_of_its_closing_report_when_they_change(): void
+    {
+        $this->shiftTables();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $snapshot = $this->sync($device, ['want_catalogs' => true])->json('branches')[0]['snapshot_id'];
+        $this->assertArrayNotHasKey('running', $this->sync($device, [])->json(), 'Only when asked');
+        $first = $this->sync($device, ['want_running' => true])->assertOk()->json('running');
+        $this->assertSame(['f:100'], array_column($first, 'value'));
+        $this->assertSame(['previous_closing_id' => 0, 'started_at' => '2026-10-30 06:00:00', 'sales_total' => '0.00', 'expected_cash' => '0.00'],
+            array_intersect_key($first[0]['report'], array_flip(['previous_closing_id', 'started_at', 'sales_total', 'expected_cash'])));
+        // Unchanged: the hash alone.
+        $same = $this->sync($device, ['want_running' => true, 'running_hashes' => ['f:100' => $first[0]['hash']]])->json('running')[0];
+        $this->assertSame(['value' => 'f:100', 'hash' => $first[0]['hash']], $same);
+        // A sale sent in the same sync is in the figures that sync returns, exactly as the closing would report it.
+        $sale = $this->sale($snapshot, ['occurred_at' => '2026-10-30T09:00:00Z']);
+        $after = $this->sync($device, ['operations' => [$sale], 'want_running' => true, 'running_hashes' => ['f:100' => $first[0]['hash']]])->json();
+        $this->assertSame('applied', $after['results'][0]['status']);
+        $report = $after['running'][0]['report'];
+        $this->assertSame(['count' => 1, 'gross' => '271.00', 'delivery' => '0.00', 'net' => '271.00'], $report['channels']['takeaway']);
+        $this->assertSame(['271.00', '271.00', '271.00', '271.00'], [$report['sales_total'], $report['net_sales'], $report['cash_sales'], $report['expected_cash']]);
+        $user = User::query()->where('mobile', '1000000004')->first();
+        $built = app(\App\Services\Dashboard\BranchShiftClosing::class)->desktopReview(['branch' => 'f:100'], $user)['snapshot'];
+        foreach (array_keys($report) as $key) if ($key !== 'previous_closing_id') $this->assertSame($built[$key], $report[$key], $key);
+    }
+
     public function test_a_shift_closed_on_the_device_waits_for_open_invoices_like_the_page(): void
     {
         $this->shiftTables();

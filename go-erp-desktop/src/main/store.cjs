@@ -378,6 +378,44 @@ class Store {
     });
   }
 
+  /**
+   * The open shift's figures as the dashboard would report its closing (sent every two minutes when they changed), and
+   * when they arrived: this device's records synced up to then are in them, the later ones are not.
+   */
+  applyRunning(entries) {
+    const known = this.get('shift_running', {}) || {};
+    const next = {};
+    for (const entry of entries || []) {
+      if (!entry || typeof entry.value !== 'string' || typeof entry.hash !== 'string') continue;
+      if (entry.report && typeof entry.report === 'object') next[entry.value] = { hash: entry.hash, report: entry.report, received_at: this.now().toISOString() };
+      else if (known[entry.value] && known[entry.value].hash === entry.hash) next[entry.value] = known[entry.value];
+    }
+    this.set('shift_running', next);
+  }
+
+  runningHashes() {
+    const known = this.get('shift_running', {}) || {};
+    return Object.fromEntries(Object.entries(known).map(([branch, copy]) => [branch, copy.hash]));
+  }
+
+  running(branch) {
+    const known = this.get('shift_running', {}) || {};
+    return known[branch] || null;
+  }
+
+  /**
+   * This device's records of a branch since a moment that the dashboard may not count yet (not sent, or sent after
+   * `after`): paid invoices (always cash offline), approved expenses and drawer moves. Rejected ones never count.
+   */
+  shiftRecords(branch, since, after) {
+    const fresh = (row) => row.sync_status === 'pending' || (row.sync_status === 'synced' && (!after || !row.synced_at || row.synced_at > after));
+    const sales = this.db.prepare(`SELECT channel, totals, sync_status, synced_at FROM tickets WHERE branch = ? AND status = 'paid' AND paid_at >= ?`)
+      .all(branch, since).filter(fresh).map((row) => ({ channel: row.channel, totals: JSON.parse(row.totals) }));
+    const journal = this.db.prepare(`SELECT kind, amount_cents, data, sync_status, synced_at FROM journal WHERE branch = ? AND kind IN ('expense', 'till')
+      AND created_at >= ?`).all(branch, since).filter(fresh).map((row) => ({ kind: row.kind, amount_cents: row.amount_cents, data: JSON.parse(row.data) }));
+    return { sales, expenses: journal.filter((row) => row.kind === 'expense' && row.data.approve), till: journal.filter((row) => row.kind === 'till') };
+  }
+
   serviceHashes() {
     const hashes = {};
     for (const row of this.db.prepare('SELECT value, service_hash FROM branches WHERE service IS NOT NULL').all()) hashes[row.value] = row.service_hash;
@@ -868,7 +906,9 @@ class Store {
     }
     this.requireBranch(actor, branch, 'can_close_shift');
     const data = { previous_closing_id: Number(values.previous_closing_id), counted_cash: String(values.counted_cash), notes: String(values.notes || '') };
-    return this.addJournal(actor, branch, 'shift', 0, data, { started_at: values.started_at || '' }, options.id, 'shift_close');
+    // The report shown and printed here until the dashboard's own arrives stays on the device (never sent).
+    return this.addJournal(actor, branch, 'shift', 0, data, { started_at: values.started_at || '', ...(values.report ? { report: values.report } : {}) },
+      options.id, 'shift_close');
   }
 
   /** Shifts closed on this device for a branch, oldest first. */

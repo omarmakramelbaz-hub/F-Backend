@@ -135,6 +135,27 @@ test('without internet the sale stays queued and is sent on a later sync; retry 
   assert.equal(store.outboxStats().pending, 0);
 });
 
+test('the open shift\'s figures are asked for every two minutes, and kept with when they arrived', async () => {
+  const { store } = fixture();
+  let clock = Date.parse('2026-10-30T09:00:00Z');
+  const calls = [];
+  let reply = { value: 'f:100', hash: 'r1', report: { previous_closing_id: 5, expected_cash: '100.00' } };
+  const api = { sync: async (device, token, body) => { calls.push(body); return { results: [], ...(body.want_running ? { running: [reply] } : {}) }; } };
+  const engine = new SyncEngine({ store, api, token: () => 'token', intervalMs: 60000, now: () => clock });
+  await engine.run();
+  assert.deepEqual([calls[0].want_running, calls[0].running_hashes], [true, {}]);
+  assert.deepEqual(store.running('f:100').report, { previous_closing_id: 5, expected_cash: '100.00' });
+  clock += 60 * 1000;
+  await engine.run();
+  assert.equal(calls[1].want_running, undefined, 'Not again within two minutes');
+  clock += 60 * 1000;
+  reply = { value: 'f:100', hash: 'r1' };
+  await engine.run();
+  engine.stop();
+  assert.deepEqual([calls[2].want_running, calls[2].running_hashes], [true, { 'f:100': 'r1' }]);
+  assert.equal(store.running('f:100').report.expected_cash, '100.00', 'Unchanged figures keep the copy');
+});
+
 test('accounts and menus from the server replace the old ones; unchanged menus keep the stored copy', () => {
   const { store } = fixture();
   store.replaceUsers([{ ...CASHIER, name: 'كاشير جديد' }], 'hash-2');
