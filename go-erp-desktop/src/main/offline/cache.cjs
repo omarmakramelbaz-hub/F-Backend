@@ -70,6 +70,18 @@ class PageCache {
     return row ? row.path : null;
   }
 
+  /** The addresses of an account's copies opened or saved since `since`, the most recent first. */
+  recent(scope, kind, { since, limit = 50 }) {
+    return this.db.prepare('SELECT url FROM entries WHERE scope = ? AND kind = ? AND used_at >= ? ORDER BY used_at DESC LIMIT ?')
+      .all(scope, kind, since.toISOString(), limit).map((row) => row.url);
+  }
+
+  /** Drops an account's copies of one kind neither saved nor opened since `before` (no longer read again with the sync). */
+  forgetOlder(scope, kind, before) {
+    const stamp = before.toISOString();
+    return Number(this.db.prepare('DELETE FROM entries WHERE scope = ? AND kind = ? AND stored_at < ? AND used_at < ?').run(scope, kind, stamp, stamp).changes);
+  }
+
   count(scope, kind) {
     return this.db.prepare('SELECT COUNT(*) AS count FROM entries WHERE scope = ? AND kind = ?').get(scope, kind).count;
   }

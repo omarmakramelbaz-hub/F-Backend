@@ -1,6 +1,9 @@
 'use strict';
 // Pages the device shows inside the dashboard while offline when a page was never opened with the internet on it.
 
+// A request that needs the dashboard itself, while the internet is down.
+const NEEDS_INTERNET = 'هذه العملية تحتاج اتصالًا بالإنترنت. الكاشير والصفحات المحفوظة تعمل الآن من الجهاز، وكل شيء يتزامن مع الداشبورد عند رجوع النت.';
+
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
 
 const STYLE = `.goerp-offline-page{max-width:640px;margin:48px auto;padding:32px 28px;border:1px solid #243445;border-radius:16px;background:#0b1724;
@@ -40,4 +43,4 @@ function signedOutPage() {
   return '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تسجيل الدخول</title></head><body></body></html>';
 }
 
-module.exports = { missingSpaPage, nothingSavedPage, signedOutPage };
+module.exports = { missingSpaPage, nothingSavedPage, signedOutPage, NEEDS_INTERNET };

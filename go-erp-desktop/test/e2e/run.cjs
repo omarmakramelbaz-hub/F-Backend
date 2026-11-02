@@ -527,6 +527,7 @@ async function dashboardOffline() {
   }
 
   // The internet goes down.
+  const offlineAt = new Date().toISOString();
   await stopServer();
   await page.locator('.sync-badge').first().click();
   await page.locator('.status-offline').waitFor({ timeout: 40000 });
@@ -534,6 +535,38 @@ async function dashboardOffline() {
   await until(async () => (await products()) >= 3, 'the cashier page opens from the device without the internet', 30000);
   await shot(page, '13-dashboard-cashier-offline-status');
   await dashboardShot(app, '13-dashboard-cashier-offline');
+  // The home page opens without the internet in the dashboard's current look: the GO opening and the GO in the sidebar,
+  // shipped with the app (this test dashboard still renders the earlier solar opening, like a copy saved before it).
+  await inDashboard(app, "location.href = '/admin/dashboard'");
+  const look = () => inDashboard(app, `JSON.stringify({ robot: !!document.querySelector('#go-hud [data-hud-robot]'),
+    earlier: !!document.querySelector('[data-hud-core], [data-go-erp-solar]'), sidebar: !!document.querySelector('[data-go-sidebar-robot]'),
+    engine: !!(window.GoHologram && window.GoHologram.version >= 5), shell: !!window.GoHologramShell,
+    cards: document.querySelectorAll('#go-hud .hud-card').length, who: (document.querySelector('[data-hud-who]') || {}).textContent || '' })`)
+    .then((text) => JSON.parse(text)).catch(() => ({}));
+  await until(async () => {
+    const seen = await look();
+    return seen.robot && !seen.earlier && seen.sidebar && seen.engine && seen.shell && seen.cards > 0 && seen.who.trim().length > 0;
+  }, "the home page opens offline in the dashboard's current look", 30000).catch(async (error) => {
+    console.log('DEBUG home', JSON.stringify(await look()));
+    console.log('DEBUG console', JSON.stringify(await app.evaluate(() => global.__dashboardConsole || [])));
+    throw error;
+  });
+  await dashboardShot(app, '28-dashboard-home-offline-current-look');
+  const freshness = () => inDashboard(app, "(document.querySelector('#go-hud [data-hud-freshness]') || {}).textContent || ''").catch(() => '');
+  assert.equal(await freshness(), 'تعذّر التحديث · آخر أرقام متاحة', 'The counts are the last ones read, not live');
+  // Through the dashboard's own page switch, away and back: the opening starts again in the same look.
+  await inDashboard(app, "window.DashboardSPA.visit('/admin/takeaway')");
+  await until(async () => (await products()) >= 3, 'the cashier page through the page switch without the internet', 30000);
+  await inDashboard(app, "window.DashboardSPA.visit('/admin/dashboard')");
+  await until(async () => {
+    const seen = await look();
+    return seen.robot && !seen.earlier && seen.sidebar && seen.cards > 0 && /آخر أرقام متاحة/.test(await freshness());
+  }, 'back on the home page through the page switch, the same look', 30000).catch(async (error) => {
+    console.log('DEBUG home again', JSON.stringify(await look()), await freshness());
+    throw error;
+  });
+  await inDashboard(app, "location.href = '/admin/takeaway'");
+  await until(async () => (await products()) >= 3, 'back to the cashier page without the internet', 30000);
   // 1 kg بوري مشوي (180) + 1 سلطة طحينة (25) = 205.00
   const step = (code) => inDashboard(app, `(() => { const root = document.querySelector('#takeaway-pos'); ${code} })()`);
   await step(`const card = (name) => Array.from(root.querySelectorAll('[data-pos-product]')).find((button) => button.textContent.includes(name));
@@ -858,6 +891,11 @@ async function dashboardOffline() {
   await until(() => serverRows("SELECT revision FROM branch_customers WHERE phone_key = '01055556666'")[0].revision === 2, 'the customer saved offline reaches the dashboard', 40000);
   assert.equal(orderCount(), before + 7, 'The takeaway sale, the new dine-in order, the dashboard order and four delivery orders: each once');
   await page.locator('.status-offline').waitFor({ state: 'detached', timeout: 40000 });
+  // Back online, the device's copy follows the dashboard again: its pages and the home page's numbers are read again.
+  const readAgain = (kind, pagePath) => deviceRows(userData, 'dashboard-copy.sqlite',
+    `SELECT COUNT(*) AS c FROM entries WHERE scope = 'u:4' AND kind = '${kind}' AND path = '${pagePath}' AND stored_at > '${offlineAt}'`)[0].c > 0;
+  await until(() => readAgain('page', '/admin/dashboard') && readAgain('page', '/admin/takeaway'), 'the saved pages are read again once online', 90000);
+  await until(() => readAgain('data', '/admin/dashboard/overview'), "with the home page's numbers", 60000);
   await app.close();
 }
 

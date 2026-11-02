@@ -1,0 +1,11 @@
+/* Persistent sidebar avatar; the login branding remains independent. */
+.main-sidebar .go-sidebar-robot{display:block;position:relative;width:100%;height:100%;max-width:210px;flex:1 1 auto;overflow:hidden;border:0;border-radius:0;outline-offset:3px;background:transparent;box-shadow:none}
+.main-sidebar .go-sidebar-robot canvas{display:block;width:100%;height:100%;pointer-events:none}
+.main-sidebar .go-sidebar-robot:focus-visible{outline:2px solid #29e4fa}
+.main-sidebar .go-sidebar-robot+.dashboard-brand-copy{display:none}
+.main-sidebar .dashboard-brand:has(.go-sidebar-robot){justify-content:center;padding:4px 12px;min-height:136px}
+.dashboard-theme #dashboard-sidebar > .dashboard-brand:has(.go-sidebar-robot){height:120px;min-height:120px;padding:0;background:transparent!important;border:0!important;border-radius:0;box-shadow:none!important}
+.dashboard-theme #dashboard-sidebar.dashboard-sidebar-compact > .dashboard-brand:has(.go-sidebar-robot){height:96px;min-height:96px;padding:0}
+.dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-sidebar-robot{width:48px;height:58px;flex:0 0 48px}
+.dashboard-theme.sidebar-collapse #dashboard-sidebar.main-sidebar:not(:hover) > .dashboard-brand:has(.go-sidebar-robot){height:66px;min-height:66px;padding:4px}
+@media(max-width:767px){.main-sidebar .go-sidebar-robot{height:112px}.main-sidebar .dashboard-brand:has(.go-sidebar-robot){min-height:120px}}

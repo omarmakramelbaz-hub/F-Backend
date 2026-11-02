@@ -11,7 +11,8 @@ const printing = require('./printing.cjs');
 const rules = require('./rules.cjs');
 const money = require('./money.cjs');
 const { PageCache } = require('./offline/cache.cjs');
-const { DashboardOffline, warmUpScript } = require('./offline/interceptor.cjs');
+const { DashboardOffline, warmUpScript, WARM_PAGES, REFRESHED_DATA } = require('./offline/interceptor.cjs');
+const { HomeOffline } = require('./offline/home.cjs');
 const { TakeawayOffline } = require('./offline/takeaway.cjs');
 const { ExpensesOffline } = require('./offline/expenses.cjs');
 const { EmployeesOffline } = require('./offline/employees.cjs');
@@ -481,12 +482,13 @@ function setOfflineMode(value, reason = '') {
   if (!value) {
     refreshSince = Date.now();
     refreshWhenIdle();
-    if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents);
+    // Back online: everything saved is read again from the dashboard (what changed while the device was offline). A
+    // page shown from the device's copy reloads from the dashboard first, and that load reads them.
+    warmedAt.clear();
+    const contents = dashboardView && dashboardView.webContents;
+    if (contents && dashboardSignedIn && !fromCopy.has(contents)) warmUp(contents, { soon: true });
   }
 }
-
-// A device that stays on one page (in-place navigation loads no new page) still keeps its saved pages fresh.
-setInterval(() => { if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents); }, 10 * 60 * 1000).unref();
 
 // Windows whose current page came from the device's copy: reloaded from the dashboard once it is idle online.
 const fromCopy = new WeakSet();
@@ -508,20 +510,45 @@ function refreshWhenIdle() {
   }).catch(() => { refreshTimer = setTimeout(refreshWhenIdle, 15000); });
 }
 
-// Each account's dashboard pages are saved for offline use once it opens the dashboard online (again after 6 hours).
-const warmedAt = new Map();
+// The device's copy of the dashboard follows the sync, so offline the program shows what the dashboard showed at the
+// last sync (after the dashboard's numbers were set back to zero, zero), with this device's own work added on top:
+//   - after a sync, at most every 5 minutes: the home page with its numbers, and the lists the offline pages start
+//     from (stock, expenses, shift, employees) that this account opened lately;
+//   - every 30 minutes, when the account opens the dashboard and as soon as the internet is back: every page of its
+//     menu too (a new look or page on the dashboard reaches the device that way).
+const NUMBERS_EVERY = 5 * 60 * 1000;
+const PAGES_EVERY = 30 * 60 * 1000;
+const warmedAt = new Map(); // account id -> { numbers, pages }: when they were last read from the dashboard
+const warming = new Map(); // account id -> the reading going on now (a new page load ends it)
 
-// The saved pages follow the dashboard closely: a new look or page on the server reaches this device within half an
-// hour online, and as soon as the internet is back, so it also opens that way offline.
-const WARM_EVERY = 30 * 60 * 1000;
-
-function warmUp(contents) {
+function warmUp(contents, { soon = false } = {}) {
   const user = sessionUser();
-  if (!user || offlineMode || !contents || contents.isDestroyed() || Date.now() - (warmedAt.get(user.id) || 0) < WARM_EVERY) return;
-  warmedAt.set(user.id, Date.now());
+  // A page shown from the device's copy reloads from the dashboard once online; that load reads the copy.
+  if (!user || offlineMode || !contents || contents.isDestroyed() || fromCopy.has(contents) || warming.has(user.id)) return;
+  const now = Date.now();
+  const last = warmedAt.get(user.id) || { numbers: 0, pages: 0 };
+  if (now - last.numbers < NUMBERS_EVERY) return;
+  const all = now - last.pages >= PAGES_EVERY;
+  const week = new Date(now - 7 * 24 * 3600 * 1000);
+  // A list not opened for a week is not kept (offline its page starts from the list the saved page came with); the
+  // others are read again below.
+  pageCache.forgetOlder('u:' + user.id, 'data', week);
+  const lists = pageCache.recent('u:' + user.id, 'data', { since: week, limit: 200 })
+    .filter((address) => { try { return REFRESHED_DATA.test(new URL(address).pathname); } catch { return false; } }).slice(0, 20);
+  const reading = {};
+  warming.set(user.id, reading);
+  const done = () => { if (warming.get(user.id) === reading) warming.delete(user.id); };
   setTimeout(() => {
-    if (!contents.isDestroyed() && !offlineMode && current && current.user.id === user.id) contents.executeJavaScript(warmUpScript()).catch(() => {});
-  }, 4000);
+    if (warming.get(user.id) !== reading) return; // the page changed meanwhile: its load reads the copy
+    if (contents.isDestroyed() || offlineMode || fromCopy.has(contents) || !current || current.user.id !== user.id) return done();
+    const started = Date.now();
+    const stuck = setTimeout(done, 5 * 60 * 1000);
+    // Recorded once read: a reading cut short (the page reloaded, the internet dropped) is done again with the next sync.
+    contents.executeJavaScript(warmUpScript({ pages: all ? WARM_PAGES : [DASHBOARD_PAGES.home], data: lists }))
+      .then(() => { if (!offlineMode) warmedAt.set(user.id, { numbers: started, pages: all ? started : last.pages }); })
+      .catch(() => {})
+      .finally(() => { clearTimeout(stuck); done(); });
+  }, soon ? 1500 : 4000);
 }
 
 /** Pictures of a receipt (the logo) from the device's copy, so it prints the same with the internet down. */
@@ -713,6 +740,8 @@ async function onDashboardLoad(contents) {
   }
   dashboardSignedIn = true;
   notifyDashboard({ type: 'loaded' });
+  // A reading going on in the page before this one ended with it.
+  warming.clear();
   warmUp(contents);
   if (dashboardTarget && !url.href.startsWith(dashboardTarget)) {
     const target = dashboardTarget;
@@ -876,7 +905,7 @@ app.whenReady().then(() => {
       new ExpensesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick() }),
       stockPage,
       new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), recoverers: [(entry, user) => stockPage.recovered(entry, user)] }),
-      dinePage, deliveryPage, shiftsPage],
+      dinePage, deliveryPage, shiftsPage, new HomeOffline({ cache: pageCache, origin })],
     onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
     onSignOut: (now) => {
       if (!dashboardLoggingOut) console.log('[goerp] the dashboard\'s own sign-out');
@@ -895,7 +924,11 @@ app.whenReady().then(() => {
     // Only a finished sync says whether the dashboard answers (a starting one still carries the previous result).
     if (!status.running) {
       if (status.online === false) setOfflineMode(true, 'sync: ' + (status.last_error || ''));
-      else if (status.online === true) setOfflineMode(false, 'sync');
+      else if (status.online === true) {
+        setOfflineMode(false, 'sync');
+        // The saved pages and numbers follow the dashboard with the sync (see warmUp).
+        if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents);
+      }
       // Saved pages of accounts no longer on this device are removed.
       if (store.userCount()) {
         for (const scope of pageCache.scopes()) if (scope.startsWith('u:') && !store.user(Number(scope.slice(2)))) pageCache.forgetScope(scope);

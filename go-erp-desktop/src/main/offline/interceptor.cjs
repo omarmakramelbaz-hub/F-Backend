@@ -8,7 +8,10 @@
 //            and anything that needs the server gets the dashboard's usual error message asking for the internet.
 const fs = require('node:fs');
 const path = require('node:path');
-const { missingSpaPage, nothingSavedPage, signedOutPage } = require('./pages.cjs');
+const { missingSpaPage, nothingSavedPage, signedOutPage, NEEDS_INTERNET } = require('./pages.cjs');
+const { currentLook, fromDevice, hologramFile, PREFIX: HOLOGRAM } = require('./hologram.cjs');
+const { savedCounters } = require('./home.cjs');
+const { cacheKey } = require('./cache.cjs');
 
 // Shipped with the app: the receipt logo (the dashboard's print waits for every receipt picture to load).
 const BUNDLED = { '/dashboard/branding/fasakhansta-logo-transparent.png': ['image/png', path.join(__dirname, 'files', 'fasakhansta-logo-transparent.png')] };
@@ -27,11 +30,12 @@ const SIGNAL_TYPES = new Set(['Document', 'XHR', 'Fetch']);
 const READ_TYPES = ['Document', 'Stylesheet', 'Image', 'Media', 'Script', 'XHR', 'Fetch', 'Other'];
 // The dashboard's own sign-out link (navbar: /admin/adminLogout).
 const SIGN_OUT = /^\/admin\/(adminLogout|logout)\/?$/i;
-const NEEDS_INTERNET = 'هذه العملية تحتاج اتصالًا بالإنترنت. الكاشير والصفحات المحفوظة تعمل الآن من الجهاز، وكل شيء يتزامن مع الداشبورد عند رجوع النت.';
 // Pages saved for offline use as soon as an account opens the dashboard online (those in its own menu).
 const WARM_PAGES = ['/admin/dashboard', '/admin/takeaway', '/admin/dining', '/admin/phone-orders', '/admin/branch-orders', '/admin/branch-expenses',
   '/admin/branch-shifts', '/admin/employees', '/admin/customers', '/admin/delivery-companies', '/admin/branch-stock', '/admin/print-settings',
   '/admin/desktop-dashboard'];
+// The dashboard's lists the offline pages start from (their numbers), read again with the sync while online.
+const REFRESHED_DATA = /^\/admin\/(dashboard\/overview|branch-stock\/data|branch-expenses\/(data|pending-count)|branch-shifts\/data|employees\/(data|entries))$/;
 
 function header(headers, name) {
   if (!headers) return '';
@@ -148,6 +152,8 @@ class DashboardOffline {
       // The dashboard's sign-out, before the page's in-place navigation fetches it: the app signs out with it.
       { urlPattern: this.origin + '/admin/adminLogout*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/logout*', requestStage: 'Request' },
+      // The GO opening's files shipped with the app (pages saved before the dashboard got it open with them).
+      { urlPattern: this.origin + HOLOGRAM + '*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/takeaway/receipts/9*', requestStage: 'Request' },
       { urlPattern: this.origin + '/admin/branch-expenses/8*', requestStage: 'Request' },
       // Dine-in orders opened on this device while offline, and the kitchen tickets printed here.
@@ -268,6 +274,10 @@ class DashboardOffline {
     let url;
     try { url = new URL(request.url); } catch { return null; }
     const same = url.origin === this.origin;
+    if (same && ['GET', 'HEAD'].includes(request.method)) {
+      const shipped = hologramFile(url.pathname);
+      if (shipped) return { status: 200, body: shipped.body, contentType: shipped.contentType };
+    }
     const user = this.user();
     if (same && user) {
       for (const page of this.pages) {
@@ -290,13 +300,26 @@ class DashboardOffline {
     const spa = header(request.headers, 'x-dashboard-spa') === '1';
     if (same && user) {
       const scope = this.scope(user);
-      for (const kind of document ? ['page'] : spa ? ['spa', 'page'] : ['data', 'page']) {
-        if (kind === 'page' && !document && !spa && !/text\/html/i.test(header(request.headers, 'accept'))) continue;
-        const copy = this.cache.get(scope, kind, url.href, { pathOnly: kind !== 'data' });
-        if (copy) {
-          if (document) this.onFromCopy(contents);
-          return { status: 200, body: kind === 'data' ? copy.body : withoutMap(copy.body), contentType: copy.contentType };
-        }
+      let copy = null;
+      let kind = null;
+      for (const each of document ? ['page'] : spa ? ['spa', 'page'] : ['data', 'page']) {
+        if (each === 'page' && !document && !spa && !/text\/html/i.test(header(request.headers, 'accept'))) continue;
+        const found = this.cache.get(scope, each, url.href, { pathOnly: each !== 'data' });
+        if (!found) continue;
+        // An in-place page switch takes the newer of its own copy and the whole page's (both carry the page's part), so
+        // a page read again with the sync is the one shown; a copy of this very address (its filters) first.
+        found.exact = found.url === cacheKey(url.href);
+        if (copy && (copy.exact && !found.exact || (copy.exact === found.exact && Date.parse(found.storedAt) <= Date.parse(copy.storedAt)))) continue;
+        copy = found;
+        kind = each;
+        if (!spa) break;
+      }
+      if (copy) {
+        if (document) this.onFromCopy(contents);
+        if (kind === 'data') return { status: 200, body: copy.body, contentType: copy.contentType };
+        // A page saved before the dashboard's current look opens in that look (the GO opening and sidebar).
+        const page = fromDevice(currentLook(copy.body, { origin: this.origin, name: user.name, counters: () => savedCounters(this.cache, scope, this.origin) }));
+        return { status: 200, body: withoutMap(page), contentType: copy.contentType };
       }
     }
     const file = this.copyOf(url.href);
@@ -407,16 +430,19 @@ class DashboardOffline {
 }
 
 /**
- * Runs inside the signed-in dashboard: saves the pages of its own menu among WARM_PAGES, with the styles and scripts
- * they use, so they open offline even if they were never visited. Plain page reads, one after another.
+ * Runs inside the signed-in dashboard: saves the pages of its own menu among `pages` with the styles and scripts they
+ * use, the home page's numbers as the page asks for them when it opens, and the dashboard's lists in `data`, so they
+ * open offline as the dashboard has them now. Plain page reads, one after another.
  */
-function warmUpScript() {
+function warmUpScript({ pages = WARM_PAGES, data = [] } = {}) {
   return `(async () => {
-    const wanted = ${JSON.stringify(WARM_PAGES)};
+    const wanted = ${JSON.stringify(pages)};
+    const lists = ${JSON.stringify(data)};
     const menu = new Set(Array.from(document.querySelectorAll('#dashboard-sidebar a[href]')).map((link) => {
       try { const url = new URL(link.href, location.href); return url.origin === location.origin ? url.pathname.replace(/\\/+$/, '') : null; } catch (_) { return null; }
     }).filter(Boolean));
-    const pages = wanted.filter((page) => page === '/admin/dashboard' || menu.has(page));
+    const chosen = wanted.filter((page) => page === '/admin/dashboard' || menu.has(page));
+    const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const done = new Set();
     const keep = async (files) => {
       for (const file of files) {
@@ -428,9 +454,38 @@ function warmUpScript() {
         } catch (_) {}
       }
     };
+    // The home page's numbers, read the way the page itself reads them when it opens (home-overview.js, branch-home.js,
+    // home-hud.js), so the saved answers are the ones it asks for offline.
+    const homeData = (copy) => {
+      const node = copy.getElementById('home-overview-bootstrap') || copy.getElementById('branch-home-bootstrap');
+      let boot = null;
+      try { boot = node && JSON.parse(node.textContent); } catch (_) {}
+      if (!boot) return [];
+      const found = [];
+      const at = (base, fill) => {
+        try { const url = new URL(base, location.origin); if (url.origin !== location.origin) return; fill(url); found.push(url.href); } catch (_) {}
+      };
+      const filters = (boot.initial && boot.initial.filters) || {};
+      if (boot.url) {
+        if (node.id === 'branch-home-bootstrap') {
+          at(boot.url, (url) => { url.searchParams.set('period', 'today'); if (filters.branch) url.searchParams.set('branch', filters.branch); else url.searchParams.delete('branch'); });
+        } else {
+          at(boot.url, (url) => {
+            url.searchParams.set('branch', filters.branch || ''); url.searchParams.set('period', filters.period || 'today');
+            if (filters.period === 'custom') { url.searchParams.set('from', filters.from); url.searchParams.set('to', filters.to); }
+          });
+        }
+        at(boot.url, (url) => { url.search = ''; url.searchParams.set('section', 'hologram'); });
+      }
+      if (boot.drawer_url && boot.initial && boot.initial.owner_drawer) {
+        at(boot.drawer_url, (url) => Object.keys(filters).forEach((key) => url.searchParams.set(key, filters[key])));
+      }
+      return found;
+    };
     await keep([location.origin + '/dashboard/branding/fasakhansta-logo-transparent.png']);
+    const numbers = [];
     // Each page with its own styles and scripts right after it, so every saved page is complete.
-    for (const page of pages) {
+    for (const page of chosen) {
       try {
         const response = await fetch(page, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/html' } });
         if (!response.ok || response.redirected) continue;
@@ -440,11 +495,20 @@ function warmUpScript() {
           try { files.push(new URL(node.getAttribute('href') || node.getAttribute('src'), location.origin + page).href); } catch (_) {}
         });
         await keep(files);
+        if (page === '/admin/dashboard') numbers.push(...homeData(copy));
       } catch (_) {}
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await pause(500);
     }
-    return pages.length;
+    for (const address of numbers.concat(lists)) {
+      if (done.has(address)) continue;
+      done.add(address);
+      try {
+        await (await fetch(address, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })).arrayBuffer();
+      } catch (_) {}
+      await pause(250);
+    }
+    return chosen.length;
   })()`;
 }
 
-module.exports = { DashboardOffline, warmUpScript, WARM_PAGES, NETWORK_FAILURES, NEEDS_INTERNET, requestBody };
+module.exports = { DashboardOffline, warmUpScript, WARM_PAGES, REFRESHED_DATA, NETWORK_FAILURES, NEEDS_INTERNET, requestBody };

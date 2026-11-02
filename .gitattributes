@@ -16,3 +16,6 @@ desktop-pos/src/wkhtmltox-windows.json text eol=lf
 tests/desktop_dashboard_runtime/verify-contract-pdf.py text eol=lf
 tests/desktop_dashboard_runtime/contract-pdf-parser-test.py text eol=lf
 tests/desktop_dashboard_runtime/requirements-pdf-smoke.txt text eol=lf
+# The dashboard's GO opening shipped in the desktop app: its release's own bytes, checked file by file on Windows too.
+go-erp-desktop/src/main/offline/hologram/** -text
+go-erp-desktop/src/renderer/vendor/go-hologram.js -text
