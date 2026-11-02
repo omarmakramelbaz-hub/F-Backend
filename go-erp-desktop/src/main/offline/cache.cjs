@@ -50,6 +50,12 @@ class PageCache {
     return { url: row.url, contentType: row.content_type, body: Buffer.from(row.body), storedAt: row.stored_at };
   }
 
+  /** Every saved copy of one page or list (any filters), newest first. */
+  allOf(scope, kind, path, limit = 20) {
+    return this.db.prepare('SELECT url, content_type, body, stored_at FROM entries WHERE scope = ? AND kind = ? AND path = ? ORDER BY stored_at DESC LIMIT ?')
+      .all(scope, kind, path, limit).map((row) => ({ url: row.url, contentType: row.content_type, body: Buffer.from(row.body), storedAt: row.stored_at }));
+  }
+
   /** Whether a copy of exactly this address was saved less than maxAge ago. */
   fresh(scope, kind, url, maxAge) {
     const row = this.db.prepare('SELECT stored_at FROM entries WHERE scope = ? AND kind = ? AND url = ?').get(scope, kind, key(url));

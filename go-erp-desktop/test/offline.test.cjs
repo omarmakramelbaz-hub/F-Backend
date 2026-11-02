@@ -544,6 +544,97 @@ test('the employees page records the day\'s leave or absence on the device, with
 // ---- the shift page (تقفيل الوردية): an owner or admin closes the shift on the device while offline ----
 const { ShiftsOffline, LOCAL_SHIFT_BASE } = require('../src/main/offline/shifts.cjs');
 
+test('offline, choosing another branch, a search or the new day still lists the employees, from the saved list and the sync', async () => {
+  let clock = Date.parse('2026-10-30T09:00:00Z'); // 11:00 in Cairo, operating day 2026-10-30
+  const store = new Store(db.open(':memory:'), { now: () => new Date(clock) });
+  store.saveDevice({ id: 'device-1', code: 'A1B', name: 'كاشير 1' }, [{ value: 'f:100', kind: 'f', name: 'المعادي', address: '', phone: '' },
+    { value: 'f:200', kind: 'f', name: 'الدقي', address: '', phone: '' }]);
+  const manager = { ...ACCOUNT, branches: ['f:100', 'f:200'] };
+  store.replaceUsers([manager], 'h');
+  const staff = (employees) => ({ ...MENU, employees, attendance_shifts: [{ shift: 'morning', starts_at: '10:00', ends_at: '18:00' }] });
+  store.applyBranches([
+    { value: 'f:100', available: true, snapshot_id: 'snap-1', hash: 'h1', attendance: [],
+      catalog: staff([{ id: 50, name: 'سعيد', job_title: 'كاشير', schedule_type: 'branch', shift: 'صباحي', has_salary: true }]) },
+    // كريم checked in on another device this morning; نادر joined after the list below was saved.
+    { value: 'f:200', available: true, snapshot_id: 'snap-2', hash: 'h2',
+      attendance: [{ employee_id: 61, day: '2026-10-30', status: 'morning', checked_in_at: '2026-10-30T07:55:00+00:00', checked_out_at: null }],
+      catalog: staff([{ id: 61, name: 'كريم', job_title: 'شيف', schedule_type: 'branch', shift: 'صباحي', has_salary: true },
+        { id: 62, name: 'نادر', job_title: 'كاشير', schedule_type: 'branch', shift: 'مسائي', attendance_shift: 'evening', has_salary: false }]) }]);
+  const cache = new PageCache(':memory:', { now: () => new Date(clock) });
+  const page = new EmployeesOffline({ store, cache, origin: ORIGIN, now: () => new Date(clock) });
+  const ask = async (method, path, body = null) => {
+    const url = new URL(ORIGIN + path);
+    return page.answer(page.match(method, url.pathname), { user: manager, url, body });
+  };
+  const row = (id, name, branch, extra = {}) => ({ id, name, branch, job_title: 'شيف', shift: 'صباحي', schedule_type: 'branch', active: true, phone: '01000000000',
+    identity: { front: true, back: true }, regulation: { accepted: true, current: true }, attendance: null, day_closed: false,
+    daily: { bonus: { count: 0, amount: '0.00' }, deduction: { count: 0, amount: '0.00' }, advance: { count: 0, amount: '0.00' } },
+    statement: { month: '2026-10', net: '4200.00', net_cents: 420000, status: 'draft', eligible_days: 30, accrued_from: '2026-10-01', accrued_through: '2026-10-29' }, ...extra });
+  // Seen online this morning: «all branches», page 1 (سعيد and كريم; a deduction for كريم today).
+  const morning = { success: true, operating_day: { date: '2026-10-30', start_hour: 6 }, can_manage_attendance: true, branches: [], options: { job_title: ['شيف', 'كاشير'], shift: ['صباحي', 'مسائي'] },
+    filters: { branch: 'all', day: '2026-10-30', month: '2026-10', page: 1 }, pagination: { page: 1, last_page: 1, total: 2 },
+    items: [row(50, 'سعيد', 'f:100', { job_title: 'كاشير' }),
+      row(61, 'كريم', 'f:200', { daily: { bonus: { count: 0, amount: '0.00' }, deduction: { count: 1, amount: '50.00' }, advance: { count: 0, amount: '0.00' } } })],
+    summary: { employees: 2, present: 1, absent: 0, leave: 0, deduction: '50.00', bonus: '0.00', advance: '0.00', net: '8400.00' } };
+  cache.put('u:4', 'data', ORIGIN + '/admin/employees/data?page=1&branch=all&day=2026-10-30&month=2026-10&search=&job_title=&shift=', 'application/json',
+    Buffer.from(JSON.stringify(morning)));
+  const list = async (query) => {
+    const answer = await ask('GET', '/admin/employees/data?page=1&' + query);
+    assert.equal(answer.status, 200, JSON.stringify(answer.json));
+    return answer.json;
+  };
+
+  // The branch chosen for attendance: its employees from the saved list, the one the sync added, today's attendance.
+  const dokki = await list('branch=f:200&day=2026-10-30&month=2026-10&search=&job_title=&shift=');
+  assert.deepEqual(dokki.items.map((item) => [item.id, item.name, item.branch]), [[61, 'كريم', 'f:200'], [62, 'نادر', 'f:200']]);
+  assert.deepEqual([dokki.items[0].attendance.status, dokki.items[0].attendance.check_in], ['morning', '09:55:00'], 'كريم checked in on another device');
+  assert.equal(dokki.items[0].statement.net, '4200.00', 'The saved pay stays');
+  assert.equal(dokki.items[0].daily.deduction.amount, '50.00');
+  assert.deepEqual([dokki.items[1].attendance, dokki.items[1].statement.status, dokki.items[1].statement.net, dokki.items[1].job_title, dokki.items[1].phone],
+    [null, 'draft', '0.00', 'كاشير', null], 'نادر, known from the sync only');
+  assert.deepEqual(dokki.filters, { branch: 'f:200', day: '2026-10-30', month: '2026-10', search: null, job_title: null, shift: null, page: 1 });
+  assert.deepEqual(dokki.pagination, { page: 1, last_page: 1, total: 2 });
+  assert.deepEqual(dokki.summary, { employees: 2, present: 1, absent: 0, leave: 0, deduction: '50.00', bonus: '0.00', advance: '0.00', net: '4200.00' });
+  assert.equal(dokki.can_manage_attendance, true, 'The page\'s own permissions stay');
+
+  // Attendance taken from it on this device shows on it.
+  const punch = await ask('POST', '/admin/employees/attendance', { branch: 'f:200', employee_id: 62, day: '2026-10-30', status: 'evening', action: 'check_in',
+    notes: '', expected_revision: null, idempotency_key: '0a8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f' });
+  assert.equal(punch.status, 200, JSON.stringify(punch.json));
+  const after = await list('branch=f:200&day=2026-10-30&month=2026-10&search=&job_title=&shift=');
+  assert.deepEqual([after.items[1].attendance.status, after.items[1].attendance.check_in, after.items[1].attendance.revision], ['evening', '11:00:00', 1]);
+  assert.equal(after.summary.present, 2);
+
+  // The page's search and its job and shift filters.
+  assert.deepEqual((await list('branch=f:200&day=2026-10-30&month=2026-10&search=نا&job_title=&shift=')).items.map((item) => item.id), [62]);
+  assert.deepEqual((await list('branch=all&day=2026-10-30&month=2026-10&search=&job_title=كاشير&shift=')).items.map((item) => item.id), [50, 62], 'By name, as the dashboard orders them');
+  // «All branches» was saved as it was: the saved copy, with the device's punch on it.
+  const all = await list('branch=all&day=2026-10-30&month=2026-10&search=&job_title=&shift=');
+  assert.deepEqual(all.items.map((item) => item.id), [50, 61]);
+
+  // A deduction recorded here for كريم today counts once, on top of the one the saved list has.
+  store.set('server_kinds', ['employee_entry']);
+  const entry = await ask('POST', '/admin/employees/entry', { branch: 'f:200', employee_id: 61, day: '2026-10-30', kind: 'deduction', amount: '25.00',
+    reason: 'تأخير', notes: '', idempotency_key: '0b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f' });
+  assert.equal(entry.status, 200, JSON.stringify(entry.json));
+  const deducted = await list('branch=f:200&day=2026-10-30&month=2026-10&search=&job_title=&shift=');
+  assert.deepEqual([deducted.items[0].daily.deduction, deducted.items[0].statement.net, deducted.summary.deduction], [{ count: 2, amount: '75.00' }, '4175.00', '75.00']);
+
+  // The next operating day, still offline: the page moves to it and the day starts empty; the month's pay stays.
+  clock = Date.parse('2026-10-31T05:00:00Z'); // 07:00 in Cairo, operating day 2026-10-31
+  const moved = await list('branch=all&day=2026-10-30&month=2026-10&search=&job_title=&shift=');
+  assert.equal(moved.operating_day.date, '2026-10-31', 'The page rolls over to the new day, as with the dashboard');
+  const next = await list('branch=f:200&day=2026-10-31&month=2026-10&search=&job_title=&shift=');
+  assert.deepEqual(next.items.map((item) => [item.id, item.attendance, item.daily.deduction.count]), [[61, null, 0], [62, null, 0]]);
+  assert.equal(next.items[0].statement.net, '4175.00', 'The month keeps the saved pay and this device\'s deduction');
+  assert.deepEqual([next.summary.present, next.summary.deduction], [0, '0.00']);
+  // A day before the saved list, or another month's pay, needs the internet.
+  assert.equal((await ask('GET', '/admin/employees/data?page=1&branch=f:200&day=2026-10-29&month=2026-10')).status, 503);
+  assert.equal((await ask('GET', '/admin/employees/data?page=1&branch=f:200&day=2026-10-31&month=2026-09')).status, 503);
+  // A branch this account has no access to on this device stays refused.
+  assert.equal((await ask('GET', '/admin/employees/data?page=1&branch=f:300&day=2026-10-31&month=2026-10')).status, 503);
+});
+
 test('the shift page closes the shift on the device once nothing is open, and the closing goes alone, in its place', async () => {
   const dining = diningPage({ kinds: ['sale', 'expense', 'till', 'ticket_settle', 'ticket_open', 'ticket_action', 'shift_close'] });
   const { store } = dining;

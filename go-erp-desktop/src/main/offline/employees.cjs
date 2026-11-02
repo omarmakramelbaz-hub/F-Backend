@@ -3,7 +3,8 @@
 // or the day's leave or absence, is recorded on the device with the device's (server-corrected) time, under the page's
 // own operation number, and goes to the dashboard with the 30-second sync, where the dashboard applies its late,
 // early-leave, absence and leave rules. Deductions, bonuses (the owner's) and advances are recorded the same way. The
-// list is the last one seen online with this device's records shown on it. Other changes on this page need the internet.
+// list is the last one seen online with this device's records shown on it; another branch, a search or the new operating
+// day is built from the saved lists and the employees the sync brought. Other changes on this page need the internet.
 const rules = require('../rules.cjs');
 const money = require('../money.cjs');
 const { branchProblem } = require('./access.cjs');
@@ -231,6 +232,84 @@ class EmployeesOffline {
     return null;
   }
 
+  /**
+   * A list for filters no saved copy has: another branch, a search, or the new operating day. Built from the newest saved
+   * list holding that branch's employees (else the newest), cut to the branch and the search, with the day's attendance
+   * from the sync and this device's punches, completed with the branch's employees the device knows from the sync, all on
+   * one page. Another day than the saved list's is the current operating day only, and another month's pay is the
+   * current day's own month only (it starts empty); anything else, and a device that never saved the list, stays null.
+   */
+  rebuilt(user, scope, filters) {
+    const branch = filters.branch && filters.branch !== 'all' ? String(filters.branch) : '';
+    if (branch && !user.branches.includes(branch)) return null;
+    const branches = branch ? [branch] : user.branches;
+    const lists = this.cache.allOf(scope, 'data', '/admin/employees/data').map((copy) => ({ list: read(copy), storedAt: copy.storedAt }));
+    const page = this.pageList(scope);
+    if (page) lists.push(page);
+    const usable = lists.filter((found) => found.list && Array.isArray(found.list.items) && found.list.filters && DAY.test(String(found.list.filters.day || '')))
+      .sort((a, b) => Date.parse(b.storedAt) - Date.parse(a.storedAt));
+    const base = usable.find((found) => found.list.items.some((item) => item && branches.includes(item.branch))) || usable[0];
+    if (!base) return null;
+    const today = rules.operatingDay(this.now());
+    const day = filters.day || today;
+    const month = filters.month || day.slice(0, 7);
+    const was = base.list.filters;
+    const sameDay = was.day === day;
+    const sameMonth = (was.month || String(was.day).slice(0, 7)) === month;
+    if (!sameDay && day !== today) return null;
+    if (!sameMonth && month !== day.slice(0, 7)) return null;
+    const list = JSON.parse(JSON.stringify(base.list));
+    const zero = () => ({ bonus: { count: 0, amount: '0.00' }, deduction: { count: 0, amount: '0.00' }, advance: { count: 0, amount: '0.00' } });
+    // BranchPayroll::period of a month not closed yet («مفتوح»), before the dashboard computes it.
+    const draft = () => ({ month, net: '0.00', status: 'draft', eligible_days: null, accrued_from: null, accrued_through: null });
+    const closedSameMonth = String(was.day).slice(0, 7) === day.slice(0, 7);
+    let items = list.items.filter((item) => item && branches.includes(item.branch)).map((item) => ({ ...item,
+      ...(sameDay ? {} : { attendance: null, daily: zero(), day_closed: closedSameMonth ? !!item.day_closed : false }),
+      ...(sameMonth ? {} : { statement: draft() }) }));
+    const template = list.items.find(Boolean) || null;
+    for (const value of branches) {
+      for (const employee of this.store.employees(value)) {
+        if (items.some((item) => item.branch === value && Number(item.id) === employee.id)) continue;
+        const blank = {};
+        if (template) for (const key of Object.keys(template)) blank[key] = null;
+        items.push({ ...blank, id: employee.id, name: employee.name, branch: value, job_title: employee.job_title || '', shift: employee.shift || '',
+          schedule_type: employee.schedule_type || 'branch', attendance_shift: employee.attendance_shift ?? null,
+          attendance_start: employee.attendance_start || null, attendance_end: employee.attendance_end || null, active: true,
+          attendance: null, day_closed: false, daily: zero(), statement: draft() });
+      }
+    }
+    // BranchPayroll::listing's own filters (name, job, shift) and order (active first, then by name).
+    const search = String(filters.search || '').trim().toLowerCase();
+    if (search) items = items.filter((item) => String(item.name || '').toLowerCase().includes(search));
+    for (const key of ['job_title', 'shift']) if (filters[key]) items = items.filter((item) => String(item[key] || '') === String(filters[key]));
+    items.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || String(a.name || '').localeCompare(String(b.name || ''), 'ar'));
+    // The day's attendance the sync brought (an employee punched on this device gets it in data(), with the punches).
+    items = items.map((item) => {
+      if (this.store.journal(item.branch, day, ['attendance']).some((entry) => entry.data.employee_id === Number(item.id))) return item;
+      return { ...item, attendance: this.day(item.branch, item.id, day, item.attendance || {}) || item.attendance };
+    });
+    const counts = { present: 0, absent: 0, leave: 0 };
+    const sums = { deduction: 0, bonus: 0, advance: 0 };
+    let net = 0;
+    for (const item of items) {
+      const state = this.day(item.branch, item.id, day, {}) || item.attendance || {};
+      if (['present', 'morning', 'evening', 'part_time'].includes(state.status)) counts.present += 1;
+      else if (['absent', 'unauthorized_absence'].includes(state.status)) counts.absent += 1;
+      else if (['paid_leave', 'unpaid_leave', 'preapproved_leave'].includes(state.status)) counts.leave += 1;
+      for (const kind of KINDS) sums[kind] += money.minor((item.daily && item.daily[kind] && item.daily[kind].amount) || '0');
+      net += money.minor((item.statement && item.statement.net) || '0');
+    }
+    list.items = items;
+    list.filters = { ...was, branch: branch || 'all', day, month, search: filters.search || null, job_title: filters.job_title || null,
+      shift: filters.shift || null, page: 1 };
+    list.pagination = { page: 1, last_page: 1, total: items.length };
+    list.summary = { ...(list.summary || {}), employees: items.length, ...counts, deduction: money.decimal(sums.deduction),
+      bonus: money.decimal(sums.bonus), advance: money.decimal(sums.advance), net: money.decimal(net) };
+    // data() adds the device's records the copy cannot hold: all of them on a day or month it starts empty.
+    const empty = new Date(0).toISOString();
+    return { list, storedAt: sameMonth ? base.storedAt : empty, dayStoredAt: sameDay ? base.storedAt : empty };
+  }
+
   /** The saved list for these filters: the last one seen online, or the one in the saved page. */
   listFor(scope, filters, exactUrl = null) {
     const same = (seen) => seen && seen.filters && Array.isArray(seen.items)
@@ -253,7 +332,9 @@ class EmployeesOffline {
     const user = this.user({ user: who });
     const query = url.searchParams;
     const scope = 'u:' + user.id;
-    const found = this.listFor(scope, { branch: query.get('branch'), day: query.get('day'), month: query.get('month') }, url.href);
+    const filters = { branch: query.get('branch'), day: query.get('day'), month: query.get('month'), search: query.get('search'),
+      job_title: query.get('job_title'), shift: query.get('shift') };
+    const found = this.listFor(scope, filters, url.href) || this.rebuilt(user, scope, filters);
     if (!found) throw new Reply(503, 'القايمة دي محتاجة إنترنت. قايمة اليوم المحفوظة على الجهاز شغالة، والحضور والانصراف بيتسجلوا عادي.');
     const base = found.list;
     const day = (base.filters && base.filters.day) || rules.operatingDay(this.now());
@@ -267,15 +348,15 @@ class EmployeesOffline {
       const punches = this.store.journal(item.branch, day, ['attendance']).filter((entry) => entry.data.employee_id === Number(item.id));
       if (punches.length) next = { ...next, attendance: this.day(item.branch, item.id, day, item.attendance || {}) };
       for (const entry of this.store.employeeEntries(item.branch)) {
-        if (entry.data.employee_id !== Number(item.id) || !this.fresh(entry, found.storedAt)) continue;
+        if (entry.data.employee_id !== Number(item.id)) continue;
         const { kind } = entry.data;
         const cents = money.minor(entry.data.amount);
-        if (entry.data.day === day) {
+        if (entry.data.day === day && this.fresh(entry, found.dayStoredAt || found.storedAt)) {
           const before = (next.daily && next.daily[kind]) || { count: 0, amount: '0.00' };
           next = { ...next, daily: { ...(next.daily || {}), [kind]: { count: Number(before.count || 0) + 1, amount: money.decimal(money.minor(before.amount || '0') + cents) } } };
           added[kind] += cents;
         }
-        if (next.statement && String(entry.data.day).slice(0, 7) === (next.statement.month || month)) {
+        if (next.statement && String(entry.data.day).slice(0, 7) === (next.statement.month || month) && this.fresh(entry, found.storedAt)) {
           const change = kind === 'bonus' ? cents : -cents;
           const statement = { ...next.statement, [kind]: money.decimal(money.minor(next.statement[kind] || '0') + cents),
             net: money.decimal(money.minor(next.statement.net || '0') + change) };
@@ -292,6 +373,9 @@ class EmployeesOffline {
       if (netChange) summary.net = money.decimal(money.minor(summary.net || '0') + netChange);
       base.summary = summary;
     }
+    // The device's operating day: a saved list of an earlier day moves the page to the new day, as the dashboard does.
+    const today = rules.operatingDay(this.now());
+    if (!base.operating_day || !base.operating_day.date || base.operating_day.date < today) base.operating_day = { ...(base.operating_day || {}), date: today };
     base.device_copy = true;
     return json(base);
   }
