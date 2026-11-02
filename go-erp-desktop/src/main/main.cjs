@@ -482,11 +482,12 @@ function setOfflineMode(value, reason = '') {
   if (!value) {
     refreshSince = Date.now();
     refreshWhenIdle();
-    // Back online: everything saved is read again from the dashboard (what changed while the device was offline). A
-    // page shown from the device's copy reloads from the dashboard first, and that load reads them.
+    // Back online: everything saved is read again from the dashboard (what changed while the device was offline), from
+    // whatever page is shown (one shown from the device's copy reloads only once it is idle, which may be never).
     warmedAt.clear();
     const contents = dashboardView && dashboardView.webContents;
-    if (contents && dashboardSignedIn && !fromCopy.has(contents)) warmUp(contents, { soon: true });
+    copyLog(`back online (signed in: ${dashboardSignedIn}, page from the copy: ${!!contents && fromCopy.has(contents)})`);
+    if (contents && dashboardSignedIn) warmUp(contents, { soon: true });
   }
 }
 
@@ -504,10 +505,11 @@ function refreshWhenIdle() {
   if (store.waitingMoves() > 0 && Date.now() - refreshSince < 60000) { refreshTimer = setTimeout(refreshWhenIdle, 2000); return; }
   contents.executeJavaScript('!window.DashboardSPA || window.DashboardSPA.isIdle()').then((idle) => {
     if (offlineMode || contents.isDestroyed()) return;
+    copyLog(idle ? 'the page from the copy reloads from the dashboard' : 'the page from the copy waits until it is idle');
     if (!idle) { refreshTimer = setTimeout(refreshWhenIdle, 15000); return; }
     dashboardTarget = contents.getURL();
     contents.reload();
-  }).catch(() => { refreshTimer = setTimeout(refreshWhenIdle, 15000); });
+  }).catch((error) => { copyLog('the page from the copy could not be checked: ' + (error && error.message)); refreshTimer = setTimeout(refreshWhenIdle, 15000); });
 }
 
 // The device's copy of the dashboard follows the sync, so offline the program shows what the dashboard showed at the
@@ -517,14 +519,17 @@ function refreshWhenIdle() {
 //   - every 30 minutes, when the account opens the dashboard and as soon as the internet is back: every page of its
 //     menu too (a new look or page on the dashboard reaches the device that way).
 const NUMBERS_EVERY = 5 * 60 * 1000;
+const copyLog = (text) => { if (process.env.GOERP_DEBUG_SYNC) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} copy: ${text}`); };
 const PAGES_EVERY = 30 * 60 * 1000;
 const warmedAt = new Map(); // account id -> { numbers, pages }: when they were last read from the dashboard
 const warming = new Map(); // account id -> the reading going on now (a new page load ends it)
 
 function warmUp(contents, { soon = false } = {}) {
   const user = sessionUser();
-  // A page shown from the device's copy reloads from the dashboard once online; that load reads the copy.
-  if (!user || offlineMode || !contents || contents.isDestroyed() || fromCopy.has(contents) || warming.has(user.id)) return;
+  if (!user || offlineMode || !contents || contents.isDestroyed() || warming.has(user.id)) {
+    if (soon || !warmedAt.has(user && user.id)) copyLog(`not now (${!user ? 'no account' : offlineMode ? 'offline' : !contents || contents.isDestroyed() ? 'no window' : 'already reading'})`);
+    return;
+  }
   const now = Date.now();
   const last = warmedAt.get(user.id) || { numbers: 0, pages: 0 };
   if (now - last.numbers < NUMBERS_EVERY) return;
@@ -539,14 +544,18 @@ function warmUp(contents, { soon = false } = {}) {
   warming.set(user.id, reading);
   const done = () => { if (warming.get(user.id) === reading) warming.delete(user.id); };
   setTimeout(() => {
-    if (warming.get(user.id) !== reading) return; // the page changed meanwhile: its load reads the copy
-    if (contents.isDestroyed() || offlineMode || fromCopy.has(contents) || !current || current.user.id !== user.id) return done();
+    if (warming.get(user.id) !== reading) return copyLog('replaced by a newer reading'); // the page changed: its load reads the copy
+    if (contents.isDestroyed() || offlineMode || !current || current.user.id !== user.id) {
+      copyLog('stopped before reading');
+      return done();
+    }
+    copyLog(`reading ${all ? 'every page' : 'the home page'} and ${lists.length} lists`);
     const started = Date.now();
     const stuck = setTimeout(done, 5 * 60 * 1000);
     // Recorded once read: a reading cut short (the page reloaded, the internet dropped) is done again with the next sync.
     contents.executeJavaScript(warmUpScript({ pages: all ? WARM_PAGES : [DASHBOARD_PAGES.home], data: lists }))
-      .then(() => { if (!offlineMode) warmedAt.set(user.id, { numbers: started, pages: all ? started : last.pages }); })
-      .catch(() => {})
+      .then(() => { copyLog('read'); if (!offlineMode) warmedAt.set(user.id, { numbers: started, pages: all ? started : last.pages }); })
+      .catch((error) => copyLog('cut short: ' + (error && error.message)))
       .finally(() => { clearTimeout(stuck); done(); });
   }, soon ? 1500 : 4000);
 }
