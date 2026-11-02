@@ -45,6 +45,9 @@ on:
       - 'deployment/install_login_hud_root.py'
       - 'tests/test_install_login_hud_root.py'
       - 'resources/views/admin/login.blade.php'
+      - 'public/dashboard/js/dashboard-order-alerts.js'
+      - 'tests/order_alerts_shared_feed_test.js'
+      - 'tests/order_alerts_delivery_tone_test.js'
       - '.github/workflows/go-erp-desktop.yml'
   pull_request:
     paths:
@@ -97,6 +100,10 @@ jobs:
         run: vendor/bin/phpunit --filter DesktopSyncTest
       - name: Server installer tests
         run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py tests/test_publish_go_erp_desktop_download_root.py tests/test_activate_employee_auto_absence_root.py tests/test_reset_branch_operations_root.py tests/test_install_login_hud_root.py
+      - name: Order alerts (one feed for every tab; delivery orders sent to a branch ring with their own tone)
+        run: |
+          node tests/order_alerts_shared_feed_test.js
+          node tests/order_alerts_delivery_tone_test.js
       - name: The dashboard's own attendance rules still pass (BranchPayroll gained the device punch option)
         run: |
           composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-progress --no-scripts

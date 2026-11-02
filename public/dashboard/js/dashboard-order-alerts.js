@@ -10,6 +10,19 @@
     var generation = 0, testTimer = null, audio = null, stopped = false, feedTimer = null, feedController = null, signalController = null;
     try { JSON.parse(sessionStorage.getItem(pendingKey) || '[]').forEach(function (key) { pending.set(String(key), new Set(['restored'])); }); } catch (_) {}
     try { audio = new window.Audio(script && script.dataset.soundUrl || '/sounds/mixkit-correct-answer-reward-952.wav'); audio.preload = 'auto'; } catch (_) {}
+    // A delivery order sent to the branch by the owner, an admin or the call center (phone:<ticket>) rings with its own
+    // tone while no other order waits; any other order rings as before.
+    var orderAudio = audio, deliveryAudio = null;
+    try { deliveryAudio = new window.Audio(script && script.dataset.deliverySoundUrl || '/sounds/go-delivery-order.wav'); deliveryAudio.preload = 'auto'; } catch (_) {}
+    // A tone that cannot load never silences a delivery: it rings with the usual sound.
+    if (deliveryAudio && deliveryAudio.addEventListener) deliveryAudio.addEventListener('error', function () {
+        var failed = deliveryAudio; deliveryAudio = null;
+        if (audio === failed) { if (playing || starting) pause(); audio = orderAudio; blocked = false; reconcile(); }
+    });
+    function soundFor(test) {
+        if (test || !deliveryAudio || !pending.size) return orderAudio;
+        return Array.from(pending.keys()).every(function (key) { return /^phone:[1-9][0-9]*$/.test(key); }) ? deliveryAudio : orderAudio;
+    }
     function read(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
     function write(key, value) { try { localStorage.setItem(key, value); return true; } catch (_) { return false; } }
     function lease() { try { return JSON.parse(read(leaseKey) || 'null'); } catch (_) { return null; } }
@@ -75,6 +88,9 @@
     // Only a fulfilled play promise means sound is playing. A rejection remains retryable.
     function play(test, gesture) {
         if (stopped || !enabled || !audio || !pending.size && !test) { update(); return; }
+        // The waiting orders decide the tone (a test with orders waiting plays theirs).
+        var sound = soundFor(test && !pending.size);
+        if (sound && sound !== audio) { if (playing || starting) pause(); audio = sound; }
         if (!ownsAudio(!!gesture)) { update(); return; }
         audio.loop = pending.size > 0;
         if (playing || starting) { update(); return; }
