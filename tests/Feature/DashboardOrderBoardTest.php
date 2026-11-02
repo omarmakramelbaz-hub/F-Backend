@@ -423,6 +423,29 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame(3, $this->board(1)['counts']['courier']);
     }
 
+    public function test_branch_courier_prints_the_order_and_cards_have_no_print_button(): void
+    {
+        $this->legacy(1, ['status'=>'pending', 'accepted_notify'=>'yes']);
+        $this->legacy(2, ['status'=>'accepted', 'accepted_notify'=>'yes', 'delegate_from_out'=>'in_resturant']);
+        $this->actingAs($this->actor(10), 'admin');
+        $service = app(OrderBoardService::class);
+        $preparing = $service->detail('legacy', 1, $this->actor(10));
+        $this->assertSame(['prepare', 'dispatch'], $preparing['actions']);
+        $this->assertSame('مندوب الفرع', $preparing['action_labels']['prepare']);
+        $html = view('admin.orders.board_card', ['card'=>$preparing])->render();
+        // «مندوب الفرع» prints the order as it sends it out: the form carries the order's print page.
+        $print = route('order-board.print', ['legacy', 1]);
+        $this->assertStringContainsString('data-print-after="prepare" data-print-url="'.e($print).'"', $html);
+        $this->assertStringNotContainsString('fa-print', $html, 'No print button on the card');
+        $this->assertStringNotContainsString('href="'.e($print).'"', $html);
+        // An order with the courier: no print button and nothing printed by its actions.
+        $courier = view('admin.orders.board_card', ['card'=>$service->detail('legacy', 2, $this->actor(10))])->render();
+        $this->assertStringNotContainsString('fa-print', $courier);
+        $this->assertStringNotContainsString('data-print-after', $courier);
+        // The order's details page still prints it again.
+        $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertSee($print, false);
+    }
+
     public function test_invoice_keeps_full_saved_item_amount_and_matches_existing_order_total(): void
     {
         Schema::table('orders', function (Blueprint $t) {

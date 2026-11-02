@@ -408,6 +408,16 @@
         var button = event.target.closest('button[name="action"]');
         if (button) lastSubmitter = button;
     });
+    function printOrder(address) {
+        var url;
+        try { url = new URL(address, window.location.href); } catch (_) { return; }
+        if (url.origin !== window.location.origin || !/^\/admin\/order-board\/legacy\/[1-9][0-9]{0,18}\/print\/?$/.test(url.pathname)) return;
+        if (!window.DashboardPrint) { window.open(url.toString(), '_blank', 'noopener'); return; }
+        window.DashboardPrint.print(url.toString()).catch(function (error) {
+            notify((error && error.message) || translated('print_failed'), false, false);
+        });
+    }
+
     columns.addEventListener('submit', async function (event) {
         var actionForm = event.target.closest('[data-order-action]');
         if (!actionForm) return;
@@ -434,6 +444,8 @@
         if ((action === 'reject' || action === 'cancel') && !window.confirm(translated('confirm_' + action))) return;
         var data = new FormData(actionForm);
         data.set('action', action);
+        // «مندوب الفرع» prints the order as it sends it out (the card has no print button).
+        var printAfter = actionForm.dataset.printAfter === action ? actionForm.dataset.printUrl : '';
         try { journalCommand(actionForm, data); }
         catch (error) { notify(error.message || translated('error'), false, false); return; }
         var query = filters().toString();
@@ -469,6 +481,7 @@
             reconcileNeeded = true;
             if (applyConfirmedCard(payload.card, card, query)) setLive('updated');
             else reconcileUrgent = true;
+            if (printAfter) printOrder(printAfter);
             // Shared notification audio can be unavailable while external SDKs initialize.
             // A sound failure must never report a successfully committed order as failed.
             if (window.DashboardOrderAlerts) {

@@ -59,12 +59,10 @@
         @if(!empty($card['urls']['details']))
             <a href="{{ $card['urls']['details'] }}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('order_board.details') }}</a>
         @endif
-        @if(!empty($card['urls']['print']))
-            <a href="{{ $card['urls']['print'] }}" target="_blank" rel="noopener"><i class="fas fa-print" aria-hidden="true"></i>{{ __('order_board.print') }}</a>
-        @endif
+        {{-- No print button: «مندوب الفرع» prints the order as it sends it out; its details page prints it again. --}}
     </div>
     @if(!empty($actions) && !empty($card['urls']['action']))
-        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action data-desktop-board-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}">
+        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action data-desktop-board-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}"@if(($card['source'] ?? '') === 'legacy' && in_array('prepare', $actions, true) && !empty($card['urls']['print'])) data-print-after="prepare" data-print-url="{{ $card['urls']['print'] }}"@endif>
             @csrf
             <input type="hidden" name="expected_status" value="{{ $card['status'] }}">
             <input type="hidden" name="expected_accepted_notify" value="{{ $card['accepted_notify'] ?? '' }}">
