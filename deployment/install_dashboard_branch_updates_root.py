@@ -3,8 +3,9 @@
   - «مندوب الفرع» prints the app order as it sends it out (the order card has no print button any more; the order's
     details page still prints it again);
   - the GO opening's «تقفيل الوردية» card shows the branches' drawer balance to the owner only;
-  - a delivery order sent to a branch by the owner, an admin or the call center rings on the branch's device with its
-    own tone (any other order keeps the usual sound).
+  - a delivery order sent to a branch by the owner, an admin or the call center (it prints on the branch's printer by
+    itself) chimes once on the branch's device with its own tone, never repeated (any other order keeps ringing with
+    the usual sound until handled).
 
 Run as root on srv1836524 from a clean checkout:
   python3 -I -B deployment/install_dashboard_branch_updates_root.py              checks only, changes nothing
@@ -40,7 +41,7 @@ ORIGIN = 'https://fasakhaninja.com'
 PACKAGE = Path(__file__).resolve().parent.parent
 # Each file with the live version it replaces (sha256), or None for a new file; and what marks this release's version.
 FILES = (
-    ('public/dashboard/js/dashboard-order-alerts.js', 'd63f8ca8ecc53abeb5b5ccccf136d68306ed2ed4985ad62d0d369ba3b8e69c61', b'deliveryAudio'),
+    ('public/dashboard/js/dashboard-order-alerts.js', 'd63f8ca8ecc53abeb5b5ccccf136d68306ed2ed4985ad62d0d369ba3b8e69c61', b'go-delivery-order.wav'),
     ('public/dashboard/js/order-board.js', '6330fb5f23ea363e2787b5d413744a9729d45dfe210e46b2528207e302ddac9e', b'printAfter'),
     ('resources/views/admin/orders/board_card.blade.php', '8b2bcf407f4520dffc460d245c0edd99961e231cffaaac902123d22606286a07',
      b'data-print-after="prepare"'),
@@ -48,7 +49,7 @@ FILES = (
     ('public/sounds/go-delivery-order.wav', None, b'WAVE'),
 )
 # What a browser gets once installed: the scripts and the tone (views and PHP are checked through the site's own run).
-SERVED = (('/dashboard/js/order-board.js', b'printAfter'), ('/dashboard/js/dashboard-order-alerts.js', b'deliveryAudio'),
+SERVED = (('/dashboard/js/order-board.js', b'printAfter'), ('/dashboard/js/dashboard-order-alerts.js', b'go-delivery-order.wav'),
           ('/sounds/go-delivery-order.wav', b'WAVE'))
 
 

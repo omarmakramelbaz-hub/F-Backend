@@ -21,7 +21,7 @@ LIVE = {
     'app/Services/Dashboard/HomeHologramMetrics.php': b'<?php class HomeHologramMetrics {}',
 }
 NEW = {
-    'public/dashboard/js/dashboard-order-alerts.js': b'(function(){ var deliveryAudio; })();',
+    'public/dashboard/js/dashboard-order-alerts.js': b'(function(){ var tone = "/sounds/go-delivery-order.wav"; })();',
     'public/dashboard/js/order-board.js': b'(function(){ var printAfter; })();',
     'resources/views/admin/orders/board_card.blade.php': b'<form data-print-after="prepare"></form>',
     'app/Services/Dashboard/HomeHologramMetrics.php': b'<?php class HomeHologramMetrics { function ownerDrawerBalance() {} }',
