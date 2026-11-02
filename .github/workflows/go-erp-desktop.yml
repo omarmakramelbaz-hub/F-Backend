@@ -16,6 +16,7 @@ on:
       - 'resources/views/admin/phone_orders/batch_receipt.blade.php'
       - 'resources/views/admin/branch_shifts/receipt.blade.php'
       - 'app/Services/Dashboard/BranchShiftClosing.php'
+      - 'app/Services/Dashboard/BranchExpenses.php'
       - 'resources/lang/ar/takeaway.php'
       - 'resources/lang/ar/pos_service.php'
       - 'resources/lang/ar/phone_orders.php'

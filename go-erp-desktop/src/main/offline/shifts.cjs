@@ -166,11 +166,27 @@ class ShiftsOffline {
       status_label: STATUS[order.status] || 'فاتورة غير مغلقة', table_name: (order.table && order.table.name) || order.table_name || '', branch_name: name })));
   }
 
+  /** Expenses approved or rejected on this device's expenses page: no longer waiting for review (dashboard ids, device keys). */
+  reviewedHere(branch) {
+    const ids = new Set();
+    const keys = new Set();
+    for (const review of this.store.expenseReviews([branch])) {
+      if (review.sync_status === 'rejected' || !['approve', 'reject'].includes(review.data.action)) continue;
+      if (review.data.expense_id) ids.add(Number(review.data.expense_id));
+      if (!review.data.expense_key) continue;
+      keys.add(review.data.expense_key);
+      const saved = this.store.journalEntry(review.data.expense_key);
+      const number = saved && /^EXP-0*([1-9][0-9]*)/.exec(String(saved.server_ref || ''));
+      if (number) ids.add(Number(number[1]));
+    }
+    return { ids, keys };
+  }
+
   /** Expenses saved here without approval that the dashboard list read online does not have yet. */
-  unreviewedExpenses(branch, savedAt) {
+  unreviewedExpenses(branch, savedAt, reviewed = { keys: new Set() }) {
     const today = rules.operatingDay(this.now());
     return this.store.deviceExpenses([branch], '2000-01-01', today).filter((entry) => !entry.data.approve && entry.sync_status !== 'rejected'
-      && !(entry.sync_status === 'synced' && entry.synced_at && Date.parse(entry.synced_at) <= savedAt))
+      && !reviewed.keys.has(entry.id) && !(entry.sync_status === 'synced' && entry.synced_at && Date.parse(entry.synced_at) <= savedAt))
       .map((entry) => ({ id: LOCAL_EXPENSE_BASE + entry.seq, number: entry.server_ref ? String(entry.server_ref).split(' · ')[0] : `جهاز-${entry.seq}`,
         occurred_on: entry.business_date, description: entry.data.description || '', category: entry.data.category, branch_name: this.branchName(branch) }));
   }
@@ -219,7 +235,12 @@ class ShiftsOffline {
     const counts = { dine: orders.filter((item) => item.source === 'dine').length, phone: orders.filter((item) => item.source === 'phone').length,
       app: app.length };
     base.report.pending_invoices = { total: counts.dine + counts.phone + counts.app, counts, items: orders.concat(app) };
-    const expenses = this.unreviewedExpenses(branch, asOf);
+    // Expenses approved or rejected on this device no longer hold the closing back, as on the dashboard.
+    const reviewed = this.reviewedHere(branch);
+    const listed = (base.report.pending_expense_items || []).length;
+    base.report.pending_expense_items = (base.report.pending_expense_items || []).filter((item) => !reviewed.ids.has(Number(item.id)));
+    base.report.pending_expenses = Math.max(0, Number(base.report.pending_expenses || 0) - (listed - base.report.pending_expense_items.length));
+    const expenses = this.unreviewedExpenses(branch, asOf, reviewed);
     base.report.pending_expenses = Number(base.report.pending_expenses || 0) + expenses.length;
     base.report.pending_expense_items = expenses.concat(base.report.pending_expense_items || []);
     base.history = this.waiting(branch, asOf).reverse().map((entry) => this.stub(entry)).concat(base.history || []).slice(0, 30);

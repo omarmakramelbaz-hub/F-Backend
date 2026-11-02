@@ -318,6 +318,47 @@ class DesktopSyncTest extends TestCase
         $this->assertSame('rejected', $results[1]['status'], 'A stock purchase needs its quantity in kilograms');
     }
 
+    public function test_expenses_approved_rejected_or_cancelled_offline_follow_the_dashboard_review_once(): void
+    {
+        $device = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->json();
+        $cashier = $this->enroll('01000000004', 'cashier-pass')->json();
+        // Two expenses waiting on the dashboard, and one the cashier's device saves offline.
+        $saved = $this->sync($cashier, ['operations' => [
+            $this->operation('expense', 4, ['category' => 'electricity', 'description' => 'فاتورة كهرباء', 'amount' => '350.50']),
+            $this->operation('expense', 4, ['category' => 'gas', 'description' => 'غاز', 'amount' => '40.00']),
+        ]])->json()['results'];
+        [$power, $gas] = [$saved[0]['expense']['id'], $saved[1]['expense']['id']];
+        $local = $this->operation('expense', 4, ['category' => 'packaging', 'description' => 'أكياس', 'amount' => '25.00']);
+        // The owner's device, offline: approves the power bill, rejects the gas, then approves the device's expense by its operation.
+        $approve = $this->operation('expense_review', 1, ['expense_id' => $power, 'expected_revision' => 1, 'action' => 'approve', 'reason' => '']);
+        $reject = $this->operation('expense_review', 1, ['expense_id' => $gas, 'expected_revision' => 1, 'action' => 'reject', 'reason' => 'مكرر']);
+        $byKey = $this->operation('expense_review', 1, ['expense_key' => $local['id'], 'action' => 'approve']);
+        $early = $this->sync($device, ['operations' => [$byKey]])->json()['results'][0];
+        $this->assertSame(['rejected', 'المصروف ده ما وصلش للداشبورد، فمراجعته ما اتطبقتش.'], [$early['status'], $early['error']]);
+        $this->assertSame('applied', $this->sync($cashier, ['operations' => [$local]])->json()['results'][0]['status']);
+        $byKey['id'] = (string) Str::uuid();
+        $results = $this->sync($device, ['operations' => [$approve, $reject, $byKey]])->assertOk()->json()['results'];
+        $this->assertSame(['applied', 'applied', 'applied'], array_column($results, 'status'), json_encode($results, JSON_UNESCAPED_UNICODE));
+        $this->assertSame(['approved', 'rejected', 'approved'], array_column(array_column($results, 'expense'), 'status'));
+        $this->assertSame(-35050 - 2500, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'), 'Approved cash leaves the drawer');
+        $this->assertSame('مكرر', DB::table('branch_expenses')->where('id', $gas)->value('review_reason'));
+        // Sent again: the same review, never twice.
+        $this->assertSame($results[0], $this->sync($device, ['operations' => [$approve]])->json()['results'][0]);
+        $this->assertSame(-35050 - 2500, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'));
+        // Cancelled offline later: the cash goes back; a review of a changed expense is refused like on the page.
+        $void = $this->operation('expense_review', 1, ['expense_id' => $power, 'expected_revision' => 2, 'action' => 'void', 'reason' => 'خطأ']);
+        $stale = $this->operation('expense_review', 1, ['expense_id' => $gas, 'expected_revision' => 1, 'action' => 'approve']);
+        $later = $this->sync($device, ['operations' => [$void, $stale]])->json()['results'];
+        $this->assertSame(['applied', 'voided'], [$later[0]['status'], $later[0]['expense']['status']]);
+        $this->assertSame(['rejected', 'حالة المصروف تغيرت؛ حدّث الصفحة.'], [$later[1]['status'], $later[1]['error']]);
+        $this->assertSame(-2500, (int) DB::table('takeaway_tills')->where('branch', 'f:100')->value('balance_cents'));
+        // A cashier cannot review, and a reason is needed to reject, as on the page.
+        $cannot = $this->sync($cashier, ['operations' => [$this->operation('expense_review', 4, ['expense_id' => $gas, 'action' => 'void', 'reason' => 'x'])]])->json()['results'][0];
+        $this->assertSame('rejected', $cannot['status']);
+        $noReason = $this->sync($device, ['operations' => [$this->operation('expense_review', 1, ['expense_id' => $power, 'action' => 'reject'])]])->json()['results'][0];
+        $this->assertSame(['rejected', 'اكتب سبب الرفض أو الإلغاء.'], [$noReason['status'], $noReason['error']]);
+    }
+
     public function test_offline_cash_in_and_out_apply_on_top_of_the_current_drawer(): void
     {
         $device = $this->enroll('u1@example.test', 'root-pass', ['f:100'])->json();
@@ -342,7 +383,7 @@ class DesktopSyncTest extends TestCase
         $device = $this->enroll('01000000004', 'cashier-pass')->json();
         $response = $this->sync($device, ['operations' => [$this->operation('stock_count', 4, ['items' => []])]])->assertOk()->json();
         $this->assertSame('retry', $response['results'][0]['status']);
-        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close', 'employee_entry'], $response['kinds']);
+        $this->assertSame(['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close', 'employee_entry', 'expense_review'], $response['kinds']);
         $this->assertSame(0, DB::table('desktop_sync_operations')->count(), 'Nothing is stored, so it is accepted once the server knows it');
     }
 

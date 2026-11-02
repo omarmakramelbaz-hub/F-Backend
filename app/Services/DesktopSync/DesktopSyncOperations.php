@@ -28,7 +28,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
  */
 class DesktopSyncOperations
 {
-    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close', 'employee_entry'];
+    public const KINDS = ['sale', 'expense', 'till', 'attendance', 'ticket_settle', 'ticket_open', 'ticket_action', 'ticket_dispatch', 'ticket_batch', 'ticket_save', 'ticket_cancel', 'customer_save', 'attendance_status', 'stock_receive', 'shift_close', 'employee_entry', 'expense_review'];
     private TakeawayAccess $access;
     private DesktopSyncState $state;
 
@@ -72,6 +72,7 @@ class DesktopSyncOperations
             abort_unless($actor, 403, 'الحساب غير موجود.');
             $result = match ($values['kind']) {
                 'expense' => $this->expense($actor, $values['branch'], $id, $when, $values['data']),
+                'expense_review' => $this->expenseReview($actor, $values['branch'], $id, $values['data']),
                 'till' => $this->till($actor, $values['branch'], $id, $values['data']),
                 'attendance' => $this->attendance($actor, $values['branch'], $id, $when, $values['data']),
                 'attendance_status' => $this->attendance($actor, $values['branch'], $id, $when, $values['data'], true),
@@ -207,6 +208,33 @@ class DesktopSyncOperations
         ], $actor);
         $expense = $result['expense'];
         return ['expense' => ['id' => (int) $expense['id'], 'number' => (string) $expense['number'], 'status' => (string) $expense['status']]];
+    }
+
+    /**
+     * An expense approved, rejected or cancelled on the device's expenses page while offline: the dashboard's own review
+     * (BranchExpenses::review: who may review, the expense's state and revision, cash from the drawer, stock reversed)
+     * under the page's operation number. An expense saved on the device is found by the operation that saved it (sent
+     * before this one); its review applies to it as the dashboard has it now.
+     */
+    private function expenseReview(User $actor, string $branch, string $id, array $data): array
+    {
+        $data = Validator::make($data, [
+            'expense_id' => 'nullable|integer|min:1|required_without:expense_key', 'expense_key' => 'nullable|uuid|required_without:expense_id',
+            'action' => 'required|in:approve,reject,void', 'reason' => 'nullable|string|max:500', 'expected_revision' => 'nullable|integer|min:1',
+        ])->validate();
+        $expenseId = (int) ($data['expense_id'] ?? 0);
+        $revision = $data['expected_revision'] ?? null;
+        if (! $expenseId) {
+            $expenseId = (int) DB::table('branch_expense_commands')->where('branch', $branch)->where('request_key', $data['expense_key'])
+                ->where('kind', 'create')->value('expense_id');
+            abort_unless($expenseId > 0, 409, 'المصروف ده ما وصلش للداشبورد، فمراجعته ما اتطبقتش.');
+        }
+        if ($revision === null) $revision = (int) DB::table('branch_expenses')->where('branch', $branch)->where('id', $expenseId)->value('revision');
+        $result = app(BranchExpenses::class)->review($expenseId, ['branch' => $branch, 'idempotency_key' => $id, 'expected_revision' => $revision ?: null,
+            'action' => $data['action'], 'reason' => $data['reason'] ?? ''], $actor);
+        $expense = $result['expense'];
+        return ['expense' => ['id' => (int) $expense['id'], 'number' => (string) $expense['number'], 'status' => (string) $expense['status'],
+            'revision' => (int) $expense['revision']]];
     }
 
     /**

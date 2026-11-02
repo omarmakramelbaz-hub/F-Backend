@@ -411,9 +411,14 @@ class Store {
     const fresh = (row) => row.sync_status === 'pending' || (row.sync_status === 'synced' && (!after || !row.synced_at || row.synced_at > after));
     const sales = this.db.prepare(`SELECT channel, totals, sync_status, synced_at FROM tickets WHERE branch = ? AND status = 'paid' AND paid_at >= ?`)
       .all(branch, since).filter(fresh).map((row) => ({ channel: row.channel, totals: JSON.parse(row.totals) }));
-    const journal = this.db.prepare(`SELECT kind, amount_cents, data, sync_status, synced_at FROM journal WHERE branch = ? AND kind IN ('expense', 'till')
-      AND created_at >= ?`).all(branch, since).filter(fresh).map((row) => ({ kind: row.kind, amount_cents: row.amount_cents, data: JSON.parse(row.data) }));
-    return { sales, expenses: journal.filter((row) => row.kind === 'expense' && row.data.approve), till: journal.filter((row) => row.kind === 'till') };
+    const journal = this.db.prepare(`SELECT kind, amount_cents, data, sync_status, synced_at FROM journal WHERE branch = ?
+      AND kind IN ('expense', 'till', 'expense_review') AND created_at >= ?`).all(branch, since).filter(fresh)
+      .map((row) => ({ kind: row.kind, amount_cents: row.amount_cents, data: JSON.parse(row.data) }));
+    // Approved expenses leave the drawer; one approved here leaves it when approved, and a cancelled one comes back.
+    const expenses = journal.filter((row) => row.kind === 'expense' && row.data.approve)
+      .concat(journal.filter((row) => row.kind === 'expense_review' && ['approve', 'void'].includes(row.data.action))
+        .map((row) => ({ ...row, amount_cents: row.data.action === 'void' ? -row.amount_cents : row.amount_cents })));
+    return { sales, expenses, till: journal.filter((row) => row.kind === 'till') };
   }
 
   serviceHashes() {
@@ -833,6 +838,36 @@ class Store {
   }
 
   /**
+   * An expense approved, rejected or cancelled on the expenses page while offline (BranchExpenses::review), sent to the
+   * dashboard as expense_review under the page's operation number: a dashboard expense by its number and revision, one
+   * saved on this device by the operation that saved it. shown: what the device shows of it until the dashboard has it.
+   */
+  recordExpenseReview(actor, branch, values, options = {}) {
+    if (options.id) {
+      const existing = this.journalEntry(options.id);
+      if (existing) {
+        if (existing.kind !== 'expense_review' || existing.actor_id !== actor.id || existing.branch !== branch) {
+          const error = new Error('رقم العملية مستخدم لعملية مختلفة.');
+          error.status = 409;
+          throw error;
+        }
+        return { ...existing, replayed: true };
+      }
+    }
+    this.requireBranch(actor, branch, 'can_approve_expenses');
+    const data = { action: values.action, reason: String(values.reason || ''),
+      ...(values.expense_key ? { expense_key: values.expense_key } : { expense_id: Number(values.expense_id), expected_revision: Number(values.expected_revision) }) };
+    return this.addJournal(actor, branch, 'expense_review', Number(values.amount_cents) || 0, data, values.shown || {}, options.id, 'expense_review');
+  }
+
+  /** Expense reviews made on this device for these branches, oldest first. */
+  expenseReviews(branches) {
+    if (!branches.length) return [];
+    return this.db.prepare(`SELECT * FROM journal WHERE kind = 'expense_review' AND branch IN (${branches.map(() => '?').join(', ')}) ORDER BY seq`)
+      .all(...branches).map((row) => ({ ...row, data: JSON.parse(row.data) }));
+  }
+
+  /**
    * Goods received on the dashboard's stock page offline (BranchInventory::receive; the page checked the item and the
    * quantity), sent to the dashboard as stock_receive under the page's operation number.
    */
@@ -1183,7 +1218,8 @@ class Store {
           } else if (row.ticket_id) this.db.prepare("UPDATE tickets SET sync_status = 'synced', sync_error = NULL, server_id = ?, server_number = ?, synced_at = ? WHERE id = ?")
             .run(receipt.id ?? null, receipt.number ?? null, now, row.ticket_id);
           if (row.journal_id) {
-            const reference = result.expense ? `${result.expense.number} · ${result.expense.status === 'approved' ? 'معتمد' : 'بانتظار الاعتماد'}`
+            const statuses = { approved: 'معتمد', rejected: 'مرفوض', voided: 'ملغي' };
+            const reference = result.expense ? `${result.expense.number} · ${statuses[result.expense.status] || 'بانتظار الاعتماد'}`
               : result.closing && result.closing.number ? String(result.closing.number) : null;
             if (result.attendance) {
               // The server keeps the first punch of the day; show the time it recorded.

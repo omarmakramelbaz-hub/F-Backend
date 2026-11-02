@@ -286,7 +286,8 @@ test('the expenses page saves a cash expense on the device once, under the page\
   const stock = await ask('POST', '/admin/branch-expenses/save', { body: expenseForm({ idempotency_key: '7b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f', category: 'purchase_tomato', amount: '60' }) });
   assert.equal(stock.status, 422, 'A stock purchase needs its kilograms, like the dashboard');
   assert.equal((await ask('GET', `/admin/branch-expenses/${expense.id}`)).json.expense.number, expense.number);
-  assert.equal((await ask('POST', `/admin/branch-expenses/${expense.id}/review`)).status, 409);
+  const review = { branch: 'f:100', expected_revision: 1, action: 'approve', reason: '', idempotency_key: '8b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f' };
+  assert.equal((await ask('POST', `/admin/branch-expenses/${expense.id}/review`, { body: review })).status, 403, 'A cashier cannot approve');
 });
 
 test('the expenses list is the last one seen online with this device\'s expenses on top', async () => {
@@ -318,6 +319,71 @@ test('the expenses list is the last one seen online with this device\'s expenses
   assert.equal(found.found, true);
   assert.equal((await ask('GET', '/admin/branch-expenses/recover?branch=f:100&idempotency_key=9b8e6f1c-1d2a-4c3b-9e8f-0a1b2c3d4e5f')).json.found, false);
   assert.equal((await ask('GET', '/admin/branch-expenses/pending-count')).json.count, 1);
+});
+
+test('expenses are approved, rejected or cancelled offline with the dashboard\'s rules; the list, the badge and the shift page follow', async () => {
+  const { store, cache, ask, tick } = expensesPage();
+  const OWNER = { ...ACCOUNT, id: 1 };
+  store.set('server_kinds', ['sale', 'expense', 'till', 'shift_close', 'expense_review']);
+  const listUrl = '/admin/branch-expenses/data?branch=f:100&from=2026-10-01&to=2026-10-30&page=1';
+  const row = (id, extra) => ({ id, number: `EXP-0000${id}`, branch: 'f:100', amount: '30.00', status: 'pending', occurred_on: '2026-10-30', revision: 1,
+    payment_method: 'cash', category: 'electricity', description: 'مصروف', actor_id: 4, ...extra });
+  const server = { success: true, items: [row(41, { amount: '100.00', status: 'approved', occurred_on: '2026-10-29', revision: 2 }), row(42), row(43, { amount: '15.00', payment_method: 'bank' })],
+    filters: { branch: 'f:100', from: '2026-10-01', to: '2026-10-30' }, actors: [], pagination: { page: 1, last_page: 1, total: 3 },
+    summary: { today: '0.00', month: '100.00', period: '100.00', average: '3.33', count: 1, pending: 2, top_category: 'gas', top_amount: '100.00' } };
+  tick(-60000);
+  cache.put('u:1', 'data', ORIGIN + listUrl, 'application/json', Buffer.from(JSON.stringify(server)));
+  cache.put('u:1', 'data', ORIGIN + '/admin/branch-expenses/pending-count', 'application/json', Buffer.from(JSON.stringify({ success: true, count: 2 })));
+  tick(60000);
+  let count = 0;
+  const key = () => `50000000-0000-4000-8000-${String(++count).padStart(12, '0')}`;
+  const review = (id, action, extra = {}) => ask('POST', `/admin/branch-expenses/${id}/review`, { user: OWNER,
+    body: { branch: 'f:100', expected_revision: 1, action, reason: '', idempotency_key: key(), ...extra } });
+
+  const approved = await review(42, 'approve');
+  assert.equal(approved.status, 200, JSON.stringify(approved.json));
+  assert.deepEqual([approved.json.expense.status, approved.json.expense.revision, approved.json.expense.reviewer_name], ['approved', 2, 'المالك']);
+  const [operation] = store.pendingOperations(50, ['expense_review']);
+  assert.deepEqual([operation.kind, operation.data], ['expense_review', { action: 'approve', reason: '', expense_id: 42, expected_revision: 1 }]);
+  const again = await ask('POST', '/admin/branch-expenses/42/review', { user: OWNER, body: { branch: 'f:100', expected_revision: 1, action: 'approve', reason: '', idempotency_key: operation.id } });
+  assert.deepEqual([again.json.replayed, store.pendingOperations(50, ['expense_review']).length], [true, 1], 'Never twice');
+  // The dashboard's rules: cash only, a reason to reject or cancel, the state and revision the page showed.
+  assert.equal((await review(43, 'approve')).json.message, 'لا يمكن اعتماد مصروف خارج خزنة الدرج.');
+  assert.equal((await review(43, 'reject')).json.message, 'اكتب سبب الرفض أو الإلغاء.');
+  assert.equal((await review(43, 'reject', { reason: 'مكرر' })).json.expense.status, 'rejected');
+  assert.equal((await review(42, 'approve')).json.message, 'حالة المصروف تغيرت؛ حدّث الصفحة.');
+  assert.equal((await review(41, 'void', { reason: 'خطأ', expected_revision: 2 })).json.expense.status, 'voided');
+  assert.equal((await review(99, 'approve')).json.message, 'المصروف ده مش محفوظ على الجهاز. اعتماده أو رفضه محتاج إنترنت.');
+  assert.equal((await ask('POST', '/admin/branch-expenses/42/review', { body: { branch: 'f:100', expected_revision: 2, action: 'void', reason: 'x', idempotency_key: key() } })).status, 403);
+
+  // The list, its totals and the badge show them at once; so do the expense's details.
+  const list = (await ask('GET', listUrl, { user: OWNER })).json;
+  assert.deepEqual(list.items.map((item) => [item.id, item.status]), [[41, 'voided'], [42, 'approved'], [43, 'rejected']]);
+  assert.deepEqual([list.summary.pending, list.summary.period, list.summary.count, list.summary.today, list.summary.month], [0, '30.00', 1, '30.00', '30.00']);
+  assert.deepEqual((await ask('GET', listUrl + '&status=pending', { user: OWNER })).json.items, []);
+  assert.equal((await ask('GET', '/admin/branch-expenses/pending-count', { user: OWNER })).json.count, 0);
+  assert.equal((await ask('GET', '/admin/branch-expenses/42', { user: OWNER })).json.expense.status, 'approved');
+
+  // An expense saved on this device is reviewed before it is even sent: the review follows its save.
+  const saved = (await ask('POST', '/admin/branch-expenses/save', { body: expenseForm({ amount: '20.00' }) })).json.expense;
+  const local = await ask('POST', `/admin/branch-expenses/${saved.id}/review`, { user: OWNER, body: { branch: 'f:100', expected_revision: 1, action: 'approve', reason: '', idempotency_key: key() } });
+  assert.deepEqual([local.status, local.json.expense.status, local.json.expense.id], [200, 'approved', saved.id]);
+  const queued = store.pendingOperations(50, ['expense', 'expense_review']);
+  assert.deepEqual(queued.map((item) => item.kind), ['expense_review', 'expense_review', 'expense_review', 'expense', 'expense_review']);
+  assert.deepEqual(queued[4].data, { action: 'approve', reason: '', expense_key: expenseForm().idempotency_key });
+  assert.equal((await ask('GET', '/admin/branch-expenses/pending-count', { user: OWNER })).json.count, 0);
+
+  // The shift page: what was approved or rejected here no longer holds the closing back; the drawer follows.
+  const shifts = new ShiftsOffline({ store, cache, origin: ORIGIN, now: () => store.now() });
+  store.applyService([{ value: 'f:100', hash: 's1', tables: [], policy: {}, tickets: [], delivery: null, shift: { previous_closing_id: 0, started_at: '2026-10-30 06:00:00',
+    history: [], pending_expenses: [{ id: 42, number: 'EXP-000042' }, { id: 43, number: 'EXP-000043' }, { id: 44, number: 'EXP-000044' }] } }]);
+  const owner = store.user(1);
+  const state = shifts.state({ ...owner, can_close_shift: true }, 'f:100', new URL(ORIGIN + '/admin/branch-shifts/data?branch=f:100'));
+  assert.deepEqual([state.report.pending_expenses, state.report.pending_expense_items.map((item) => item.number)], [1, ['EXP-000044']]);
+  assert.deepEqual(store.shiftRecords('f:100', '2026-10-30T00:00:00.000Z', null).expenses.map((item) => item.amount_cents), [3000, -10000, 2000]);
+  // Once at the dashboard, its number and state show on the device's record.
+  store.applyResults([{ id: operation.id, status: 'applied', expense: { id: 42, number: 'EXP-000042', status: 'approved' } }]);
+  assert.equal(store.journalEntry(operation.id).server_ref, 'EXP-000042 · معتمد');
 });
 
 test('without a list seen online, the expenses page\'s own saved list is the base for its period', async () => {
