@@ -16,6 +16,12 @@
     <button type="button" @click="logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> خروج</button>
   </footer>
 
+  <!-- The dashboard's own sign-out: this covers it until the app's sign-in screen opens (the dashboard's never shows) -->
+  <div v-else-if="signingOut" class="splash opening" role="status">
+    <div v-html="loginLogo"></div>
+    <p>جاري تسجيل الخروج…</p>
+  </div>
+
   <!-- The dashboard opening after signing in: shown once its first page is there -->
   <div v-else-if="opening" class="splash opening" role="status">
     <div v-html="loginLogo"></div>
@@ -99,6 +105,7 @@ const view = ref('pos');
 const dashboardShown = ref(false);
 const settingsOnly = ref(false);
 const opening = ref(false);
+const signingOut = ref(false);
 const banner = ref(null);
 const printProblem = ref('');
 const offlineMode = ref(false);
@@ -212,6 +219,7 @@ async function logout() {
   settingsOnly.value = false;
   opening.value = false;
   await refresh();
+  signingOut.value = false;
   view.value = 'pos';
 }
 
@@ -227,10 +235,16 @@ onMounted(async () => {
   }));
   stops.push(onDashboardEvent((event) => {
     if (event.type === 'opening') opening.value = true;
+    else if (event.type === 'signing-out') {
+      signingOut.value = true;
+      dashboardShown.value = false;
+      opening.value = false;
+    }
     else if (event.type === 'shown') {
       dashboardShown.value = true;
       settingsOnly.value = false;
       opening.value = false;
+      signingOut.value = false;
     }
     else if (event.type === 'hidden') dashboardShown.value = false;
     else if (event.type === 'connection') {

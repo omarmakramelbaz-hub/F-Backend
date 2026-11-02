@@ -413,6 +413,17 @@ async function ownerDevice() {
   // The owner: the dashboard's own sign-out link signs out of the app as well.
   await signIn(page, '01000000001', 'root-pass', '.status-bar');
   await until(async () => (await dashboardUrls(app)).some((url) => /\/admin\/dashboard/.test(url)), 'dashboard opens for the owner');
+  // The dashboard's own sign-in page (where its sign-out ends) is never on screen: the app covers the dashboard first.
+  await app.evaluate(({ BrowserWindow, webContents }) => {
+    global.__dashboardLoginOnScreen = [];
+    const window = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed());
+    for (const contents of webContents.getAllWebContents()) {
+      contents.on('did-finish-load', () => {
+        if (!/\/admin\/login/.test(contents.getURL())) return;
+        global.__dashboardLoginOnScreen.push(!window.isDestroyed() && window.contentView.children.some((view) => view.webContents === contents));
+      });
+    }
+  });
   // The sign-out link once the page has settled: a navigation started while the app still opens the dashboard is
   // replaced by the app's own, as a click would be.
   await until(async () => {
@@ -427,6 +438,8 @@ async function ownerDevice() {
     console.log('DEBUG sign-out', JSON.stringify(await dashboardUrls(app)), appLog.slice(-20).join(' | '));
     throw error;
   });
+  const loginOnScreen = await app.evaluate(() => global.__dashboardLoginOnScreen);
+  assert.ok(!loginOnScreen.some(Boolean), "The dashboard's sign-in page never shows in the app: " + JSON.stringify(loginOnScreen));
 
   // Back in on the device's screens: the owner switches between the two branches' menus.
   await signIn(page, '01000000001', 'root-pass', '.status-bar');

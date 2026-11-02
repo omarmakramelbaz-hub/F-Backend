@@ -605,8 +605,9 @@ function createDashboardView() {
   // The dashboard's own sign-out link (navbar: /admin/adminLogout).
   contents.on('will-navigate', (event, url) => {
     if (sameServer(url) && /^\/admin\/(adminLogout|logout)\/?$/i.test(new URL(url).pathname)) {
+      if (!dashboardLoggingOut) console.log('[goerp] the dashboard\'s own sign-out');
       dashboardLoggingOut = true;
-      console.log('[goerp] the dashboard\'s own sign-out');
+      coverForSignOut();
     }
   });
   contents.on('did-finish-load', () => onDashboardLoad(contents));
@@ -705,6 +706,31 @@ function attachDashboard() {
   return true;
 }
 
+// The dashboard's own sign-out (its navbar link): the app's sign-out screen covers the dashboard at once, so the
+// dashboard's sign-in page (where its sign-out ends) never shows in the app; the app's own sign-in screen follows.
+let signOutTimer = null;
+
+function coverForSignOut() {
+  clearTimeout(dashboardWaiting);
+  dashboardWaiting = null;
+  if (dashboardView && dashboardShown && mainWindow && !mainWindow.isDestroyed()) mainWindow.contentView.removeChildView(dashboardView);
+  dashboardShown = false;
+  notifyDashboard({ type: 'signing-out' });
+  // A dashboard that never answers the sign-out does not keep the app waiting: it signs out anyway.
+  clearTimeout(signOutTimer);
+  signOutTimer = setTimeout(() => {
+    if (!dashboardLoggingOut) return;
+    console.log('[goerp] signed out of the app (the dashboard did not finish its sign-out)');
+    signedOutWithDashboard();
+  }, 15000);
+}
+
+function signedOutWithDashboard() {
+  clearTimeout(signOutTimer);
+  dashboardLoggingOut = false;
+  notifyDashboard({ type: 'signed-out' });
+}
+
 function hideDashboard() {
   clearTimeout(dashboardWaiting);
   dashboardWaiting = null;
@@ -722,9 +748,8 @@ async function onDashboardLoad(contents) {
   if (/^\/admin\/(adminLogout|logout)\/?$/i.test(url.pathname)) return;
   if (url.pathname.replace(/\/+$/, '') === '/admin/login') {
     if (dashboardLoggingOut) {
-      dashboardLoggingOut = false;
       console.log('[goerp] signed out of the app with the dashboard');
-      notifyDashboard({ type: 'signed-out' });
+      signedOutWithDashboard();
       return;
     }
     if (offlineMode) {
@@ -919,11 +944,11 @@ app.whenReady().then(() => {
     onSignOut: (now) => {
       if (!dashboardLoggingOut) console.log('[goerp] the dashboard\'s own sign-out');
       dashboardLoggingOut = true;
+      coverForSignOut();
       if (!now) return; // online: once the sign-in page opens
       // Without the internet the sign-in page never opens: the app signs out right away.
-      dashboardLoggingOut = false;
       console.log('[goerp] signed out of the app with the dashboard (without the internet)');
-      notifyDashboard({ type: 'signed-out' });
+      signedOutWithDashboard();
     },
     onMissing: (url) => notifyDashboard({ type: 'missing-page', url }),
     onFromCopy: (contents) => fromCopy.add(contents),
