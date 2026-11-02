@@ -5,7 +5,7 @@ Compares every file of the live site (/home/fasakha/public_html, without vendor,
 framework's caches) with every branch and tag of the repository, and with every version each file ever had:
   - the branches the live code is closest to (counting only what the site runs: app, bootstrap, config, database,
     lang, public, resources, routes and the root's artisan, composer.json, index.php, server.php, .htaccess);
-  - against the closest one, each file that differs: the same as another branch, an older version from the history,
+  - against the closest one, each file that differs: the same as another branch, a version from the history,
     line endings only, or never committed (changed on the server itself);
   - the repository's files missing on the server, and the server's files the repository does not have;
   - the platform: system, PHP, database, Composer, Laravel's caches, the scheduler, and the installed version of each
@@ -317,12 +317,12 @@ def classify(path, here, versions, every_blob, holders, closest, branch_blob=Non
             others[0][1], day(others[0][0]), ' and {} more'.format(count - 1) if count > 1 else ''), others[0][1])
     found = versions.get(path, {}).get(blob)
     if found:
-        return 'an older version', 'an older version from {} (commit {})'.format(day(found[0]), found[1][:10]), None
+        return 'a version from the history', 'a version from {} (commit {}), on no branch now'.format(day(found[0]), found[1][:10]), None
     if here['lf'] and branch_blob and here['lf'] == branch_blob:
         return 'the same with Windows line endings', 'the same but with Windows line endings', None
     found = versions.get(path, {}).get(here['lf']) if here['lf'] else None
     if found:
-        return 'an older version', 'an older version from {}, with Windows line endings'.format(day(found[0])), None
+        return 'a version from the history', 'a version from {}, with Windows line endings'.format(day(found[0])), None
     if blob in every_blob:
         return ('the content of another file', 'the content of {} (from {})'.format(text(every_blob[blob][1]), day(every_blob[blob][0])),
                 None)

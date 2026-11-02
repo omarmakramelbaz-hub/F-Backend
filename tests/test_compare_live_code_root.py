@@ -71,7 +71,7 @@ class CompareLiveCodeTests(unittest.TestCase):
                 continue
             write(cls.site, {name: (cls.source / name).read_bytes()})
         write(cls.site, {
-            'app/A.php': b'<?php // a v1\n',                                 # an older version
+            'app/A.php': b'<?php // a v1\n',                                 # a version from the history
             'routes/web.php': b'<?php // routes on the other branch\n',      # another branch's version
             'public/js/x.js': b'x(2);\r\n',                                  # Windows line endings only
             'app/B.php': b'<?php // b edited on the server\n',               # never committed
@@ -104,8 +104,8 @@ class CompareLiveCodeTests(unittest.TestCase):
         self.assertEqual((feature['differ'], feature['missing'], feature['extra']), (4, 1, 1))
 
     def test_each_difference_is_explained(self):
-        self.assertEqual(self.rows['app/A.php']['kind'], 'an older version')
-        self.assertIn('an older version from 2025-10-09', self.rows['app/A.php']['live'])
+        self.assertEqual(self.rows['app/A.php']['kind'], 'a version from the history')
+        self.assertIn('a version from 2025-10-09 (commit', self.rows['app/A.php']['live'])
         self.assertEqual(self.rows['app/A.php']['branch_version'], '2025-10-10')
         self.assertEqual(self.rows['routes/web.php']['kind'], "another branch's version")
         self.assertIn('the version on branch other', self.rows['routes/web.php']['live'])
@@ -113,7 +113,7 @@ class CompareLiveCodeTests(unittest.TestCase):
         self.assertEqual(self.rows['app/B.php']['kind'], 'a version never committed')
         self.assertEqual(set(self.rows), {'app/A.php', 'routes/web.php', 'public/js/x.js', 'app/B.php'})
         self.assertEqual([row['path'] for row in self.result['details']['missing']], ['app/New.php'])
-        self.assertEqual(self.extra['app/Old.php']['kind'], 'an older version')
+        self.assertEqual(self.extra['app/Old.php']['kind'], 'a version from the history')
         self.assertTrue(self.extra['app/Old.php']['live'].startswith('removed from this branch'))
         self.assertEqual(self.extra['app/Secret.php']['kind'], 'a file the repository never had')
         self.assertEqual(dict(self.result['details']['extra_groups']), {'public/uploads/': 1, 'public/storage': 1})
