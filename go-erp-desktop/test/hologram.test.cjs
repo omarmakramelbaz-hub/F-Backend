@@ -12,7 +12,6 @@ const { PageCache } = require('../src/main/offline/cache.cjs');
 const { DashboardOffline, warmUpScript, REFRESHED_DATA } = require('../src/main/offline/interceptor.cjs');
 
 const ORIGIN = 'https://fasakhaninja.com';
-const ROOT = path.join(__dirname, '..', '..');
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 // deployment/hologram/manifest.json of the dashboard's release hologram-energy-20261101-v5 (after_sha256).
@@ -28,11 +27,12 @@ const RELEASE = {
 
 /** A dashboard page as the dashboard rendered it before the hologram release (the solar opening, the GO ERP logo). */
 function earlierPage({ home = true, actor = '4:admin' } = {}) {
-  const opening = fs.readFileSync(path.join(ROOT, 'resources/views/admin/home_hud.blade.php'), 'utf8')
+  // The dashboard's opening as it was before the hologram release (the repository now holds the live, newer one).
+  const opening = fs.readFileSync(path.join(__dirname, 'fixtures', 'home-hud-earlier.blade.php'), 'utf8')
     .replace(/\{\{--[\s\S]*?--\}\}\s*/, '')
     .replace("{{ !empty($boot['intro']) ? '1' : '0' }}", '1')
     .replace("@include('admin.home_hud_solar')", '<svg class="hud-solar" viewBox="0 0 10 10"><circle r="4"/><svg viewBox="0 0 1 1"></svg></svg>');
-  assert.ok(opening.includes('data-hud-core'), 'The repository still has the earlier opening');
+  assert.ok(opening.includes('data-hud-core'), 'The fixture is the earlier opening');
   const boot = { initial: { filters: { branch: '', period: 'today', from: '2026-11-02', to: '2026-11-02' }, owner_drawer: { loaded: false } },
     url: ORIGIN + '/admin/dashboard/overview', drawer_url: ORIGIN + '/admin/dashboard/overview?section=drawers', locale: 'ar',
     labels: { title: 'الرئيسية <b>' }, intro: true,
