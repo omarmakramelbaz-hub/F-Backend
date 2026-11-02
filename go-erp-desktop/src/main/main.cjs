@@ -481,8 +481,12 @@ function setOfflineMode(value, reason = '') {
   if (!value) {
     refreshSince = Date.now();
     refreshWhenIdle();
+    if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents);
   }
 }
+
+// A device that stays on one page (in-place navigation loads no new page) still keeps its saved pages fresh.
+setInterval(() => { if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents); }, 10 * 60 * 1000).unref();
 
 // Windows whose current page came from the device's copy: reloaded from the dashboard once it is idle online.
 const fromCopy = new WeakSet();
@@ -507,9 +511,13 @@ function refreshWhenIdle() {
 // Each account's dashboard pages are saved for offline use once it opens the dashboard online (again after 6 hours).
 const warmedAt = new Map();
 
+// The saved pages follow the dashboard closely: a new look or page on the server reaches this device within half an
+// hour online, and as soon as the internet is back, so it also opens that way offline.
+const WARM_EVERY = 30 * 60 * 1000;
+
 function warmUp(contents) {
   const user = sessionUser();
-  if (!user || offlineMode || Date.now() - (warmedAt.get(user.id) || 0) < 6 * 3600 * 1000) return;
+  if (!user || offlineMode || !contents || contents.isDestroyed() || Date.now() - (warmedAt.get(user.id) || 0) < WARM_EVERY) return;
   warmedAt.set(user.id, Date.now());
   setTimeout(() => {
     if (!contents.isDestroyed() && !offlineMode && current && current.user.id === user.id) contents.executeJavaScript(warmUpScript()).catch(() => {});
