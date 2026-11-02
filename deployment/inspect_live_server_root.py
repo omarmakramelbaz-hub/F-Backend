@@ -390,7 +390,7 @@ def machine():
     except (OSError, KeyError, ValueError):
         pass
     try:
-        found['load'] = Path('/proc/loadavg').read_text().split()[:3]
+        found['load'] = ' '.join(Path('/proc/loadavg').read_text().split()[:3])
         found['up days'] = int(float(Path('/proc/uptime').read_text().split()[0]) // 86400)
     except (OSError, ValueError):
         pass
