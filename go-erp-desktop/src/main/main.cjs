@@ -524,7 +524,11 @@ function suspectOffline(reason) {
   suspecting = (async () => {
     try {
       if (!(await connection.unreachable(dashboardAnswers, { pause: PROBE_PAUSE, stop: () => offlineMode }))) {
-        if (!offlineMode) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} still online (${reason})`);
+        if (offlineMode) return;
+        console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} still online (${reason})`);
+        // A page the device showed in place of that one failed load goes back to the dashboard's own once it is idle.
+        refreshSince = Date.now();
+        refreshWhenIdle();
         return;
       }
       setOfflineMode(true, reason);
