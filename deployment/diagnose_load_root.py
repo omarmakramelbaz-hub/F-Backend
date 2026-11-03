@@ -7,10 +7,15 @@
   2. The database: the queries running at this moment, sampled a few times a second (every value replaced by ?).
   3. The GO ERP desktop devices: when each last synced and how many operations it sent in the last hour.
   4. The processes using the processors most.
+With --general-log SECONDS (at most 30): every statement the database runs for those seconds, grouped by shape
+(values replaced by ?) with how many connections were opened. The database's general log is turned on for those
+seconds only, into a file only root can read; it is turned off, set back as it was and its file removed right after,
+whatever happens.
 
 Run as root on srv1836524 from a clean checkout:
-  python3 -I -B deployment/diagnose_load_root.py
+  python3 -I -B deployment/diagnose_load_root.py [--general-log 10]
 """
+import argparse
 import collections
 import datetime
 import glob
@@ -140,6 +145,62 @@ def report_queries(samples=40, pause=0.25, run=mysql, sleep=time.sleep):
     return lines
 
 
+GENERAL_LOG = Path('/var/lib/mysql/go-erp-general.log')
+GENERAL_LINE = re.compile(r'^(?:\d{6}\s+\d{1,2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\S+)?\s*\d+\s+(Connect|Query|Quit|Init DB|Prepare|Execute|Close stmt)\b\t?(.*)$')
+
+
+def general_shapes(text):
+    """Statements of a general log by shape, and the connections opened."""
+    shapes = collections.Counter()
+    connects = 0
+    statements = 0
+    for line in text.splitlines():
+        found = GENERAL_LINE.match(line.strip('\r'))
+        if not found:
+            continue
+        kind, body = found.group(1), found.group(2)
+        if kind == 'Connect':
+            connects += 1
+        elif kind in ('Query', 'Execute'):
+            statements += 1
+            shapes[query_shape(body)] += 1
+    return shapes, connects, statements
+
+
+def report_general_log(seconds, run=mysql, sleep=time.sleep, log=GENERAL_LOG):
+    seconds = max(1, min(30, int(seconds)))
+    previous = run("SELECT @@GLOBAL.general_log, @@GLOBAL.general_log_file, @@GLOBAL.log_output")
+    if not previous:
+        return ['== every statement for {} seconds =='.format(seconds), 'unreadable']
+    was_on, was_file, was_output = previous[0]
+    if was_on not in ('0', 'OFF'):
+        return ['== every statement for {} seconds =='.format(seconds), 'the general log is already on: left as it is']
+    text = ''
+    try:
+        if log.exists():
+            log.unlink()
+        if run("SET GLOBAL log_output = 'FILE'; SET GLOBAL general_log_file = '{}'; SET GLOBAL general_log = 'ON'".format(log)) is None:
+            return ['== every statement for {} seconds =='.format(seconds), 'could not turn it on']
+        sleep(seconds)
+    finally:
+        restored = run("SET GLOBAL general_log = 'OFF'; SET GLOBAL general_log_file = '{}'; SET GLOBAL log_output = '{}'".format(
+            was_file.replace("'", ''), was_output.replace("'", '')))
+        try:
+            text = log.read_text(errors='replace') if log.exists() else ''
+        finally:
+            if log.exists():
+                log.unlink()
+    shapes, connects, statements = general_shapes(text)
+    lines = ['== every statement for {} seconds (general log; off again{}, its file removed) =='.format(seconds, '' if restored is not None else ' NOT CONFIRMED')]
+    lines.append('{} statements ({:.0f} a second), {} connections opened ({:.1f} a second)'.format(statements, statements / seconds, connects, connects / seconds))
+    schema = sum(count for shape, count in shapes.items() if 'information_schema' in shape.lower())
+    lines.append('of them asking the database whether a table or column exists (information_schema): {} ({:.0f}%)'.format(
+        schema, 100 * schema / statements if statements else 0))
+    for shape, count in shapes.most_common(30):
+        lines.append('{:>6}  {}'.format(count, shape))
+    return lines
+
+
 def report_devices(run=mysql):
     lines = ['== GO ERP desktop devices ==']
     devices = run('SELECT id, name, IFNULL(last_seen_at, "never") FROM desktop_sync_devices WHERE revoked_at IS NULL ORDER BY id')
@@ -172,6 +233,9 @@ def report_processes():
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--general-log', type=int, default=0)
+    options = parser.parse_args()
     if not (os.geteuid() == 0 and socket.gethostname().split('.')[0] == HOST):
         print('GO_ERP_LOAD_DIAGNOSIS_ROOT_AND_HOST_REQUIRED', flush=True)
         raise SystemExit(1)
@@ -179,11 +243,20 @@ def main():
         os.nice(10)
     except OSError:
         pass
-    files = sorted({name for pattern in LOGS for name in glob.glob(pattern.format(d=DOMAIN))
-                    if os.path.isfile(name) and not name.endswith(('.gz', '.bz2')) and time.time() - os.path.getmtime(name) < 3600})
+    files = {}
+    for pattern in LOGS:
+        for name in sorted(glob.glob(pattern.format(d=DOMAIN))):
+            if not os.path.isfile(name) or name.endswith(('.gz', '.bz2', '-bytes_log')) or time.time() - os.path.getmtime(name) >= 3600:
+                continue
+            # The same log is reachable through several paths (links): read each file once.
+            identity = os.stat(name)
+            files.setdefault((identity.st_dev, identity.st_ino), name)
+    files = sorted(files.values())
     rows, newest = read_requests(files)
     lines = ['GO_ERP_LOAD_DIAGNOSIS', 'access logs read: ' + (', '.join(files) or 'none found'), '']
     lines += report_requests(rows, newest) + [''] + report_queries() + [''] + report_devices() + [''] + report_processes()
+    if options.general_log:
+        lines += [''] + report_general_log(options.general_log)
     print('\n'.join(lines), flush=True)
 
 

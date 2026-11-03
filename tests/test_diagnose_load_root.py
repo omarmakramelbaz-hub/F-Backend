@@ -42,5 +42,31 @@ class LoadDiagnosisTests(unittest.TestCase):
         self.assertEqual(report[1], '    2  select * from notifications where notifiable_id = ? limit ?')
 
 
+    def test_a_few_seconds_of_every_statement_are_grouped_then_the_log_is_off_and_gone(self):
+        sample = ("241104  1:33:01\t   812 Connect\tfasakha@localhost as anonymous on fasakha_db\n"
+                  "\t\t   812 Query\tselect * from information_schema.tables where table_schema = 'fasakha_db' and table_name = 'notifications'\n"
+                  "\t\t   812 Query\tselect * from information_schema.tables where table_schema = 'fasakha_db' and table_name = 'orders'\n"
+                  "\t\t   812 Query\tselect count(*) from orders where status = 'new'\n"
+                  "\t\t   812 Quit\t\n")
+        shapes, connects, statements = load.general_shapes(sample)
+        self.assertEqual((connects, statements), (1, 3))
+        self.assertEqual(shapes.most_common(1)[0], ('select * from information_schema.tables where table_schema = ? and table_name = ?', 2))
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / 'general.log'
+            asked = []
+
+            def run(statement):
+                asked.append(statement)
+                if statement.startswith('SELECT @@GLOBAL'):
+                    return [['0', '/var/lib/mysql/host.log', 'FILE']]
+                if "general_log = 'ON'" in statement:
+                    log.write_text(sample)
+                return []
+            report = load.report_general_log(10, run=run, sleep=lambda seconds: None, log=log)
+            self.assertFalse(log.exists(), 'Its file is removed')
+        self.assertIn("SET GLOBAL general_log = 'OFF'; SET GLOBAL general_log_file = '/var/lib/mysql/host.log'; SET GLOBAL log_output = 'FILE'", asked[-1])
+        self.assertIn('3 statements', report[1])
+        self.assertIn('(information_schema): 2 (67%)', report[2])
+
 if __name__ == '__main__':
     unittest.main()
