@@ -1199,6 +1199,61 @@ class DesktopSyncTest extends TestCase
         }
     }
 
+    public function test_starting_real_work_clears_the_employees_trial_and_never_what_came_after_the_last_trial_day(): void
+    {
+        // The trial: a sale, attendance with a late deduction, an advance, and October's pay closed with them.
+        $this->attendanceFixture();
+        $device = $this->enroll('01000000004', 'cashier-pass')->json();
+        $snapshot = $this->sync($device, ['want_catalogs' => true])->json()['branches'][0]['snapshot_id'];
+        $this->assertSame('applied', $this->sync($device, ['operations' => [$this->sale($snapshot, ['occurred_at' => '2026-10-30T09:00:00Z'])]])->json()['results'][0]['status']);
+        $employee = 50;
+        DB::table('branch_employee_days')->insert(['branch' => 'f:100', 'employee_id' => $employee, 'day' => '2026-10-30', 'status' => 'morning',
+            'check_in' => '10:40:00', 'revision' => 1, 'actor_id' => 1, 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+        DB::table('branch_employee_entries')->insert([
+            ['branch' => 'f:100', 'employee_id' => $employee, 'day' => '2026-10-30', 'kind' => 'deduction', 'amount_cents' => 2500, 'reason' => 'تأخير',
+                'revision' => 1, 'actor_id' => 1, 'created_at' => now('UTC'), 'updated_at' => now('UTC')],
+            ['branch' => 'f:100', 'employee_id' => $employee, 'day' => '2026-10-29', 'kind' => 'advance', 'amount_cents' => 10000, 'reason' => 'سلفة',
+                'revision' => 1, 'actor_id' => 1, 'created_at' => now('UTC'), 'updated_at' => now('UTC')]]);
+        DB::table('branch_payrolls')->insert(['branch' => 'f:100', 'employee_id' => $employee, 'month' => '2026-09', 'net_cents' => 1000, 'snapshot' => '{}',
+            'status' => 'closed', 'revision' => 1, 'actor_id' => 1, 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+        require_once base_path('deployment/reset_branch_operations.php');
+
+        // Through the trial's last day, with the employees and the stock kept as it is.
+        $reset = new \GoErpBranchReset(true, true, '2026-10-30');
+        $plan = $reset->plan();
+        $this->assertSame([[], true, '2026-10-30'], [$plan['recorded_after'], $plan['keep_stock'], $plan['through']]);
+        $this->assertSame([1, 2, 1], [$plan['cleared']['branch_employee_days']['rows'], $plan['cleared']['branch_employee_entries']['rows'],
+            $plan['cleared']['branch_payrolls']['rows']]);
+        $this->assertSame(['2026-09 closed: 1'], $plan['kept']['payroll months']);
+        $this->assertArrayNotHasKey('branch_inventory_movements', $plan['cleared'], 'The stock stays');
+        $this->assertArrayNotHasKey('branch_inventory', $plan['zeroed']);
+        $this->assertNotContains('branch_inventory_movements', $plan['missing']);
+        // A day before the work recorded: something is after it, so nothing is cleared.
+        $early = new \GoErpBranchReset(true, false, '2026-10-29');
+        $after = array_keys($early->plan()['recorded_after']);
+        foreach (['branch_employee_days', 'branch_employee_entries', 'takeaway_till_entries', 'takeaway_orders'] as $table) $this->assertContains($table, $after);
+        try {
+            $early->apply($early->export()['fingerprint']);
+            $this->fail('Work recorded after the last trial day must stop the clearing');
+        } catch (\GoErpResetStop $stop) {
+            $this->assertStringStartsWith('RECORDED_AFTER 2026-10-29: ', $stop->getMessage());
+        }
+        $this->assertSame([1, 2, 1, 1], [DB::table('branch_employee_days')->count(), DB::table('branch_employee_entries')->count(),
+            DB::table('branch_payrolls')->count(), DB::table('takeaway_orders')->count()], 'Nothing was cleared');
+
+        $backup = json_decode(json_encode($reset->export()), true);
+        $this->assertSame([true, true, '2026-10-30'], [$backup['employees'], $backup['keep_stock'], $backup['through']]);
+        $reset->apply($backup['fingerprint']);
+        $this->assertSame([0, 0, 0, 0], [DB::table('branch_employee_days')->count(), DB::table('branch_employee_entries')->count(),
+            DB::table('branch_payrolls')->count(), DB::table('takeaway_orders')->count()]);
+        $this->assertSame(3, DB::table('branch_employees')->count(), 'The registered employees and their salaries stay');
+        // The month's pay counts the days worked again, with no deduction or advance.
+        $statement = app(\App\Services\Dashboard\BranchPayroll::class)->statement(['branch' => 'f:100', 'employee_id' => $employee, 'month' => '2026-10'], User::find(1))['statement'];
+        $this->assertSame(['draft', '0.00', '0.00'], [$statement['status'], $statement['deduction'], $statement['advance']]);
+        $back = (new \GoErpBranchReset())->restore($backup);
+        $this->assertSame([1, 2, 1], [$back['restored']['branch_employee_days'], $back['restored']['branch_employee_entries'], $back['restored']['branch_payrolls']]);
+    }
+
     public function test_the_dashboard_sign_in_page_takes_the_go_opening_look_and_keeps_its_form(): void
     {
         $this->markTestSkipped('The GO opening sign-in page (commit 2eeaeed) is not installed on the live server yet; the live sign-in page is kept as it is.');

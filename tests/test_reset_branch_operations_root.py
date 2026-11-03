@@ -23,8 +23,8 @@ class FakePhp:
         self.calls = []
         self.applied = None
 
-    def __call__(self, mode, payload=None, employees=False):
-        self.calls.append((mode, employees))
+    def __call__(self, mode, payload=None, flags=()):
+        self.calls.append((mode, list(flags)))
         if mode == 'plan':
             return {'cleared': {'takeaway_orders': {'rows': 3}}, 'zeroed': {}, 'order_numbers_restarting': 1, 'kept': {}, 'missing': []}
         if mode == 'export':
@@ -52,12 +52,13 @@ class BranchResetTests(unittest.TestCase):
     def test_the_plan_changes_nothing(self):
         result = reset.plan(self.php)
         self.assertEqual(result['result'], 'GO_ERP_BRANCH_RESET_PLAN')
-        self.assertEqual(self.php.calls, [('plan', False)])
+        self.assertEqual(self.php.calls, [('plan', [])])
         self.assertFalse(self.folder.exists())
 
     def test_apply_keeps_the_backup_first_then_clears_only_what_it_holds(self):
-        result = reset.apply(self.php, self.folder, employees=True)
-        self.assertEqual(self.php.calls, [('export', True), ('apply', True)])
+        chosen = reset.flags(employees=True, through='2026-11-03')
+        result = reset.apply(self.php, self.folder, chosen)
+        self.assertEqual(self.php.calls, [('export', ['--employees', '--through=2026-11-03']), ('apply', ['--employees', '--through=2026-11-03'])])
         self.assertEqual(self.php.applied, FINGERPRINT, 'The clearing checks the tables still match the backup')
         self.assertEqual(result['result'], 'GO_ERP_BRANCH_RESET_DONE')
         self.assertEqual((result['backup_rows'], result['deleted'], result['order_numbers_restarted']), (3, {'takeaway_orders': 3}, 1))
@@ -77,10 +78,24 @@ class BranchResetTests(unittest.TestCase):
         self.assertEqual(str(stopped.exception), 'GO_ERP_BRANCH_RESET_NOT_A_BACKUP_OF_THIS_SCRIPT')
 
     def test_an_answer_of_the_php_part_that_is_an_error_stops_it(self):
-        def failing(mode, payload=None, employees=False):
+        def failing(mode, payload=None, flags=()):
             raise reset.Stop('GO_ERP_BRANCH_RESET_PHP: CHANGED_SINCE_BACKUP')
         with self.assertRaises(reset.Stop):
             reset.apply(failing, self.folder)
+
+    def test_the_options_reach_the_php_part_and_a_day_must_be_a_day(self):
+        self.assertEqual(reset.flags(), [])
+        self.assertEqual(reset.flags(employees=True, keep_stock=True, through='2026-11-03'), ['--employees', '--keep-stock', '--through=2026-11-03'])
+        for wrong in ('2026-13-01', '3-11-2026', '2026-11-03; rm', ''):
+            with self.assertRaises((reset.Stop, ValueError)):
+                reset.flags(through=wrong)
+        backup = dict(BACKUP, employees=True)
+        self.folder.mkdir(mode=0o700)
+        os.chmod(str(self.folder), 0o700)
+        saved = self.folder / 'backup-20261103-000000.json'
+        saved.write_text(json.dumps(backup))
+        reset.restore(self.php, self.folder, str(saved))
+        self.assertEqual(self.php.calls[-1], ('restore', ['--employees']), 'A backup is put back with the tables it was taken with')
 
     def test_the_backup_folder_must_be_roots_alone(self):
         self.folder.mkdir(mode=0o755)

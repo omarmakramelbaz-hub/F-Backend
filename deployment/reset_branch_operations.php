@@ -3,7 +3,9 @@
 // their prints, kitchen tickets and order numbers; expenses; the cash drawers and shift closings; and the stock balances
 // with their movements. Kept: the customer app's orders (and their numbering), menus, tables, customers, employees,
 // salaries, settings and the desktop devices. With --employees, attendance days and employee deductions, bonuses and
-// advances are cleared too.
+// advances are cleared too (the month's pay then counts every day worked, with no late or absence deduction). With
+// --keep-stock, the stock's balances and movements stay as they are. With --through=YYYY-MM-DD, nothing is cleared if
+// anything was recorded after that operating day: real work is never cleared.
 //
 // Run as the site user by deployment/reset_branch_operations_root.py, which keeps the backup and runs, in order:
 //   plan            what would change, counts only
@@ -25,31 +27,68 @@ final class GoErpBranchReset
         'takeaway_order_items', 'takeaway_orders', 'branch_shift_print_jobs', 'branch_shift_sources', 'branch_shift_closings',
         'expense_inventory_receipts', 'branch_expense_commands', 'branch_expenses', 'branch_stock_movements', 'branch_inventory_movements',
         'branch_stock_minimum_alerts'];
-    /** With --employees: the attendance days and money movements of employees (employees and salaries stay). */
-    public const EMPLOYEES = ['branch_employee_entries', 'branch_employee_days'];
+    /**
+     * With --employees: the attendance days, money movements and closed pay months of employees (employees and salaries
+     * stay), so every month's pay counts each day worked with no late or absence deduction.
+     */
+    public const EMPLOYEES = ['branch_employee_entries', 'branch_employee_days', 'branch_payrolls'];
     /** Kept rows put back to zero: the drawers' balances, the stock balances, and every table free. */
     public const ZEROED = ['takeaway_tills' => ['balance_cents', 0], 'branch_stock' => ['quantity_units', 0],
         'branch_inventory' => ['quantity_units', 0], 'pos_service_tables' => ['active_ticket_id', null]];
     /** Order numbers that start again; the app's keep counting, its orders are kept. */
     public const CHANNELS = ['takeaway', 'dine', 'phone'];
+    /** With --keep-stock: the stock's movements (with the sales' and purchases' links to them) and its balances stay. */
+    public const STOCK = ['branch_recipe_sales', 'expense_inventory_receipts', 'branch_stock_movements', 'branch_inventory_movements',
+        'branch_stock_minimum_alerts'];
+    public const STOCK_ZEROED = ['branch_stock', 'branch_inventory'];
 
     private bool $employees;
+    private bool $keepStock;
+    private ?string $through;
 
-    public function __construct(bool $employees = false)
+    public function __construct(bool $employees = false, bool $keepStock = false, ?string $through = null)
     {
+        if ($through !== null && ! preg_match('/^\d{4}-\d{2}-\d{2}$/D', $through)) throw new GoErpResetStop('THROUGH_NOT_A_DAY');
         $this->employees = $employees;
+        $this->keepStock = $keepStock;
+        $this->through = $through;
+    }
+
+    /** The tables this reset clears, in deletion order, whether or not they exist here. */
+    private function intended(): array
+    {
+        $tables = array_merge($this->employees ? self::EMPLOYEES : [], self::CLEARED);
+        return array_values($this->keepStock ? array_diff($tables, self::STOCK) : $tables);
     }
 
     /** The cleared tables that exist here, in deletion order. */
     private function cleared(): array
     {
-        $tables = array_merge($this->employees ? self::EMPLOYEES : [], self::CLEARED);
-        return array_values(array_filter($tables, fn ($table) => Schema::hasTable($table)));
+        return array_values(array_filter($this->intended(), fn ($table) => Schema::hasTable($table)));
     }
 
     private function zeroed(): array
     {
-        return array_filter(self::ZEROED, fn ($spec, $table) => Schema::hasTable($table) && Schema::hasColumn($table, $spec[0]), ARRAY_FILTER_USE_BOTH);
+        $zeroed = $this->keepStock ? array_diff_key(self::ZEROED, array_flip(self::STOCK_ZEROED)) : self::ZEROED;
+        return array_filter($zeroed, fn ($spec, $table) => Schema::hasTable($table) && Schema::hasColumn($table, $spec[0]), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * With --through: what was recorded after that operating day, per cleared table (an employee's day or entry by its
+     * day, anything else by when it was recorded). Anything here stops the reset.
+     */
+    private function recordedAfter(): array
+    {
+        if ($this->through === null) return [];
+        $end = \App\Services\Dashboard\OperatingDay::start(\Carbon\Carbon::parse($this->through)->addDay()->toDateString())->utc()->toDateTimeString();
+        $after = [];
+        foreach ($this->cleared() as $table) {
+            if (in_array($table, self::EMPLOYEES, true) && Schema::hasColumn($table, 'day')) $count = DB::table($table)->where('day', '>', $this->through)->count();
+            elseif (Schema::hasColumn($table, 'created_at')) $count = DB::table($table)->where('created_at', '>=', $end)->count();
+            else continue;
+            if ($count) $after[$table] = $count;
+        }
+        return $after;
     }
 
     private function sequences(): ?\Illuminate\Database\Query\Builder
@@ -88,15 +127,24 @@ final class GoErpBranchReset
         }
         $kept = [];
         foreach (['orders' => 'customer app orders', 'branch_customers' => 'customers', 'branch_employees' => 'employees',
-            'pos_service_tables' => 'tables', 'desktop_sync_operations' => 'device operations (never applied twice)'] as $table => $label) {
+            'pos_service_tables' => 'tables', 'desktop_sync_operations' => 'device operations (never applied twice)',
+            'branch_payrolls' => 'closed or paid payroll months'] as $table => $label) {
             if (Schema::hasTable($table)) $kept[$label] = DB::table($table)->count();
+        }
+        if (Schema::hasTable('branch_payrolls') && DB::table('branch_payrolls')->exists()) {
+            $kept['payroll months'] = DB::table('branch_payrolls')->select('month', 'status', DB::raw('COUNT(*) AS c'))->groupBy('month', 'status')
+                ->orderBy('month')->get()->map(fn ($row) => $row->month.' '.$row->status.': '.(int) $row->c)->all();
         }
         if (! $this->employees) {
             foreach (self::EMPLOYEES as $table) if (Schema::hasTable($table)) $kept[$table.' (add --employees to clear)'] = DB::table($table)->count();
         }
+        if ($this->keepStock) {
+            foreach (array_merge(self::STOCK, self::STOCK_ZEROED) as $table) if (Schema::hasTable($table)) $kept[$table.' (stock, kept)'] = DB::table($table)->count();
+        }
         $sequences = $this->sequences();
         return ['cleared' => $tables, 'zeroed' => $zeroed, 'order_numbers_restarting' => $sequences ? $sequences->count() : 0, 'kept' => $kept,
-            'missing' => array_values(array_diff(array_merge($this->employees ? self::EMPLOYEES : [], self::CLEARED), $this->cleared()))];
+            'keep_stock' => $this->keepStock, 'through' => $this->through, 'recorded_after' => $this->recordedAfter(),
+            'missing' => array_values(array_diff($this->intended(), $this->cleared()))];
     }
 
     /** Proves the backup holds exactly what is cleared: rows and highest number of every table, and the zeroed values. */
@@ -127,7 +175,7 @@ final class GoErpBranchReset
             $zeroed[$table] = ['column' => $column, 'values' => DB::table($table)->orderBy('id')->pluck($column, 'id')->all()];
         }
         $sequences = $this->sequences();
-        return ['format' => 1, 'employees' => $this->employees, 'tables' => $tables, 'zeroed' => $zeroed,
+        return ['format' => 1, 'employees' => $this->employees, 'keep_stock' => $this->keepStock, 'through' => $this->through, 'tables' => $tables, 'zeroed' => $zeroed,
             'sequences' => $sequences ? (clone $sequences)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all() : [],
             'fingerprint' => $this->fingerprint()];
     }
@@ -141,6 +189,7 @@ final class GoErpBranchReset
             foreach (array_keys($this->zeroed()) as $table) DB::table($table)->lockForUpdate()->pluck('id');
             if ($sequences = $this->sequences()) $sequences->lockForUpdate()->pluck('id');
             if ($this->fingerprint() !== $expected) throw new GoErpResetStop('CHANGED_SINCE_BACKUP');
+            if ($after = $this->recordedAfter()) throw new GoErpResetStop('RECORDED_AFTER '.$this->through.': '.implode(', ', array_keys($after)));
             $deleted = [];
             foreach ($this->cleared() as $table) $deleted[$table] = DB::table($table)->delete();
             $zeroed = [];
@@ -187,7 +236,8 @@ final class GoErpBranchReset
     }
 }
 
-// As a script: php reset_branch_operations.php MODE SITE [--employees] (apply and restore read their input on stdin).
+// As a script: php reset_branch_operations.php MODE SITE [--employees] [--keep-stock] [--through=YYYY-MM-DD] (apply and
+// restore read their input on stdin).
 if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === realpath(__FILE__)) {
     $reply = function (array $data, int $code = 0): void {
         fwrite(STDOUT, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION)."\n");
@@ -200,7 +250,9 @@ if (PHP_SAPI === 'cli' && realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))
         require $site.'/vendor/autoload.php';
         $app = require $site.'/bootstrap/app.php';
         $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-        $reset = new GoErpBranchReset(in_array('--employees', $argv, true));
+        $through = null;
+        foreach ($argv as $argument) if (str_starts_with($argument, '--through=')) $through = substr($argument, 10);
+        $reset = new GoErpBranchReset(in_array('--employees', $argv, true), in_array('--keep-stock', $argv, true), $through);
         $input = in_array($mode, ['apply', 'restore'], true) ? json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR) : null;
         $reply(match ($mode) {
             'plan' => $reset->plan(),

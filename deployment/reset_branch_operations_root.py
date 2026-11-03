@@ -5,12 +5,14 @@ Cleared: the cashier, dine-in and delivery sales (with their prints, kitchen tic
 the cash drawers' movements and shift closings, and the stock movements. Set back to zero: every drawer's balance,
 every stock balance, and every table free. Kept: the customer app's orders and their numbering, menus, tables,
 customers, employees, salaries, settings and the desktop devices. With --employees, attendance days and employee
-deductions, bonuses and advances are cleared too.
+deductions, bonuses and advances are cleared too (each month's pay then counts every day worked, with no late or absence
+deduction). With --keep-stock, the stock's balances and movements stay as they are. With --through YYYY-MM-DD, nothing is
+cleared if anything was recorded after that operating day, so real work is never cleared.
 
 Run as root on srv1836524 from a clean checkout:
-  python3 -I -B deployment/reset_branch_operations_root.py                    what would change, nothing changes
-  python3 -I -B deployment/reset_branch_operations_root.py --apply            backup, then clear and zero
-  python3 -I -B deployment/reset_branch_operations_root.py --restore FILE     put that backup back
+  python3 -I -B deployment/reset_branch_operations_root.py [options]            what would change, nothing changes
+  python3 -I -B deployment/reset_branch_operations_root.py [options] --apply    backup, then clear and zero
+  python3 -I -B deployment/reset_branch_operations_root.py --restore FILE       put that backup back
 
 --apply first keeps a full copy of every row it changes in /var/lib/go-erp-branch-reset (root only), then clears and
 zeroes everything in one database transaction, and only if nothing was recorded between the copy and the clearing.
@@ -25,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import socket
 import stat
@@ -50,7 +53,7 @@ def need(value, reason):
 
 def runner(user, php, site, script):
     """Runs the PHP part as the site user from a private copy, its input on stdin; returns its JSON answer."""
-    def run(mode, payload=None, employees=False):
+    def run(mode, payload=None, flags=()):
         info = pwd.getpwnam(user)
         work = Path(tempfile.mkdtemp(prefix='go-erp-reset-'))
         try:
@@ -60,7 +63,7 @@ def runner(user, php, site, script):
             copy.write_bytes(script.read_bytes())
             os.chown(str(copy), info.pw_uid, info.pw_gid)
             os.chmod(str(copy), 0o600)
-            command = [php, str(copy), mode, str(site)] + (['--employees'] if employees else [])
+            command = [php, str(copy), mode, str(site)] + list(flags)
             if info.pw_uid != os.geteuid():
                 command = ['runuser', '-u', user, '--', 'env', 'HOME=' + info.pw_dir] + command
             result = subprocess.run(command, cwd=str(site), input=payload if payload is not None else b'', stdout=subprocess.PIPE,
@@ -97,19 +100,33 @@ def write_backup(folder, data):
     return path
 
 
-def plan(run, employees=False):
-    answer = run('plan', employees=employees)
+def flags(employees=False, keep_stock=False, through=None):
+    """The PHP part's options; a day must be a calendar day."""
+    chosen = []
+    if employees:
+        chosen.append('--employees')
+    if keep_stock:
+        chosen.append('--keep-stock')
+    if through is not None:
+        need(re.fullmatch(r'\d{4}-\d{2}-\d{2}', through) is not None, 'THROUGH_NOT_A_DAY')
+        datetime.date.fromisoformat(through)
+        chosen.append('--through=' + through)
+    return chosen
+
+
+def plan(run, options=()):
+    answer = run('plan', flags=options)
     return dict(answer, result='GO_ERP_BRANCH_RESET_PLAN')
 
 
-def apply(run, folder, employees=False):
-    backup = run('export', employees=employees)
+def apply(run, folder, options=()):
+    backup = run('export', flags=options)
     need(backup.get('format') == 1 and isinstance(backup.get('fingerprint'), dict), 'BACKUP_UNREADABLE')
     data = json.dumps(backup, ensure_ascii=False, sort_keys=True).encode('utf-8')
     path = write_backup(backups_folder(folder), data)
     # The copy is on disk (and synced) before anything is cleared.
     need(json.loads(path.read_bytes().decode('utf-8'))['fingerprint'] == backup['fingerprint'], 'BACKUP_UNREADABLE')
-    done = run('apply', json.dumps(backup['fingerprint']).encode('utf-8'), employees=employees)
+    done = run('apply', json.dumps(backup['fingerprint']).encode('utf-8'), flags=options)
     return {'result': 'GO_ERP_BRANCH_RESET_DONE', 'backup': str(path), 'backup_sha256': hashlib.sha256(data).hexdigest(),
             'backup_rows': sum(len(rows) for rows in backup['tables'].values()), 'deleted': done['deleted'], 'zeroed': done['zeroed'],
             'order_numbers_restarted': done['order_numbers_restarted']}
@@ -121,7 +138,7 @@ def restore(run, folder, file):
     data = path.read_bytes()
     backup = json.loads(data.decode('utf-8'))
     need(backup.get('format') == 1, 'NOT_A_BACKUP_OF_THIS_SCRIPT')
-    done = run('restore', data, employees=bool(backup.get('employees')))
+    done = run('restore', data, flags=['--employees'] if backup.get('employees') else [])
     return {'result': 'GO_ERP_BRANCH_RESET_RESTORED', 'backup': str(path), 'restored': done['restored']}
 
 
@@ -131,17 +148,20 @@ def main():
     mode.add_argument('--apply', action='store_true')
     mode.add_argument('--restore')
     parser.add_argument('--employees', action='store_true')
+    parser.add_argument('--keep-stock', action='store_true')
+    parser.add_argument('--through')
     options = parser.parse_args()
     need(os.geteuid() == 0 and socket.gethostname().split('.')[0] == HOST, 'ROOT_AND_HOST_REQUIRED')
     need(os.access(PHP, os.X_OK) and (SITE / 'artisan').is_file() and SCRIPT.is_file(), 'SITE_NOT_FOUND')
     os.umask(0o077)
     run = runner(WEB_USER, PHP, SITE, SCRIPT)
+    chosen = flags(options.employees, options.keep_stock, options.through)
     if options.restore:
         result = restore(run, BACKUPS, options.restore)
     elif options.apply:
-        result = apply(run, BACKUPS, options.employees)
+        result = apply(run, BACKUPS, chosen)
     else:
-        result = plan(run, options.employees)
+        result = plan(run, chosen)
     print(json.dumps(result, sort_keys=True, ensure_ascii=False), flush=True)
 
 
