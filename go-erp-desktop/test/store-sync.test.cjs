@@ -156,6 +156,20 @@ test('the open shift\'s figures are asked for every two minutes, and kept with w
   assert.equal(store.running('f:100').report.expected_cash, '100.00', 'Unchanged figures keep the copy');
 });
 
+test('a dashboard that answers, even with an error, means the internet works; no answer or its gateway means it may not', async () => {
+  const { store } = fixture();
+  let failure = null;
+  const api = { sync: async () => { throw failure; } };
+  const engine = new SyncEngine({ store, api, token: () => 'token', intervalMs: 60000 });
+  const fail = (status) => { const error = new Error('x'); error.status = status; return error; };
+  for (const [status, online] of [[500, true], [422, true], [429, true], [0, false], [502, false], [503, false], [504, false]]) {
+    failure = fail(status);
+    await engine.run();
+    assert.equal(engine.status().online, online, `status ${status}`);
+  }
+  engine.stop();
+});
+
 test('accounts and menus from the server replace the old ones; unchanged menus keep the stored copy', () => {
   const { store } = fixture();
   store.replaceUsers([{ ...CASHIER, name: 'كاشير جديد' }], 'hash-2');

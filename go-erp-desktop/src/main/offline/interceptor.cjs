@@ -12,6 +12,7 @@ const { missingSpaPage, nothingSavedPage, signedOutPage, NEEDS_INTERNET } = requ
 const { currentLook, fromDevice, hologramFile, PREFIX: HOLOGRAM } = require('./hologram.cjs');
 const { savedCounters } = require('./home.cjs');
 const { cacheKey } = require('./cache.cjs');
+const { deferral, keptAnswer } = require('./deferred.cjs');
 
 // Shipped with the app: the receipt logo (the dashboard's print waits for every receipt picture to load).
 const BUNDLED = { '/dashboard/branding/fasakhansta-logo-transparent.png': ['image/png', path.join(__dirname, 'files', 'fasakhansta-logo-transparent.png')] };
@@ -109,13 +110,15 @@ class DashboardOffline {
    * for the window's current page, onSignOut(now) when the dashboard's own sign-out is asked for (now: without the
    * internet, where the app signs out right away).
    */
-  constructor({ origin, cache, pages, user, onNetworkFailure = () => {}, onMissing = () => {}, onFromCopy = () => {}, onLive = () => {},
+  constructor({ origin, cache, pages, user, onNetworkFailure = () => {}, onMissing = () => {}, onFromCopy = () => {}, onLive = () => {}, onDefer = null,
     onSignOut = () => {} }) {
     this.origin = origin;
     this.cache = cache;
     this.pages = pages;
     this.user = user;
     this.onNetworkFailure = onNetworkFailure;
+    // onDefer(user, request): keeps a page operation for the dashboard (deferred.cjs) and returns it as kept.
+    this.onDefer = onDefer;
     this.onMissing = onMissing;
     this.onFromCopy = onFromCopy;
     this.onLive = onLive;
@@ -295,9 +298,24 @@ class DashboardOffline {
     if (!offline) return null;
     if (same && /^\/admin\/(adminLogout|logout)\/?$/i.test(url.pathname)) return { status: 302, location: this.origin + '/admin/login' };
     if (same && /^\/admin\/login\/?$/i.test(url.pathname)) return { status: 200, html: signedOutPage() };
-    // A write the device cannot do: never sent, so the page shows why and stays usable (422); sent but unanswered, it may
-    // have been done (503: the page keeps it pending and checks again once online).
-    if (!['GET', 'HEAD'].includes(request.method)) return same ? { status: attempted ? 503 : 422, json: { success: false, message: NEEDS_INTERNET } } : null;
+    // A write no offline page answers: one never sent with the page's operation number is kept on the device and goes to
+    // the dashboard once it answers (see deferred.cjs). Otherwise: never sent, so the page shows why and stays usable
+    // (422); sent but unanswered, it may have been done (503: the page keeps it pending and checks again once online).
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      if (!same) return null;
+      if (!attempted && user && this.onDefer) {
+        const decided = deferral(request, url, requestBody(request));
+        if (decided && decided.refuse) return { status: 422, json: { success: false, message: decided.refuse } };
+        if (decided && decided.keep) {
+          try {
+            return keptAnswer(this.onDefer(user, decided.keep));
+          } catch (error) {
+            return { status: error && error.status ? error.status : 422, json: { success: false, message: error && error.message ? error.message : NEEDS_INTERNET } };
+          }
+        }
+      }
+      return { status: attempted ? 503 : 422, json: { success: false, message: NEEDS_INTERNET } };
+    }
     const document = resourceType === 'Document';
     const spa = header(request.headers, 'x-dashboard-spa') === '1';
     if (same && user) {

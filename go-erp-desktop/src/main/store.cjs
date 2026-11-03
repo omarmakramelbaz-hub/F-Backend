@@ -1246,10 +1246,13 @@ class Store {
   outboxStats() {
     const row = this.db.prepare(`SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected FROM outbox`).get();
-    // Actions on the app orders board taken offline wait with them.
+    // Actions on the app orders board taken offline wait with them, and so do the pages' other operations.
     const board = this.db.prepare(`SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected FROM board_commands`).get();
-    return { pending: (row.pending || 0) + (board.pending || 0), rejected: (row.rejected || 0) + (board.rejected || 0) };
+    const deferred = this.db.prepare(`SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected FROM deferred_requests`).get();
+    return { pending: (row.pending || 0) + (board.pending || 0) + (deferred.pending || 0),
+      rejected: (row.rejected || 0) + (board.rejected || 0) + (deferred.rejected || 0) };
   }
 
   // ---- the app orders board offline: actions taken without the internet, sent to the board's action once online ----
@@ -1311,8 +1314,49 @@ class Store {
       .run(error, this.now().toISOString(), id, 'pending');
   }
 
+  // ---- the dashboard pages' other operations offline: the page's own request, sent as the same account once online ----
+
+  /**
+   * A dashboard operation done offline that no offline page answers itself: the page's request (address, body, its
+   * type) under the page's operation number. The same number with the same request is the same operation; with
+   * another request it is refused.
+   */
+  deferRequest(actor, values) {
+    const existing = this.db.prepare('SELECT * FROM deferred_requests WHERE id = ?').get(values.id);
+    if (existing) {
+      if (existing.actor_id !== actor.id || existing.url !== values.url || existing.body !== values.body) {
+        const error = new Error('رقم العملية مستخدم لعملية مختلفة.');
+        error.status = 409;
+        throw error;
+      }
+      return { ...existing, replayed: true };
+    }
+    const stamp = this.now().toISOString();
+    this.db.prepare(`INSERT INTO deferred_requests (id, actor_id, actor_name, method, url, content_type, body, label, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(values.id, actor.id, actor.name, values.method || 'POST', values.url, values.content_type || '',
+      values.body, String(values.label || '').slice(0, 120), stamp, stamp);
+    return { ...this.db.prepare('SELECT * FROM deferred_requests WHERE id = ?').get(values.id), replayed: false };
+  }
+
+  /** An account's operations waiting for the dashboard, in the order they were done. */
+  pendingDeferred(actorId) {
+    return this.db.prepare("SELECT * FROM deferred_requests WHERE status = 'pending' AND actor_id = ? ORDER BY created_at, rowid").all(actorId);
+  }
+
+  finishDeferred(id, status, error = null) {
+    const stamp = this.now().toISOString();
+    this.db.prepare(`UPDATE deferred_requests SET status = ?, error = ?, attempts = attempts + 1, updated_at = ?, done_at = ?
+      WHERE id = ? AND status = 'pending'`).run(status, error, stamp, stamp, id);
+  }
+
+  retryDeferred(id, error = null) {
+    this.db.prepare("UPDATE deferred_requests SET attempts = attempts + 1, error = ?, updated_at = ? WHERE id = ? AND status = 'pending'")
+      .run(error, this.now().toISOString(), id);
+  }
+
   rejectedOperations() {
     const labels = { sale: 'فاتورة', expense: 'مصروف', till: 'خزنة', attendance: 'حضور وانصراف', attendance_status: 'غياب أو إجازة',
+      expense_review: 'اعتماد أو رفض مصروف',
       ticket_settle: 'تحصيل طلب', ticket_open: 'نقل طلب للداشبورد', ticket_action: 'إجراء على طلب', ticket_dispatch: 'تسليم طلب للمندوب',
       ticket_batch: 'تحصيل طلبات المندوب', ticket_save: 'تعديل طلب', ticket_cancel: 'إلغاء طلب', customer_save: 'بيانات عميل',
       stock_receive: 'إضافة بضاعة', shift_close: 'تقفيل وردية', employee_entry: 'خصم أو مكافأة أو سلفة موظف' };
@@ -1325,6 +1369,8 @@ class Store {
       .concat(this.db.prepare("SELECT * FROM board_commands WHERE status = 'rejected' ORDER BY updated_at DESC LIMIT 100").all()
         .map((row) => ({ id: row.id, kind: 'طلب تطبيق: ' + (BOARD_ACTIONS[row.action] || row.action), error: row.error, at: row.updated_at,
           local_number: row.order_number || ('#' + row.order_id), branch: null, total: null })))
+      .concat(this.db.prepare("SELECT * FROM deferred_requests WHERE status = 'rejected' ORDER BY updated_at DESC LIMIT 100").all()
+        .map((row) => ({ id: row.id, kind: row.label || 'عملية من الداشبورد', error: row.error, at: row.updated_at, local_number: null, branch: null, total: null })))
       .sort((a, b) => String(b.at).localeCompare(String(a.at)));
   }
 }

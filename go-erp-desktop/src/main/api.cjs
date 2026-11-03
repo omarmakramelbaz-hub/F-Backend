@@ -15,13 +15,13 @@ class Api {
     this.timeoutMs = timeoutMs;
   }
 
-  async request(path, body, headers = {}) {
+  async request(path, body, headers = {}, timeoutMs = this.timeoutMs) {
     let response;
     try {
       response = await this.fetch(this.baseUrl + path, {
         method: 'POST', body: JSON.stringify(body),
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       const failure = new ApiError(0, 'لا يوجد اتصال بالسرفر الآن. البرنامج يعمل على بيانات الجهاز.');
@@ -44,7 +44,8 @@ class Api {
   }
 
   sync(device, token, body) {
-    return this.request('/api/desktop-sync/v1/sync', body, { 'X-GO-ERP-Device': device.id, Authorization: 'Bearer ' + token });
+    // A sync carries the branches' open orders: on a slow line it takes its time rather than being cut short.
+    return this.request('/api/desktop-sync/v1/sync', body, { 'X-GO-ERP-Device': device.id, Authorization: 'Bearer ' + token }, 90000);
   }
 
   /** The device gives up its setup: its key stops working, so it can be set up again (with any account). */

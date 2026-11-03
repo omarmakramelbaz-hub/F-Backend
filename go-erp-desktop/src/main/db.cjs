@@ -83,6 +83,13 @@ const MIGRATIONS = [
      to_group TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT, attempts INTEGER NOT NULL DEFAULT 0,
      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, done_at TEXT);
    CREATE INDEX board_commands_status ON board_commands (status, created_at);`,
+  // Version 1.18: any other dashboard operation done without the internet (an employee's details, a table, a
+  // setting...): the page's own request, kept under its operation number, sent as the same account once online.
+  `CREATE TABLE deferred_requests (
+     id TEXT PRIMARY KEY, actor_id INTEGER NOT NULL, actor_name TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL,
+     content_type TEXT NOT NULL DEFAULT '', body TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending',
+     error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, done_at TEXT);
+   CREATE INDEX deferred_requests_status ON deferred_requests (status, created_at);`,
 ];
 
 /** A dated copy of the database once a day; the newest seven are kept. */

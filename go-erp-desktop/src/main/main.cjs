@@ -8,6 +8,8 @@ const { Api } = require('./api.cjs');
 const { SyncEngine } = require('./sync.cjs');
 const auth = require('./auth.cjs');
 const printing = require('./printing.cjs');
+const connection = require('./connection.cjs');
+const { replayScript: deferredReplayScript } = require('./offline/deferred.cjs');
 const rules = require('./rules.cjs');
 const money = require('./money.cjs');
 const { PageCache } = require('./offline/cache.cjs');
@@ -125,11 +127,11 @@ const handlers = {
     session: current, sync: sync.status(), print: printSettings(), autostart: autostart(), embed: EMBED, dashboard_shown: dashboardShown,
     offline_mode: offlineMode, dashboard_copy: current ? offline.hasCopy(sessionUser()) : false }),
 
-  // The person's computer says the network is gone: answer the dashboard from the device right away.
+  // The person's computer says the network is gone: the app checks the dashboard before working from the device
+  // (Windows sometimes says so while the internet works).
   'app:network': (values) => {
     if (values.online === false) {
-      setOfflineMode(true);
-      sync.run().catch(() => {});
+      suspectOffline('the computer reports no network');
     } else {
       sync.kick();
     }
@@ -476,6 +478,8 @@ function layoutDashboard() {
  */
 function setOfflineMode(value, reason = '') {
   if (offlineMode === value) return;
+  clearInterval(recoveryTimer);
+  recoveryTimer = value ? setInterval(recover, RECOVERY_EVERY) : null;
   console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} ${value ? 'offline' : 'online'}${reason ? ': ' + reason : ''}`);
   offlineMode = value;
   offline.setOffline(value).catch(() => {});
@@ -490,6 +494,57 @@ function setOfflineMode(value, reason = '') {
     const contents = dashboardView && dashboardView.webContents;
     copyLog(`back online (signed in: ${dashboardSignedIn}, page from the copy: ${!!contents && fromCopy.has(contents)})`);
     if (contents && dashboardSignedIn) warmUp(contents, { soon: true });
+  }
+}
+
+/**
+ * The app works from the device only while the dashboard cannot be reached: one request that failed or took too long,
+ * a sync cut short or Windows saying the network is gone are not enough. Each makes the app ask the dashboard for a
+ * small file twice, a few seconds apart; only when neither answers does it switch to the device's copy. While it
+ * works from the device it asks again every few seconds and goes back to the dashboard as soon as it answers.
+ */
+const PROBE_PAUSE = Number(process.env.GOERP_PROBE_PAUSE_MS) || 5000;
+const RECOVERY_EVERY = Number(process.env.GOERP_RECOVERY_MS) || 10000;
+let suspecting = null;
+let recoveryTimer = null;
+
+async function dashboardAnswers() {
+  try {
+    const response = await require('electron').net.fetch(`${SERVER}/robots.txt?goerp=${Date.now()}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    // Any answer of the site (not its gateway answering for it) means the internet and the dashboard work.
+    return !connection.GATEWAY.has(response.status);
+  } catch {
+    return false;
+  }
+}
+
+function suspectOffline(reason) {
+  if (offlineMode || suspecting) return suspecting;
+  suspecting = (async () => {
+    try {
+      if (!(await connection.unreachable(dashboardAnswers, { pause: PROBE_PAUSE, stop: () => offlineMode }))) {
+        if (!offlineMode) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} still online (${reason})`);
+        return;
+      }
+      setOfflineMode(true, reason);
+      sync.run().catch(() => {});
+    } finally {
+      suspecting = null;
+    }
+  })();
+  return suspecting;
+}
+
+/** Working from the device: as soon as the dashboard answers, a sync brings the app back to it. */
+let recovering = false;
+async function recover() {
+  if (!offlineMode || recovering) return;
+  recovering = true;
+  try {
+    if (await dashboardAnswers()) sync.run().catch(() => {});
+  } finally {
+    recovering = false;
   }
 }
 
@@ -588,6 +643,32 @@ function replayBoard() {
     })
     .catch(() => {})
     .finally(() => { replaying = false; });
+}
+
+// The pages' other operations done offline go to the dashboard as the account that did them (the dashboard's session is
+// that account's), in their order, once it answers.
+let replayingDeferred = false;
+
+function replayDeferred() {
+  const user = sessionUser();
+  const contents = dashboardView && dashboardView.webContents;
+  if (replayingDeferred || !user || offlineMode || !dashboardSignedIn || !contents || contents.isDestroyed() || contents.isLoading()) return;
+  const requests = store.pendingDeferred(user.id);
+  if (!requests.length) return;
+  replayingDeferred = true;
+  contents.executeJavaScript(deferredReplayScript(requests.slice(0, 20)))
+    .then((results) => {
+      for (const result of Array.isArray(results) ? results : []) {
+        if (!result || !result.id) continue;
+        if (result.done) store.finishDeferred(result.id, 'done');
+        else if (result.rejected) store.finishDeferred(result.id, 'rejected', result.message || 'الداشبورد رفض العملية.');
+        else store.retryDeferred(result.id, result.error || null);
+      }
+      console.log(`[goerp] operations done offline sent: ${(results || []).filter((result) => result && result.done).length} of ${requests.length}`);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sync:status', sync.status());
+    })
+    .catch(() => {})
+    .finally(() => { replayingDeferred = false; });
 }
 
 /** Pictures of a receipt (the logo) from the device's copy, so it prints the same with the internet down. */
@@ -974,7 +1055,10 @@ app.whenReady().then(() => {
       stockPage,
       new EmployeesOffline({ store, cache: pageCache, origin, now, kick: () => sync.kick(), recoverers: [(entry, user) => stockPage.recovered(entry, user)] }),
       dinePage, deliveryPage, shiftsPage, new HomeOffline({ cache: pageCache, origin }), boardPage],
-    onNetworkFailure: (reason, url) => { setOfflineMode(true, `${reason} ${url}`); sync.run().catch(() => {}); },
+    // That one request is answered from the device; the whole app moves to it only if the dashboard stays unreachable.
+    onNetworkFailure: (reason, url) => { suspectOffline(`${reason} ${url}`); },
+    // Any other page operation done offline waits on the device and goes to the dashboard as this account (replayDeferred).
+    onDefer: (user, request) => store.deferRequest(store.user(user.id) || user, request),
     onSignOut: (now) => {
       if (!dashboardLoggingOut) console.log('[goerp] the dashboard\'s own sign-out');
       dashboardLoggingOut = true;
@@ -991,13 +1075,14 @@ app.whenReady().then(() => {
     readOffset();
     // Only a finished sync says whether the dashboard answers (a starting one still carries the previous result).
     if (!status.running) {
-      if (status.online === false) setOfflineMode(true, 'sync: ' + (status.last_error || ''));
+      if (status.online === false) suspectOffline('sync: ' + (status.last_error || ''));
       else if (status.online === true) {
         setOfflineMode(false, 'sync');
         // The saved pages and numbers follow the dashboard with the sync (see warmUp); actions on app orders taken
         // offline reach the dashboard with it (see replayBoard).
         if (dashboardView && dashboardSignedIn) warmUp(dashboardView.webContents);
         replayBoard();
+        replayDeferred();
       }
       // Saved pages of accounts no longer on this device are removed.
       if (store.userCount()) {

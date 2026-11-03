@@ -1,6 +1,7 @@
 'use strict';
 // Every 30 seconds while the internet is available: send the queued operations, then fetch what changed.
 const { EventEmitter } = require('node:events');
+const { GATEWAY } = require('./connection.cjs');
 
 class SyncEngine extends EventEmitter {
   constructor({ store, api, token, intervalMs = 30000, refreshEveryMs = 5 * 60 * 1000, runningEveryMs = 2 * 60 * 1000, now = () => Date.now() }) {
@@ -78,7 +79,9 @@ class SyncEngine extends EventEmitter {
         });
       } catch (error) {
         if (process.env.GOERP_DEBUG_SYNC) console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} sync failed: ${error.status} ${error.cause || ''}`);
-        this.state.online = false;
+        // The dashboard answered, even with an error: the internet works. Only no answer at all, or the site itself down
+        // (its gateway answering for it), may mean the device is offline; the app checks that before working offline.
+        this.state.online = error.status > 0 && !GATEWAY.has(error.status);
         this.state.last_error = error.message;
         if (error.status === 401) this.state.device_revoked = true;
         return;
