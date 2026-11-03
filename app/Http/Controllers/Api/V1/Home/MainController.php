@@ -87,8 +87,8 @@ class MainController extends Controller {
       'admin_id'        =>$admin->id,
       'admin_device_token'=>$admin->device_token,
     //   'admin_fcm_id'=>$admin->fcm_id,
-      'logo'            =>env('APP_URL').'/storage/'.$settings->logo,
-      'favicon'         =>env('APP_URL').'/storage/'.$settings->favicon,
+      'logo'            =>config('app.url').'/storage/'.$settings->logo,
+      'favicon'         =>config('app.url').'/storage/'.$settings->favicon,
       'twitter_link'    =>$settings->twitter_link,
       'facebook_link'   =>$settings->facebook_link,
       'instagram_link'  =>$settings->instagram_link,
@@ -120,7 +120,7 @@ class MainController extends Controller {
  public function advertising(GeneralSettings $settings) {
     $data= [
       'advertise_resturant_id'           => (int) $settings->advertise_resturant_id,
-      'advertise_image'            =>env('APP_URL').'/storage/'.$settings->advertise_image,
+      'advertise_image'            =>config('app.url').'/storage/'.$settings->advertise_image,
     ];
 
     return $this->successResponse($data,trans('api.success data') );

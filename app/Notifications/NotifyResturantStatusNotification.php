@@ -44,7 +44,7 @@ class NotifyResturantStatusNotification extends Notification
     {
         $tokens = [];
         $types  = [];
-        if(auth('admin')->user()->account_type == 'admin'){
+        if(auth('admin')->user()?->account_type == 'admin'){
             $text = 'المطعم '. $this->msg->base_resturant?->name. 'حاليا غير متاح لاستقبال طلبات جديدة عليك شحن المحفظة بالحد الأدني المطلوب ';
         }else{
             $text = 'المطعم حاليا غير متاح لاستقبال طلبات جديدة عليك شحن المحفظة بالحد الأدني المطلوب ';

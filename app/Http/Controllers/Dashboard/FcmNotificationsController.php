@@ -165,7 +165,7 @@ class FcmNotificationsController extends Controller
                     'sender_account_type'=>auth('admin')->user()->account_type,
                     'sender_fcm_id'=>auth('admin')->user()->fcm_id,
                     'sender_device_token'=>auth('admin')->user()->device_token,
-                     'click_action'=>env('APP_URL')."/admin/chat/?user_id=".$senderId
+                     'click_action'=>config('app.url')."/admin/chat/?user_id=".$senderId
                     ],
             ];
         //   dd($body_data,$user);

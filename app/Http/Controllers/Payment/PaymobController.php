@@ -34,7 +34,7 @@ class PaymobController extends Controller
         $response = Http::withHeaders([
             'content-type' => 'application/json'
         ])->post('https://accept.paymob.com/api/auth/tokens',[
-            "api_key"=> env('PAYMOB_API_KEY')
+            "api_key"=> config('services.paymob.api_key')
         ]);
         $json=$response->json();       
 $token = $json['token'];

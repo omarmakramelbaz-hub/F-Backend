@@ -80,10 +80,24 @@ class BranchCustomers
         $search=trim($v['search']??'');
         if($search!=='')$q->where(function($q)use($search){$q->where('name','like','%'.$search.'%');$phone=self::phoneKey($search);if($phone!=='')$q->orWhere('phone_key','like','%'.$phone.'%');});
         $count=(clone $q)->count();$last=max(1,(int)ceil($count/30));$page=min((int)($v['page']??1),$last);
-        $items=$q->orderByRaw("CASE WHEN name IS NULL OR name = '' THEN 1 ELSE 0 END")->orderBy('name')->orderBy('id')->offset(($page-1)*30)->limit(30)->get();
+        $items=$this->namedFirst($q,($page-1)*30,30);
         $associations=DB::table('crm_customer_sources')->when(!$shared,fn($q)=>$q->whereIn('branch',$scope))->whereIn('customer_id',$items->pluck('id')->all())->orderBy('branch')->orderBy('channel')->get()->groupBy('customer_id');
         $result=$items->map(function($row)use($associations,$scope,$central){$item=(array)$row;$links=$associations->get($row->id,collect());$item['id']=(int)$row->id;$item['source']='crm';$allowed=$links->filter(fn($link)=>in_array($link->branch,$scope,true));$item['branch']=$allowed->first(fn($link)=>$link->branch!=='')->branch??'';$item['channels']=$links->pluck('channel')->unique()->values()->all();$item['branches']=$links->pluck('branch')->unique()->values()->all();$item['service_consent']=(bool)$row->service_consent;$item['marketing_consent']=(bool)$row->marketing_consent;$item['can_edit_profile']=$allowed->isNotEmpty()||($central&&$links->isEmpty());return $item;})->all();
         return ['success'=>true,'items'=>$result,'branches'=>$branches,'registry'=>true,'summary'=>['customers'=>$count,'service_opted_in'=>(clone $q)->where('service_consent',true)->whereNull('opted_out_at')->count(),'marketing_opted_in'=>(clone $q)->where('marketing_consent',true)->whereNull('opted_out_at')->count()],'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$count]];
+    }
+    /**
+     * A page of customers: those with a name by name then number, then those without one (no name before an empty one)
+     * by number. The order of sorting by "has no name", name, number, read in the name index's order instead of sorting
+     * the whole directory for every page.
+     */
+    private function namedFirst($q,int $offset,int $limit)
+    {
+        $named=(clone $q)->where('name','>','');
+        $total=(clone $named)->count();
+        $blank=fn()=>(clone $q)->where(fn($w)=>$w->whereNull('name')->orWhere('name','<=',''))->orderBy('name')->orderBy('id');
+        if($offset>=$total)return $blank()->offset($offset-$total)->limit($limit)->get();
+        $items=(clone $named)->orderBy('name')->orderBy('id')->offset($offset)->limit($limit)->get();
+        return $items->count()<$limit?$items->concat($blank()->limit($limit-$items->count())->get())->values():$items;
     }
     public function directorySave(array $values,$actor): array
     {

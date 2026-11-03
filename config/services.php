@@ -38,6 +38,15 @@ return [
         'project_id' => env('FCM_PROJECT_ID', 'fasakhaninjatest'),
     ],
 
+    // Paymob's card and wallet checkout. Read through config(): once the configuration is cached, env() outside the
+    // config files returns nothing.
+    'paymob' => [
+        'api_key' => env('PAYMOB_API_KEY'),
+        'card_integration_id' => env('PAYMOB_CARD_INTEGRATION_ID'),
+        'card_iframe_id' => env('PAYMOB_CARD_IFRAME_ID'),
+        'wallet_integration_id' => env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
+    ],
+
     'maps' => [
         // Enable only after approval to send address queries/coordinates to these providers.
         'phone_open_enabled' => env('PHONE_OPEN_MAPS_ENABLED', false),

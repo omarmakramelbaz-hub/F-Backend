@@ -394,14 +394,14 @@ class CartController extends Controller
                 if ($request->payment_type == 'online') {
                     return (new PaymobController)->checkingOut(
                         'paymob_card_payment',
-                        env('PAYMOB_CARD_INTEGRATION_ID'),
+                        config('services.paymob.card_integration_id'),
                         $order->id,
-                        env('PAYMOB_CARD_IFRAME_ID')
+                        config('services.paymob.card_iframe_id')
                     );
                 } else if ($request->payment_type == 'v_cash') {
                     return (new PaymobController)->checkingOut(
                         'paymob_mobile_wallet_payment',
-                        env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
+                        config('services.paymob.wallet_integration_id'),
                         $order->id,
                         $order->user_address?->mobile
                     );

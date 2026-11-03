@@ -90,12 +90,13 @@ Route::group(['middleware' => 'lang'], function () {
 
 Route::post('/pusher/auth', function (Request $request) {
     if (Auth::check()) {
-        $pusher = new Pusher\Pusher(
-            env('PUSHER_APP_KEY'),
-            env('PUSHER_APP_SECRET'),
-            env('PUSHER_APP_ID'),
-            ['cluster' => env('PUSHER_APP_CLUSTER')]
-        );
+        // The keys come from the configuration: once it is cached, env() here returns nothing.
+        $settings = config('broadcasting.connections.pusher');
+        if (empty($settings['key']) || empty($settings['secret']) || empty($settings['app_id'])) {
+            return response()->json(['error' => 'Realtime is not configured'], 503);
+        }
+        $pusher = new Pusher\Pusher((string) $settings['key'], (string) $settings['secret'], (string) $settings['app_id'],
+            array_filter(['cluster' => $settings['options']['cluster'] ?? null]));
 
         $socketId = $request->input('socket_id');
         $channelName = $request->input('channel_name');
