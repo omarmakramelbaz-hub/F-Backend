@@ -154,6 +154,10 @@ Route::post('/pusher/auth', function (Request $request) {
 
         $socketId = $request->input('socket_id');
         $channelName = $request->input('channel_name');
+        // Pusher refuses (with an exception) a connection number that is not its own: answered as a bad request.
+        if (! is_string($socketId) || ! preg_match('/\A\d+\.\d+\z/', $socketId)) {
+            return response()->json(['error' => 'Invalid socket id'], 422);
+        }
         if ($channelName === 'private-user.' . Auth::id()) {
             $auth = $pusher->socket_auth($channelName, $socketId);
             $response = json_decode($auth, true);

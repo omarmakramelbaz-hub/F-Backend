@@ -58,6 +58,8 @@ class RefactorFirstReleaseTest extends TestCase
         $this->actingAs($user);
         $this->assertSame(['auth' => $signature, 'channel_data' => ['user_id' => 5]], $api()->getData(true));
         $this->actingAs($user)->postJson('/pusher/auth', ['socket_id' => '123.456', 'channel_name' => 'private-user.6'])->assertStatus(403);
+        $this->actingAs($user)->postJson('/pusher/auth', ['channel_name' => 'private-user.5'])->assertStatus(422);
+        $this->actingAs($user)->postJson('/pusher/auth', ['socket_id' => 'abc', 'channel_name' => 'private-user.5'])->assertStatus(422);
         // Without keys: a plain answer, never the error that filled the logs.
         config(['broadcasting.connections.pusher.key' => null]);
         $this->actingAs($user)->postJson('/pusher/auth', ['socket_id' => '123.456', 'channel_name' => 'private-user.5'])->assertStatus(503);
