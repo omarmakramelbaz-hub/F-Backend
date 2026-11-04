@@ -57,6 +57,10 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register()
     {
+        // MySQL connections remember which tables and columns they have, instead of asking the database on every
+        // check (App\Database\SchemaMemory): those questions were 44% of the live database's statements.
+        \Illuminate\Database\Connection::resolverFor('mysql', fn ($connection, $database, $prefix, $config) =>
+            new \App\Database\CachedMySqlConnection($connection, $database, $prefix, $config));
         $this->app->bind(UserAuthRepositoryInterface::class, UserAuthRepository::class);
         $this->app->bind(AuthRepositoryInterface::class, AuthRepository::class);
 
@@ -77,6 +81,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot()
     {
+        // A migration may change tables in ways the connection does not see (straight through PDO): forget after each.
+        \Illuminate\Support\Facades\Event::listen([\Illuminate\Database\Events\MigrationEnded::class, \Illuminate\Database\Events\SchemaLoaded::class],
+            fn () => \App\Database\SchemaMemory::forgetEverything());
         Paginator::useBootstrap();
         User::observe(UserObserver::class);
         User::observe(\App\Observers\CustomerDirectoryUserObserver::class);
