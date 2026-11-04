@@ -30,6 +30,11 @@ class BranchStock
     {
         return app(BranchInventory::class)->installed()?app(BranchInventory::class)->snapshots($branch,$lines):$lines;
     }
+    /** Each line quoted on its own (its quote, or the refusal it alone would get), reading the stock rules once for all. */
+    public function quoteEach(string $branch,array $lines): array
+    {
+        return app(BranchInventory::class)->installed()?app(BranchInventory::class)->snapshotEach($branch,$lines):$lines;
+    }
     public function saleBalances(string $branch,array $ids): array
     {
         if(app(BranchInventory::class)->installed()&&str_starts_with($branch,'f:'))$ids=array_values(array_unique(array_merge($ids,DB::table('resturant_products')->where('resturant_id',(int)substr($branch,2))->where('status','show')->pluck('id')->all(),DB::table('branch_stock_recipes')->where('branch',$branch)->pluck('product_id')->all())));

@@ -139,6 +139,33 @@ class DashboardBranchRecipeTest extends TestCase
     {
         DB::table('branch_stock')->insert(['branch'=>$branch,'product_id'=>$product,'unit'=>$unit,'quantity_units'=>$units,'revision'=>1]);
     }
+    public function test_quoting_many_lines_at_once_gives_each_line_what_quoting_it_alone_gives(): void
+    {
+        // A varied menu: goods bound by name, a saved recipe, recorded direct stock, and nothing configured.
+        DB::table('resturant_products')->where('id',1)->update(['product_name'=>'فسيخ دسوق 4 قطعة']);$this->receiveIngredient(1,'10');
+        foreach([[3,'ساندوتش'],[5,'كولا'],[6,'سلطة']] as [$id,$name])DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>100,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show']);
+        $this->inventory()->saveRecipe($this->recipePayload(90,3,'250'),$this->actor(1));$this->directStock(5,6000000);
+        $lines=[];
+        foreach([1,3,5,6] as $id)foreach([['option_id'=>'','quantity_millis'=>1000],['option_id'=>'','quantity_millis'=>1500],['feature_id'=>77,'quantity_millis'=>1000]] as $n=>$extra)
+            $lines[$id.':'.$n]=['product_id'=>$id,'name'=>'صنف '.$id,'option_label'=>'']+$extra;
+        $alone=[];DB::enableQueryLog();DB::flushQueryLog();
+        foreach($lines as $key=>$line){
+            try{$alone[$key]=app(\App\Services\Dashboard\BranchStock::class)->quoteLines('f:100',[$line])[0];}
+            catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$alone[$key]=$error->getMessage();}
+        }
+        $askedAlone=count(DB::getQueryLog());DB::flushQueryLog();
+        $together=app(\App\Services\Dashboard\BranchStock::class)->quoteEach('f:100',$lines);
+        $asked=count(DB::getQueryLog());DB::disableQueryLog();
+        $this->assertSame($alone,array_map(fn($result)=>$result instanceof \Throwable?$result->getMessage():$result,$together));
+        // Every kind of answer is among them: refusals, recipes, goods, direct stock and nothing configured.
+        $this->assertSame('وصفة هذا الصنف للوحدة؛ أدخل عددًا صحيحًا.',$alone['3:1']);$this->assertStringStartsWith('لم تُسجّل وصفة حجم هذا الصنف',$alone['3:2']);
+        $this->assertNotEmpty($alone['3:0']['inventory']['components']);$this->assertNotEmpty($alone['1:0']['inventory']['components']);
+        $this->assertSame('direct',$alone['5:0']['inventory']['stock_source']);$this->assertSame([],$alone['6:0']['inventory']['components']);
+        $this->assertLessThan($askedAlone/6,$asked,'one reading for all twelve lines, not one per line');
+        // Not a branch with stock rules: the lines as they are, as before.
+        $this->assertSame($lines,app(\App\Services\Dashboard\BranchStock::class)->quoteEach('gs:30',$lines));
+    }
+
     public function test_feseekh_size_cards_share_the_registered_goods_balance_and_refresh_after_one_sale(): void
     {
         DB::table('resturant_products')->where('id',1)->update(['product_name'=>'فسيخ دسوق ٤ قطعة']);

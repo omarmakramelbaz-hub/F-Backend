@@ -378,27 +378,42 @@ class DesktopSyncState
                 $listing = $catalog->listing(['branch' => $value, 'page' => $page, 'per_page' => 100], $actor);
                 $categories = $listing['categories'];
                 $rows = $catalog->rows($branch, array_column($listing['items'], 'id'), false);
+                // The page's priced variants first; then their stock rules, read once for all of them and applied to each
+                // variant on its own (as quoting it alone would).
+                $pending = [];
                 foreach ($listing['items'] as $product) {
                     $card = $product;
                     unset($card['stock']);
                     $cards[] = $card;
                     if (! $product['available'] || ! isset($rows[$product['id']])) continue;
-                    $variants = [];
+                    $entry = ['product' => $product, 'lines' => []];
                     foreach (array_merge([['id' => '', 'label' => 'الأساسي']], $product['options']) as $option) {
                         try {
                             $mode = $product['quantity_mode'] === 'select' ? 'piece' : $product['quantity_mode'];
-                            $line = $catalog->line($branch, $rows[$product['id']], ['quantity_millis' => 1000, 'quantity_mode' => $mode, 'option_id' => $option['id']]);
-                            $line = app(BranchStock::class)->quoteLines($value, [$line])[0];
-                            $inventory = $line['inventory'] ?? ['version' => 1, 'branch' => $value, 'product_id' => $product['id'], 'feature_id' => 0,
-                                'recipe_id' => null, 'revision' => 0, 'unit' => null, 'components' => []];
-                            if (empty($inventory['recipe_id']) && empty($inventory['components']) && empty($inventory['stock_source'])) $inventory['stock_source'] = 'unconfigured';
-                            $unit = $inventory['unit'] ?? '';
-                            $quantityMode = $unit === 'kg' ? 'weight' : ($unit === 'piece' ? 'piece' : $product['quantity_mode']);
-                            $variants[] = ['option_id' => $line['option_id'], 'label' => $line['option_label'] ?: 'الأساسي',
-                                'unit_price_cents' => $line['unit_price_cents'], 'quantity_mode' => $quantityMode, 'inventory' => $inventory];
+                            $entry['lines'][] = $catalog->line($branch, $rows[$product['id']], ['quantity_millis' => 1000, 'quantity_mode' => $mode, 'option_id' => $option['id']]);
                         } catch (HttpException | ValidationException $error) {
                             // A variant without a valid price stays unavailable offline.
                         }
+                    }
+                    $pending[] = $entry;
+                }
+                $lines = [];
+                foreach ($pending as $n => $entry) foreach ($entry['lines'] as $index => $line) $lines[$n.':'.$index] = $line;
+                $quoted = $lines ? app(BranchStock::class)->quoteEach($value, $lines) : [];
+                foreach ($pending as $n => $entry) {
+                    $product = $entry['product'];
+                    $variants = [];
+                    foreach (array_keys($entry['lines']) as $index) {
+                        $line = $quoted[$n.':'.$index];
+                        // A variant its stock rules refuse stays unavailable offline.
+                        if ($line instanceof \Throwable) continue;
+                        $inventory = $line['inventory'] ?? ['version' => 1, 'branch' => $value, 'product_id' => $product['id'], 'feature_id' => 0,
+                            'recipe_id' => null, 'revision' => 0, 'unit' => null, 'components' => []];
+                        if (empty($inventory['recipe_id']) && empty($inventory['components']) && empty($inventory['stock_source'])) $inventory['stock_source'] = 'unconfigured';
+                        $unit = $inventory['unit'] ?? '';
+                        $quantityMode = $unit === 'kg' ? 'weight' : ($unit === 'piece' ? 'piece' : $product['quantity_mode']);
+                        $variants[] = ['option_id' => $line['option_id'], 'label' => $line['option_label'] ?: 'الأساسي',
+                            'unit_price_cents' => $line['unit_price_cents'], 'quantity_mode' => $quantityMode, 'inventory' => $inventory];
                     }
                     if ($variants) $products[] = ['id' => $product['id'], 'name' => $product['name'], 'unit' => $product['unit'],
                         'category_id' => $product['category_id'], 'image' => (string) ($product['image_url'] ?? ''), 'variants' => $variants];

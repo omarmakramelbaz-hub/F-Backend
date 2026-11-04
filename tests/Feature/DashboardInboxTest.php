@@ -245,6 +245,7 @@ class DashboardInboxTest extends TestCase
         $code = 0; $body = null;
         Http::fake(function () use (&$code, &$body) { return Http::response($body, $code); });
         foreach ([[[403, ['error' => ['code' => 403, 'status' => 'PERMISSION_DENIED', 'message' => 'Missing or insufficient permissions for user@project.']]], 'Support service unavailable (HTTP 403 PERMISSION_DENIED).'],
+            [[403, [['error' => ['code' => 403, 'status' => 'PERMISSION_DENIED', 'message' => 'A query answers as a list.']]]], 'Support service unavailable (HTTP 403 PERMISSION_DENIED).'],
             [[404, ['error' => ['status' => 'not a status; DROP']]], 'Support service unavailable (HTTP 404).'],
             [[500, 'plain failure'], 'Support service unavailable (HTTP 500).']] as [$answer, $reason]) {
             [$code, $body] = $answer;

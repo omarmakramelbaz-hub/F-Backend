@@ -46,7 +46,7 @@ class SupportFirestore
             : $request->send($method, $this->base().$path, ['json' => $data]);
         if (!$response->successful()) {
             // Google's own status word (PERMISSION_DENIED, NOT_FOUND ...) says what to repair; nothing else of the answer.
-            $status = $response->json('error.status');
+            $status = $response->json('error.status') ?? $response->json('0.error.status');
             $status = is_string($status) && preg_match('/^[A-Z_]{3,40}$/D', $status) ? ' '.$status : '';
             throw new RuntimeException('Support service unavailable (HTTP '.$response->status().$status.').');
         }

@@ -189,6 +189,52 @@ class DesktopSyncTest extends TestCase
         $this->assertSame(1, DB::table('takeaway_orders')->count());
     }
 
+    public function test_the_device_menu_gives_each_variant_what_quoting_it_alone_gives(): void
+    {
+        require_once database_path('migrations/2026_10_04_210000_create_branch_inventory_recipes.php'); (new \CreateBranchInventoryRecipes)->up();
+        // Sizes for both products; a recipe for product 1's whole portion only, so its half and quarter are refused.
+        foreach ([[501, 'half'], [501, 'quarter'], [502, 'half'], [502, 'quarter']] as [$product, $name]) DB::table('product_features')->insert(['product_id' => $product, 'name' => $name]);
+        $onion = (int) DB::table('stock_ingredients')->where('name', 'بصل')->value('id');
+        DB::table('branch_stock_recipes')->insert(['branch' => 'f:100', 'product_id' => 1, 'unit' => 'piece', 'revision' => 3, 'updated_by' => 1,
+            'variants' => json_encode(['0' => [['ingredient_id' => $onion, 'name' => 'بصل', 'unit' => 'kg', 'quantity_units' => 250000, 'measure' => 'g', 'quantity' => '250']]]),
+            'created_at' => now(), 'updated_at' => now()]);
+        $actor = User::find(4);
+        // The way the menu was built before: every variant quoted on its own.
+        $catalog = app(\App\Services\Dashboard\TakeawayCatalog::class);
+        $branch = app(\App\Services\Dashboard\TakeawayAccess::class)->branch('f:100', $actor);
+        $listing = $catalog->listing(['branch' => 'f:100', 'page' => 1, 'per_page' => 100], $actor);
+        $rows = $catalog->rows($branch, array_column($listing['items'], 'id'), false);
+        $reference = [];
+        foreach ($listing['items'] as $product) {
+            if (! $product['available'] || ! isset($rows[$product['id']])) continue;
+            $variants = [];
+            foreach (array_merge([['id' => '', 'label' => 'الأساسي']], $product['options']) as $option) {
+                try {
+                    $mode = $product['quantity_mode'] === 'select' ? 'piece' : $product['quantity_mode'];
+                    $line = $catalog->line($branch, $rows[$product['id']], ['quantity_millis' => 1000, 'quantity_mode' => $mode, 'option_id' => $option['id']]);
+                    $line = app(\App\Services\Dashboard\BranchStock::class)->quoteLines('f:100', [$line])[0];
+                    $inventory = $line['inventory'] ?? ['version' => 1, 'branch' => 'f:100', 'product_id' => $product['id'], 'feature_id' => 0,
+                        'recipe_id' => null, 'revision' => 0, 'unit' => null, 'components' => []];
+                    if (empty($inventory['recipe_id']) && empty($inventory['components']) && empty($inventory['stock_source'])) $inventory['stock_source'] = 'unconfigured';
+                    $unit = $inventory['unit'] ?? '';
+                    $quantityMode = $unit === 'kg' ? 'weight' : ($unit === 'piece' ? 'piece' : $product['quantity_mode']);
+                    $variants[] = ['option_id' => $line['option_id'], 'label' => $line['option_label'] ?: 'الأساسي',
+                        'unit_price_cents' => $line['unit_price_cents'], 'quantity_mode' => $quantityMode, 'inventory' => $inventory];
+                } catch (\Symfony\Component\HttpKernel\Exception\HttpException | \Illuminate\Validation\ValidationException $error) {
+                }
+            }
+            if ($variants) $reference[] = ['id' => $product['id'], 'name' => $product['name'], 'unit' => $product['unit'],
+                'category_id' => $product['category_id'], 'image' => (string) ($product['image_url'] ?? ''), 'variants' => $variants];
+        }
+        $menu = app(\App\Services\DesktopSync\DesktopSyncState::class)->catalog('f:100', $actor);
+        $this->assertSame($reference, $menu['products']);
+        $byId = collect($menu['products'])->keyBy('id');
+        $this->assertCount(1, $byId[1]['variants'], 'Only the size with a recipe is sold offline');
+        $this->assertSame(3, $byId[1]['variants'][0]['inventory']['revision']);
+        $this->assertCount(3, $byId[2]['variants'], 'Every size of a product without a recipe');
+        $this->assertSame([4550, 2275, 1138], array_column($byId[2]['variants'], 'unit_price_cents'));
+    }
+
     public function test_the_menu_carries_the_cashier_pages_own_product_cards_and_todays_totals(): void
     {
         DB::table('resturant_products')->insert(['id' => 4, 'resturant_id' => 100, 'product_id' => 504, 'category_id' => 1,
