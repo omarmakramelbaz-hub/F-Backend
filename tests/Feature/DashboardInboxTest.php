@@ -239,6 +239,24 @@ class DashboardInboxTest extends TestCase
             ->with('Dashboard support unavailable', ['exception' => \RuntimeException::class, 'reason' => 'Support credentials unavailable.'])->once();
     }
 
+    public function test_a_refused_firestore_answer_says_googles_status_word_and_nothing_else(): void
+    {
+        $gateway = new class extends SupportFirestore { protected function token(): string { return 'fixture-token'; } };
+        $code = 0; $body = null;
+        Http::fake(function () use (&$code, &$body) { return Http::response($body, $code); });
+        foreach ([[[403, ['error' => ['code' => 403, 'status' => 'PERMISSION_DENIED', 'message' => 'Missing or insufficient permissions for user@project.']]], 'Support service unavailable (HTTP 403 PERMISSION_DENIED).'],
+            [[404, ['error' => ['status' => 'not a status; DROP']]], 'Support service unavailable (HTTP 404).'],
+            [[500, 'plain failure'], 'Support service unavailable (HTTP 500).']] as [$answer, $reason]) {
+            [$code, $body] = $answer;
+            try {
+                $gateway->rooms(1);
+                $this->fail('A refused answer must not read as an empty inbox.');
+            } catch (\RuntimeException $error) {
+                $this->assertSame($reason, $error->getMessage());
+            }
+        }
+    }
+
     public function test_firestore_query_and_read_mask_use_configured_app_project_and_preserve_document_fields(): void
     {
         $document = InboxFirestoreFixture::document('room_1_20', 'message-id', 20, 1);

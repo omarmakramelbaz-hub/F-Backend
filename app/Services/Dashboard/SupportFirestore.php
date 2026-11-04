@@ -44,7 +44,12 @@ class SupportFirestore
         $request = Http::withToken($this->token())->acceptJson()->withOptions(['connect_timeout' => 4])->timeout(12);
         $response = $method === 'GET' ? $request->get($this->base().$path, $data)
             : $request->send($method, $this->base().$path, ['json' => $data]);
-        if (!$response->successful()) throw new RuntimeException('Support service unavailable.');
+        if (!$response->successful()) {
+            // Google's own status word (PERMISSION_DENIED, NOT_FOUND ...) says what to repair; nothing else of the answer.
+            $status = $response->json('error.status');
+            $status = is_string($status) && preg_match('/^[A-Z_]{3,40}$/D', $status) ? ' '.$status : '';
+            throw new RuntimeException('Support service unavailable (HTTP '.$response->status().$status.').');
+        }
         $result = $response->json();
         if (!is_array($result)) throw new RuntimeException('Support response unavailable.');
         return $result;
