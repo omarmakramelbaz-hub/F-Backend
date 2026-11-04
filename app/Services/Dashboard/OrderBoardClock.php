@@ -8,12 +8,18 @@ use App\Models\User;
 use App\Notifications\NotifyUserOrderStatusUpdatedNotification;
 use App\Services\OrderBroadcastService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Schema;
 
 class OrderBoardClock
 {
+    /** When each failed transition may be tried again (one entry for all of them: read and written once a run). */
+    private const RETRIES = 'order-board-clock-retries';
+    /** The wait after the last failure doubles from a minute up to an hour. */
+    private const LONGEST_WAIT_MINUTES = 60;
+
     public function ready(): bool
     {
         return Schema::hasTable('order_board_clocks')
@@ -44,22 +50,56 @@ class OrderBoardClock
     {
         $counts = ['courier'=>0, 'completed'=>0, 'skipped'=>0, 'errors'=>0];
         if (!$this->ready()) return $counts;
+        // A transition that failed waits 1, 2, 4 ... minutes (at most an hour) before it is tried again: an order that
+        // cannot complete is not rebuilt every minute, and one that failed by chance is soon tried again.
+        $counts['waiting'] = 0;
+        $retries = $this->retries(); $now = $this->utcNow()->getTimestamp(); $due = [];
         DB::table('order_board_clocks')->whereIn('source', ['legacy', 'store'])->whereNull('closed_at')
             ->where(function ($query) { $query->where('accepted_at', '<=', $this->utcNow()->subMinutes(45))->orWhereNotNull('courier_at'); })
-            ->orderBy('id')->chunkById(100, function ($clocks) use (&$counts) {
+            ->orderBy('id')->chunkById(100, function ($clocks) use (&$counts, &$retries, &$due, $now) {
                 foreach ($clocks as $clock) {
+                    $id = (int) $clock->id; $due[$id] = true;
+                    if (($retries[$id]['next'] ?? 0) > $now) { $counts['waiting']++; continue; }
                     try {
                         $result = $this->advance($clock);
                         $counts[$result]++;
+                        unset($retries[$id]);
                     } catch (\Throwable $error) {
                         $counts['errors']++;
+                        $failures = (int) ($retries[$id]['failures'] ?? 0) + 1;
+                        $retries[$id] = ['failures'=>$failures, 'next'=>$now + 60 * min(self::LONGEST_WAIT_MINUTES, 2 ** min(6, $failures - 1))];
+                        // A refusal's own sentence says why (written for people); other errors only their kind.
+                        $reason = $error instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface ? ['reason'=>$error->getMessage()] : [];
                         \Log::warning('Automatic order board transition deferred', [
-                            'source'=>$clock->source, 'order_id'=>(int) $clock->order_id, 'error_class'=>get_class($error),
-                        ]);
+                            'source'=>$clock->source, 'order_id'=>(int) $clock->order_id, 'error_class'=>get_class($error), 'failures'=>$failures,
+                        ] + $reason);
                     }
                 }
             });
+        // Orders no longer due (closed, or changed by hand) are forgotten.
+        $this->keepRetries(array_intersect_key($retries, $due));
         return $counts;
+    }
+
+    /** @return array<int, array{failures: int, next: int}> */
+    private function retries(): array
+    {
+        try {
+            $retries = Cache::get(self::RETRIES);
+        } catch (\Throwable $error) {
+            return [];
+        }
+        return is_array($retries) ? $retries : [];
+    }
+
+    private function keepRetries(array $retries): void
+    {
+        try {
+            if ($retries === []) Cache::forget(self::RETRIES);
+            else Cache::put(self::RETRIES, $retries, now()->addHours(2));
+        } catch (\Throwable $error) {
+            // Tried again next minute, as before.
+        }
     }
 
     private function advance(object $candidate): string

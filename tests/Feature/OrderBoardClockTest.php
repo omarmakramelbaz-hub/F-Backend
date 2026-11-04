@@ -327,6 +327,43 @@ class OrderBoardClockTest extends TestCase
         $this->assertNull(DB::table('order_board_clocks')->value('closed_at'));
     }
 
+    public function test_an_order_that_cannot_complete_waits_longer_after_each_failure_and_completes_once_repaired(): void
+    {
+        $order = $this->legacy(); $this->accept($order);
+        $this->timeAt('06:45:00'); $this->assertSame(1,$this->clock()->run()['courier']);
+        $wallet = (array) DB::table('settings')->where('name','app_balance')->first();
+        DB::table('settings')->where('name','app_balance')->delete();
+        \Illuminate\Support\Facades\Log::spy();
+        $tried = [];
+        foreach (range(0, 30) as $minute) {
+            Carbon::setTestNow(Carbon::parse('2026-10-03 08:15:00', 'UTC')->addMinutes($minute));
+            $counts = $this->clock()->run();
+            if ($counts['errors']) $tried[] = $minute; else $this->assertSame(1, $counts['waiting'], 'minute '.$minute);
+        }
+        $this->assertSame([0, 1, 3, 7, 15], $tried, 'at once, then after 1, 2, 4 and 8 more minutes, not every minute');
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->with('Automatic order board transition deferred', \Mockery::on(
+            fn ($context) => $context['failures'] === 5 && $context['order_id'] === (int) $order->id && $context['reason'] === 'محفظة التطبيق غير مجهزة.'))->once();
+        $this->assertSame('accepted', $order->fresh()->status);
+        // Repaired: completed at its next try, and nothing is kept for it any more.
+        DB::table('settings')->insert($wallet);
+        Carbon::setTestNow(Carbon::parse('2026-10-03 08:46:00', 'UTC'));
+        $this->assertSame(1, $this->clock()->run()['completed']);
+        $this->assertSame('completed', $order->fresh()->status);
+        $this->assertNull(\Illuminate\Support\Facades\Cache::get('order-board-clock-retries'));
+    }
+
+    public function test_only_a_refusals_own_sentence_is_logged_never_a_database_errors_message(): void
+    {
+        $order = $this->legacy(); $this->accept($order);
+        $this->timeAt('06:45:00'); $this->assertSame(1,$this->clock()->run()['courier']);
+        Schema::rename('settings', 'settings_away');
+        \Illuminate\Support\Facades\Log::spy();
+        $this->timeAt('08:15:00'); $this->assertSame(1,$this->clock()->run()['errors']);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->with('Automatic order board transition deferred', \Mockery::on(
+            fn ($context) => $context['failures'] === 1 && !array_key_exists('reason', $context)))->once();
+        Schema::rename('settings_away', 'settings');
+    }
+
     /** @dataProvider storePayments */
     public function test_go_delivery_reuses_financial_lifecycle_and_never_repeats_settlement(string $method, string $payment, float $expectedBalance): void
     {
