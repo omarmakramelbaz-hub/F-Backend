@@ -3,6 +3,7 @@
 namespace App\Services\Dashboard;
 
 use App\Models\User;
+use App\Support\RequestFacts;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -21,7 +22,8 @@ class TakeawayAccess
             return $fresh;
         }
         if($current=app(DesktopDashboardCoreAuthority::class)->currentControllerFacts($actor))return $current['actor'];
-        $fresh = User::withoutGlobalScopes()->find($actor->id);
+        // Read once per page read (RequestFacts): every part of one answer checks the same persisted account.
+        $fresh = RequestFacts::remember('takeaway.actor:'.$actor->id, fn () => User::withoutGlobalScopes()->find($actor->id));
         abort_unless($fresh && in_array($fresh->account_type, ['admin', 'vendor', 'resturant_owner', 'delegate'], true), 403);
         if ($fresh->account_type === 'admin' && empty($fresh->owner_resturant_id)) {
             abort_unless($this->superAdmin($fresh) || $this->permission($fresh, 'order-list'), 403);
@@ -36,6 +38,12 @@ class TakeawayAccess
     }
 
     public function branches($actor): array
+    {
+        if (! is_object($actor) || empty($actor->id)) return $this->readBranches($actor);
+        return RequestFacts::remember('takeaway.branches:'.$actor->id, fn () => $this->readBranches($actor));
+    }
+
+    private function readBranches($actor): array
     {
         $actor = $this->actor($actor);
         $workspace=$this->workspaceScope($actor);
@@ -76,6 +84,13 @@ class TakeawayAccess
     }
 
     public function branch(string $value, $actor, bool $lock = false): array
+    {
+        // A locked read is always made again: it belongs to a change being written.
+        if ($lock || ! is_object($actor) || empty($actor->id)) return $this->readBranch($value, $actor, $lock);
+        return RequestFacts::remember('takeaway.branch:'.$actor->id.':'.$value, fn () => $this->readBranch($value, $actor, false));
+    }
+
+    private function readBranch(string $value, $actor, bool $lock): array
     {
         abort_unless(preg_match('/^(f|gs):([1-9][0-9]{0,18})$/D', $value, $match), 404);
         if($workspace=$this->workspaceScope($actor))abort_unless(in_array($value,$workspace->branchGrants(),true),403,'الفرع خارج صلاحيات حساب مساحة العمل.');
@@ -174,8 +189,10 @@ class TakeawayAccess
     {
         if($scope=$this->workspaceScope($actor))return $scope->permissionFacts()['super_admin'];
         if ((int) $actor->id === 1) return true;
-        if (!Schema::hasTable('roles') || !Schema::hasTable('model_has_roles')) return false;
-        return $actor->roles()->where('guard_name', 'admin')->where('name', 'Super Admin')->exists();
+        return RequestFacts::remember('takeaway.super_admin:'.$actor->id, function () use ($actor) {
+            if (!Schema::hasTable('roles') || !Schema::hasTable('model_has_roles')) return false;
+            return $actor->roles()->where('guard_name', 'admin')->where('name', 'Super Admin')->exists();
+        });
     }
 
     public function receiverBranch($actor): ?string
@@ -191,9 +208,11 @@ class TakeawayAccess
         if($scope=$this->workspaceScope($actor)){
             $facts=$scope->permissionFacts();return $facts['super_admin']||in_array($name,$facts['names'],true);
         }
-        // A partially restored database may have no permission catalog yet.
-        if (!Schema::hasTable('permissions') || !DB::table('permissions')->where('guard_name', 'admin')->where('name', $name)->exists()) return false;
-        return $actor->can($name);
+        return RequestFacts::remember('takeaway.permission:'.$actor->id.':'.$name, function () use ($actor, $name) {
+            // A partially restored database may have no permission catalog yet.
+            if (!Schema::hasTable('permissions') || !DB::table('permissions')->where('guard_name', 'admin')->where('name', $name)->exists()) return false;
+            return $actor->can($name);
+        });
     }
     private function workspaceScope($actor): ?DesktopDashboardWorkspaceScope
     {

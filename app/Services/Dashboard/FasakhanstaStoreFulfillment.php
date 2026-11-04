@@ -20,7 +20,7 @@ class FasakhanstaStoreFulfillment
     public static function restaurantId(int $origin): int
     {
         if ($origin < 1 || in_array($origin, FasakhanstaDeliveryOrigin::PHYSICAL_BRANCH_IDS, true)) return $origin;
-        $row = DB::table('resturants')->where('id', $origin)->first();
+        $row = \App\Support\RequestFacts::remember('fasakhansta.restaurant:'.$origin, fn () => DB::table('resturants')->where('id', $origin)->first());
         return $row && self::isStore($row) ? self::RESTAURANT_ID : $origin;
     }
 

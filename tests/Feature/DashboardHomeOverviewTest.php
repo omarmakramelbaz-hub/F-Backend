@@ -176,6 +176,45 @@ class DashboardHomeOverviewTest extends TestCase
         $this->actingAs($this->actor(30),'admin');$response=$this->getJson('/admin/dashboard/overview?branch=f:100&can_view_financials=1')->assertOk()->assertJsonPath('can_view_financials',false)->assertJsonPath('sales',null)->assertJsonPath('expenses_cents',3000)->assertHeader('Cache-Control','no-store, private');$this->assertArrayNotHasKey('owner_drawer',$response->json());
     }
 
+    public function test_one_overview_read_asks_for_the_account_its_permissions_and_branches_once_with_the_same_answer(): void
+    {
+        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        foreach(['order-list','order-create','order-edit'] as $name){
+            $permission=\Spatie\Permission\Models\Permission::create(['name'=>$name,'guard_name'=>'admin']);
+            DB::table('model_has_permissions')->insert(['permission_id'=>$permission->id,'model_type'=>User::class,'model_id'=>30]);
+        }
+        $this->sale(1,'f:100','phone',87654321,1234500);$this->expense(1);
+        $this->actingAs($this->actor(30),'admin');
+        $read=function(string $query){
+            DB::enableQueryLog();DB::flushQueryLog();
+            $json=$this->getJson('/admin/dashboard/overview'.$query)->assertOk()->json();
+            $asked=array_map(fn($sql)=>strtolower(str_replace(['"','`'],'',$sql)),array_column(DB::getQueryLog(),'query'));DB::disableQueryLog();
+            return [$json,$asked];
+        };
+        $count=fn(array $asked,string $pattern)=>count(preg_grep($pattern,$asked));
+        $shapes=['account'=>'/^select \* from users where users\.id = \? limit 1$/','super_admin'=>'/^select exists\(.*from roles inner join model_has_roles/',
+            'permission'=>'/^select exists\(select \* from permissions where guard_name = \? and name = \?\)/','granted'=>'/^select permissions\.\*, model_has_permissions/',
+            'branch'=>'/^select \* from resturants where id = \? limit 1$/'];
+        foreach(['','?branch=f:100'] as $query){
+            [$remembered,$asked]=$read($query);
+            $this->assertSame(1,$count($asked,$shapes['account']),'the account once');
+            $this->assertSame(1,$count($asked,$shapes['super_admin']));
+            $this->assertSame(1,$count($asked,$shapes['granted']),'its permissions loaded once');
+            $this->assertLessThanOrEqual(3,$count($asked,$shapes['permission']),'each permission name once');
+            $this->assertLessThanOrEqual(3,$count($asked,$shapes['branch']),'each branch once');
+            $this->app->instance(\App\Http\Middleware\RememberRequestFacts::class,new class{public function handle($request,$next){return $next($request);}});
+            [$plain,$plainAsked]=$read($query);
+            $this->app->forgetInstance(\App\Http\Middleware\RememberRequestFacts::class);
+            $this->assertSame($plain,$remembered,'the same answer as reading everything every time');
+            $this->assertGreaterThan($count($asked,$shapes['account']),$count($plainAsked,$shapes['account']));
+            $this->assertLessThan(count($plainAsked),count($asked));
+        }
+        // A permission taken away is seen by the very next read.
+        DB::table('model_has_permissions')->where('model_id',30)->delete();app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->actingAs($this->actor(30),'admin');$this->getJson('/admin/dashboard/overview')->assertForbidden();
+    }
+
     public function test_only_primary_owner_sees_live_cash_using_the_existing_shift_formula(): void
     {
         $this->sale(1);DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>123450]);DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>76500,'tax_bps'=>0,'revision'=>1]);

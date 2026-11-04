@@ -223,8 +223,20 @@ class DashboardInboxTest extends TestCase
     public function test_support_failure_returns_unavailable_and_does_not_invent_zero_count(): void
     {
         $this->firestore->unavailable = true;
+        \Illuminate\Support\Facades\Log::spy();
         $this->actingAs($this->actor(1), 'admin')->getJson('/admin/dashboard-inbox/support')->assertStatus(503)
             ->assertJsonPath('success', false)->assertJsonMissing(['count' => 0]);
+        // Any other failure: its kind only, never its message.
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->with('Dashboard support unavailable', ['exception' => \RuntimeException::class])->once();
+    }
+
+    public function test_the_support_services_own_reason_for_failing_is_logged(): void
+    {
+        $this->firestore->unavailable = 'Support credentials unavailable.';
+        \Illuminate\Support\Facades\Log::spy();
+        $this->actingAs($this->actor(1), 'admin')->getJson('/admin/dashboard-inbox/support')->assertStatus(503);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+            ->with('Dashboard support unavailable', ['exception' => \RuntimeException::class, 'reason' => 'Support credentials unavailable.'])->once();
     }
 
     public function test_firestore_query_and_read_mask_use_configured_app_project_and_preserve_document_fields(): void
@@ -319,7 +331,8 @@ class DashboardInboxTest extends TestCase
 class InboxFirestoreFixture extends SupportFirestore
 {
     public array $docs = [], $writes = [], $messageCalls = [], $extraPages = [], $versions = [];
-    public bool $unavailable = false;
+    /** @var bool|string true: an unexplained failure; a sentence: the support service's own reason */
+    public $unavailable = false;
     public static function document(string $room, string $id, int $sender, int $recipient, bool $read = false): array
     {
         $fields = ['message' => ['stringValue' => 'Genuine message '.$id], 'sender_id' => ['stringValue' => (string) $sender],
@@ -335,7 +348,7 @@ class InboxFirestoreFixture extends SupportFirestore
     }
     public function rooms(int $inbox): array
     {
-        if ($this->unavailable) throw new \RuntimeException('Fixture failure');
+        if ($this->unavailable) throw new \RuntimeException(is_string($this->unavailable) ? $this->unavailable : 'Fixture failure');
         $rooms = [];
         foreach ($this->docs as $room => $docs) $rooms[] = ['name' => 'projects/fasakhaninjatest/databases/(default)/documents/DashboardChat/'.$room,
             'updateTime' => $this->versions[$room] ?? '1'];
