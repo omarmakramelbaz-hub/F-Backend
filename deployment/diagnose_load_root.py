@@ -146,11 +146,12 @@ def report_queries(samples=40, pause=0.25, run=mysql, sleep=time.sleep):
 
 
 GENERAL_LOG = Path('/var/lib/mysql/go-erp-general.log')
-GENERAL_LINE = re.compile(r'^(?:\d{6}\s+\d{1,2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\S+)?\s*\d+\s+(Connect|Query|Quit|Init DB|Prepare|Execute|Close stmt)\b\t?(.*)$')
+GENERAL_LINE = re.compile(r'^(?:\d{6}\s+\d{1,2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\S+)?\s*(\d+)\s+(Connect|Query|Quit|Init DB|Prepare|Execute|Close stmt)\b\t?(.*)$')
 
 
-def general_shapes(text):
-    """Statements of a general log by shape, and the connections opened."""
+def general_shapes(text, per_connection=None):
+    """Statements of a general log by shape, and the connections opened. per_connection (a dict) receives each
+    connection's statements by shape: one connection with thousands of them is a long-running job, not a page."""
     shapes = collections.Counter()
     connects = 0
     statements = 0
@@ -158,12 +159,15 @@ def general_shapes(text):
         found = GENERAL_LINE.match(line.strip('\r'))
         if not found:
             continue
-        kind, body = found.group(1), found.group(2)
+        thread, kind, body = found.group(1), found.group(2), found.group(3)
         if kind == 'Connect':
             connects += 1
         elif kind in ('Query', 'Execute'):
             statements += 1
-            shapes[query_shape(body)] += 1
+            shape = query_shape(body)
+            shapes[shape] += 1
+            if per_connection is not None:
+                per_connection.setdefault(thread, collections.Counter())[shape] += 1
     return shapes, connects, statements
 
 
@@ -190,7 +194,8 @@ def report_general_log(seconds, run=mysql, sleep=time.sleep, log=GENERAL_LOG):
         finally:
             if log.exists():
                 log.unlink()
-    shapes, connects, statements = general_shapes(text)
+    per_connection = {}
+    shapes, connects, statements = general_shapes(text, per_connection)
     lines = ['== every statement for {} seconds (general log; off again{}, its file removed) =='.format(seconds, '' if restored is not None else ' NOT CONFIRMED')]
     lines.append('{} statements ({:.0f} a second), {} connections opened ({:.1f} a second)'.format(statements, statements / seconds, connects, connects / seconds))
     schema = sum(count for shape, count in shapes.items() if 'information_schema' in shape.lower())
@@ -198,7 +203,39 @@ def report_general_log(seconds, run=mysql, sleep=time.sleep, log=GENERAL_LOG):
         schema, 100 * schema / statements if statements else 0))
     for shape, count in shapes.most_common(30):
         lines.append('{:>6}  {}'.format(count, shape))
+    lines += busiest_connections(per_connection)
     return lines
+
+
+def busiest_connections(per_connection, top=5):
+    """The connections that ran the most statements, each with what it ran most."""
+    ranked = sorted(per_connection.items(), key=lambda item: -sum(item[1].values()))[:top]
+    if not ranked:
+        return []
+    lines = ['-- the busiest connections (a page opens its own; a long job keeps one) --']
+    for thread, counter in ranked:
+        lines.append('  connection {}: {} statements'.format(thread, sum(counter.values())))
+        for shape, count in counter.most_common(3):
+            lines.append('      {:>6}  {}'.format(count, shape[:150]))
+    return lines
+
+
+ARTISAN_WORD = re.compile(r'^(?:[a-z][a-z0-9_-]*(?::[a-z0-9_-]+)*|--[a-z][a-z0-9-]*)$')
+
+
+def artisan_command(arguments):
+    """The artisan command a PHP process runs, by its name and option names only (never a value)."""
+    if 'artisan' not in [Path(argument).name for argument in arguments]:
+        return None
+    start = [Path(argument).name for argument in arguments].index('artisan') + 1
+    rest = arguments[start:start + 6]
+    # The command's own name, then option names only: a positional value is never printed.
+    words = [rest[0]] if rest and ARTISAN_WORD.match(rest[0]) and not rest[0].startswith('--') else []
+    for argument in rest[1:] if words else rest:
+        word = argument.split('=', 1)[0]
+        if word.startswith('--') and ARTISAN_WORD.match(word):
+            words.append(word)
+    return ' '.join(words) or '(artisan)'
 
 
 def report_devices(run=mysql):
@@ -226,10 +263,33 @@ def report_processes():
         if len(parts) == 3:
             by_name[parts[2]][0] += float(parts[0])
             by_name[parts[2]][1] += 1
-    lines = ['== processes using the processors (summed per program) ==', 'load: ' + ' '.join(Path('/proc/loadavg').read_text().split()[:3])]
+    lines = ['== processes using the processors (summed per program; each process: its share since it started) ==',
+             'load: ' + ' '.join(Path('/proc/loadavg').read_text().split()[:3])]
     for name, (cpu, count) in sorted(by_name.items(), key=lambda item: -item[1][0])[:8]:
         lines.append('{:>6.1f}%  {} ×{}'.format(cpu, name, count))
+    lines += php_commands()
     return lines
+
+
+def php_commands(proc=Path('/proc')):
+    """The command-line PHP processes running now: their artisan command, age and processor share."""
+    found = []
+    try:
+        result = subprocess.run(['ps', '-eo', 'pid,pcpu,etimes,comm', '--sort=-pcpu'], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    for row in result.stdout.decode('utf-8', 'replace').splitlines()[1:]:
+        parts = row.split(None, 3)
+        if len(parts) != 4 or parts[3] not in ('php', 'php-cli', 'php82'):
+            continue
+        try:
+            arguments = (proc / parts[0] / 'cmdline').read_bytes().decode('utf-8', 'replace').split('\0')
+        except OSError:
+            continue
+        command = artisan_command([argument for argument in arguments if argument])
+        found.append('  php {}: {}% since it started {} s ago'.format(command or '(not artisan)', parts[1], parts[2]))
+    return (['-- command-line PHP now --'] + found[:6]) if found else []
 
 
 def main():

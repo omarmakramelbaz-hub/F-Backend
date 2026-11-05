@@ -68,5 +68,26 @@ class LoadDiagnosisTests(unittest.TestCase):
         self.assertIn('3 statements', report[1])
         self.assertIn('(information_schema): 2 (67%)', report[2])
 
+    def test_the_busiest_connections_show_whether_a_long_job_or_pages_ran_the_statements(self):
+        sample = ("241104  1:33:01\t   900 Connect\tfasakha@localhost on fasakha_db using Socket\n"
+                  + "\t\t   900 Query\tselect * from `users` where `users`.`id` = 4 limit 1\n" * 3
+                  + "\t\t   901 Query\tselect count(*) from orders where status = 'new'\n"
+                  + "2026-11-04T01:33:02.000001Z\t  900 Query\tselect exists(select * from `permissions` where `name` = 'order-list') as `exists`\n")
+        per_connection = {}
+        load.general_shapes(sample, per_connection)
+        lines = load.busiest_connections(per_connection, top=2)
+        self.assertEqual('  connection 900: 4 statements', lines[1])
+        self.assertIn('     3  select * from `users` where `users`.`id` = ? limit ?', lines[2])
+        self.assertEqual('  connection 901: 1 statements', lines[4])
+        self.assertNotIn("'new'", '\n'.join(lines))
+
+    def test_a_php_processs_artisan_command_is_named_without_any_value(self):
+        php = '/opt/cpanel/ea-php82/root/usr/bin/php'
+        self.assertEqual('crm:whatsapp-process --limit', load.artisan_command([php, '/home/site/artisan', 'crm:whatsapp-process', '--limit=25', 'secret-value']))
+        self.assertEqual('schedule:run', load.artisan_command([php, 'artisan', 'schedule:run']))
+        self.assertEqual('tinker --execute', load.artisan_command([php, 'artisan', 'tinker', '--execute=DB::table("users")->delete()']))
+        self.assertEqual('(artisan)', load.artisan_command([php, 'artisan', 'Hidden Value']))
+        self.assertIsNone(load.artisan_command([php, '-r', 'echo 1;']))
+
 if __name__ == '__main__':
     unittest.main()
