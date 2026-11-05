@@ -139,6 +139,27 @@ class DashboardBranchRecipeTest extends TestCase
     {
         DB::table('branch_stock')->insert(['branch'=>$branch,'product_id'=>$product,'unit'=>$unit,'quantity_units'=>$units,'revision'=>1]);
     }
+    public function test_the_store_links_report_counts_each_store_item_that_sells_from_shubras_goods_and_says_why_not(): void
+    {
+        DB::table('resturants')->insert([['id'=>301,'user_id'=>11,'name'=>'فرع شبرا'],['id'=>310,'user_id'=>11,'name'=>'زايد ستور']]);
+        // Shubra's items: goods bound by their name, its own stock, and one with nothing.
+        foreach([[401,'فسيخ نبروه 4 سمكات'],[402,'كولا'],[403,'ساندوتش']] as [$id,$name])DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>301,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show']);
+        $this->directStock(402,6000000,'piece','f:301');
+        // The store's menu: the same three, and one Shubra does not sell.
+        foreach([[501,'فسيخ نبروه 4 سمكات'],[502,'كولا'],[503,'ساندوتش'],[504,'سلطة']] as [$id,$name])DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>310,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show']);
+        DB::table('users')->insert(['id'=>60,'name'=>'Shubra cashier','account_type'=>'admin','app_scope'=>'fasakhansta','status'=>'accepted','owner_resturant_id'=>301]);
+        $before=[];foreach(['branch_inventory','branch_stock','branch_stock_recipes','branch_recipe_sales'] as $table)$before[$table]=DB::table($table)->count();
+        $lines=app(\App\Console\Commands\InspectStoreLinks::class)->report();
+        $text=implode("\n",$lines);
+        $this->assertStringContainsString('fulfils 1 stores: #310 زايد ستور',$text);
+        $this->assertStringContainsString('account #60 admin "Shubra cashier": board covers 2 branches, all the stores',$text);
+        $this->assertStringContainsString('store #310 زايد ستور: 2 linked, 1 not linked, 1 refused',$text);
+        $this->assertStringContainsString('goods looked for: "ساندوتش" (not in the goods list) | Shubra item: ساندوتش',$text);
+        $this->assertStringContainsString('1x  يلزم ربط صنف الإستور ببضاعة فرع شبرا: سلطة',$text);
+        foreach($before as $table=>$count)$this->assertSame($count,DB::table($table)->count(),'Nothing is written: '.$table);
+        $this->artisan('stores:links')->expectsOutput('GO_ERP_STORE_LINKS')->assertExitCode(0);
+    }
+
     public function test_quoting_many_lines_at_once_gives_each_line_what_quoting_it_alone_gives(): void
     {
         // A varied menu: goods bound by name, a saved recipe, recorded direct stock, and nothing configured.

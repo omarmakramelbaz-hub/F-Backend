@@ -52,7 +52,17 @@ class OrderBoardService
         } else {
             $query->where('user_id', $actor->id);
         }
-        return $query->pluck('id')->all();
+        $ids = $query->pluck('id')->all();
+        // Shubra prepares every store's orders and its stock pays for them: an account that covers Shubra sees,
+        // hears and handles the stores' orders too (the same stores whose stock Shubra gives).
+        $shubra = FasakhanstaStoreFulfillment::RESTAURANT_ID;
+        if ($this->has('resturants', 'parent_id') && in_array($shubra, array_map('intval', $ids), true)) {
+            $stores = \App\Support\RequestFacts::remember('fasakhansta.shubra-stores', fn () => FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch($shubra));
+            foreach ($stores as $id) {
+                if (!in_array((int) $id, array_map('intval', $ids), true)) $ids[] = (int) $id;
+            }
+        }
+        return $ids;
     }
 
     public function data(Request $request, $actor): array

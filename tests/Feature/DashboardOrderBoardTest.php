@@ -234,6 +234,35 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertContains('legacy:2', $this->keys($this->board(1)));
     }
 
+    public function test_shubra_sees_hears_and_handles_every_stores_orders_while_other_branches_keep_their_own(): void
+    {
+        // The stores are online fronts of Shubra: Shubra prepares and delivers their orders and collects their money.
+        // A registered store without a parent (310), a newer store under Shubra (320), and another branch (94).
+        DB::table('resturants')->insert([
+            ['id' => 301, 'name' => 'فرع شبرا', 'user_id' => 11, 'parent_id' => null],
+            ['id' => 310, 'name' => 'زايد ستور', 'user_id' => 11, 'parent_id' => null],
+            ['id' => 320, 'name' => 'ستور العبور', 'user_id' => 11, 'parent_id' => 301],
+            ['id' => 94, 'name' => 'فرع المحلة', 'user_id' => 11, 'parent_id' => null],
+        ]);
+        foreach ([[50, 301], [51, 94]] as [$id, $branch]) DB::table('users')->insert(['id' => $id, 'name' => 'Branch '.$branch,
+            'account_type' => 'admin', 'app_scope' => 'fasakhansta', 'status' => 'accepted', 'owner_resturant_id' => $branch]);
+        foreach ([1 => 301, 2 => 310, 3 => 320, 4 => 94, 5 => 100] as $id => $restaurant) $this->legacy($id, ['resturant_id' => $restaurant, 'order_no' => 'R'.$restaurant.'-'.$id]);
+        $shubra = $this->board(50);
+        $this->assertEqualsCanonicalizing(['legacy:1', 'legacy:2', 'legacy:3'], $this->keys($shubra));
+        $this->assertEqualsCanonicalizing(['f:301', 'f:310', 'f:320'], array_column($shubra['branches'], 'value'));
+        $this->assertEqualsCanonicalizing(['legacy:1', 'legacy:2', 'legacy:3'], app(OrderBoardService::class)->pendingAlertKeys($this->actor(50)), 'The stores\' new orders ring at Shubra');
+        // Shubra handles a store's order as its own.
+        $vendor = \Mockery::mock(VendorOrders::class);
+        $vendor->shouldReceive('acceptOrder')->once()->with(\Mockery::type(Request::class), \Mockery::on(fn ($order) => (int) $order->id === 2))->andReturnNull();
+        app()->instance(VendorOrders::class, $vendor);
+        $this->actingAs($this->actor(50), 'admin')->postJson(route('order-board.action', ['legacy', 2]),
+            ['action' => 'accept', 'expected_status' => 'pending', 'expected_accepted_notify' => ''])->assertOk()->assertJsonPath('success', true);
+        // Another branch keeps only its own orders; the central administration still sees every one.
+        $this->assertSame(['legacy:4'], $this->keys($this->board(51)));
+        $this->assertSame(['legacy:4'], app(OrderBoardService::class)->pendingAlertKeys($this->actor(51)));
+        $this->assertEqualsCanonicalizing(['legacy:1', 'legacy:2', 'legacy:3', 'legacy:4', 'legacy:5'], $this->keys($this->board(1)));
+    }
+
     private function board(int $actor = 1, array $filters = []): array
     {
         return app(OrderBoardService::class)->data(Request::create('/admin/order-review', 'GET', $filters), $this->actor($actor));
