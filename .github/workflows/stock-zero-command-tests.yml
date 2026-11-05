@@ -1,0 +1,26 @@
+name: Verify all-branch stock zero command
+on:
+  push:
+    branches: [codex/stock-zero-all-branches-20261106]
+    paths:
+      - deployment/stock_zero_all_branches/**
+      - tests/stock_zero_runtime/**
+      - .github/workflows/stock-zero-command-tests.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, mbstring
+          coverage: none
+          tools: composer:v2
+      - run: php -l deployment/stock_zero_all_branches/zero.php
+      - run: bash -n deployment/stock_zero_all_branches/run_root.sh
+      - run: composer install --working-dir=tests/stock_zero_runtime --no-interaction --prefer-dist --no-progress
+      - run: php tests/stock_zero_runtime/run.php
