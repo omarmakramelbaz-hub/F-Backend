@@ -109,6 +109,18 @@ class DashboardBranchShiftTest extends TestCase
         $this->assertArrayNotHasKey('balance',app(TakeawayService::class)->summary('f:100',$this->actor())['register']);$register=app(TakeawayService::class)->register('f:100',$this->actor());$this->assertArrayNotHasKey('balance',$register['register']);foreach($register['entries'] as $entry)$this->assertArrayNotHasKey('balance',$entry);
         $this->assertArrayNotHasKey('cash_balance',$this->service()->listing(['branch'=>'f:100'],$this->actor())['summary']);$this->assertSame('1700.00',app(TakeawayService::class)->summary('f:100',$this->actor(1))['register']['balance']);$this->assertNotContains('shift_close',array_column($register['entries'],'kind'));$this->assertArrayNotHasKey('cash_balance',$this->service()->listing(['branch'=>'f:100'],$this->actor(1))['summary']);$this->assertArrayNotHasKey('sales_total',$this->shifts()->data(['branch'=>'f:100'],$this->actor(1))['report']);
     }
+    public function test_shubras_drawer_takes_the_cash_its_courier_collected_for_the_stores_orders(): void
+    {
+        // The stores are online fronts of Shubra: their delivered cash orders close in Shubra's drawer, others' do not.
+        DB::table('resturants')->insert([['id'=>301,'user_id'=>10,'name'=>'فرع شبرا'],['id'=>310,'user_id'=>10,'name'=>'زايد ستور']]);
+        DB::table('takeaway_tills')->insert(['branch'=>'f:301','balance_cents'=>0,'tax_bps'=>0,'revision'=>1]);
+        $this->appSale('cash','vendor',40000,4000,'301');$this->appSale('cash','vendor',70000,5000,'310');$this->appSale('cash','vendor',99900,0,'100');
+        $values=['branch'=>'f:301','idempotency_key'=>$this->key(950),'previous_closing_id'=>0,
+            'review_token'=>$this->shifts()->data(['branch'=>'f:301'],$this->actor(1))['review_token'],'counted_cash'=>'1100.00','notes'=>'Verified cash count'];
+        $paper=$this->shifts()->receipt($this->shifts()->close($values,$this->actor(1))['closing']['id'],$this->actor(1));
+        $this->assertSame('1100.00',$paper['app_branch_cash'],"Shubra's own order and the store's");
+    }
+
     public function test_next_shift_counts_each_source_once_and_preserves_prior_print_after_refunds_and_late_app_cash(): void
     {
         $this->cash(10000);$this->sale(111,'phone',12000,12000,2000);$pending=$this->appSale('cash',null,5000,500);$expense=$this->create(210,['amount'=>'10.00','approve'=>true],1);
