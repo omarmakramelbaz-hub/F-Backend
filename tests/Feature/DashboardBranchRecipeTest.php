@@ -154,25 +154,73 @@ class DashboardBranchRecipeTest extends TestCase
         $this->assertSame(2375000,$this->ingredientBalance(1));
     }
 
-    public function test_the_store_links_report_counts_each_store_item_that_sells_from_shubras_goods_and_says_why_not(): void
+    /** Shubra (301) with goods-bound, own-stock and recipe-less items, and a store (310) selling them plus one Shubra lacks. */
+    private function storeAndShubra(): void
     {
+        Schema::table('resturant_products',function(Blueprint $t){$t->unsignedBigInteger('product_id')->nullable();});
+        Schema::create('product_features',function(Blueprint $t){$t->id();$t->unsignedBigInteger('product_id');$t->string('name');});
+        Schema::create('carts',function(Blueprint $t){$t->id();$t->unsignedBigInteger('order_id');$t->unsignedBigInteger('resturant_product_id');$t->string('qty');$t->unsignedBigInteger('product_feature')->nullable();});
+        Schema::table('orders',function(Blueprint $t){foreach(['order_no','type'] as $c)$t->string($c)->nullable();$t->unsignedBigInteger('resturant_id')->nullable();});
         DB::table('resturants')->insert([['id'=>301,'user_id'=>11,'name'=>'فرع شبرا'],['id'=>310,'user_id'=>11,'name'=>'زايد ستور']]);
-        // Shubra's items: goods bound by their name, its own stock, and one with nothing.
-        foreach([[401,'فسيخ نبروه 4 سمكات'],[402,'كولا'],[403,'ساندوتش']] as [$id,$name])DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>301,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show']);
+        foreach([[401,'فسيخ نبروه 4 سمكات',901],[402,'كولا',902],[403,'ساندوتش',903],[404,'علبة رنجه وزن 400 جرام',904]] as [$id,$name,$catalog])
+            DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>301,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show','product_id'=>$catalog]);
+        foreach([[501,'فسيخ نبروه 4 سمكات',901],[502,'كولا',902],[503,'ساندوتش',903],[504,'علبة رنجه وزن 400 جرام',904],[505,'سلطة',905]] as [$id,$name,$catalog])
+            DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>310,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show','product_id'=>$catalog]);
+        DB::table('product_features')->insert([['id'=>61,'product_id'=>901,'name'=>'kilo'],['id'=>62,'product_id'=>904,'name'=>'small']]);
         $this->directStock(402,6000000,'piece','f:301');
-        // The store's menu: the same three, and one Shubra does not sell.
-        foreach([[501,'فسيخ نبروه 4 سمكات'],[502,'كولا'],[503,'ساندوتش'],[504,'سلطة']] as [$id,$name])DB::table('resturant_products')->insert(['id'=>$id,'resturant_id'=>310,'product_name'=>$name,'product_price'=>'10','price'=>'{}','status'=>'show']);
         DB::table('users')->insert(['id'=>60,'name'=>'Shubra cashier','account_type'=>'admin','app_scope'=>'fasakhansta','status'=>'accepted','owner_resturant_id'=>301]);
-        $before=[];foreach(['branch_inventory','branch_stock','branch_stock_recipes','branch_recipe_sales'] as $table)$before[$table]=DB::table($table)->count();
-        $lines=app(\App\Console\Commands\InspectStoreLinks::class)->report();
-        $text=implode("\n",$lines);
+    }
+
+    public function test_the_store_links_report_says_which_store_items_take_shubras_goods_and_why_the_others_do_not(): void
+    {
+        $this->storeAndShubra();
+        DB::table('orders')->insert(['id'=>88,'status'=>'shipped','order_no'=>'R310-88','type'=>'current','resturant_id'=>310]);
+        DB::table('carts')->insert([['order_id'=>88,'resturant_product_id'=>501,'qty'=>'1.000','product_feature'=>61],['order_id'=>88,'resturant_product_id'=>505,'qty'=>'1','product_feature'=>null]]);
+        $before=[];foreach(['branch_inventory','branch_stock','branch_stock_recipes','branch_recipe_sales','branch_inventory_movements'] as $table)$before[$table]=DB::table($table)->count();
+        $text=implode("\n",app(\App\Console\Commands\InspectStoreLinks::class)->report());
         $this->assertStringContainsString('fulfils 1 stores: #310 زايد ستور',$text);
         $this->assertStringContainsString('account #60 admin "Shubra cashier": board covers 2 branches, all the stores',$text);
-        $this->assertStringContainsString('store #310 زايد ستور: 2 linked, 1 not linked, 1 refused',$text);
+        $this->assertStringContainsString('store #310 زايد ستور: 5 takes stock, 2 kept for review, 0 stops delivery',$text);
         $this->assertStringContainsString('goods looked for: "ساندوتش" (not in the goods list) | Shubra item: ساندوتش',$text);
-        $this->assertStringContainsString('1x  يلزم ربط صنف الإستور ببضاعة فرع شبرا: سلطة',$text);
+        $this->assertStringContainsString('1x  kept for review: يلزم ربط صنف الإستور ببضاعة فرع شبرا: سلطة (no single Shubra item)',$text);
+        $this->assertStringContainsString("order #88 R310-88 (زايد ستور, shipped): delivers; 1 of 2 lines take Shubra's stock; kept for review: سلطة (يلزم ربط صنف الإستور ببضاعة فرع شبرا: سلطة)",$text);
         foreach($before as $table=>$count)$this->assertSame($count,DB::table($table)->count(),'Nothing is written: '.$table);
         $this->artisan('stores:links')->expectsOutput('GO_ERP_STORE_LINKS')->assertExitCode(0);
+    }
+
+    public function test_a_store_item_with_two_shubra_rows_takes_the_one_shubras_menu_shows_and_never_guesses_between_shown_ones(): void
+    {
+        $this->storeAndShubra();
+        DB::table('resturant_products')->insert(['id'=>405,'resturant_id'=>301,'product_name'=>'ساندوتش','product_price'=>'10','price'=>'{}','status'=>'hide','product_id'=>903]);
+        $line=['product_id'=>503,'name'=>'ساندوتش','quantity_millis'=>1000,'feature_id'=>0,'option_label'=>''];
+        $this->assertSame(403,\App\Services\Dashboard\FasakhanstaStoreFulfillment::inventoryLines('f:310',[$line])[0]['product_id']);
+        DB::table('resturant_products')->where('id',405)->update(['status'=>'show']);
+        try{\App\Services\Dashboard\FasakhanstaStoreFulfillment::inventoryLines('f:310',[$line]);$this->fail('Two shown rows are never guessed between');}
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$this->assertStringStartsWith('يوجد أكثر من ربط لصنف الإستور في فرع شبرا',$error->getMessage());}
+    }
+
+    public function test_a_stores_order_is_delivered_from_shubras_stock_exactly_as_the_same_order_made_at_shubra(): void
+    {
+        $this->storeAndShubra();
+        $fish=(int)DB::table('stock_ingredients')->where('name','فسيخ كيلو 4 سمكات')->value('id');$can=(int)DB::table('stock_ingredients')->where('name','علبة رنجة كبيرة')->value('id');
+        $this->assertGreaterThan(0,$fish*$can,'both goods are on the list');
+        DB::table('branch_inventory')->insert([['branch'=>'f:301','ingredient_id'=>$fish,'quantity_units'=>10000000,'revision'=>1],['branch'=>'f:301','ingredient_id'=>$can,'quantity_units'=>5000000,'revision'=>1]]);
+        // A kilo of feseekh, a cola, a recipe-less sandwich, a can in its "small" size, and a salad Shubra does not sell.
+        DB::table('orders')->insert(['id'=>89,'status'=>'shipped','order_no'=>'R310-89','type'=>'current','resturant_id'=>310]);
+        DB::table('carts')->insert([['order_id'=>89,'resturant_product_id'=>501,'qty'=>'1.000','product_feature'=>61],['order_id'=>89,'resturant_product_id'=>502,'qty'=>'2','product_feature'=>null],
+            ['order_id'=>89,'resturant_product_id'=>503,'qty'=>'1','product_feature'=>null],['order_id'=>89,'resturant_product_id'=>504,'qty'=>'1','product_feature'=>62],
+            ['order_id'=>89,'resturant_product_id'=>505,'qty'=>'1','product_feature'=>null]]);
+        $order=new \App\Models\Order;$order->forceFill(['id'=>89,'type'=>'current','resturant_id'=>310]);
+        DB::transaction(fn()=>$this->inventory()->appSale($order));DB::transaction(fn()=>$this->inventory()->appSale($order));
+        $this->assertSame(9000000,(int)DB::table('branch_inventory')->where('branch','f:301')->where('ingredient_id',$fish)->value('quantity_units'),'a kilo left Shubra');
+        $this->assertSame(4000000,(int)DB::table('branch_inventory')->where('branch','f:301')->where('ingredient_id',$can)->value('quantity_units'),'one can left Shubra');
+        $this->assertSame(4000000,(int)DB::table('branch_stock')->where('branch','f:301')->where('product_id',402)->value('quantity_units'),'two colas left Shubra');
+        $sale=json_decode(DB::table('branch_recipe_sales')->where('source_type','app')->where('source_id','89')->value('snapshot'),true);
+        $this->assertSame('f:301',DB::table('branch_recipe_sales')->where('source_id','89')->value('branch'));
+        $this->assertEqualsCanonicalizing(['ساندوتش','سلطة'],array_column($sale['unmapped'],'name'),'kept for review, as at Shubra');
+        $small=collect($sale['lines'])->firstWhere('product_id',404);
+        $this->assertNotEmpty($small['recipe']['components'],'a can in any size is one can');
+        $this->assertSame('unlinked',collect($sale['lines'])->firstWhere('name','سلطة')['recipe']['stock_source']);
     }
 
     public function test_quoting_many_lines_at_once_gives_each_line_what_quoting_it_alone_gives(): void

@@ -162,14 +162,18 @@ class BranchInventory
         foreach($this->ingredientList() as $i)$ingredients[$this->stockName($i['name'])]=$i;
         $products=DB::table('resturant_products')->where('resturant_id',(int)substr($branch,2))->whereIn('id',$ids)->get();
         $features=[];
-        if(Schema::hasTable('product_features'))$features=DB::table('product_features')->whereIn('product_id',$products->pluck('product_id')->filter())->whereIn('name',['half','quarter'])->get()->groupBy('product_id')->all();
+        if(Schema::hasTable('product_features'))$features=DB::table('product_features')->whereIn('product_id',$products->pluck('product_id')->filter())->orderBy('id')->get()->groupBy('product_id')->all();
         foreach($products as $p){
             if(isset($recipes[$p->id])||isset($direct[$p->id]))continue;
             $name=$this->rawStockName($p->product_name);
             $i=$ingredients[$name]??null;if(!$i)continue;
             $component=['ingredient_id'=>$i['id'],'name'=>$i['name'],'unit'=>$i['unit'],'quantity_units'=>1000000,'measure'=>$i['unit'],'quantity'=>'1'];
             $variants=['0'=>[$component]];
-            if($i['unit']==='kg')foreach($features[$p->product_id??0]??[] as $f){$part=$component;$part['quantity_units']=$f->name==='half'?500000:250000;$part['quantity']=$f->name==='half'?'0.5':'0.25';$variants[(string)$f->id]=[$part];}
+            foreach($features[$p->product_id??0]??[] as $f){
+                if($i['unit']==='kg'){if(!in_array($f->name,['half','quarter'],true))continue;$part=$component;$part['quantity_units']=$f->name==='half'?500000:250000;$part['quantity']=$f->name==='half'?'0.5':'0.25';$variants[(string)$f->id]=[$part];}
+                // A can, a bottle or a loaf is the same one piece whatever size its menu option names.
+                else $variants[(string)$f->id]=[$component];
+            }
             $recipes[$p->id]=(object)['id'=>0,'product_id'=>(int)$p->id,'unit'=>$i['unit'],'revision'=>0,'variants'=>json_encode((object)$variants,JSON_UNESCAPED_UNICODE),'raw_stock'=>true];
         }
         return $recipes;
@@ -290,15 +294,40 @@ class BranchInventory
         // A pre-upgrade sale already consumed at its old branch must never be replayed.
         if(DB::table('branch_recipe_sales')->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
         if(Schema::hasTable('branch_stock_movements')&&DB::table('branch_stock_movements')->where('source_type','app')->where('source_id',(string)$order->id)->exists())return;
-        $lines=[];foreach(DB::table('carts')->where('order_id',$order->id)->orderBy('id')->lockForUpdate()->get() as $c){
+        $this->consume($branch,'app',(string)$order->id,$this->appLines($order,$origin,$branch,true),null);
+    }
+    /** Read-only: the stock lines delivering this app order would take (or the refusal it would get), with the branch. */
+    public function appSaleCheck(object $order): array
+    {
+        $origin='f:'.$order->resturant_id;$branch=FasakhanstaStoreFulfillment::branch($origin);
+        return ['branch'=>$branch,'lines'=>$this->appLines($order,$origin,$branch,false)];
+    }
+    /**
+     * The order's lines as its branch's stock reads them. A store is an online front of Shubra: its order is read
+     * exactly as the same order made at Shubra (each item as Shubra's item, its recipe, goods or stock; an item Shubra
+     * has no recipe for is sold and kept for review, as at Shubra). A store item with no single Shubra item to stand
+     * for it takes nothing from stock and is kept for review with the reason, instead of stopping the delivery.
+     */
+    private function appLines(object $order,string $origin,string $branch,bool $lock): array
+    {
+        $carts=DB::table('carts')->where('order_id',$order->id)->orderBy('id');if($lock)$carts->lockForUpdate();
+        $lines=[];foreach($carts->get() as $c){
             if(preg_match('/^0+(?:\.0+)?$/D',(string)$c->qty))continue;$p=DB::table('resturant_products')->where('resturant_id',$order->resturant_id)->where('id',$c->resturant_product_id)->first();if(!$p){abort_unless($branch===$origin,422,'صنف طلب الإستور لم يعد مرتبطًا بالمينيو؛ راجع ربطه بفرع شبرا.');continue;}
             $feature=!empty($c->product_feature)&&!empty($p->product_id)&&Schema::hasTable('product_features')?DB::table('product_features')->where('id',$c->product_feature)->where('product_id',$p->product_id)->value('name'):null;
             $lines[]=['product_id'=>(int)$p->id,'name'=>$p->product_name,'quantity_millis'=>intdiv($this->units((string)$c->qty),1000),'feature_id'=>(int)($c->product_feature??0),'option_label'=>self::FEATURES[$feature]??''];
         }
         abort_unless($branch===$origin||$lines,422,'أصناف طلب الإستور غير متاحة للخصم من فرع شبرا.');
-        $lines=$this->snapshots($branch,FasakhanstaStoreFulfillment::inventoryLines($origin,$lines));
-        if($branch!==$origin)foreach($lines as $line)abort_unless(!empty($line['inventory']['components'])||($line['inventory']['stock_source']??'')==='direct',422,'يلزم ربط وصفة صنف الإستور ببضاعة فرع شبرا: '.$line['name']);
-        $this->consume($branch,'app',(string)$order->id,$lines,null);
+        if($branch===$origin)return $this->snapshots($branch,$lines);
+        $mapped=[];$unlinked=[];
+        foreach($lines as $n=>$line){
+            try{$mapped[$n]=FasakhanstaStoreFulfillment::inventoryLines($origin,[$line])[0];}
+            catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){
+                $unlinked[$n]=$line+['inventory'=>['version'=>1,'branch'=>$branch,'product_id'=>(int)$line['product_id'],'feature_id'=>(int)($line['feature_id']??0),
+                    'recipe_id'=>null,'revision'=>0,'unit'=>null,'components'=>[],'stock_source'=>'unlinked','reason'=>$error->getMessage()]];
+            }
+        }
+        $quoted=$mapped?array_combine(array_keys($mapped),$this->snapshots($branch,array_values($mapped))):[];
+        $all=$quoted+$unlinked;ksort($all);return array_values($all);
     }
     private function consume(string $branch,string $type,string $source,array $lines,?int $actor): void
     {

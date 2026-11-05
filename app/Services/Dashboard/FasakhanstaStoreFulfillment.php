@@ -89,6 +89,11 @@ class FasakhanstaStoreFulfillment
                     if ($named) $candidates = $named;
                 }
                 if (!$candidates) $candidates = $names[self::normalizedName((string) ($source->product_name ?? ''))] ?? [];
+                if (count($candidates) > 1) {
+                    // Of several rows, the one Shubra's menu shows is the item it sells; never a guess among shown ones.
+                    $shown = array_values(array_filter($candidates, static fn ($candidate) => ($candidate->status ?? 'show') === 'show'));
+                    if (count($shown) === 1) $candidates = $shown;
+                }
                 abort_unless(count($candidates) === 1, 422, (count($candidates) > 1
                     ? 'يوجد أكثر من ربط لصنف الإستور في فرع شبرا: '
                     : 'يلزم ربط صنف الإستور ببضاعة فرع شبرا: ').(string) $source->product_name);
