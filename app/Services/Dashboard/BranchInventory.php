@@ -16,6 +16,7 @@ class BranchInventory
     public function quantity(int $units): string{$n=abs($units);$s=intdiv($n,1000000).'.'.str_pad((string)($n%1000000),6,'0',STR_PAD_LEFT);return ($units<0?'-':'').rtrim(rtrim($s,'0'),'.');}
     private function units(string $value): int
     {
+        $value=\App\Support\Quantity::text($value);
         abort_unless(preg_match('/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/D',$value),422,'أدخل كمية حتى ثلاث منازل عشرية.');
         $p=explode('.',$value);$n=(int)$p[0]*1000000+(int)str_pad($p[1]??'',6,'0');abort_unless($n>0&&$n<=1000000000000,422,'الكمية يجب أن تكون موجبة وحتى مليون.');return $n;
     }

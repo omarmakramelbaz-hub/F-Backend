@@ -4,6 +4,14 @@
     var root = document.getElementById('branch-stock'); if (!root) return;
     var boot = JSON.parse(document.getElementById('branch-stock-bootstrap').textContent);
     var form = root.querySelector('[data-stock-form]'), branch = root.querySelector('[data-stock-branch]'), search = root.querySelector('[data-stock-search]');
+    // Any way a quantity is typed: Arabic or Persian digits, "." or "٫" (or "," "،" when it cannot be thousands), and
+    // a fraction without its leading zero (".5" is half a kilo).
+    function amountText(value) {
+        var text = String(value || '').trim().replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); })
+            .replace(/[۰-۹]/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'.indexOf(d); }).replace(/٫/g, '.');
+        if (/^\d{0,7}[,،]\d{1,3}$/.test(text) && !/^[1-9]\d{0,2}[,،]\d{3}$/.test(text)) text = text.replace(/[,،]/, '.');
+        return /^\.\d/.test(text) ? '0' + text : text;
+    }
     var product = form.elements.ingredient_id, current = boot.initial, items = new Map(), recipeBusy = false, busy = false, minimumBusy = false, minimumEditor = null, loading = false, frozen = null, disposed = false, dirty = false, generation = 0, timer, refreshTimer, controller, listeners = [];
     var pendingKey = 'fasakhansta:ingredient-receipt-pending:' + boot.actor_id;
     function el(tag, text, css) { var n = document.createElement(tag); if (text !== undefined) n.textContent = String(text); if (css) n.className = css; return n; }
@@ -58,7 +66,7 @@
     }
     async function saveMinimum(item) {
         if (locked() || !minimumEditor || !canManageMinimum()) return;
-        var stock = item.stock || {}, amount = minimumEditor.input.value.trim().replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace(/٫/g, '.');
+        var stock = item.stock || {}, amount = amountText(minimumEditor.input.value);
         if (amount !== '' && (!/^\d{1,7}(?:\.\d{1,3})?$/.test(amount) || Number(amount) > 1000000 || (stock.unit || item.unit) === 'piece' && !Number.isInteger(Number(amount)))) { notice('أدخل حدًا أدنى يساوي صفرًا أو أكثر؛ القطع أعداد صحيحة والكيلو حتى 3 منازل عشرية.'); minimumEditor.input.focus(); return; }
         var selectedBranch = item.branch || current.branch.value, page = current.pagination.page, refresh = false;
         minimumBusy = true; lock(); minimumEditor.form.querySelector('[type="submit"]').textContent = 'جارٍ الحفظ…';
@@ -141,8 +149,8 @@
     }
     on(form, 'submit', function (event) {
         event.preventDefault(); if (branch.value === 'all') { notice('اختر فرعًا قبل تسجيل البضاعة.'); return; } if (locked() || !items.has(product.value)) return;
-        var amount = form.elements.quantity.value.trim().replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace(/٫/g, '.');
-        if (!/^\d{1,7}(?:\.\d{1,3})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 1000000 || form.elements.unit.value === 'piece' && !Number.isInteger(Number(amount))) { notice('أدخل كمية موجبة: القطع أعداد صحيحة والكيلو حتى 3 منازل عشرية.'); form.elements.quantity.focus(); return; }
+        var amount = amountText(form.elements.quantity.value);
+        if (!/^\d{1,7}(?:\.\d{1,3})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 1000000 || form.elements.unit.value === 'piece' && !Number.isInteger(Number(amount))) { notice(form.elements.unit.value === 'piece' ? 'القطع أعداد صحيحة: أدخل عدد القطع.' : 'أدخل الوزن بالكيلو: نص كيلو 0.5، ربع كيلو 0.25، 100 جرام 0.1 (حتى 3 أرقام بعد العلامة؛ للآلاف اكتب الرقم بدون فاصلة).'); form.elements.quantity.focus(); return; }
         commit({ branch: branch.value, ingredient_id: Number(product.value), quantity: amount, unit: form.elements.unit.value, supplier: form.elements.supplier.value.trim(), notes: form.elements.notes.value.trim(), idempotency_key: crypto.randomUUID() }, false);
     });
     on(form, 'input', function (event) { if (event.target !== search) dirty = true; });

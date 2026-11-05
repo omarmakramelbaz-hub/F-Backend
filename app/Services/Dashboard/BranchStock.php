@@ -12,7 +12,7 @@ class BranchStock
     public function branches($actor): array {return array_values(array_filter($this->ops->access->branches($actor),fn($b)=>$b['kind']==='f'));}
     private function branch(string $value,$actor,bool $lock=false): array {$b=$this->ops->access->branch($value,$actor,$lock);abort_unless($b['kind']==='f',404);return $b;}
     public function quantity(int $units): string {$n=abs($units);$s=intdiv($n,1000000).'.'.str_pad((string)($n%1000000),6,'0',STR_PAD_LEFT);return ($units<0?'-':'').rtrim(rtrim($s,'0'),'.');}
-    private function units(string $value): int {abort_unless(preg_match('/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/D',$value),422,'أدخل كمية صحيحة حتى ثلاث منازل عشرية.');$p=explode('.',$value);$n=(int)$p[0]*1000000+(int)str_pad($p[1]??'',6,'0');abort_unless($n>0&&$n<=1000000000000,422,'الكمية يجب أن تكون أكبر من صفر وحتى مليون.');return $n;}
+    private function units(string $value): int {$value=\App\Support\Quantity::text($value);abort_unless(preg_match('/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/D',$value),422,'أدخل كمية صحيحة حتى ثلاث منازل عشرية.');$p=explode('.',$value);$n=(int)$p[0]*1000000+(int)str_pad($p[1]??'',6,'0');abort_unless($n>0&&$n<=1000000000000,422,'الكمية يجب أن تكون أكبر من صفر وحتى مليون.');return $n;}
     private function present(object $r): array {return ['product_id'=>(int)$r->product_id,'unit'=>$r->unit,'unit_label'=>$r->unit==='kg'?'كجم':'قطعة','quantity'=>$this->quantity((int)$r->quantity_units),'negative'=>(int)$r->quantity_units<0,'revision'=>(int)$r->revision];}
     public function balances(string $branch,array $ids): array
     {

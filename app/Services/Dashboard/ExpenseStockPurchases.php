@@ -83,7 +83,7 @@ class ExpenseStockPurchases
         if (!is_string($value) && !is_int($value)) {
             throw ValidationException::withMessages(['quantity_kg'=>'أدخل عدد الكيلوات لهذا الصنف قبل تسجيل المصروف.']);
         }
-        $value = strtr(trim((string)$value), ['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9','٫'=>'.']);
+        $value = \App\Support\Quantity::text($value);
         if (!preg_match('/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/D', $value)) {
             throw ValidationException::withMessages(['quantity_kg'=>'أدخل كمية موجبة بالكيلو حتى ثلاث منازل عشرية.']);
         }

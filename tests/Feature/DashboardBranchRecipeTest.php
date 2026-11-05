@@ -139,6 +139,21 @@ class DashboardBranchRecipeTest extends TestCase
     {
         DB::table('branch_stock')->insert(['branch'=>$branch,'product_id'=>$product,'unit'=>$unit,'quantity_units'=>$units,'revision'=>1]);
     }
+    public function test_goods_by_weight_can_be_added_in_any_part_of_a_kilo_however_it_is_typed(): void
+    {
+        $key=200;
+        foreach(['.5','٫٥','0,5','٠،٥','0.250','.125'] as $typed)$this->receiveIngredient(1,$typed,$key++);
+        $this->assertSame(2375000,$this->ingredientBalance(1),'half a kilo four times, a quarter and an eighth');
+        foreach(['1,500','0.1255','0','نص'] as $typed){
+            try{$this->receiveIngredient(1,$typed,$key++);$this->fail('Refused: '.$typed);}
+            catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$this->assertSame(422,$error->getStatusCode());}
+        }
+        $piece=(int)DB::table('stock_ingredients')->where('unit','piece')->value('id');
+        try{$this->receiveIngredient($piece,'0.5',$key++,'piece');$this->fail('Pieces are whole');}
+        catch(\Symfony\Component\HttpKernel\Exception\HttpException $error){$this->assertSame(422,$error->getStatusCode());}
+        $this->assertSame(2375000,$this->ingredientBalance(1));
+    }
+
     public function test_the_store_links_report_counts_each_store_item_that_sells_from_shubras_goods_and_says_why_not(): void
     {
         DB::table('resturants')->insert([['id'=>301,'user_id'=>11,'name'=>'فرع شبرا'],['id'=>310,'user_id'=>11,'name'=>'زايد ستور']]);
