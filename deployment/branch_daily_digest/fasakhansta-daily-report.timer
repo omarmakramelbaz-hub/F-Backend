@@ -1,0 +1,12 @@
+[Unit]
+Description=Email Fasakhansta branch report at midnight in Cairo
+
+[Timer]
+OnCalendar=*-*-* 00:00:00 Africa/Cairo
+Persistent=true
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=fasakhansta-daily-report.service
+
+[Install]
+WantedBy=timers.target
