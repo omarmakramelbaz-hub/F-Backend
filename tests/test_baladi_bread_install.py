@@ -138,6 +138,46 @@ class BreadInstallerTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'PATCH_CONFLICT: .* edit=6 source_sha256='):
             installer.candidate(relative, altered)
 
+    def reported_live_source(self):
+        relative = 'app/Services/Dashboard/ExpenseStockPurchases.php'
+        before = self.before[relative].decode()
+        original = next(line for line in before.splitlines(keepends=True) if '$value = strtr(trim((string)$value)' in line)
+        shared = '        $value = \\App\\Support\\Quantity::text($value);\n'
+        reported = before.replace(original, shared).encode()
+        # Exact complete-file fingerprint supplied by the production operator.
+        self.assertEqual(hashlib.sha256(reported).hexdigest(), 'bf3985e57e4355ce7dee0113956e16a8061599ad37bdadcb2a383b1558883662')
+        return relative, reported, original.encode(), shared.encode()
+
+    def test_reported_production_service_preserves_the_shared_quantity_normalizer(self):
+        relative, reported, original, shared = self.reported_live_source()
+        expected = (ROOT / relative).read_bytes().replace(original, shared)
+        result = installer.candidate(relative, reported)
+        self.assertEqual(result, expected)
+        self.assertEqual(result.count(shared), 1)
+        self.assertEqual(installer.candidate(relative, result), result)
+
+    def test_install_and_backup_accept_the_reported_production_fingerprint(self):
+        relative, reported, original, shared = self.reported_live_source()
+        (self.root / relative).write_bytes(reported)
+        self.install()
+        self.assertEqual((self.root / relative).read_bytes(), (ROOT / relative).read_bytes().replace(original, shared))
+        backups = list((self.root.parent / 'baladi-bread-purchases-backups').iterdir())
+        self.assertEqual(len(backups), 1)
+        self.assertEqual((backups[0] / relative).read_bytes(), reported)
+        self.install()
+        self.assertEqual((self.root / relative).read_bytes().count(shared), 1)
+
+    def test_shared_client_quantity_normalization_is_preserved(self):
+        relative = 'public/dashboard/js/branch-expenses.js'
+        before = self.before[relative].decode()
+        normalizer = next(line for line in before.splitlines(keepends=True) if 'v.quantity_kg = v.quantity_kg.trim()' in line)
+        replacement = '            v.quantity_kg = window.DashboardQuantity.text(v.quantity_kg);\n'
+        actual = before.replace(normalizer, replacement)
+        expected = (ROOT / relative).read_text().replace(normalizer, replacement)
+        result = installer.candidate(relative, actual.encode())
+        self.assertEqual(result, expected.encode())
+        self.assertEqual(installer.candidate(relative, result), result)
+
 
 if __name__ == '__main__':
     unittest.main()

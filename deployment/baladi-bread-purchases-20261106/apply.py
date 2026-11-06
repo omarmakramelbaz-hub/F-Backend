@@ -73,67 +73,44 @@ PATCHES = {'app/Services/Dashboard/BranchInventory.php': [('        '
                                                        "            $values['quantity_kg'] = "
                                                        '$this->quantity($this->units($value, '
                                                        '$this->unit($categoryKey)));\n'),
-                                                      ('    }\n'
-                                                       '\n'
-                                                       '    private function units($value): int\n'
-                                                       '    {\n'
-                                                       '        if (!is_string($value) && !is_int($value)) {\n'
-                                                       '            throw '
+                                                      ('    private function units($value): int\n',
+                                                       "    private function units($value, string $unit = 'kg'): "
+                                                       'int\n'),
+                                                      ('            throw '
                                                        "ValidationException::withMessages(['quantity_kg'=>'أدخل عدد "
-                                                       "الكيلوات لهذا الصنف قبل تسجيل المصروف.']);\n"
-                                                       '        }\n'
-                                                       '        $value = strtr(trim((string)$value), '
-                                                       "['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9','٫'=>'.']);\n"
-                                                       "        if (!preg_match('/^[0-9]{1,7}(?:\\.[0-9]{1,3})?$/D', "
-                                                       '$value)) {\n'
-                                                       '            throw '
-                                                       "ValidationException::withMessages(['quantity_kg'=>'أدخل كمية "
-                                                       "موجبة بالكيلو حتى ثلاث منازل عشرية.']);\n"
-                                                       '        }\n'
-                                                       "        $parts = explode('.', $value);\n"
-                                                       '        $units = (int)$parts[0] * 1000000 + '
-                                                       "(int)str_pad($parts[1] ?? '', 6, '0');\n"
-                                                       '        if ($units <= 0 || $units > 1000000000000) {\n'
-                                                       '            throw '
-                                                       "ValidationException::withMessages(['quantity_kg'=>'عدد "
-                                                       "الكيلوات يجب أن يكون أكبر من صفر وحتى مليون كيلو.']);\n"
-                                                       '        }\n'
-                                                       '        return $units;\n',
-                                                       '    }\n'
-                                                       '\n'
-                                                       "    private function units($value, string $unit = 'kg'): int\n"
-                                                       '    {\n'
-                                                       '        if (!is_string($value) && !is_int($value)) {\n'
+                                                       "الكيلوات لهذا الصنف قبل تسجيل المصروف.']);\n",
                                                        '            throw '
                                                        "ValidationException::withMessages(['quantity_kg'=>$unit === "
                                                        "'piece' ? 'أدخل عدد أرغفة الخبز البلدي قبل تسجيل المصروف.' : "
-                                                       "'أدخل عدد الكيلوات لهذا الصنف قبل تسجيل المصروف.']);\n"
-                                                       '        }\n'
-                                                       '        $value = strtr(trim((string)$value), '
-                                                       "['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9','٫'=>'.']);\n"
-                                                       "        if (!preg_match('/^[0-9]{1,7}(?:\\.[0-9]{1,3})?$/D', "
-                                                       '$value)) {\n'
+                                                       "'أدخل عدد الكيلوات لهذا الصنف قبل تسجيل المصروف.']);\n"),
+                                                      ('            throw '
+                                                       "ValidationException::withMessages(['quantity_kg'=>'أدخل كمية "
+                                                       "موجبة بالكيلو حتى ثلاث منازل عشرية.']);\n",
                                                        '            throw '
                                                        "ValidationException::withMessages(['quantity_kg'=>$unit === "
                                                        "'piece' ? 'أدخل عددًا صحيحًا موجبًا من أرغفة الخبز البلدي.' : "
-                                                       "'أدخل كمية موجبة بالكيلو حتى ثلاث منازل عشرية.']);\n"
-                                                       '        }\n'
-                                                       "        $parts = explode('.', $value);\n"
-                                                       '        $units = (int)$parts[0] * 1000000 + '
-                                                       "(int)str_pad($parts[1] ?? '', 6, '0');\n"
-                                                       '        if ($units <= 0 || $units > 1000000000000) {\n'
+                                                       "'أدخل كمية موجبة بالكيلو حتى ثلاث منازل عشرية.']);\n"),
+                                                      ('            throw '
+                                                       "ValidationException::withMessages(['quantity_kg'=>'عدد "
+                                                       "الكيلوات يجب أن يكون أكبر من صفر وحتى مليون كيلو.']);\n",
                                                        '            throw '
                                                        "ValidationException::withMessages(['quantity_kg'=>$unit === "
                                                        "'piece' ? 'عدد الأرغفة يجب أن يكون أكبر من صفر وحتى مليون "
                                                        "رغيف.' : 'عدد الكيلوات يجب أن يكون أكبر من صفر وحتى مليون "
-                                                       "كيلو.']);\n"
-                                                       '        }\n'
+                                                       "كيلو.']);\n"),
+                                                      ('        return $units;\n'
+                                                       '    }\n'
+                                                       '\n'
+                                                       '    private function quantity(int $units): string\n',
                                                        "        if ($unit === 'piece' && $units % 1000000 !== 0) {\n"
                                                        '            throw '
                                                        "ValidationException::withMessages(['quantity_kg'=>'عدد أرغفة "
                                                        "الخبز البلدي يجب أن يكون عددًا صحيحًا.']);\n"
                                                        '        }\n'
-                                                       '        return $units;\n'),
+                                                       '        return $units;\n'
+                                                       '    }\n'
+                                                       '\n'
+                                                       '    private function quantity(int $units): string\n'),
                                                       ("        $units = $this->units($values['quantity_kg']);\n",
                                                        '        $unit = $this->unit($key);\n'
                                                        "        $units = $this->units($values['quantity_kg'], "
@@ -347,25 +324,13 @@ PATCHES = {'app/Services/Dashboard/BranchInventory.php': [('        '
                                              "'+item.stock_item_name,'ex-stock-quantity'));\n"
                                              '                row.appendChild(cell);\n'
                                              '            });\n'),
-                                            ('        if(stockCategory()) {\n'
-                                             '            v.quantity_kg = '
-                                             'v.quantity_kg.trim().replace(/[٠-٩]/g,function(d){return '
-                                             "String('٠١٢٣٤٥٦٧٨٩'.indexOf(d));}).replace(/٫/g,'.');\n"
-                                             '            if(!/^[0-9]{1,7}(?:\\.[0-9]{1,3})?$/.test(v.quantity_kg) || '
+                                            ('            if(!/^[0-9]{1,7}(?:\\.[0-9]{1,3})?$/.test(v.quantity_kg) || '
                                              'Number(v.quantity_kg)<=0 || '
-                                             "Number(v.quantity_kg)>1000000){notice(t('quantity_invalid'));form.elements.quantity_kg.focus();return;}\n"
-                                             '        } else delete v.quantity_kg;\n'
-                                             "        v.approve = approve ? '1' : '0';\n",
-                                             '        if(stockCategory()) {\n'
-                                             '            v.quantity_kg = '
-                                             'v.quantity_kg.trim().replace(/[٠-٩]/g,function(d){return '
-                                             "String('٠١٢٣٤٥٦٧٨٩'.indexOf(d));}).replace(/٫/g,'.');\n"
+                                             "Number(v.quantity_kg)>1000000){notice(t('quantity_invalid'));form.elements.quantity_kg.focus();return;}\n",
                                              "            var piece = stockUnit() === 'piece';\n"
                                              '            if(!/^[0-9]{1,7}(?:\\.[0-9]{1,3})?$/.test(v.quantity_kg) || '
                                              'Number(v.quantity_kg)<=0 || Number(v.quantity_kg)>1000000 || (piece && '
-                                             "!Number.isInteger(Number(v.quantity_kg)))){notice(t(piece?'quantity_piece_invalid':'quantity_invalid'));form.elements.quantity_kg.focus();return;}\n"
-                                             '        } else delete v.quantity_kg;\n'
-                                             "        v.approve = approve ? '1' : '0';\n"),
+                                             "!Number.isInteger(Number(v.quantity_kg)))){notice(t(piece?'quantity_piece_invalid':'quantity_invalid'));form.elements.quantity_kg.focus();return;}\n"),
                                             ('            '
                                              "[['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',expenseCategoryLabel(item)],['description',item.description],['amount',item.amount+' "
                                              "'+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function "

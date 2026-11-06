@@ -14,6 +14,8 @@ A source publication failure restores the original files. After source publicati
 
 The compatibility repair accepts both verified purchase-service versions with and without the earlier tahini addition, preserves their existing registries, and handles CRLF line endings. Unknown implementations still stop before source/database writes and identify the conflicting edit. The initial failed preflight made no live changes, so rerunning the repaired launcher resumes activation directly.
 
+The live quantity-format update is preserved: bread installation edits the unit validator's signature, messages and whole-loaf check without matching or rewriting its normalization line. The exact reported live service SHA-256 `bf3985e57e4355ce7dee0113956e16a8061599ad37bdadcb2a383b1558883662` is covered by a complete-file fixture reconstruction and installation/backup/rerun checks. Shared client quantity normalization is likewise outside the edited validation sites.
+
 ## Validation
 
 - `tests/baladi_bread_purchases.php`: real Laravel 8 expense, cash, inventory, catalog and transaction behavior against isolated SQLite; access and stock-notification dependencies are test doubles. Requires `BREAD_TEST_AUTOLOAD` pointing to a Laravel 8 autoloader and PDO SQLite.

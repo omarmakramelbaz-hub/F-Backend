@@ -18,7 +18,7 @@ curl --fail --silent --show-error --location \
   --proto '=https' --proto-redir '=https' --max-time 60 \
   "https://raw.githubusercontent.com/omarmakramelbaz-hub/F-Backend/$bread_revision/deployment/baladi-bread-purchases-20261106/apply.py" \
   -o "$bread_tmp/apply.py"
-printf '%s  %s\n' '329b49eed02145d1ca92907761d00f9f1476a1a20f24d1a9920dbe0e7532cbd7' "$bread_tmp/apply.py" | sha256sum --check --status
+printf '%s  %s\n' 'b7eb9063dc897752af60e2306093791ab5a163d56e1d5ea869f47bfeb716f1c3' "$bread_tmp/apply.py" | sha256sum --check --status
 chmod 0644 "$bread_tmp/apply.py"
 bread_options=()
 if [[ $# == 2 ]]; then bread_options+=(--check); fi
