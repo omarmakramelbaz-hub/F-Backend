@@ -1,0 +1,69 @@
+name: Employee entry cancellation dialogs
+on:
+  push:
+    branches: ['codex/employee-entry-void-dialog-*']
+  pull_request:
+    paths:
+      - 'public/dashboard/js/branch-operations.js'
+      - 'tests/browser/employee-entry-void.cjs'
+      - 'deployment/employee-entry-void-dialog-20261106/**'
+      - 'tests/test_employee_entry_void_install.py'
+      - '.github/workflows/employee-entry-void-dialog.yml'
+permissions:
+  contents: read
+jobs:
+  employee-entry-void:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_sqlite, sqlite3, mbstring
+          tools: composer:v2
+          coverage: none
+      - name: Verify syntax and contextual installation
+        run: |
+          node --check public/dashboard/js/branch-operations.js
+          node --check tests/browser/employee-entry-void.cjs
+          bash -n deployment/employee-entry-void-dialog-20261106/RUN_ROOT.sh
+          python3 -B tests/test_employee_entry_void_install.py
+      - name: Verify payroll service and attendance regressions
+        run: |
+          composer install --working-dir=tests/desktop_pos_runtime --no-interaction --prefer-dist --no-scripts
+          php tests/desktop_pos_runtime/attendance.php
+          php tests/desktop_pos_runtime/run.php
+      - name: Install browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/employee-void-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          "$RUNNER_TEMP/employee-void-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Reproduce original cancellation failure
+        env:
+          DESKTOP_TEST_BROWSER_MODULE: ${{ runner.temp }}/employee-void-browser/node_modules/playwright
+        run: |
+          git show 0675c1e47b272932d24c764fb00599b867b17566:public/dashboard/js/branch-operations.js > "$RUNNER_TEMP/employee-void-before.js"
+          if EMPLOYEE_VOID_SOURCE="$RUNNER_TEMP/employee-void-before.js" node tests/browser/employee-entry-void.cjs > "$RUNNER_TEMP/employee-void-before.log" 2>&1; then
+            echo 'Expected the original cancellation to fail.'
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/employee-void-before.log"
+          grep -F 'prompt() is not supported in Electron' "$RUNNER_TEMP/employee-void-before.log"
+      - name: Verify employee cancellation and existing attendance flows
+        env:
+          DESKTOP_TEST_BROWSER_MODULE: ${{ runner.temp }}/employee-void-browser/node_modules/playwright
+        run: |
+          node tests/browser/employee-entry-void.cjs
+          node tests/browser/employee-attendance.cjs
+          node tests/browser/employee-attendance-rollover.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: employee-entry-void-dialog
+          path: test-results/employee-entry-void-*.png
+          retention-days: 7
