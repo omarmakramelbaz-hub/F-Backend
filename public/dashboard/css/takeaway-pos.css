@@ -221,3 +221,12 @@
 
 /* menu-photo-framing-20261021 */
 img.tp-product-image { object-fit: contain; background-color: #fff; }
+
+/* invoice-date-review-20261106 */
+.tp-history-filter { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.tp-history-filter label { display: flex; flex: 1 1 200px; flex-direction: column; gap: 5px; color: #34465b; }
+.tp-history-filter input { width: 100%; min-height: 39px; border: 1px solid var(--tp-line); border-radius: 6px; padding: 6px 10px; color: #182335; background: #fff; direction: ltr; }
+.tp-history-filter button { min-height: 39px; padding: 7px 13px; border: 1px solid var(--tp-line); border-radius: 6px; color: #253448; background: #f6f7fa; }
+.tp-history-filter button[type="submit"] { background: var(--tp-orange); border-color: var(--tp-orange); color: #fff; }
+.tp-pos .tp-history-hint { color: #68788b; font-size: 11px; margin-bottom: 12px; }
+.tp-pos .tp-history-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 9px 11px; margin-bottom: 8px; border-radius: 6px; color: #1c435d; background: #f0f5fa; }

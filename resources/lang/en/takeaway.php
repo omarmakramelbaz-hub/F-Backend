@@ -1,5 +1,13 @@
 <?php
 return [
+    'invoice_history' => 'Review invoices',
+    'invoice_date' => 'Invoice date',
+    'show_invoices' => 'Show invoices',
+    'history_today' => 'Today',
+    'history_count' => 'Invoice count',
+    'invoices_loading' => 'Loading invoices…',
+    'invoices_error' => 'Unable to load invoices. Please try again.',
+    'invoice_day_hint' => 'Choose any past date to review. The operating day runs from 6 AM to 6 AM the next day, Cairo time.',
     'all_branches' => 'All branches',
     'quantity_short'=>'Qty.',
     'receipt_thanks'=>'Thank you for your visit',

@@ -1,5 +1,13 @@
 <?php
 return [
+    'invoice_history' => 'مراجعة الفواتير',
+    'invoice_date' => 'تاريخ الفواتير',
+    'show_invoices' => 'عرض الفواتير',
+    'history_today' => 'اليوم',
+    'history_count' => 'عدد الفواتير',
+    'invoices_loading' => 'جارٍ تحميل الفواتير…',
+    'invoices_error' => 'تعذر تحميل الفواتير. حاول مرة أخرى.',
+    'invoice_day_hint' => 'اختر أي تاريخ سابق للمراجعة. يوم التشغيل من ٦ صباحًا حتى ٦ صباح اليوم التالي بتوقيت القاهرة.',
     'all_branches' => 'جميع الفروع',
     'quantity_short'=>'الكمية',
     'receipt_thanks'=>'شكرًا لزيارتكم',
