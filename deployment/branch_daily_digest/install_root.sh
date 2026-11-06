@@ -61,7 +61,7 @@ declare -A digest_hashes=(
   [report.php]=4bd0df72ba22563043109ed113bc62cee3453d0638460fb5f3264b4c1daa9644
   [template.php]=65b98df03f43a3582e02b7e3430fb7e4c7953e12b99d837f3dac6848f39ce317
   [test.php]=6ab15f49f25c7b2cc747287878d8ace1ffe9641d24e27267ea74d3ed4df82488
-  [fasakhansta-daily-report.service]=f3df62202025822c56162851a2ea31b22e788d365c226668d0b06ff6341cd18a
+  [fasakhansta-daily-report.service]=46eae90e108ad213080ebec55778b6ac6ee1b3a6253c5315f6b5c532e1a4f3bb
   [fasakhansta-daily-report.timer]=1303c45d1402a61d267e043b26cc30cf29a1c784a38bb739f220bdaf0b7777b7
 )
 digest_files=(report.php template.php test.php fasakhansta-daily-report.service fasakhansta-daily-report.timer)
