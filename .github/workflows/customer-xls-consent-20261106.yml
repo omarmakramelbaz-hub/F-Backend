@@ -1,0 +1,26 @@
+name: Imported customer consent transaction checks
+on:
+  push:
+    branches: ['codex/customer-xls-consent-20261106']
+permissions:
+  contents: read
+jobs:
+  verify-consent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3
+          coverage: none
+      - name: Install isolated database test runtime
+        run: composer install --working-dir=tests/owner_mobile_runtime --no-interaction --prefer-dist --no-progress --no-scripts --no-security-blocking
+      - name: Validate scripts
+        run: |
+          php -l deployment/customer-xls-consent-20261106/consent.php
+          php -l deployment/customer-xls-consent-20261106/test.php
+          bash -n deployment/customer-xls-consent-20261106/RUN_ROOT.sh
+      - name: Verify scoped consent, backup, receipt, rollback and replay
+        run: php deployment/customer-xls-consent-20261106/test.php
