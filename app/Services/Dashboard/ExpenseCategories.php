@@ -54,7 +54,8 @@ class ExpenseCategories
     {
         $items=$this->catalog($branch);$active=array_filter($items,fn($item)=>$item['active']);
         return ['categories'=>array_map(fn($i)=>$i['name'],$items),'active_categories'=>array_map(fn($i)=>$i['name'],$active),
-            'stock_categories'=>$this->stockCategories($items),'category_items'=>$manage?array_values($active):[],'category_scope'=>$branch];
+            'stock_categories'=>$this->stockCategories($items),'stock_units'=>array_map(fn($key)=>app(ExpenseStockPurchases::class)->unit($key),$this->stockCategories($items)),
+            'category_items'=>$manage?array_values($active):[],'category_scope'=>$branch];
     }
     public function stockCategories(?array $items=null): array
     {
