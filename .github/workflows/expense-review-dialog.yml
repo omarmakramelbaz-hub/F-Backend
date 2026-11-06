@@ -1,0 +1,57 @@
+name: Expense review dialogs
+on:
+  push:
+    branches: ['codex/expense-review-dialog-*']
+  pull_request:
+    paths:
+      - 'public/dashboard/js/branch-expenses.js'
+      - 'tests/browser/expense-reject.cjs'
+      - 'deployment/expense-review-dialog-20261106/**'
+      - 'tests/test_expense_review_dialog_install.py'
+      - '.github/workflows/expense-review-dialog.yml'
+permissions:
+  contents: read
+jobs:
+  expense-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax and contextual deployment
+        run: |
+          node --check public/dashboard/js/branch-expenses.js
+          node --check tests/browser/expense-reject.cjs
+          bash -n deployment/expense-review-dialog-20261106/RUN_ROOT.sh
+          python3 -B tests/test_expense_review_dialog_install.py
+      - name: Install browser test dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/expense-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+          "$RUNNER_TEMP/expense-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Reproduce original desktop rejection failure
+        env:
+          NODE_PATH: ${{ runner.temp }}/expense-browser/node_modules
+        run: |
+          git show 0675c1e47b272932d24c764fb00599b867b17566:public/dashboard/js/branch-expenses.js > "$RUNNER_TEMP/expense-review-before.js"
+          if EXPENSE_REVIEW_SCRIPT="$RUNNER_TEMP/expense-review-before.js" node tests/browser/expense-reject.cjs > "$RUNNER_TEMP/expense-before.log" 2>&1; then
+            echo 'Expected the original desktop rejection to fail.'
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/expense-before.log"
+          grep -F 'prompt() is not supported in Electron' "$RUNNER_TEMP/expense-before.log"
+      - name: Verify rejection, reversal and recovery
+        env:
+          NODE_PATH: ${{ runner.temp }}/expense-browser/node_modules
+        run: |
+          node tests/browser/expense-reject.cjs
+          node tests/browser/stock-expenses-address.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: expense-review-dialog
+          path: test-results/expense-*.png
+          retention-days: 7

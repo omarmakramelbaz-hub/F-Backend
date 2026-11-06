@@ -21,13 +21,7 @@ const read=p=>fs.readFileSync(path.join(__dirname,'../..',p),'utf8');
   count=0;await page.evaluate(()=>document.dispatchEvent(new Event('dashboard:page-loaded')));await page.waitForFunction(()=>document.querySelector('[data-expense-pending-count]').hidden);
   const before=requests;await page.addScriptTag({content:read('public/dashboard/js/dashboard-expense-badge.js')});assert.equal(requests,before);
   await page.goto('http://localhost/');await badge.evaluate(n=>n.remove());const branchRequests=requests;await page.addScriptTag({content:read('public/dashboard/js/dashboard-expense-badge.js')});assert.equal(requests,branchRequests);
-  const expense=read('public/dashboard/js/branch-expenses.js'),reviewStart=expense.indexOf('    function review('),reviewEnd=expense.indexOf('\n    async function details',reviewStart);
-  assert(reviewStart>0&&reviewEnd>reviewStart);
-  const approval=await page.evaluate(code=>{
-   return (0,eval)(`(function(){var calls=[],confirms=0,boot={urls:{review:'/review'}};function locked(){return false;}function rowNotice(){}function url(v,p,id){return v+'/'+id;}function t(k){return k;}function uuid(){return 'operation-key';}function execute(op){calls.push(op);}function confirm(){confirms++;return true;}function prompt(){return 'رفض';}${code}
-review({id:42,branch:'f:100',revision:2},'approve');var afterApprove=confirms;review({id:42,branch:'f:100',revision:2},'reject');return {calls,afterApprove,confirms};})()`);
-  },expense.slice(reviewStart,reviewEnd));
-  assert.equal(approval.afterApprove,0);assert.equal(approval.confirms,1);assert.equal(approval.calls[0].values.action,'approve');assert.equal(approval.calls[0].values.expected_revision,2);
+  // Approval and rejection run against the complete page in expense-reject.cjs.
 
   await page.setContent('<input id="address"><input id="area"><input id="lat"><input id="lng"><div id="options" hidden></div><p id="status"></p><div id="phone-orders"><div data-phone-map></div><p data-phone-address-status></p></div>');
   await page.evaluate(()=>{

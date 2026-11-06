@@ -67,6 +67,35 @@
         } return data;
     }
     function actionButton(label, callback, icon) { var button = el('button'); button.type = 'button'; button.title = t(label); button.setAttribute('aria-label', t(label)); if (icon) button.appendChild(el('i', undefined, 'fas ' + icon)); else button.textContent = t(label); button.addEventListener('click', callback); return button; }
+    // Electron does not implement window.prompt. Keep review input in the page
+    // so rejecting or reversing an expense works in both desktop and browser.
+    var reviewDialog = el('dialog', undefined, 'ex-dialog'), reviewContext = null;
+    reviewDialog.dataset.expenseReviewDialog = ''; reviewDialog.setAttribute('aria-labelledby', 'expense-review-title');
+    var reviewHeader = el('header'), reviewTitle = el('h2'), reviewClose = actionButton('close', closeReview);
+    reviewTitle.id = 'expense-review-title'; reviewClose.textContent = '×'; reviewClose.dataset.expenseReviewClose = '';
+    reviewHeader.append(reviewTitle, reviewClose);
+    var reviewBody = el('div', undefined, 'ex-editor'), reviewForm = el('form'), reviewSummary = el('p'), reviewMessage = el('p');
+    reviewForm.dataset.expenseReviewForm = ''; reviewForm.noValidate = true;
+    var reviewLabel = el('label', t('reason')), reviewReason = el('textarea');
+    reviewReason.dataset.expenseReviewReason = ''; reviewReason.name = 'reason'; reviewReason.required = true; reviewReason.maxLength = 500; reviewReason.rows = 3;
+    reviewLabel.appendChild(reviewReason);
+    var reviewError = el('p', undefined, 'ex-review-error'), reviewActions = el('div', undefined, 'ex-form-actions');
+    reviewError.dataset.expenseReviewError = ''; reviewError.id = 'expense-review-error'; reviewError.hidden = true; reviewError.setAttribute('role', 'alert');
+    reviewReason.setAttribute('aria-describedby', reviewError.id);
+    var reviewCancel = actionButton('cancel', closeReview), reviewSubmit = el('button', undefined, 'ex-primary');
+    reviewCancel.className = 'ex-button'; reviewCancel.dataset.expenseReviewCancel = ''; reviewSubmit.type = 'submit'; reviewSubmit.dataset.expenseReviewSubmit = '';
+    reviewActions.append(reviewCancel, reviewSubmit); reviewForm.append(reviewSummary, reviewMessage, reviewLabel, reviewError, reviewActions);
+    reviewBody.appendChild(reviewForm); reviewDialog.append(reviewHeader, reviewBody); root.appendChild(reviewDialog);
+    function closeReview() { reviewContext = null; reviewDialog.close(); }
+    on(reviewDialog, 'cancel', function (event) { event.preventDefault(); closeReview(); });
+    on(reviewReason, 'input', function () { reviewReason.setCustomValidity(''); reviewReason.removeAttribute('aria-invalid'); reviewError.hidden = true; });
+    on(reviewForm, 'submit', function (event) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (locked() || !reviewContext) return;
+        var reason = reviewReason.value.trim(); reviewReason.setCustomValidity(reason ? '' : t('required'));
+        if (!reviewForm.reportValidity()) { reviewReason.setAttribute('aria-invalid', 'true'); reviewError.textContent = t('required'); reviewError.hidden = false; reviewReason.focus(); return; }
+        var command = reviewContext; closeReview(); submitReview(command.item, command.action, reason);
+    });
     function categoryName(key){return (categoryCatalog(branch.value).categories||{})[key]||t('cat_'+key);}
     function branchName(value){
         if(value==='all')return t('all_branches');
@@ -237,13 +266,19 @@
             execute({ type: 'save', url: url(boot.urls.save), values: v }, false);
         } catch (error) { notice(error.message || t('error')); }
     }
-    function review(item, action) {
-        if (locked()) return; var reason = ''; if (action !== 'approve') { reason = prompt(t('reason')); if (!reason || !reason.trim()) return; }
-        if (action !== 'approve' && !confirm(t('confirm_' + action))) return;
+    function submitReview(item, action, reason) {
         rowNotice(item.id, '');
         try {
             execute({ type: 'review', expenseId: item.id, url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
         } catch (error) { notice(error.message || t('error')); rowNotice(item.id, error.message || t('error')); }
+    }
+    function review(item, action) {
+        if (locked() || reviewDialog.open) return;
+        if (action === 'approve') { submitReview(item, action, ''); return; }
+        reviewContext = { item: item, action: action }; reviewTitle.textContent = t(action); reviewSubmit.textContent = t(action);
+        reviewSummary.textContent = item.number + ' · ' + item.amount + ' ' + t('currency'); reviewMessage.textContent = t('confirm_' + action);
+        reviewReason.value = ''; reviewReason.setCustomValidity(''); reviewReason.removeAttribute('aria-invalid'); reviewError.hidden = true;
+        reviewDialog.showModal(); reviewReason.focus();
     }
     async function details(id) {
         if (locked()) return; var token = ++generation;
@@ -276,7 +311,7 @@
     function mayLeave(){if(locked()){notice(t('uncertain'),true);return false;}return !dirty||confirm(t('unsaved'));}
     function refreshIdle(){return !disposed&&!locked()&&!dirty&&!root.querySelector('dialog[open]');}
     on(window,'beforeunload',function(event){if(locked()||dirty){event.preventDefault();event.returnValue='';}});
-    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);if(window.DashboardSPA.onIdle)window.DashboardSPA.onIdle(refreshIdle);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();if(categoriesDialog)categoriesDialog.close();});}
+    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);if(window.DashboardSPA.onIdle)window.DashboardSPA.onIdle(refreshIdle);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');closeReview();reviewDialog.remove();dialog.close();if(categoriesDialog)categoriesDialog.close();});}
     receiveCategories(boot.initial);reset();Object.keys(boot.initial.filters).forEach(function(key){if(filters.elements[key])filters.elements[key].value=boot.initial.filters[key];});render(boot.initial);
     try { var stored=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); if(stored){frozen=stored;editor.hidden=false;Object.keys(stored.values).forEach(function(key){if(form.elements[key]&&form.elements[key].type!=='file')form.elements[key].value=stored.values[key];});categoryOptions();notice(t('uncertain'),true);lock();recover(stored).catch(function(){notice(t('uncertain'),true);});} }catch(_){notice(t('error'));}
 }());
