@@ -197,10 +197,10 @@ function sm_apply(array $assets): array {
                 }
                 $model=ResturantProduct::withoutGlobalScopes()->findOrFail($id);
                 if (!sm_image($model,$value,$assets)) {
-                    // Public disk gives a valid /storage URL without the legacy products-disk prefix mismatch.
+                    // Match the original product image contract used by GO ERP and its media transport.
                     $media=$model->addMedia($assets[$value]['file'])->preservingOriginal()
                         ->withCustomProperties(['release'=>SM_RELEASE,'value_egp'=>$value])
-                        ->toMediaCollection('product_image','public');
+                        ->toMediaCollection('product_image','products');
                     $newFiles[]=$media->getPath(); $mediaIds[]=(int)$media->id;
                 }
             }

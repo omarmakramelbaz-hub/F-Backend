@@ -24,7 +24,7 @@ independent owner databases. Require exactly one visible root drinks category.
 The script creates four shared catalog products and four corresponding menu entries
 per scoped branch/store, with no preparation or size choices. Prices use normal EGP
 menu prices, not cents. Attach each exact currency JPEG to `product_image` on the
-public media disk so its URL resolves under `/storage/`. No stock quantities or
+original products media disk used by the desktop image contract. No stock quantities or
 recipes are inferred for these monetary items.
 
 `--check` reads without changing data. `--apply` holds an advisory lock and relevant
@@ -65,3 +65,24 @@ and writes the actual `product_description` column. It changes no schema.
 from `tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json`.
 Regression tests validate this deployed shape, an older shape with the optional column,
 all four insert payloads, and rejection of absent real price columns or menu tables.
+
+## Existing image compatibility repair
+
+The completed server release created 124 image rows on the public disk. A direct browser
+request to the first coin URL succeeds, while the user's GO ERP screenshot shows all
+four new items without their images. The original GO ERP product image facts and
+copy/edit contract requires the products disk and canonical `products/{media_id}/{file}`
+paths. New additions now follow that original contract.
+
+`REPAIR_IMAGES_ROOT.sh` repairs only existing release-owned images. It preserves the
+menu IDs, media IDs, prices, original image bytes, and working legacy URLs. It creates
+verified immutable copies at the canonical products paths, updates the corresponding
+media disk references and change timestamps, and verifies every image using the actual
+installed `DesktopDashboardProductImages::facts` contract. Existing files with differing
+bytes stop the operation. The root runner also downloads one actual generated URL per
+denomination and verifies its served SHA-256. No desktop build or application code
+checkout is performed. Reopening the desktop app obtains the normal updated media snapshot.
+
+`test_image_repair.php` checks all four immutable copies, reruns, public file permissions,
+preservation of originals, traversal rejection and refusal to overwrite conflicting files.
+Successful repair marker: `SHIFT_SURPLUS_IMAGES_REPAIRED_AND_HTTP_VERIFIED`.
