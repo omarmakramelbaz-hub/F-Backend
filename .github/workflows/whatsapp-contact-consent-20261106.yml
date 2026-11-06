@@ -1,0 +1,28 @@
+name: WhatsApp contact consent policy checks
+on:
+  push:
+    branches: ['codex/whatsapp-contact-consent-20261106']
+permissions:
+  contents: read
+jobs:
+  verify-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3
+          coverage: none
+      - name: Install isolated database test runtime
+        run: composer install --working-dir=tests/owner_mobile_runtime --no-interaction --prefer-dist --no-progress --no-scripts --no-security-blocking
+      - name: Validate source, installer and pinned hashes
+        run: |
+          php -l app/Services/Dashboard/WhatsAppCustomerDirectory.php
+          php -l deployment/whatsapp-contact-consent-20261106/install.php
+          php -l deployment/whatsapp-contact-consent-20261106/test.php
+          bash -n deployment/whatsapp-contact-consent-20261106/RUN_ROOT.sh
+          php -r 'define("WCP_LIBRARY",true);require "deployment/whatsapp-contact-consent-20261106/install.php";exit(hash_equals(WCP_NEW,hash_file("sha256","app/Services/Dashboard/WhatsAppCustomerDirectory.php"))?0:1);'
+      - name: Verify live capture, existing contacts, rollback and withdrawals
+        run: php deployment/whatsapp-contact-consent-20261106/test.php
