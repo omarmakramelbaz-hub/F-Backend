@@ -212,4 +212,25 @@ expect_wcp(($repeat['status'] ?? '') === 'already_applied'
     && ($repeat['data_writes'] ?? 0) === 0 && all_wcp() === $afterStop,
     'A historical replay must never restore consent withdrawn after the original application');
 
+// An old inflight consumer may add a previously undecided contact after the first receipt.
+$lateId = seed_wcp('+201000000015');
+source_wcp($lateId);
+$withdrawnBeforeRepair = row_wcp($eligibleId);
+$repair = wcp_apply($temp);
+expect_wcp(($repair['status'] ?? '') === 'reconciled' && ($repair['data_writes'] ?? null) === 1,
+    'A late undecided contact must receive a separately audited delta repair');
+$late = row_wcp($lateId);
+expect_wcp((bool)$late['service_consent'] && (bool)$late['marketing_consent'],
+    'Delta repair must approve the late undecided WhatsApp contact');
+expect_wcp(row_wcp($eligibleId) === $withdrawnBeforeRepair,
+    'Delta repair must leave the earlier contact withdrawal intact');
+expect_wcp(DB::table('branch_operation_commands')->count() === 2,
+    'Delta repair must add one receipt while retaining the immutable original receipt');
+$afterRepair = all_wcp();
+$repairRepeat = wcp_apply($temp);
+expect_wcp(($repairRepeat['status'] ?? '') === 'already_applied'
+    && ($repairRepeat['data_writes'] ?? null) === 0 && all_wcp() === $afterRepair
+    && DB::table('branch_operation_commands')->count() === 2,
+    'Repeating a completed delta repair must write nothing and retain both receipts');
+
 echo "WHATSAPP_CUSTOMER_CONSENT_TESTS_PASSED\n";

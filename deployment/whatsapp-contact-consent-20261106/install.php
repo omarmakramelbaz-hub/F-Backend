@@ -67,7 +67,7 @@ function wcp_write(string $path,string $bytes,int $mode=0600): void {
 function wcp_apply(string $backupBase): array {
     return DB::transaction(function()use($backupBase){
         $rows=wcp_scope(true);$old=wcp_receipt();
-        if($old)return ['status'=>'already_applied','data_writes'=>0,'counts'=>wcp_counts($rows),'previous_application'=>$old];
+        if($old&&wcp_counts($rows)['changed']===0)return ['status'=>'already_applied','data_writes'=>0,'counts'=>wcp_counts($rows),'previous_application'=>$old];
         $base=wcp_private_base($backupBase);$run=$base.'/backfill-'.gmdate('Ymd\THis\Z').'-'.bin2hex(random_bytes(5));
         if(!mkdir($run,0700))wcp_fail('BACKUP_RUN_FAILED');
         $fields=['id','phone','service_consent','marketing_consent','service_consented_at','marketing_consented_at',
@@ -82,10 +82,11 @@ function wcp_apply(string $backupBase): array {
         $after=wcp_counts(wcp_scope(true));
         if($after['changed']!==0)wcp_fail('CONSENT_DEFAULTS_VERIFICATION_FAILED');
         $counts['service_eligible']=$after['service_eligible'];$counts['marketing_eligible']=$after['marketing_eligible'];
-        $result=['status'=>'applied','policy'=>'whatsapp-contact-20261106','data_writes'=>$counts['changed'],'counts'=>$counts,
+        $result=['status'=>$old?'reconciled':'applied','policy'=>'whatsapp-contact-20261106','data_writes'=>$counts['changed'],'counts'=>$counts,
             'backup_directory'=>$run,'evidence_type'=>'owner_policy','recorded_by'=>1,'recorded_at'=>$when];
-        DB::table('branch_operation_commands')->insert(['branch'=>'','actor_id'=>1,'request_key'=>WCP_KEY,
-            'request_hash'=>wcp_hash(),'kind'=>WCP_KIND,'result'=>wcp_json($result),'created_at'=>$when,'updated_at'=>$when]);
+        DB::table('branch_operation_commands')->insert(['branch'=>'','actor_id'=>1,
+            'request_key'=>$old?(string)\Illuminate\Support\Str::uuid():WCP_KEY,
+            'request_hash'=>wcp_hash(),'kind'=>$old?'whatsapp.contact.consent.repair':WCP_KIND,'result'=>wcp_json($result),'created_at'=>$when,'updated_at'=>$when]);
         return $result;
     },1);
 }
