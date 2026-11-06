@@ -1,0 +1,26 @@
+{
+  "1": {
+    "sha256": "ff2ec965e1dd6753a35375fdc58363488e2d692e782e6f070a3a7949c93df37c",
+    "source": "https://commons.wikimedia.org/wiki/File:100_EPT_obverse.JPG",
+    "author": "Mabuhelwa",
+    "license": "Public domain"
+  },
+  "5": {
+    "sha256": "b86e6c127e6b16a1c179adeb5490a11454559f5e508b09b341837d50420e6fc9",
+    "source": "https://commons.wikimedia.org/wiki/File:5_EGP_obverse_2011-5-19.jpg",
+    "author": "Central Bank of Egypt",
+    "license": "Public domain (Egypt official document)"
+  },
+  "10": {
+    "sha256": "35c005e91ea546a536d64a8a23344129bde159fb04c083378b56b5ddb456847b",
+    "source": "https://commons.wikimedia.org/wiki/File:10_EGP_obverse_2014-8-13.jpg",
+    "author": "Central Bank of Egypt",
+    "license": "Public domain (Egypt official document)"
+  },
+  "100": {
+    "sha256": "448fb141ebdd1e3ef26cdace0aa6c861ab889a765aa74f2987755bb7ca4a4d6f",
+    "source": "https://commons.wikimedia.org/wiki/File:100_EGP_obverse_2014-1-26.jpg",
+    "author": "Central Bank of Egypt",
+    "license": "Public domain (Egypt official document)"
+  }
+}
