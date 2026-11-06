@@ -25,7 +25,7 @@
 </head>
 <body>
 @if($preview)<h2 class="preview-title">{{ __('pos_service.details') }}</h2>@endif
-<main class="receipt @if($kitchenCopy) ft-kitchen @endif">
+<main class="receipt @if($kitchenCopy) ft-kitchen @endif" dir="{{ app()->getLocale() === 'ar' ? 'rtl' : 'ltr' }}">
     <header class="ft-brand">
         <img class="ft-logo" src="{{ $receipt['logo_url'] ?? asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="1254" height="1254">
         <p class="ft-branch">{{ $receipt['branch']['name'] }}</p>

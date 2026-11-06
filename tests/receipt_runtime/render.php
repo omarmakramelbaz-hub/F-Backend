@@ -79,6 +79,9 @@ foreach (['ar','en'] as $locale) {
             receiptCheck(str_contains($html,'max-width: 72mm') && !str_contains($html,'width: 58mm'),'full printable width '.$name);
             receiptCheck(str_contains($html,'width: 80px; height: 80px'),'large logo '.$name);
             receiptCheck(!str_contains($html,'ft-brand-name'),'no duplicate brand heading '.$name);
+            receiptCheck(str_contains($html,'margin: 0 0 0 2mm; padding: 1.2mm 2mm;'),'protected physical print edges '.$name);
+            receiptCheck(str_contains($html,'width: 100%; direction: ltr;'),'sheet origin independent from text direction '.$name);
+            receiptCheck(str_contains($html,'dir="'.($locale === 'ar' ? 'rtl' : 'ltr').'">'."\n    <header"),'explicit receipt text direction '.$name);
         }
         file_put_contents($output.'/'.$locale.'-'.$name.'.html',$html);
     }
@@ -110,6 +113,9 @@ receiptCheck(str_contains($ar['legacy'],'585.00') && str_contains($ar['legacy'],
 receiptCheck(str_contains($ar['auto-print'],"function(){window.print();}") && !str_contains($ar['takeaway'],"function(){window.print();}"),'native auto print guard');
 receiptCheck(str_contains($ar['preview'],'data-dashboard-invoice-details="1"') && !str_contains($ar['preview'],'window.print()'),'details preview never auto prints');
 receiptCheck(str_contains($rendered['en']['takeaway'],'dir="ltr"'),'English direction');
+foreach (['تيك أواي','موبايل','الصنف','عدد 1 خبز بلدي','إجمالي الأصناف','الإجمالي','طريقة الدفع','المدفوع','06/11/2026 17:21'] as $text) {
+    receiptCheck(str_contains($ar['paper-edge'],$text),'complete edge sample text');
+}
 foreach (['ar','en'] as $locale) {
     $receiptFailureContext = ['fixture'=>'paper-sample', 'locale'=>$locale];
     $sample=$rendered[$locale]['paper-sample'];

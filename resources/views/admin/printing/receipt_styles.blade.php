@@ -3,6 +3,7 @@
     html, body { margin: 0; padding: 0; }
     body { background: #edf0f3; color: #111; font: 12px/1.35 Tahoma, Arial, sans-serif; }
     .receipt { width: 80mm; max-width: calc(100% - 16px); margin: 12px auto; padding: 8px 12px 6px; background: #fff; color: #111; font: 12px/1.35 Tahoma, Arial, sans-serif; box-shadow: 0 4px 22px #00000013; overflow-wrap: anywhere; color-scheme: light; }
+    .receipt[dir="rtl"] { direction: rtl; }.receipt[dir="ltr"] { direction: ltr; }
     .receipt, .receipt * { color: #111; -webkit-text-fill-color: #111; text-shadow: none; }
     .receipt p, .receipt dl { margin: 0; }
     .receipt bdi { direction: ltr; unicode-bidi: isolate; font-family: Arial, sans-serif; font-variant-numeric: tabular-nums; }
@@ -22,14 +23,14 @@
     .ft-meta dt { width: 20%; padding-inline-end: 4px; font-size: 11px; font-weight: normal; }
     .ft-meta dd { width: 80%; font-size: 12px; font-weight: bold; }
     .ft-items { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; border-spacing: 0; margin: 0; background: transparent; }
-    .ft-name-col { width: 57%; }.ft-qty-col { width: 19%; }.ft-price-col { width: 10%; }.ft-amount-col { width: 14%; }
+    .ft-name-col { width: 56.5%; }.ft-qty-col { width: 19.5%; }.ft-price-col { width: 10%; }.ft-amount-col { width: 14%; }
     .ft-items th, .ft-items td { color: #111; background: transparent; font-size: 11px; line-height: 1.3; text-align: start; vertical-align: middle; }
-    .ft-items th { border-block: 1px solid #111; padding: 3px 0; font-weight: normal; white-space: nowrap; }
+    .ft-items th { border-block: 1px solid #111; padding: 3px 0; font-size: 10.5px; font-weight: normal; white-space: nowrap; }
     .ft-items td { border-bottom: 1px dotted #aaa; padding: 3px 0; }
     .ft-items td:first-child { padding-inline-end: 1px; }
     .ft-items th:not(:first-child), .ft-items td:not(:first-child) { padding-inline-start: 1px; }
     .ft-item-label, .ft-cell-value { display: block; width: 100%; white-space: normal; overflow-wrap: anywhere; }
-    .ft-item-label { font-size: 11.5px; line-height: 1.3; }
+    .ft-item-label { font-size: 11px; line-height: 1.3; }
     .ft-item-name { font-size: inherit; font-weight: bold; }
     .ft-option, .ft-unit { display: inline; font-size: inherit; line-height: inherit; font-weight: normal; }
     .ft-cell-value { font-size: 11px; }
@@ -61,10 +62,12 @@
     .preview-title { text-align: center; font: 13px Tahoma, Arial, sans-serif; margin: 12px; }
     @page { size: auto; margin: 0; }
     @media print {
-        html, body { width: 100%; background: #fff; color: #000; }
-        .receipt { width: calc(100% - 8mm); max-width: 72mm; margin: 0 auto; padding: 1.2mm 0; box-shadow: none; border: 0; border-radius: 0; }
+        /* Anchor the physical sheet from the left; the receipt keeps its own text direction.
+           The inner inset protects Arabic leading glyphs and LTR times from edge clipping. */
+        html, body { width: 100%; direction: ltr; background: #fff; color: #000; }
+        .receipt { width: calc(100% - 4mm); max-width: 72mm; margin: 0 0 0 2mm; padding: 1.2mm 2mm; box-shadow: none; border: 0; border-radius: 0; }
         .ft-brand, .ft-identity { break-inside: avoid; page-break-inside: avoid; }
         .controls, .preview-title { display: none !important; }
     }
-    @media print and (max-width: 60mm) { .receipt { width: calc(100% - 10mm); } }
+    @media print and (max-width: 60mm) { .receipt { width: calc(100% - 8mm); } }
 </style>

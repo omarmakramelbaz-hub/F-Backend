@@ -40,6 +40,11 @@ $paper['items']=[
     ['name'=>'طبق بطاطس نينسي','quantity_mode'=>'piece','quantity'=>'2.000','unit_price'=>'15.00','total'=>'30.00'],
 ];
 $paper['subtotal']='974.75'; $paper['total']='974.75'; $paper['cash_received']='1000.00'; $paper['change']='25.25';
+$edge=$paper;
+$edge['number']='TA94-S2-0020'; $edge['created_at']='2026-11-06T15:21:00+00:00';
+$edge['context']=['customer_phone'=>'+201000000000'];
+$edge['items']=[$paper['items'][4]]; $edge['items'][0]['quantity']='1.000'; $edge['items'][0]['total']='3.00';
+$edge['subtotal']='3.00'; $edge['total']='3.00'; $edge['cash_received']='5.00'; $edge['change']='2.00';
 $paperKitchen=$paper; $paperKitchen['number']='PH94-S2-0012'; $paperKitchen['channel']='phone';
 $paperKitchen['items']=[$paper['items'][1],$paper['items'][7]];
 $paperKitchen['items'][0]['quantity']='0.500'; $paperKitchen['items'][1]['quantity']='1.000';
@@ -78,6 +83,7 @@ return [
     'unpaid'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$unpaid]],
     'cancelled'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$cancelled]],
     'paper-sample'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$paper]],
+    'paper-edge'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$edge]],
     'paper-kitchen'=>['view'=>'admin.pos_service.kitchen','data'=>['kitchen'=>['ticket'=>$paperKitchen,'revision'=>1,'created_at'=>$base['created_at']]]],
     'long'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$long]],
     'preview'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$base,'preview'=>true]],
