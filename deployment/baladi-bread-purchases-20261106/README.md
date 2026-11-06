@@ -12,6 +12,8 @@ The installer applies exact source-context edits, preserving unrelated live chan
 
 A source publication failure restores the original files. After source publication, catalog/setup failures leave the unit-aware source installed and can be resumed by rerunning the same command. A fresh PHP process verifies every branch after activation. Success ends with `BALADI_BREAD_APPLIED_AND_VERIFIED` and reports `BALADI_BREAD_ALL_BRANCHES_VERIFIED` with the actual branch count.
 
+The compatibility repair accepts both verified purchase-service versions with and without the earlier tahini addition, preserves their existing registries, and handles CRLF line endings. Unknown implementations still stop before source/database writes and identify the conflicting edit. The initial failed preflight made no live changes, so rerunning the repaired launcher resumes activation directly.
+
 ## Validation
 
 - `tests/baladi_bread_purchases.php`: real Laravel 8 expense, cash, inventory, catalog and transaction behavior against isolated SQLite; access and stock-notification dependencies are test doubles. Requires `BREAD_TEST_AUTOLOAD` pointing to a Laravel 8 autoloader and PDO SQLite.

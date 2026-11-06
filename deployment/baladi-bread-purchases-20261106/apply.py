@@ -45,68 +45,34 @@ PATCHES = {'app/Services/Dashboard/BranchInventory.php': [('        '
                                                  "$r=$this->lockedStock($branch,$ingredientId);$type=$reverse?'expense_reverse':'expense';$delta=$reverse?-$units:$units;\n"
                                                  '        '
                                                  "$old=DB::table('branch_inventory_movements')->where('stock_id',$r->id)->where('source_type',$type)->where('source_id',(string)$expenseId)->first();\n")],
- 'app/Services/Dashboard/ExpenseStockPurchases.php': [("        'purchase_vinegar' => 'خل',\n"
-                                                       "        'purchase_tahini' => 'طحينة',\n"
-                                                       '    ];\n'
-                                                       '\n',
-                                                       "        'purchase_vinegar' => 'خل',\n"
-                                                       "        'purchase_tahini' => 'طحينة',\n"
+ 'app/Services/Dashboard/ExpenseStockPurchases.php': [('    ];\n\n    private ?bool $available = null;\n',
                                                        "        'purchase_baladi_bread' => 'خبز بلدي',\n"
                                                        '    ];\n'
-                                                       '\n'),
-                                                      ("            'purchase_vinegar'=>['خل', 'الخل', 'vinegar'],\n"
-                                                       "            'purchase_tahini'=>['طحينه', 'الطحينه', "
-                                                       "'tahini'],\n"
-                                                       '        ] as $key => $names) {\n'
-                                                       '            if (in_array($label, $names, true)) return $key;\n'
-                                                       '        }\n'
-                                                       '        return null;\n'
-                                                       '    }\n'
-                                                       '\n',
-                                                       "            'purchase_vinegar'=>['خل', 'الخل', 'vinegar'],\n"
-                                                       "            'purchase_tahini'=>['طحينه', 'الطحينه', "
-                                                       "'tahini'],\n"
+                                                       '\n'
+                                                       '    private ?bool $available = null;\n'),
+                                                      ('        ] as $key => $names) {\n',
                                                        "            'purchase_baladi_bread'=>['خبز بلدي', 'الخبز "
                                                        "البلدي', 'عيش بلدي', 'العيش البلدي', 'خبز', 'عيش', 'رغيف عيش', "
                                                        "'رغيف خبز', 'baladi bread'],\n"
-                                                       '        ] as $key => $names) {\n'
-                                                       '            if (in_array($label, $names, true)) return $key;\n'
-                                                       '        }\n'
-                                                       '        return null;\n'
-                                                       '    }\n'
-                                                       '\n'
+                                                       '        ] as $key => $names) {\n'),
+                                                      ('    /** The trusted category decides the stock link; posted '
+                                                       'stock identifiers never do. */\n',
                                                        '    public function unit(?string $categoryKey): string\n'
                                                        '    {\n'
                                                        "        return $categoryKey === 'purchase_baladi_bread' ? "
                                                        "'piece' : 'kg';\n"
                                                        '    }\n'
-                                                       '\n'),
-                                                      ('        if ($categoryKey === null) {\n'
-                                                       "            if ($value !== null && $value !== '') {\n"
-                                                       '                throw '
-                                                       "ValidationException::withMessages(['quantity_kg'=>'عدد "
-                                                       'الكيلوات متاح لبنود مشتريات الفلفل والطماطم والليمون والبصل '
-                                                       "والزيت والخل والطحينة فقط.']);\n"
-                                                       '            }\n'
-                                                       "            $values['quantity_kg'] = null;\n"
-                                                       '        } else {\n'
-                                                       "            $values['quantity_kg'] = "
-                                                       '$this->quantity($this->units($value));\n'
-                                                       '        }\n'
-                                                       "        $values['stock_category'] = $categoryKey;\n",
-                                                       '        if ($categoryKey === null) {\n'
-                                                       "            if ($value !== null && $value !== '') {\n"
-                                                       '                throw '
-                                                       "ValidationException::withMessages(['quantity_kg'=>'الكمية "
-                                                       "متاحة لبنود مشتريات البضاعة المرتبطة بالمخزون فقط.']);\n"
-                                                       '            }\n'
-                                                       "            $values['quantity_kg'] = null;\n"
-                                                       '        } else {\n'
+                                                       '\n'
+                                                       '    /** The trusted category decides the stock link; posted '
+                                                       'stock identifiers never do. */\n'),
+                                                      ('عدد الكيلوات متاح لبنود مشتريات الفلفل والطماطم والليمون '
+                                                       'والبصل والزيت والخل والطحينة فقط.',
+                                                       'الكمية متاحة لبنود مشتريات البضاعة المرتبطة بالمخزون فقط.'),
+                                                      ("            $values['quantity_kg'] = "
+                                                       '$this->quantity($this->units($value));\n',
                                                        "            $values['quantity_kg'] = "
                                                        '$this->quantity($this->units($value, '
-                                                       '$this->unit($categoryKey)));\n'
-                                                       '        }\n'
-                                                       "        $values['stock_category'] = $categoryKey;\n"),
+                                                       '$this->unit($categoryKey)));\n'),
                                                       ('    }\n'
                                                        '\n'
                                                        '    private function units($value): int\n'
@@ -168,70 +134,19 @@ PATCHES = {'app/Services/Dashboard/BranchInventory.php': [('        '
                                                        "الخبز البلدي يجب أن يكون عددًا صحيحًا.']);\n"
                                                        '        }\n'
                                                        '        return $units;\n'),
-                                                      ('        abort_unless($expense && $expense->branch === '
-                                                       "($values['branch'] ?? null), 409, 'فرع المصروف غير مطابق "
-                                                       "لتوريد البضاعة.');\n"
-                                                       "        abort_unless(preg_match('/^f:[1-9][0-9]*$/D', "
-                                                       "$expense->branch), 422, 'هذه المشتريات مرتبطة ببضاعة فروع "
-                                                       "فسخانستا فقط.');\n"
-                                                       "        $units = $this->units($values['quantity_kg']);\n"
-                                                       '        $old = '
-                                                       "DB::table('expense_inventory_receipts')->where('expense_id', "
-                                                       '$expenseId)->lockForUpdate()->first();\n'
-                                                       '        if ($old) {\n',
-                                                       '        abort_unless($expense && $expense->branch === '
-                                                       "($values['branch'] ?? null), 409, 'فرع المصروف غير مطابق "
-                                                       "لتوريد البضاعة.');\n"
-                                                       "        abort_unless(preg_match('/^f:[1-9][0-9]*$/D', "
-                                                       "$expense->branch), 422, 'هذه المشتريات مرتبطة ببضاعة فروع "
-                                                       "فسخانستا فقط.');\n"
+                                                      ("        $units = $this->units($values['quantity_kg']);\n",
                                                        '        $unit = $this->unit($key);\n'
-                                                       "        $units = $this->units($values['quantity_kg'], $unit);\n"
-                                                       '        $old = '
-                                                       "DB::table('expense_inventory_receipts')->where('expense_id', "
-                                                       '$expenseId)->lockForUpdate()->first();\n'
-                                                       '        if ($old) {\n'),
-                                                      ("        abort_unless(in_array($expense->status, ['pending', "
-                                                       "'approved'], true), 409, 'حالة المصروف لا تسمح بتوريد "
-                                                       "بضاعة.');\n"
-                                                       '        $ingredients = '
-                                                       "DB::table('stock_ingredients')->where('name', "
-                                                       'self::CATEGORIES[$key])->get();\n'
-                                                       '        abort_unless($ingredients->count() === 1 && '
+                                                       "        $units = $this->units($values['quantity_kg'], "
+                                                       '$unit);\n'),
+                                                      ('        abort_unless($ingredients->count() === 1 && '
                                                        "$ingredients->first()->unit === 'kg', 503, 'صنف البضاعة غير "
-                                                       "مضبوط بالكيلو؛ راجع تحديث المشتريات.');\n"
-                                                       '        $ingredient = $ingredients->first();\n'
-                                                       '        $movementId = '
-                                                       'app(BranchInventory::class)->expenseMovement($expense->branch, '
-                                                       '(int)$ingredient->id, $units, $expenseId, (int)$actor->id, '
-                                                       "false, (string)($expense->supplier ?? ''));\n",
-                                                       "        abort_unless(in_array($expense->status, ['pending', "
-                                                       "'approved'], true), 409, 'حالة المصروف لا تسمح بتوريد "
-                                                       "بضاعة.');\n"
-                                                       '        $ingredients = '
-                                                       "DB::table('stock_ingredients')->where('name', "
-                                                       'self::CATEGORIES[$key])->get();\n'
+                                                       "مضبوط بالكيلو؛ راجع تحديث المشتريات.');\n",
                                                        '        abort_unless($ingredients->count() === 1 && '
                                                        "$ingredients->first()->unit === $unit, 503, 'وحدة صنف البضاعة "
-                                                       "لا تطابق بند المشتريات؛ راجع إعداد المخزون.');\n"
-                                                       '        $ingredient = $ingredients->first();\n'
-                                                       '        $movementId = '
-                                                       'app(BranchInventory::class)->expenseMovement($expense->branch, '
-                                                       '(int)$ingredient->id, $units, $expenseId, (int)$actor->id, '
-                                                       "false, (string)($expense->supplier ?? ''));\n"),
-                                                      ("            'stock_item_name'=>$receipt->item_name ?? null,\n"
-                                                       "            'stock_category'=>$receipt->category_key ?? null,\n"
-                                                       "            'stock_unit'=>$receipt ? 'kg' : null,\n"
-                                                       "            'stock_reversed'=>$receipt ? "
-                                                       '$receipt->reversal_movement_id !== null : false,\n'
-                                                       '        ];\n',
-                                                       "            'stock_item_name'=>$receipt->item_name ?? null,\n"
-                                                       "            'stock_category'=>$receipt->category_key ?? null,\n"
+                                                       "لا تطابق بند المشتريات؛ راجع إعداد المخزون.');\n"),
+                                                      ("            'stock_unit'=>$receipt ? 'kg' : null,\n",
                                                        "            'stock_unit'=>$receipt ? "
-                                                       '$this->unit($receipt->category_key) : null,\n'
-                                                       "            'stock_reversed'=>$receipt ? "
-                                                       '$receipt->reversal_movement_id !== null : false,\n'
-                                                       '        ];\n')],
+                                                       '$this->unit($receipt->category_key) : null,\n')],
  'app/Services/Dashboard/ExpenseCategories.php': [('        '
                                                    "$items=$this->catalog($branch);$active=array_filter($items,fn($item)=>$item['active']);\n"
                                                    '        return '
@@ -482,6 +397,8 @@ PATCHES = {'app/Services/Dashboard/BranchInventory.php': [('        '
                                              "el('a',item.attachment_name,'ex-button'); attachment.href = "
                                              "url(item.attachment_url); attachment.dataset.spaOff = ''; "
                                              'content.appendChild(attachment); }\n')]}
+ALTERNATE_BEFORES = {'app/Services/Dashboard/ExpenseStockPurchases.php': {3: ['عدد الكيلوات متاح لبنود مشتريات الفلفل والطماطم والليمون '
+                                                          'والبصل والزيت والخل فقط.']}}
 CATALOG_PHP = '<?php\nuse App\\Models\\User;\nuse App\\Services\\Dashboard\\{ExpenseCategories,ExpenseStockPurchases,TakeawayAccess};\nuse App\\Services\\OwnerDashboards\\Runtime;\nuse Illuminate\\Support\\Facades\\{DB,Schema};\n\n/** Enable one protected bread purchase per primary-business branch, using its existing ingredient. */\nfinal class BaladiBreadCatalog20261106\n{\n    public const KEY=\'purchase_baladi_bread\';\n    public const NAME=\'خبز بلدي\';\n\n    private function plan(bool $lock=false): array\n    {\n        $actor=User::withoutGlobalScopes()->find(1);\n        if(!$actor||!Runtime::primary($actor)||!app(ExpenseCategories::class)->canCreate($actor))throw new RuntimeException(\'PRIMARY_BUSINESS_OWNER_REQUIRED\');\n        foreach([\'resturants\',\'stock_ingredients\',\'branch_expense_categories\',\'branch_expense_category_settings\',\'branch_expense_category_overrides\',\'expense_inventory_receipts\',\'branch_inventory\',\'branch_inventory_movements\',\'branch_recipe_sales\'] as $table)\n            if(!Schema::hasTable($table))throw new RuntimeException(\'BREAD_SCHEMA_REQUIRED: \'.$table);\n        $stock=app(ExpenseStockPurchases::class);\n        if(!$stock->ready()||(ExpenseStockPurchases::CATEGORIES[self::KEY]??null)!==self::NAME||$stock->unit(self::KEY)!==\'piece\')throw new RuntimeException(\'BREAD_PURCHASE_RUNTIME_REQUIRED\');\n        $rows=DB::table(\'stock_ingredients\')->where(\'name\',self::NAME)->get();\n        if($rows->count()!==1||$rows->first()->unit!==\'piece\')throw new RuntimeException(\'EXISTING_BALADI_BREAD_INGREDIENT_MUST_BE_UNIQUE_AND_IN_PIECES\');\n        $ingredient=$rows->first();\n        // Do not introduce a second stock identity for an alternate spelling.\n        foreach(DB::table(\'stock_ingredients\')->get([\'id\',\'name\']) as $row)\n            if((int)$row->id!==(int)$ingredient->id&&$stock->categoryProduct($row->name)===self::KEY)throw new RuntimeException(\'AMBIGUOUS_BREAD_STOCK_IDENTITY\');\n        $access=app(TakeawayAccess::class);$service=app(ExpenseCategories::class);\n        $branches=array_values(array_filter($access->branches($actor),fn($b)=>$b[\'kind\']===\'f\'));\n        if(!$branches)throw new RuntimeException(\'NO_RESTAURANT_BRANCHES\');\n        $updates=[];\n        foreach($branches as $branch){\n            if($lock)$access->branch($branch[\'value\'],$actor,true);\n            $catalog=$service->catalog($branch[\'value\']);\n            if(!isset($catalog[self::KEY])||empty($catalog[self::KEY][\'protected\']))throw new RuntimeException(\'PROTECTED_BREAD_CATEGORY_MISSING: \'.$branch[\'value\']);\n            foreach($catalog as $key=>$item){\n                if($key!==self::KEY&&($item[\'stock_category\']??null)!==self::KEY)continue;\n                $active=$key===self::KEY;$name=$active?self::NAME:$item[\'name\'];\n                if(!$active&&$item[\'active\']&&$stock->categoryProduct($name)!==self::KEY)throw new RuntimeException(\'CONFLICTING_BREAD_CATEGORY_NAME: \'.$branch[\'value\'].\' \'.$key);\n                if((bool)$item[\'active\']===$active&&$item[\'name\']===$name)continue;\n                $q=DB::table(\'branch_expense_category_overrides\')->where(\'branch\',$branch[\'value\'])->where(\'category_key\',$key);\n                if($lock)$q->lockForUpdate();$before=$q->first();\n                $updates[]=[\'branch\'=>$branch[\'value\'],\'category_key\'=>$key,\'name\'=>$name,\'active\'=>$active,\n                    \'revision\'=>(int)$item[\'revision\']+1,\'before\'=>$before?(array)$before:null];\n            }\n        }\n        return [\'branches\'=>array_column($branches,\'value\'),\'ingredient_id\'=>(int)$ingredient->id,\'updates\'=>$updates];\n    }\n\n    public function run(string $mode,?string $backup=null): array\n    {\n        if(!in_array($mode,[\'check\',\'apply\',\'verify\'],true))throw new RuntimeException(\'INVALID_CATALOG_MODE\');\n        $plan=$this->plan();\n        if($mode===\'apply\'){\n            if(!$backup||!is_dir($backup)||is_link($backup)||realpath($backup)!==$backup||(fileperms($backup)&0077))throw new RuntimeException(\'PRIVATE_CATALOG_BACKUP_REQUIRED\');\n            DB::transaction(function()use($backup){\n                DB::table(\'users\')->where(\'id\',1)->lockForUpdate()->first();\n                $plan=$this->plan(true);\n                $record=$backup.\'/bread-catalog-before.json\';\n                if(file_exists($record)||is_link($record))throw new RuntimeException(\'CATALOG_BACKUP_ALREADY_EXISTS\');\n                $bytes=json_encode($plan+[\'recorded_at\'=>gmdate(\'c\')],JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)."\\n";\n                $handle=fopen($record,\'xb\');if(!$handle)throw new RuntimeException(\'CATALOG_BACKUP_FAILED\');\n                try{if(!chmod($record,0600)||fwrite($handle,$bytes)!==strlen($bytes)||!fflush($handle))throw new RuntimeException(\'CATALOG_BACKUP_FAILED\');}finally{fclose($handle);}\n                foreach($plan[\'updates\'] as $update){\n                    $values=[\'name\'=>$update[\'name\'],\'active\'=>$update[\'active\'],\'revision\'=>$update[\'revision\'],\'updated_at\'=>now(\'UTC\')];\n                    $q=DB::table(\'branch_expense_category_overrides\')->where(\'branch\',$update[\'branch\'])->where(\'category_key\',$update[\'category_key\']);\n                    if($update[\'before\']!==null)$q->update($values);\n                    else DB::table(\'branch_expense_category_overrides\')->insert([\'branch\'=>$update[\'branch\'],\'category_key\'=>$update[\'category_key\'],\'created_at\'=>now(\'UTC\')]+$values);\n                }\n                if($this->plan(true)[\'updates\'])throw new RuntimeException(\'BREAD_CATALOG_DID_NOT_VERIFY\');\n            },1);\n            $plan=$this->plan();\n        }\n        if($mode===\'verify\'&&$plan[\'updates\'])throw new RuntimeException(\'BREAD_CATALOG_PENDING_UPDATES\');\n        if($mode!==\'check\')foreach($plan[\'branches\'] as $branch){\n            $choices=app(ExpenseCategories::class)->choices(false,$branch);\n            $matches=array_filter($choices[\'active_categories\'],fn($name,$key)=>($choices[\'stock_categories\'][$key]??null)===self::KEY,ARRAY_FILTER_USE_BOTH);\n            if(array_keys($matches)!==[self::KEY]||($choices[\'stock_units\'][self::KEY]??null)!==\'piece\')throw new RuntimeException(\'BREAD_BRANCH_VERIFY_FAILED: \'.$branch);\n        }\n        return [\'status\'=>$mode===\'check\'?\'BALADI_BREAD_CHECK_OK\':\'BALADI_BREAD_ALL_BRANCHES_VERIFIED\',\n            \'branch_count\'=>count($plan[\'branches\']),\'branches\'=>$plan[\'branches\'],\'ingredient_id\'=>$plan[\'ingredient_id\'],\n            \'ingredient_name\'=>self::NAME,\'stock_unit\'=>\'piece\',\'pending_category_updates\'=>count($plan[\'updates\']),\n            \'stock_balances_changed\'=>false,\'financial_entries_created\'=>0,\'historical_expenses_changed\'=>0];\n    }\n}\n\nif(realpath($_SERVER[\'SCRIPT_FILENAME\']??\'\')===__FILE__){\n    try{\n        umask(0077);$options=getopt(\'\',[\'root:\',\'stage:\',\'mode:\',\'backup:\']);\n        $root=$options[\'root\']??\'\';\n        if(realpath($root)!==$root||!is_file($root.\'/vendor/autoload.php\'))throw new RuntimeException(\'INVALID_LARAVEL_ROOT\');\n        require $root.\'/vendor/autoload.php\';\n        if(isset($options[\'stage\']))foreach([\'BranchInventory\',\'ExpenseStockPurchases\',\'ExpenseCategories\',\'BranchExpenses\'] as $class){\n            if(class_exists(\'App\\\\Services\\\\Dashboard\\\\\'.$class,false))throw new RuntimeException(\'CANDIDATE_ALREADY_LOADED\');\n            require $options[\'stage\'].\'/app/Services/Dashboard/\'.$class.\'.php\';\n        }\n        $application=require $root.\'/bootstrap/app.php\';$application->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap();\n        echo json_encode((new BaladiBreadCatalog20261106)->run($options[\'mode\']??\'check\',$options[\'backup\']??null),JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR)."\\n";\n    }catch(Throwable $error){fwrite(STDERR,\'BALADI_BREAD_CATALOG_STOPPED: \'.$error->getMessage()."\\n");exit(1);}\n}\n'
 MAX_BYTES = 4 * 1024 * 1024
 
@@ -511,13 +428,27 @@ def read_file(path):
 
 
 def candidate(relative, data):
-    for before, after in PATCHES[relative]:
-        old, new = before.encode('utf-8'), after.encode('utf-8')
-        if data.count(new) == 1 and data.replace(new, b'', 1).count(old) == 0:
+    source_sha256 = hashlib.sha256(data).hexdigest()
+    newline = b'\r\n' if b'\r\n' in data else b'\n'
+    def encoded(value):
+        return value.encode('utf-8').replace(b'\n', newline)
+    # A pre-existing bread implementation is accepted only when every reviewed
+    # site is already installed. Never insert another category or unit method.
+    if relative.endswith('/ExpenseStockPurchases.php') and b"'purchase_baladi_bread'" in data:
+        require(all(data.count(encoded(after)) == 1 for _, after in PATCHES[relative]),
+                'UNRECOGNIZED_EXISTING_BREAD_IMPLEMENTATION: ' + relative)
+    for index, (before, after) in enumerate(PATCHES[relative]):
+        new = encoded(after)
+        alternatives = [encoded(before)] + [encoded(value) for value in ALTERNATE_BEFORES.get(relative, {}).get(index, [])]
+        if data.count(new) == 1 and all(data.replace(new, b'', 1).count(old) == 0 for old in alternatives):
             continue
-        require(data.count(old) == 1 and data.count(new) == 0,
-                'PATCH_CONFLICT: ' + relative)
-        data = data.replace(old, new, 1)
+        matches = [old for old in alternatives if data.count(old) == 1]
+        require(len(matches) == 1 and data.count(new) == 0,
+                'PATCH_CONFLICT: ' + relative + ' edit=' + str(index + 1)
+                + ' source_sha256=' + source_sha256
+                + ' old_hits=' + str([data.count(old) for old in alternatives])
+                + ' new_hits=' + str(data.count(new)))
+        data = data.replace(matches[0], new, 1)
     return data
 
 

@@ -106,6 +106,38 @@ class BreadInstallerTest(unittest.TestCase):
         self.assertEqual(installer.CATALOG_PHP, (RELEASE / 'catalog.php').read_text())
         self.assertIn(hashlib.sha256((RELEASE / 'apply.py').read_bytes()).hexdigest(), (RELEASE / 'RUN_ROOT.sh').read_text())
 
+    def test_historical_pre_tahini_service_is_upgraded_without_adding_tahini(self):
+        relative = 'app/Services/Dashboard/ExpenseStockPurchases.php'
+        before = b''.join(line for line in self.before[relative].splitlines(keepends=True) if b"'purchase_tahini'" not in line)
+        before = before.replace('والخل والطحينة فقط.'.encode(), 'والخل فقط.'.encode())
+        # Exact upstream blob from codex/expense-stock-purchases-20261018.
+        self.assertEqual(hashlib.sha1(b'blob ' + str(len(before)).encode() + b'\0' + before).hexdigest(), '651f5df0f5896b289239d9bb55b1a367ee5c6ab1')
+        expected = b''.join(line for line in (ROOT / relative).read_bytes().splitlines(keepends=True) if b"'purchase_tahini'" not in line)
+        upgraded = installer.candidate(relative, before)
+        self.assertEqual(upgraded, expected)
+        self.assertEqual(installer.candidate(relative, upgraded), upgraded)
+        self.assertNotIn(b"'purchase_tahini'", upgraded)
+
+    def test_windows_line_endings_are_preserved(self):
+        for relative, before in self.before.items():
+            with self.subTest(relative=relative):
+                before = before.replace(b'\n', b'\r\n')
+                expected = (ROOT / relative).read_bytes().replace(b'\n', b'\r\n')
+                self.assertEqual(installer.candidate(relative, before), expected)
+                self.assertEqual(installer.candidate(relative, expected), expected)
+
+    def test_unreviewed_existing_bread_implementation_is_rejected(self):
+        relative = 'app/Services/Dashboard/ExpenseStockPurchases.php'
+        altered = (ROOT / relative).read_bytes().replace(b"? 'piece' : 'kg'", b"? 'kg' : 'kg'")
+        with self.assertRaisesRegex(RuntimeError, 'UNRECOGNIZED_EXISTING_BREAD_IMPLEMENTATION'):
+            installer.candidate(relative, altered)
+
+    def test_conflict_identifies_the_failing_edit(self):
+        relative = 'app/Services/Dashboard/ExpenseStockPurchases.php'
+        altered = self.before[relative].replace(b'private function units($value): int', b'private function units($value, $other): int')
+        with self.assertRaisesRegex(RuntimeError, 'PATCH_CONFLICT: .* edit=6 source_sha256='):
+            installer.candidate(relative, altered)
+
 
 if __name__ == '__main__':
     unittest.main()
