@@ -32,3 +32,16 @@ Run fixture tests with PHP 8.2: `php deployment/branch_daily_digest/test.php`.
 Inspect the next scheduled send using `systemctl list-timers fasakhansta-daily-report.timer`.
 Inspect delivery results using `journalctl -u fasakhansta-daily-report.service -n 12 --no-pager -o cat`.
 Pause future sends with `systemctl stop fasakhansta-daily-report.timer fasakhansta-daily-report.service`.
+
+## Resuming an SMTP transport failure
+
+`repair_root.sh REVISION` resumes an installed report without deleting the pending snapshot,
+sent receipts, recipient configuration, or calendar timer. Its SMTP probe authenticates with
+verified TLS without sending a message. If the application group fails but the server's
+existing `mail` group succeeds, a second application-group probe rules out a transient
+recovery before choosing `Group=mail` for this service alone. The process still runs as
+`fasakha` and retains `fasakha` as a supplementary group for its private report files.
+It does not change firewall rules, global mail configuration, or use the local MTA.
+When authentication fails for both routes, only allowlisted error codes and SMTP response
+numbers are returned; credentials and raw SMTP responses are never printed. The saved
+report and automatic retry remain available.

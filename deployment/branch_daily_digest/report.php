@@ -101,7 +101,12 @@ final class Report
             || !filter_var(config('mail.from.address'), FILTER_VALIDATE_EMAIL)) {
             throw new \RuntimeException('DAILY_REPORT_MAIL_NOT_CONFIGURED');
         }
-        if (($settings['transport'] ?? $name) === 'smtp') $settings['timeout'] = 30;
+        if (($settings['transport'] ?? $name) === 'smtp') {
+            $settings['timeout'] = 20;
+            $settings['stream']['ssl'] = array_replace($settings['stream']['ssl'] ?? [], [
+                'verify_peer'=>true, 'verify_peer_name'=>true, 'allow_self_signed'=>false,
+            ]);
+        }
         // A separate mailer avoids any previously configured always-to recipient.
         config(['mail.mailers.fasakhansta_daily_digest'=>$settings]);
         return Mail::mailer('fasakhansta_daily_digest');
@@ -249,6 +254,25 @@ final class Report
         } finally { if (is_file($temp)) unlink($temp); }
     }
 
+    /** Only allowlisted diagnostics leave the process, never raw server replies or credentials. */
+    public static function safeFailure(\Throwable $error): array
+    {
+        $message = $error->getMessage();
+        $code = preg_match('/^DAILY_REPORT_[A-Z_]+$/D', $message) ? $message : 'DAILY_REPORT_FAILED';
+        $reply = null;
+        if (preg_match('/(?:got code|code|response|message)[\s:="\x27]*(4[0-9]{2}|5[0-9]{2})\b/i', $message, $match)) $reply = $match[1];
+        if (preg_match('/certificate|peer name|peer certificate|SSL operation|crypto|TLS/i', $message)) $code = 'DAILY_REPORT_SMTP_TLS_FAILED';
+        elseif (preg_match('/535|534|authenticate|authentication/i', $message)) $code = 'DAILY_REPORT_SMTP_AUTH_FAILED';
+        elseif (preg_match('/sender.*(?:verif|reject|authoriz)|from address.*(?:verif|reject)/i', $message)) $code = 'DAILY_REPORT_SMTP_SENDER_REJECTED';
+        elseif (preg_match('/quota|credit|rate.?limit|daily.*limit|maximum.*message/i', $message)) $code = 'DAILY_REPORT_SMTP_QUOTA_LIMIT';
+        elseif (preg_match('/timed? out|timeout/i', $message)) $code = 'DAILY_REPORT_SMTP_TIMEOUT';
+        elseif (preg_match('/connection refused/i', $message)) $code = 'DAILY_REPORT_SMTP_CONNECTION_REFUSED';
+        elseif (preg_match('/permission denied|operation not permitted/i', $message)) $code = 'DAILY_REPORT_SMTP_PERMISSION_DENIED';
+        elseif (preg_match('/could not resolve|name or service not known|php_network_getaddresses/i', $message)) $code = 'DAILY_REPORT_SMTP_DNS_FAILED';
+        elseif ($error instanceof \Swift_TransportException) $code = 'DAILY_REPORT_SMTP_TRANSPORT_FAILED';
+        return ['code'=>$code, 'smtp_reply'=>$reply];
+    }
+
     public static function send(array $config): void
     {
         $state = self::STATE;
@@ -316,9 +340,10 @@ final class Report
             } else self::send($config);
             return 0;
         } catch (\Throwable $error) {
-            $code = preg_match('/^DAILY_REPORT_[A-Z_]+$/D', $error->getMessage()) ? $error->getMessage() : 'DAILY_REPORT_FAILED';
+            $failure = self::safeFailure($error);
             // Never print transport credentials, SQL values, or financial/customer data to the journal.
-            fwrite(STDERR, $code.' error_class='.get_class($error)."\n");
+            fwrite(STDERR, $failure['code'].' error_class='.get_class($error)
+                .($failure['smtp_reply'] ? ' smtp_reply='.$failure['smtp_reply'] : '')."\n");
             return 1;
         }
     }

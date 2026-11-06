@@ -31,6 +31,12 @@ namespace {
     check(Report::money(2765000) === '27,650.00', 'Money total');
     check(Report::money(-1) === '-0.01', 'Negative-cent precision');
     check(Report::money(100000000000001) === '1,000,000,000,000.01', 'Large money precision');
+    $failure = Report::safeFailure(new \RuntimeException('Failed to authenticate: username PRIVATE_EMAIL password PRIVATE_PASSWORD; got code "535"'));
+    check($failure['code'] === 'DAILY_REPORT_SMTP_AUTH_FAILED' && $failure['smtp_reply'] === '535', 'Authentication failure classification');
+    check(strpos(json_encode($failure), 'PRIVATE_') === false, 'Credentials do not enter diagnostics');
+    check(Report::safeFailure(new \RuntimeException('Peer certificate CN=local did not match expected CN=external'))['code'] === 'DAILY_REPORT_SMTP_TLS_FAILED', 'TLS redirection failure classification');
+    check(Report::safeFailure(new \RuntimeException('Connection could not be established: Connection refused'))['code'] === 'DAILY_REPORT_SMTP_CONNECTION_REFUSED', 'Connection failure classification');
+    check(Report::safeFailure(new \RuntimeException('DAILY_REPORT_OWNER_UNAVAILABLE'))['code'] === 'DAILY_REPORT_OWNER_UNAVAILABLE', 'Business errors preserved');
     $row = (object)['id'=>1, 'name'=>'فسيخ <script>alert(1)</script> & رنجة', 'unit'=>'kg'];
     $min = (object)['minimum_units'=>2000000, 'unit'=>'kg'];
     $normal = Report::item('ingredient', $row, 5000000, $min);

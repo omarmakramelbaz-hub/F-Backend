@@ -20,7 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p digest
-          for source in report.php template.php test.php install_root.sh; do
+          for source in report.php template.php test.php transport_probe.php install_root.sh repair_root.sh; do
             curl --fail --silent --show-error --location --retry 2 \
               --proto '=https' --proto-redir '=https' --max-time 60 \
               "https://raw.githubusercontent.com/$DIGEST_REPO/$DIGEST_SHA/deployment/branch_daily_digest/$source" \
@@ -31,9 +31,11 @@ jobs:
           set -euo pipefail
           php --version
           bash -n digest/install_root.sh
+          bash -n digest/repair_root.sh
           php -l digest/report.php
           php -l digest/template.php
           php -l digest/test.php
+          php -l digest/transport_probe.php
           php digest/test.php
           php digest/test.php --render-fixture > digest/fixture.html
           test -s digest/fixture.html

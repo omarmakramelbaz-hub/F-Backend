@@ -58,9 +58,9 @@ digest_cleanup() {
 trap digest_cleanup EXIT
 
 declare -A digest_hashes=(
-  [report.php]=4bd0df72ba22563043109ed113bc62cee3453d0638460fb5f3264b4c1daa9644
+  [report.php]=c0b87d41ba7290be0ea8152ab4125e49497ad84f5b9b4c761dc70076aa659491
   [template.php]=65b98df03f43a3582e02b7e3430fb7e4c7953e12b99d837f3dac6848f39ce317
-  [test.php]=6ab15f49f25c7b2cc747287878d8ace1ffe9641d24e27267ea74d3ed4df82488
+  [test.php]=c939df64b4ed0a2e8dcc5753fe261f7d66730f635a898708cc649c35c6fdb977
   [fasakhansta-daily-report.service]=46eae90e108ad213080ebec55778b6ac6ee1b3a6253c5315f6b5c532e1a4f3bb
   [fasakhansta-daily-report.timer]=1303c45d1402a61d267e043b26cc30cf29a1c784a38bb739f220bdaf0b7777b7
 )
