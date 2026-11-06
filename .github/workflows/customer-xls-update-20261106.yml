@@ -1,0 +1,26 @@
+name: Customer XLS update transaction checks
+on:
+  push:
+    branches: ['codex/customer-xls-update-20261106']
+permissions:
+  contents: read
+jobs:
+  verify-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3, openssl, zlib
+          coverage: none
+      - name: Install isolated database test runtime
+        run: composer install --working-dir=tests/owner_mobile_runtime --no-interaction --prefer-dist --no-progress --no-scripts --no-security-blocking
+      - name: Check PHP and root launcher syntax
+        run: |
+          php -l deployment/customer-xls-update-20261106/import_customers.php
+          php -l deployment/customer-xls-update-20261106/unpack_customers.php
+          bash -n deployment/customer-xls-update-20261106/RUN_ROOT.sh
+      - name: Test normalized matching, upserts, backups, replay and rollback
+        run: php deployment/customer-xls-update-20261106/test_import.php

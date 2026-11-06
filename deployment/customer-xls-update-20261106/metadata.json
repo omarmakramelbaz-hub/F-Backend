@@ -1,0 +1,22 @@
+{
+  "source_sha256": "fd9b40b0b5bd9e84484b2a791bff08bcc119c5e5cd683d70649991bdd29ce051",
+  "source_rows": 36919,
+  "source_unique_codes": 36390,
+  "repeated_source_code_rows": 529,
+  "phone_profiles": 38033,
+  "valid_phone_profiles": 37492,
+  "distinct_valid_phones": 37351,
+  "rows_with_valid_phone": 36437,
+  "rows_without_valid_phone": 482,
+  "invalid_phone_profiles": 541,
+  "phones_with_multiple_source_rows": 139,
+  "phones_with_conflicting_names": 88,
+  "phones_with_multiple_addresses": 11,
+  "json_bytes": 29924450,
+  "data_sha256": "3d4ac4be1e0b4aebdcb564c60e767716f3e9b1d602d2fe8657724dd9c32ace19",
+  "encrypted_bytes": 1562102,
+  "payload_b64_bytes": 2082805,
+  "packed_bytes": 6670467,
+  "cipher_sha256": "7d8ba35176cb88f40d37e0e2e8d43472ba16823289a5ce3d93a5445a33354b2a",
+  "payload_sha256": "7e7ad606b774734117ab3fddabbb63f3e2c72a746ff87d4df1438e525b0828b7"
+}
