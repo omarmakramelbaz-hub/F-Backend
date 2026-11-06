@@ -28,7 +28,7 @@ while read -r policy_hash policy_name policy_path; do
   chmod 0444 "$policy_stage/$policy_name"
   "$policy_php" -l "$policy_stage/$policy_name" >/dev/null
 done <<'POLICY_MANIFEST'
-2636df509d4f14b2587a4b04b694a9bf5a58efad9a6cedd27156b895d32ea637 install.php deployment/whatsapp-contact-consent-20261106/install.php
+c32dff9593e7a9d3ae310b20e6ced336ca65ce739f2460117034b8febffc5418 install.php deployment/whatsapp-contact-consent-20261106/install.php
 3238b006a5a5692b69fd1548d3fcf697bc59a3bc68f6489f096c12465ab7e752 WhatsAppCustomerDirectory.php app/Services/Dashboard/WhatsAppCustomerDirectory.php
 POLICY_MANIFEST
 policy_args=(env -u WCP_TESTING "$policy_php" -d memory_limit=768M "$policy_stage/install.php")

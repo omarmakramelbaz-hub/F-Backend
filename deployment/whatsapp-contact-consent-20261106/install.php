@@ -108,9 +108,22 @@ function wcp_preflight(): void {
     if(count($engines)!==count($tables))wcp_fail('TABLE_ENGINE_MISSING');
     foreach($engines as $r)if(strtolower((string)$r->engine)!=='innodb')wcp_fail('TRANSACTIONAL_TABLES_REQUIRED');
 }
+function wcp_verify_candidate(string $source): void {
+    if(!is_file($source)||is_link($source)||!hash_equals(WCP_NEW,hash_file('sha256',$source)?:''))wcp_fail('PATCH_SOURCE_MISMATCH');
+}
+/** Declare the verified candidate before Composer files or Laravel can load the old class. */
+function wcp_bootstrap(string $root,string $source): object {
+    wcp_verify_candidate($source);
+    if(!class_exists(WhatsAppCustomerDirectory::class,false))require $source;
+    if(!method_exists(WhatsAppCustomerDirectory::class,'consentDefaults'))wcp_fail('CANDIDATE_PRELOAD_FAILED');
+    require $root.'/vendor/autoload.php';
+    $app=require $root.'/bootstrap/app.php';
+    $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+    return $app;
+}
 function wcp_source_state(string $source): array {
     $target='/home/fasakha/public_html/app/Services/Dashboard/WhatsAppCustomerDirectory.php';
-    if(!is_file($source)||is_link($source)||!hash_equals(WCP_NEW,hash_file('sha256',$source)?:''))wcp_fail('PATCH_SOURCE_MISMATCH');
+    wcp_verify_candidate($source);
     if(is_link($target)||!is_file($target)||realpath(dirname($target))!==dirname($target))wcp_fail('INSTALLED_SOURCE_PATH_INVALID');
     $old=hash_file('sha256',$target);
     if(!in_array($old,[WCP_OLD,WCP_NEW],true))wcp_fail('INSTALLED_SOURCE_REQUIRES_REVIEW');
@@ -134,11 +147,8 @@ function wcp_main(array $argv): int {
         umask(0077);ini_set('display_errors','0');ini_set('log_errors','0');
         if(PHP_SAPI!=='cli'||count($argv)!==3||!in_array($argv[1],['--check','--apply'],true))wcp_fail('ARGUMENTS_INVALID');
         $source=$argv[2];$stage='bootstrap';$root='/home/fasakha/public_html';chdir($root);
-        require $root.'/vendor/autoload.php';$app=require $root.'/bootstrap/app.php';
-        $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+        $app=wcp_bootstrap($root,$source);
         $stage='preflight';wcp_preflight();wcp_source_state($source);
-        if(!class_exists(WhatsAppCustomerDirectory::class,false))require $source;
-        if(!method_exists(WhatsAppCustomerDirectory::class,'consentDefaults'))wcp_fail('CLASS_ALREADY_LOADED_RETRY');
         if($argv[1]==='--check'){echo wcp_json(wcp_preview())."\n";return 0;}
         $lock='whatsapp-contact-policy:'.substr(hash('sha256',DB::connection()->getDatabaseName()),0,32);
         $r=DB::selectOne('SELECT GET_LOCK(?,0) AS acquired',[$lock]);

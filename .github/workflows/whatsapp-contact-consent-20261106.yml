@@ -1,7 +1,7 @@
 name: WhatsApp contact consent policy checks
 on:
   push:
-    branches: ['codex/whatsapp-contact-consent-20261106']
+    branches: ['codex/whatsapp-contact-consent-20261106', 'codex/whatsapp-contact-consent-bootstrap-20261106']
 permissions:
   contents: read
 jobs:
@@ -22,7 +22,10 @@ jobs:
           php -l app/Services/Dashboard/WhatsAppCustomerDirectory.php
           php -l deployment/whatsapp-contact-consent-20261106/install.php
           php -l deployment/whatsapp-contact-consent-20261106/test.php
+          php -l deployment/whatsapp-contact-consent-20261106/test_bootstrap.php
           bash -n deployment/whatsapp-contact-consent-20261106/RUN_ROOT.sh
           php -r 'define("WCP_LIBRARY",true);require "deployment/whatsapp-contact-consent-20261106/install.php";exit(hash_equals(WCP_NEW,hash_file("sha256","app/Services/Dashboard/WhatsAppCustomerDirectory.php"))?0:1);'
+      - name: Verify candidate loads before eager Composer and Laravel autoload
+        run: php deployment/whatsapp-contact-consent-20261106/test_bootstrap.php
       - name: Verify live capture, existing contacts, rollback and withdrawals
         run: php deployment/whatsapp-contact-consent-20261106/test.php
