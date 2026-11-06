@@ -3,9 +3,12 @@ import copy
 import importlib.util
 import json
 import os
+import stat
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = ROOT/'deployment/professional-receipts-20261106'
@@ -97,6 +100,43 @@ class ReceiptReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'RECEIPT_SYMLINK_PATH'):
             release.plan(self.root,self.manifest)
         self.assertEqual(outside.read_bytes(),b'preserve')
+
+    def test_staged_source_is_readable_with_production_umask(self):
+        stage=Path(self.temp.name)/'stage'
+        stage.mkdir(mode=0o755)
+        changes=release.plan(self.root,self.manifest)
+        previous=os.umask(0o077)
+        try:
+            candidate=release.stage_candidate(stage,changes)
+            for path in [candidate,*candidate.rglob('*')]:
+                mode=stat.S_IMODE(path.stat().st_mode)
+                self.assertEqual(mode,0o755 if path.is_dir() else 0o444,str(path))
+                if path.is_dir():
+                    self.assertTrue(mode & stat.S_IXOTH,'site account cannot traverse '+str(path))
+                else:
+                    self.assertTrue(mode & stat.S_IROTH,'site account cannot read '+str(path))
+            release.apply_plan(self.root,changes,self.backup,self.owner,lambda:None)
+            self.assertEqual(stat.S_IMODE(self.backup.stat().st_mode),0o700)
+            self.assertEqual(stat.S_IMODE((self.backup/'receipt.json').stat().st_mode),0o600)
+            self.assertEqual(stat.S_IMODE((self.root/'resources/views/admin/printing').stat().st_mode),0o755)
+        finally:
+            os.umask(previous)
+
+    def test_verification_failure_identifies_phase_without_raw_stderr(self):
+        record={'status':'RECEIPT_RENDER_FAILED','fixture':'takeaway','locale':'ar','exception':'RuntimeException','check':'compact paper takeaway'}
+        output=subprocess.CompletedProcess(['php'],1,stdout='',stderr=json.dumps(record)+'\nSENSITIVE-UNSTRUCTURED-DETAIL\n')
+        with patch.object(release.subprocess,'run',return_value=output):
+            with self.assertRaises(RuntimeError) as caught:
+                release.run(['php'],self.root,phase='preflight')
+        message=str(caught.exception)
+        self.assertIn('preflight',message)
+        self.assertIn('compact paper takeaway',message)
+        self.assertNotIn('SENSITIVE-UNSTRUCTURED-DETAIL',message)
+
+    def test_verification_timeout_identifies_phase(self):
+        with patch.object(release.subprocess,'run',side_effect=subprocess.TimeoutExpired(['php'],60)):
+            with self.assertRaisesRegex(RuntimeError,'RECEIPT_RUNTIME_TIMEOUT: verified'):
+                release.run(['php'],self.root,phase='verified')
 
 
 if __name__ == '__main__':

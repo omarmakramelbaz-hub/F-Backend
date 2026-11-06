@@ -1,6 +1,18 @@
 <?php
 // Render real Blade views with the installed Laravel compiler, without booting the application or its database.
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+ini_set('display_errors', '0');
+ini_set('log_errors', '0');
+$receiptFailureContext = ['fixture'=>'bootstrap', 'locale'=>'bootstrap'];
+set_exception_handler(static function (Throwable $error) use (&$receiptFailureContext) {
+    $origin = $error;
+    while ($origin->getPrevious()) $origin = $origin->getPrevious();
+    $details = $receiptFailureContext + ['status'=>'RECEIPT_RENDER_FAILED', 'exception'=>get_class($origin),
+        'source'=>basename($origin->getFile()).':'.$origin->getLine()];
+    if (preg_match('/^RECEIPT_CHECK_FAILED: ([A-Za-z0-9 _-]{1,140})$/D', $origin->getMessage(), $match)) $details['check']=$match[1];
+    fwrite(STDERR,json_encode($details,JSON_UNESCAPED_SLASHES)."\n");
+    exit(1);
+});
 $root = realpath($argv[1] ?? dirname(__DIR__, 2));
 $autoload = $argv[2] ?? __DIR__.'/vendor/autoload.php';
 $output = $argv[3] ?? sys_get_temp_dir().'/receipt-render-'.bin2hex(random_bytes(6));
@@ -56,6 +68,7 @@ $rendered=[];
 foreach (['ar','en'] as $locale) {
     $container->locale=$locale; $translator->setLocale($locale);
     foreach ($fixtures as $name=>$fixture) {
+        $receiptFailureContext = ['fixture'=>$name, 'locale'=>$locale];
         app('request')->dashboard=empty($fixture['auto_print']);
         $html=$factory->make($fixture['view'],$fixture['data'])->render();
         $rendered[$locale][$name]=$html;
@@ -71,6 +84,7 @@ foreach (['ar','en'] as $locale) {
     }
 }
 $ar=$rendered['ar'];
+$receiptFailureContext = ['fixture'=>'assertions', 'locale'=>'ar'];
 foreach (['takeaway','phone','dine','mixed','unpaid','ticket','app','legacy'] as $name) receiptCheck(str_contains($ar[$name],'<bdi>500.00</bdi>') || $name === 'legacy','saved amounts '.$name);
 receiptCheck(str_contains($ar['phone'],'550.00'),'delivery total');
 receiptCheck(str_contains($ar['mixed'],'CARD-DEMO-123'),'mixed payment reference');

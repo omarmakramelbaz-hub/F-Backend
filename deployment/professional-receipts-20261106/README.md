@@ -21,4 +21,6 @@ Run `RUN_ROOT.sh RELEASE_SHA --check` or `RUN_ROOT.sh RELEASE_SHA --apply` as ro
 
 Only the 12 allowlisted view and translation paths are eligible. Unknown source changes and symlinks stop the release. Existing file modes and ownership are preserved. The release makes a bounded code backup in `/home/fasakha/go-receipt-layout-backups`, clears the Blade view cache, rerenders all fixtures, and automatically restores the original files if verification fails. Repeating an already applied release creates no duplicate code backup. It makes no order, payment, stock, or till database changes.
 
+Staged source directories are explicitly chmodded to 0755 and source files to 0444 so the site's account can render them even with the root launcher's umask 077. Backups and render output remain private. Verification failures identify the phase and a bounded synthetic fixture error; raw application stderr is not printed.
+
 The Windows printer profile supplies the physical paper size. The content has safe outer margins on narrower profiles. Actual paper output must be checked on a branch printer after the server command completes.

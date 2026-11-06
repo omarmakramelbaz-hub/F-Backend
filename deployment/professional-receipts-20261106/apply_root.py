@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import shutil
 import socket
 import stat
@@ -103,6 +104,7 @@ def apply_plan(project, changes, backup, owner, verify):
                 if path.parent != project / 'resources/views/admin/printing':
                     raise RuntimeError('RECEIPT_PARENT_MISSING')
                 path.parent.mkdir(mode=0o755)
+                path.parent.chmod(0o755)
                 os.chown(path.parent, *owner)
             info = item['meta']
             atomic_write(path, item['after'], stat.S_IMODE(info.st_mode) if info else 0o644,
@@ -127,10 +129,44 @@ def apply_plan(project, changes, backup, owner, verify):
     return len(changed)
 
 
-def run(command, cwd):
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=60)
+def stage_candidate(stage, changes):
+    """Only reviewed source is readable across the root -> site account boundary."""
+    candidate = stage/'candidate'
+    candidate.mkdir(mode=0o755)
+    # mkdir's requested mode is still filtered by the launcher's umask 077.
+    candidate.chmod(0o755)
+    for item in changes:
+        path = candidate/item['path']
+        parent = candidate
+        for part in Path(item['path']).parts[:-1]:
+            parent = parent/part
+            parent.mkdir(mode=0o755, exist_ok=True)
+            parent.chmod(0o755)
+        path.write_bytes(item['after'])
+        path.chmod(0o444)
+    return candidate
+
+
+def run(command, cwd, phase='runtime'):
+    try:
+        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('RECEIPT_RUNTIME_TIMEOUT: '+phase) from error
     if result.returncode:
-        raise RuntimeError('RECEIPT_RUNTIME_VERIFICATION_FAILED')
+        details = {}
+        for line in (result.stdout+'\n'+result.stderr).splitlines():
+            try:
+                record = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(record, dict) or record.get('status') != 'RECEIPT_RENDER_FAILED':
+                continue
+            for key in ['fixture', 'locale', 'exception', 'source', 'check']:
+                value = record.get(key)
+                if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_ .:/\\-]{1,160}', value):
+                    details[key] = value
+        suffix = ': '+json.dumps(details, ensure_ascii=True) if details else ''
+        raise RuntimeError('RECEIPT_RUNTIME_VERIFICATION_FAILED: '+phase+suffix)
     return result.stdout
 
 
@@ -160,24 +196,18 @@ def main():
     with open('/var/lock/fasakhansta-receipt-layout.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         changes = plan(project, manifest)
-        candidate = stage/'candidate'
-        candidate.mkdir(mode=0o755)
-        for item in changes:
-            path = candidate/item['path']
-            parent = candidate
-            for part in Path(item['path']).parts[:-1]:
-                parent = parent/part
-                parent.mkdir(mode=0o755, exist_ok=True)
-            path.write_bytes(item['after'])
-            path.chmod(0o444)
+        candidate = stage_candidate(stage, changes)
         def render(label, overlay=''):
             output = stage/label
             output.mkdir(mode=0o700)
             os.chown(output, *owner)
-            result = run(['runuser','-u','fasakha','--',php,str(runner),str(project),str(project/'vendor/autoload.php'),str(output),str(overlay)], project)
-            proof = json.loads(result.splitlines()[-1])
+            result = run(['runuser','-u','fasakha','--',php,str(runner),str(project),str(project/'vendor/autoload.php'),str(output),str(overlay)], project, phase=label)
+            try:
+                proof = json.loads(result.splitlines()[-1])
+            except (ValueError, IndexError) as error:
+                raise RuntimeError('RECEIPT_RENDER_PROOF_MISSING: '+label) from error
             if proof.get('status') != 'PROFESSIONAL_RECEIPTS_RENDER_VERIFIED' or proof.get('fixtures', 0) < 17 or proof.get('locales') != 2:
-                raise RuntimeError('RECEIPT_RENDER_PROOF_MISSING')
+                raise RuntimeError('RECEIPT_RENDER_PROOF_MISSING: '+label)
             return proof
         preflight = render('preflight', candidate)
         if sys.argv[2] == '--check':
@@ -190,7 +220,7 @@ def main():
         backup = backup_root/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')+'-'+os.urandom(4).hex())
         proof = {}
         def verify():
-            run(['runuser','-u','fasakha','--',php,'artisan','view:clear'], project)
+            run(['runuser','-u','fasakha','--',php,'artisan','view:clear'], project, phase='view-cache-clear')
             proof.update(render('verified'))
             for item in changes:
                 if destination(project,item['path']).read_bytes() != item['after']:
