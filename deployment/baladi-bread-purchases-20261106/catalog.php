@@ -1,7 +1,6 @@
 <?php
 use App\Models\User;
 use App\Services\Dashboard\{ExpenseCategories,ExpenseStockPurchases,TakeawayAccess};
-use App\Services\OwnerDashboards\Runtime;
 use Illuminate\Support\Facades\{DB,Schema};
 
 /** Enable one protected bread purchase per primary-business branch, using its existing ingredient. */
@@ -12,8 +11,12 @@ final class BaladiBreadCatalog20261106
 
     private function plan(bool $lock=false): array
     {
+        // The legacy primary application has no OwnerDashboards runtime class.
+        // Its tenant binding and local-mode flag still identify excluded runtimes.
+        if(app()->bound('owner.dashboard.runtime')||config('desktop_dashboard.local'))throw new RuntimeException('PRIMARY_BUSINESS_OWNER_REQUIRED');
         $actor=User::withoutGlobalScopes()->find(1);
-        if(!$actor||!Runtime::primary($actor)||!app(ExpenseCategories::class)->canCreate($actor))throw new RuntimeException('PRIMARY_BUSINESS_OWNER_REQUIRED');
+        if(!$actor||(int)$actor->id!==1||$actor->account_type!=='admin'||$actor->status!=='accepted'
+            ||!empty($actor->owner_resturant_id)||!app(ExpenseCategories::class)->canCreate($actor))throw new RuntimeException('PRIMARY_BUSINESS_OWNER_REQUIRED');
         foreach(['resturants','stock_ingredients','branch_expense_categories','branch_expense_category_settings','branch_expense_category_overrides','expense_inventory_receipts','branch_inventory','branch_inventory_movements','branch_recipe_sales'] as $table)
             if(!Schema::hasTable($table))throw new RuntimeException('BREAD_SCHEMA_REQUIRED: '.$table);
         $stock=app(ExpenseStockPurchases::class);

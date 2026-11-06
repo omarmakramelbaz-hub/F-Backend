@@ -107,13 +107,24 @@ namespace {
     check($service->save($historical,$branch)['replayed']&&$balance()===20000000,'Historical bread was changed or replay was blocked');
     check(!$db->table('expense_inventory_receipts')->where('expense_id',$historicId)->exists(),'Historical bread received stock retroactively');
     // The catalog setup collapses old local aliases and re-enables a hidden protected choice.
+    // Reproduce the legacy production environment: this class must never be loaded.
+    check(!class_exists('App\\Services\\OwnerDashboards\\Runtime',false),'Owner runtime unexpectedly preloaded');
+    $missingOwnerRuntime=static function($class){if($class==='App\\Services\\OwnerDashboards\\Runtime')throw new \RuntimeException('Legacy application has no OwnerDashboards Runtime');};
+    spl_autoload_register($missingOwnerRuntime,true,true);
     require $root.'/deployment/baladi-bread-purchases-20261106/catalog.php';
     $local=$db->table('branch_expense_categories')->insertGetId(['name'=>'الخبز البلدي','origin_branch'=>'f:101','name_hash'=>hash('sha256','f:101|bread'),'request_key'=>$uuid(92),'created_by'=>1,'created_at'=>now(),'updated_at'=>now()]);
     $db->table('branch_expense_category_overrides')->insert(['branch'=>'f:100','category_key'=>'purchase_baladi_bread','active'=>false,'revision'=>1,'created_at'=>now(),'updated_at'=>now()]);
     $setup=new \BaladiBreadCatalog20261106;
+    $catalogDenied=static function()use($setup){try{$setup->run('check');}catch(\RuntimeException $error){check($error->getMessage()==='PRIMARY_BUSINESS_OWNER_REQUIRED','Unexpected catalog guard error: '.$error->getMessage());return;}throw new \RuntimeException('Expected primary application guard');};
+    $app->instance('owner.dashboard.runtime',['id'=>'another-owner']);$catalogDenied();$app->offsetUnset('owner.dashboard.runtime');
+    config(['desktop_dashboard.local'=>true]);$catalogDenied();config(['desktop_dashboard.local'=>false]);
+    $db->table('users')->where('id',1)->update(['status'=>'blocked']);$catalogDenied();$db->table('users')->where('id',1)->update(['status'=>'accepted']);
+    $db->table('users')->where('id',1)->update(['owner_resturant_id'=>100]);$catalogDenied();$db->table('users')->where('id',1)->update(['owner_resturant_id'=>null]);
     check($setup->run('check')['pending_category_updates']===2,'Catalog plan missed local alias or hidden choice');
     $backup=sys_get_temp_dir().'/bread-test-'.bin2hex(random_bytes(5));mkdir($backup,0700);
     try{$setup->run('apply',$backup);check($setup->run('verify')['branch_count']===2,'All-branch catalog did not verify');check($setup->run('check')['pending_category_updates']===0,'Catalog setup is not idempotent');}finally{unlink($backup.'/bread-catalog-before.json');rmdir($backup);}
     check($balance()===20000000,'Catalog setup altered stock');
+    spl_autoload_unregister($missingOwnerRuntime);
+    check(!class_exists('App\\Services\\OwnerDashboards\\Runtime',false),'Catalog setup introduced the absent owner runtime');
     echo "BALADI_BREAD_EXPENSE_STOCK_INTEGRATION_OK\n";
 }
