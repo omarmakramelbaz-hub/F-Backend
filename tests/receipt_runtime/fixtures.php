@@ -26,6 +26,25 @@ $mixed=$dine; $mixed['payment_method']='mixed'; $mixed['payment_breakdown']=[['m
 $mixed['cash_received']='250.00'; $mixed['change']='50.00';
 $unpaid=$dine; $unpaid['payment_method']='unpaid'; $unpaid['unpaid']=true; $unpaid['print_marker']='pos-ticket';
 $cancelled=$base; $cancelled['status']='cancelled';
+$paper=$base;
+$paper['number']='TA94-S2-0017'; $paper['branch']=['name'=>'فرع المحلة']; $paper['notes']='';
+$paper['items']=[
+    ['name'=>'طبق ليمون','quantity_mode'=>'piece','quantity'=>'1.000','unit_price'=>'15.00','total'=>'15.00'],
+    ['name'=>'سردين','option_label'=>'مخلي','quantity_mode'=>'weight','quantity'=>'0.525','unit_price'=>'250.00','total'=>'131.25'],
+    ['name'=>'طبق طماطم','quantity_mode'=>'piece','quantity'=>'1.000','unit_price'=>'15.00','total'=>'15.00'],
+    ['name'=>'طبق طحينة','quantity_mode'=>'piece','quantity'=>'1.000','unit_price'=>'30.00','total'=>'30.00'],
+    ['name'=>'عدد 1 خبز بلدي','quantity_mode'=>'piece','quantity'=>'20.000','unit_price'=>'3.00','total'=>'60.00'],
+    ['name'=>'رنجة أفراح','option_label'=>'مخلي','quantity_mode'=>'weight','quantity'=>'0.860','unit_price'=>'250.00','total'=>'215.00'],
+    ['name'=>'طبق فلفل أحمر','quantity_mode'=>'piece','quantity'=>'1.000','unit_price'=>'15.00','total'=>'15.00'],
+    ['name'=>'فسيخ دسوقي 3 قطعة','option_label'=>'مخلي','quantity_mode'=>'weight','quantity'=>'1.030','unit_price'=>'450.00','total'=>'463.50'],
+    ['name'=>'طبق بطاطس نينسي','quantity_mode'=>'piece','quantity'=>'2.000','unit_price'=>'15.00','total'=>'30.00'],
+];
+$paper['subtotal']='974.75'; $paper['total']='974.75'; $paper['cash_received']='1000.00'; $paper['change']='25.25';
+$paperKitchen=$paper; $paperKitchen['number']='PH94-S2-0012'; $paperKitchen['channel']='phone';
+$paperKitchen['items']=[$paper['items'][1],$paper['items'][7]];
+$paperKitchen['items'][0]['quantity']='0.500'; $paperKitchen['items'][1]['quantity']='1.000';
+$paperKitchen['context']+=['address'=>'شارع تجريبي أمام مبنى تجريبي'];
+$paperKitchen+=$paperKitchen['context'];
 $long=$phone; $long['number']='TA-F-1-20261106-000000000058';
 $long['context']['customer_name']='عميل ذو اسم طويل للاختبار والتأكد من اكتمال النص';
 $long['context']['address']=str_repeat('عنوان طويل في المنصورة بجوار البوابة الرئيسية والدور الثاني، ',5);
@@ -58,6 +77,8 @@ return [
     'mixed'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$mixed]],
     'unpaid'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$unpaid]],
     'cancelled'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$cancelled]],
+    'paper-sample'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$paper]],
+    'paper-kitchen'=>['view'=>'admin.pos_service.kitchen','data'=>['kitchen'=>['ticket'=>$paperKitchen,'revision'=>1,'created_at'=>$base['created_at']]]],
     'long'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$long]],
     'preview'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$base,'preview'=>true]],
     'auto-print'=>['view'=>'admin.takeaway.receipt','data'=>['receipt'=>$base],'auto_print'=>true],

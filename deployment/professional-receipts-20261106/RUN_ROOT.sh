@@ -20,8 +20,8 @@ while read -r receipt_hash receipt_path receipt_file; do
     chmod 0444 "$receipt_stage/$receipt_file"
 done <<'RECEIPT_FILES'
 03d602933a7c34389561252af157c363b2d4a153f1bcdfe371bba8e678298703 deployment/professional-receipts-20261106/apply_root.py apply_root.py
-b49ce4f1461cfe336fde54bf042b6fb90cfb62d2d1375851c335f792cd1cee79 deployment/professional-receipts-20261106/manifest.json manifest.json
-69d3b40876b04987dd0809d30b887d9467463e8e3ea9be945f860d4557732952 tests/receipt_runtime/render.php render.php
-cb92090a12358b863ccbe8d6b3f8295e68a70ccd1b798c7176fa34be8659cfc5 tests/receipt_runtime/fixtures.php fixtures.php
+ee168bee40c375dc100ee93b44e4b542000d7d70c7df9772323ea5f995379a8d deployment/professional-receipts-20261106/manifest.json manifest.json
+a98bbafab9462bf98271067dfc1e70e1c2f0fa2a44dd4e8ab4dbc2f4d8b07f74 tests/receipt_runtime/render.php render.php
+a5b02d9a27025c3d3c5a5ed0c1fff555390472f6f33c21323ed04164cbc8e594 tests/receipt_runtime/fixtures.php fixtures.php
 RECEIPT_FILES
 python3 -I -B "$receipt_stage/apply_root.py" "$receipt_stage/manifest.json" "$receipt_mode"

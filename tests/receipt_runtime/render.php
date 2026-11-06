@@ -76,7 +76,7 @@ foreach (['ar','en'] as $locale) {
         receiptCheck(!preg_match('/\{\{|@include\(|@foreach\(/',$html),'compiled markup '.$name);
         receiptCheck(substr_count($html,'<html ')===1,'single document '.$name);
         if ($name !== 'app-screen') {
-            receiptCheck(str_contains($html,'width: 58mm'),'compact paper '.$name);
+            receiptCheck(str_contains($html,'max-width: 72mm') && !str_contains($html,'width: 58mm'),'full printable width '.$name);
             receiptCheck(str_contains($html,'width: 80px; height: 80px'),'large logo '.$name);
             receiptCheck(!str_contains($html,'ft-brand-name'),'no duplicate brand heading '.$name);
         }
@@ -89,25 +89,38 @@ foreach (['takeaway','phone','dine','mixed','unpaid','ticket','app','legacy'] as
 receiptCheck(str_contains($ar['phone'],'550.00'),'delivery total');
 receiptCheck(str_contains($ar['mixed'],'CARD-DEMO-123'),'mixed payment reference');
 receiptCheck(str_contains($ar['mixed'],'300.00') && str_contains($ar['mixed'],'200.00'),'mixed payment split');
-receiptCheck(str_contains($ar['unpaid'],'كشف حساب غير مسدد') && !str_contains($ar['unpaid'],'المبلغ المدفوع'),'unpaid tender hidden');
+receiptCheck(str_contains($ar['unpaid'],'كشف حساب غير مسدد') && !str_contains($ar['unpaid'],'<div class="ft-tender">'),'unpaid tender hidden');
 receiptCheck(str_contains($ar['cancelled'],'طلب ملغي'),'cancelled state retained');
 foreach (['kitchen-phone','kitchen-dine'] as $name) {
     receiptCheck(str_contains($ar[$name],'data-dashboard-receipt="pos-kitchen"'),'kitchen marker');
     receiptCheck(!str_contains($ar[$name],'<div class="ft-summary">'),'kitchen no money summary');
     receiptCheck(!str_contains($ar[$name],'500.00') && !str_contains($ar[$name],'250.00'),'kitchen no prices');
-    receiptCheck(str_contains($ar[$name],'0.500') && str_contains($ar[$name],'1.000'),'weights retained');
+    receiptCheck(str_contains($ar[$name],'<bdi>0.5</bdi> <span class="ft-unit">') && str_contains($ar[$name],'<bdi>1</bdi> <span class="ft-unit">'),'weights retained inline');
 }
 receiptCheck(str_contains($ar['kitchen-dine'],'طاولة ٧'),'kitchen dining table');
 receiptCheck(str_contains($ar['phone'],'شقة ٥') && !str_contains($ar['phone'],'31.1234567'),'address retained without raw GPS clutter');
 receiptCheck(str_contains($ar['long'],'1,234,567.89') && str_contains($ar['long'],'1234.567'),'large values retained');
 receiptCheck(str_contains($ar['long'],'&lt;script&gt;UNSAFE_FIXTURE&lt;/script&gt;') && !str_contains($ar['long'],'<script>UNSAFE_FIXTURE'),'escaped notes');
-receiptCheck(str_contains($ar['app'],'0.500') && str_contains($ar['app'],'-20.00'),'app weight and discount');
-receiptCheck(str_contains($ar['app'],'مدفوع') && !str_contains($ar['app'],'المبلغ المدفوع'),'electronic payment has no invented cash tender');
+receiptCheck(str_contains($ar['app'], '<bdi>0.5</bdi>') && str_contains($ar['app'],'-20.00'),'app weight and discount');
+receiptCheck(str_contains($ar['app'],'مدفوع') && !str_contains($ar['app'],'<div class="ft-tender">'),'electronic payment has no invented cash tender');
 receiptCheck(str_contains($ar['app-failed'],'فشل الدفع'),'failed payment retained');
 receiptCheck(str_contains($ar['app-pending'],'لم يتم الاتفاق'),'unagreed total retained');
 receiptCheck(str_contains($ar['app-screen'],'data-app-invoice') && str_contains($ar['app-screen'],'order-board-detail.js'),'app screen remains interactive');
 receiptCheck(str_contains($ar['legacy'],'585.00') && str_contains($ar['legacy'],'الدور') && str_contains($ar['legacy'],'شقة'),'legacy accessors and address');
-receiptCheck(str_contains($ar['auto-print'],"window.addEventListener('load'") && !str_contains($ar['takeaway'],"window.addEventListener('load'"),'native auto print guard');
+receiptCheck(str_contains($ar['auto-print'],"function(){window.print();}") && !str_contains($ar['takeaway'],"function(){window.print();}"),'native auto print guard');
 receiptCheck(str_contains($ar['preview'],'data-dashboard-invoice-details="1"') && !str_contains($ar['preview'],'window.print()'),'details preview never auto prints');
 receiptCheck(str_contains($rendered['en']['takeaway'],'dir="ltr"'),'English direction');
+foreach (['ar','en'] as $locale) {
+    $receiptFailureContext = ['fixture'=>'paper-sample', 'locale'=>$locale];
+    $sample=$rendered[$locale]['paper-sample'];
+    preg_match('/<tbody>(.*?)<\/tbody>/s',$sample,$rows);
+    receiptCheck(substr_count($rows[1] ?? '', '<tr>')===9,'one row per sample item');
+    receiptCheck(!preg_match('/<br\b|<small\b/i',$rows[1] ?? ''),'no forced item line breaks');
+    receiptCheck(substr_count($rows[1] ?? '', '<span class="ft-item-label">')===9,'inline sample item labels');
+    receiptCheck(str_contains($sample,'TA94-S2-0017</bdi>'),'complete single sample number');
+    receiptCheck(str_contains($sample,'<bdi>0.525</bdi>') && str_contains($sample,'<bdi>1.03</bdi>'),'sample quantities not rounded');
+    receiptCheck(str_contains($sample,'<bdi>131.25</bdi>') && str_contains($sample,'<bdi>463.5</bdi>'),'sample amounts not rounded');
+    receiptCheck(substr_count($sample,'974.75')===2 && str_contains($sample,'1,000.00') && str_contains($sample,'25.25'),'sample totals and tender unchanged');
+    receiptCheck(str_contains($rendered[$locale]['paper-kitchen'],'PH94-S2-0012</bdi>'),'complete single kitchen number');
+}
 echo json_encode(['status'=>'PROFESSIONAL_RECEIPTS_RENDER_VERIFIED','fixtures'=>count($fixtures),'locales'=>2,'checks'=>$checks,'output'=>$output],JSON_UNESCAPED_SLASHES)."\n";
