@@ -51,3 +51,17 @@ conflicting entries, category ambiguity/visibility, and all currency file hashes
 Run with PHP 8.1+; it does not load Laravel or connect to any database.
 
 Successful final server marker: `SHIFT_SURPLUS_MENU_APPLIED_AND_VERIFIED`.
+
+## Deployed schema compatibility
+
+The initial server run stopped before any data writes because its preflight incorrectly
+required `resturant_products.user_id`. The uploaded deployed structure fixture and
+the original dashboard CRUD contract confirm that this column is absent: restaurant
+ownership is `resturants.user_id`, while a menu row uses `resturant_id` and `added_by`.
+The corrected release preserves those relationships, filters inserts to actual columns,
+and writes the actual `product_description` column. It changes no schema.
+
+`deployed-schema-columns.json` is a column-name-only extract of the five relevant tables
+from `tests/desktop_dashboard_runtime/fixtures/deployed-schema-20261008.json`.
+Regression tests validate this deployed shape, an older shape with the optional column,
+all four insert payloads, and rejection of absent real price columns or menu tables.

@@ -29,8 +29,9 @@ while read -r surplus_hash surplus_file; do
   printf '%s  %s\n' "$surplus_hash" "$surplus_stage/$surplus_file" | sha256sum --check --status
   chmod 0444 "$surplus_stage/$surplus_file"
 done <<'MANIFEST'
-af3eed3e1cb12378f4e26d14f9336028e22744938c9d8c6db7e54b25725e6764 add_menu.php
-7320036d9d49df61ac44349980b71dfa397ba664d935c9741fcaacb0be7a4375 test.php
+e71871b63f3e46f9df69f178b9be7101533bb681be787de7e3cf4b6e1e4df146 add_menu.php
+a95d7fff16aa5c3ca905a2efebb89977980cc123b0b1cfa71b0950316ef35367 test.php
+60dbb8a6cbd0eb7062182243c096b17666ba0739626ef86d2575c24e124ecbb8 deployed-schema-columns.json
 3004ded40f36593ac76e178aaadb263d82276bf980c5301c4fe3836428424aca assets.json
 ff2ec965e1dd6753a35375fdc58363488e2d692e782e6f070a3a7949c93df37c assets/egp-1.jpg
 b86e6c127e6b16a1c179adeb5490a11454559f5e508b09b341837d50420e6fc9 assets/egp-5.jpg

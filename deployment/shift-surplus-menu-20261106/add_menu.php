@@ -127,6 +127,32 @@ function sm_summary(array $plan,array $assets): array {
 function sm_filter(string $table,array $row): array {
     return array_intersect_key($row,array_flip(Schema::getColumnListing($table)));
 }
+
+/** The deployed menu row belongs to a restaurant; its owner user_id is on resturants. */
+function sm_required_schema(): array {
+    return ['products'=>['id','added_by','name_ar','category_id','status'],
+        'categories'=>['id','name_ar','parent_id','status'],
+        'resturants'=>['id','parent_id','name','user_id','added_by'],
+        'resturant_products'=>['id','added_by','resturant_id','product_id','category_id','product_name','product_price','price','status'],
+        'media'=>['id','model_type','model_id','collection_name','disk','file_name','custom_properties']];
+}
+function sm_validate_schema(array $actual): void {
+    foreach (sm_required_schema() as $table=>$columns) {
+        if (!isset($actual[$table])) sm_fail('SCHEMA_TABLE_MISSING_'.$table);
+        $missing=array_values(array_diff($columns,$actual[$table]));
+        if ($missing) sm_fail('SCHEMA_COLUMNS_MISSING_'.$table.':'.implode(',',$missing));
+    }
+}
+function sm_menu_values(array $branch,int $branchId,int $value,int $productId,int $categoryId,string $when,array $columns): array {
+    return array_intersect_key(['added_by'=>(int)($branch['added_by']??1),
+        'user_id'=>$branch['user_id'],'resturant_id'=>$branchId,'product_id'=>$productId,'category_id'=>$categoryId,
+        'product_name'=>sm_name($value),'name_ar'=>sm_name($value),'name_en'=>sm_name($value),
+        'product_price'=>number_format($value,2,'.',''),'price'=>sm_json(array_fill_keys(
+            ['extra_combo','extra_large','extra_medium','extra_clean','extra_clear','extra_vacuim'],null)),
+        'prices'=>'{}','product_description'=>'زيادة وردية بقيمة '.$value.' جنيه',
+        'description'=>'زيادة وردية بقيمة '.$value.' جنيه','status'=>'show','highest_rated'=>'no',
+        'created_at'=>$when,'updated_at'=>$when],array_flip($columns));
+}
 function sm_save(string $path,array $data): void {
     $bytes=sm_json($data)."\n"; $h=fopen($path,'x+b'); if (!$h) sm_fail('BACKUP_OPEN_FAILED');
     try {
@@ -165,14 +191,8 @@ function sm_apply(array $assets): array {
                 $value=$item['value']; $id=$item['existing']['id']??null;
                 if (!$id) {
                     $branch=$plan['branches'][$item['branch_id']];
-                    $row=sm_filter('resturant_products',['added_by'=>(int)($branch['added_by']??1),
-                        'user_id'=>$branch['user_id'],'resturant_id'=>$item['branch_id'],
-                        'product_id'=>(int)$plan['catalog'][$value]['id'],'category_id'=>(int)$plan['category']['id'],
-                        'product_name'=>sm_name($value),'name_ar'=>sm_name($value),'name_en'=>sm_name($value),
-                        'product_price'=>number_format($value,2,'.',''),'price'=>sm_json(array_fill_keys(
-                            ['extra_combo','extra_large','extra_medium','extra_clean','extra_clear','extra_vacuim'],null)),
-                        'prices'=>'{}','description'=>'زيادة وردية بقيمة '.$value.' جنيه','status'=>'show',
-                        'created_at'=>$when,'updated_at'=>$when]);
+                    $row=sm_menu_values($branch,$item['branch_id'],$value,(int)$plan['catalog'][$value]['id'],
+                        (int)$plan['category']['id'],$when,Schema::getColumnListing('resturant_products'));
                     $id=DB::table('resturant_products')->insertGetId($row); $createdMenu[]=$id;
                 }
                 $model=ResturantProduct::withoutGlobalScopes()->findOrFail($id);
@@ -207,12 +227,9 @@ function sm_preflight(): void {
     if (!in_array(strtolower((string)parse_url(config('app.url'),PHP_URL_HOST)),['fasakhaninja.com','www.fasakhaninja.com'],true)) sm_fail('PRIMARY_DOMAIN_REQUIRED');
     $owner=DB::table('users')->where('id',1)->first();
     if (!$owner || $owner->account_type!=='admin' || $owner->status!=='accepted') sm_fail('PRIMARY_OWNER_REQUIRED');
-    $required=['products'=>['id','added_by','name_ar','category_id','status'],
-        'categories'=>['id','name_ar','parent_id','status'],
-        'resturants'=>['id','parent_id','name','user_id','added_by'],
-        'resturant_products'=>['id','added_by','user_id','resturant_id','product_id','category_id','product_name','product_price','price','status'],
-        'media'=>['id','model_type','model_id','collection_name','disk','file_name','custom_properties']];
-    foreach ($required as $table=>$columns) if (!Schema::hasTable($table) || array_diff($columns,Schema::getColumnListing($table))) sm_fail('SCHEMA_MISSING_'.$table);
+    $required=sm_required_schema(); $actual=[];
+    foreach ($required as $table=>$_) if (Schema::hasTable($table)) $actual[$table]=Schema::getColumnListing($table);
+    sm_validate_schema($actual);
     $engines=DB::select('SELECT TABLE_NAME AS name, ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME IN (?,?,?,?,?)',
         array_merge([$db->getDatabaseName()],array_keys($required)));
     if (count($engines)!==count($required)) sm_fail('TABLE_ENGINE_MISSING');

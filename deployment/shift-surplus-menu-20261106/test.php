@@ -42,4 +42,23 @@ sm_reject(fn()=>sm_plan($branches,$cats,$products,$bad),'Never relink a conflict
 $bad=$menus; $bad[0]['category_id']=9;
 sm_reject(fn()=>sm_plan($branches,$cats,$products,$bad),'Never move a conflicting existing item');
 $assets=sm_assets(); sm_expect(count($assets)===4,'All four correct JPEG files and hashes must validate');
+$fixture=json_decode(file_get_contents(__DIR__.'/deployed-schema-columns.json'),true,512,JSON_THROW_ON_ERROR);
+sm_validate_schema($fixture['tables']);
+$columns=$fixture['tables']['resturant_products'];
+sm_expect(!in_array('user_id',$columns,true),'Regression fixture must use the deployed menu table without user_id');
+foreach (SM_VALUES as $v) {
+    $row=sm_menu_values(['added_by'=>1,'user_id'=>635],301,$v,900+$v,5,'2026-11-06 04:00:00',$columns);
+    sm_expect(!array_diff(array_keys($row),$columns) && !array_key_exists('user_id',$row),
+        'Insert must contain only actual menu columns, without inventing a schema migration');
+    sm_expect($row['resturant_id']===301 && $row['added_by']===1 && $row['product_id']===900+$v,
+        'Restaurant, actor and shared catalog links must remain valid without a menu user_id');
+    sm_expect($row['product_price']===number_format($v,2,'.','') && $row['product_name']===sm_name($v)
+        && $row['product_description']==='زيادة وردية بقيمة '.$v.' جنيه' && $row['status']==='show',
+        'All four items must retain their exact approved price, name, description and visibility');
+}
+$old=$fixture['tables']; $old['resturant_products'][]='user_id'; sm_validate_schema($old);
+$bad=$fixture['tables']; $bad['resturant_products']=array_values(array_diff($columns,['product_price']));
+sm_reject(fn()=>sm_validate_schema($bad),'Missing real price column must still block');
+$bad=$fixture['tables']; unset($bad['resturant_products']);
+sm_reject(fn()=>sm_validate_schema($bad),'Missing actual menu table must still block');
 echo "SHIFT_SURPLUS_MENU_TESTS_OK\n";
