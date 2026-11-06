@@ -16,7 +16,7 @@
             @endforeach
         </select></label>
         <div class="dp-cashier"><span class="dp-avatar"><i class="far fa-user" aria-hidden="true"></i></span><span><strong>{{ __('dining.cashier') }}</strong><small>{{ $dining['cashier']['name'] ?? auth('admin')->user()->name }}</small></span></div>
-        <div class="dp-header-actions"><button type="button" data-dining-daily><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('dining.daily_invoices') }}<strong data-dining-day-count hidden></strong></button><button type="button" data-dining-register><i class="fas fa-cash-register" aria-hidden="true"></i>{{ __('dining.cash_register') }}<bdi data-dining-register-balance>—</bdi></button><button type="button" data-dining-settings @if(empty($dining['permissions']['can_manage_tables'])) hidden @endif><i class="fas fa-sliders-h" aria-hidden="true"></i>{{ __('dining.floor_settings') }}</button></div>
+        <div class="dp-header-actions"><button type="button" data-dining-history><i class="far fa-calendar-alt" aria-hidden="true"></i>{{ __('takeaway.invoice_history') }}</button><button type="button" data-dining-daily><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('dining.daily_invoices') }}<strong data-dining-day-count hidden></strong></button><button type="button" data-dining-register><i class="fas fa-cash-register" aria-hidden="true"></i>{{ __('dining.cash_register') }}<bdi data-dining-register-balance>—</bdi></button><button type="button" data-dining-settings @if(empty($dining['permissions']['can_manage_tables'])) hidden @endif><i class="fas fa-sliders-h" aria-hidden="true"></i>{{ __('dining.floor_settings') }}</button></div>
     </header>
     <div class="dp-notice" data-dining-message role="status" aria-live="polite" hidden><span></span><button type="button" data-dining-retry hidden>{{ __('dining.retry') }}</button></div>
     <div class="dp-workspace">
@@ -85,6 +85,7 @@
 @push('custom-js')
 <script type="application/json" id="dining-bootstrap">@json($dining)</script>
 <script type="application/json" id="dining-translations">@json(trans('dining'))</script>
+<script type="application/json" id="dining-history-translations">@json(trans('takeaway'))</script>
 <script src="{{ asset('dashboard/js/dining-pos.js') }}?v={{ filemtime(public_path('dashboard/js/dining-pos.js')) }}"></script>
 @endpush
 

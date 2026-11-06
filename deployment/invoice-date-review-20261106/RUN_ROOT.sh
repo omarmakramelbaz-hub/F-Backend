@@ -19,7 +19,7 @@ while read -r invoice_hash invoice_file; do
     printf '%s  %s\n' "$invoice_hash" "$invoice_stage/$invoice_file" | sha256sum --check --status
     chmod 0444 "$invoice_stage/$invoice_file"
 done <<'INVOICE_DATE_FILES'
-b3695c4a40878b7112a1fde1fd723f10633e94704da7c57bf1467ea6905ac162 apply_root.py
-4017920e9d60ec831f31b796b8c2f5779e887bbf0a99224c3a79c8ce88dab779 patch_spec.json
+4c52c2f01dd2f1e0c42fe41fb14cd9a0114ccaa114e4be9378c64f7f65b8fd16 apply_root.py
+917685cf39b457cb2b56c27b92ecdaf35934ad204c7b1740452e01f27a1cf6af patch_spec.json
 INVOICE_DATE_FILES
 python3 -I -B "$invoice_stage/apply_root.py" "$invoice_stage/patch_spec.json" "$invoice_mode"

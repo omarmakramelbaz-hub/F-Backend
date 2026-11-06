@@ -22,6 +22,19 @@ PATHS = {
     'public/dashboard/css/takeaway-pos.css',
     'resources/lang/ar/takeaway.php',
     'resources/lang/en/takeaway.php',
+    'public/dashboard/js/dashboard-invoice-details.js',
+    'public/dashboard/css/dining-pos.css',
+    'public/dashboard/css/phone-orders.css',
+    'public/dashboard/js/dining-pos.js',
+    'public/dashboard/js/phone-orders.js',
+    'resources/views/admin/dining/index.blade.php',
+    'resources/views/admin/phone_orders/index.blade.php',
+}
+APPEND_MARKERS = {
+    'public/dashboard/css/takeaway-pos.css': {'/* invoice-date-review-20261106 */', '/* invoice-date-review-all-20261106 */'},
+    'public/dashboard/css/dining-pos.css': {'/* invoice-date-review-all-20261106 */'},
+    'public/dashboard/css/phone-orders.css': {'/* invoice-date-review-all-20261106 */'},
+    'public/dashboard/js/dashboard-invoice-details.js': {'// invoice-date-review-all-20261106'},
 }
 
 
@@ -54,32 +67,57 @@ def compatibility(project):
         return re.split(r'\n\s*(?:public|private|protected)\s+function\s+', text[match.end():], maxsplit=1)[0]
     action = receipts(controller)
     listing = receipts(service)
+    def versioned(text, assets):
+        return all(re.search(r"filemtime\(\s*public_path\(\s*['\"]dashboard/" + re.escape(asset) + r"['\"]\s*\)\s*\)", text)
+                   for asset in assets)
     if ('date_format:Y-m-d' not in action or not re.search(r"\$values\s*\[\s*['\"]date['\"]\s*\]", listing)
             or not re.search(r"where\(\s*['\"]business_date['\"]\s*,\s*\$date\s*\)", listing)
-            or any(not re.search(r"filemtime\(\s*public_path\(\s*['\"]dashboard/" + asset + r"['\"]\s*\)\s*\)", view)
-                   for asset in ['js/takeaway-pos.js', 'css/takeaway-pos.css'])):
+            or not versioned(view, ['js/takeaway-pos.js', 'css/takeaway-pos.css'])):
         raise RuntimeError('INVOICE_HISTORY_DATE_API_REQUIRED')
+    footer = source('resources/views/admin/layouts/footer.blade.php')
+    helper = footer.find('dashboard/js/dashboard-invoice-details.js')
+    stack = re.search(r"@stack\(\s*['\"]custom-js['\"]\s*\)", footer)
+    if (helper < 0 or not stack or helper >= stack.start()
+            or not versioned(footer, ['js/dashboard-invoice-details.js'])
+            or not versioned(source('resources/views/admin/dining/index.blade.php'), ['js/dining-pos.js', 'css/dining-pos.css'])
+            or not versioned(source('resources/views/admin/phone_orders/index.blade.php'), ['js/phone-orders.js', 'css/phone-orders.css'])):
+        raise RuntimeError('INVOICE_HISTORY_SHARED_ASSETS_REQUIRED')
 
 
-def patch_text(current, item):
-    if 'append' in item:
-        addition = item['append']
-        marker = '/* invoice-date-review-20261106 */'
-        if item['path'] != 'public/dashboard/css/takeaway-pos.css' or not isinstance(addition, str) or marker not in addition or not addition.strip():
-            raise RuntimeError('INVOICE_HISTORY_INVALID_APPEND')
-        if current.count(addition) == 1 and current.count(marker) == 1:
-            return current
-        if marker in current:
-            raise RuntimeError('INVOICE_HISTORY_CSS_MARKER_CHANGED')
-        return current + addition
-    old, new = item.get('old'), item.get('new')
+def replace_text(current, replacement, relative):
+    old, new = replacement.get('old'), replacement.get('new')
     if not isinstance(old, str) or not isinstance(new, str) or not old or not new or old == new:
         raise RuntimeError('INVOICE_HISTORY_INVALID_REPLACEMENT')
     if current.count(new) == 1 and current.replace(new, '', 1).count(old) == 0:
         return current
     if current.count(old) != 1 or current.count(new) != 0:
-        raise RuntimeError('INVOICE_HISTORY_SOURCE_CHANGED: ' + item['path'])
+        raise RuntimeError('INVOICE_HISTORY_SOURCE_CHANGED: ' + relative)
     return current.replace(old, new, 1)
+
+
+def patch_text(current, item):
+    if 'append' in item:
+        addition = item['append']
+        marker = item.get('marker', '/* invoice-date-review-20261106 */')
+        if (marker not in APPEND_MARKERS.get(item['path'], set()) or not isinstance(addition, str)
+                or addition.count(marker) != 1 or not addition.strip() or 'replacements' in item
+                or 'old' in item or 'new' in item):
+            raise RuntimeError('INVOICE_HISTORY_INVALID_APPEND')
+        if current.count(addition) == 1 and current.count(marker) == 1:
+            return current
+        if marker in current:
+            raise RuntimeError('INVOICE_HISTORY_APPEND_MARKER_CHANGED: ' + item['path'])
+        return current + addition
+    if 'replacements' in item:
+        replacements = item['replacements']
+        if not isinstance(replacements, list) or not replacements or 'old' in item or 'new' in item:
+            raise RuntimeError('INVOICE_HISTORY_INVALID_REPLACEMENTS')
+        for replacement in replacements:
+            if not isinstance(replacement, dict):
+                raise RuntimeError('INVOICE_HISTORY_INVALID_REPLACEMENTS')
+            current = replace_text(current, replacement, item['path'])
+        return current
+    return replace_text(current, item, item['path'])
 
 
 def plan(project, spec):
@@ -145,11 +183,51 @@ def stage_candidate(stage, changes):
     return candidate
 
 
+def php_candidates():
+    # EA82 is the established application runtime on this cPanel host. Support
+    # other installed EA versions and standard CLI paths without installing one.
+    candidates = ['/opt/cpanel/ea-php82/root/usr/bin/php']
+    def version(path):
+        match = re.search(r'/ea-php([0-9]+)/', str(path))
+        return int(match.group(1)) if match else 0
+    candidates.extend(str(path) for path in sorted(Path('/opt/cpanel').glob('ea-php*/root/usr/bin/php'), key=version, reverse=True))
+    candidates.extend(shutil.which(name) for name in ['php', 'php8.2', 'php82', 'php8.3', 'php83', 'php8.4', 'php84', 'php8.1', 'php81'])
+    candidates.extend(['/usr/local/bin/php', '/usr/bin/php'])
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
+def usable_php(candidate):
+    if not os.path.isfile(candidate) or not os.access(candidate, os.X_OK):
+        return False
+    try:
+        result = subprocess.run(
+            ['runuser', '-u', 'fasakha', '--', candidate, '-n', '-r',
+             'if (PHP_SAPI === "cli") { fwrite(STDOUT, "INVOICE_HISTORY_CLI"); }'],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and result.stdout == 'INVOICE_HISTORY_CLI'
+
+
+def resolve_dependencies():
+    php = next((candidate for candidate in php_candidates() if usable_php(candidate)), None)
+    if not php:
+        raise RuntimeError('INVOICE_HISTORY_PHP_REQUIRED')
+    # JavaScript is tested before this pinned release is published. Node is an
+    # additional server check when already installed, not a runtime dependency.
+    return php, shutil.which('node') or shutil.which('nodejs')
+
+
 def syntax_check(project, candidate, php, node):
+    if not php:
+        raise RuntimeError('INVOICE_HISTORY_PHP_REQUIRED')
     prefix = ['runuser', '-u', 'fasakha', '--']
-    run(prefix + [node, '--check', str(candidate / 'public/dashboard/js/takeaway-pos.js')], project, 'javascript-syntax')
-    for locale in ['ar', 'en']:
-        run(prefix + [php, '-l', str(candidate / ('resources/lang/' + locale + '/takeaway.php'))], project, locale + '-translation-syntax')
+    for relative in sorted(PATHS):
+        if relative.endswith('.php'):
+            run(prefix + [php, '-l', str(candidate / relative)], project, 'php-syntax:' + relative)
+        elif relative.endswith('.js') and node:
+            run(prefix + [node, '--check', str(candidate / relative)], project, 'javascript-syntax:' + relative)
+    return {'php': 'passed', 'javascript': 'passed' if node else 'skipped_no_node_prevalidated_locally'}
 
 
 def apply_plan(project, changes, backup, verify):
@@ -201,12 +279,7 @@ def main():
     account = pwd.getpwnam('fasakha')
     if project.resolve() != project or not (project / 'artisan').is_file() or project.stat().st_uid != account.pw_uid:
         raise RuntimeError('INVOICE_HISTORY_APPLICATION_REQUIRED')
-    php = '/opt/cpanel/ea-php82/root/usr/bin/php'
-    if not os.access(php, os.X_OK):
-        php = shutil.which('php')
-    node = shutil.which('node') or shutil.which('nodejs')
-    if not php or not node:
-        raise RuntimeError('INVOICE_HISTORY_PHP_AND_NODE_REQUIRED')
+    php, node = resolve_dependencies()
     spec_path = Path(sys.argv[1]).resolve()
     stage = spec_path.parent
     if any(p.is_symlink() for p in [spec_path, *spec_path.parents]) or not spec_path.is_file():
@@ -217,9 +290,9 @@ def main():
         compatibility(project)
         changes = plan(project, spec)
         candidate = stage_candidate(stage, changes)
-        syntax_check(project, candidate, php, node)
+        validation_status = syntax_check(project, candidate, php, node)
         if sys.argv[2] == '--check':
-            print(json.dumps({'status': 'INVOICE_DATE_REVIEW_READY', 'changed_files': sum(x['before'] != x['after'] for x in changes), 'order_data_changed': False}))
+            print(json.dumps({'status': 'INVOICE_DATE_REVIEW_READY', 'changed_files': sum(x['before'] != x['after'] for x in changes), 'order_data_changed': False, 'channels': ['takeaway', 'dine', 'phone'], 'validation_status': validation_status}))
             return
         backup_root = Path('/home/fasakha/go-invoice-history-backups')
         if backup_root.resolve() != backup_root or backup_root.is_symlink():
@@ -230,12 +303,12 @@ def main():
             raise RuntimeError('INVOICE_HISTORY_PRIVATE_BACKUP_REQUIRED')
         backup = backup_root / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + os.urandom(4).hex())
         def verify():
-            syntax_check(project, project, php, node)
+            validation_status.update(syntax_check(project, project, php, node))
             for item in changes:
                 if destination(project, item['path']).read_bytes() != item['after']:
                     raise RuntimeError('INVOICE_HISTORY_INSTALLED_HASH_CHANGED')
         count = apply_plan(project, changes, backup, verify)
-        print(json.dumps({'status': 'INVOICE_DATE_REVIEW_APPLIED_AND_VERIFIED', 'changed_files': count, 'backup': str(backup) if count else None, 'order_data_changed': False}))
+        print(json.dumps({'status': 'INVOICE_DATE_REVIEW_APPLIED_AND_VERIFIED', 'changed_files': count, 'backup': str(backup) if count else None, 'order_data_changed': False, 'channels': ['takeaway', 'dine', 'phone'], 'validation_status': validation_status}))
 
 
 if __name__ == '__main__':

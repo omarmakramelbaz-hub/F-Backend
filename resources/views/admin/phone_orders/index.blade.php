@@ -10,6 +10,7 @@
     <header class="ph-header"><div class="ph-heading"><span class="ph-heading-icon"><i class="fas fa-phone-alt" aria-hidden="true"></i></span><div><h1 id="phone-orders-title">{{ __('phone_orders.title') }}</h1><p>{{ __('phone_orders.unified_hint') }}</p></div></div>
         <label class="ph-branch"><i class="fas fa-map-marker-alt" aria-hidden="true"></i><span class="ph-sr-only">{{ __('phone_orders.branch') }}</span><select data-phone-branch><option value="">{{ __('phone_orders.select_branch') }}</option>@foreach($phonePos['branches'] ?? [] as $branch)<option value="{{ $branch['value'] }}" @if((string)($phonePos['selected_branch'] ?? '') === (string)$branch['value']) selected @endif>{{ $branch['name'] }}</option>@endforeach</select></label>
         <div data-phone-orders-branch-slot></div>
+        <button type="button" class="ph-new-order" data-phone-history><i class="far fa-calendar-alt" aria-hidden="true"></i>{{ __('takeaway.invoice_history') }}</button>
         <button type="button" class="ph-new-order" data-phone-new-order><i class="fas fa-plus" aria-hidden="true"></i>{{ __('phone_orders.new_order') }}</button>
     </header>
     <div class="ph-notice" data-phone-message role="status" aria-live="polite" hidden><span></span><button type="button" data-phone-retry hidden>{{ __('phone_orders.retry') }}</button></div>
@@ -59,6 +60,7 @@
 @push('custom-js')
 <script type="application/json" id="phone-orders-bootstrap">@json($phonePos)</script>
 <script type="application/json" id="phone-orders-translations">@json(trans('phone_orders'))</script>
+<script type="application/json" id="phone-history-translations">@json(trans('takeaway'))</script>
 @include('admin.maps.assets')
 <script src="{{ asset('dashboard/js/phone-address-search.js') }}?v={{ filemtime(public_path('dashboard/js/phone-address-search.js')) }}"></script>
 <script src="{{ asset('dashboard/js/phone-orders.js') }}?v={{ filemtime(public_path('dashboard/js/phone-orders.js')) }}"></script>
