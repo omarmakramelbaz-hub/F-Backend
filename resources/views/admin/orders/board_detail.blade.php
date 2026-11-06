@@ -1,3 +1,6 @@
+@if($printing)
+    @include('admin.printing.order_receipt')
+@else
 @php
     $money = static function ($value) {
         return is_numeric($value) ? number_format((float) $value, 2, '.', ',') : $value;
@@ -115,3 +118,5 @@
 @if($printing && !request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
 </body>
 </html>
+
+@endif

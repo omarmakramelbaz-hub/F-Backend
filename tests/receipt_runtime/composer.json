@@ -1,0 +1,9 @@
+{
+  "name": "fasakhansta/receipt-test-runtime",
+  "description": "Isolated Laravel 8 Blade renderer for thermal receipt fixtures; no production database",
+  "require": {
+    "php": "^8.2",
+    "laravel/framework": "^8.83"
+  },
+  "config": {"allow-plugins": false, "sort-packages": true, "platform": {"php": "8.2.0"}}
+}
