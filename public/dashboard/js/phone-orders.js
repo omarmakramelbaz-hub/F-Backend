@@ -430,6 +430,19 @@
         modalGeneration++; abort('modal'); if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title;
         var content = root.querySelector('[data-phone-modal-content]'); content.replaceChildren(element('p', 'ph-empty', text('loading'))); modal.querySelector('[role="dialog"]').focus(); return content;
     }
+    function invoiceHistory(page, date) {
+        if (locked()) return;
+        if (!branch && !boot.can_view_all_branches) { notify(text('select_branch')); return; }
+        var historyLabels = JSON.parse(document.querySelector('#phone-history-translations').textContent);
+        var content = openModal(historyLabels.invoice_history), generation = modalGeneration, selectedBranch = branch;
+        var controller = begin('modal');
+        return window.DashboardInvoiceHistory.show({ content: content, labels: historyLabels, url: urls.receipts,
+            branch: branch || 'all', page: page, date: date, initialDate: boot.today && boot.today.date,
+            signal: controller.signal, endpoint: endpoint, read: function (response) { return read(response, 'load_error'); }, money: money,
+            isCurrent: function () { return !disposed && !modal.hidden && generation === modalGeneration && selectedBranch === branch; },
+            reload: invoiceHistory, print: print, canReprint: function (item) { return item.can_reprint !== false && permissions.can_reprint !== false && (!boot.permissions || boot.permissions.can_reprint !== false); }
+        });
+    }
     function closeModal() { if (locked()) { notify(text('locked'), false, true); return; } modalGeneration++; abort('modal'); modal.hidden = true; if (modalFocus && modalFocus.isConnected) modalFocus.focus(); }
     async function print(url, closeAfter) { try { if (!window.DashboardPrint) throw new Error('Missing printer'); await window.DashboardPrint.print(endpoint(url)); if(closeAfter&&!modal.hidden&&!locked())closeModal(); } catch (_) { notify(text('print_error'), false); } }
     function button(label, callback, className) { var control = element('button', className || '', text(label)); control.type = 'button';var icon={details:'far fa-file-alt',view_order:'far fa-file-alt',order_actions:'fas fa-ellipsis-h',kitchen_order:'fas fa-utensils',print_order:'fas fa-print',finish_collect:'fas fa-check-circle',edit_order:'far fa-edit',kitchen:'fas fa-utensils',receipt:'fas fa-print',collect:'fas fa-check-circle',edit:'far fa-edit',cancel:'fas fa-times'}[label];if(icon){var glyph=element('i',icon);glyph.setAttribute('aria-hidden','true');control.prepend(glyph);} control.addEventListener('click', callback); return control; }
@@ -791,6 +804,7 @@
         if (control.hasAttribute('data-phone-delivery-auto')) { manualDeliveryFee=false; fields.delivery_fee.value=deliveryLocation?(deliveryLocation.calculated_delivery_fee||deliveryLocation.delivery_fee):'0.00'; changed(true); if(!deliveryLocation)confirmLocation(true); return; }
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
+        if (control.hasAttribute('data-phone-history')) return invoiceHistory();
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
         if (control.hasAttribute('data-phone-new-order')) { if (dirty && !window.confirm(text('new_warning'))) return; resetDraft(); notify(''); return switchView('compose'); }
         if (control.dataset.phoneProduct !== undefined) return chooseProduct(products.get(control.dataset.phoneProduct));
