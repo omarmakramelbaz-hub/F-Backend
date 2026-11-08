@@ -57,7 +57,8 @@ class BranchInventory
     {
         abort_unless(DB::transactionLevel()>0&&preg_match('/^f:[1-9][0-9]*$/D',$branch),503,'توريد المصروف يحتاج معاملة الفرع.');
         $this->ready();abort_unless($units>0&&$units<=1000000000000,422,'كمية مشتريات البضاعة غير صالحة.');
-        $i=$this->ingredientList()[$ingredientId]??null;abort_unless($i&&$i['unit']==='kg',409,'صنف مشتريات البضاعة غير صالح.');
+        $i=$this->ingredientList()[$ingredientId]??null;abort_unless($i&&in_array($i['unit'],['kg','piece'],true),409,'صنف مشتريات البضاعة غير صالح.');
+        abort_if($i['unit']==='piece'&&$units%1000000!==0,422,'توريد القطع يجب أن يكون عددًا صحيحًا.');
         $r=$this->lockedStock($branch,$ingredientId);$type=$reverse?'expense_reverse':'expense';$delta=$reverse?-$units:$units;
         $old=DB::table('branch_inventory_movements')->where('stock_id',$r->id)->where('source_type',$type)->where('source_id',(string)$expenseId)->first();
         if($old){abort_unless((int)$old->quantity_units===$delta,409,'حركة بضاعة المصروف مسجلة بكمية مختلفة.');return (int)$old->id;}
