@@ -13,6 +13,10 @@
         <button type="button" class="ph-new-order" data-phone-history><i class="far fa-calendar-alt" aria-hidden="true"></i>{{ __('takeaway.invoice_history') }}</button>
         <button type="button" class="ph-new-order" data-phone-new-order><i class="fas fa-plus" aria-hidden="true"></i>{{ __('phone_orders.new_order') }}</button>
     </header>
+    <section class="ph-rating" data-phone-rating hidden aria-labelledby="phone-rating-title">
+        <header><h2 id="phone-rating-title" data-phone-rating-title>تقييم أداء الفروع</h2><div class="ph-rating-periods" role="group" aria-label="الفترة"><button type="button" data-phone-rating-period="0" aria-pressed="true">اليوم</button><button type="button" data-phone-rating-period="6" aria-pressed="false">آخر 7 أيام</button><button type="button" data-phone-rating-period="29" aria-pressed="false">آخر 30 يوم</button></div></header>
+        <div class="ph-rating-list" data-phone-rating-list></div>
+    </section>
     <div class="ph-notice" data-phone-message role="status" aria-live="polite" hidden><span></span><button type="button" data-phone-retry hidden>{{ __('phone_orders.retry') }}</button></div>
     <section class="ph-compose-panel" aria-label="{{ __('phone_orders.new_order') }}">
     <nav class="ph-flow" aria-label="{{ __('phone_orders.order_steps') }}"><ol class="ph-steps">@foreach(['number'=>'phone', 'details'=>'customer', 'products'=>'products'] as $step=>$label)<li data-phone-progress="{{ $step }}"><b>{{ $loop->iteration }}</b><span>{{ __('phone_orders.'.$label) }}</span></li>@endforeach</ol><span data-phone-step-label>{{ __('phone_orders.step_number') }}</span><span data-phone-selected-branch></span><span data-phone-printer-status role="status"></span>@if(!empty($phonePos['receiver_branch']))<a class="ph-printer-setup" href="{{ asset('dashboard/start-branch-pos-printing.cmd') }}" download>{{ __('phone_orders.printer_setup') }}</a>@endif</nav>
@@ -50,7 +54,7 @@
     </div>
     </section>
     <section class="ph-orders ph-panel" data-phone-orders aria-label="{{ __('phone_orders.saved_orders') }}" tabindex="-1">
-        <header class="ph-panel-heading"><h2><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</h2><button type="button" data-phone-clear-company @if(empty($phonePos['company_filter'])) hidden @endif>{{ __('phone_orders.all_companies') }}</button><button type="button" data-phone-performance><i class="fas fa-stopwatch" aria-hidden="true"></i>تقييم الفروع</button><button type="button" data-phone-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i>{{ __('phone_orders.refresh') }}</button></header>
+        <header class="ph-panel-heading"><h2><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</h2><button type="button" data-phone-clear-company @if(empty($phonePos['company_filter'])) hidden @endif>{{ __('phone_orders.all_companies') }}</button><button type="button" data-phone-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i>{{ __('phone_orders.refresh') }}</button></header>
         <div class="ph-batch-bar"><div><strong data-phone-batch-total>{{ __('phone_orders.select_orders') }}</strong><small>{{ __('phone_orders.same_courier') }}</small></div><button type="button" class="ph-batch-finish" data-phone-batch-finish disabled>{{ __('phone_orders.finish_orders') }}</button></div>
         <div class="ph-delivery-board" data-phone-order-list></div>
     </section>

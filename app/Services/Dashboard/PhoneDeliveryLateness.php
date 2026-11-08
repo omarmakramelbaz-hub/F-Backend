@@ -94,19 +94,33 @@ class PhoneDeliveryLateness
         foreach ($names as $value => $name) {
             $s = $stats[$value] ?? null;
             if (!$s) { $result['branches'][] = ['branch'=>$value, 'name'=>$name, 'orders'=>0, 'late_preparing'=>0, 'late_delivery'=>0, 'late'=>0,
-                'avg_preparing_minutes'=>null, 'avg_total_minutes'=>null, 'on_time_percent'=>null, 'grade'=>null]; continue; }
+                'avg_preparing_minutes'=>null, 'avg_total_minutes'=>null, 'on_time_percent'=>null, 'grade'=>null, 'grade_key'=>null]; continue; }
             $onTime = round(100 * ($s['orders'] - $s['late']) / $s['orders'], 1);
             $result['branches'][] = ['branch'=>$value, 'name'=>$name, 'orders'=>$s['orders'], 'late_preparing'=>$s['late_preparing'],
                 'late_delivery'=>$s['late_delivery'], 'late'=>$s['late'], 'avg_preparing_minutes'=>round($s['preparing_minutes'] / $s['orders'], 1),
-                'avg_total_minutes'=>round($s['total_minutes'] / $s['orders'], 1), 'on_time_percent'=>$onTime, 'grade'=>self::grade($onTime)];
+                'avg_total_minutes'=>round($s['total_minutes'] / $s['orders'], 1), 'on_time_percent'=>$onTime, 'grade'=>self::grade($onTime), 'grade_key'=>self::gradeKey($onTime)];
         }
         usort($result['branches'], fn ($a, $b) => [$b['orders'] > 0, $b['on_time_percent'] ?? -1, $b['orders']] <=> [$a['orders'] > 0, $a['on_time_percent'] ?? -1, $a['orders']]);
         return $result;
     }
 
+    /** Four grades by the share of orders on time: ممتاز (green), جيد (blue), ضعيف (yellow), ضعيف جدًا (red). */
+    public const GRADES = [[90, 'excellent', 'ممتاز'], [75, 'good', 'جيد'], [50, 'weak', 'ضعيف'], [0, 'very_weak', 'ضعيف جدًا']];
+
     public static function grade(float $onTime): string
     {
-        return $onTime >= 95 ? 'ممتاز' : ($onTime >= 85 ? 'جيد جدًا' : ($onTime >= 70 ? 'جيد' : ($onTime >= 50 ? 'ضعيف' : 'سيئ')));
+        return self::gradeOf($onTime)[2];
+    }
+
+    public static function gradeKey(float $onTime): string
+    {
+        return self::gradeOf($onTime)[1];
+    }
+
+    private static function gradeOf(float $onTime): array
+    {
+        foreach (self::GRADES as $grade) if ($onTime >= $grade[0]) return $grade;
+        return end(self::GRADES);
     }
 
     private function branches($actor): array

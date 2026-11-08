@@ -443,40 +443,38 @@
             reload: invoiceHistory, print: print, canReprint: function (item) { return item.can_reprint !== false && permissions.can_reprint !== false && (!boot.permissions || boot.permissions.can_reprint !== false); }
         });
     }
-    // The branches' rating: of the delivery orders collected in a period, how many were late (15 minutes preparing,
-    // 35 minutes until collected), the average times and the share on time.
-    function performance(from, to) {
-        if (!urls.performance) return;
-        var today = new Date(Date.now() - (new Date().getHours() < 6 ? 86400000 : 0)), day = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-        to = to || day(today); from = from || to;
-        var content = openModal('تقييم أداء الفروع في توصيل الدليفري'), generation = modalGeneration;
-        var bar = element('div', 'ph-performance-bar'), fromInput = element('input'), toInput = element('input');
-        fromInput.type = toInput.type = 'date'; fromInput.value = from; toInput.value = to; fromInput.setAttribute('data-fp-omit', ''); toInput.setAttribute('data-fp-omit', '');
-        var range = function (days) { var end = new Date(today), start = new Date(today); start.setDate(start.getDate() - days); return [day(start), day(end)]; };
-        [['اليوم', range(0)], ['آخر 7 أيام', range(6)], ['آخر 30 يوم', range(29)]].forEach(function (pair) { var b = element('button', '', pair[0]); b.type = 'button'; b.addEventListener('click', function () { performance(pair[1][0], pair[1][1]); }); bar.appendChild(b); });
-        var fromLabel = element('label', '', 'من '), toLabel = element('label', '', 'إلى '), show = element('button', 'ph-performance-show', 'عرض');
-        fromLabel.appendChild(fromInput); toLabel.appendChild(toInput); show.type = 'button'; show.addEventListener('click', function () { performance(fromInput.value, toInput.value); });
-        bar.appendChild(fromLabel); bar.appendChild(toLabel); bar.appendChild(show);
-        var body = element('div', 'ph-performance-body'); body.appendChild(element('p', 'ph-empty', text('loading')));
-        content.replaceChildren(bar, body);
-        (async function () {
-            try {
-                var result = await read(await get(urls.performance, {from: from, to: to}), 'list_error');
-                if (disposed || generation !== modalGeneration) return;
-                var policy = result.policy || {}, wrap = element('div', 'ph-performance-table'), table = element('table'), head = element('tr');
-                ['الفرع', 'طلبات اتحصّلت', 'متأخر في التجهيز', 'متأخر في التوصيل', 'متوسط التجهيز', 'متوسط زمن الطلب', 'في الوقت', 'التقييم'].forEach(function (h) { head.appendChild(element('th', '', h)); });
-                var thead = element('thead'); thead.appendChild(head); table.appendChild(thead); var tbody = element('tbody');
-                (result.branches || []).forEach(function (b) {
-                    var tr = element('tr', b.grade ? 'is-grade-' + ({'ممتاز': 'a', 'جيد جدًا': 'b', 'جيد': 'c', 'ضعيف': 'd', 'سيئ': 'e'})[b.grade] : 'is-empty');
-                    [b.name, b.orders, b.late_preparing, b.late_delivery, b.avg_preparing_minutes == null ? '—' : b.avg_preparing_minutes + ' د', b.avg_total_minutes == null ? '—' : b.avg_total_minutes + ' د',
-                        b.on_time_percent == null ? '—' : b.on_time_percent + '%', b.grade || 'لا طلبات'].forEach(function (value) { tr.appendChild(element('td', '', String(value))); });
-                    tbody.appendChild(tr);
-                });
-                table.appendChild(tbody); wrap.appendChild(table);
-                body.replaceChildren(element('p', 'ph-help', 'من ' + result.from + ' إلى ' + result.to + ' · الطلب متأخر لو فضل في التجهيز أكتر من ' + policy.preparing_minutes + ' دقيقة، أو اتحصّل بعد أكتر من ' + policy.courier_minutes + ' دقيقة من عمله.'), wrap);
-                if (!(result.branches || []).length) body.appendChild(element('p', 'ph-empty', 'لا توجد فروع.'));
-            } catch (error) { if (!disposed && generation === modalGeneration) body.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
-        })();
+    // The branches' rating, at the top of the page: of the delivery orders collected in the period (today by default),
+    // the share on time (not 15 minutes preparing, collected within 35) and its grade. The owner and the admins see
+    // every branch, a branch account its own. Read again every 5 minutes.
+    var ratingPeriod = 0, ratingTimer = null, ratingController = null;
+    function ratingDay(offset) {
+        var d = new Date(Date.now() - (new Date().getHours() < 6 ? 86400000 : 0) - offset * 86400000);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+    async function loadRating() {
+        var panel = root.querySelector('[data-phone-rating]');
+        clearTimeout(ratingTimer);
+        if (!panel || !urls.performance || disposed) return;
+        ratingTimer = setTimeout(loadRating, 300000);
+        if (ratingController) ratingController.abort();
+        var controller = ratingController = new AbortController();
+        try {
+            var result = await read(await get(urls.performance, {from: ratingDay(ratingPeriod), to: ratingDay(0)}, controller.signal), 'list_error');
+            if (disposed || controller !== ratingController) return;
+            var branches = (result.branches || []), rated = branches.filter(function (b) { return b.orders > 0; });
+            panel.querySelector('[data-phone-rating-title]').textContent = branches.length > 1 ? 'تقييم أداء الفروع' : 'تقييم أداء الفرع';
+            var list = panel.querySelector('[data-phone-rating-list]'); list.replaceChildren();
+            rated.forEach(function (b) {
+                var card = element('div', 'ph-rating-card is-' + b.grade_key);
+                card.appendChild(element('strong', 'ph-rating-name', b.name));
+                card.appendChild(element('span', 'ph-rating-grade', b.grade));
+                card.appendChild(element('small', 'ph-rating-detail', b.on_time_percent + '% في الوقت · ' + b.orders + ' طلب · ' + b.late + ' متأخر'));
+                card.title = 'متأخر في التجهيز ' + b.late_preparing + ' · متأخر في التوصيل ' + b.late_delivery + ' · متوسط التجهيز ' + b.avg_preparing_minutes + ' د · متوسط زمن الطلب ' + b.avg_total_minutes + ' د';
+                list.appendChild(card);
+            });
+            if (!rated.length) list.appendChild(element('p', 'ph-rating-empty', 'لا توجد طلبات دليفري اتحصّلت في الفترة دي.'));
+            panel.hidden = false;
+        } catch (error) { if (!disposed && controller === ratingController && error.name !== 'AbortError') panel.hidden = true; }
     }
     function closeModal() { if (locked()) { notify(text('locked'), false, true); return; } modalGeneration++; abort('modal'); modal.hidden = true; if (modalFocus && modalFocus.isConnected) modalFocus.focus(); }
     async function print(url, closeAfter) { try { if (!window.DashboardPrint) throw new Error('Missing printer'); await window.DashboardPrint.print(endpoint(url)); if(closeAfter&&!modal.hidden&&!locked())closeModal(); } catch (_) { notify(text('print_error'), false); } }
@@ -849,7 +847,7 @@
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
         if (control.hasAttribute('data-phone-refresh')) return loadOrders();
-        if (control.hasAttribute('data-phone-performance')) return performance();
+        if (control.dataset.phoneRatingPeriod !== undefined) { ratingPeriod = Number(control.dataset.phoneRatingPeriod) || 0; root.querySelectorAll('[data-phone-rating-period]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === control)); }); return loadRating(); }
         if (control.dataset.phoneKey !== undefined) return quantityKey(control.dataset.phoneKey);
     });
     listen(root, 'change', function (event) {
@@ -930,7 +928,7 @@
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
-    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;clearInterval(preparationTimer);if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;clearInterval(preparationTimer);clearTimeout(ratingTimer);if(ratingController)ratingController.abort();if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
     if(window.ResizeObserver){
         var mapResizeObserver=new ResizeObserver(function(){if(!disposed&&step==='details'&&view==='compose'&&locationPicker)locationPicker.resize();});
@@ -945,4 +943,5 @@
     listen(document, 'dashboard:branch-print', function (event) { root.querySelector('[data-phone-printer-status]').textContent = event.detail.status; if (event.detail.latest !== lastIncoming) { lastIncoming = event.detail.latest; if (!locked()) loadOrders(undefined, true); } });
     if (new URL(location.href).searchParams.get('view') === 'orders') switchView('orders');
     preparationTimer = setInterval(updatePreparationTimers, 1000);
+    loadRating();
 }());

@@ -740,11 +740,13 @@ class DashboardPosServiceTest extends TestCase
 
         $rating=$lateness->performance(['from'=>'2026-09-12','to'=>'2026-09-12'],$this->actor(1));
         $row=collect($rating['branches'])->firstWhere('branch','f:100');
-        $this->assertSame([2,1,1,2,10.0,30.0,0.0,'سيئ'],[$row['orders'],$row['late_preparing'],$row['late_delivery'],$row['late'],$row['avg_preparing_minutes'],$row['avg_total_minutes'],$row['on_time_percent'],$row['grade']]);
+        $this->assertSame([2,1,1,2,10.0,30.0,0.0,'ضعيف جدًا','very_weak'],[$row['orders'],$row['late_preparing'],$row['late_delivery'],$row['late'],$row['avg_preparing_minutes'],$row['avg_total_minutes'],$row['on_time_percent'],$row['grade'],$row['grade_key']]);
         $this->assertSame('f:100',$rating['branches'][0]['branch'],'branches with orders first');
         $this->assertSame([0,null],[$lateness->performance(['from'=>'2026-09-13','to'=>'2026-09-13'],$this->actor(1))['branches'][0]['orders'],null]);
         $this->assertSame(['f:100'],array_column($lateness->performance([],$this->actor())['branches'],'branch'),'a branch rates only itself');
-        $this->assertSame('ممتاز',\App\Services\Dashboard\PhoneDeliveryLateness::grade(96));$this->assertSame('جيد',\App\Services\Dashboard\PhoneDeliveryLateness::grade(70));
+        $L=\App\Services\Dashboard\PhoneDeliveryLateness::class;
+        foreach([[100,'ممتاز','excellent'],[90,'ممتاز','excellent'],[89.9,'جيد','good'],[75,'جيد','good'],[74.9,'ضعيف','weak'],[50,'ضعيف','weak'],[49.9,'ضعيف جدًا','very_weak'],[0,'ضعيف جدًا','very_weak']] as [$p,$g,$k])
+            $this->assertSame([$g,$k],[$L::grade($p),$L::gradeKey($p)],(string)$p);
         Carbon::setTestNow();
     }
     private function batchPayload(array $tickets,int $key=1500): array
