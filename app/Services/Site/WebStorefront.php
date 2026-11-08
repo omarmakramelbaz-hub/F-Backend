@@ -88,7 +88,8 @@ class WebStorefront
         // Cost, recipes, balances, internal actors and administrative permissions are private.
         $products = [];
         foreach ($catalog['items'] as $item) {
-            if (!$item['available']) continue;
+            // Staff-only items (\App\Support\PosOnlyProducts) are sold at the branch, not on the website.
+            if (!$item['available'] || \App\Support\PosOnlyProducts::is($item['id'])) continue;
             $products[] = array_intersect_key($item, array_flip(['id','name','price','image_url','unit','quantity_mode','category_id','options']));
         }
         return ['products'=>$products, 'categories'=>$catalog['categories'], 'open'=>$branch->effective_status==='opened'];
@@ -123,6 +124,7 @@ class WebStorefront
         $values['branch'] = 'f:'.$branch->id;
         // Strip all nested input except the four permitted cart fields.
         $values['items'] = array_map(fn($line)=>array_intersect_key($line,array_flip(['product_id','quantity','quantity_mode','option_id'])), $values['items']);
+        foreach ($values['items'] as $line) abort_if(\App\Support\PosOnlyProducts::is($line['product_id']), 409, 'أحد الأصناف غير متاح الآن. حدّث القائمة.');
         $values['discount'] = '0.00';
         $delivery = app(PhoneDelivery::class)->quote($values, $actor)['delivery'];
         $radius = config('web_storefront.max_delivery_km');

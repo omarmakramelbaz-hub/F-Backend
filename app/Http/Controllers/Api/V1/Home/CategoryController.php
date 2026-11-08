@@ -74,7 +74,8 @@ class CategoryController extends Controller
     public function getProduct($id)
     {
         $product = ResturantProduct::find($id);
-        if ($product) {
+        // The staff-only items (\App\Support\PosOnlyProducts) are not offered in the app.
+        if ($product && !\App\Support\PosOnlyProducts::is($product)) {
             $productData = new ResturantProductResource($product);
             return $this->successResponse($productData, __('api.get single Product'));
         }

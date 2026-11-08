@@ -53,6 +53,7 @@ class CartController extends Controller
     public function store(CartRequest $request)
     {
         $product = ResturantProduct::find($request->resturant_product_id);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         // $order=auth('api')->user()->orders()->whereNull('status')->where('type','current')->first();
 
 
@@ -106,6 +107,7 @@ class CartController extends Controller
     {
         $cart = Cart::find($id);
         $product = ResturantProduct::find($request->resturant_product_id);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         $cart->update([
             'qty' => $request->qty ?? 1,
             'price' => $product->calculate_price($request->product_feature, $request->product_clean),
@@ -130,6 +132,7 @@ class CartController extends Controller
     {
         $cartItems = collect();
         $product = ResturantProduct::find($request->resturant_product_id[0]);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         // $order=auth('api')->user()->orders()->whereNull('status')->where('type','current')->first();
 
 
@@ -151,7 +154,7 @@ class CartController extends Controller
 
         foreach ($request->resturant_product_id as $i => $product_id) {
             $product = ResturantProduct::find($product_id);
-            if ($product) {
+            if ($product && !\App\Support\PosOnlyProducts::is($product)) {
                 $cart = Cart::where([
                     'user_id' => auth('api')->user()->id,
                     'is_order'=>false,
@@ -193,6 +196,7 @@ class CartController extends Controller
     public function product_calculate_price(CartRequest $request)
     {
         $product = ResturantProduct::find($request->resturant_product_id);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         $price = $product->calculate_price($request->product_feature, $request->product_clean);
 
         return $this->successResponse($price, __('api.AddToCartSuccessfully'));
@@ -214,7 +218,7 @@ class CartController extends Controller
             $cartProductIds = $cartItems->pluck('resturant_product_id');
 
             // Fetch products not in the cart, prioritizing highest_rated = 'yes'
-            $recommendedProducts = ResturantProduct::where('status', 'show')->whereNotIn('id', $cartProductIds)
+            $recommendedProducts = ResturantProduct::where('status', 'show')->whereNotIn('id', $cartProductIds)->whereNotIn('id', \App\Support\PosOnlyProducts::ids())
                 ->where('resturant_id', $cartItems->first()->resturant_id)
                 ->orderByRaw("FIELD(highest_rated, 'yes', 'no')") // 'yes' first, then 'no'
                 ->take(3) // Limit the number of recommendations
@@ -689,7 +693,7 @@ class CartController extends Controller
             $q->where('status', 'completed');
         })
             ->groupBy('resturant_product_id')->pluck('resturant_product_id')->toArray();
-        $resturants = ResturantProductResource::collection(ResturantProduct::whereIn('id', $orders)->get());
+        $resturants = ResturantProductResource::collection(ResturantProduct::whereIn('id', $orders)->whereNotIn('id', \App\Support\PosOnlyProducts::ids())->get());
         return $this->successResponse($resturants, __('api.success data'));
 
     }

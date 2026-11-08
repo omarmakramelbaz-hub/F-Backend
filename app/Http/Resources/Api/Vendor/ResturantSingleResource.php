@@ -35,10 +35,10 @@ class ResturantSingleResource extends JsonResource
             'default_2_3'=>(double)$this->default_2_3,
             'resturant_areas'           => $this->resturant_areas,
             'resturant_categorys'       => CategoryResource::collection($this->resturant_categorys()),
-            'resturant_items'           => ResturantProductResource::collection($this->resturant_products),
+            'resturant_items'           => ResturantProductResource::collection(\App\Support\PosOnlyProducts::without($this->resturant_products)),
             'created_at'                => $this->created_at,
             'under_contract'            => $this->under_contract,
-            'highest_rated'             =>ResturantProductResource::collection($this->resturant_highest_rated_products->take(4))
+            'highest_rated'             =>ResturantProductResource::collection(\App\Support\PosOnlyProducts::without($this->resturant_highest_rated_products)->take(4))
         ];
     }
 }
