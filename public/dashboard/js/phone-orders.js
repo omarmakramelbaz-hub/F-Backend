@@ -430,6 +430,19 @@
         modalGeneration++; abort('modal'); if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title;
         var content = root.querySelector('[data-phone-modal-content]'); content.replaceChildren(element('p', 'ph-empty', text('loading'))); modal.querySelector('[role="dialog"]').focus(); return content;
     }
+    function invoiceHistory(page, date) {
+        if (locked()) return;
+        if (!branch && !boot.can_view_all_branches) { notify(text('select_branch')); return; }
+        var historyLabels = JSON.parse(document.querySelector('#phone-history-translations').textContent);
+        var content = openModal(historyLabels.invoice_history), generation = modalGeneration, selectedBranch = branch;
+        var controller = begin('modal');
+        return window.DashboardInvoiceHistory.show({ content: content, labels: historyLabels, url: urls.receipts,
+            branch: branch || 'all', page: page, date: date, initialDate: boot.today && boot.today.date,
+            signal: controller.signal, endpoint: endpoint, read: function (response) { return read(response, 'load_error'); }, money: money,
+            isCurrent: function () { return !disposed && !modal.hidden && generation === modalGeneration && selectedBranch === branch; },
+            reload: invoiceHistory, print: print, canReprint: function (item) { return item.can_reprint !== false && permissions.can_reprint !== false && (!boot.permissions || boot.permissions.can_reprint !== false); }
+        });
+    }
     // The branches' rating: of the delivery orders collected in a period, how many were late (15 minutes preparing,
     // 35 minutes until collected), the average times and the share on time.
     function performance(from, to) {
@@ -828,6 +841,7 @@
         if (control.hasAttribute('data-phone-delivery-auto')) { manualDeliveryFee=false; fields.delivery_fee.value=deliveryLocation?(deliveryLocation.calculated_delivery_fee||deliveryLocation.delivery_fee):'0.00'; changed(true); if(!deliveryLocation)confirmLocation(true); return; }
         if (control.hasAttribute('data-phone-edit-customer')) return flow('details');
         if (control.hasAttribute('data-phone-modal-close')) return closeModal();
+        if (control.hasAttribute('data-phone-history')) return invoiceHistory();
         if (control.hasAttribute('data-phone-clear')) { if (!dirty || window.confirm(text('new_warning'))) { resetDraft(); notify(''); } return; }
         if (control.hasAttribute('data-phone-new-order')) { if (dirty && !window.confirm(text('new_warning'))) return; resetDraft(); notify(''); return switchView('compose'); }
         if (control.dataset.phoneProduct !== undefined) return chooseProduct(products.get(control.dataset.phoneProduct));
