@@ -32,6 +32,8 @@ Route::middleware(['lang', 'IsAdmin'])->group(function () {
     Route::post('admin/phone-orders/delivery-quote',[PhoneOrdersController::class,'deliveryQuote'])->name('phone-orders.delivery-quote');
     Route::get('admin/phone-orders/customers', [PhoneOrdersController::class, 'customers'])->name('phone-orders.customers');
     Route::get('admin/phone-orders/board', [PhoneOrdersController::class, 'board'])->name('phone-orders.board');
+    Route::get('admin/phone-orders/late', [PhoneOrdersController::class, 'late'])->name('phone-orders.late');
+    Route::get('admin/phone-orders/performance', [PhoneOrdersController::class, 'performance'])->name('phone-orders.performance');
     Route::post('admin/phone-orders/dispatch-company', [PhoneOrdersController::class, 'dispatchCompany'])->name('phone-orders.dispatch-company');
     Route::post('admin/phone-orders/finish-batch', [PhoneOrdersController::class, 'finishBatch'])->name('phone-orders.finish-batch');
     Route::get('admin/phone-orders/batches/{id}/print', [PhoneOrdersController::class, 'batchPrint'])->whereNumber('id')->name('phone-orders.batch-print');

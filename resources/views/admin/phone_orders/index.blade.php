@@ -49,7 +49,7 @@
     </div>
     </section>
     <section class="ph-orders ph-panel" data-phone-orders aria-label="{{ __('phone_orders.saved_orders') }}" tabindex="-1">
-        <header class="ph-panel-heading"><h2><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</h2><button type="button" data-phone-clear-company @if(empty($phonePos['company_filter'])) hidden @endif>{{ __('phone_orders.all_companies') }}</button><button type="button" data-phone-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i>{{ __('phone_orders.refresh') }}</button></header>
+        <header class="ph-panel-heading"><h2><i class="fas fa-motorcycle" aria-hidden="true"></i>{{ __('phone_orders.saved_orders') }}</h2><button type="button" data-phone-clear-company @if(empty($phonePos['company_filter'])) hidden @endif>{{ __('phone_orders.all_companies') }}</button><button type="button" data-phone-performance><i class="fas fa-stopwatch" aria-hidden="true"></i>تقييم الفروع</button><button type="button" data-phone-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i>{{ __('phone_orders.refresh') }}</button></header>
         <div class="ph-batch-bar"><div><strong data-phone-batch-total>{{ __('phone_orders.select_orders') }}</strong><small>{{ __('phone_orders.same_courier') }}</small></div><button type="button" class="ph-batch-finish" data-phone-batch-finish disabled>{{ __('phone_orders.finish_orders') }}</button></div>
         <div class="ph-delivery-board" data-phone-order-list></div>
     </section>

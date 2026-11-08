@@ -187,6 +187,10 @@ $(document).ready(function() {
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
 <script src="{{ asset('dashboard/js/dashboard-order-alerts.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-order-alerts.js')) }}" data-sound-url="{{ asset('sounds/mixkit-correct-answer-reward-952.wav') }}" data-sound-actor="{{ auth('admin')->user()->id }}" data-sound-feed="{{ route('getOrders', ['alerts_only' => 1]) }}"></script>
+@php($goLateFeed = (function () { try { return \Illuminate\Support\Facades\Route::has('phone-orders.late') && app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()); } catch (\Throwable $error) { return false; } })())
+@if($goLateFeed)
+<script src="{{ asset('dashboard/js/dashboard-delivery-late.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-delivery-late.js')) }}" data-late-feed="{{ route('phone-orders.late') }}" data-late-page="{{ route('phone-orders.index', ['view' => 'orders']) }}" data-late-sound="{{ asset('sounds/go-delivery-late.wav') }}" data-actor="{{ auth('admin')->user()->id }}"></script>
+@endif
 {{-- Shared robot renderer and sidebar belong to the persistent shell, outside page scopes. --}}
 <script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>
 <script src="{{ asset('dashboard/js/go-hologram-shell.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram-shell.js')) }}"></script>

@@ -714,6 +714,39 @@ class DashboardPosServiceTest extends TestCase
         app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->dispatch(['branch'=>'f:100','ticket_id'=>$ticket['id'],'company_id'=>$company,'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($number+2)],$this->actor());
         return $this->tickets()->show('phone',$ticket['id'],$this->actor())['ticket']+['courier_company_id'=>$company];
     }
+    public function test_late_delivery_orders_ring_and_count_in_the_branches_rating(): void
+    {
+        $start=Carbon::parse('2026-09-12 12:00:00','Africa/Cairo');Carbon::setTestNow($start);
+        $lateness=app(\App\Services\Dashboard\PhoneDeliveryLateness::class);
+        $preparing=$this->tickets()->save('phone',$this->savePayload('phone',1700),$this->actor())['ticket'];
+        $courier=$this->dispatchPhone(1710);
+        $late=fn(int $actor=10)=>array_map(fn($o)=>[$o['id'],$o['stage'],$o['minutes']],$lateness->late($this->actor($actor))['orders']);
+        Carbon::setTestNow($start->copy()->addMinutes(14));$this->assertSame([],$late());
+        // Preparing: late at 15 minutes. With the courier: not before 35 (the card's timer counts from the order).
+        Carbon::setTestNow($start->copy()->addMinutes(16));$this->assertSame([[$preparing['id'],'preparing',16]],$late());
+        Carbon::setTestNow($start->copy()->addMinutes(36));$this->assertSame([[$preparing['id'],'preparing',36],[$courier['id'],'courier',36]],$late());
+        $this->assertSame([],$late(11),'another branch hears only its own');
+        $this->assertSame(['preparing_minutes'=>15,'courier_minutes'=>35,'repeat_minutes'=>5],$lateness->late($this->actor())['policy']);
+        $this->actingAs($this->actor(),'admin');$this->getJson(route('phone-orders.late'))->assertOk()->assertJsonCount(2,'orders');
+
+        // Collected: the one prepared 20 minutes (late preparing), the one collected 40 minutes after it was made (late delivery).
+        Carbon::setTestNow($start->copy()->addMinutes(20));
+        $fresh=$this->tickets()->show('phone',$preparing['id'],$this->actor())['ticket'];
+        $this->tickets()->settle('phone',$fresh['id'],$this->settlePayload($fresh,1720),$this->actor());
+        Carbon::setTestNow($start->copy()->addMinutes(40));
+        $fresh=$this->tickets()->show('phone',$courier['id'],$this->actor())['ticket'];
+        app(\App\Services\Dashboard\PhoneDeliveryBoard::class)->finish($this->batchPayload([$fresh],1730),$this->actor(),true);
+        $this->assertSame([],$late(),'collected orders no longer ring');
+
+        $rating=$lateness->performance(['from'=>'2026-09-12','to'=>'2026-09-12'],$this->actor(1));
+        $row=collect($rating['branches'])->firstWhere('branch','f:100');
+        $this->assertSame([2,1,1,2,10.0,30.0,0.0,'سيئ'],[$row['orders'],$row['late_preparing'],$row['late_delivery'],$row['late'],$row['avg_preparing_minutes'],$row['avg_total_minutes'],$row['on_time_percent'],$row['grade']]);
+        $this->assertSame('f:100',$rating['branches'][0]['branch'],'branches with orders first');
+        $this->assertSame([0,null],[$lateness->performance(['from'=>'2026-09-13','to'=>'2026-09-13'],$this->actor(1))['branches'][0]['orders'],null]);
+        $this->assertSame(['f:100'],array_column($lateness->performance([],$this->actor())['branches'],'branch'),'a branch rates only itself');
+        $this->assertSame('ممتاز',\App\Services\Dashboard\PhoneDeliveryLateness::grade(96));$this->assertSame('جيد',\App\Services\Dashboard\PhoneDeliveryLateness::grade(70));
+        Carbon::setTestNow();
+    }
     private function batchPayload(array $tickets,int $key=1500): array
     {
         $total=array_sum(array_map(fn($t)=>\App\Services\GoServices\Money::minor($t['total']),$tickets));

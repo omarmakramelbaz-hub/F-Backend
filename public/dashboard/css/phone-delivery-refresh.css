@@ -130,3 +130,21 @@
     #phone-orders .ph-preparation-timer-label { font-size: 8px; }
     #phone-orders .ph-preparation-timer-value { font-size: 12px; }
 }
+
+/* A late delivery order (15 minutes preparing, 35 minutes with the courier): the whole card turns red. */
+.ph-ticket.is-late{border-color:#d92d3a!important;background:#fff0f1!important;box-shadow:0 0 0 2px #d92d3a33}
+.ph-ticket.is-late .ph-preparation-timer,.ph-ticket.is-late .ph-ticket-number{color:#c21f2c!important;font-weight:700}
+.ph-ticket.is-late .ph-preparation-timer{background:#ffe1e4;border-color:#f2a3aa}
+/* The branches' rating window. */
+.ph-performance-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.ph-performance-bar label{display:flex;gap:6px;align-items:center;margin:0}
+.ph-performance-table{overflow-x:auto}
+.ph-performance-table table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+.ph-performance-table th,.ph-performance-table td{padding:8px;border-bottom:1px solid #e6e9ef;text-align:center}
+.ph-performance-table th{background:#f4f6fa}
+.ph-performance-table td:first-child,.ph-performance-table th:first-child{text-align:right}
+.ph-performance-table tr.is-grade-a td:last-child{color:#137743;font-weight:700}
+.ph-performance-table tr.is-grade-b td:last-child{color:#2b7a3d}
+.ph-performance-table tr.is-grade-c td:last-child{color:#a06a00}
+.ph-performance-table tr.is-grade-d td:last-child,.ph-performance-table tr.is-grade-e td:last-child{color:#c21f2c;font-weight:700}
+.ph-performance-table tr.is-empty td{color:#8a94a6}

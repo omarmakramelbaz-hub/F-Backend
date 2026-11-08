@@ -430,6 +430,41 @@
         modalGeneration++; abort('modal'); if (modal.hidden) modalFocus = document.activeElement; modal.hidden = false; modal.querySelector('h2').textContent = title;
         var content = root.querySelector('[data-phone-modal-content]'); content.replaceChildren(element('p', 'ph-empty', text('loading'))); modal.querySelector('[role="dialog"]').focus(); return content;
     }
+    // The branches' rating: of the delivery orders collected in a period, how many were late (15 minutes preparing,
+    // 35 minutes until collected), the average times and the share on time.
+    function performance(from, to) {
+        if (!urls.performance) return;
+        var today = new Date(Date.now() - (new Date().getHours() < 6 ? 86400000 : 0)), day = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+        to = to || day(today); from = from || to;
+        var content = openModal('تقييم أداء الفروع في توصيل الدليفري'), generation = modalGeneration;
+        var bar = element('div', 'ph-performance-bar'), fromInput = element('input'), toInput = element('input');
+        fromInput.type = toInput.type = 'date'; fromInput.value = from; toInput.value = to; fromInput.setAttribute('data-fp-omit', ''); toInput.setAttribute('data-fp-omit', '');
+        var range = function (days) { var end = new Date(today), start = new Date(today); start.setDate(start.getDate() - days); return [day(start), day(end)]; };
+        [['اليوم', range(0)], ['آخر 7 أيام', range(6)], ['آخر 30 يوم', range(29)]].forEach(function (pair) { var b = element('button', '', pair[0]); b.type = 'button'; b.addEventListener('click', function () { performance(pair[1][0], pair[1][1]); }); bar.appendChild(b); });
+        var fromLabel = element('label', '', 'من '), toLabel = element('label', '', 'إلى '), show = element('button', 'ph-performance-show', 'عرض');
+        fromLabel.appendChild(fromInput); toLabel.appendChild(toInput); show.type = 'button'; show.addEventListener('click', function () { performance(fromInput.value, toInput.value); });
+        bar.appendChild(fromLabel); bar.appendChild(toLabel); bar.appendChild(show);
+        var body = element('div', 'ph-performance-body'); body.appendChild(element('p', 'ph-empty', text('loading')));
+        content.replaceChildren(bar, body);
+        (async function () {
+            try {
+                var result = await read(await get(urls.performance, {from: from, to: to}), 'list_error');
+                if (disposed || generation !== modalGeneration) return;
+                var policy = result.policy || {}, wrap = element('div', 'ph-performance-table'), table = element('table'), head = element('tr');
+                ['الفرع', 'طلبات اتحصّلت', 'متأخر في التجهيز', 'متأخر في التوصيل', 'متوسط التجهيز', 'متوسط زمن الطلب', 'في الوقت', 'التقييم'].forEach(function (h) { head.appendChild(element('th', '', h)); });
+                var thead = element('thead'); thead.appendChild(head); table.appendChild(thead); var tbody = element('tbody');
+                (result.branches || []).forEach(function (b) {
+                    var tr = element('tr', b.grade ? 'is-grade-' + ({'ممتاز': 'a', 'جيد جدًا': 'b', 'جيد': 'c', 'ضعيف': 'd', 'سيئ': 'e'})[b.grade] : 'is-empty');
+                    [b.name, b.orders, b.late_preparing, b.late_delivery, b.avg_preparing_minutes == null ? '—' : b.avg_preparing_minutes + ' د', b.avg_total_minutes == null ? '—' : b.avg_total_minutes + ' د',
+                        b.on_time_percent == null ? '—' : b.on_time_percent + '%', b.grade || 'لا طلبات'].forEach(function (value) { tr.appendChild(element('td', '', String(value))); });
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody); wrap.appendChild(table);
+                body.replaceChildren(element('p', 'ph-help', 'من ' + result.from + ' إلى ' + result.to + ' · الطلب متأخر لو فضل في التجهيز أكتر من ' + policy.preparing_minutes + ' دقيقة، أو اتحصّل بعد أكتر من ' + policy.courier_minutes + ' دقيقة من عمله.'), wrap);
+                if (!(result.branches || []).length) body.appendChild(element('p', 'ph-empty', 'لا توجد فروع.'));
+            } catch (error) { if (!disposed && generation === modalGeneration) body.replaceChildren(element('p', 'ph-empty', error.message || text('list_error'))); }
+        })();
+    }
     function closeModal() { if (locked()) { notify(text('locked'), false, true); return; } modalGeneration++; abort('modal'); modal.hidden = true; if (modalFocus && modalFocus.isConnected) modalFocus.focus(); }
     async function print(url, closeAfter) { try { if (!window.DashboardPrint) throw new Error('Missing printer'); await window.DashboardPrint.print(endpoint(url)); if(closeAfter&&!modal.hidden&&!locked())closeModal(); } catch (_) { notify(text('print_error'), false); } }
     function button(label, callback, className) { var control = element('button', className || '', text(label)); control.type = 'button';var icon={details:'far fa-file-alt',view_order:'far fa-file-alt',order_actions:'fas fa-ellipsis-h',kitchen_order:'fas fa-utensils',print_order:'fas fa-print',finish_collect:'fas fa-check-circle',edit_order:'far fa-edit',kitchen:'fas fa-utensils',receipt:'fas fa-print',collect:'fas fa-check-circle',edit:'far fa-edit',cancel:'fas fa-times'}[label];if(icon){var glyph=element('i',icon);glyph.setAttribute('aria-hidden','true');control.prepend(glyph);} control.addEventListener('click', callback); return control; }
@@ -505,7 +540,9 @@
         var hours = Math.floor(elapsed / 3600), minutes = Math.floor(elapsed / 60) % 60, seconds = elapsed % 60;
         var value = (hours ? String(hours).padStart(2, '0') + ':' : '') + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
         timer.querySelector('.ph-preparation-timer-value').textContent = value;
-        timer.classList.toggle('is-overdue', elapsed > 900);
+        // Late: still being prepared at 15 minutes, or still with the courier at 35 (boot.lateness): the card turns red.
+        var late = elapsed >= Number(timer.dataset.phoneLateAfter || 900), ticketCard = timer.closest('.ph-ticket');
+        timer.classList.toggle('is-overdue', late); if (ticketCard) ticketCard.classList.toggle('is-late', late);
     }
     function updatePreparationTimers() {
         if (disposed) return;
@@ -517,9 +554,9 @@
         if (createdAt === null) return null;
         var label = text(column === 'courier' ? 'order_elapsed' : 'preparation_elapsed');
         var timer = element('span', 'ph-preparation-timer'), icon = element('i', 'far fa-clock');
-        timer.dataset.phonePreparingCreatedAt = String(createdAt); timer.setAttribute('role', 'timer'); timer.setAttribute('aria-label', label); icon.setAttribute('aria-hidden', 'true');
+        var lateness = boot.lateness || {preparing_minutes: 15, courier_minutes: 35};
+        timer.dataset.phonePreparingCreatedAt = String(createdAt); timer.dataset.phoneLateAfter = String(60 * Number(column === 'courier' ? lateness.courier_minutes : lateness.preparing_minutes)); timer.setAttribute('role', 'timer'); timer.setAttribute('aria-label', label); icon.setAttribute('aria-hidden', 'true');
         timer.appendChild(icon); timer.appendChild(element('span', 'ph-preparation-timer-label', label)); timer.appendChild(element('bdi', 'ph-preparation-timer-value'));
-        updatePreparationTimer(timer, Date.now());
         return timer;
     }
     function completedBadge(ticket) {
@@ -551,7 +588,7 @@
         metadata.title = [address, ticket.courier_company && ticket.courier_company.name, ticket.created_label || dateLabel(ticket.created_at)].filter(Boolean).join(' · ');
         article.appendChild(metadata);
         if (ticket.payment_status === 'unpaid' && (column === 'preparing' && ['new', 'preparing'].includes(ticket.status) || column === 'courier' && ['out_for_delivery', 'finished'].includes(ticket.status))) {
-            var timer = preparationBadge(ticket, column); if (timer) article.appendChild(timer);
+            var timer = preparationBadge(ticket, column); if (timer) { article.appendChild(timer); updatePreparationTimer(timer, Date.now()); }
         }
         var actions = element('div', 'ph-ticket-quick-actions');
         ticketActions(ticket, actions);
@@ -798,6 +835,7 @@
         if (control.dataset.phoneCategory !== undefined) { category = category === control.dataset.phoneCategory ? '' : control.dataset.phoneCategory; return loadCatalog(1); }
         if (control.dataset.phonePage) return loadCatalog(catalogPage + (control.dataset.phonePage === 'next' ? 1 : -1));
         if (control.hasAttribute('data-phone-refresh')) return loadOrders();
+        if (control.hasAttribute('data-phone-performance')) return performance();
         if (control.dataset.phoneKey !== undefined) return quantityKey(control.dataset.phoneKey);
     });
     listen(root, 'change', function (event) {

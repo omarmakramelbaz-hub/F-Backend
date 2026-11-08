@@ -112,7 +112,7 @@ final class DesktopDashboardWorkspaceReadRoutes
             $add($controller,'quote',['admin/'.$path.'/quote'],'actor-scoped',['POST']);
         }
         $add('DineInController','tables',['admin/dining/tables'],'actor-scoped');
-        foreach(['deliverySettings'=>'delivery-settings','customers'=>'customers','board'=>'board','batchPrint'=>'batches/{id}/print','printJobs'=>'print-jobs']as$method=>$path)$add('PhoneOrdersController',$method,['admin/phone-orders/'.$path],'actor-scoped');
+        foreach(['deliverySettings'=>'delivery-settings','customers'=>'customers','board'=>'board','batchPrint'=>'batches/{id}/print','printJobs'=>'print-jobs','late'=>'late','performance'=>'performance']as$method=>$path)$add('PhoneOrdersController',$method,['admin/phone-orders/'.$path],'actor-scoped');
         foreach(['deliveryQuote'=>'delivery-quote','addressSuggestions'=>'address-suggestions']as$method=>$path)$add('PhoneOrdersController',$method,['admin/phone-orders/'.$path],'actor-scoped',['POST']);
         $add('BranchOrdersController','index',['admin/branch-orders'],'actor-scoped');
         foreach(['index'=>'','data'=>'/data','pendingCount'=>'/pending-count','recover'=>'/recover','export'=>'/export','report'=>'/report',
