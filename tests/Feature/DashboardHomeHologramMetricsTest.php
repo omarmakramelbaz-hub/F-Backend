@@ -95,7 +95,7 @@ class DashboardHomeHologramMetricsTest extends TestCase
             'payment_status'=>$payment, 'created_at'=>'2020-01-01 10:00:00', 'updated_at'=>'2020-01-01 10:00:00']);
     }
 
-    public function test_only_the_primary_owner_sees_the_branches_drawer_balance_on_the_closing_card(): void
+    public function test_only_the_primary_owner_sees_the_branches_drawer_balance_in_place_of_the_pending_expenses(): void
     {
         $reads = 0;
         $this->mock(\App\Services\Dashboard\HomeOverview::class, function ($mock) use (&$reads) {
@@ -105,31 +105,36 @@ class DashboardHomeHologramMetricsTest extends TestCase
                 return ['success'=>true, 'owner_drawer'=>['ready'=>true, 'loaded'=>true, 'total_cents'=>1114550, 'branches'=>[]]];
             });
         });
-        $branchCount = $this->cards(10)['drawer']['count'];
-        $owner = $this->cards(1)['drawer'];
-        $this->assertSame([11146, 'جنيه رصيد أدراج الفروع', true, false], [$owner['count'], $owner['count_label'], $owner['available'], $owner['warning']]);
-        $this->assertSame('فروع للتقفيل', $owner['secondary_label']);
-        $this->assertIsInt($owner['secondary_count']);
-        $this->assertGreaterThan(0, $owner['secondary_count']);
+        $owner = $this->cards(1);
+        $this->assertArrayNotHasKey('pending-expenses', $owner);
+        $drawers = $owner['drawers'];
+        $this->assertSame(['رصيد أدراج الفروع', 11146, 'جنيه', true, false, 'فرع'], [$drawers['label'], $drawers['count'], $drawers['count_label'],
+            $drawers['available'], $drawers['warning'], $drawers['secondary_label']]);
+        $this->assertGreaterThan(0, $drawers['secondary_count']);
+        // It opens each branch's drawer balance on the home page itself, whatever the page's filters.
+        $this->assertSame(route('admin_dash').'#branch-drawers', $drawers['url']);
+        // The shift closing card is back to the branches to close.
+        $this->assertSame(['فروع للتقفيل', null], [$owner['drawer']['count_label'], $owner['drawer']['secondary_count']]);
         $this->cards(1);
         $this->assertSame(1, $reads, 'The opening asks every 15 seconds; one reading serves a minute');
-        // Every other account keeps the branch count, and its drawers are never read.
+        // Every other account keeps the pending expenses, and its drawers are never read.
         foreach ([10, 20, 30, 40] as $id) {
-            $card = $this->cards($id)['drawer'];
-            $this->assertSame(['فروع للتقفيل', null], [$card['count_label'], $card['secondary_count']], 'account '.$id);
+            $cards = $this->cards($id);
+            $this->assertArrayNotHasKey('drawers', $cards, 'account '.$id);
+            $this->assertArrayHasKey('pending-expenses', $cards, 'account '.$id);
         }
         $this->assertSame(1, $reads);
-        $this->assertIsInt($branchCount);
     }
 
-    public function test_the_owner_card_keeps_the_branch_count_when_the_drawers_cannot_be_read(): void
+    public function test_the_owner_keeps_the_pending_expenses_when_the_drawers_cannot_be_read(): void
     {
         $this->mock(\App\Services\Dashboard\HomeOverview::class, function ($mock) {
             $mock->shouldReceive('drawers')->andReturn(['success'=>true, 'owner_drawer'=>['ready'=>false, 'loaded'=>true, 'total_cents'=>null, 'branches'=>[]]]);
         });
-        $card = $this->cards(1)['drawer'];
-        $this->assertSame(['فروع للتقفيل', null], [$card['count_label'], $card['secondary_count']]);
-        $this->assertTrue($card['available']);
+        $cards = $this->cards(1);
+        $this->assertArrayNotHasKey('drawers', $cards);
+        $this->assertArrayHasKey('pending-expenses', $cards);
+        $this->assertSame(['فروع للتقفيل', null], [$cards['drawer']['count_label'], $cards['drawer']['secondary_count']]);
     }
 
     public function test_todays_order_counts_respect_persisted_branch_and_owner_tree(): void

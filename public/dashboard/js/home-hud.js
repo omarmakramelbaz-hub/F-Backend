@@ -43,10 +43,11 @@
         'customers': 'M8 6a4 4 0 1 0 8 0 4 4 0 0 0-8 0 M3 22v-2a9 9 0 0 1 18 0v2Z',
         'expenses': 'M2 6c0-4 15-4 15 0s-15 4-15 0 M2 6v10c0 4 15 4 15 0V6 M2 11c0 4 15 4 15 0 M7 18v3c0 3 15 3 15-1v-8',
         'pending-expenses': 'M4 2h11l5 5v6 M4 2v20h8 M14 2v6h6 M7 11h7 M7 15h4 M15 18a4 4 0 1 0 8 0 4 4 0 0 0-8 0 M19 15v3h2',
+        'drawers': 'M3 10h18v11H3z M3 15h18 M10 12.5h4 M10 18h4 M6 10V5h8v5 M8 7h4 M16 6h3l2 4',
         'drawer': 'M4 2h11l5 5v6 M4 2v20h8 M14 2v6h6 M7 11h7 M7 15h4 M15 18a4 4 0 1 0 8 0 4 4 0 0 0-8 0 M19 15v3h2',
         'stock': 'm12 1 6 3v7l-6 3-6-3V4z M6 4l6 3 6-3 M12 7v7 M6 11l-6 3v7l6 3 6-3v-7 M0 14l6 3 6-3 M6 17v7 M18 11l6 3v7l-6 3-6-3 M18 17v7 M12 14l6 3 6-3'
     };
-    var columns = {right: ['ch-app', 'ch-takeaway', 'ch-phone', 'ch-dine', 'pending-expenses'], left: ['employees', 'customers', 'expenses', 'drawer', 'stock']};
+    var columns = {right: ['ch-app', 'ch-takeaway', 'ch-phone', 'ch-dine', 'drawers', 'pending-expenses'], left: ['employees', 'customers', 'expenses', 'drawer', 'stock']};
     var number = new Intl.NumberFormat('en-GB');
     function on(target, name, fn, options) { target.addEventListener(name, fn, options); removers.push(function () { target.removeEventListener(name, fn, options); }); }
     function el(tag, text, cls) { var n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; }
@@ -157,6 +158,17 @@
         } else sayGreeting();
     }
     function leave() { if (disposed) return; root.hidden = true; dispose(); var title = document.querySelector('#ho-title, #branch-home h1'); if (title) { title.tabIndex = -1; title.focus({preventScroll: true}); } }
+    // «رصيد أدراج الفروع» opens the balance of each branch's drawer, on this same page below the opening.
+    function showDrawers() {
+        leave(); var panel = document.querySelector('.ho-owner-drawers'); if (!panel) return;
+        panel.scrollIntoView({block: 'center', behavior: reduce && reduce.matches ? 'auto' : 'smooth'});
+        var list = panel.querySelector('[data-ho-drawers]'); if (list) list.focus({preventScroll: true});
+    }
+    function drawersClick(event) {
+        var link = event.target && event.target.closest ? event.target.closest('a[data-hud-key="drawers"]') : null;
+        if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); try { history.replaceState(history.state, '', '#branch-drawers'); } catch (_) {} showDrawers();
+    }
     function keydown(event) {
         if (event.key === 'Escape') { event.preventDefault(); leave(); return; }
         if (event.key !== 'Tab') return;
@@ -170,14 +182,16 @@
         removers.forEach(function (remove) { remove(); }); document.documentElement.classList.remove('go-hud-open');
     }
     document.documentElement.classList.add('go-hud-open');
-    on(enter, 'click', leave); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'dashboard:order-alert-state', alertState);
+    on(enter, 'click', leave); on(root, 'click', drawersClick); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'dashboard:order-alert-state', alertState);
     on(document, 'visibilitychange', visibility); on(document, 'dashboard:before-unload', dispose); on(window, 'pagehide', dispose);
     on(window, 'resize', wakeBackground); if (reduce && reduce.addEventListener) on(reduce, 'change', wakeBackground);
     function resumeGreeting(event) { if (!voiceButton.contains(event.target)) sayGreeting(); }
     on(root, 'pointerdown', resumeGreeting, {capture: true}); on(root, 'keydown', resumeGreeting, {capture: true});
     on(voiceButton, 'click', function () { if (voiceButton.dataset.action === 'play') { sayGreeting(); return; } muted = true; stopSpeech(); });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(dispose);
-    fill((boot.initial || {}).hologram); if (!metric) { freshness.textContent = 'جار تحميل العدّادات'; refresh(); } else schedule();
+    fill((boot.initial || {}).hologram);
+    if (location.hash === '#branch-drawers') { setTimeout(showDrawers, 0); return; }
+    if (!metric) { freshness.textContent = 'جار تحميل العدّادات'; refresh(); } else schedule();
     if (window.DashboardOrderAlerts) alertState({detail: window.DashboardOrderAlerts.state()});
     wakeBackground(); enter.focus({preventScroll: true}); greeting();
 })();

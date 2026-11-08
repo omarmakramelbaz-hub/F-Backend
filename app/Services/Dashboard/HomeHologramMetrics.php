@@ -42,8 +42,16 @@ class HomeHologramMetrics
             'ch-phone'=>['دليفري', 'في التجهيز اليوم'],
             'ch-dine'=>['صالة', 'في التجهيز اليوم'],
             'pending-expenses'=>['مصروفات منتظرة', 'بانتظار الاعتماد'],
+            'drawers'=>['رصيد أدراج الفروع', 'جنيه'],
         ];
         if (isset($links['expenses'])) $links['pending-expenses'] = $links['expenses'];
+        // The primary owner: the branches' drawer balance in place of the pending expenses; it opens the balance of
+        // each branch's drawer, on the home page itself.
+        $balance = $this->ownerDrawerBalance($actor);
+        if ($balance !== null && isset($links['pending-expenses'])) {
+            unset($links['pending-expenses']);
+            $links['drawers'] = (\Illuminate\Support\Facades\Route::has('admin_dash') ? route('admin_dash') : url('admin/dashboard')).'#branch-drawers';
+        }
         $cards = [];
         foreach ($specs as $key => [$label, $countLabel]) {
             if (!isset($links[$key])) continue;
@@ -115,17 +123,10 @@ class HomeHologramMetrics
             $cards['stock']['warning'] = $low !== null && $low > 0;
             $cards['stock']['low_stock_branches'] = $occurrences;
         }
-        if (isset($cards['drawer']) && $this->has('branch_shift_closings', ['branch'])) {
-            $set('drawer', count($keys));
-            $balance = $this->ownerDrawerBalance($actor);
-            if ($balance !== null) {
-                $cards['drawer']['count'] = $balance;
-                $cards['drawer']['count_label'] = 'جنيه رصيد أدراج الفروع';
-                $cards['drawer']['secondary_count'] = count($keys);
-                $cards['drawer']['secondary_label'] = 'فروع للتقفيل';
-            }
-        }
+        if (isset($cards['drawer']) && $this->has('branch_shift_closings', ['branch'])) $set('drawer', count($keys));
+        if (isset($cards['drawers'])) $set('drawers', $balance, count($keys), 'فرع');
         foreach ($cards as &$card) {
+            if ($card['key'] === 'drawers') continue; // the home page itself
             // Opening links use the account's branch scope, never a stale home
             // filter belonging to another account in the same browser session.
             $query = [];
