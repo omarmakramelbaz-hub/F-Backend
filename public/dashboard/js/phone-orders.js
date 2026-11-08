@@ -465,10 +465,15 @@
             panel.querySelector('[data-phone-rating-title]').textContent = branches.length > 1 ? 'تقييم أداء الفروع' : 'تقييم أداء الفرع';
             var list = panel.querySelector('[data-phone-rating-list]'); list.replaceChildren();
             rated.forEach(function (b) {
-                var card = element('div', 'ph-rating-card is-' + b.grade_key);
-                card.appendChild(element('strong', 'ph-rating-name', b.name));
-                card.appendChild(element('span', 'ph-rating-grade', b.grade));
-                card.appendChild(element('small', 'ph-rating-detail', b.on_time_percent + '% في الوقت · ' + b.orders + ' طلب · ' + b.late + ' متأخر'));
+                // A progress bar filled to the share on time, in the grade's colour, with the share written in it.
+                var card = element('div', 'ph-rating-card is-' + b.grade_key), top = element('div', 'ph-rating-top');
+                top.appendChild(element('strong', 'ph-rating-name', b.name)); top.appendChild(element('span', 'ph-rating-grade', b.grade)); card.appendChild(top);
+                var bar = element('div', 'ph-rating-bar'), fill = element('span', 'ph-rating-fill'), percent = Math.max(0, Math.min(100, Number(b.on_time_percent) || 0));
+                bar.setAttribute('role', 'progressbar'); bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', '100'); bar.setAttribute('aria-valuenow', String(percent));
+                bar.setAttribute('aria-label', b.name + ': ' + percent + '% في الوقت، ' + b.grade);
+                bar.appendChild(fill); bar.appendChild(element('b', 'ph-rating-percent', percent + '%')); card.appendChild(bar);
+                requestAnimationFrame(function () { requestAnimationFrame(function () { fill.style.width = percent + '%'; }); });
+                card.appendChild(element('small', 'ph-rating-detail', b.orders + ' طلب · ' + b.late + ' متأخر'));
                 card.title = 'متأخر في التجهيز ' + b.late_preparing + ' · متأخر في التوصيل ' + b.late_delivery + ' · متوسط التجهيز ' + b.avg_preparing_minutes + ' د · متوسط زمن الطلب ' + b.avg_total_minutes + ' د';
                 list.appendChild(card);
             });
