@@ -743,14 +743,12 @@ class DashboardPosServiceTest extends TestCase
         $this->assertSame([2,1,1,2,10.0,30.0,0.0,'ضعيف جدًا','very_weak'],[$row['orders'],$row['late_preparing'],$row['late_delivery'],$row['late'],$row['avg_preparing_minutes'],$row['avg_total_minutes'],$row['on_time_percent'],$row['grade'],$row['grade_key']]);
         $this->assertSame('f:100',$rating['branches'][0]['branch'],'branches with orders first');
         $this->assertSame([0,null],[$lateness->performance(['from'=>'2026-09-13','to'=>'2026-09-13'],$this->actor(1))['branches'][0]['orders'],null]);
-        $this->assertSame(['f:100'],array_column($lateness->performance([],$this->actor())['branches'],'branch'),'a branch rates only itself');
-        // The owner and the central admins: every branch, or the one chosen on the page; a branch account: its own only.
-        $scope=fn(array $v,int $actor)=>array_column($lateness->performance($v,$this->actor($actor))['branches'],'branch');
-        $this->assertEqualsCanonicalizing(['f:100','f:101','gs:30'],$scope(['branch'=>'all'],1));
-        $this->assertSame(['f:100'],$scope(['branch'=>'f:100'],1));
-        $this->assertSame(['f:100'],$scope([],4));$this->assertSame(['f:100'],$scope([],12));$this->assertSame(['f:101'],$scope([],11));
-        $this->denied(fn()=>$lateness->performance(['branch'=>'f:101'],$this->actor()),403);
-        $this->actingAs($this->actor(),'admin');$this->getJson(route('phone-orders.performance',['branch'=>'all']))->assertOk()->assertJsonCount(1,'branches');
+        // Every branch sees every branch's rating (a race between them), its own marked; a GO store sees its own only.
+        $scope=fn(int $actor)=>array_column($lateness->performance([],$this->actor($actor))['branches'],'branch');
+        foreach([1,4,10,11,12] as $actor)$this->assertEqualsCanonicalizing(['f:100','f:101'],$scope($actor),'account '.$actor);
+        $this->assertSame('f:100',$lateness->performance([],$this->actor())['own']);$this->assertNull($lateness->performance([],$this->actor(1))['own']);
+        $this->assertSame(['gs:30'],$scope(30));
+        $this->actingAs($this->actor(11),'admin');$this->getJson(route('phone-orders.performance'))->assertOk()->assertJsonCount(2,'branches')->assertJsonPath('own','f:101');
         $L=\App\Services\Dashboard\PhoneDeliveryLateness::class;
         foreach([[100,'ممتاز','excellent'],[90,'ممتاز','excellent'],[89.9,'جيد','good'],[75,'جيد','good'],[74.9,'ضعيف','weak'],[50,'ضعيف','weak'],[49.9,'ضعيف جدًا','very_weak'],[0,'ضعيف جدًا','very_weak']] as [$p,$g,$k])
             $this->assertSame([$g,$k],[$L::grade($p),$L::gradeKey($p)],(string)$p);

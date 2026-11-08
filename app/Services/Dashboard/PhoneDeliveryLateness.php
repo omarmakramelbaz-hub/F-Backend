@@ -64,8 +64,10 @@ class PhoneDeliveryLateness
         $to = $v['to'] ?? OperatingDay::date();
         $from = $v['from'] ?? $to;
         abort_if(Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 92, 422, 'اختر فترة لا تزيد عن 3 شهور.');
-        $branches = $this->scope($actor, $v['branch'] ?? null);
-        $result = ['success'=>true, 'from'=>$from, 'to'=>$to, 'policy'=>self::policy(), 'branches'=>[]];
+        // Every branch sees every branch's rating (a race between the branches); a GO store sees its own only.
+        $branches = $this->competitors($actor);
+        $own = $branches ? $this->access->receiverBranch($actor) : null;
+        $result = ['success'=>true, 'from'=>$from, 'to'=>$to, 'policy'=>self::policy(), 'own'=>$own, 'branches'=>[]];
         if (!$branches || !Schema::hasTable('pos_service_tickets') || !Schema::hasTable('takeaway_orders')) return $result;
         $names = array_column($branches, 'name', 'value');
         $query = DB::table('pos_service_tickets as t')->join('takeaway_orders as r', function ($join) {
@@ -139,6 +141,16 @@ class PhoneDeliveryLateness
         $own = $this->access->receiverBranch($actor);
         if ($own === null && count($branches) === 1) $own = $branches[0]['value'];
         return $own === null ? [] : array_values(array_filter($branches, fn ($b) => $b['value'] === $own));
+    }
+
+    /** The branches rated together: all the restaurant's branches for anyone who works one of them. */
+    private function competitors($actor): array
+    {
+        $mine = $this->branches($actor);
+        if (!$mine) return [];
+        if (!array_filter($mine, fn ($b) => $b['kind'] === 'f')) return $mine;
+        return DB::table('resturants')->orderBy('id')->get(['id', 'name'])
+            ->map(fn ($r) => ['value'=>'f:'.$r->id, 'name'=>(string) $r->name, 'kind'=>'f'])->all();
     }
 
     private function branches($actor): array
