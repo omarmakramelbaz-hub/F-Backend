@@ -15,6 +15,8 @@ class DashboardHomeHologramMetricsTest extends TestCase
         config(['database.default'=>'sqlite', 'database.connections.sqlite.database'=>':memory:', 'cache.default'=>'array',
             'app.key'=>'base64:'.base64_encode(str_repeat('h', 32)), 'app.timezone'=>'Africa/Cairo']);
         DB::purge('sqlite'); Schema::clearResolvedInstance('db.schema');
+        // The fixtures' orders are made on this operating day (10:00 Cairo for the app, 10:00 UTC for the POS).
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2020-01-01 13:00:00', 'Africa/Cairo'));
         Schema::create('users', function (Blueprint $t) {
             $t->id(); $t->string('name'); $t->string('account_type'); $t->unsignedBigInteger('owner_resturant_id')->nullable();
             $t->string('app_scope')->nullable(); $t->string('status')->default('accepted'); $t->timestamps();
@@ -68,6 +70,12 @@ class DashboardHomeHologramMetricsTest extends TestCase
             ['id'=>101, 'user_id'=>20, 'parent_id'=>100, 'name'=>'A child'],
             ['id'=>200, 'user_id'=>20, 'parent_id'=>null, 'name'=>'Foreign'],
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        \Carbon\Carbon::setTestNow();
+        parent::tearDown();
     }
 
     private function actor(int $id): User { return User::withoutGlobalScopes()->findOrFail($id); }
@@ -124,7 +132,7 @@ class DashboardHomeHologramMetricsTest extends TestCase
         $this->assertTrue($card['available']);
     }
 
-    public function test_lifetime_order_counts_respect_persisted_branch_and_owner_tree(): void
+    public function test_todays_order_counts_respect_persisted_branch_and_owner_tree(): void
     {
         $this->order(1, 100); $this->order(2, 101); $this->order(3, 200);
         $this->order(4, 100, 'completed'); $this->order(5, 101, 'completed'); $this->order(6, 200, 'completed');
@@ -135,7 +143,7 @@ class DashboardHomeHologramMetricsTest extends TestCase
         DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'refund_status'=>'refunded']);
         DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'channel'=>'phone']);
         $branch = $this->cards(10); $this->assertSame(1, $branch['ch-app']['count']);
-        $this->assertNull($branch['ch-app']['secondary_count']); $this->assertSame(1, $branch['ch-takeaway']['count']);
+        $this->assertSame(2, $branch['ch-app']['secondary_count']); $this->assertSame('منتهية اليوم', $branch['ch-app']['secondary_label']); $this->assertSame(1, $branch['ch-takeaway']['count']);
         $owner = $this->cards(30); $this->assertSame(2, $owner['ch-app']['count']); $this->assertSame(3, $owner['ch-app']['secondary_count']);
         $this->assertSame(2, $owner['ch-takeaway']['count']);
         $central = $this->cards(1); $this->assertSame(3, $central['ch-app']['count']); $this->assertSame(4, $central['ch-app']['secondary_count']);
@@ -143,6 +151,44 @@ class DashboardHomeHologramMetricsTest extends TestCase
         $spoof = $this->actor(10); $spoof->account_type = 'admin';
         $data = app(HomeHologramMetrics::class)->data($spoof, ['ch-app'=>'/app']);
         $this->assertSame('branch', $data['scope']); $this->assertSame(1, $data['cards'][0]['count']);
+    }
+
+    public function test_delivery_dine_in_and_app_count_todays_orders_being_prepared_and_finished(): void
+    {
+        $yesterday = ['created_at'=>'2019-12-31 22:00:00', 'updated_at'=>'2019-12-31 22:00:00'];
+        // App: open and finished today; yesterday's (still open, or finished) are not today's.
+        $this->order(1, 100); $this->order(2, 100, 'completed'); $this->order(3, 101, 'completed');
+        $this->order(4, 100, 'pending', $yesterday); $this->order(5, 100, 'completed', $yesterday);
+        // Before 6 in the morning belongs to the previous working day.
+        $this->order(6, 100, 'completed', ['created_at'=>'2020-01-01 05:30:00', 'updated_at'=>'2020-01-01 05:30:00']);
+        // Delivery and dine-in: being prepared (unpaid) and finished (paid) today; cancelled is neither.
+        $this->ticket(1, 'f:100'); $this->ticket(2, 'f:100', 'phone', 'finished', 'paid'); $this->ticket(3, 'f:100', 'phone', 'cancelled');
+        $this->ticket(4, 'f:100', 'dine', 'open'); $this->ticket(5, 'f:100', 'dine', 'paid', 'paid'); $this->ticket(6, 'f:101', 'dine', 'paid', 'paid');
+        DB::table('pos_service_tickets')->insert(['id'=>7, 'branch'=>'f:100', 'channel'=>'phone', 'status'=>'new', 'payment_status'=>'unpaid',
+            'created_at'=>'2019-12-31 20:00:00', 'updated_at'=>'2019-12-31 20:00:00']);
+
+        $branch = $this->cards(10);
+        $this->assertSame([1, 1, 'في التجهيز اليوم', 'منتهية اليوم'], [$branch['ch-app']['count'], $branch['ch-app']['secondary_count'],
+            $branch['ch-app']['count_label'], $branch['ch-app']['secondary_label']]);
+        $this->assertSame([1, 1], [$branch['ch-phone']['count'], $branch['ch-phone']['secondary_count']]);
+        $this->assertSame([1, 1, 'منتهية اليوم'], [$branch['ch-dine']['count'], $branch['ch-dine']['secondary_count'], $branch['ch-dine']['secondary_label']]);
+
+        foreach ([1, 30] as $id) {
+            $all = $this->cards($id);
+            $this->assertSame([1, 2], [$all['ch-app']['count'], $all['ch-app']['secondary_count']], 'account '.$id);
+            $this->assertSame([1, 2, 'منتهية اليوم · جميع الفروع'], [$all['ch-dine']['count'], $all['ch-dine']['secondary_count'], $all['ch-dine']['secondary_label']]);
+        }
+    }
+
+    public function test_shubras_account_counts_its_stores_app_orders_too(): void
+    {
+        DB::table('users')->insert(['id'=>50, 'name'=>'Shubra', 'account_type'=>'vendor', 'owner_resturant_id'=>null]);
+        DB::table('resturants')->insert([['id'=>301, 'user_id'=>50, 'parent_id'=>null, 'name'=>'Shubra'],
+            ['id'=>310, 'user_id'=>60, 'parent_id'=>301, 'name'=>'Store']]);
+        $this->order(1, 301); $this->order(2, 310); $this->order(3, 310, 'completed');
+        $this->order(4, 310, 'pending', ['created_at'=>'2019-12-31 22:00:00', 'updated_at'=>'2019-12-31 22:00:00']);
+        $card = $this->cards(50)['ch-app'];
+        $this->assertSame([2, 1], [$card['count'], $card['secondary_count']]);
     }
 
     public function test_website_membership_is_not_conflated_with_branch_phone_orders(): void

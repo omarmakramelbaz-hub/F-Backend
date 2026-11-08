@@ -20,8 +20,8 @@ const SERVED = {
 };
 // The opening's sections (App\Services\Dashboard\HomeHologramMetrics): key, title, what is counted.
 const SECTIONS = [['employees', 'الموظفين والرواتب', 'موظف'], ['customers', 'العملاء', 'عميل'], ['expenses', 'المصروفات', 'مصروف معتمد'],
-  ['drawer', 'تقفيل الوردية', 'فروع للتقفيل'], ['stock', 'مخزون البضاعة', 'صنف'], ['ch-app', 'طلبات التطبيق', 'غير منتهية'],
-  ['ch-takeaway', 'تيك أواي', 'إجمالي الطلبات'], ['ch-phone', 'دليفري', 'غير منتهية'], ['ch-dine', 'صالة', 'غير منتهية'],
+  ['drawer', 'تقفيل الوردية', 'فروع للتقفيل'], ['stock', 'مخزون البضاعة', 'صنف'], ['ch-app', 'طلبات التطبيق', 'في التجهيز اليوم'],
+  ['ch-takeaway', 'تيك أواي', 'إجمالي الطلبات'], ['ch-phone', 'دليفري', 'في التجهيز اليوم'], ['ch-dine', 'صالة', 'في التجهيز اليوم'],
   ['pending-expenses', 'مصروفات منتظرة', 'بانتظار الاعتماد']];
 
 const texts = new Map();

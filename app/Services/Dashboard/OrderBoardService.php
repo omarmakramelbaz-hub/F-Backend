@@ -131,14 +131,21 @@ class OrderBoardService
     }
 
     /** Read-only opening counters use the board's exact membership and payment rules. */
-    public function hologramCounts($actor, array $restaurantIds): array
+    public function hologramCounts($actor, array $restaurantIds, ?string $day = null): array
     {
         abort_unless($this->canAccess($actor), 403);
         $counts = ['available'=>false, 'open'=>0, 'completed'=>0];
+        // Shubra's orders include its stores' (it prepares them), as on its board.
+        $shubra = FasakhanstaStoreFulfillment::RESTAURANT_ID;
+        if ($this->has('resturants', 'parent_id') && in_array($shubra, array_map('intval', $restaurantIds), true)) {
+            $stores = \App\Support\RequestFacts::remember('fasakhansta.shubra-stores', fn () => FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch($shubra));
+            $restaurantIds = array_values(array_unique(array_merge(array_map('intval', $restaurantIds), array_map('intval', $stores))));
+        }
         $keys = array_map(fn ($id) => 'f:'.(int)$id, $restaurantIds);
         foreach (['legacy', 'website'] as $source) {
             if ($source === 'legacy' && (!$this->has('orders', 'resturant_id') || !$this->has('orders', 'type') || !$this->has('orders', 'id'))) continue;
-            $base = $this->query($source, $actor, ['app'=>'fasakhansta']);
+            // A day: the orders made in that operating day only (as the board's date filter reads them).
+            $base = $this->query($source, $actor, ['app'=>'fasakhansta'] + ($day !== null ? ['date'=>$day] : []));
             if (!$base) continue;
             // Never let an unrestricted board administrator escape the grants
             // of a desktop workspace or an independently owned branch tree.

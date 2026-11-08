@@ -37,10 +37,10 @@ class HomeHologramMetrics
             'expenses'=>['المصروفات', 'مصروف معتمد'],
             'drawer'=>['تقفيل الوردية', 'فروع للتقفيل'],
             'stock'=>['مخزون البضاعة', 'صنف'],
-            'ch-app'=>['طلبات التطبيق', 'غير منتهية'],
+            'ch-app'=>['طلبات التطبيق', 'في التجهيز اليوم'],
             'ch-takeaway'=>['تيك أواي', 'إجمالي الطلبات'],
-            'ch-phone'=>['دليفري', 'غير منتهية'],
-            'ch-dine'=>['صالة', 'غير منتهية'],
+            'ch-phone'=>['دليفري', 'في التجهيز اليوم'],
+            'ch-dine'=>['صالة', 'في التجهيز اليوم'],
             'pending-expenses'=>['مصروفات منتظرة', 'بانتظار الاعتماد'],
         ];
         if (isset($links['expenses'])) $links['pending-expenses'] = $links['expenses'];
@@ -58,9 +58,13 @@ class HomeHologramMetrics
             $cards[$key]['secondary_count'] = $secondary;
             $cards[$key]['secondary_label'] = $secondaryLabel;
         };
+        // Delivery, dine-in and app: today's orders (the operating day) being prepared, and those finished today; every
+        // branch for the owner and the admins, the branch's own for a branch account.
+        $today = OperatingDay::date();
+        $finished = 'منتهية اليوم'.($aggregate ? ' · جميع الفروع' : '');
         if (isset($cards['ch-app'])) {
-            $app = app(OrderBoardService::class)->hologramCounts($actor, $ids);
-            $set('ch-app', $app['open'], $aggregate ? $app['completed'] : null, $aggregate ? 'منتهية · جميع الفروع المصرّح بها' : null);
+            $app = app(OrderBoardService::class)->hologramCounts($actor, $ids, $today);
+            $set('ch-app', $app['open'], $app['completed'], $finished);
         }
         if (isset($cards['ch-takeaway']) && $this->has('takeaway_orders', ['id', 'branch', 'channel', 'payment_confirmed'])) {
             $receipts = DB::table('takeaway_orders')->whereIn('branch', $keys)->where('channel', 'takeaway')->where('payment_confirmed', true);
@@ -75,11 +79,14 @@ class HomeHologramMetrics
         if ($this->has('pos_service_tickets', ['id', 'branch', 'channel', 'payment_status', 'status'])) {
             foreach (['ch-phone'=>'phone', 'ch-dine'=>'dine'] as $key => $channel) {
                 if (!isset($cards[$key])) continue;
-                $tickets = DB::table('pos_service_tickets')->whereIn('branch', $keys)->where('channel', $channel)
-                    ->where('payment_status', 'unpaid')->whereNotIn('status', ['cancelled', 'paid']);
+                $tickets = DB::table('pos_service_tickets')->whereIn('branch', $keys)->where('channel', $channel);
+                if ($this->has('pos_service_tickets', ['business_date'])) $tickets->where('business_date', $today);
+                else $tickets->where('created_at', '>=', OperatingDay::start($today)->setTimezone('UTC')->toDateTimeString())
+                    ->where('created_at', '<', OperatingDay::end($today)->setTimezone('UTC')->toDateTimeString());
                 // Website checkouts already appear under application orders.
                 if ($channel === 'phone') $this->excludeWebsiteTickets($tickets);
-                $set($key, $tickets->count());
+                $open = (clone $tickets)->where('payment_status', 'unpaid')->whereNotIn('status', ['cancelled', 'paid'])->count();
+                $set($key, $open, (clone $tickets)->where('payment_status', 'paid')->where('status', '!=', 'cancelled')->count(), $finished);
             }
         }
         $expenseFrom = [];
