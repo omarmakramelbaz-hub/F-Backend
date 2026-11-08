@@ -19,7 +19,7 @@ class BranchOperationsController extends Controller
             foreach(['directory-save','consent'] as $name)$urls[$name]=route($module.'.'.$name);
             if(!config('desktop_dashboard.local',false))foreach(['messaging-status','messaging-configure','feedback-template-prepare','marketing-template-prepare','campaign-queue'] as $name)$urls[$name]=route($module.'.'.$name);
         }
-        if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export','identity-image','regulation'] as $name)$urls[$name]=route($module.'.'.$name);
+        if($module==='employees')foreach(['attendance','attendance-rules','entry','wallet','daily-notes','void-entry','statement','entries','close','pay','export','identity-image','regulation','remove'] as $name)$urls[$name]=route($module.'.'.$name);
         // Photo uploads are not part of the device's offline sync; the device shows where to upload instead.
         if($module==='employees'&&!config('desktop_dashboard.local',false))$urls['identity']=route('employees.identity');
         $urls['recover']=route('branch-operations.recover');$urls['orders']=route('phone-orders.index');
@@ -30,6 +30,7 @@ class BranchOperationsController extends Controller
         $view=$module==='customers'&&($initial['registry']??false)?'admin.customer_crm.index':'admin.branch_operations.index';
         return view($view,compact('boot'));
     }
+    public function employeeRemove(Request $r){return response()->json(app(\App\Services\Dashboard\BranchPayroll::class)->employeeRemove($r->all(),$this->actor($r)));}
     public function data(Request $r){return response()->json($this->service($r)->listing($r->all(),$this->actor($r)));}
     public function save(Request $r){$s=$this->service($r);return response()->json($this->module($r)==='employees'?$s->employeeSave($r->all(),$this->actor($r)):$s->save($r->all(),$this->actor($r)));}
     public function directorySave(Request $r,BranchCustomers $s){return response()->json($s->directorySave($r->all(),$this->actor($r)));}

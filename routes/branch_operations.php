@@ -19,6 +19,7 @@ Route::middleware(['lang','IsAdmin'])->group(function(){
             Route::get('identity-image',[Operations::class,'identityImage'])->name('identity-image');
             Route::get('regulation',[Operations::class,'regulation'])->name('regulation');
             Route::post('identity',[Operations::class,'identity'])->name('identity');
+            Route::post('remove',[Operations::class,'employeeRemove'])->name('remove');
             foreach(['attendance','attendance-rules'=>'attendanceRules','entry','wallet','daily-notes'=>'dailyNotes','void-entry'=>'voidEntry','close','pay'] as $key=>$method){$path=is_int($key)?$method:$key;Route::post($path,[Operations::class,$method])->name($path);}
         }
     });

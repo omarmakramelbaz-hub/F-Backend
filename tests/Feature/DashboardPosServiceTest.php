@@ -512,6 +512,36 @@ class DashboardPosServiceTest extends TestCase
         $period=$s->statement(['branch'=>'f:100','employee_id'=>$a['id'],'month'=>'2026-09'],$this->actor())['statement'];$s->close(['branch'=>'f:100','employee_id'=>$a['id'],'month'=>'2026-09','preview_hash'=>$period['preview_hash'],'idempotency_key'=>$this->key(912)],$this->actor());
         $locked=$s->listing(['branch'=>'f:100','day'=>'2026-09-12','month'=>'2026-10','search'=>'أحمد'],$this->actor());$this->assertTrue($locked['items'][0]['day_closed']);$this->assertSame('draft',$locked['items'][0]['statement']['status']);$this->assertSame('150.00',$s->entries($base+['kind'=>'deduction'],$this->actor())['total']);
     }
+    public function test_an_employee_who_never_worked_is_deleted_and_one_who_worked_ends_service_keeping_his_accounts(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-12 09:30:00','Africa/Cairo'));
+        $s=app(\App\Services\Dashboard\BranchPayroll::class);
+        $new=$s->employeeSave($this->employeePayload(950),$this->actor(1))['employee'];
+        $worked=$s->employeeSave(array_replace($this->employeePayload(951),['name'=>'محمود']),$this->actor(1))['employee'];
+        $s->entry(['branch'=>'f:100','employee_id'=>$worked['id'],'day'=>'2026-09-12','kind'=>'advance','amount'=>'100.00','reason'=>'سلفة','idempotency_key'=>$this->key(952)],$this->actor());
+        // Only the owner and the admins.
+        $this->denied(fn()=>$s->employeeRemove(['branch'=>'f:100','employee_id'=>$new['id'],'idempotency_key'=>$this->key(953)],$this->actor()),403);
+        $this->actingAs($this->actor(),'admin');$this->postJson(route('employees.remove'),['branch'=>'f:100','employee_id'=>$new['id'],'idempotency_key'=>$this->key(954)])->assertForbidden();
+
+        $this->actingAs($this->actor(1),'admin');
+        $this->postJson(route('employees.remove'),['branch'=>'f:100','employee_id'=>$new['id'],'idempotency_key'=>$this->key(955)])
+            ->assertOk()->assertJson(['success'=>true,'removed'=>true]);
+        $this->assertFalse(DB::table('branch_employees')->where('id',$new['id'])->exists());
+        $this->assertFalse(DB::table('branch_employee_salaries')->where('employee_id',$new['id'])->exists());
+
+        $ended=$s->employeeRemove(['branch'=>'f:100','employee_id'=>$worked['id'],'idempotency_key'=>$this->key(956)],$this->actor(1));
+        $this->assertFalse($ended['removed']);$this->assertTrue($ended['ended']);
+        $row=DB::table('branch_employees')->where('id',$worked['id'])->first();
+        $this->assertFalse((bool)$row->active);$this->assertSame('2026-09-12',substr((string)$row->left_on,0,10));
+        $this->assertSame(1,DB::table('branch_employee_entries')->where('employee_id',$worked['id'])->count(),'his accounts stay');
+        // Still listed for the month he left (his month is settled), then off the list unless asked for.
+        $this->assertSame(['محمود'],array_column($s->listing(['branch'=>'f:100','day'=>'2026-09-12'],$this->actor(1))['items'],'name'));
+        $next=$s->listing(['branch'=>'f:100','day'=>'2026-10-05','month'=>'2026-10'],$this->actor(1));
+        $this->assertSame([],$next['items']);$this->assertSame(1,$next['left_hidden']);
+        $shown=$s->listing(['branch'=>'f:100','day'=>'2026-10-05','month'=>'2026-10','show_left'=>'1'],$this->actor(1));
+        $this->assertSame(['محمود'],array_column($shown['items'],'name'));
+        Carbon::setTestNow();
+    }
     public function test_daily_entry_details_remain_branch_scoped_for_branch_and_central_accounts(): void
     {
         $s=app(\App\Services\Dashboard\BranchPayroll::class);$e=$s->employeeSave($this->employeePayload(920),$this->actor(1))['employee'];$v=['branch'=>'f:100','employee_id'=>$e['id'],'day'=>'2026-09-12','kind'=>'advance'];
