@@ -148,20 +148,20 @@
 .ph-performance-table tr.is-grade-c td:last-child{color:#a06a00}
 .ph-performance-table tr.is-grade-d td:last-child,.ph-performance-table tr.is-grade-e td:last-child{color:#c21f2c;font-weight:700}
 .ph-performance-table tr.is-empty td{color:#8a94a6}
-/* The branches' rating at the top of the delivery page: ممتاز green, جيد blue, ضعيف yellow, ضعيف جدًا red. */
-.ph-rating{margin:0 0 12px;padding:10px 12px;border:1px solid #e3e7ee;border-radius:10px;background:#fff}
-.ph-rating header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px}
-.ph-rating h2{margin:0;font-size:15px;font-weight:700}
-.ph-rating-periods{display:flex;gap:6px}
-.ph-rating-periods button{border:1px solid #d9dee7;background:#f6f7fa;border-radius:16px;padding:2px 10px;font-size:12px;min-height:26px}
+/* The branches' rating at the top of the delivery page: ممتاز green, جيد blue, ضعيف yellow, ضعيف جدًا red. Compact. */
+.ph-rating{margin:0 0 8px;padding:6px 10px;border:1px solid #e3e7ee;border-radius:8px;background:#fff}
+.ph-rating header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;margin-bottom:5px}
+.ph-rating h2{margin:0;font-size:13px;font-weight:700}
+.ph-rating-periods{display:flex;gap:4px}
+.ph-rating-periods button{border:1px solid #d9dee7;background:#f6f7fa;border-radius:12px;padding:0 8px;font-size:11px;min-height:22px;line-height:20px}
 .ph-rating-periods button[aria-pressed="true"]{background:#10274a;border-color:#10274a;color:#fff}
-.ph-rating-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
-.ph-rating-card{flex:0 0 auto;min-width:150px;display:grid;gap:2px;padding:8px 12px;border-radius:8px;border:1px solid;border-inline-start-width:5px}
-.ph-rating-name{font-size:13px}
-.ph-rating-grade{font-size:16px;font-weight:800}
-.ph-rating-detail{font-size:11px;opacity:.85}
+.ph-rating-list{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.ph-rating-card{flex:0 0 auto;display:grid;grid-template-columns:auto auto;column-gap:8px;align-items:baseline;padding:3px 8px;border-radius:6px;border:1px solid;border-inline-start-width:3px}
+.ph-rating-name{font-size:11px}
+.ph-rating-grade{font-size:12px;font-weight:800}
+.ph-rating-detail{grid-column:1 / -1;font-size:10px;opacity:.85;white-space:nowrap}
 .ph-rating-card.is-excellent{background:#ecfbf1;border-color:#1f9d55;color:#126b39}
 .ph-rating-card.is-good{background:#edf4ff;border-color:#2563eb;color:#1d4ed8}
 .ph-rating-card.is-weak{background:#fff9e6;border-color:#e0a800;color:#8a6500}
 .ph-rating-card.is-very_weak{background:#fff0f1;border-color:#d92d3a;color:#b4202c}
-.ph-rating-empty{margin:0;font-size:12px;color:#6c7a91}
+.ph-rating-empty{margin:0;font-size:11px;color:#6c7a91}
