@@ -15,7 +15,7 @@ class PhoneOrdersController extends PosServiceController
     public function board(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->listing($request->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     // Late delivery orders (a warning every 5 minutes, everywhere in the dashboard) and the branches' lateness rating.
     public function late(\App\Services\Dashboard\PhoneDeliveryLateness $lateness){return response()->json($lateness->late(auth('admin')->user()))->header('Cache-Control','private, no-store');}
-    public function performance(Request $request,\App\Services\Dashboard\PhoneDeliveryLateness $lateness){return response()->json($lateness->performance($request->only(['from','to']),auth('admin')->user()))->header('Cache-Control','private, no-store');}
+    public function performance(Request $request,\App\Services\Dashboard\PhoneDeliveryLateness $lateness){return response()->json($lateness->performance($request->only(['from','to','branch']),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function dispatchCompany(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->dispatch($request->all(),auth('admin')->user()));}
     public function finishBatch(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->finish($request->all(),auth('admin')->user(),true));}
     public function batchPrint(int $id,\App\Services\Dashboard\PhoneDeliveryBoard $board){return view('admin.phone_orders.batch_receipt',['batch'=>$board->receipt($id,auth('admin')->user())]);}

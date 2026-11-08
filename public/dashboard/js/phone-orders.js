@@ -387,7 +387,7 @@
         var selected = branchSelect.value; if (selected === branch) return; clearTimeout(customerTimer);
         if (boot.receiver_branch || locked() || confirmed!==true && cart.length && !window.confirm(text('branch_change'))) { branchSelect.value = branch; if (branchSelect.selectize) branchSelect.selectize.setValue(branch, true); return; }
         var customerPoint={latitude:latInput.value,longitude:lngInput.value},pendingAddress=savedAddressPending;var customerDraft = {}; Object.keys(fields).forEach(function (key) { if (['notes','discount','discount_reason','delivery_fee'].indexOf(key)<0) customerDraft[key] = fields[key].value; }); var previousStep = step;
-        branch = selected; selectedOrders.clear(); boardPages={preparing:1,courier:1,finished:1}; boardData=null; updateBatchTotal(); boot.company_filter=0; deliverySettings=null;catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = !branch&&boot.can_view_all_branches?boot.permissions||{}:{}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(false); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; });latInput.value=customerPoint.latitude;lngInput.value=customerPoint.longitude;savedAddressPending=pendingAddress; dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
+        branch = selected; setTimeout(loadRating, 0); selectedOrders.clear(); boardPages={preparing:1,courier:1,finished:1}; boardData=null; updateBatchTotal(); boot.company_filter=0; deliverySettings=null;catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); modal.hidden = true; loaded = false; permissions = !branch&&boot.can_view_all_branches?boot.permissions||{}:{}; products.clear(); category = ''; root.querySelector('[data-phone-search]').value = ''; root.querySelector('[data-phone-products]').replaceChildren(); root.querySelector('[data-phone-categories]').replaceChildren(); root.querySelector('[data-phone-order-list]').replaceChildren(); resetDraft(false); Object.keys(customerDraft).forEach(function (key) { fields[key].value = customerDraft[key]; });latInput.value=customerPoint.latitude;lngInput.value=customerPoint.longitude;savedAddressPending=pendingAddress; dirty = !!fields.customer_phone.value; flow(previousStep === 'products' ? 'details' : previousStep, false); notify('');
         var hint = root.querySelector('[data-phone-catalog-message]'); hint.hidden = false; hint.textContent = text('select_branch'); if (branch){loadCatalog(1);loadDeliveryContext();}if(boardScope())loadOrders();
     }
     async function lookupCustomer(prefix) {
@@ -459,10 +459,11 @@
         if (ratingController) ratingController.abort();
         var controller = ratingController = new AbortController();
         try {
-            var result = await read(await get(urls.performance, {from: ratingDay(ratingPeriod), to: ratingDay(0)}, controller.signal), 'list_error');
+            var result = await read(await get(urls.performance, {from: ratingDay(ratingPeriod), to: ratingDay(0), branch: boardScope() || null}, controller.signal), 'list_error');
             if (disposed || controller !== ratingController) return;
             var branches = (result.branches || []), rated = branches.filter(function (b) { return b.orders > 0; });
             panel.querySelector('[data-phone-rating-title]').textContent = branches.length > 1 ? 'تقييم أداء الفروع' : 'تقييم أداء الفرع';
+            if (!branches.length) { panel.hidden = true; return; }
             var list = panel.querySelector('[data-phone-rating-list]'); list.replaceChildren();
             rated.forEach(function (b) {
                 // A progress bar filled to the share on time, in the grade's colour, with the share written in it.

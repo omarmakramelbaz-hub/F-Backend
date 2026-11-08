@@ -32,7 +32,7 @@ class PhoneDeliveryLateness
     /** The late delivery orders of the account's branches right now. */
     public function late($actor): array
     {
-        $branches = $this->branches($actor);
+        $branches = $this->scope($actor, null);
         if (!$branches || !Schema::hasTable('pos_service_tickets')) return ['success'=>true, 'orders'=>[], 'policy'=>self::policy()];
         $now = now('UTC');
         $names = array_column($branches, 'name', 'value');
@@ -59,11 +59,12 @@ class PhoneDeliveryLateness
      */
     public function performance(array $values, $actor): array
     {
-        $v = Validator::make($values, ['from'=>'nullable|date_format:Y-m-d', 'to'=>'nullable|date_format:Y-m-d|after_or_equal:from'])->validate();
+        $v = Validator::make($values, ['from'=>'nullable|date_format:Y-m-d', 'to'=>'nullable|date_format:Y-m-d|after_or_equal:from',
+            'branch'=>['nullable', 'regex:/^(all|(f|gs):[1-9][0-9]{0,18})$/D']])->validate();
         $to = $v['to'] ?? OperatingDay::date();
         $from = $v['from'] ?? $to;
         abort_if(Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 92, 422, 'اختر فترة لا تزيد عن 3 شهور.');
-        $branches = $this->branches($actor);
+        $branches = $this->scope($actor, $v['branch'] ?? null);
         $result = ['success'=>true, 'from'=>$from, 'to'=>$to, 'policy'=>self::policy(), 'branches'=>[]];
         if (!$branches || !Schema::hasTable('pos_service_tickets') || !Schema::hasTable('takeaway_orders')) return $result;
         $names = array_column($branches, 'name', 'value');
@@ -121,6 +122,23 @@ class PhoneDeliveryLateness
     {
         foreach (self::GRADES as $grade) if ($onTime >= $grade[0]) return $grade;
         return end(self::GRADES);
+    }
+
+    /**
+     * Whose orders: the owner and the central admins every branch (or the one chosen on the page); any other account
+     * its own branch only (the one its device works for, or the one chosen on the page), never the others it may see.
+     */
+    private function scope($actor, ?string $chosen): array
+    {
+        $branches = $this->branches($actor);
+        if (!$branches) return [];
+        $actor = $this->access->actor($actor);
+        $all = ($actor->account_type === 'admin' && empty($actor->owner_resturant_id)) || $actor->account_type === 'resturant_owner';
+        if ($chosen !== null && $chosen !== 'all') return array_values(array_filter($branches, fn ($b) => $b['value'] === $chosen)) ?: abort(403);
+        if ($all) return $branches;
+        $own = $this->access->receiverBranch($actor);
+        if ($own === null && count($branches) === 1) $own = $branches[0]['value'];
+        return $own === null ? [] : array_values(array_filter($branches, fn ($b) => $b['value'] === $own));
     }
 
     private function branches($actor): array
