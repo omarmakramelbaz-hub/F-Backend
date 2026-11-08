@@ -45,6 +45,16 @@ class PosOnlyProductsTest extends TestCase
         $this->assertSame([10, 15], $offered->pluck('id')->all());
     }
 
+    public function test_the_apps_menu_by_section_leaves_them_out(): void
+    {
+        $item = fn ($id) => (object) ['id'=>$id];
+        // As Resturant::resturant_category_products() groups the branch's items (the screenshot's «زيادة وردية» section).
+        $sections = collect([1=>collect([$item(10), $item(11), $item(15)]), 2=>collect([$item(14)])]);
+        $menu = PosOnlyProducts::withoutInSections($sections);
+        $this->assertSame([1], $menu->keys()->all(), 'the section of staff-only items is gone');
+        $this->assertSame([10, 15], $menu[1]->pluck('id')->all());
+    }
+
     public function test_the_list_of_staff_only_items_can_be_reviewed(): void
     {
         Artisan::call('products:pos-only');
@@ -56,7 +66,7 @@ class PosOnlyProductsTest extends TestCase
 
     public function test_the_app_and_the_website_leave_them_out_and_refuse_them(): void
     {
-        $sources = ['app/Http/Resources/Api/Vendor/ResturantSingleResource.php'=>2, 'app/Http/Controllers/Api/V1/Home/CategoryController.php'=>1,
+        $sources = ['app/Http/Resources/Api/Vendor/ResturantSingleResource.php'=>2, 'app/Http/Controllers/Api/V1/Home/CategoryController.php'=>2,
             'app/Http/Controllers/Api/V1/User/CartController.php'=>7, 'app/Services/Site/WebStorefront.php'=>2];
         foreach ($sources as $file => $uses) $this->assertSame($uses, substr_count(file_get_contents(base_path($file)), 'PosOnlyProducts::'), $file);
     }

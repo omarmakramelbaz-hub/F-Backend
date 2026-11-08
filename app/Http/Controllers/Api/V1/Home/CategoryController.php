@@ -92,7 +92,9 @@ class CategoryController extends Controller
     }
     public function getResturantProduct(Request $request, Resturant $resturant)
     {
-        $resturantData = ProductCategoryResource::collection($resturant->resturant_category_products());
+        // The branch's menu by section, without the staff-only items (\App\Support\PosOnlyProducts); a section left empty goes too.
+        $sections = \App\Support\PosOnlyProducts::withoutInSections($resturant->resturant_category_products());
+        $resturantData = ProductCategoryResource::collection($sections);
         return $this->successResponse($resturantData, __('api.get single resturant'));
 
     }

@@ -39,6 +39,12 @@ final class PosOnlyProducts
         return is_numeric($id) && in_array((int) $id, self::ids(), true);
     }
 
+    /** A menu grouped by section without the staff-only items; a section left empty goes too. */
+    public static function withoutInSections($sections)
+    {
+        return $sections->map(fn ($items) => self::without($items))->filter(fn ($items) => $items->isNotEmpty());
+    }
+
     /** A list of products without the staff-only ones. */
     public static function without($products)
     {
