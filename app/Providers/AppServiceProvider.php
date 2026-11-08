@@ -84,6 +84,9 @@ class AppServiceProvider extends ServiceProvider
         // A migration may change tables in ways the connection does not see (straight through PDO): forget after each.
         \Illuminate\Support\Facades\Event::listen([\Illuminate\Database\Events\MigrationEnded::class, \Illuminate\Database\Events\SchemaLoaded::class],
             fn () => \App\Database\SchemaMemory::forgetEverything());
+        // File sessions are saved whole or not at all (see AtomicFileSessionHandler).
+        \Illuminate\Support\Facades\Session::extend('file', fn ($app) => new \App\Session\AtomicFileSessionHandler(
+            $app['files'], $app['config']['session.files'], $app['config']['session.lifetime']));
         Paginator::useBootstrap();
         User::observe(UserObserver::class);
         User::observe(\App\Observers\CustomerDirectoryUserObserver::class);

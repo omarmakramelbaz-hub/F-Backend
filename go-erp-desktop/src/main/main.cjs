@@ -854,6 +854,8 @@ function hideDashboard() {
   notifyDashboard({ type: 'hidden' });
 }
 
+let signInAgain = null; // the dashboard's sign-in tried again once its minute is over
+
 /** Signs the dashboard in as the app's account; a sign-out chosen inside the dashboard signs out of the app too. */
 async function onDashboardLoad(contents) {
   let url;
@@ -873,8 +875,19 @@ async function onDashboardLoad(contents) {
       if (landing) contents.loadURL(SERVER + landing);
       return;
     }
-    // First sign-in, or the dashboard session expired: sign in again, at most once a minute.
-    if (!dashboardLogin || Date.now() - dashboardLastAutoLogin < 60000) return;
+    // First sign-in, or the dashboard session expired: sign in again, at most once a minute. Back on the sign-in page
+    // sooner (the last try did not go through): tried again once the minute is over, if the page is still there.
+    if (!dashboardLogin) return;
+    const wait = 60000 - (Date.now() - dashboardLastAutoLogin);
+    if (wait > 0) {
+      clearTimeout(signInAgain);
+      signInAgain = setTimeout(() => {
+        if (contents.isDestroyed() || contents.isLoading()) return;
+        try { if (new URL(contents.getURL()).pathname.replace(/\/+$/, '') === '/admin/login') onDashboardLoad(contents); } catch { /* left the page */ }
+      }, wait + 500);
+      return;
+    }
+    clearTimeout(signInAgain);
     dashboardLastAutoLogin = Date.now();
     const { login, password } = dashboardLogin;
     await contents.executeJavaScript(`(() => {
