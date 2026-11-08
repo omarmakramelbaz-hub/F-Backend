@@ -63,5 +63,6 @@
 <script type="application/json" id="phone-history-translations">@json(trans('takeaway'))</script>
 @include('admin.maps.assets')
 <script src="{{ asset('dashboard/js/phone-address-search.js') }}?v={{ filemtime(public_path('dashboard/js/phone-address-search.js')) }}"></script>
+<script src="{{ asset('dashboard/js/pos-line-quantity.js') }}?v={{ filemtime(public_path('dashboard/js/pos-line-quantity.js')) }}"></script>
 <script src="{{ asset('dashboard/js/phone-orders.js') }}?v={{ filemtime(public_path('dashboard/js/phone-orders.js')) }}"></script>
 @endpush
