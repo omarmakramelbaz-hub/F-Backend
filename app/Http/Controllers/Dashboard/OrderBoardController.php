@@ -50,6 +50,33 @@ class OrderBoardController extends Controller
         return view('admin.orders.board_detail', ['card'=>$service->detail($source, $id, auth('admin')->user()), 'printing'=>false]);
     }
 
+    public function printRemote(string $source, int $id, OrderBoardService $service)
+    {
+        return response()->json(app(OrderBoardPrinting::class)->remote($source, $id, auth('admin')->user(), $service));
+    }
+
+    public function branchPrintJobs(Request $request, \App\Services\Dashboard\AppOrderBranchPrinting $printing)
+    {
+        return response()->json($printing->listing($request->all(), auth('admin')->user()))->header('Cache-Control', 'private, no-store');
+    }
+
+    public function branchPrintClaim(Request $request, \App\Services\Dashboard\AppOrderBranchPrinting $printing)
+    {
+        return response()->json($printing->claim($request->all(), auth('admin')->user()));
+    }
+
+    public function branchPrintComplete(Request $request, \App\Services\Dashboard\AppOrderBranchPrinting $printing)
+    {
+        return response()->json($printing->complete($request->all(), auth('admin')->user()));
+    }
+
+    public function branchPrintReceipt(Request $request, int $id, OrderBoardService $service, \App\Services\Dashboard\AppOrderBranchPrinting $printing)
+    {
+        $order = $printing->order($id, (string) $request->query('claim_token', ''), auth('admin')->user());
+        return response()->view('admin.orders.board_detail', ['card'=>$service->detail('legacy', $order, auth('admin')->user()), 'printing'=>true])
+            ->header('Cache-Control', 'private, no-store, max-age=0')->header('Referrer-Policy', 'no-referrer');
+    }
+
     public function print(string $source, int $id, OrderBoardService $service)
     {
         app(OrderBoardPrinting::class)->issue($source, $id, auth('admin')->user(), $service);

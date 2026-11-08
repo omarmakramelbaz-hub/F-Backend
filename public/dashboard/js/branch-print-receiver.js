@@ -94,6 +94,7 @@
             report(result.attention ? boot.labels.attention : boot.labels.ready);
             await processJobs(result.jobs || [],boot);
             if(boot.shifts){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
+            if(boot.apps){var appUrl=new URL(address(boot.apps.jobs));appUrl.searchParams.set('branch',boot.branch);var apps=await request(appUrl.href);if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
         } catch (_) { if (!stopped) report(boot.labels.offline); }
         finally { if (!stopped) timer = setTimeout(poll,2500); }
     }

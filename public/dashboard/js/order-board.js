@@ -408,10 +408,23 @@
         var button = event.target.closest('button[name="action"]');
         if (button) lastSubmitter = button;
     });
+    async function sendToBranchPrinter(url) {
+        try {
+            var csrf = document.querySelector('meta[name="csrf-token"]');
+            var response = await fetch(url.toString(), { method: 'POST', credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ? csrf.content : '' } });
+            var payload = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(payload.message || translated('print_failed'));
+            notify(payload.message || translated('saved'), true, false);
+        } catch (error) { notify((error && error.message) || translated('print_failed'), false, false); }
+    }
     function printOrder(address) {
         var url;
         try { url = new URL(address, window.location.href); } catch (_) { return; }
-        if (url.origin !== window.location.origin || !/^\/admin\/order-board\/legacy\/[1-9][0-9]{0,18}\/print\/?$/.test(url.pathname)) return;
+        if (url.origin !== window.location.origin) return;
+        // A store's order prints on Shubra's device: send it there instead of printing here.
+        if (/^\/admin\/order-board\/legacy\/[1-9][0-9]{0,18}\/print-remote\/?$/.test(url.pathname)) { sendToBranchPrinter(url); return; }
+        if (!/^\/admin\/order-board\/legacy\/[1-9][0-9]{0,18}\/print\/?$/.test(url.pathname)) return;
         if (!window.DashboardPrint) { window.open(url.toString(), '_blank', 'noopener'); return; }
         window.DashboardPrint.print(url.toString()).catch(function (error) {
             notify((error && error.message) || translated('print_failed'), false, false);

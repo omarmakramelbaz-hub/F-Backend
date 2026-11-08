@@ -56,7 +56,21 @@ class OrderBoardPrinting
     /** Both print routes and item saves serialize on the same source order row. */
     public function issue(string $source, int $id, $actor, OrderBoardService $board): void
     {
-        DB::transaction(function () use ($source, $id, $actor, $board) {
+        $this->record($source, $id, $actor, $board, false);
+    }
+
+    /**
+     * A store's order prints on the device of the branch that prepares it (Shubra), whoever sends it and from
+     * wherever: recorded as printed by the same rules as a print here, then queued for that branch's device.
+     */
+    public function remote(string $source, int $id, $actor, OrderBoardService $board): array
+    {
+        return $this->record($source, $id, $actor, $board, true);
+    }
+
+    private function record(string $source, int $id, $actor, OrderBoardService $board, bool $remote): ?array
+    {
+        return DB::transaction(function () use ($source, $id, $actor, $board, $remote) {
             $actor = $this->access->actor($actor);
             if ($source === 'website') {
                 $hint = $board->scopedRow($source, $id, $actor);
@@ -70,7 +84,10 @@ class OrderBoardPrinting
                 : ($this->access->canReprintReceipts($actor) || (!$printed && !$this->ended($source, $row)));
             abort_unless($allowed,
                 403, 'إعادة طباعة الفاتورة متاحة للمالك أو الإدارة فقط.');
-            if ($printed) return;
+            $branchPrint = $remote && $source === 'legacy' ? AppOrderBranchPrinting::remoteBranch($row) : null;
+            abort_if($remote && !$branchPrint, 422, 'هذا الطلب يطبع على هذا الجهاز.');
+            $queued = $branchPrint ? app(AppOrderBranchPrinting::class)->enqueue($branchPrint, $id, (int) $actor->id) : null;
+            if ($printed) return $queued;
             [$branch, $key, $identity] = $this->identity($source, $row);
             if ($source === 'website' && $row->payment_status === 'unpaid' && $row->status !== 'cancelled'
                 && empty($row->bill_issued_at)) {
@@ -83,6 +100,7 @@ class OrderBoardPrinting
                 'result'=>json_encode(['source'=>$source, 'order_id'=>$id, 'branch'=>$branch,
                     'issued_at'=>now('UTC')->toIso8601String()], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 'created_at'=>now('UTC'), 'updated_at'=>now('UTC')]);
+            return $queued;
         }, 3);
     }
 

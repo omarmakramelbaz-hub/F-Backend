@@ -263,6 +263,36 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertEqualsCanonicalizing(['legacy:1', 'legacy:2', 'legacy:3', 'legacy:4', 'legacy:5'], $this->keys($this->board(1)));
     }
 
+    public function test_a_stores_order_prints_on_shubras_device_whoever_sends_it_to_print(): void
+    {
+        if (!Schema::hasTable('branch_operation_commands')) { require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up(); }
+        DB::table('resturants')->insert([['id' => 301, 'name' => 'فرع شبرا', 'user_id' => 11, 'parent_id' => null], ['id' => 310, 'name' => 'زايد ستور', 'user_id' => 11, 'parent_id' => null],
+            ['id' => 94, 'name' => 'فرع المحلة', 'user_id' => 11, 'parent_id' => null]]);
+        foreach ([[50, 301], [51, 94]] as [$id, $branch]) DB::table('users')->insert(['id' => $id, 'name' => 'Branch '.$branch,
+            'account_type' => 'admin', 'app_scope' => 'fasakhansta', 'status' => 'accepted', 'owner_resturant_id' => $branch]);
+        $this->legacy(1, ['resturant_id' => 301, 'status' => 'accepted']);$this->legacy(2, ['resturant_id' => 310, 'status' => 'accepted']);
+        $cards = collect($this->cards($this->board(1)))->keyBy('id');
+        $this->assertStringEndsWith('/legacy/2/print-remote', $cards[2]['urls']['print'], "a store's order goes to Shubra's printer");
+        $this->assertStringEndsWith('/legacy/1/print', $cards[1]['urls']['print'], "Shubra's own order prints where it is handled, as before");
+        // The administration sends it from its own device: nothing prints there, Shubra's queue has it.
+        $this->actingAs($this->actor(1), 'admin')->postJson(route('order-board.print-remote', ['legacy', 2]))->assertOk()
+            ->assertJsonPath('remote', true)->assertJsonPath('message', 'اتبعت للطباعة على جهاز فرع شبرا.');
+        $this->postJson(route('order-board.print-remote', ['legacy', 1]))->assertStatus(422);
+        // Another branch's device never takes Shubra's prints.
+        $this->actingAs($this->actor(51), 'admin')->getJson(route('app-order-print.jobs', ['branch' => 'f:301']))->assertNotFound();
+        // Shubra's device takes it, prints the order and reports back.
+        $this->actingAs($this->actor(50), 'admin');
+        $jobs = $this->getJson(route('app-order-print.jobs', ['branch' => 'f:301']))->assertOk()->json('jobs');
+        $this->assertCount(1, $jobs);
+        $token = (string) \Illuminate\Support\Str::uuid();
+        $claim = $this->postJson(route('app-order-print.claim'), ['branch' => 'f:301', 'job_id' => $jobs[0]['id'], 'claim_token' => $token])->assertOk()->json();
+        $this->postJson(route('app-order-print.claim'), ['branch' => 'f:301', 'job_id' => $jobs[0]['id'], 'claim_token' => (string) \Illuminate\Support\Str::uuid()])->assertStatus(409);
+        $this->get($claim['print_url'].'&dashboard_print=1')->assertOk()->assertSee('R100-2');
+        $this->get(route('app-order-print.receipt', ['id' => $jobs[0]['id'], 'claim_token' => (string) \Illuminate\Support\Str::uuid()]))->assertForbidden();
+        $this->postJson(route('app-order-print.complete'), ['branch' => 'f:301', 'job_id' => $jobs[0]['id'], 'claim_token' => $token, 'result' => 'invoked'])->assertOk();
+        $this->assertSame([], $this->getJson(route('app-order-print.jobs', ['branch' => 'f:301']))->json('jobs'));
+    }
+
     private function board(int $actor = 1, array $filters = []): array
     {
         return app(OrderBoardService::class)->data(Request::create('/admin/order-review', 'GET', $filters), $this->actor($actor));

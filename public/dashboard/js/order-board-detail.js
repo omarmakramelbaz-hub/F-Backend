@@ -87,7 +87,22 @@
         });
         totals();
     }
-    function goPrint() { navigating = true; window.location.assign(url(root.dataset.appPrintUrl)); }
+    function goPrint() {
+        var address = url(root.dataset.appPrintUrl);
+        // A store's order prints on Shubra's device: send it there and stay on this page.
+        if (/\/print-remote\/?$/.test(new URL(address, window.location.href).pathname)) { sendToBranchPrinter(address); return; }
+        navigating = true; window.location.assign(address);
+    }
+    async function sendToBranchPrinter(address) {
+        try {
+            var csrf = document.querySelector('meta[name="csrf-token"]');
+            var response = await fetch(address, { method: 'POST', credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ? csrf.content : '' } });
+            var payload = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(payload.message || 'تعذر إرسال الطباعة.');
+            notify(payload.message || 'اتبعت للطباعة.');
+        } catch (error) { notify((error && error.message) || 'تعذر إرسال الطباعة.'); }
+    }
     async function save(printAfter) {
         if (busy || blocked || !order || lines.some(function (line) { return !valid(line); })) return;
         if (!dirty) { if (printAfter) goPrint(); return; }

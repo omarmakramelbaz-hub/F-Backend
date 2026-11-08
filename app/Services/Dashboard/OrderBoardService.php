@@ -575,7 +575,9 @@ class OrderBoardService
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
-                'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
+                // A store's order prints on Shubra's device, whoever sends it to print.
+                'print'=>$source === 'legacy' && AppOrderBranchPrinting::remoteBranch($row) ? route('order-board.print-remote', [$source, $row->id])
+                    : route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
         if ($source === 'website') {
             $quote = json_decode((string) ($row->quote_snapshot ?? '{}'), true) ?: [];
             $restaurant = $this->related['resturants'][(int) substr((string) $row->branch, 2)] ?? null;

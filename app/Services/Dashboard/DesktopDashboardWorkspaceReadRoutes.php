@@ -124,6 +124,8 @@ final class DesktopDashboardWorkspaceReadRoutes
         foreach(['index'=>'','data'=>'/data','recipes'=>'/recipes','basicRecipes'=>'/basic-recipes']as$method=>$suffix)$add('BranchStockController',$method,['admin/branch-stock'.$suffix],'actor-scoped');
         foreach(['index'=>'','data'=>'/data','recover'=>'/recover','details'=>'/{id}/details','print'=>'/{id}/print']as$method=>$suffix)$add('BranchShiftClosingController',$method,['admin/branch-shifts'.$suffix],'actor-scoped');
         $add('BranchShiftPrintingController','jobs',['admin/branch-shift-print/jobs'],'actor-scoped');$add('BranchShiftPrintingController','receipt',['admin/branch-shift-print/{id}/receipt'],'actor-scoped');
+        // A store's app order printing on Shubra's device: the branch account's own queue (see AppOrderBranchPrinting).
+        $add('OrderBoardController','branchPrintJobs',['admin/app-order-print/jobs'],'actor-scoped');$add('OrderBoardController','branchPrintReceipt',['admin/app-order-print/{id}/receipt'],'actor-scoped');
         $add('PrintSettingsController','index',['admin/print-settings'],'actor-scoped');$add('PrintSettingsController','test',['admin/print-settings/test'],'actor-scoped');
         foreach(['notifications'=>'notifications','support'=>'support','messages'=>'support/{partner}/messages']as$method=>$suffix)$add('DashboardInboxController',$method,['admin/dashboard-inbox/'.$suffix],'actor-scoped');
         foreach(['index'=>'','download'=>'/download','publishedDownload'=>'/published/{sha}','releaseStatus'=>'/release/status','session'=>'/session']as$method=>$suffix)$add('DesktopDashboardController',$method,['admin/desktop-dashboard'.$suffix],'native-control');
