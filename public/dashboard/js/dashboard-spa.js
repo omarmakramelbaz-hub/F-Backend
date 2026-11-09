@@ -813,6 +813,30 @@
             }).then(function (value) { finish(null, value); }, function (error) { finish(error); });
         });
     }
+    var shellAtStart = null;
+    function shellScripts(root, base) {
+        var found = [];
+        root.querySelectorAll('script[src]').forEach(function (script) {
+            if (script.closest('[data-dashboard-page], [data-dashboard-page-scripts]') || script.hasAttribute('data-dashboard-page-init')
+                || script.hasAttribute('data-dashboard-page-owned')) return;
+            var href;
+            try { href = new URL(script.getAttribute('src'), base).href; } catch (_) { return; }
+            if (/\/dashboard\/js\//.test(new URL(href).pathname)) found.push(href);
+        });
+        return found;
+    }
+    function shellOutdated(doc, destination) {
+        if (!shellAtStart) shellAtStart = new Set(shellScripts(document, location.href));
+        var missing = shellScripts(doc, destination).filter(function (href) { return !shellAtStart.has(href); });
+        if (!missing.length) return false;
+        var mark = missing.sort().join(' ');
+        try {
+            // One whole load per change: a copy that still differs afterwards keeps the in-page navigation.
+            if (sessionStorage.getItem('dashboard-shell-reload') === mark) return false;
+            sessionStorage.setItem('dashboard-shell-reload', mark);
+        } catch (_) { return false; }
+        return true;
+    }
     async function visit(value, options) {
         options = options || {};
         var url = new URL(value, location.href);
@@ -844,6 +868,9 @@
             var destination = response.url || url.href;
             var actor = document.body.getAttribute('data-dashboard-actor');
             if (actor && doc.body.getAttribute('data-dashboard-actor') !== actor) { window.location.assign(destination); return; }
+            // Shell scripts (header/footer) load once. After a server update adds or changes one, open the
+            // page whole once, so a window left open all day gets the new features.
+            if (shellOutdated(doc, destination)) { window.location.assign(destination); return; }
             // render commits the URL together with its staged styles and DOM.
             await render(doc, destination, options, current);
         } catch (error) {
