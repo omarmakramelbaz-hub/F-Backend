@@ -245,7 +245,7 @@
         current = data; if(data.categories)categoryOptions(data); rows.clear(); var body = root.querySelector('[data-expense-rows]'); body.replaceChildren();
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
-            [item.number,item.occurred_on,item.branch_name,expenseCategoryLabel(item),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value,index) {
+            [item.number,item.occurred_on,item.branch_name,expenseCategoryLabel(item),item.description,item.amount,item.actor_name].forEach(function (value,index) {
                 var cell=el('td',value);
                 if(index===1&&item.recorded_time)cell.appendChild(el('small',item.recorded_time,'ex-recorded-time'));
                 if(index===4 && item.stock_quantity_kg)cell.appendChild(el('small',item.stock_quantity_kg+' '+t(item.stock_unit==='piece'?'loaf':'kg')+' · '+item.stock_item_name,'ex-stock-quantity'));
