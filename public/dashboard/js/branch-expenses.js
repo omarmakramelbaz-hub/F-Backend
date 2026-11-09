@@ -93,14 +93,25 @@
         if (!categoryPicker) {
             select.hidden = true; select.setAttribute('aria-hidden', 'true'); select.tabIndex = -1;
             categoryPicker = el('details', undefined, 'ex-multi'); categoryPicker.appendChild(el('summary', undefined, 'ex-multi-summary'));
-            var panel = el('div', undefined, 'ex-multi-panel'), clear = el('button', 'كل البنود', 'ex-multi-clear'); clear.type = 'button';
-            panel.appendChild(clear); panel.appendChild(el('div', undefined, 'ex-multi-list')); categoryPicker.appendChild(panel);
+            var panel = el('div', undefined, 'ex-multi-panel'), head = el('div', undefined, 'ex-multi-head'), search = el('input', undefined, 'ex-multi-search');
+            search.type = 'search'; search.placeholder = 'ابحث عن بند…'; search.setAttribute('aria-label', 'ابحث عن بند');
+            head.appendChild(el('i', undefined, 'fas fa-search')); head.appendChild(search);
+            var foot = el('div', undefined, 'ex-multi-foot'), count = el('span', undefined, 'ex-multi-count'), clear = el('button', 'مسح', 'ex-multi-clear'), apply = el('button', 'عرض', 'ex-multi-apply');
+            clear.type = 'button'; apply.type = 'button'; foot.appendChild(count); foot.appendChild(clear); foot.appendChild(apply);
+            panel.appendChild(head); panel.appendChild(el('div', undefined, 'ex-multi-list')); panel.appendChild(foot); categoryPicker.appendChild(panel);
             select.parentNode.insertBefore(categoryPicker, select.nextSibling);
             on(clear, 'click', function () { categoryChecked.clear(); buildCategoryPicker(); });
+            on(apply, 'click', function () { categoryPicker.open = false; if (filters.requestSubmit) filters.requestSubmit(); else filters.dispatchEvent(new Event('submit', { cancelable: true })); });
+            on(search, 'input', function () {
+                var term = search.value.trim();
+                categoryPicker.querySelectorAll('.ex-multi-item').forEach(function (item) { item.hidden = !!term && item.textContent.indexOf(term) < 0; });
+            });
+            on(search, 'keydown', function (event) { if (event.key === 'Enter') event.preventDefault(); });
+            on(categoryPicker, 'toggle', function () { if (categoryPicker.open) { search.value = ''; search.dispatchEvent(new Event('input')); search.focus(); } });
             on(categoryPicker, 'change', function (event) {
                 var box = event.target; if (!box || box.type !== 'checkbox') return;
                 if (box.checked) categoryChecked.add(box.value); else categoryChecked.delete(box.value);
-                categoryPicker.querySelector('summary').textContent = categoryPickerLabel();
+                pickerState();
             });
             on(document, 'click', function (event) { if (categoryPicker.open && !categoryPicker.contains(event.target)) categoryPicker.open = false; });
         }
@@ -108,11 +119,23 @@
         Array.from(categoryChecked).forEach(function (key) { if (!options.some(function (o) { return o.value === key; })) categoryChecked.delete(key); });
         list.replaceChildren();
         options.forEach(function (option) {
-            var label = el('label', undefined, 'ex-multi-item'), box = el('input'); box.type = 'checkbox'; box.value = option.value; box.checked = categoryChecked.has(option.value);
-            label.appendChild(box); label.appendChild(el('span', option.textContent)); list.appendChild(label);
+            // «إيجار — جميع الفروع»: the item's name, then its branch in small type.
+            var parts = option.textContent.split(' — '), name = parts.shift(), where = parts.join(' — ');
+            var label = el('label', undefined, 'ex-multi-item'), box = el('input'), text = el('span', undefined, 'ex-multi-text');
+            box.type = 'checkbox'; box.value = option.value; box.checked = categoryChecked.has(option.value);
+            text.appendChild(el('b', name)); if (where) text.appendChild(el('small', where));
+            label.title = option.textContent; label.appendChild(box); label.appendChild(text); list.appendChild(label);
         });
         if (!options.length) list.appendChild(el('p', t('all_categories'), 'ex-multi-empty'));
+        pickerState();
+    }
+    function pickerState() {
+        var n = categoryChecked.size;
         categoryPicker.querySelector('summary').textContent = categoryPickerLabel();
+        categoryPicker.classList.toggle('has-choice', n > 0);
+        categoryPicker.querySelector('.ex-multi-count').textContent = n ? 'تم اختيار ' + n : 'كل البنود';
+        categoryPicker.querySelector('.ex-multi-clear').disabled = !n;
+        categoryPicker.querySelectorAll('.ex-multi-item').forEach(function (item) { item.classList.toggle('is-checked', item.querySelector('input').checked); });
     }
     async function request(address, options) {
         var response = await fetch(address, Object.assign({ credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }, options || {}));
