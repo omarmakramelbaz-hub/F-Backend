@@ -14,11 +14,13 @@ class BranchExpensesController extends Controller
         $actor=$access->actor(auth('admin')->user());$branches=$access->branches($actor);abort_unless(count($branches),403);$allowAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$selected=$request->input('branch',$allowAll?'all':$branches[0]['value']);
         $data=$expenses->listing($request->all()+['branch'=>$selected],$actor);
         $boot=['actor_id'=>(int)$actor->id,'selected_branch'=>$selected,'branches'=>$branches,'allow_all'=>$allowAll,'permissions'=>$expenses->permissions($actor),'initial'=>$data,'today'=>\App\Services\Dashboard\OperatingDay::date(),'urls'=>[]];
-        foreach(['data','save','recover','export','report','categorySave'] as $name)$boot['urls'][$name]=route('branch-expenses.'.$name);
+        foreach(['data','save','recover','export','report','categorySave','employees'] as $name)$boot['urls'][$name]=route('branch-expenses.'.$name);
         foreach(['show','review'] as $name)$boot['urls'][$name]=str_replace('991770','__EXPENSE__',route('branch-expenses.'.$name,['id'=>991770]));
         return view('admin.expenses.index',compact('boot'));
     }
     public function categorySave(Request $request,\App\Services\Dashboard\ExpenseCategories $categories){return response()->json($categories->save($request->all(),auth('admin')->user()));}
+    // The branch's current employees, for an advance paid from the drawer.
+    public function employees(Request $request,TakeawayAccess $access){$branch=(string)$request->input('branch');$access->branch($branch,auth('admin')->user());return response()->json(['success'=>true,'employees'=>app(\App\Services\Dashboard\BranchPayroll::class)->advanceEmployees($branch)])->header('Cache-Control','private, no-store');}
     public function data(Request $request,BranchExpenses $expenses){return response()->json($expenses->listing($request->all(),auth('admin')->user()));}
     public function pendingCount(BranchExpenses $expenses){return response()->json(['success'=>true,'count'=>$expenses->pendingCount(auth('admin')->user())])->header('Cache-Control','private, no-store');}
     public function save(Request $request,BranchExpenses $expenses){return response()->json($expenses->save($request->except('attachment'),auth('admin')->user(),$request->file('attachment')));}

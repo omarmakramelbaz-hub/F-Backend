@@ -95,7 +95,7 @@ class BranchPayroll
                 elseif(!$row||!EmployeeRegulation::status($row)['current'])
                     $data+=['regulation_version'=>EmployeeRegulation::VERSION,'regulation_accepted_at'=>now('UTC'),'regulation_accepted_by'=>$actor->id];
             }
-            if($row){$id=$row->id;DB::table('branch_employees')->where('id',$id)->update($data);}else $id=DB::table('branch_employees')->insertGetId($data+['created_at'=>now('UTC')]);
+            if($row){$id=$row->id;DB::table('branch_employees')->where('id',$id)->update($data);}else{$id=DB::table('branch_employees')->insertGetId($data+['created_at'=>now('UTC')]);$this->advanceItem($v['branch'],(int)$id,(string)$data['name']);}
             if(Schema::hasTable('branch_employee_pay_hours')&&(!$row||array_key_exists('schedule_type',$v))){
                 $minutes=EmployeePayHours::scheduledMinutes((object)array_merge((array)($row??(object)[]),$data));
                 $priorHours=DB::table('branch_employee_pay_hours')->where('employee_id',$id)->where('effective_month','<=',$v['effective_month'])->orderByDesc('effective_month')->first();
@@ -300,6 +300,58 @@ class BranchPayroll
             $id=DB::table('branch_employee_entries')->insertGetId(['branch'=>$v['branch'],'employee_id'=>$employee->id,'day'=>$v['day'],'kind'=>$v['kind'],'amount_cents'=>$amount,'reason'=>trim($v['reason']),'notes'=>trim($v['notes']??''),'actor_id'=>$actor->id,'revision'=>1,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
             return ['entry'=>(array)DB::table('branch_employee_entries')->where('id',$id)->first()];
         });
+    }
+    /**
+     * A new employee gets his own advance item in the branch's expenses («سلفة - name»): an expense of it is his advance
+     * from the drawer. Never stops adding the employee (an item by that name may already exist, or expenses be off).
+     */
+    private function advanceItem(string $branch,int $employeeId,string $name): void
+    {
+        try{
+            $owner=\App\Models\User::withoutGlobalScopes()->find(1);if(!$owner||!Schema::hasTable('branch_expense_categories'))return;
+            $key=md5('employee-advance-item|'.$employeeId);$uuid=substr($key,0,8).'-'.substr($key,8,4).'-4'.substr($key,13,3).'-8'.substr($key,17,3).'-'.substr($key,20,12);
+            DB::transaction(fn()=>app(ExpenseCategories::class)->save(['action'=>'create','branch'=>$branch,'name'=>mb_substr(self::advanceItemName($name),0,80),'idempotency_key'=>$uuid],$owner));
+        }catch(\Throwable $error){report($error);}
+    }
+    public static function advanceItemName(string $employee): string {return 'سلفة - '.trim($employee);}
+    /** The employee an advance item names («سلفة - name»), when exactly one current employee of the branch has that name. */
+    public function advanceItemEmployee(string $branch,string $item): ?int
+    {
+        if(!preg_match('/^\s*سلف[ةه]?\s*[-–—:]\s*(.+?)\s*$/u',$item,$m))return null;
+        $named=array_values(array_filter($this->advanceEmployees($branch),fn($e)=>trim($e['name'])===$m[1]));
+        return count($named)===1?$named[0]['id']:null;
+    }
+    /** The branch's employees an advance can be paid to today (the expenses page's list). */
+    public function advanceEmployees(string $branch): array
+    {
+        $today=OperatingDay::date();
+        return DB::table('branch_employees')->where('branch',$branch)->where('hired_on','<=',$today)
+            ->where(fn($q)=>$q->whereNull('left_on')->orWhere('left_on','>=',$today))->where('active',true)->orderBy('name')
+            ->get(['id','name','job_title'])->map(fn($r)=>['id'=>(int)$r->id,'name'=>(string)$r->name,'job_title'=>(string)($r->job_title??'')])->all();
+    }
+    /**
+     * An advance paid from the drawer (an approved expense of an advance item) is the employee's advance: it is taken
+     * from his salary like one recorded on the employees page. Inside the expense's transaction; once per expense.
+     */
+    public function advanceFromExpense(object $expense,int $employeeId,int $actorId): int
+    {
+        $marker='expense:'.$expense->id;
+        $old=DB::table('branch_employee_entries')->where('branch',$expense->branch)->where('kind','advance')->where('notes',$marker)->whereNull('voided_at')->first();
+        if($old)return (int)$old->id;
+        $employee=$this->employee($employeeId,$expense->branch,true);$this->employmentDay($employee,$expense->occurred_on);$this->openMonth($employee->id,substr($expense->occurred_on,0,7));
+        return DB::table('branch_employee_entries')->insertGetId(['branch'=>$expense->branch,'employee_id'=>$employee->id,'day'=>$expense->occurred_on,'kind'=>'advance',
+            'amount_cents'=>(int)$expense->amount_cents,'reason'=>'سلفة من خزنة الدرج EXP-'.str_pad((string)$expense->id,6,'0',STR_PAD_LEFT),'notes'=>$marker,
+            'actor_id'=>$actorId,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+    }
+    /** The expense was cancelled after its approval: its advance is cancelled too (kept, marked void, with the reason). */
+    public function voidAdvanceFromExpense(object $expense,int $actorId,string $reason): void
+    {
+        if(!Schema::hasTable('branch_employee_entries'))return;
+        $entry=DB::table('branch_employee_entries')->where('branch',$expense->branch)->where('kind','advance')->where('notes','expense:'.$expense->id)->whereNull('voided_at')->lockForUpdate()->first();
+        if(!$entry)return;
+        $this->openMonth($entry->employee_id,substr($entry->day,0,7));
+        DB::table('branch_employee_entries')->where('id',$entry->id)->update(['voided_at'=>now('UTC'),'voided_by'=>$actorId,'void_reason'=>mb_substr('إلغاء المصروف: '.$reason,0,500),
+            'revision'=>(int)$entry->revision+1,'updated_at'=>now('UTC')]);
     }
     private function canVoidEntries($actor): bool
     {

@@ -8,6 +8,7 @@ Route::middleware(['lang','IsAdmin'])->group(function(){
         if($module==='customers'){
             Route::post('directory-save',[Operations::class,'directorySave'])->name('directory-save');
             Route::post('consent',[Operations::class,'customerConsent'])->name('consent');
+            Route::get('history',[Operations::class,'customerHistory'])->name('history');
             Route::get('messaging-status',[Operations::class,'messagingStatus'])->name('messaging-status');
             Route::post('messaging-configure',[Operations::class,'configureMessaging'])->name('messaging-configure');
             Route::post('feedback-template-prepare',[Operations::class,'prepareFeedbackTemplate'])->name('feedback-template-prepare');

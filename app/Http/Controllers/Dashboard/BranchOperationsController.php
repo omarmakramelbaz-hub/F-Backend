@@ -30,6 +30,8 @@ class BranchOperationsController extends Controller
         $view=$module==='customers'&&($initial['registry']??false)?'admin.customer_crm.index':'admin.branch_operations.index';
         return view($view,compact('boot'));
     }
+    // A customer's orders by his number (the delivery, dine-in, takeaway and app orders pages).
+    public function customerHistory(Request $request,\App\Services\Dashboard\CustomerOrderHistory $history){return response()->json($history->history($request->only('phone'),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function employeeRemove(Request $r){return response()->json(app(\App\Services\Dashboard\BranchPayroll::class)->employeeRemove($r->all(),$this->actor($r)));}
     public function data(Request $r){return response()->json($this->service($r)->listing($r->all(),$this->actor($r)));}
     public function save(Request $r){$s=$this->service($r);return response()->json($this->module($r)==='employees'?$s->employeeSave($r->all(),$this->actor($r)):$s->save($r->all(),$this->actor($r)));}

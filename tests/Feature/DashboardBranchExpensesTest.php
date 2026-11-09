@@ -264,6 +264,69 @@ class DashboardBranchExpensesTest extends TestCase
         $this->invalid(fn()=>$this->create(986,['category'=>'custom_999999']));
     }
 
+    public function test_the_list_filters_several_items_shows_the_time_and_keeps_the_days_expenses_on_one_page(): void
+    {
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-03 14:20:00', 'Africa/Cairo'));
+        $this->create(990, ['category'=>'purchases']);
+        $this->create(991, ['category'=>'maintenance', 'description'=>'Repair']);
+        $this->create(992, ['category'=>'electricity', 'description'=>'Power']);
+        $listing = fn (array $v) => $this->service()->listing(['branch'=>'f:100', 'from'=>'2026-10-01', 'to'=>'2026-10-31'] + $v, $this->actor());
+        // Two items chosen together: both, not the third.
+        $two = $listing(['categories'=>'purchases,maintenance']);
+        $this->assertEqualsCanonicalizing(['Vegetables', 'Repair'], array_column($two['items'], 'description'));
+        $this->assertCount(1, $listing(['categories'=>'electricity'])['items']);
+        $this->assertCount(3, $listing([])['items']);
+        $this->invalid(fn () => $listing(['categories'=>'purchases,not_an_item']));
+        // The time it was recorded, Cairo time, beside its date.
+        $this->assertSame('2:20 م', $two['items'][0]['recorded_time']);
+        // The day's expenses all on the first page, however many.
+        foreach (range(1, 34) as $n) $this->create(1000 + $n, ['description'=>'Item '.$n]);
+        $today = $this->service()->listing(['branch'=>'f:100', 'from'=>'2026-10-01', 'to'=>'2026-10-31'], $this->actor());
+        $this->assertCount(37, $today['items']);
+        $this->assertSame(1, $today['pagination']['last_page']);
+        \Carbon\Carbon::setTestNow();
+    }
+
+    public function test_an_advance_paid_from_the_drawer_is_the_employees_advance_taken_from_his_salary(): void
+    {
+        foreach (['2026_10_04_080000_create_branch_operations'=>'CreateBranchOperations', '2026_10_06_140000_add_employee_wallet_phone'=>'AddEmployeeWalletPhone',
+            '2026_10_08_190000_add_employee_attendance_rules'=>'AddEmployeeAttendanceRules', '2026_10_18_160000_add_employee_part_time_schedule'=>'AddEmployeePartTimeSchedule',
+            '2026_10_18_180000_add_employee_pay_hours'=>'AddEmployeePayHours', '2026_10_23_200000_add_employee_identity_and_regulation'=>'AddEmployeeIdentityAndRegulation'] as $file => $class) {
+            require_once database_path('migrations/'.$file.'.php'); if (!Schema::hasTable('branch_employees') || $class !== 'CreateBranchOperations') (new $class)->up();
+        }
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse('2026-10-03 12:00:00', 'Africa/Cairo'));
+        $payroll = app(\App\Services\Dashboard\BranchPayroll::class);
+        // A new employee gets his own advance item in his branch's expenses.
+        $employee = $payroll->employeeSave(['branch'=>'f:100', 'idempotency_key'=>$this->key(1200), 'name'=>'أحمد', 'phone'=>'01012345678', 'job_title'=>'كاشير',
+            'shift'=>'صباحي', 'hired_on'=>'2026-09-01', 'active'=>true, 'salary'=>'3000.00', 'effective_month'=>'2026-09'], $this->actor(1))['employee'];
+        $items = app(\App\Services\Dashboard\ExpenseCategories::class)->catalog('f:100');
+        $own = collect($items)->firstWhere('name', 'سلفة - أحمد');
+        $this->assertNotNull($own, 'his own advance item');
+        $this->assertArrayNotHasKey($own['key'], app(\App\Services\Dashboard\ExpenseCategories::class)->catalog('f:101'), 'in his branch only');
+
+        // His item names him; approved, the expense is his advance on the employees page (taken from his salary).
+        $expense = $this->service()->save($this->payload(1201, ['category'=>$own['key'], 'description'=>'سلفة', 'amount'=>'200.00', 'approve'=>true]), $this->actor(1))['expense'];
+        $entry = DB::table('branch_employee_entries')->where('employee_id', $employee['id'])->where('kind', 'advance')->first();
+        $this->assertSame([20000, '2026-10-03', 'expense:'.$expense['id']], [(int) $entry->amount_cents, substr($entry->day, 0, 10), $entry->notes]);
+        $this->assertSame('employee:'.$employee['id'], DB::table('branch_expenses')->where('id', $expense['id'])->value('cost_center'));
+        $statement = $payroll->statement(['branch'=>'f:100', 'employee_id'=>$employee['id'], 'month'=>'2026-10'], $this->actor(1))['statement'];
+        $this->assertSame('200.00', $statement['advance']);
+        // Cancelled after approval: his advance is cancelled too.
+        $this->service()->review($expense['id'], ['branch'=>'f:100', 'idempotency_key'=>$this->key(1202), 'action'=>'void', 'reason'=>'غلط', 'expected_revision'=>DB::table('branch_expenses')->where('id', $expense['id'])->value('revision')], $this->actor(1));
+        $this->assertNotNull(DB::table('branch_employee_entries')->where('id', $entry->id)->value('voided_at'));
+        $this->assertSame('0.00', $payroll->statement(['branch'=>'f:100', 'employee_id'=>$employee['id'], 'month'=>'2026-10'], $this->actor(1))['statement']['advance']);
+
+        // A general advance item asks who took it; a pending one is not his advance until approved.
+        $general = app(\App\Services\Dashboard\ExpenseCategories::class)->save(['action'=>'create', 'branch'=>'f:100', 'name'=>'سلف موظفين', 'idempotency_key'=>$this->key(1203)], $this->actor(1))['category']['key'];
+        $this->invalid(fn () => $this->create(1204, ['category'=>$general]));
+        $pending = $this->create(1205, ['category'=>$general, 'employee_id'=>$employee['id'], 'amount'=>'50.00']);
+        $this->assertSame(0, DB::table('branch_employee_entries')->where('notes', 'expense:'.$pending['id'])->count());
+        $this->service()->review($pending['id'], ['branch'=>'f:100', 'idempotency_key'=>$this->key(1206), 'action'=>'approve', 'expected_revision'=>1], $this->actor(1));
+        $this->assertSame(5000, (int) DB::table('branch_employee_entries')->where('notes', 'expense:'.$pending['id'])->value('amount_cents'));
+        $this->assertSame([['id'=>$employee['id'], 'name'=>'أحمد', 'job_title'=>'كاشير']], $payroll->advanceEmployees('f:100'));
+        \Carbon\Carbon::setTestNow();
+    }
+
     public function test_owner_can_edit_and_remove_builtin_and_custom_categories_without_losing_expenses(): void
     {
         $categories=app(\App\Services\Dashboard\ExpenseCategories::class);$owner=$this->actor(1);

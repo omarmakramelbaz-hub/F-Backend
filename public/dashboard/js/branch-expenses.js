@@ -28,7 +28,29 @@
     }
     function stockCategory() { return (categoryCatalog(form.elements.branch.value).stock_categories || {})[form.elements.category.value] || ''; }
     function stockUnit() { return (categoryCatalog(form.elements.branch.value).stock_units || {})[form.elements.category.value] || 'kg'; }
+    // An advance paid to an employee from the drawer (an item named «سلف…»): who took it. Approved, it is his
+    // advance, taken from his salary (the employees page shows it with his advances).
+    var advanceEmployees = {}, advanceGeneration = 0;
+    function advanceField() {
+        var wrap = root.querySelector('[data-expense-employee-field]'), select = form.elements.employee_id; if (!wrap || !select) return;
+        var chosen = form.elements.category.selectedOptions[0], advance = !!(chosen && chosen.value && /سلف/.test(chosen.textContent));
+        wrap.hidden = !advance; select.required = advance; select.disabled = !advance || locked();
+        if (!advance) { select.value = ''; return; }
+        var scope = form.elements.branch.value, generation = ++advanceGeneration;
+        var fill = function (list) {
+            if (generation !== advanceGeneration) return; var keep = select.value; select.replaceChildren(el('option', 'اختر الموظف')); select.firstChild.value = '';
+            list.forEach(function (employee) { var option = el('option', employee.name + (employee.job_title ? ' · ' + employee.job_title : '')); option.value = employee.id; select.appendChild(option); });
+            select.value = keep;
+            // His own item («سلفة - name») chooses him.
+            var named = /سلف[ةه]?\s*[-–—:]\s*(.+)$/.exec(chosen.textContent.split(' · ')[0]);
+            if (named) { var match = list.filter(function (employee) { return named[1].trim().indexOf(employee.name.trim()) === 0; }); if (match.length === 1) select.value = String(match[0].id); }
+        };
+        if (advanceEmployees[scope]) { fill(advanceEmployees[scope]); return; }
+        if (!boot.urls.employees || !scope || scope === 'all') { fill([]); return; }
+        request(url(boot.urls.employees, { branch: scope })).then(function (data) { advanceEmployees[scope] = data.employees || []; fill(advanceEmployees[scope]); }).catch(function () { fill([]); });
+    }
     function quantityField() {
+        advanceField();
         var field = form.elements.quantity_kg; if (!field) return;
         var linked = !!stockCategory();
         root.querySelector('[data-expense-quantity]').hidden = !linked;
@@ -56,7 +78,42 @@
         quantityField();
         root.querySelectorAll('[data-expense-protected]').forEach(function(button){button.disabled=true;});
     }
-    function values() { var v = Object.fromEntries(new FormData(filters)); v.branch = branch.value; return v; }
+    function values() { var v = Object.fromEntries(new FormData(filters)); v.branch = branch.value; v.category = ''; v.categories = Array.from(categoryChecked).join(','); return v; }
+    // Several expense items at once: a list of check boxes in place of the single item list (that list stays, hidden,
+    // as the source of the chosen branch's items).
+    var categoryChecked = new Set(), categoryPicker = null;
+    function categoryPickerLabel() {
+        var select = filters.elements.category, chosen = Array.from(categoryChecked);
+        if (!chosen.length) return t('all_categories');
+        if (chosen.length === 1) { var option = Array.from(select.options).find(function (o) { return o.value === chosen[0]; }); return option ? option.textContent : chosen[0]; }
+        return chosen.length + ' بنود مختارة';
+    }
+    function buildCategoryPicker() {
+        var select = filters.elements.category; if (!select) return;
+        if (!categoryPicker) {
+            select.hidden = true; select.setAttribute('aria-hidden', 'true'); select.tabIndex = -1;
+            categoryPicker = el('details', undefined, 'ex-multi'); categoryPicker.appendChild(el('summary', undefined, 'ex-multi-summary'));
+            var panel = el('div', undefined, 'ex-multi-panel'), clear = el('button', 'كل البنود', 'ex-multi-clear'); clear.type = 'button';
+            panel.appendChild(clear); panel.appendChild(el('div', undefined, 'ex-multi-list')); categoryPicker.appendChild(panel);
+            select.parentNode.insertBefore(categoryPicker, select.nextSibling);
+            on(clear, 'click', function () { categoryChecked.clear(); buildCategoryPicker(); });
+            on(categoryPicker, 'change', function (event) {
+                var box = event.target; if (!box || box.type !== 'checkbox') return;
+                if (box.checked) categoryChecked.add(box.value); else categoryChecked.delete(box.value);
+                categoryPicker.querySelector('summary').textContent = categoryPickerLabel();
+            });
+            on(document, 'click', function (event) { if (categoryPicker.open && !categoryPicker.contains(event.target)) categoryPicker.open = false; });
+        }
+        var options = Array.from(select.options).filter(function (o) { return o.value; }), list = categoryPicker.querySelector('.ex-multi-list');
+        Array.from(categoryChecked).forEach(function (key) { if (!options.some(function (o) { return o.value === key; })) categoryChecked.delete(key); });
+        list.replaceChildren();
+        options.forEach(function (option) {
+            var label = el('label', undefined, 'ex-multi-item'), box = el('input'); box.type = 'checkbox'; box.value = option.value; box.checked = categoryChecked.has(option.value);
+            label.appendChild(box); label.appendChild(el('span', option.textContent)); list.appendChild(label);
+        });
+        if (!options.length) list.appendChild(el('p', t('all_categories'), 'ex-multi-empty'));
+        categoryPicker.querySelector('summary').textContent = categoryPickerLabel();
+    }
     async function request(address, options) {
         var response = await fetch(address, Object.assign({ credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }, options || {}));
         var data; try { data = await response.json(); } catch (_) { data = null; }
@@ -135,7 +192,7 @@
             Object.keys(items).forEach(function(key){var option=el('option',branchCategoryLabel(items[key],scope)+(!catalog.active_categories[key]?' · '+t('deleted_category'):''));option.value=key;select.appendChild(option);});select.value=chosen;
             if(window.jQuery)window.jQuery(select).trigger('change.select2');
         });
-        renderCategories(); quantityField();
+        renderCategories(); quantityField(); buildCategoryPicker();
     }
     function renderCategories(){
         var list=root.querySelector('[data-expense-category-list]');if(!list)return;list.replaceChildren();
@@ -190,6 +247,7 @@
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
             [item.number,item.occurred_on,item.branch_name,expenseCategoryLabel(item),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value,index) {
                 var cell=el('td',value);
+                if(index===1&&item.recorded_time)cell.appendChild(el('small',item.recorded_time,'ex-recorded-time'));
                 if(index===4 && item.stock_quantity_kg)cell.appendChild(el('small',item.stock_quantity_kg+' '+t(item.stock_unit==='piece'?'loaf':'kg')+' · '+item.stock_item_name,'ex-stock-quantity'));
                 row.appendChild(cell);
             });

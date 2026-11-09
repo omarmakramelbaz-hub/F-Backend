@@ -754,6 +754,23 @@ class DashboardPosServiceTest extends TestCase
             $this->assertSame([$g,$k],[$L::grade($p),$L::gradeKey($p)],(string)$p);
         Carbon::setTestNow();
     }
+    public function test_a_customers_orders_by_his_number_open_and_paid_in_the_accounts_branches(): void
+    {
+        require_once database_path('migrations/2026_10_17_000001_create_crm_customer_directory.php');(new \CreateCrmCustomerDirectory)->up();
+        $history=app(\App\Services\Dashboard\CustomerOrderHistory::class);
+        $ticket=$this->tickets()->save('phone',$this->savePayload('phone',1800),$this->actor())['ticket'];
+        $open=$history->history(['phone'=>'٠١٠ 1234 5678'],$this->actor());
+        $this->assertSame([1,'جاري','دليفري'],[$open['summary']['count'],$open['orders'][0]['status'],$open['orders'][0]['channel']]);
+        $this->assertSame([],$history->history(['phone'=>'01012345678'],$this->actor(11))['orders'],'another branch does not see it');
+        // Collected: it is in his paid orders with its amount (from the customer directory), no longer open.
+        $fresh=$this->tickets()->show('phone',$ticket['id'],$this->actor())['ticket'];
+        $this->tickets()->settle('phone',$fresh['id'],$this->settlePayload($fresh,1801),$this->actor());
+        $paid=$history->history(['phone'=>'01012345678'],$this->actor());
+        $this->assertSame(['مدفوع'],array_column($paid['orders'],'status'));
+        $this->assertSame($fresh['total'],$paid['orders'][0]['total']);$this->assertSame($fresh['total'],$paid['summary']['paid_total']);
+        $this->actingAs($this->actor(),'admin');$this->getJson(route('customers.history',['phone'=>'01012345678']))->assertOk()->assertJsonPath('summary.count',1);
+        $this->getJson(route('customers.history',['phone'=>'abc']))->assertStatus(422);
+    }
     private function batchPayload(array $tickets,int $key=1500): array
     {
         $total=array_sum(array_map(fn($t)=>\App\Services\GoServices\Money::minor($t['total']),$tickets));

@@ -116,8 +116,9 @@ final class DesktopDashboardWorkspaceReadRoutes
         foreach(['deliveryQuote'=>'delivery-quote','addressSuggestions'=>'address-suggestions']as$method=>$path)$add('PhoneOrdersController',$method,['admin/phone-orders/'.$path],'actor-scoped',['POST']);
         $add('BranchOrdersController','index',['admin/branch-orders'],'actor-scoped');
         foreach(['index'=>'','data'=>'/data','pendingCount'=>'/pending-count','recover'=>'/recover','export'=>'/export','report'=>'/report',
-            'show'=>'/{id}','attachment'=>'/{id}/attachment','print'=>'/{id}/print']as$method=>$suffix)$add('BranchExpensesController',$method,['admin/branch-expenses'.$suffix],'actor-scoped');
+            'show'=>'/{id}','attachment'=>'/{id}/attachment','print'=>'/{id}/print','employees'=>'/employees']as$method=>$suffix)$add('BranchExpensesController',$method,['admin/branch-expenses'.$suffix],'actor-scoped');
         foreach(['index','data']as$method)$add('BranchOperationsController',$method,array_map(fn($module)=>'admin/'.$module.($method==='index'?'':'/data'),['customers','delivery-companies','employees']),'actor-scoped');
+        $add('BranchOperationsController','customerHistory',['admin/customers/history'],'actor-scoped');
         $add('BranchOperationsController','recover',['admin/branch-operations/recover'],'actor-scoped');
         foreach(['statement','entries','export','identityImage','regulation']as$method)$add('BranchOperationsController',$method,['admin/employees/'.($method==='identityImage'?'identity-image':$method)],'actor-scoped');
         $add('BranchOperationsController','messagingStatus',['admin/customers/messaging-status'],'connected-only');

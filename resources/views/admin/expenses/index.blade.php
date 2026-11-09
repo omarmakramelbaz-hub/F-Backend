@@ -16,7 +16,7 @@
 </section></section>
 <aside class="ex-panel ex-editor" data-expense-editor><header><h2 data-expense-form-title>{{ __('expenses.new') }}</h2><button type="button" data-expense-cancel aria-label="{{ __('expenses.close') }}">×</button></header><form data-expense-form>
 <div class="ex-pair"><label>{{ __('expenses.branch') }}<select name="branch" required @if(count($boot['branches'])===1) disabled @endif>@foreach($boot['branches'] as $branch)<option value="{{ $branch['value'] }}">{{ $branch['name'] }}</option>@endforeach</select></label>
-<label>{{ __('expenses.category') }} <b>*</b><select name="category" required><option value="">{{ __('expenses.category') }}</option>@foreach($boot['initial']['active_categories'] as $category=>$categoryName)<option value="{{ $category }}">{{ $categoryName }}</option>@endforeach</select></label></div>
+<label>{{ __('expenses.category') }} <b>*</b><select name="category" required><option value="">{{ __('expenses.category') }}</option>@foreach($boot['initial']['active_categories'] as $category=>$categoryName)<option value="{{ $category }}">{{ $categoryName }}</option>@endforeach</select></label><label data-expense-employee-field hidden>الموظف اللي أخد السلفة <b>*</b><select name="employee_id" disabled><option value="">اختر الموظف</option></select><small>تتسجل سلفة على الموظف وتتخصم من راتبه عند اعتماد المصروف.</small></label></div>
 @if($boot['permissions']['can_manage_categories'])
 <button type="button" class="ex-button ex-category-open" data-expense-categories-open><i class="fas fa-list" aria-hidden="true"></i> {{ __('expenses.manage_categories') }}</button>
 @endif
