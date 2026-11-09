@@ -220,8 +220,12 @@ class TakeawayService
         $firstPrintUrl = null;
         $rows = $query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get();
         $lines = $rows->isEmpty() ? collect() : DB::table('takeaway_order_items')->whereIn('order_id', $rows->pluck('id')->all())->orderBy('id')->get()->groupBy('order_id');
+        // Reprinting from the invoice review is for the owner only; others see the details.
+        $historyReprint = !empty($values['idempotency_key']) || DashboardAccountRole::isOwner($this->access->actor($actor));
         foreach ($rows as $row) {
-            $items[] = $this->presentReceipt($row, $actor, $lines->get($row->id, collect()));
+            $receipt = $this->presentReceipt($row, $actor, $lines->get($row->id, collect()));
+            if (!$historyReprint) { $receipt['can_reprint'] = false; $receipt['receipt_url'] = null; }
+            $items[] = $receipt;
             if (!empty($values['idempotency_key'])) $firstPrintUrl = app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
         }
         return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($selection['values'], $date), 'items'=>$items,

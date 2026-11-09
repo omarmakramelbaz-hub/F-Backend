@@ -464,6 +464,15 @@ class DashboardTakeawayTest extends TestCase
         $this->denied(fn()=> $this->service()->receipt($sale['receipt']['id'],$this->actor(11)),404);
     }
 
+    public function test_invoice_review_offers_reprint_to_the_owner_only(): void
+    {
+        $this->service()->checkout($this->payment($this->cart()),$this->actor());
+        $owner = $this->service()->receipts(['branch'=>'f:100'],$this->actor(1))['items'][0];
+        $this->assertTrue($owner['can_reprint']); $this->assertNotEmpty($owner['receipt_url']); $this->assertNotEmpty($owner['details_url']);
+        $branch = $this->service()->receipts(['branch'=>'f:100'],$this->actor(12))['items'][0];
+        $this->assertFalse($branch['can_reprint']); $this->assertNull($branch['receipt_url']); $this->assertNotEmpty($branch['details_url']);
+    }
+
     public function test_http_routes_require_login_scope_and_reject_forged_checkout_price(): void
     {
         $this->get(route('takeaway.catalog',['branch'=>'f:100']))->assertRedirect();
