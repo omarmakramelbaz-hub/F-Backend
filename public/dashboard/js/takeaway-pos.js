@@ -673,12 +673,61 @@
         var table = node('table'), head = node('thead'), headings = node('tr'); ['invoice_number', 'branch', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); }); head.appendChild(headings); table.appendChild(head); var body = node('tbody');
         items.forEach(function (item) { var row = node('tr'); row.appendChild(node('td', '', item.number || item.id)); row.appendChild(node('td', '', item.branch && item.branch.name || '—')); row.appendChild(node('td', '', label(item.channel || 'takeaway'))); row.appendChild(node('td', '', item.created_label || item.created_at || '')); row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method))); row.appendChild(node('td', '', money(item.total))); var cell = node('td'); if (canReprint(item) && item.receipt_url) { var link = node('a', '', label('print_invoice')); link.href = endpoint(item.receipt_url); link.addEventListener('click', function (event) { event.preventDefault(); printReceipt(link.href); }); cell.appendChild(link); } if (item.details_url) { var details = node('button', 'dashboard-details-button', label('details')); details.type = 'button'; details.addEventListener('click', function () { window.DashboardInvoiceDetails.open(endpoint(item.details_url)); }); cell.appendChild(details); } row.appendChild(cell); body.appendChild(row); }); table.appendChild(body); content.appendChild(table);
     }
-    async function daily(page) {
+    async function daily(page, date) {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }
         if (registerLocked) { notify(label('sale_locked')); return; }
-        if (!branch && !boot.can_view_all_branches) { notify(label('choose_branch_first')); return; } var content = openModal(label('daily_invoices')), generation = modalGeneration; modalController = new AbortController();
-        try { var response = await fetch(endpoint(urls.daily, { branch: branch || 'all', page: page || 1 }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' }, signal: modalController.signal }); var result = await read(response, 'daily_error'); if (disposed || modal.hidden || generation !== modalGeneration) return; content.replaceChildren(); var items = result.items || result.receipts || []; if (!items.length) content.appendChild(node('p', 'tp-empty', label('daily_empty'))); else receiptTable(items, content); var pages = result.pagination || {}; if (pages.last_page > 1) { var controls = node('nav', 'tp-pagination'); ['previous', 'next'].forEach(function (direction) { var button = node('button', '', label(direction)); button.type = 'button'; button.disabled = direction === 'previous' ? pages.page <= 1 : pages.page >= pages.last_page; button.addEventListener('click', function () { daily(pages.page + (direction === 'next' ? 1 : -1)); }); controls.appendChild(button); }); content.appendChild(controls); } updateRegister(result.register, result.today); }
-        catch (error) { if (disposed || generation !== modalGeneration || error.name === 'AbortError') return; content.replaceChildren(node('p', 'tp-empty', error.message || label('daily_error'))); }
+        if (!branch && !boot.can_view_all_branches) { notify(label('choose_branch_first')); return; }
+        var content = openModal(label('invoice_history')), generation = modalGeneration;
+        modalController = new AbortController();
+        var form = node('form', 'tp-history-filter'); form.setAttribute('data-spa-off', '');
+        var input = node('input'); input.type = 'date'; input.required = true;
+        input.setAttribute('data-pos-history-date', '');
+        input.value = date || (invoices[activeInvoice].today || boot.today || {}).date || '';
+        var initialDate = input.value;
+        var field = node('label'); field.appendChild(node('span', '', label('invoice_date'))); field.appendChild(input); form.appendChild(field);
+        var show = node('button', '', label('show_invoices')); show.type = 'submit'; form.appendChild(show);
+        var today = node('button', '', label('history_today')); today.type = 'button';
+        today.addEventListener('click', function () { daily(); }); form.appendChild(today);
+        form.addEventListener('submit', function (event) {
+            event.preventDefault(); if (input.reportValidity()) daily(1, input.value);
+        });
+        var results = node('div'); results.setAttribute('aria-live', 'polite'); results.setAttribute('aria-busy', 'true');
+        results.appendChild(node('p', 'tp-empty', label('invoices_loading')));
+        content.replaceChildren(form, node('p', 'tp-history-hint', label('invoice_day_hint')), results);
+        try {
+            var response = await fetch(endpoint(urls.daily, { branch: branch || 'all', page: page || 1, date: date || undefined }), {
+                credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' }, signal: modalController.signal
+            });
+            var result = await read(response, 'invoices_error');
+            if (disposed || modal.hidden || generation !== modalGeneration) return;
+            var selectedDate = result.today && result.today.date || date || input.value;
+            // Keep an unsent edit intact while using the loaded day for pagination.
+            if (!date && input.value === initialDate) input.value = selectedDate;
+            results.replaceChildren();
+            var summary = node('p', 'tp-history-summary');
+            summary.appendChild(node('bdi', '', selectedDate));
+            if (result.today) {
+                summary.appendChild(node('span', '', label('history_count') + ': ' + result.today.count));
+                summary.appendChild(node('span', '', label('total') + ': ' + money(result.today.total) + ' ' + label('currency')));
+            }
+            results.appendChild(summary);
+            var items = result.items || result.receipts || [];
+            if (!items.length) results.appendChild(node('p', 'tp-empty', label('daily_empty'))); else receiptTable(items, results);
+            var pages = result.pagination || {};
+            if (pages.last_page > 1) {
+                var controls = node('nav', 'tp-pagination'); controls.setAttribute('aria-label', label('invoice_history'));
+                ['previous', 'next'].forEach(function (direction) {
+                    var button = node('button', '', label(direction)); button.type = 'button';
+                    button.disabled = direction === 'previous' ? pages.page <= 1 : pages.page >= pages.last_page;
+                    button.addEventListener('click', function () { daily(pages.page + (direction === 'next' ? 1 : -1), selectedDate); });
+                    controls.appendChild(button);
+                }); results.appendChild(controls);
+            }
+            // Historical summaries belong only in this modal, never in today's badge or the till.
+        } catch (error) {
+            if (disposed || modal.hidden || generation !== modalGeneration || error.name === 'AbortError') return;
+            results.replaceChildren(node('p', 'tp-empty', error.message || label('invoices_error')));
+        } finally { results.setAttribute('aria-busy', 'false'); }
     }
     function till() {
         if (quarantined) { notify(label('pending_branch_unavailable')); return; }

@@ -35,3 +35,96 @@
     window.DashboardInvoiceDetails = { open: open, close: close };
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(close);
 }());
+
+// invoice-date-review-all-20261106
+(function () {
+    'use strict';
+    function node(tag, className, text) {
+        var element = document.createElement(tag);
+        if (className) element.className = className;
+        if (text !== undefined) element.textContent = String(text);
+        return element;
+    }
+    function sameOrigin(url) {
+        try { var target = new URL(url, location.href); return target.origin === location.origin ? target.href : null; }
+        catch (_) { return null; }
+    }
+    async function show(options) {
+        var content = options.content, labels = options.labels || {};
+        function label(key) { return labels[key] || key; }
+        function current() { return !options.signal.aborted && options.isCurrent(); }
+        if (!current()) return;
+        var form = node('form', 'ih-filter'); form.setAttribute('data-spa-off', '');
+        var input = node('input'); input.type = 'date'; input.required = true;
+        input.setAttribute('data-invoice-history-date', '');
+        var initialDate = options.date || options.initialDate || ''; input.value = initialDate;
+        var field = node('label'); field.appendChild(node('span', '', label('invoice_date'))); field.appendChild(input); form.appendChild(field);
+        var submit = node('button', '', label('show_invoices')); submit.type = 'submit'; form.appendChild(submit);
+        var today = node('button', '', label('history_today')); today.type = 'button';
+        today.addEventListener('click', function () { if (current()) options.reload(); }); form.appendChild(today);
+        form.addEventListener('submit', function (event) { event.preventDefault(); if (current() && input.reportValidity()) options.reload(1, input.value); });
+        var results = node('div', 'ih-results'); results.setAttribute('aria-live', 'polite'); results.setAttribute('aria-busy', 'true');
+        results.appendChild(node('p', 'ih-empty', label('invoices_loading')));
+        content.replaceChildren(form, node('p', 'ih-hint', label('invoice_day_hint')), results);
+        var feedback = node('p', 'ih-feedback'); feedback.setAttribute('role', 'status');
+        try {
+            var url = sameOrigin(options.endpoint(options.url, { branch: options.branch || 'all', page: options.page || 1, date: options.date || undefined }));
+            if (!url) throw new Error(label('forbidden'));
+            var response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', signal: options.signal, headers: { Accept: 'application/json' } });
+            var result = await options.read(response, 'invoices_error');
+            if (!current()) return;
+            var selectedDate = result.today && result.today.date || options.date || initialDate;
+            if (!options.date && input.value === initialDate) input.value = selectedDate;
+            results.replaceChildren();
+            var summary = node('p', 'ih-summary'); summary.appendChild(node('bdi', '', selectedDate));
+            if (result.today) {
+                summary.appendChild(node('span', '', label('history_count') + ': ' + result.today.count));
+                summary.appendChild(node('span', '', label('total') + ': ' + options.money(result.today.total) + ' ' + label('currency')));
+            }
+            results.appendChild(summary);
+            var items = result.items || result.receipts || [];
+            if (!items.length) results.appendChild(node('p', 'ih-empty', label('daily_empty')));
+            else {
+                var wrapper = node('div', 'ih-table-wrap'), table = node('table', 'ih-table'), head = node('thead'), headings = node('tr'), body = node('tbody');
+                ['invoice_number', 'branch', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); });
+                head.appendChild(headings); table.appendChild(head);
+                items.forEach(function (item) {
+                    var row = node('tr');
+                    [item.number || item.id, item.branch && item.branch.name || '—', label(item.channel || 'takeaway'), item.created_label || item.created_at || '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method), options.money(item.total)].forEach(function (value) { row.appendChild(node('td', '', value)); });
+                    var actions = node('td', 'ih-actions'), receiptURL = item.receipt_url && sameOrigin(item.receipt_url);
+                    var printable = item.can_reprint === true && (!options.canReprint || options.canReprint(item));
+                    if (printable && receiptURL && (options.print || window.DashboardPrint && window.DashboardPrint.print)) {
+                        var print = node('a', '', label('print_invoice')); print.href = receiptURL;
+                        print.addEventListener('click', async function (event) {
+                            event.preventDefault(); if (!current()) return;
+                            try { if (options.print) await options.print(receiptURL); else await window.DashboardPrint.print(receiptURL); }
+                            catch (_) { if (current()) feedback.textContent = label('print_error'); }
+                        }); actions.appendChild(print);
+                    }
+                    var detailsURL = item.details_url && sameOrigin(item.details_url);
+                    if (detailsURL) {
+                        var details = node('button', 'dashboard-details-button', label('details')); details.type = 'button';
+                        details.addEventListener('click', function () { if (current() && window.DashboardInvoiceDetails) window.DashboardInvoiceDetails.open(detailsURL); });
+                        actions.appendChild(details);
+                    }
+                    row.appendChild(actions); body.appendChild(row);
+                });
+                table.appendChild(body); wrapper.appendChild(table); results.appendChild(wrapper);
+            }
+            var pages = result.pagination || {};
+            if (pages.last_page > 1) {
+                var controls = node('nav', 'ih-pagination'); controls.setAttribute('aria-label', label('invoice_history'));
+                ['previous', 'next'].forEach(function (direction) {
+                    var button = node('button', '', label(direction)); button.type = 'button';
+                    button.disabled = direction === 'previous' ? pages.page <= 1 : pages.page >= pages.last_page;
+                    button.addEventListener('click', function () { if (current()) options.reload(pages.page + (direction === 'next' ? 1 : -1), selectedDate); }); controls.appendChild(button);
+                }); results.appendChild(controls);
+            }
+            results.appendChild(feedback);
+        } catch (error) {
+            if (!current() || error.name === 'AbortError') return;
+            results.replaceChildren(node('p', 'ih-empty', error.message || label('invoices_error')));
+        } finally { results.setAttribute('aria-busy', 'false'); }
+    }
+    window.DashboardInvoiceHistory = { show: show };
+}());
