@@ -86,7 +86,7 @@
         var confirmed = await confirmation;
         if (disposed || generation !== locationGeneration || step !== 'details' || view !== 'compose' || !modal.hidden) return;
         if (confirmed) nextDetails();
-        else if (!locked()) confirmLocationButton.focus();
+        else if (!locked()) latInput.focus();
     }
     async function pollReceiver() {
         if (disposed) return;
@@ -121,7 +121,8 @@
         if (!branch) { notify(text('select_branch')); branchSelect.focus(); return; }
         if (!fields.customer_name.value.trim() || !fields.address.value.trim()) { notify(text('required_customer')); (!fields.customer_name.value.trim() ? fields.customer_name : fields.address).focus(); return; }
         if (scaled(fields.delivery_fee.value,2) === null) { notify(text('invalid_money')); fields.delivery_fee.focus(); return; }
-        if(!deliveryLocation){notify(desktopLocal?'أكد موقع العميل لحساب الخدمة أولًا.':'أكد دبوس موقع العميل لحساب الخدمة أولًا.');return;}
+        // No confirm button: the pin is confirmed here when it was not yet (moving it confirms it by itself too).
+        if(!deliveryLocation){var located=await confirmLocation(false);if(disposed||step!=='details')return;if(!located||!deliveryLocation){if(!locked())latInput.focus();return;}}
         // Changing branches or typing a known number must reuse its branch record.
         if(!customerRef){
             writing=true;lock();clearTimeout(customerTimer);customerGeneration++;
@@ -874,7 +875,7 @@
             suggestions.forEach(function (button, index) { button.classList.toggle('is-highlighted', index === suggestionIndex); }); suggestions[suggestionIndex].scrollIntoView({ block: 'nearest' });
         } else if (event.key === 'Enter' && suggestionIndex >= 0) { event.preventDefault(); event.stopPropagation(); suggestions[suggestionIndex].click(); }
     });
-    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});listen(confirmLocationButton,'click',function(){confirmLocation(false);});
+    listen(root.querySelector('[data-phone-locate]'),'click',function(){lastGeocoded='';locateAddress();});if(confirmLocationButton)listen(confirmLocationButton,'click',function(){confirmLocation(false);});
     [latInput,lngInput].forEach(function(input){listen(input,'input',function(){invalidateLocation();previewLocation();});});listen(companySelect,'change',function(){changed(false);});
     listen(branchSelect, 'change', changeBranch); if (window.jQuery) window.jQuery(branchSelect).on('change.phoneOrders', changeBranch);
     listen(root.querySelector('[data-phone-search]'), 'input', function () { clearTimeout(searchTimer); searchTimer = setTimeout(function () { loadCatalog(1); }, 250); });
@@ -898,9 +899,9 @@
         if (plainEnter(event) && modal.hidden && view === 'compose'
             && composeKeyboard) {
             if (step === 'details' && event.target === fields.customer_name) {
-                event.preventDefault(); if (!locked() && canWrite()) confirmLocationButton.focus(); return;
+                event.preventDefault(); if (!locked() && canWrite()) confirmLocationAndNext(); return;
             }
-            if (step === 'details' && event.target === confirmLocationButton) {
+            if (step === 'details' && confirmLocationButton && event.target === confirmLocationButton) {
                 event.preventDefault(); confirmLocationAndNext(); return;
             }
             if (step !== 'products' && !event.target.matches('button')) {

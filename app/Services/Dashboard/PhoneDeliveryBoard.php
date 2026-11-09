@@ -27,9 +27,14 @@ class PhoneDeliveryBoard
             $q=clone $base;
             if($stage==='preparing')$q->where('t.payment_status','unpaid')->whereIn('t.status',['new','preparing']);
             elseif($stage==='courier')$q->where('t.payment_status','unpaid')->whereIn('t.status',['out_for_delivery','finished']); // legacy finished-but-uncollected orders
-            else $q->where(function($w){$w->where('t.payment_status','paid')->orWhere('t.status','cancelled');});
-            $count=(clone $q)->count(); $last=max(1,(int)ceil($count/20)); $page=min((int)($v[$stage.'_page']??1),$last);
-            $rows=$q->select('t.*','d.company_snapshot as handoff_company')->orderBy('t.id',$stage==='finished'?'desc':'asc')->offset(($page-1)*20)->limit(20)->get();
+            else {
+                $q->where(function($w){$w->where('t.payment_status','paid')->orWhere('t.status','cancelled');});
+                // The ended orders: the working day's, all on one page (scrolled).
+                if(Schema::hasColumn('pos_service_tickets','business_date'))$q->where('t.business_date',OperatingDay::date());
+            }
+            $size=$stage==='finished'?300:20;
+            $count=(clone $q)->count(); $last=max(1,(int)ceil($count/$size)); $page=min((int)($v[$stage.'_page']??1),$last);
+            $rows=$q->select('t.*','d.company_snapshot as handoff_company')->orderBy('t.id',$stage==='finished'?'desc':'asc')->offset(($page-1)*$size)->limit($size)->get();
             $batches=DB::table('phone_delivery_batch_items')->whereIn('ticket_id',$rows->pluck('id'))->pluck('batch_id','ticket_id');
             $completed=$stage==='finished'?$this->completionTimes($rows->all()):[];
             $presented = $this->tickets->presentMany($rows->all(), false, $actor);

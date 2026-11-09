@@ -77,10 +77,20 @@ class OrderBoardService
             $base = $this->query($source, $actor, $filters);
             if ($base) $bases[$source] = $base;
         }
+        // The ended orders: the working day's, all on one page (scrolled), unless a day is chosen in the filters.
+        $todayBases = [];
+        if (empty($filters['date'])) {
+            foreach (array_keys($bases) as $source) {
+                $base = $this->query($source, $actor, ['date'=>OperatingDay::date()] + $filters);
+                if ($base) $todayBases[$source] = $base;
+            }
+        }
         $pages = [];
         foreach (self::GROUPS as $group) {
             $union = null;
-            foreach ($bases as $source => $base) {
+            $groupBases = $group === 'completed' && empty($filters['date']) ? $todayBases : $bases;
+            $groupLimit = $group === 'completed' && empty($filters['date']) ? 300 : $limit;
+            foreach ($groupBases as $source => $base) {
                 $query = clone $base;
                 $this->forGroup($query, $source, $group);
                 $counts[$group] += (clone $query)->count();
@@ -88,15 +98,15 @@ class OrderBoardService
                 if ($union === null) $union = $query;
                 else $union->unionAll($query);
             }
-            $lastPage = max(1, (int) ceil($counts[$group] / $limit));
+            $lastPage = max(1, (int) ceil($counts[$group] / $groupLimit));
             $page = max(1, min($lastPage, (int) $request->input('page_'.$group, 1)));
-            $offset = ($page - 1) * $limit;
+            $offset = ($page - 1) * $groupLimit;
             if ($union !== null) {
                 $selected = DB::query()->fromSub($union, 'board_records')->orderByDesc('created_at')->orderByDesc('id')
-                    ->orderBy('source')->offset($offset)->limit($limit)->get();
+                    ->orderBy('source')->offset($offset)->limit($groupLimit)->get();
                 $cardsByKey = [];
                 foreach ($selected->groupBy('source') as $source => $records) {
-                    $rows = (clone $bases[$source])->whereIn('id', $records->pluck('id'))->get();
+                    $rows = (clone $groupBases[$source])->whereIn('id', $records->pluck('id'))->get();
                     $this->loadRelated($source, $rows);
                     foreach ($rows as $row) $cardsByKey[$source.':'.$row->id] = $this->normalize($source, $row, $actor);
                 }
