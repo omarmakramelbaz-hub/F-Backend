@@ -16,6 +16,7 @@ class ExpenseStockPurchases
         'purchase_oil' => 'زيت',
         'purchase_vinegar' => 'خل',
         'purchase_tahini' => 'طحينة',
+        'purchase_baladi_bread' => 'خبز بلدي',
     ];
 
     private ?bool $available = null;
@@ -53,10 +54,16 @@ class ExpenseStockPurchases
             'purchase_oil'=>['زيت', 'الزيت', 'زيت طعام', 'oil'],
             'purchase_vinegar'=>['خل', 'الخل', 'vinegar'],
             'purchase_tahini'=>['طحينه', 'الطحينه', 'tahini'],
+            'purchase_baladi_bread'=>['خبز بلدي', 'الخبز البلدي', 'عيش بلدي', 'العيش البلدي', 'خبز', 'عيش', 'رغيف عيش', 'رغيف خبز', 'baladi bread'],
         ] as $key => $names) {
             if (in_array($label, $names, true)) return $key;
         }
         return null;
+    }
+
+    public function unit(?string $categoryKey): string
+    {
+        return $categoryKey === 'purchase_baladi_bread' ? 'piece' : 'kg';
     }
 
     /** The trusted category decides the stock link; posted stock identifiers never do. */
@@ -68,29 +75,32 @@ class ExpenseStockPurchases
         $value = $values['quantity_kg'] ?? null;
         if ($categoryKey === null) {
             if ($value !== null && $value !== '') {
-                throw ValidationException::withMessages(['quantity_kg'=>'عدد الكيلوات متاح لبنود مشتريات الفلفل والطماطم والليمون والبصل والزيت والخل والطحينة فقط.']);
+                throw ValidationException::withMessages(['quantity_kg'=>'الكمية متاحة لبنود مشتريات البضاعة المرتبطة بالمخزون فقط.']);
             }
             $values['quantity_kg'] = null;
         } else {
-            $values['quantity_kg'] = $this->quantity($this->units($value));
+            $values['quantity_kg'] = $this->quantity($this->units($value, $this->unit($categoryKey)));
         }
         $values['stock_category'] = $categoryKey;
         return $values;
     }
 
-    private function units($value): int
+    private function units($value, string $unit = 'kg'): int
     {
         if (!is_string($value) && !is_int($value)) {
-            throw ValidationException::withMessages(['quantity_kg'=>'أدخل عدد الكيلوات لهذا الصنف قبل تسجيل المصروف.']);
+            throw ValidationException::withMessages(['quantity_kg'=>$unit === 'piece' ? 'أدخل عدد أرغفة الخبز البلدي قبل تسجيل المصروف.' : 'أدخل عدد الكيلوات لهذا الصنف قبل تسجيل المصروف.']);
         }
         $value = \App\Support\Quantity::text($value);
         if (!preg_match('/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/D', $value)) {
-            throw ValidationException::withMessages(['quantity_kg'=>'أدخل كمية موجبة بالكيلو حتى ثلاث منازل عشرية.']);
+            throw ValidationException::withMessages(['quantity_kg'=>$unit === 'piece' ? 'أدخل عددًا صحيحًا موجبًا من أرغفة الخبز البلدي.' : 'أدخل كمية موجبة بالكيلو حتى ثلاث منازل عشرية.']);
         }
         $parts = explode('.', $value);
         $units = (int)$parts[0] * 1000000 + (int)str_pad($parts[1] ?? '', 6, '0');
         if ($units <= 0 || $units > 1000000000000) {
-            throw ValidationException::withMessages(['quantity_kg'=>'عدد الكيلوات يجب أن يكون أكبر من صفر وحتى مليون كيلو.']);
+            throw ValidationException::withMessages(['quantity_kg'=>$unit === 'piece' ? 'عدد الأرغفة يجب أن يكون أكبر من صفر وحتى مليون رغيف.' : 'عدد الكيلوات يجب أن يكون أكبر من صفر وحتى مليون كيلو.']);
+        }
+        if ($unit === 'piece' && $units % 1000000 !== 0) {
+            throw ValidationException::withMessages(['quantity_kg'=>'عدد أرغفة الخبز البلدي يجب أن يكون عددًا صحيحًا.']);
         }
         return $units;
     }
@@ -111,7 +121,8 @@ class ExpenseStockPurchases
         $expense = DB::table('branch_expenses')->where('id', $expenseId)->lockForUpdate()->first();
         abort_unless($expense && $expense->branch === ($values['branch'] ?? null), 409, 'فرع المصروف غير مطابق لتوريد البضاعة.');
         abort_unless(preg_match('/^f:[1-9][0-9]*$/D', $expense->branch), 422, 'هذه المشتريات مرتبطة ببضاعة فروع فسخانستا فقط.');
-        $units = $this->units($values['quantity_kg']);
+        $unit = $this->unit($key);
+        $units = $this->units($values['quantity_kg'], $unit);
         $old = DB::table('expense_inventory_receipts')->where('expense_id', $expenseId)->lockForUpdate()->first();
         if ($old) {
             abort_unless($old->branch === $expense->branch && $old->category_key === $key && (int)$old->quantity_units === $units, 409, 'المصروف مرتبط بتوريد بضاعة مختلف.');
@@ -119,7 +130,7 @@ class ExpenseStockPurchases
         }
         abort_unless(in_array($expense->status, ['pending', 'approved'], true), 409, 'حالة المصروف لا تسمح بتوريد بضاعة.');
         $ingredients = DB::table('stock_ingredients')->where('name', self::CATEGORIES[$key])->get();
-        abort_unless($ingredients->count() === 1 && $ingredients->first()->unit === 'kg', 503, 'صنف البضاعة غير مضبوط بالكيلو؛ راجع تحديث المشتريات.');
+        abort_unless($ingredients->count() === 1 && $ingredients->first()->unit === $unit, 503, 'وحدة صنف البضاعة لا تطابق بند المشتريات؛ راجع إعداد المخزون.');
         $ingredient = $ingredients->first();
         $movementId = app(BranchInventory::class)->expenseMovement($expense->branch, (int)$ingredient->id, $units, $expenseId, (int)$actor->id, false, (string)($expense->supplier ?? ''));
         DB::table('expense_inventory_receipts')->insert([
@@ -176,7 +187,7 @@ class ExpenseStockPurchases
             'stock_quantity_kg'=>$receipt ? $this->quantity((int)$receipt->quantity_units) : null,
             'stock_item_name'=>$receipt->item_name ?? null,
             'stock_category'=>$receipt->category_key ?? null,
-            'stock_unit'=>$receipt ? 'kg' : null,
+            'stock_unit'=>$receipt ? $this->unit($receipt->category_key) : null,
             'stock_reversed'=>$receipt ? $receipt->reversal_movement_id !== null : false,
         ];
     }

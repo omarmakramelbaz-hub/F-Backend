@@ -116,13 +116,13 @@ class BranchExpenses
         $categoryService=app(ExpenseCategories::class);$scopedCatalog=$categoryService->catalog($v['branch']);
         if(!isset($scopedCatalog[$v['category']]))throw ValidationException::withMessages(['category'=>__('expenses.category_invalid')]);
         $oldCommand=DB::table('branch_expense_commands')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first(['snapshot']);
-        $legacyReplay=$oldCommand&&!array_key_exists('stock_category',json_decode($oldCommand->snapshot,true)??[]);
+        $legacyReplay=$oldCommand&&empty((json_decode($oldCommand->snapshot,true)??[])['stock_category']);
         if($legacyReplay)unset($v['quantity_kg']);
         else{
             $stock=$this->stockPurchases();$stockCategory=$categoryService->stockCategories($scopedCatalog)[$v['category']]??null;
             // A single-material purchase must use its linked choice. Mixed
             // invoices cannot tell us how much of each material was received.
-            if(str_starts_with($v['branch'],'f:')&&!$stockCategory&&in_array($v['category'],['purchases','other'],true)&&($material=$stock->categoryProduct($v['description'])))throw ValidationException::withMessages(['category'=>'اختر بند مشتريات '.ExpenseStockPurchases::CATEGORIES[$material].' وأدخل الكمية بالكيلو لإضافتها إلى البضاعة.']);
+            if(str_starts_with($v['branch'],'f:')&&!$stockCategory&&in_array($v['category'],['purchases','other'],true)&&($material=$stock->categoryProduct($v['description'])))throw ValidationException::withMessages(['category'=>'اختر بند مشتريات '.ExpenseStockPurchases::CATEGORIES[$material].' وأدخل الكمية '.($stock->unit($material)==='piece'?'بالعدد':'بالكيلو').' لإضافتها إلى البضاعة.']);
             $v=$stock->normalizeQuantity($v,$stockCategory);
             if($stockCategory)$v['stock_category']=$stockCategory;
             else unset($v['quantity_kg'],$v['stock_category']); // Preserve existing non-stock fingerprints.
