@@ -156,7 +156,13 @@ class PhoneDeliveryBoard
     {
         $this->ready(); $row=DB::table('phone_delivery_batches')->where('id',$id)->first(); abort_unless($row,404);
         $this->ops->access->branch($row->branch,$actor);
-        return json_decode($row->snapshot,true)+['id'=>(int)$row->id];
+        $batch=json_decode($row->snapshot,true)+['id'=>(int)$row->id];
+        // Settled receipts retain the charged fee, including manual and free delivery.
+        // This also supports batches closed before the breakdown was introduced.
+        $receipts=DB::table('takeaway_orders')->where('branch',$row->branch)->where('channel','phone')
+            ->whereIn('id',array_column($batch['items'],'order_id'))
+            ->get(['id','branch','channel','ticket_id','total_cents','delivery_cents']);
+        return PhoneDeliveryBatchReceipt::present($batch,$receipts);
     }
 }
 

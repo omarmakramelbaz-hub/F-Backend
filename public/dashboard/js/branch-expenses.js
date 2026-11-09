@@ -27,10 +27,14 @@
         box.textContent = value || ''; box.hidden = !value;
     }
     function stockCategory() { return (categoryCatalog(form.elements.branch.value).stock_categories || {})[form.elements.category.value] || ''; }
+    function stockUnit() { return (categoryCatalog(form.elements.branch.value).stock_units || {})[form.elements.category.value] || 'kg'; }
     function quantityField() {
         var field = form.elements.quantity_kg; if (!field) return;
         var linked = !!stockCategory();
         root.querySelector('[data-expense-quantity]').hidden = !linked;
+        var piece = stockUnit() === 'piece', label = root.querySelector('[data-expense-quantity-label]');
+        if (label) label.textContent = t(piece ? 'quantity_piece' : 'quantity_kg');
+        field.inputMode = piece ? 'numeric' : 'decimal'; field.placeholder = piece ? '0' : '0.000';
         field.required = linked; field.disabled = !linked || locked();
         if (!linked) field.value = '';
     }
@@ -67,6 +71,35 @@
         } return data;
     }
     function actionButton(label, callback, icon) { var button = el('button'); button.type = 'button'; button.title = t(label); button.setAttribute('aria-label', t(label)); if (icon) button.appendChild(el('i', undefined, 'fas ' + icon)); else button.textContent = t(label); button.addEventListener('click', callback); return button; }
+    // Electron does not implement window.prompt. Keep review input in the page
+    // so rejecting or reversing an expense works in both desktop and browser.
+    var reviewDialog = el('dialog', undefined, 'ex-dialog'), reviewContext = null;
+    reviewDialog.dataset.expenseReviewDialog = ''; reviewDialog.setAttribute('aria-labelledby', 'expense-review-title');
+    var reviewHeader = el('header'), reviewTitle = el('h2'), reviewClose = actionButton('close', closeReview);
+    reviewTitle.id = 'expense-review-title'; reviewClose.textContent = '×'; reviewClose.dataset.expenseReviewClose = '';
+    reviewHeader.append(reviewTitle, reviewClose);
+    var reviewBody = el('div', undefined, 'ex-editor'), reviewForm = el('form'), reviewSummary = el('p'), reviewMessage = el('p');
+    reviewForm.dataset.expenseReviewForm = ''; reviewForm.noValidate = true;
+    var reviewLabel = el('label', t('reason')), reviewReason = el('textarea');
+    reviewReason.dataset.expenseReviewReason = ''; reviewReason.name = 'reason'; reviewReason.required = true; reviewReason.maxLength = 500; reviewReason.rows = 3;
+    reviewLabel.appendChild(reviewReason);
+    var reviewError = el('p', undefined, 'ex-review-error'), reviewActions = el('div', undefined, 'ex-form-actions');
+    reviewError.dataset.expenseReviewError = ''; reviewError.id = 'expense-review-error'; reviewError.hidden = true; reviewError.setAttribute('role', 'alert');
+    reviewReason.setAttribute('aria-describedby', reviewError.id);
+    var reviewCancel = actionButton('cancel', closeReview), reviewSubmit = el('button', undefined, 'ex-primary');
+    reviewCancel.className = 'ex-button'; reviewCancel.dataset.expenseReviewCancel = ''; reviewSubmit.type = 'submit'; reviewSubmit.dataset.expenseReviewSubmit = '';
+    reviewActions.append(reviewCancel, reviewSubmit); reviewForm.append(reviewSummary, reviewMessage, reviewLabel, reviewError, reviewActions);
+    reviewBody.appendChild(reviewForm); reviewDialog.append(reviewHeader, reviewBody); root.appendChild(reviewDialog);
+    function closeReview() { reviewContext = null; reviewDialog.close(); }
+    on(reviewDialog, 'cancel', function (event) { event.preventDefault(); closeReview(); });
+    on(reviewReason, 'input', function () { reviewReason.setCustomValidity(''); reviewReason.removeAttribute('aria-invalid'); reviewError.hidden = true; });
+    on(reviewForm, 'submit', function (event) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (locked() || !reviewContext) return;
+        var reason = reviewReason.value.trim(); reviewReason.setCustomValidity(reason ? '' : t('required'));
+        if (!reviewForm.reportValidity()) { reviewReason.setAttribute('aria-invalid', 'true'); reviewError.textContent = t('required'); reviewError.hidden = false; reviewReason.focus(); return; }
+        var command = reviewContext; closeReview(); submitReview(command.item, command.action, reason);
+    });
     function categoryName(key){return (categoryCatalog(branch.value).categories||{})[key]||t('cat_'+key);}
     function branchName(value){
         if(value==='all')return t('all_branches');
@@ -79,8 +112,8 @@
         return suffix&&!name.endsWith(' — '+suffix)?name+' — '+suffix:name;
     }
     function specificCategoryBranch(value){return /^(?:f|gs):[1-9][0-9]*$/.test(value)&&boot.branches.some(function(item){return item.value===value;});}
-    function emptyCategoryCatalog(){return {categories:{},active_categories:{},category_items:[],stock_categories:{}};}
-    function copyCategoryCatalog(data){return {categories:data.categories||{},active_categories:data.active_categories||data.categories||{},category_items:data.category_items||[],stock_categories:data.stock_categories||{}};}
+    function emptyCategoryCatalog(){return {categories:{},active_categories:{},category_items:[],stock_categories:{},stock_units:{}};}
+    function copyCategoryCatalog(data){return {categories:data.categories||{},active_categories:data.active_categories||data.categories||{},category_items:data.category_items||[],stock_categories:data.stock_categories||{},stock_units:data.stock_units||{}};}
     function categoryCatalog(scope){
         if(scope==='all')return unionCatalog||legacyCatalog||emptyCategoryCatalog();
         return branchCatalogs[scope]||(!scopedCategories&&legacyCatalog)||emptyCategoryCatalog();
@@ -157,7 +190,7 @@
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
             [item.number,item.occurred_on,item.branch_name,expenseCategoryLabel(item),item.description,item.amount,t('method_' + item.payment_method),item.actor_name].forEach(function (value,index) {
                 var cell=el('td',value);
-                if(index===4 && item.stock_quantity_kg)cell.appendChild(el('small',item.stock_quantity_kg+' '+t('kg')+' · '+item.stock_item_name,'ex-stock-quantity'));
+                if(index===4 && item.stock_quantity_kg)cell.appendChild(el('small',item.stock_quantity_kg+' '+t(item.stock_unit==='piece'?'loaf':'kg')+' · '+item.stock_item_name,'ex-stock-quantity'));
                 row.appendChild(cell);
             });
             var status = el('td'), statusActions = el('div', undefined, 'ex-status-actions'), tag = el('span', t('status_' + item.status), 'ex-tag'); tag.dataset.status = item.status; statusActions.appendChild(tag);
@@ -229,7 +262,8 @@
         v.amount = v.amount.trim().replace(/[٠-٩]/g, function (d) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)); }).replace(/٫/g,'.');
         if(stockCategory()) {
             v.quantity_kg = v.quantity_kg.trim().replace(/[٠-٩]/g,function(d){return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d));}).replace(/٫/g,'.');
-            if(!/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/.test(v.quantity_kg) || Number(v.quantity_kg)<=0 || Number(v.quantity_kg)>1000000){notice(t('quantity_invalid'));form.elements.quantity_kg.focus();return;}
+            var piece = stockUnit() === 'piece';
+            if(!/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/.test(v.quantity_kg) || Number(v.quantity_kg)<=0 || Number(v.quantity_kg)>1000000 || (piece && !Number.isInteger(Number(v.quantity_kg)))){notice(t(piece?'quantity_piece_invalid':'quantity_invalid'));form.elements.quantity_kg.focus();return;}
         } else delete v.quantity_kg;
         v.approve = approve ? '1' : '0';
         try {
@@ -237,13 +271,19 @@
             execute({ type: 'save', url: url(boot.urls.save), values: v }, false);
         } catch (error) { notice(error.message || t('error')); }
     }
-    function review(item, action) {
-        if (locked()) return; var reason = ''; if (action !== 'approve') { reason = prompt(t('reason')); if (!reason || !reason.trim()) return; }
-        if (action !== 'approve' && !confirm(t('confirm_' + action))) return;
+    function submitReview(item, action, reason) {
         rowNotice(item.id, '');
         try {
             execute({ type: 'review', expenseId: item.id, url: url(boot.urls.review, null, item.id), values: { branch: item.branch, expected_revision: item.revision, action: action, reason: reason.trim(), idempotency_key: uuid() } }, false);
         } catch (error) { notice(error.message || t('error')); rowNotice(item.id, error.message || t('error')); }
+    }
+    function review(item, action) {
+        if (locked() || reviewDialog.open) return;
+        if (action === 'approve') { submitReview(item, action, ''); return; }
+        reviewContext = { item: item, action: action }; reviewTitle.textContent = t(action); reviewSubmit.textContent = t(action);
+        reviewSummary.textContent = item.number + ' · ' + item.amount + ' ' + t('currency'); reviewMessage.textContent = t('confirm_' + action);
+        reviewReason.value = ''; reviewReason.setCustomValidity(''); reviewReason.removeAttribute('aria-invalid'); reviewError.hidden = true;
+        reviewDialog.showModal(); reviewReason.focus();
     }
     async function details(id) {
         if (locked()) return; var token = ++generation;
@@ -252,7 +292,7 @@
             var item = data.expense, content = root.querySelector('[data-expense-detail]'); content.replaceChildren(); var grid = el('dl', undefined, 'ex-detail-grid');
             [['number',item.number],['branch',item.branch_name],['date',item.occurred_on],['category',expenseCategoryLabel(item)],['description',item.description],['amount',item.amount+' '+t('currency')],['payment_method',t('method_'+item.payment_method)],['payment_reference',item.payment_reference],['status',t('status_'+item.status)],['actor',item.actor_name],['supplier',item.supplier],['cost_center',item.cost_center],['notes',item.notes],['reviewer',item.reviewer_name],['review_reason',item.review_reason]].forEach(function (pair) { var cell = el('div'); cell.appendChild(el('dt',t(pair[0]))); cell.appendChild(el('dd',pair[1]||'—')); grid.appendChild(cell); }); content.appendChild(grid);
             if(item.stock_quantity_kg){
-                var stockInfo=el('p',item.stock_item_name+' · '+item.stock_quantity_kg+' '+t('kg')+' · '+t(item.stock_reversed?'stock_reversed':'stock_received'),'ex-stock-detail');content.appendChild(stockInfo);
+                var stockInfo=el('p',item.stock_item_name+' · '+item.stock_quantity_kg+' '+t(item.stock_unit==='piece'?'loaf':'kg')+' · '+t(item.stock_reversed?'stock_reversed':'stock_received'),'ex-stock-detail');content.appendChild(stockInfo);
             }
             if (item.attachment_url) { var attachment = el('a',item.attachment_name,'ex-button'); attachment.href = url(item.attachment_url); attachment.dataset.spaOff = ''; content.appendChild(attachment); }
             var actions = el('div',undefined,'ex-detail-actions');
@@ -276,7 +316,7 @@
     function mayLeave(){if(locked()){notice(t('uncertain'),true);return false;}return !dirty||confirm(t('unsaved'));}
     function refreshIdle(){return !disposed&&!locked()&&!dirty&&!root.querySelector('dialog[open]');}
     on(window,'beforeunload',function(event){if(locked()||dirty){event.preventDefault();event.returnValue='';}});
-    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);if(window.DashboardSPA.onIdle)window.DashboardSPA.onIdle(refreshIdle);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');dialog.close();if(categoriesDialog)categoriesDialog.close();});}
+    if(window.DashboardSPA){window.DashboardSPA.onBeforeLeave(mayLeave);if(window.DashboardSPA.onIdle)window.DashboardSPA.onIdle(refreshIdle);window.DashboardSPA.onCleanup(function(){disposed=true;if(categoryController)categoryController.abort();if(controller)controller.abort();listeners.forEach(function(remove){remove();});if(window.jQuery)window.jQuery(branch).off('.branchExpenses');closeReview();reviewDialog.remove();dialog.close();if(categoriesDialog)categoriesDialog.close();});}
     receiveCategories(boot.initial);reset();Object.keys(boot.initial.filters).forEach(function(key){if(filters.elements[key])filters.elements[key].value=boot.initial.filters[key];});render(boot.initial);
     try { var stored=JSON.parse(sessionStorage.getItem(pendingKey)||'null'); if(stored){frozen=stored;editor.hidden=false;Object.keys(stored.values).forEach(function(key){if(form.elements[key]&&form.elements[key].type!=='file')form.elements[key].value=stored.values[key];});categoryOptions();notice(t('uncertain'),true);lock();recover(stored).catch(function(){notice(t('uncertain'),true);});} }catch(_){notice(t('error'));}
 }());
