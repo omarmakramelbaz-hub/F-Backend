@@ -66,7 +66,7 @@ class DashboardManualNotificationTest extends TestCase
 
     public function test_guest_and_actor_without_manual_notice_permission_cannot_send(): void
     {
-        $this->postJson('/admin/fcm_notifications', $this->input())->assertRedirect('/admin/login');
+        $this->postJson('/admin/fcm_notifications', $this->input())->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
         $this->actingAs($this->actor(2), 'admin')->postJson('/admin/fcm_notifications', $this->input())->assertForbidden();
         Http::assertNothingSent();
     }

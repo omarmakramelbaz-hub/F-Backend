@@ -91,7 +91,7 @@
         freshness.textContent = 'العدّادات مباشرة'; live.classList.remove('stale');
     }
     function stale() { live.classList.add('stale'); freshness.textContent = 'تعذّر التحديث · آخر أرقام متاحة'; }
-    function schedule() { clearTimeout(timer); if (!disposed && !root.hidden && !document.hidden) timer = setTimeout(refresh, 15000); }
+    function schedule() { clearTimeout(timer); if (!disposed && !root.hidden && !document.hidden) timer = setTimeout(refresh, 30000); }
     async function refresh() {
         if (disposed || root.hidden || document.hidden || controller) return;
         var url = safeURL(boot.url); if (!url) { stale(); return; }

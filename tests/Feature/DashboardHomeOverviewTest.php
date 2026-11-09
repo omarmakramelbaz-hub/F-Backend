@@ -366,7 +366,7 @@ class DashboardHomeOverviewTest extends TestCase
 
     public function test_drawer_endpoint_rejects_guests_admins_and_branch_accounts_without_disclosing_cash(): void
     {
-        $this->getJson('/admin/dashboard/overview?section=drawers')->assertRedirect('/admin/login');
+        $this->getJson('/admin/dashboard/overview?section=drawers')->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
         foreach([4,10,11,12,20,30] as $id){
             $this->actingAs($this->actor($id),'admin');$this->getJson('/admin/dashboard/overview?section=drawers&branch=f:100&owner=1&can_view_financials=1')->assertForbidden();
             $this->denied(fn()=>$this->drawers([], $id),403);

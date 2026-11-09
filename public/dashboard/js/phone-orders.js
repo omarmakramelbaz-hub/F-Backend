@@ -93,7 +93,7 @@
         var printer = window.DashboardBranchPrinter;
         root.querySelector('[data-phone-printer-status]').textContent = printer ? printer.status : text('callcenter_print');
         if (!locked()) loadOrders(undefined, true);
-        receiverTimer = setTimeout(pollReceiver, 4000);
+        receiverTimer = setTimeout(pollReceiver, 8000);
     }
     function boardScope(){return branch || (boot.can_view_all_branches?'all':'');}
     function branchLabel(){return deliveryOriginLabel(deliveryOriginContext)||(!branch&&boot.can_view_all_branches?text('all_branches'):branchSelect.selectedOptions[0]&&branchSelect.selectedOptions[0].textContent||'');}

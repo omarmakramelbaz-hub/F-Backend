@@ -55,6 +55,16 @@ class SessionSavingTest extends TestCase
         $this->assertSame('', $handler->read($id));
     }
 
+    public function test_a_signed_out_page_polling_gets_a_short_answer_instead_of_the_sign_in_page(): void
+    {
+        Route::middleware(['web', 'IsAdmin'])->get('/admin/_session_probe', fn () => response()->json(['success'=>true]));
+        // A page's background request: a short 401 the page recognises, no sign-in page rendered.
+        $this->getJson('/admin/_session_probe')->assertStatus(401)->assertHeader('X-GO-Session', 'expired')->assertJsonPath('success', false);
+        $this->get('/admin/_session_probe', ['X-Requested-With'=>'XMLHttpRequest'])->assertStatus(401);
+        // Opening a page: the sign-in page, as before.
+        $this->get('/admin/_session_probe')->assertRedirect(url('admin/login'));
+    }
+
     public function test_a_sign_in_from_a_page_no_longer_current_opens_the_sign_in_page_again(): void
     {
         $middleware = new class(app(), app('encrypter')) extends VerifyCsrfToken {

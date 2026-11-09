@@ -11,6 +11,15 @@
     try { receivedIds = new Set(JSON.parse(sessionStorage.getItem(receivedKey) || '[]').map(Number).filter(validId)); } catch (_) {}
     window.DashboardBranchPrinter = state;
     function validId(id) { return Number.isSafeInteger(id) && id > 0; }
+    // One window of this account and branch asks the server (the PC program's windows share it); every 5 seconds
+    // for delivery orders, every 20 for shift receipts and app orders.
+    var leadKey = 'branch-print-lead:' + (boot.actor_id || 'dashboard') + ':' + boot.branch, tab = Date.now() + ':' + Math.random(), cycle = 0;
+    function leads() {
+        var owner = null, now = Date.now(); try { owner = JSON.parse(localStorage.getItem(leadKey) || 'null'); } catch (_) {}
+        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 30000) return false;
+        try { localStorage.setItem(leadKey, JSON.stringify({ tab: tab, until: now + 15000 })); } catch (_) {}
+        return true;
+    }
     function saveReceived() { try { sessionStorage.setItem(receivedKey, JSON.stringify(Array.from(receivedIds).slice(-200))); } catch (_) {} }
     function address(value) { var url = new URL(value, location.href); if (url.origin !== location.origin) throw new Error('Invalid print origin'); return url.href; }
     async function request(url, values) {
@@ -71,6 +80,8 @@
                 var native = await window.FasakhanstaDesktop.printPending();
                 if (native && native.local) { report(native.attention ? boot.labels.attention : boot.labels.ready); return; }
             }
+            if (!leads()) { report(boot.labels.ready); return; }
+            cycle++;
             var url = new URL(address(boot.jobs)); url.searchParams.set('branch',boot.branch);
             var result = await request(url.href);
             if (stopped) return;
@@ -93,10 +104,10 @@
             latest = state.latest;
             report(result.attention ? boot.labels.attention : boot.labels.ready);
             await processJobs(result.jobs || [],boot);
-            if(boot.shifts){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
-            if(boot.apps){var appUrl=new URL(address(boot.apps.jobs));appUrl.searchParams.set('branch',boot.branch);var apps=await request(appUrl.href);if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
+            if(boot.shifts&&cycle%4===1){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
+            if(boot.apps&&cycle%4===1){var appUrl=new URL(address(boot.apps.jobs));appUrl.searchParams.set('branch',boot.branch);var apps=await request(appUrl.href);if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
         } catch (_) { if (!stopped) report(boot.labels.offline); }
-        finally { if (!stopped) timer = setTimeout(poll,2500); }
+        finally { if (!stopped) timer = setTimeout(poll,5000); }
     }
     async function processJobs(jobs,queue){
             for (var job of jobs) {
@@ -112,7 +123,7 @@
                 await request(queue.complete,Object.assign({},values,{result:printed}));
             }
     }
-    window.addEventListener('pagehide', function () { stopped = true; clearTimeout(timer); document.removeEventListener('dashboard:order-alert-state', engineChanged); });
+    window.addEventListener('pagehide', function () { stopped = true; clearTimeout(timer); try { var owner = JSON.parse(localStorage.getItem(leadKey) || 'null'); if (owner && owner.tab === tab) localStorage.removeItem(leadKey); } catch (_) {} document.removeEventListener('dashboard:order-alert-state', engineChanged); });
     if (window.DashboardOrderAlerts) window.DashboardOrderAlerts.state().pending.forEach(function (key) {
         if (!/^phone:[1-9][0-9]*$/.test(key)) return;
         if (receivedIds.has(Number(key.slice(6)))) window.DashboardOrderAlerts.acknowledge(key);

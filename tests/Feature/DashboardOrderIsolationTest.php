@@ -180,11 +180,11 @@ class DashboardOrderIsolationTest extends TestCase
     public function test_unified_board_endpoints_require_dashboard_login(): void
     {
         auth('admin')->logout();
-        $this->get('/admin/order-board/legacy/1001')->assertRedirect('/admin/login');
-        $this->get('/admin/order-board/legacy/1001/print')->assertRedirect('/admin/login');
+        $this->get('/admin/order-board/legacy/1001')->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
+        $this->get('/admin/order-board/legacy/1001/print')->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
         $this->post('/admin/order-board/legacy/1001/action', [
             'action' => 'accept', 'expected_status' => 'pending',
-        ])->assertRedirect('/admin/login');
+        ])->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
         $this->assertNull(DB::table('orders')->where('id', 1001)->value('accepted_notify'));
     }
 

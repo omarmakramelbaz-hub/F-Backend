@@ -67,10 +67,10 @@ class DashboardInboxTest extends TestCase
     public function test_guest_cannot_read_notifications_or_support(): void
     {
         $this->note('mine', 1);
-        $this->getJson('/admin/dashboard-inbox/notifications')->assertRedirect('/admin/login');
-        $this->postJson('/admin/dashboard-inbox/notifications/read', ['ids' => ['mine']])->assertRedirect('/admin/login');
-        $this->getJson('/admin/dashboard-inbox/support')->assertRedirect('/admin/login');
-        $this->postJson('/admin/send_chat_notification', ['user2' => 20, 'message' => 'Forged'])->assertRedirect('/admin/login');
+        $this->getJson('/admin/dashboard-inbox/notifications')->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
+        $this->postJson('/admin/dashboard-inbox/notifications/read', ['ids' => ['mine']])->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
+        $this->getJson('/admin/dashboard-inbox/support')->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
+        $this->postJson('/admin/send_chat_notification', ['user2' => 20, 'message' => 'Forged'])->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
         $this->assertNull(DB::table('notifications')->where('id', 'mine')->value('read_at'));
     }
 

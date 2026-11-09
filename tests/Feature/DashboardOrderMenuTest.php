@@ -335,7 +335,7 @@ class DashboardOrderMenuTest extends TestCase
         $this->get(route('order-board.menu', ['branch' => 'f:100']))->assertRedirect(url('admin/login'));
         $this->postJson(route('order-board.menu.availability', ['f', 100, 1]), [
             'available' => false, 'expected_available' => true,
-        ])->assertRedirect(url('admin/login'));
+        ])->assertStatus(401)->assertHeader('X-GO-Session', 'expired');
         $this->actingAs($this->actor(20), 'admin');
         $this->menu('f:100')->assertForbidden();
         $this->toggle('f', 100, 1, ['available' => false, 'expected_available' => true])->assertForbidden();
