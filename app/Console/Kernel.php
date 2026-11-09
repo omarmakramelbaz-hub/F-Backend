@@ -51,17 +51,19 @@ class Kernel extends ConsoleKernel
         $schedule->command('go-stores:prune-signup-uploads')->hourly()->withoutOverlapping();
         $schedule->command('branch-stock:notify-minimum')->everyMinute()->withoutOverlapping(20);
 
-        // One-time approved menu release through the existing application scheduler.
-        // The migration receipt prevents overwriting later dashboard price edits.
-        $schedule->command('menu:align-stores-to-zayed-20260923')->everyMinute()->withoutOverlapping();
-        $schedule->command('delivery:apply-store-rates-20260923')->everyMinute()->withoutOverlapping();
-        $schedule->command('menu:apply-approved-20260923')->everyMinute()->withoutOverlapping();
+        // One-time approved menu release through the existing application scheduler (applied in September 2026).
+        // The migration receipt prevents overwriting later dashboard price edits. Checked daily now: every minute it
+        // only started PHP to find it done, on a server whose processor is limited.
+        $schedule->command('menu:align-stores-to-zayed-20260923')->daily()->withoutOverlapping();
+        $schedule->command('delivery:apply-store-rates-20260923')->daily()->withoutOverlapping();
+        $schedule->command('menu:apply-approved-20260923')->daily()->withoutOverlapping();
         // Check every minute so the home screen can switch to the winner state
         // as soon as an ended competition becomes eligible for the draw.
         $schedule->command('notify:coupon')->everyMinute();
         $schedule->command('notify:schedule')->daily();
         $schedule->command('notify:delete')->daily();
-        $schedule->command('notify:percentage')->everyMinute();
+        // Completed orders' commission transfers: every 5 minutes (it walks the same unsettled orders each run).
+        $schedule->command('notify:percentage')->everyFiveMinutes()->withoutOverlapping(10);
         $schedule->command('notify:vendor_balance')->daily();
         $schedule->command('notify:delegate_balance')->daily();
         $schedule->command('notify:resturantreportclosed')->everyMinute();
@@ -70,7 +72,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('meta:process-comment-replies --once --budget=30 --limit=4')->everyMinute()->withoutOverlapping(2);
         $schedule->command('notify:resturantreportmonthly')->monthlyOn(1); // Runs on the 1st of every month at midnight
         $schedule->command('reports:resturantreportyearly')->yearlyOn(1); // Runs on January 1st at midnight
-        $schedule->command('notify:moneyback')->everyMinute();
+        // Cancelled orders' refunds wait two hours anyway: every 5 minutes.
+        $schedule->command('notify:moneyback')->everyFiveMinutes()->withoutOverlapping(10);
         $schedule->command('notify:cancelledOrder')->everyMinute();
         $schedule->command('notify:delegatedailyreport')->daily();
         $schedule->command('notify:delegatemonthlyreport')->daily();
