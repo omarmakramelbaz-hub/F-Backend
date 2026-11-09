@@ -113,6 +113,7 @@
                     row.appendChild(actions); body.appendChild(row);
                 });
                 table.appendChild(body); wrapper.appendChild(table); results.appendChild(wrapper);
+                if (window.DashboardInvoiceRows) window.DashboardInvoiceRows.stick(table);
             }
             var pages = result.pagination || {};
             if (pages.last_page > 1) {
@@ -150,8 +151,12 @@
     function styles() {
         if (document.getElementById('go-inv-rows-style')) return;
         var style = document.createElement('style'); style.id = 'go-inv-rows-style';
-        style.textContent = '.tp-modal.go-inv-wide{width:min(920px,100%)}'
-            + '.go-inv-table{width:100%;border-collapse:collapse}.go-inv-table th{white-space:nowrap;background:#f4f6fa;position:sticky;top:0;z-index:1}'
+        // One look in the takeaway, dining and delivery reviews: a wider window, the heading row fixed at the top.
+        style.textContent = '.tp-modal:has(.go-inv-table),.dp-modal:has(.go-inv-table),.ph-modal:has(.go-inv-table){width:min(920px,100%)!important}'
+            + '.ih-table-wrap:has(.go-inv-table){overflow:visible!important}'
+            + '.go-inv-table{width:100%!important;min-width:0!important;border-collapse:separate!important;border-spacing:0;font-size:12px!important}'
+            + '.go-inv-table th{white-space:nowrap;background:#f4f6fa!important;color:#34465b;font-weight:700;position:sticky;top:var(--go-inv-top,0);z-index:2;box-shadow:0 1px 0 #dfe5ee}'
+            + '.go-inv-table th,.go-inv-table td{text-align:start;border-bottom:1px solid #e5eaf0;overflow-wrap:normal!important}'
             + '.go-inv-table th,.go-inv-table td{vertical-align:middle;padding:7px 8px!important}.go-inv-table tbody tr:nth-child(even){background:#f8fafc}.go-inv-table tbody tr:hover{background:#fff6ea}'
             + '.go-inv-table td:first-child{white-space:nowrap;font-weight:700;direction:ltr;text-align:right}'
             + '.go-inv-when{display:inline-flex;align-items:baseline;gap:7px;white-space:nowrap}.go-inv-when b{font-weight:700;color:#172137}.go-inv-when small{color:#6c7a91;font-size:11px;direction:ltr;unicode-bidi:isolate}'
@@ -161,5 +166,12 @@
             + '.go-inv-actions>a{background:#fff4e8!important;border-color:#f6c58f!important;color:#b85a00!important}';
         document.head.appendChild(style);
     }
-    window.DashboardInvoiceRows = { when: when, styles: styles };
+    function stick(table) {
+        // The heading row sits flush with the top of the scrolling window, above its inner padding.
+        for (var box = table.parentElement; box && box !== document.body; box = box.parentElement) {
+            var look = getComputedStyle(box);
+            if (/(auto|scroll)/.test(look.overflowY)) { table.style.setProperty('--go-inv-top', -(parseFloat(look.paddingTop) || 0) + 'px'); return; }
+        }
+    }
+    window.DashboardInvoiceRows = { when: when, styles: styles, stick: stick };
 }());
