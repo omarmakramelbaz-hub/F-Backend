@@ -68,7 +68,7 @@
         content.replaceChildren(form, node('p', 'ih-hint', label('invoice_day_hint')), results);
         var feedback = node('p', 'ih-feedback'); feedback.setAttribute('role', 'status');
         try {
-            var url = sameOrigin(options.endpoint(options.url, { branch: options.branch || 'all', page: options.page || 1, date: options.date || undefined }));
+            var url = sameOrigin(options.endpoint(options.url, { branch: options.branch || 'all', page: options.page || 1, per_page: 500, date: options.date || undefined }));
             if (!url) throw new Error(label('forbidden'));
             var response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', signal: options.signal, headers: { Accept: 'application/json' } });
             var result = await options.read(response, 'invoices_error');
@@ -85,13 +85,16 @@
             var items = result.items || result.receipts || [];
             if (!items.length) results.appendChild(node('p', 'ih-empty', label('daily_empty')));
             else {
-                var wrapper = node('div', 'ih-table-wrap'), table = node('table', 'ih-table'), head = node('thead'), headings = node('tr'), body = node('tbody');
+                if (window.DashboardInvoiceRows) window.DashboardInvoiceRows.styles(); var wrapper = node('div', 'ih-table-wrap'), table = node('table', 'ih-table go-inv-table'), head = node('thead'), headings = node('tr'), body = node('tbody');
                 ['invoice_number', 'branch', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); });
                 head.appendChild(headings); table.appendChild(head);
                 items.forEach(function (item) {
                     var row = node('tr');
-                    [item.number || item.id, item.branch && item.branch.name || '—', label(item.channel || 'takeaway'), item.created_label || item.created_at || '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method), options.money(item.total)].forEach(function (value) { row.appendChild(node('td', '', value)); });
-                    var actions = node('td', 'ih-actions'), receiptURL = item.receipt_url && sameOrigin(item.receipt_url);
+                    [item.number || item.id, item.branch && item.branch.name || '—', label(item.channel || 'takeaway')].forEach(function (value) { row.appendChild(node('td', '', value)); });
+                    var when = node('td'); when.appendChild(window.DashboardInvoiceRows ? window.DashboardInvoiceRows.when(item.created_at, item.created_label) : document.createTextNode(item.created_label || item.created_at || '')); row.appendChild(when);
+                    row.appendChild(node('td', '', item.payment_label || label(item.payment_method === 'mobile_wallet' ? 'wallet' : item.payment_method)));
+                    row.appendChild(node('td', 'go-inv-total', options.money(item.total)));
+                    var actions = node('td', 'ih-actions go-inv-actions'), receiptURL = item.receipt_url && sameOrigin(item.receipt_url);
                     var printable = item.can_reprint === true && (!options.canReprint || options.canReprint(item));
                     if (printable && receiptURL && (options.print || window.DashboardPrint && window.DashboardPrint.print)) {
                         var print = node('a', '', label('print_invoice')); print.href = receiptURL;
@@ -127,4 +130,36 @@
         } finally { results.setAttribute('aria-busy', 'false'); }
     }
     window.DashboardInvoiceHistory = { show: show };
+}());
+
+// invoice-review-rows-20261109: time beside the date on one line, the two actions side by side, compact rows.
+(function () {
+    'use strict';
+    var clock = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit', hour12: true });
+    var day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' });
+    function when(value, fallback) {
+        var cell = document.createElement('span'), date = value ? new Date(value) : null;
+        cell.className = 'go-inv-when';
+        if (!date || isNaN(date.getTime())) { cell.textContent = fallback || value || '—'; return cell; }
+        var parts = {}; clock.formatToParts(date).forEach(function (part) { parts[part.type] = part.value; });
+        var time = document.createElement('b'), small = document.createElement('small');
+        time.textContent = parts.hour + ':' + parts.minute + ' ' + (String(parts.dayPeriod).toUpperCase() === 'PM' ? 'م' : 'ص');
+        small.textContent = day.format(date);
+        cell.append(time, small); return cell;
+    }
+    function styles() {
+        if (document.getElementById('go-inv-rows-style')) return;
+        var style = document.createElement('style'); style.id = 'go-inv-rows-style';
+        style.textContent = '.tp-modal.go-inv-wide{width:min(920px,100%)}'
+            + '.go-inv-table{width:100%;border-collapse:collapse}.go-inv-table th{white-space:nowrap;background:#f4f6fa;position:sticky;top:0;z-index:1}'
+            + '.go-inv-table th,.go-inv-table td{vertical-align:middle;padding:7px 8px!important}.go-inv-table tbody tr:nth-child(even){background:#f8fafc}.go-inv-table tbody tr:hover{background:#fff6ea}'
+            + '.go-inv-table td:first-child{white-space:nowrap;font-weight:700;direction:ltr;text-align:right}'
+            + '.go-inv-when{display:inline-flex;align-items:baseline;gap:7px;white-space:nowrap}.go-inv-when b{font-weight:700;color:#172137}.go-inv-when small{color:#6c7a91;font-size:11px;direction:ltr;unicode-bidi:isolate}'
+            + '.go-inv-table td.go-inv-total{white-space:nowrap;font-weight:700}'
+            + '.go-inv-table td.go-inv-actions{white-space:nowrap}'
+            + '.go-inv-actions>a,.go-inv-actions>button{display:inline-flex!important;align-items:center;margin:0!important;margin-inline-end:6px!important;padding:5px 11px!important;border:1px solid #cbd5e1!important;border-radius:7px!important;background:#f1f5f9!important;color:#18314d!important;font-size:12px!important;font-weight:600;text-decoration:none!important;line-height:1.4;cursor:pointer;vertical-align:middle}'
+            + '.go-inv-actions>a{background:#fff4e8!important;border-color:#f6c58f!important;color:#b85a00!important}';
+        document.head.appendChild(style);
+    }
+    window.DashboardInvoiceRows = { when: when, styles: styles };
 }());

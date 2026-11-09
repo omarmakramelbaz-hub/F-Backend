@@ -63,7 +63,7 @@ class TakeawayController extends Controller
     public function receipts(Request $request, TakeawayService $service)
     {
         $values = $request->validate(['branch'=>['nullable','string','regex:/^(?:all|(f|gs):[1-9][0-9]{0,18})$/D']] + ['date'=>'nullable|date_format:Y-m-d', 'idempotency_key'=>'nullable|uuid',
-            'page'=>'nullable|integer|min:1', 'per_page'=>'nullable|integer|min:1|max:50']);
+            'page'=>'nullable|integer|min:1', 'per_page'=>'nullable|integer|min:1|max:500']);
         return response()->json($service->receipts($values, auth('admin')->user()));
     }
 

@@ -218,8 +218,10 @@ class TakeawayService
         $last = max(1, (int) ceil($total / $perPage)); $page = min($last, (int) ($values['page'] ?? 1));
         $items = [];
         $firstPrintUrl = null;
-        foreach ($query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get() as $row) {
-            $items[] = $this->presentReceipt($row, $actor);
+        $rows = $query->orderByDesc('id')->offset(($page - 1) * $perPage)->limit($perPage)->get();
+        $lines = $rows->isEmpty() ? collect() : DB::table('takeaway_order_items')->whereIn('order_id', $rows->pluck('id')->all())->orderBy('id')->get()->groupBy('order_id');
+        foreach ($rows as $row) {
+            $items[] = $this->presentReceipt($row, $actor, $lines->get($row->id, collect()));
             if (!empty($values['idempotency_key'])) $firstPrintUrl = app(PosReceiptPrinting::class)->firstPrintUrl($row, $actor);
         }
         return ['success'=>true, 'branch'=>$branch, 'today'=>$this->daily($selection['values'], $date), 'items'=>$items,
@@ -433,9 +435,9 @@ class TakeawayService
             'register'=>$this->presentTill($this->till($order->branch), $actor), 'today'=>$this->daily($order->branch, $this->businessDate())];
     }
 
-    private function presentReceipt(object $row, $actor): array
+    private function presentReceipt(object $row, $actor, $lines = null): array
     {
-        $items = DB::table('takeaway_order_items')->where('order_id', $row->id)->orderBy('id')->get()->map(fn ($line) => [
+        $items = ($lines ?? DB::table('takeaway_order_items')->where('order_id', $row->id)->orderBy('id')->get())->map(fn ($line) => [
             'product_id'=>(int) $line->product_id, 'name'=>$line->name, 'option_id'=>$line->option_id, 'option_label'=>$line->option_label,
             'unit'=>$line->unit ?? '', 'quantity_mode'=>$line->quantity_mode, 'quantity'=>$this->catalog->quantity((int) $line->quantity_millis),
             'unit_price'=>Money::decimal((int) $line->unit_price_cents), 'total'=>Money::decimal((int) $line->total_cents),
