@@ -133,8 +133,13 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         equal(await execute('افتح الرئيسية'), true, 'Home command dispatcher uses existing enter control'); equal(await page.evaluate(() => fixture.enter), 1, 'Home entry is dispatched once');
         equal(await page.evaluate(() => GoHudCommands.mount(document.querySelector('#go-hud')) === commands), true, 'Remount is idempotent');
         await page.locator('[data-hud-commands-toggle]').click();
-        await page.setViewportSize({width: 375, height: 812});
-        check(await page.locator('.hud-command-panel').evaluate(e => e.getBoundingClientRect().width <= document.documentElement.clientWidth), 'Voice panel fits mobile viewport');
+        for (const width of [320, 375, 700]) {
+            await page.setViewportSize({width, height: 812});
+            check(await page.locator('.hud-command-panel').evaluate(e => {
+                const bounds = e.getBoundingClientRect();
+                return bounds.left >= 0 && bounds.right <= document.documentElement.clientWidth && e.scrollWidth <= e.clientWidth;
+            }), 'Voice panel and controls fit the ' + width + 'px viewport without relying on global box sizing');
+        }
         for (const mode of ['standard', 'prefixed']) {
             await page.goto(origin + '/' + mode);
             equal(await page.evaluate(() => fixture.started), 0, mode + ' recognition never starts on mount');
