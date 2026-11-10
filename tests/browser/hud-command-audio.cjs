@@ -23,7 +23,7 @@ fixture.nativeReady=()=>{fixture.voices=[{lang:'ar-EG'}];voiceEvents.dispatchEve
 const Recognition=class{constructor(){fixture.recognizers.push(this);}start(){this.onstart?.();}abort(){}};
 for(const key of ['SpeechRecognition','webkitSpeechRecognition'])Object.defineProperty(window,key,{configurable:true,value:Recognition});
 const realFetch=window.fetch.bind(window);
-window.fetch=(url,options)=>{const record={url:String(url),method:options.method,credentials:options.credentials,cache:options.cache,redirect:options.redirect,headers:options.headers,body:options.body,aborted:false};fixture.requests.push(record);options.signal.addEventListener('abort',()=>record.aborted=true);const actual={...options};if(new URL(location.href).searchParams.has('ignoreabort'))delete actual.signal;return realFetch(url,actual);};
+window.fetch=(url,options)=>{const record={url:String(url),method:options.method,credentials:options.credentials,cache:options.cache,redirect:options.redirect,headers:options.headers,body:options.body,aborted:false};fixture.requests.push(record);options.signal.addEventListener('abort',()=>record.aborted=true);const actual={...options},ignoreAbort=new URL(location.href).searchParams.has('ignoreabort');if(ignoreAbort)delete actual.signal;return realFetch(url,actual).then(async response=>{if(ignoreAbort)await response.clone().arrayBuffer();record.fulfilled=true;return response;});};
 window.Audio=class{constructor(){this.src='';this.paused=0;this.removed=[];this.plays=0;fixture.audios.push(this);}play(){this.plays++;if(fixture.rejectNext){fixture.rejectNext=false;return Promise.reject(Object.assign(new Error('gesture required'),{name:'NotAllowedError'}));}this.onplaying?.();return Promise.resolve();}pause(){this.paused++;}removeAttribute(name){this.removed.push(name);if(name==='src')this.src='';}};
 URL.createObjectURL=blob=>{const url='blob:private-fixture-'+(fixture.created.length+1);fixture.created.push({url,type:blob.type,size:blob.size});return url;};
 URL.revokeObjectURL=url=>fixture.revoked.push(url);
@@ -145,8 +145,11 @@ function check(value,message) { assert(value,message); checks++; }
             const mode='hold-'+kind;
             await open(mode,true); await request(); await waitHeld(mode); await cancel(kind);
             equal(await page.evaluate(()=>fixture.requests[0].aborted),true,kind+' aborts the pending private request');
-            const response=page.waitForResponse(r=>r.url()===origin+'/admin/dashboard/hologram-arabic/speak');
-            respond(held.get(mode),'fallback'); held.delete(mode); await (await response).finished(); await page.evaluate(()=>Promise.resolve());
+            // Chromium need not finish an unconsumed fetch body after the application
+            // fences it. The fixture drains a clone and records delivery before the
+            // real application's late-response guard gets the original response.
+            respond(held.get(mode),'fallback'); held.delete(mode);
+            await waitPage(()=>fixture.requests[0].fulfilled); await page.evaluate(()=>Promise.resolve());
             equal(await page.evaluate(()=>fixture.audios.length),0,kind+' ignores an audio response that arrives after cancellation');
             if(['scope','unavailable','scope-text','value-change'].includes(kind))check(!(await status()).includes('50,802'),'Scope invalidation removes the previous private readout');
         }
