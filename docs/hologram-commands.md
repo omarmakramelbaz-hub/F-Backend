@@ -23,7 +23,7 @@ var commands = window.GoHudCommands.mount(root, {
 if (commands) commands.destroy();
 ```
 
-The panel is optional and starts closed. Interaction is voice-only: there is no text input or command form. Microphone recognition starts only on an explicit button press, uses one final `ar-EG` phrase, stops after at most 15 seconds, and never restarts itself. Hidden pages, a hidden/removed opening, account changes, and teardown stop speech and recording. The module never calls `getUserMedia` or stores recordings.
+The production opening enables the voice controller with `data-hud-commands="1"`; its panel starts closed. One deliberate click on «تحدّث مع GO» opens it and starts recognition directly, using the browser's normal microphone permission prompt on first use. No application settings page is opened. Interaction is voice-only: there is no text input or command form. Recognition uses one final `ar-EG` phrase, stops after at most 15 seconds, and never restarts itself. Hidden pages, a hidden/removed opening, account changes, and teardown stop speech and recording. The module never calls `getUserMedia` or stores recordings.
 
 The module also tracks the exact card used for the last metric response. If an authorization/scope refresh removes or hides that card, or marks its value unavailable/loading, it clears the private response and cancels both queued speech and delayed voice readiness. An initially empty/loading opening is not treated as an authorization failure.
 

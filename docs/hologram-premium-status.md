@@ -1,10 +1,10 @@
-# GO hologram: living portrait and server login release
+# GO hologram: voice interaction, living portrait and server login
 
 Last verified on 10 November 2026 (Egypt).
 
 ## Voice restoration follow-up
 
-The user's correction restores the talk control beside the living portrait.
+The talk control is available beside the living portrait.
 A single deliberate click opens the panel and starts Arabic recognition, with
 the browser's normal permission prompt on first use. No settings page is opened
 and no microphone starts on page load. A permission previously denied in the
@@ -14,9 +14,33 @@ bypass that decision. Typed commands are not introduced.
 The follow-up changes only the production command script and the opening's
 enable flag when applied over the activated living release. The portrait,
 motion, sign-in form, existing greeting and account-scoped cards remain intact.
-All 19 deployment tests and 48 renderer checks pass locally; the new browser
-workflow and production activation are pending. The earlier production receipt
-below confirms the living portrait/login release, not this voice follow-up.
+Both exact-commit browser workflows passed for application revision
+`7258fd82706494020aa9c4262d41a1ce354ed442`:
+
+- PR workflow: https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42757824517
+- Push workflow: https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42757818730
+- 19 deployment tests across four reviewed baselines and 48 renderer checks.
+- 69 command assertions and 191 existing-opening assertions.
+- 135 production-DOM portrait/voice checks across seven viewport sizes,
+  including a single talk-button gesture, Arabic metric speech with avatar
+  speaking state, and a real navigation to the authorized card destination.
+- 29 assembly/facial-motion checks and 84 unchanged-authentication login checks.
+
+The speech services are controlled browser stubs. They establish interaction
+and cleanup behavior; actual microphone recognition and installed Arabic voice
+availability still require the production device.
+
+Immutable voice-restoration package:
+
+- Application commit: `7258fd82706494020aa9c4262d41a1ce354ed442`.
+- Runner: `scripts/hologram_premium/run_root.sh`.
+- Runner SHA-256: `6eb25f2b59d6e5e11d1c86a35e7bc963a3755401015cb893de6c6df7ad04cc97`.
+- Installer SHA-256: `56de0984d1bf4cbd1aacbf091431783d4055442d2830f7880133cf1854f04d75`.
+- Manifest SHA-256: `27ddb82d200f87c112054910e01b9cf5e78c454dc19c8b929ee4262124fec6b9`.
+
+Production activation of this voice follow-up is pending. The earlier receipt
+below confirms the living portrait/login release, not this follow-up. No remote
+server command was executed by the assistant.
 
 ## Current outcome
 
@@ -32,7 +56,7 @@ remember option, password controls and authentication handler are retained.
 The login avatar is silent. After successful sign-in the existing named English
 greeting runs once; refresh, ordinary navigation and idle remain silent.
 
-## Verified immutable release
+## Verified living-portrait release (already activated)
 
 - Branch: `codex/hologram-premium-commands-20261110`.
 - Application commit: `4f6e6985113da853368511e221f6e76473a9cd07`.
@@ -46,7 +70,7 @@ greeting runs once; refresh, ordinary navigation and idle remain silent.
 The later documentation checkpoint does not change these payloads. The exact
 application commit above was activated by the operator.
 
-## Validation
+## Living-portrait validation
 
 Both workflows passed on that application commit:
 
@@ -73,7 +97,7 @@ have separate failures and are not represented as passing here. Stubbed speech
 services do not establish real-device microphone accuracy. The existing named
 recording still needs a production-device playback check after sign-in.
 
-## Activation status
+## Earlier living-portrait activation receipt
 
 **Production activation is confirmed by the operator-supplied receipt.** On
 10 November 2026 the operator applied application commit
