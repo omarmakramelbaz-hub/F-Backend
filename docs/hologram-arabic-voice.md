@@ -30,16 +30,20 @@ single `تشغيل الرد` button that reuses the existing private audio.
 
 ## Deployment
 
-Use `scripts/hologram_arabic/run_root.sh` at verified application commit
-`7096a56d0f0e4fc1ac3f29f75a6be1996429969d`, with runner SHA-256
-`148e9b79ff80b5445bd76087fa5507ee88429c92ddf484e9da3de7ea302ce7b2`.
+Use `scripts/hologram_arabic/run_root.sh` at verified compatibility-repair commit
+`75c2cb630089d489f97239594a2eeecc4a11d053`, with runner SHA-256
+`2d9ff37e08bc4972f48f99ef30d9552b7afdc3d28c20fd4c54681e9365d085ec`.
 It accepts `--check` or `--apply` on the known host. The complete workflow
 receipts and installer/manifest pins are in
-[hologram-premium-status.md](hologram-premium-status.md#arabic-reply-continuation).
+[hologram-premium-status.md](hologram-premium-status.md#provider-compatibility-repair).
 The package upgrades either the operator-confirmed living release
 `4f6e6985113da853368511e221f6e76473a9cd07` or the one-click release
 `7258fd82706494020aa9c4262d41a1ce354ed442`; running the earlier microphone
 command first is unnecessary. Unknown overlapping source is refused.
+
+The provider patch uses only the existing voice-loader line; it does not depend
+on adjacent customer-directory observers. Missing/duplicated hooks and conflicting
+Arabic loaders are refused, while unrelated provider changes are preserved.
 
 The installer changes only eight bounded application paths and adds an isolated
 speech library/helper outside the public directory. It does not install system

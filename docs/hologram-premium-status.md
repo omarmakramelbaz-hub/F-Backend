@@ -2,10 +2,43 @@
 
 Last verified on 10 November 2026 (Egypt).
 
+## Provider compatibility repair
+
+The current activation package is commit
+`75c2cb630089d489f97239594a2eeecc4a11d053`.
+The operator's earlier activation attempt refused with
+`GO_ARABIC_SOURCE_CHANGED: app/Providers/AppServiceProvider.php` during source
+planning, before any application files or private runtime were changed.
+
+The original manifest coupled its insertion to the adjacent customer-directory
+observer. The repaired manifest targets only the exact existing named-voice
+loader line and preserves all surrounding provider source, including observer
+changes and CRLF. It still refuses a missing/duplicated hook or an Arabic loader
+already present elsewhere. A bounded unique-marker guard prevents duplicate
+integration. Source backups, concurrency checks and rollback remain in force.
+
+The package passed all 14 deployment tests, four helper/number tests, 39 real PHP
+subprocess assertions and 34 authenticated Laravel HTTP assertions:
+https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42764306779
+
+Only deployment scripts/manifests changed. Every application file and private
+speech payload is identical to the browser-verified application commit recorded
+below; the portrait, microphone, login and reply behavior are unchanged.
+
+Current package pins:
+
+- Runner: `scripts/hologram_arabic/run_root.sh`.
+- Runner SHA-256: `2d9ff37e08bc4972f48f99ef30d9552b7afdc3d28c20fd4c54681e9365d085ec`.
+- Installer SHA-256: `05d0a14e3a845551704de72932a990787872c21915240334ccc9d57e4b93daee`.
+- Manifest SHA-256: `e65ef49245f6a10a99d84fc06c320555d83cf1403b5be2c48e1e40e0d7503e52`.
+
+Production activation remains pending a successful operator receipt. The assistant
+has not executed a remote server command. Use this repaired package for activation.
+
 ## Arabic reply continuation
 
-The Arabic fallback and microphone lifecycle continuation is verified and ready
-for operator activation. Its separate bounded package is documented in
+The Arabic fallback and microphone lifecycle application is verified. Use the
+provider compatibility repair above for activation. Its separate bounded package is documented in
 [hologram-arabic-voice.md](hologram-arabic-voice.md). It upgrades the confirmed
 living release directly; the older one-click activation is not a prerequisite.
 Production activation of this continuation remains pending an operator receipt.
@@ -34,7 +67,7 @@ Speech recognition and playback APIs are controlled stubs; real-device
 recognition, audible speech and voice quality still require the production device.
 The fallback is a basic local synthesized Arabic voice, not a neural voice.
 
-Pinned Arabic activation package:
+Original Arabic package (superseded for activation by the repair above):
 
 - Runner: `scripts/hologram_arabic/run_root.sh`.
 - Runner SHA-256: `148e9b79ff80b5445bd76087fa5507ee88429c92ddf484e9da3de7ea302ce7b2`.
