@@ -2,6 +2,7 @@
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-overview.css') }}?v={{ filemtime(public_path('dashboard/css/home-overview.css')) }}">
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-hud.css') }}?v={{ filemtime(public_path('dashboard/css/home-hud.css')) }}">
+<link rel="stylesheet" href="{{ asset('dashboard/css/hud-commands.css') }}?v={{ filemtime(public_path('dashboard/css/hud-commands.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper ho-wrapper">
@@ -36,5 +37,6 @@
 @push('custom-js')
 <script type="application/json" id="branch-home-bootstrap">@json($boot)</script>
 <script src="{{ asset('dashboard/js/branch-home.js') }}?v={{ filemtime(public_path('dashboard/js/branch-home.js')) }}"></script>
+<script src="{{ asset('dashboard/js/hud-commands.js') }}?v={{ filemtime(public_path('dashboard/js/hud-commands.js')) }}"></script>
 <script src="{{ asset('dashboard/js/home-hud.js') }}?v={{ filemtime(public_path('dashboard/js/home-hud.js')) }}"></script>
 @endpush
