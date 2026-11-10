@@ -269,7 +269,8 @@
         data.items.forEach(function (item) {
             rows.set(item.id, item); var row = el('tr'); row.dataset.expenseId = item.id;
             [item.number,item.occurred_on,item.branch_name,expenseCategoryLabel(item),item.description,item.amount,item.actor_name].forEach(function (value,index) {
-                var cell=el('td',value);
+                var cell=el('td'), cue={0:'ex-cell-number',2:'ex-chip ex-chip-branch',3:'ex-chip ex-chip-category',5:'ex-cell-amount',6:'ex-cell-actor'}[index];
+                if(cue)cell.appendChild(el('span',value,cue));else cell.textContent=value===null||value===undefined?'':value;
                 if(index===1&&item.recorded_time)cell.appendChild(el('small',item.recorded_time,'ex-recorded-time'));
                 if(index===4 && item.stock_quantity_kg)cell.appendChild(el('small',item.stock_quantity_kg+' '+t(item.stock_unit==='piece'?'loaf':'kg')+' · '+item.stock_item_name,'ex-stock-quantity'));
                 row.appendChild(cell);

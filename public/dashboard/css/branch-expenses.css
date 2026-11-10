@@ -76,3 +76,13 @@ body.dashboard-theme .content-wrapper.branch-expenses-wrapper{background:#f6f7fa
 .ex-multi-clear{border:1px solid #d8dee8;background:#fff;color:#4a5b72}
 .ex-multi-clear:disabled{opacity:.45;cursor:default}
 .ex-multi-apply{border:1px solid #f57800;background:#f57800;color:#fff}
+/* expense-rows-20261110: light colour cues so each row reads at a glance */
+.ex-table tbody tr:nth-child(even) td{background:#fafbfd}
+.ex-table tbody tr:hover td{background:#fff7ee}
+.ex-table tbody td{border-bottom-color:#edf0f5}
+.ex-cell-number{font-weight:800;color:#10274a;direction:ltr;unicode-bidi:isolate}
+.ex-chip{display:inline-block;padding:3px 9px;border-radius:999px;font-weight:700;line-height:1.5;white-space:nowrap}
+.ex-chip-branch{background:#eaf2ff;color:#2559a8}
+.ex-chip-category{background:#fff3e6;color:#a65200;white-space:normal;max-width:300px}
+.ex-cell-amount{display:inline-block;padding:3px 10px;border-radius:7px;background:#eaf8ef;color:#0f6b3a;font-weight:800;direction:ltr;unicode-bidi:isolate}
+.ex-cell-actor{color:#5b6b80;font-weight:600}

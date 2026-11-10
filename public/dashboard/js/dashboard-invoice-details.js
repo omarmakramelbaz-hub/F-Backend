@@ -63,7 +63,7 @@
         var today = node('button', '', label('history_today')); today.type = 'button';
         today.addEventListener('click', function () { if (current()) options.reload(); }); form.appendChild(today);
         form.addEventListener('submit', function (event) { event.preventDefault(); if (current() && input.reportValidity()) options.reload(1, input.value); });
-        var results = node('div', 'ih-results'); results.setAttribute('aria-live', 'polite'); results.setAttribute('aria-busy', 'true');
+        var results = node('div', 'ih-results go-inv-results'); results.setAttribute('aria-live', 'polite'); results.setAttribute('aria-busy', 'true');
         results.appendChild(node('p', 'ih-empty', label('invoices_loading')));
         content.replaceChildren(form, node('p', 'ih-hint', label('invoice_day_hint')), results);
         var feedback = node('p', 'ih-feedback'); feedback.setAttribute('role', 'status');
@@ -85,7 +85,7 @@
             var items = result.items || result.receipts || [];
             if (!items.length) results.appendChild(node('p', 'ih-empty', label('daily_empty')));
             else {
-                if (window.DashboardInvoiceRows) window.DashboardInvoiceRows.styles(); var wrapper = node('div', 'ih-table-wrap'), table = node('table', 'ih-table go-inv-table'), head = node('thead'), headings = node('tr'), body = node('tbody');
+                if (window.DashboardInvoiceRows) window.DashboardInvoiceRows.styles(); var wrapper = node('div', 'ih-table-wrap go-inv-scroll'), table = node('table', 'ih-table go-inv-table'), head = node('thead'), headings = node('tr'), body = node('tbody');
                 ['invoice_number', 'branch', 'channel', 'date', 'payment_method', 'total', 'print_invoice'].forEach(function (key) { headings.appendChild(node('th', '', label(key))); });
                 head.appendChild(headings); table.appendChild(head);
                 items.forEach(function (item) {
@@ -149,29 +149,28 @@
         cell.append(time, small); return cell;
     }
     function styles() {
-        if (document.getElementById('go-inv-rows-style')) return;
-        var style = document.createElement('style'); style.id = 'go-inv-rows-style';
-        // One look in the takeaway, dining and delivery reviews: a wider window, the heading row fixed at the top.
-        style.textContent = '.tp-modal:has(.go-inv-table),.dp-modal:has(.go-inv-table),.ph-modal:has(.go-inv-table){width:min(920px,100%)!important}'
-            + '.ih-table-wrap:has(.go-inv-table){overflow:visible!important}'
-            + '.go-inv-table{width:100%!important;min-width:0!important;border-collapse:separate!important;border-spacing:0;font-size:12px!important}'
-            + '.go-inv-table th{white-space:nowrap;background:#f4f6fa!important;color:#34465b;font-weight:700;position:sticky;top:var(--go-inv-top,0);z-index:2;box-shadow:0 1px 0 #dfe5ee}'
-            + '.go-inv-table th,.go-inv-table td{text-align:start;border-bottom:1px solid #e5eaf0;overflow-wrap:normal!important}'
-            + '.go-inv-table th,.go-inv-table td{vertical-align:middle;padding:7px 8px!important}.go-inv-table tbody tr:nth-child(even){background:#f8fafc}.go-inv-table tbody tr:hover{background:#fff6ea}'
-            + '.go-inv-table td:first-child{white-space:nowrap;font-weight:700;direction:ltr;text-align:right}'
+        // Always rewrite: a page opened with an older copy of these rules keeps its <style> between pages.
+        var style = document.getElementById('go-inv-rows-style');
+        if (!style) { style = document.createElement('style'); style.id = 'go-inv-rows-style'; document.head.appendChild(style); }
+        var frames = ['.tp-modal', '.dp-modal', '.ph-modal'], has = function (suffix) { return frames.map(function (f) { return f + ':has(.go-inv-table)' + suffix; }).join(','); };
+        // One look in the takeaway, dining and delivery reviews: a wider window; the title, date, summary and the
+        // heading row stay fixed while only the invoices scroll.
+        style.textContent = has('') + '{width:min(920px,100%)!important;max-height:88vh!important;display:flex!important;flex-direction:column!important}'
+            + '.tp-modal-content:has(.go-inv-table),.dp-modal-content:has(.go-inv-table),.ph-modal-content:has(.go-inv-table){display:flex!important;flex-direction:column!important;flex:1 1 auto;min-height:0;overflow:hidden!important;gap:0!important;padding:14px!important}'
+            + '.go-inv-results{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}'
+            + '.go-inv-scroll{flex:1 1 auto;min-height:0;overflow:auto!important;max-width:100%;border:1px solid #e5eaf0;border-radius:10px;background:#fff}'
+            + '.go-inv-table{width:100%!important;min-width:0!important;border-collapse:separate!important;border-spacing:0;font-size:12px!important;margin:0!important}'
+            + '.go-inv-table th{white-space:nowrap;background:#f4f6fa!important;color:#34465b;font-weight:700;position:sticky;top:0;z-index:2;box-shadow:0 1px 0 #dfe5ee}'
+            + '.go-inv-table th,.go-inv-table td{vertical-align:middle;padding:8px 9px!important;text-align:start;border-bottom:1px solid #eef1f5;overflow-wrap:normal!important;word-break:normal!important}'
+            + '.go-inv-table tbody tr:nth-child(even){background:#f8fafc}.go-inv-table tbody tr:hover{background:#fff6ea}'
+            + '.go-inv-table td:nth-child(-n+3){white-space:nowrap}.go-inv-table td:first-child{font-weight:700;direction:ltr;text-align:right}'
             + '.go-inv-when{display:inline-flex;align-items:baseline;gap:7px;white-space:nowrap}.go-inv-when b{font-weight:700;color:#172137}.go-inv-when small{color:#6c7a91;font-size:11px;direction:ltr;unicode-bidi:isolate}'
             + '.go-inv-table td.go-inv-total{white-space:nowrap;font-weight:700}'
-            + '.go-inv-table td.go-inv-actions{white-space:nowrap}'
+            + '.go-inv-table td.go-inv-actions{white-space:nowrap;min-width:0!important}'
             + '.go-inv-actions>a,.go-inv-actions>button{display:inline-flex!important;align-items:center;margin:0!important;margin-inline-end:6px!important;padding:5px 11px!important;border:1px solid #cbd5e1!important;border-radius:7px!important;background:#f1f5f9!important;color:#18314d!important;font-size:12px!important;font-weight:600;text-decoration:none!important;line-height:1.4;cursor:pointer;vertical-align:middle}'
-            + '.go-inv-actions>a{background:#fff4e8!important;border-color:#f6c58f!important;color:#b85a00!important}';
-        document.head.appendChild(style);
+            + '.go-inv-actions>a{background:#fff4e8!important;border-color:#f6c58f!important;color:#b85a00!important}'
+            + '.go-inv-results .ih-summary,.go-inv-results .tp-history-summary{flex:0 0 auto}.go-inv-results .ih-pagination,.go-inv-results .tp-pagination{flex:0 0 auto;margin-top:8px}';
     }
-    function stick(table) {
-        // The heading row sits flush with the top of the scrolling window, above its inner padding.
-        for (var box = table.parentElement; box && box !== document.body; box = box.parentElement) {
-            var look = getComputedStyle(box);
-            if (/(auto|scroll)/.test(look.overflowY)) { table.style.setProperty('--go-inv-top', -(parseFloat(look.paddingTop) || 0) + 'px'); return; }
-        }
-    }
+    function stick() {}
     window.DashboardInvoiceRows = { when: when, styles: styles, stick: stick };
 }());
