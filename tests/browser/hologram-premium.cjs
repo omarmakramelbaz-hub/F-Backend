@@ -32,8 +32,9 @@ const server=http.createServer((req,res)=>{
   });
   const origin='http://127.0.0.1:'+server.address().port;
   for(const [width,height] of [[1920,1080],[1366,768],[1024,768],[820,1180],[700,900],[390,844],[320,568]]){
-   await page.setViewportSize({width,height});await page.goto(origin+'/fixture?real=1&silent=1');
+   await page.setViewportSize({width,height});await page.goto(origin+'/fixture?real=1&silent=1&silentavatar=1');
    await page.locator('[data-hologram-artwork]').first().evaluate(img=>img.decode());
+   await page.waitForFunction(()=>document.querySelector('[data-hud-robot]').__goHologram.api.diagnostics().portraitReady,null,{timeout:5000});
    const state=await page.evaluate(()=>{
     const root=document.getElementById('go-hud'),img=root.querySelector('[data-hologram-artwork]'),r=root.querySelector('canvas[data-hud-robot]').__goHologram;
     const art=img.getBoundingClientRect(),enter=root.querySelector('[data-hud-enter]').getBoundingClientRect();
@@ -44,29 +45,24 @@ const server=http.createServer((req,res)=>{
    check(state.src.endsWith('/go-hologram-premium-20261110.png'),'Reviewed character is the production asset');
    check(state.diagnostics&&state.diagnostics.artwork&&state.glError===0,'Real artwork-mode WebGL renders without GPU errors');
    check(state.diagnostics.swarmCapacity<=65536&&state.diagnostics.swarmParticles<=4096,'GPU particle work is bounded');
-   check(state.commands,'Commands are mounted by the production home controller');
+   check(!state.commands,'Living opening has no optional command session');
+   check(state.diagnostics.portraitReady&&state.diagnostics.portraitAnimated,'Approved portrait is rendered by the living GPU surface');
    check(state.scrollWidth<=state.width+1,'No horizontal overflow at '+width);
    check(state.art.x>=-1&&state.art.right<=width+1&&state.art.width>0,'Artwork fits horizontally');
    check(state.cards.every(c=>c.x>=-1&&c.right<=width+1),'All authorized cards fit horizontally');
    if(width>700)check(state.art.bottom<=state.enter.y+3,'Projection ring clears the enter button');
    await page.screenshot({path:path.join(out,'premium-'+width+'x'+height+'.png'),fullPage:true,animations:'disabled'});
-   await page.locator('[data-hud-commands-toggle]').click();
-   check(await page.locator('#go-hud input,#go-hud textarea,#go-hud form').count()===0,'Voice-only opening has no text entry');
-   await page.locator('[data-hud-command-mic]').click();
-   check(await page.evaluate(()=>commandRecognitionFixture.started===1),'Explicit microphone click starts one recognition session');
-   await page.evaluate(()=>{const r=commandRecognitionFixture.current,result=[{transcript:'عدد العملاء كام؟'}];result.isFinal=true;r.onresult({results:[result],resultIndex:0});});
-   check((await page.locator('[data-hud-command-status]').textContent()).includes('العملاء'),'Recognized voice command reads live card');
-   if(width===1920)await page.screenshot({path:path.join(out,'premium-voice-controls.png'),fullPage:true,animations:'disabled'});
-   await page.locator('[data-hud-command-mic]').press('Escape');
-   check(await page.locator('[data-hud-commands-toggle]').evaluate(n=>document.activeElement===n),'Escape closes command panel and returns keyboard focus');
-   check(await page.locator('#go-hud').isVisible(),'Closing commands preserves the opening');
+   check(await page.locator('#go-hud input,#go-hud textarea,#go-hud form').count()===0,'Opening has no text entry');
+   check(await page.locator('[data-hud-commands-toggle],[data-hud-command-mic],.hud-command-panel').count()===0,'Opening has no optional microphone panel');
+   check(await page.evaluate(()=>commandRecognitionFixture.started===0),'Idle opening never starts recognition');
+   check(state.diagnostics.mouthOpen===0,'Silent idle portrait keeps the mouth closed');
   }
-  await page.setViewportSize({width:1366,height:768});await page.goto(origin+'/fixture?real=1&silent=1');
+  await page.setViewportSize({width:1366,height:768});await page.goto(origin+'/fixture?real=1&silent=1&silentavatar=1');
   await page.locator('#go-hud [data-hologram-artwork]').evaluate(img=>img.decode());
   await page.locator('#go-hud [data-hologram-artwork]').dispatchEvent('error');
   check(await page.locator('[data-hud-robot]').evaluate(c=>c.__goHologram.api.diagnostics().artwork===false&&c.__goHologram.gl.getError()===0),'Failed art uses native GPU fallback');
   await page.locator('#go-hud [data-hologram-artwork]').dispatchEvent('load');
-  check(await page.locator('[data-hud-robot]').evaluate(c=>c.__goHologram.api.diagnostics().artwork),'Artwork reload restores approved portrait');
+  check(await page.locator('[data-hud-robot]').evaluate(c=>c.__goHologram.api.diagnostics().artwork&&c.__goHologram.api.diagnostics().portraitReady),'Artwork reload restores approved animated portrait');
   await page.locator('[data-hud-enter]').click();
   check(await page.locator('[data-hud-robot]').evaluate(c=>!c.__goHologram),'Closing opening releases GPU renderer');
   check(await page.locator('#go-hud').evaluate(n=>!n.goHudCommands),'Closing opening destroys command listeners');

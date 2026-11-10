@@ -1,5 +1,5 @@
 {{-- Live opening; data comes from authorized, read-only dashboard metrics. --}}
-<section id="go-hud" class="go-hud" dir="rtl" lang="ar" role="dialog" aria-modal="true" aria-label="مركز تشغيل GO" data-intro="{{ !empty($boot['intro']) ? '1' : '0' }}">
+<section id="go-hud" class="go-hud" dir="rtl" lang="ar" role="dialog" aria-modal="true" aria-label="مركز تشغيل GO" data-hud-commands="0" data-intro="{{ !empty($boot['intro']) ? '1' : '0' }}">
     <canvas class="hud-background" data-hud-background aria-hidden="true"></canvas>
     <div class="hud-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M3 23v-3a9 9 0 0 1 18 0v3Z"/></svg><strong data-hud-who>{{ auth('admin')->user()->name }}</strong></div>
     <div class="hud-figure" aria-hidden="true">

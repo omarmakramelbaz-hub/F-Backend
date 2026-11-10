@@ -38,9 +38,9 @@ html.go-hud-open,html.go-hud-open body{overflow:hidden!important}
    DOM artwork preserves the reviewed appearance; WebGL adds sparse depth motes. */
 #go-hud{background:radial-gradient(ellipse at 50% 46%,#03202b 0%,#011019 47%,#010b13 80%)}
 #go-hud .hud-artwork{position:absolute;top:2%;bottom:16.5%;left:50%;width:60%;transform:translateX(-50%);display:flex;justify-content:center;align-items:center;pointer-events:none;filter:brightness(calc(1 + var(--hologram-voice-level,0)*.10));contain:layout style}
-#go-hud .hud-artwork img{display:block;max-width:100%;height:100%;width:auto;object-fit:contain;animation:hud-portrait-breathe 7s ease-in-out infinite;user-select:none;-webkit-user-drag:none}
+#go-hud .hud-artwork img{display:block;max-width:100%;height:100%;width:auto;object-fit:contain;user-select:none;-webkit-user-drag:none}
 #go-hud .hud-figure canvas{position:absolute;inset:0;pointer-events:none}
-#go-hud[data-intro="1"] .hud-artwork{animation:hud-portrait-reveal 5.6s ease-out both}
+#go-hud .hud-figure[data-portrait-gpu="true"] .hud-artwork{animation:none;clip-path:none;opacity:0}
 #go-hud .hud-figure[data-artwork-failed="true"] .hud-artwork{display:none}
 #go-hud .hud-figure[data-speaking="true"] .hud-artwork{filter:brightness(calc(1.04 + var(--hologram-voice-level,0)*.10)) drop-shadow(0 0 5px #00bce533)}
 #go-hud .hud-figure[data-alert="true"] .hud-artwork{filter:brightness(1.06) drop-shadow(0 0 8px #ff92221f)}

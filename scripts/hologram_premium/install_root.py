@@ -27,11 +27,14 @@ ALLOWED = {
     'public/dashboard/css/home-hud.css',
     'public/dashboard/css/go-hologram.css',
     'public/dashboard/css/hud-commands.css',
+    'public/dashboard/css/go-login-hologram.css',
+    'public/dashboard/js/go-login-hologram.js',
     'public/dashboard/branding/go-hologram-premium-20261110.png',
     'resources/views/admin/home_hud.blade.php',
     'resources/views/admin/partials/go_hologram_sidebar.blade.php',
     'resources/views/admin/home.blade.php',
     'resources/views/admin/home_branch.blade.php',
+    'resources/views/admin/login.blade.php',
 }
 PATCHED = {
     'public/dashboard/js/home-hud.js',
@@ -39,6 +42,7 @@ PATCHED = {
     'resources/views/admin/partials/go_hologram_sidebar.blade.php',
     'resources/views/admin/home.blade.php',
     'resources/views/admin/home_branch.blade.php',
+    'resources/views/admin/login.blade.php',
 }
 SAFE_ENV = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C', 'LC_ALL': 'C', 'PYTHONNOUSERSITE': '1'}
 
@@ -91,6 +95,71 @@ def payload(entry):
     return value
 
 
+def patch_schema(entry):
+    if not re.fullmatch(r'[0-9a-f]{64}', entry.get('before_sha256', '')) or not re.fullmatch(r'[0-9a-f]{64}', entry.get('after_sha256', '')):
+        raise ReviewError('GO_PREMIUM_PATCH_HASH_INVALID')
+    edits = entry.get('edits')
+    if not isinstance(edits, list) or not edits:
+        raise ReviewError('GO_PREMIUM_PATCH_EMPTY')
+    for edit in edits:
+        if not isinstance(edit, dict):
+            raise ReviewError('GO_PREMIUM_PATCH_INVALID')
+        old, new = edit.get('before'), edit.get('after')
+        if not isinstance(old, str) or not isinstance(new, str) or not old or not new or old == new:
+            raise ReviewError('GO_PREMIUM_PATCH_INVALID')
+    guards = entry.get('requires', [])
+    if not isinstance(guards, list) or len(guards) > 4 or any(not isinstance(g, str) or not g or len(g) > 8192 for g in guards):
+        raise ReviewError('GO_PREMIUM_PATCH_GUARD_INVALID')
+    return edits, guards
+
+
+def patch_edits(before, entry):
+    """Apply one reviewed bounded integration without replacing unrelated bytes."""
+    edits, guards = patch_schema(entry)
+    after = before
+    newline = '\r\n' if b'\r\n' in before else '\n'
+    if any(before.count(guard.replace('\n', newline).encode()) != 1 for guard in guards):
+        raise ReviewError('GO_PREMIUM_SOURCE_CHANGED')
+    for edit in edits:
+        old = edit['before'].replace('\n', newline).encode()
+        new = edit['after'].replace('\n', newline).encode()
+        if after.count(new) == 1 and after.replace(new, b'', 1).count(old) == 0:
+            continue
+        if after.count(old) != 1 or after.count(new) != 0:
+            raise ReviewError('GO_PREMIUM_SOURCE_CHANGED')
+        after = after.replace(old, new, 1)
+    if digest(before) == entry['before_sha256'] and digest(after) != entry['after_sha256']:
+        raise ReviewError('GO_PREMIUM_PATCH_RESULT_CHANGED')
+    return after
+
+
+def patch_variant(before, entry):
+    variants = entry.get('variants')
+    if variants is None:
+        return patch_edits(before, entry)
+    if not isinstance(variants, list) or not 1 <= len(variants) <= 4 or any(not isinstance(v, dict) for v in variants):
+        raise ReviewError('GO_PREMIUM_PATCH_VARIANTS_INVALID')
+    for variant in variants:
+        patch_schema(variant)
+    exact = [variant for variant in variants if variant.get('before_sha256') == digest(before)]
+    candidates = exact or variants
+    results = []
+    for variant in candidates:
+        try:
+            result = patch_edits(before, variant)
+        except ReviewError as error:
+            if str(error) != 'GO_PREMIUM_SOURCE_CHANGED':
+                raise
+        else:
+            if result not in results:
+                results.append(result)
+    if not results:
+        raise ReviewError('GO_PREMIUM_SOURCE_CHANGED')
+    if len(results) != 1:
+        raise ReviewError('GO_PREMIUM_PATCH_AMBIGUOUS')
+    return results[0]
+
+
 def plan(project, manifest):
     if manifest.get('format') != 1 or manifest.get('feature') != FEATURE or manifest.get('base_revision') != BASE_REVISION:
         raise ReviewError('GO_PREMIUM_MANIFEST_CHANGED')
@@ -105,39 +174,24 @@ def plan(project, manifest):
         path = checked_path(project, relative)
         before = regular(path) if path.exists() else None
         kind = entry.get('kind')
-        if kind in {'new', 'replace'}:
+        if kind in {'new', 'replace', 'upsert'}:
             if relative in PATCHED:
                 raise ReviewError('GO_PREMIUM_BOUNDED_PATCH_REQUIRED')
             after = payload(entry)
             expected = entry.get('before_sha256', [])
             if not isinstance(expected, list) or any(not isinstance(h, str) or not re.fullmatch(r'[0-9a-f]{64}', h) for h in expected):
                 raise ReviewError('GO_PREMIUM_BASE_HASH_INVALID')
-            if kind == 'new' and expected or kind == 'replace' and not expected:
+            if kind == 'new' and expected or kind in {'replace', 'upsert'} and not expected:
                 raise ReviewError('GO_PREMIUM_BASE_HASH_INVALID')
-            if before != after and (kind == 'new' and before is not None or kind == 'replace' and (before is None or digest(before) not in expected)):
+            if before != after and (kind == 'new' and before is not None or kind == 'replace' and (before is None or digest(before) not in expected) or kind == 'upsert' and before is not None and digest(before) not in expected):
                 raise ReviewError('GO_PREMIUM_SOURCE_CHANGED: ' + relative)
         elif kind == 'patch' and relative in PATCHED and before is not None:
-            if not re.fullmatch(r'[0-9a-f]{64}', entry.get('before_sha256', '')) or not re.fullmatch(r'[0-9a-f]{64}', entry.get('after_sha256', '')):
-                raise ReviewError('GO_PREMIUM_PATCH_HASH_INVALID')
-            edits = entry.get('edits')
-            if not isinstance(edits, list) or not edits:
-                raise ReviewError('GO_PREMIUM_PATCH_EMPTY')
-            after = before
-            newline = '\r\n' if b'\r\n' in before else '\n'
-            for edit in edits:
-                if not isinstance(edit, dict):
-                    raise ReviewError('GO_PREMIUM_PATCH_INVALID')
-                old, new = edit.get('before'), edit.get('after')
-                if not isinstance(old, str) or not isinstance(new, str) or not old or not new or old == new:
-                    raise ReviewError('GO_PREMIUM_PATCH_INVALID')
-                old, new = old.replace('\n', newline).encode(), new.replace('\n', newline).encode()
-                if after.count(new) == 1 and after.replace(new, b'', 1).count(old) == 0:
-                    continue
-                if after.count(old) != 1 or after.count(new) != 0:
-                    raise ReviewError('GO_PREMIUM_SOURCE_CHANGED: ' + relative)
-                after = after.replace(old, new, 1)
-            if digest(before) == entry['before_sha256'] and digest(after) != entry['after_sha256']:
-                raise ReviewError('GO_PREMIUM_PATCH_RESULT_CHANGED')
+            try:
+                after = patch_variant(before, entry)
+            except ReviewError as error:
+                if str(error) == 'GO_PREMIUM_SOURCE_CHANGED':
+                    raise ReviewError('GO_PREMIUM_SOURCE_CHANGED: ' + relative) from error
+                raise
         else:
             raise ReviewError('GO_PREMIUM_SOURCE_MISSING: ' + str(relative))
         changes.append({'path': relative, 'before': before, 'after': after, 'stat': path.stat() if before is not None else None})

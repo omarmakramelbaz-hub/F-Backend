@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Disposable tests for bounded visual deployment; no live host or database."""
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -195,6 +196,110 @@ class PackageTests(unittest.TestCase):
             with self.assertRaisesRegex(DEPLOY.ReviewError, 'SOURCE_CHANGED'):
                 DEPLOY.plan(project, manifest)
 
+    def test_upsert_allows_absence_or_known_previous_payload_only(self):
+        old, new = b'// previous commands\n', b'// living-avatar commands\n'
+        entry = {'path': NEW, 'kind': 'upsert', 'before_sha256': [DEPLOY.digest(old)],
+                 'after_sha256': DEPLOY.digest(new), 'encoding': 'utf-8', 'content': new.decode()}
+        manifest = {'format': 1, 'feature': DEPLOY.FEATURE, 'base_revision': DEPLOY.BASE_REVISION, 'files': [entry]}
+        for existing in [None, old, new, b'// independent commands\n']:
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                target = project / NEW
+                if existing is not None:
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(existing)
+                if existing is not None and existing not in [old, new]:
+                    with self.assertRaisesRegex(DEPLOY.ReviewError, 'SOURCE_CHANGED'):
+                        DEPLOY.plan(project, manifest)
+                    self.assertEqual(target.read_bytes(), existing)
+                else:
+                    self.assertEqual(DEPLOY.plan(project, manifest)[0]['after'], new)
+        manifest['files'][0]['before_sha256'] = []
+        with tempfile.TemporaryDirectory() as temporary, self.assertRaisesRegex(DEPLOY.ReviewError, 'BASE_HASH_INVALID'):
+            DEPLOY.plan(Path(temporary), manifest)
+
+    def test_bounded_variants_upgrade_prior_release_and_preserve_other_source(self):
+        original = 'function mount() {\n    render();\n}\n'
+        previous = original.replace('render();', 'render();\n    commands();')
+        latest = original.replace('render();', 'render();\n    avatar();')
+        variants = [{'before_sha256': DEPLOY.digest(before.encode()), 'after_sha256': DEPLOY.digest(latest.encode()),
+                     'edits': [{'before': before, 'after': latest}]} for before in [original, previous]]
+        manifest = {'format': 1, 'feature': DEPLOY.FEATURE, 'base_revision': DEPLOY.BASE_REVISION,
+                    'files': [{'path': INTEGRATION, 'kind': 'patch', 'variants': variants}]}
+        for before in [original, previous, latest]:
+            with self.subTest(before=before), tempfile.TemporaryDirectory() as temporary:
+                stage = Path(temporary)
+                project = stage / 'app'
+                target = project / INTEGRATION
+                target.parent.mkdir(parents=True)
+                target.write_text(before + '// independent polling remains\n')
+                changes = DEPLOY.plan(project, manifest)
+                self.assertEqual(changes[0]['after'], (latest + '// independent polling remains\n').encode())
+                DEPLOY.apply_plan(project, changes, stage / 'backup', (os.getuid(), os.getgid()), lambda: None)
+                self.assertEqual(DEPLOY.plan(project, manifest)[0]['before'], DEPLOY.plan(project, manifest)[0]['after'])
+
+    def test_bounded_variants_reject_conflicting_results_and_invalid_variants(self):
+        before = 'first();\nsecond();\n'
+        manifest = {'format': 1, 'feature': DEPLOY.FEATURE, 'base_revision': DEPLOY.BASE_REVISION,
+                    'files': [{'path': INTEGRATION, 'kind': 'patch', 'variants': [
+                        {'before_sha256': DEPLOY.digest(before.encode()),
+                         'after_sha256': DEPLOY.digest(before.replace('first', 'avatar').encode()),
+                         'edits': [{'before': 'first();', 'after': 'avatar();'}]},
+                        {'before_sha256': DEPLOY.digest(before.encode()),
+                         'after_sha256': DEPLOY.digest(before.replace('second', 'avatar').encode()),
+                         'edits': [{'before': 'second();', 'after': 'avatar();'}]},
+                    ]}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            target = project / INTEGRATION
+            target.parent.mkdir(parents=True)
+            target.write_text(before)
+            with self.assertRaisesRegex(DEPLOY.ReviewError, 'PATCH_AMBIGUOUS'):
+                DEPLOY.plan(project, manifest)
+            self.assertEqual(target.read_text(), before)
+            manifest['files'][0]['variants'][1]['before_sha256'] = 'invalid'
+            with self.assertRaisesRegex(DEPLOY.ReviewError, 'PATCH_HASH_INVALID'):
+                DEPLOY.plan(project, manifest)
+
+    def test_offline_baseline_snapshots_require_exact_git_blob_identity(self):
+        spec = importlib.util.spec_from_file_location('premium_snapshot_builder', HERE / 'build_manifest.py')
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        content = b'// known reviewed renderer\n'
+        identity = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / DEPLOY.BASE_REVISION / RENDERER
+            target.parent.mkdir(parents=True)
+            target.write_bytes(content)
+            index = {DEPLOY.BASE_REVISION: {RENDERER: identity, NEW: None}}
+            (root / 'source-index.json').write_text(json.dumps(index))
+            with patch.dict(os.environ, {'GO_PREMIUM_BASELINES_DIR': str(root)}):
+                self.assertEqual(build.baseline(RENDERER), content)
+                self.assertIsNone(build.baseline(NEW))
+                target.write_bytes(content + b'changed')
+                with self.assertRaisesRegex(RuntimeError, 'Git blob mismatch'):
+                    build.baseline(RENDERER)
+                with self.assertRaisesRegex(RuntimeError, 'entry missing'):
+                    build.baseline('public/dashboard/css/home-hud.css')
+
+    def test_installed_variant_guard_excludes_older_partial_integration(self):
+        original = '<section>\n<canvas></canvas>\n</section>\n'
+        previous = original.replace('<canvas>', '<img data-approved-artwork>\n<canvas>')
+        latest = previous.replace('<section>', '<section data-commands="0">')
+        canonical = {'before_sha256': DEPLOY.digest(original.encode()), 'after_sha256': DEPLOY.digest(latest.encode()),
+                     'edits': [{'before': original, 'after': latest}]}
+        incremental = {'before_sha256': DEPLOY.digest(previous.encode()), 'after_sha256': DEPLOY.digest(latest.encode()),
+                       'requires': ['<img data-approved-artwork>'],
+                       'edits': [{'before': '<section>', 'after': '<section data-commands="0">'}]}
+        entry = {'path': INTEGRATION, 'kind': 'patch', 'variants': [canonical, incremental]}
+        for before in [original, previous, latest]:
+            for suffix in ['', '// independent polling\n']:
+                with self.subTest(before=before, suffix=suffix):
+                    after = DEPLOY.patch_variant((before + suffix).encode(), entry)
+                    self.assertEqual(after, (latest + suffix).encode())
+                    self.assertEqual(DEPLOY.patch_variant(after, entry), after)
+
     def test_no_business_route_worker_or_desktop_path_in_allowlist(self):
         self.assertTrue(all(path.startswith(('public/dashboard/', 'resources/views/admin/')) for path in DEPLOY.ALLOWED))
         self.assertNotIn('routes/admin.php', DEPLOY.ALLOWED)
@@ -203,7 +308,7 @@ class PackageTests(unittest.TestCase):
         self.assertNotIn('prewarm', DEPLOY.PROBE)
 
     @unittest.skipUnless((HERE / 'manifest.json').exists(), 'release not finalized')
-    def test_release_manifest_matches_current_sources_and_two_baselines(self):
+    def test_release_manifest_matches_current_sources_and_reviewed_baselines(self):
         spec = importlib.util.spec_from_file_location('premium_builder', HERE / 'build_manifest.py')
         build = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(build)
@@ -225,6 +330,25 @@ class PackageTests(unittest.TestCase):
                     for change in changes:
                         self.assertEqual(change['after'], (build.ROOT / change['path']).read_bytes())
                 DEPLOY.apply_plan(project, changes, stage / 'backup', (os.getuid(), os.getgid()), lambda: None)
+                self.assertTrue(all(c['before'] == c['after'] for c in DEPLOY.plan(project, manifest)))
+        # Each baseline also allows unrelated text outside the reviewed hooks.
+        for revision in build.BASELINES:
+            with tempfile.TemporaryDirectory() as temporary:
+                project = Path(temporary)
+                for item in manifest['files']:
+                    previous = build.baseline(item['path'], revision)
+                    if previous is not None:
+                        target = project / item['path']
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        suffix = b'\n// independent source edit retained\n' if item['path'] in DEPLOY.PATCHED else b''
+                        target.write_bytes(previous + suffix)
+                changes = DEPLOY.plan(project, manifest)
+                for change in changes:
+                    if change['path'] in DEPLOY.PATCHED:
+                        self.assertTrue(change['after'].endswith(b'\n// independent source edit retained\n'))
+                    target = project / change['path']
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(change['after'])
                 self.assertTrue(all(c['before'] == c['after'] for c in DEPLOY.plan(project, manifest)))
 
 

@@ -15,6 +15,8 @@ function html(url){
  // Resolve Blade asset helpers in shared production markup.
  partial=partial.replace(/\{\{\s*asset\('([^']+)'\)\s*\}\}/g,(_,p)=>'/'+p);
  partial=partial.replace(/\{\{--[\s\S]*?--\}\}/g,'');
+ // Legacy command tests opt in; silentavatar keeps the actual production markup.
+ if(!url.searchParams.has('silentavatar'))partial=partial.replace('data-hud-commands="0"','data-hud-commands="1"');
  assert(!/@(?:include|if|php)|\{\{/.test(partial),'Fixture must use production markup with only Blade values substituted');
  const metric=metrics(url.searchParams.has('owner'));
  if(url.searchParams.has('unsafe')){metric.cards[0].url='javascript:window.bad=true';metric.cards[1].url='https://foreign.invalid/steal';metric.cards[2].label='<img src=x onerror="window.bad=true">';}
@@ -35,7 +37,30 @@ async function focusedCases(context,origin,errors){
  const reply=async(p,i,data,status=200)=>{await p.evaluate(({i,data,status})=>fixture.reply(i,data,status),{i,data,status});await p.evaluate(()=>Promise.resolve());};
  const emit=async(p,data)=>{await p.evaluate(data=>document.dispatchEvent(new CustomEvent('go:home-data',{detail:data})),data);};
  const money=p=>p.locator('[data-hud-key="drawer"] .hud-primary b').textContent();
- let p=await open('owner=1&silent=1');
+ let p=await open('silentavatar=1&nonce=visual-opening-once');
+ equal(await p.locator('#go-hud').getAttribute('data-hud-commands'),'0','Actual production opening disables the optional command panel');
+ equal(await p.evaluate(()=>fixture.commandMounts),0,'Visual interaction never mounts microphone or spoken-command controls');
+ equal(await p.locator('[data-hud-commands-toggle],[data-hud-command-mic],.hud-command-panel').count(),0,'Production visual opening has no microphone controls');
+ equal(await p.evaluate(()=>fixture.plays),1,'Visual-only interaction preserves the original opening greeting');
+ await p.locator('#go-hud').evaluate(n=>n.dispatchEvent(new PointerEvent('pointermove',{clientX:innerWidth*2,clientY:-10,pointerType:'mouse'})));
+ equal(await p.evaluate(()=>fixture.mounted[0].gaze),[1,-1],'Pointer gaze is bounded even for out-of-range coordinates');
+ await p.locator('#go-hud').evaluate(n=>n.dispatchEvent(new PointerEvent('pointermove',{clientX:0,clientY:innerHeight,pointerType:'touch'})));
+ equal(await p.evaluate(()=>fixture.mounted[0].gaze),[1,-1],'Touch scrolling never drives gaze');
+ await p.locator('#go-hud').dispatchEvent('pointerleave');
+ equal(await p.evaluate(()=>fixture.mounted[0].gaze),[0,0],'Leaving the opening restores a neutral gaze');
+ await p.evaluate(()=>fixture.audio[0].onended());
+ equal(await p.evaluate(()=>fixture.mounted[0].speaking),false,'Recorded greeting ending returns the avatar to silent idle');
+ await p.locator('#go-hud').evaluate(n=>n.dispatchEvent(new PointerEvent('pointermove',{clientX:100,clientY:100,pointerType:'mouse'})));
+ equal(await p.evaluate(()=>fixture.plays),1,'Visual interaction cannot repeat the completed login greeting');
+ equal(await p.evaluate(()=>fixture.speech.length),0,'Visual interaction does not invoke a browser voice');
+ const gazeCalls=await p.evaluate(()=>fixture.mounted[0].gazeCalls);
+ await p.locator('[data-hud-enter]').dispatchEvent('click');
+ await p.locator('#go-hud').evaluate(n=>n.dispatchEvent(new PointerEvent('pointermove',{clientX:20,clientY:20,pointerType:'mouse'})));
+ equal(await p.evaluate(()=>fixture.mounted[0].gazeCalls),gazeCalls,'Opening disposal removes pointer-gaze listeners');
+ await p.reload();await p.clock.runFor(1);
+ equal(await p.evaluate(()=>fixture.plays),0,'Reloading the visual opening never repeats the consumed login greeting');
+ await p.close();
+ p=await open('owner=1&silent=1');
  equal(await money(p),'—','Owner balance starts unknown instead of treating branch count as money');
  check((await p.locator('[data-hud-key="drawer"]').textContent()).includes('جار تحميل الرصيد'),'Owner has explicit currency loading state');
  let cash=await calls(p,'section=drawers');equal(cash.length,1,'Owner starts one independent canonical balance read');
@@ -90,7 +115,8 @@ if(require.main===module)(async()=>{
  try{
   const context=await browser.newContext({viewport:{width:1672,height:941}});
   await context.addInitScript(()=>{
-   window.fixture={calls:[],speech:[],audio:[],plays:0,pauses:0,cancelled:0,mounted:[],cleanups:[],autoStart:!location.search.includes('delayed')};
+   window.fixture={calls:[],speech:[],audio:[],plays:0,pauses:0,cancelled:0,mounted:[],cleanups:[],commandMounts:0,autoStart:!location.search.includes('delayed')};
+   window.GoHudCommands={mount:()=>{fixture.commandMounts++;return{destroy(){}};}};
    window.Audio=class {constructor(url){this.src=url;this.paused=true;this.ended=false;this.currentTime=0;fixture.audio.push(this);}play(){fixture.plays++;if(location.search.includes('blocked')&&fixture.plays===1){this.paused=true;return Promise.reject(Object.assign(new Error('Blocked'),{name:'NotAllowedError'}));}this.paused=false;if(fixture.autoStart&&this.onplaying)this.onplaying();return Promise.resolve();}pause(){fixture.pauses++;this.paused=true;}};
    if(!location.search.includes('spa'))window.DashboardSPA={isCurrentPage:()=>true,onCleanup:callback=>fixture.cleanups.push(callback)};
    const api={getVoices:()=>[{name:'Microsoft David',lang:'en-US'}],speak:utterance=>{fixture.speech.push(utterance);if(fixture.autoStart&&utterance.onstart)utterance.onstart();},cancel:()=>{fixture.cancelled++;}};
@@ -98,7 +124,7 @@ if(require.main===module)(async()=>{
    window.SpeechSynthesisUtterance=function(text){this.text=text;};
    window.fetch=(url,options={})=>new Promise((resolve,reject)=>{const request={url:String(url),options,resolve,reject,aborted:false};fixture.calls.push(request);if(options.signal)options.signal.addEventListener('abort',()=>{request.aborted=true;if(!location.search.includes('ignoreabort'))reject(new DOMException('Aborted','AbortError'));});});
    window.fixture.reply=(i,data,status=200,redirected=false)=>fixture.calls[i].resolve({status,ok:status>=200&&status<300,redirected,json:()=>Promise.resolve(data)});
-   if(!location.search.includes('real'))window.GoHologram={version:location.search.includes('v3delay')?3:undefined,mount:(canvas,options)=>{const robot={options,dead:false,speaking:false,alert:false,destroy(){this.dead=true},setSpeaking(v){this.speaking=v},setVoiceLevel(v){this.voiceLevel=v},setAlert(v){this.alert=v}};fixture.mounted.push(robot);return robot;}};
+   if(!location.search.includes('real'))window.GoHologram={version:location.search.includes('v3delay')?3:undefined,mount:(canvas,options)=>{const robot={options,dead:false,speaking:false,alert:false,gaze:[0,0],gazeCalls:0,destroy(){this.dead=true},setSpeaking(v){this.speaking=v},setVoiceLevel(v){this.voiceLevel=v},setAlert(v){this.alert=v},setGaze(x,y){this.gaze=[x,y];this.gazeCalls++;}};fixture.mounted.push(robot);return robot;}};
   });
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.clock.install();await page.goto(origin+'/fixture');
@@ -207,7 +233,8 @@ if(require.main===module)(async()=>{
    const canvas=await visual.locator('[data-hud-robot]').evaluate(c=>({w:c.width,h:c.height,ready:!!c.__goHologram}));check(canvas.ready&&canvas.w>0&&canvas.h>0,'Real canvas mounted at '+size.width+'x'+size.height);
    if(size.width===1672){
     const posture=await visual.locator('[data-hud-robot]').evaluate(c=>{const r=c.__goHologram,states=[];for(const t of[0,30,60,62.5,66,120,180]){r.pose(t);states.push({head:r.headYaw,body:r.bodyYaw,pitch:r.pitch});}for(const g of[-1,1]){r.api.setGaze(g,g);r.pose(62.5);states.push({head:r.headYaw,body:r.bodyYaw,pitch:r.pitch});}r.api.setGaze(0,0);return states;});
-    check(posture.every(p=>p.head===0&&p.body===0&&p.pitch===0),'Hologram keeps a fixed posture through minute boundaries and gaze input');
+    check(posture.every(p=>Math.abs(p.head)<.09&&Math.abs(p.body)<.04&&Math.abs(p.pitch)<.06),'Hologram keeps subtle bounded posture through minute boundaries and gaze input');
+    check(posture.some(p=>Math.abs(p.head)>.001||Math.abs(p.pitch)>.001),'Living hologram has slight head movement');
     const out=process.env.HOLOGRAM_SCREENSHOTS||path.join(repo,'../analysis');fs.mkdirSync(out,{recursive:true});await visual.screenshot({path:path.join(out,'hologram-desktop.png'),fullPage:true});
    }
    if(size.width===390){const out=process.env.HOLOGRAM_SCREENSHOTS||path.join(repo,'../analysis');await visual.screenshot({path:path.join(out,'hologram-mobile.png'),fullPage:true});}

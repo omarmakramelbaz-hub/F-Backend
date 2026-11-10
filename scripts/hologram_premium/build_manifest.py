@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build the reviewed visual-only release and prove both known live baselines."""
+"""Build the reviewed visual-only release and prove every known live baseline."""
 import argparse
 import base64
 import difflib
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -16,7 +17,8 @@ ROOT = HERE.parents[1]
 SPEC = importlib.util.spec_from_file_location('premium_release', HERE / 'install_root.py')
 DEPLOY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DEPLOY)
-BASELINES = [DEPLOY.BASE_REVISION, '47c562af4a7a97509f1ae1947ebee11cc4da2b9a']
+INSTALLED_REVISION = '7dc7c60a8ff69ab03212c4aa44a47bc4724df148'
+BASELINES = [DEPLOY.BASE_REVISION, '47c562af4a7a97509f1ae1947ebee11cc4da2b9a', INSTALLED_REVISION]
 HUD_MOUNT = "    if (window.GoHudCommands) commands = window.GoHudCommands.mount(root, {duckGreeting: stopSpeech, setSpeaking: function (on) { if (robot) robot.setSpeaking(on); }});\n"
 HUD_EDITS = [
     ('    var robot = null;\n', '    var robot = null, commands = null;\n'),
@@ -35,8 +37,37 @@ def digest(value):
 
 
 def baseline(relative, revision=None):
-    result = subprocess.run(['git', 'show', (revision or DEPLOY.BASE_REVISION) + ':' + relative], cwd=ROOT, capture_output=True)
-    return result.stdout if result.returncode == 0 else None
+    revision = revision or DEPLOY.BASE_REVISION
+    if revision not in BASELINES or relative not in DEPLOY.ALLOWED:
+        raise RuntimeError('Unreviewed baseline source')
+    snapshot = os.environ.get('GO_PREMIUM_BASELINES_DIR')
+    if snapshot:
+        root = Path(snapshot).resolve()
+        index = json.loads((root / 'source-index.json').read_text())
+        if revision not in index or relative not in index[revision]:
+            raise RuntimeError('Baseline snapshot entry missing: ' + revision + ':' + relative)
+        expected = index[revision][relative]
+        if expected is None:
+            return None
+        if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{40}', expected):
+            raise RuntimeError('Baseline snapshot blob identity invalid')
+        data = (root / revision / relative).read_bytes()
+        actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+        if actual != expected:
+            raise RuntimeError('Baseline snapshot Git blob mismatch: ' + revision + ':' + relative)
+        return data
+    exists = subprocess.run(['git', 'cat-file', '-e', revision + '^{commit}'], cwd=ROOT, capture_output=True)
+    if exists.returncode:
+        raise RuntimeError('Reviewed baseline commit unavailable: ' + revision)
+    listing = subprocess.run(['git', 'ls-tree', revision, '--', relative], cwd=ROOT, capture_output=True)
+    if listing.returncode:
+        raise RuntimeError('Cannot inspect reviewed baseline source: ' + relative)
+    if not listing.stdout:
+        return None
+    result = subprocess.run(['git', 'show', revision + ':' + relative], cwd=ROOT, capture_output=True)
+    if result.returncode:
+        raise RuntimeError('Cannot retrieve reviewed baseline source: ' + relative)
+    return result.stdout
 
 
 def bounded(before, after):
@@ -68,6 +99,60 @@ def hud_edits(before, after):
     return [{'before': old, 'after': new} for old, new in HUD_EDITS]
 
 
+def apply_edits(content, edits):
+    """Use only reviewed integration fragments on an alternate live source."""
+    result = content.decode().replace('\r\n', '\n')
+    for edit in edits:
+        old, new = edit['before'], edit['after']
+        if result.count(new) == 1 and result.replace(new, '', 1).count(old) == 0:
+            continue
+        if result.count(old) != 1 or result.count(new) != 0:
+            raise RuntimeError('Bounded baseline integration conflicts')
+        result = result.replace(old, new, 1)
+    return result.encode()
+
+
+def installed_guard(installed, current, earlier):
+    """Recognize the installed integration even beside unrelated source edits."""
+    old, new = installed.decode(), current.decode()
+    guards = []
+    for block in difflib.SequenceMatcher(None, old, new, autojunk=False).get_matching_blocks():
+        for part in old[block.a:block.a + block.size].splitlines():
+            guard = part.strip()
+            if 16 <= len(guard) <= 8192 and old.count(guard) == 1 and new.count(guard) == 1 and all(guard not in source.decode() for source in earlier):
+                guards.append(guard)
+    return min(guards, key=len) if guards else None
+
+
+def integration_variants(relative, current):
+    original = baseline(relative)
+    installed = baseline(relative, INSTALLED_REVISION)
+    if original is None or installed is None:
+        raise RuntimeError('Bounded integration source is missing: ' + relative)
+    delta = bounded(installed, current) if installed != current else []
+    if relative == 'public/dashboard/js/home-hud.js':
+        primary = hud_edits(original, installed) + delta
+    else:
+        primary = bounded(original, current)
+    earlier = [baseline(relative, revision) for revision in BASELINES if revision != INSTALLED_REVISION]
+    guard = installed_guard(installed, current, earlier) if delta else None
+    variants = []
+    for revision in BASELINES:
+        prior = baseline(relative, revision)
+        if prior is None:
+            raise RuntimeError('Bounded integration source is missing: ' + relative)
+        edits = delta if revision == INSTALLED_REVISION and delta else primary
+        target = apply_edits(prior, edits)
+        if revision in {DEPLOY.BASE_REVISION, INSTALLED_REVISION} and target != current:
+            raise RuntimeError('Bounded integration differs from reviewed source: ' + relative)
+        variant = {'before_sha256': digest(prior), 'after_sha256': digest(target), 'edits': edits}
+        if revision == INSTALLED_REVISION and delta and guard:
+            variant['requires'] = [guard]
+        if variant not in variants:
+            variants.append(variant)
+    return variants
+
+
 def encoded(data):
     try:
         return {'encoding': 'utf-8', 'content': data.decode('utf-8')}
@@ -80,19 +165,21 @@ def build():
     for relative in sorted(DEPLOY.ALLOWED):
         path = ROOT / relative
         if not path.is_file():
-            continue
-        current, prior = path.read_bytes(), baseline(relative)
-        if current == prior:
+            raise RuntimeError('Reviewed release source is missing: ' + relative)
+        current = path.read_bytes()
+        previous = [baseline(relative, revision) for revision in BASELINES]
+        prior = previous[0]
+        if all(current == content for content in previous):
             continue
         if relative in DEPLOY.PATCHED:
             if prior is None:
                 raise RuntimeError('Bounded integration source is missing: ' + relative)
-            item = {'path': relative, 'kind': 'patch', 'before_sha256': digest(prior),
-                    'after_sha256': digest(current), 'edits': hud_edits(prior, current) if relative == 'public/dashboard/js/home-hud.js' else bounded(prior, current)}
+            item = {'path': relative, 'kind': 'patch', 'variants': integration_variants(relative, current)}
         else:
-            known = sorted({digest(content) for revision in BASELINES for content in [baseline(relative, revision)] if content is not None})
-            item = {'path': relative, 'kind': 'replace' if prior is not None else 'new',
-                    'before_sha256': known if prior is not None else [], 'after_sha256': digest(current), **encoded(current)}
+            known = sorted({digest(content) for content in previous if content is not None})
+            kind = 'new' if not known else 'upsert' if any(content is None for content in previous) else 'replace'
+            item = {'path': relative, 'kind': kind,
+                    'before_sha256': known, 'after_sha256': digest(current), **encoded(current)}
         entries.append(item)
     if not entries:
         raise RuntimeError('No reviewed premium hologram changes exist')

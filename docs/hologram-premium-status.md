@@ -5,13 +5,15 @@ Last verified on 10 November 2026 (Egypt).
 ## Accepted outcome
 
 - Keep the approved blue/cyan portrait with restrained orange energy and a projection base.
-- Animate the particle/depth effects; do not rotate the head.
+- Assemble that portrait from one luminous point and many particles, as in the earlier opening.
+- Add natural blinking, slight head movement and a bounded pointer response.
+- Move the lips during the existing named opening greeting, then remain silent while idle.
 - Use the same approved portrait in the opening and the compact sidebar.
-- Voice interaction only: a microphone button and Arabic spoken replies, without a text-entry field.
-- Support the documented Arabic commands using the current account's authorized cards and displayed values.
+- Keep the existing named English greeting once after login; preserve its worker, nonce and readiness behavior.
+- Hide the optional microphone/command panel by default; do not add text entry.
 - Preserve the existing login greeting, counters, drawer scopes and other dashboard behavior.
 
-## Immutable release
+## Previously verified immutable release
 
 - Branch: `codex/hologram-premium-commands-20261110`.
 - Reviewed application commit: `7dc7c60a8ff69ab03212c4aa44a47bc4724df148`.
@@ -35,6 +37,11 @@ Exact release payload bytes and the installer/manifest pins were independently c
 Browser speech recognition and Arabic voice availability still depend on the user's browser/device. Automated service stubs verify the controls and command lifecycle; they do not establish microphone accuracy or audible output on the production device.
 
 ## Activation status and next step
+
+The receipt below confirms the earlier premium portrait release. The newly
+requested point assembly, living face and silent idle changes are a subsequent
+upgrade: they require final motion validation and a newly pinned activation
+command before being described as installed.
 
 The user supplied a successful production receipt from `srv1836524` on 10 November 2026 at 05:43 Egypt time (03:43 UTC):
 
@@ -75,4 +82,4 @@ A successful unchanged replay reports `GO_HOLOGRAM_PREMIUM_ALREADY_APPLIED`.
 
 The remaining check is on the production device: refresh the dashboard with `Ctrl+Shift+R`, verify the approved portrait in the opening and sidebar, open the command controls, press the microphone, and allow microphone access. Try `عدد العملاء كام؟` to verify an audible Arabic reply, then `افتح العملاء` to verify navigation. An installed Arabic browser voice is required. Use one command per microphone press.
 
-Use this file and the immutable workflow/commit above to resume after a conversation interruption. The application implementation is complete, verified and activated in the central application. The remaining task is the real-device voice check; its result has not yet been supplied.
+Use this file and the immutable workflow/commit above to resume after a conversation interruption. The earlier premium portrait release is verified and activated in the central application. Complete validation and activation of the requested living-face/point-assembly revision next, then verify the named opening greeting and silent idle behavior on the production device.

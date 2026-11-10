@@ -206,6 +206,15 @@
     }
     function onData(event) { if (!event.detail) return; if (event.detail.hologram) fill(event.detail.hologram); acceptBalance(event.detail); }
     function alertState(event) { if (robot) robot.setAlert(!!(event.detail && event.detail.pending && event.detail.pending.length)); }
+    function gaze(event) {
+        if (disposed || root.hidden || document.hidden || !robot || !robot.setGaze || event.pointerType === 'touch') return;
+        var bounds = root.getBoundingClientRect();
+        if (bounds.width < 1 || bounds.height < 1) return;
+        var x = Math.max(-1, Math.min(1, (event.clientX - bounds.left) / bounds.width * 2 - 1));
+        var y = Math.max(-1, Math.min(1, (event.clientY - bounds.top) / bounds.height * 2 - 1));
+        robot.setGaze(x, y);
+    }
+    function restGaze() { if (robot && robot.setGaze) robot.setGaze(0, 0); }
     function speaking(on) {
         if (robot) robot.setSpeaking(on); var refocus = !on && document.activeElement === voiceButton;
         voiceButton.hidden = !on;
@@ -335,6 +344,7 @@
     on(enter, 'click', leave); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'go:home-drawers-state', onDrawerState); on(document, 'dashboard:order-alert-state', alertState);
     on(root, 'click', function (event) { var node = event.target.closest('[data-hud-owner-balances="true"]'); if (!node || !root.contains(node) || !balance || !balanceActive()) return; event.preventDefault(); leave(); document.dispatchEvent(new CustomEvent('go:owner-drawers-open')); });
     on(document, 'visibilitychange', visibility); on(document, 'dashboard:before-unload', dispose); on(window, 'pagehide', dispose);
+    on(root, 'pointermove', gaze, {passive: true}); on(root, 'pointerleave', restGaze);
     on(window, 'resize', wakeBackground); if (reduce && reduce.addEventListener) on(reduce, 'change', wakeBackground);
     function resumeGreeting(event) { if (!voiceButton.contains(event.target)) sayGreeting(); }
     on(root, 'pointerdown', resumeGreeting, {capture: true}); on(root, 'keydown', resumeGreeting, {capture: true});
@@ -345,6 +355,6 @@
     acceptBalance(boot.initial);
     var overviewRoot = document.getElementById('home-overview'); if (overviewRoot && overviewRoot.goHomeDrawersState) onDrawerState({detail: overviewRoot.goHomeDrawersState});
     if (window.DashboardOrderAlerts) alertState({detail: window.DashboardOrderAlerts.state()});
-    if (window.GoHudCommands) commands = window.GoHudCommands.mount(root, {duckGreeting: stopSpeech, setSpeaking: function (on) { if (robot) robot.setSpeaking(on); }});
+    if (root.dataset.hudCommands === '1' && window.GoHudCommands) commands = window.GoHudCommands.mount(root, {duckGreeting: stopSpeech, setSpeaking: function (on) { if (robot) robot.setSpeaking(on); }});
     wakeBackground(); enter.focus({preventScroll: true}); greeting();
 })();

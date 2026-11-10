@@ -1,4 +1,4 @@
-name: Approved GO hologram and Arabic commands
+name: Living GO hologram and server login
 on:
   push:
     branches: ['codex/hologram-premium-commands-20261110']
@@ -6,13 +6,19 @@ on:
     paths:
       - 'public/dashboard/js/go-hologram.js'
       - 'public/dashboard/js/hud-commands.js'
+      - 'public/dashboard/js/go-login-hologram.js'
       - 'public/dashboard/css/*hologram*'
       - 'public/dashboard/css/home-hud.css'
       - 'public/dashboard/css/hud-commands.css'
+      - 'public/dashboard/css/go-login-hologram.css'
+      - 'resources/views/admin/login.blade.php'
       - 'resources/views/admin/home*.blade.php'
       - 'resources/views/admin/partials/go_hologram_sidebar.blade.php'
       - 'scripts/hologram_premium/**'
       - 'tests/browser/hologram-premium.cjs'
+      - 'tests/browser/hologram-living.cjs'
+      - 'tests/browser/premium-renderer-vm.cjs'
+      - 'tests/browser/go-login-hologram.cjs'
       - 'tests/browser/hud-commands.cjs'
 jobs:
   browser-and-package:
@@ -37,6 +43,7 @@ jobs:
           node --check public/dashboard/js/go-hologram.js
           node --check public/dashboard/js/home-hud.js
           node --check public/dashboard/js/hud-commands.js
+          node --check public/dashboard/js/go-login-hologram.js
           node tests/browser/premium-renderer-vm.cjs
           python3 -m unittest discover -s scripts/hologram_premium -p 'test_*.py' -v
       - name: Verify voice command behavior with browser service stubs
@@ -47,6 +54,16 @@ jobs:
         env:
           HOLOGRAM_PREMIUM_OUTPUT: ${{ runner.temp }}/hologram-premium
         run: node tests/browser/hologram-premium.cjs
+      - name: Verify point assembly and living facial motion
+        env:
+          HOLOGRAM_PREMIUM_OUTPUT: ${{ runner.temp }}/hologram-premium
+          HOLOGRAM_REVIEW_LOG_IMAGE: '1'
+        run: node tests/browser/hologram-living.cjs
+      - name: Verify login layout and unchanged authentication behavior
+        env:
+          HOLOGRAM_LOGIN_OUTPUT: ${{ runner.temp }}/hologram-premium/login
+          HOLOGRAM_REVIEW_LOG_IMAGE: '1'
+        run: node tests/browser/go-login-hologram.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
