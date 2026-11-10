@@ -27,8 +27,8 @@ greeting runs once; refresh, ordinary navigation and idle remain silent.
 - Installer SHA-256: `56de0984d1bf4cbd1aacbf091431783d4055442d2830f7880133cf1854f04d75`.
 - Manifest SHA-256: `fadc951557291f7057b3b921034b6dee846b734a0141bf958cd85afcffc16b14`.
 
-The later documentation checkpoint does not change these payloads. Activate the
-exact application commit above.
+The later documentation checkpoint does not change these payloads. The exact
+application commit above was activated by the operator.
 
 ## Validation
 
@@ -59,21 +59,28 @@ recording still needs a production-device playback check after sign-in.
 
 ## Activation status
 
-**Ready for activation. The living portrait/server-login upgrade has not been
-executed on production from this session.** Its production receipt is pending.
-The earlier premium portrait release was activated by the operator; that earlier
-receipt does not establish installation of this subsequent upgrade.
+**Production activation is confirmed by the operator-supplied receipt.** On
+10 November 2026 the operator applied application commit
+`4f6e6985113da853368511e221f6e76473a9cd07` and supplied
+`GO_HOLOGRAM_PREMIUM_APPLIED_AND_VERIFIED`: eight files changed, the central
+runtime verified, and zero additional Owner runtimes enumerated. The receipt
+reports no database, route or voice-worker changes and no desktop rebuild.
+Zero additional runtimes does not negate verification of the central runtime;
+it does not establish verification of any separate Owner installation.
+No remote server command was executed by the assistant.
 
 The release runner and immutable hashes above identify the reviewed payload.
 Operator-specific instructions remain in the private task conversation.
-Expected success marker: `GO_HOLOGRAM_PREMIUM_APPLIED_AND_VERIFIED`.
-An unchanged replay reports `GO_HOLOGRAM_PREMIUM_ALREADY_APPLIED`.
+The received success marker is `GO_HOLOGRAM_PREMIUM_APPLIED_AND_VERIFIED`.
+Reinstallation is not required.
 
 The package backs up changed source, rejects unknown overlapping edits and
 rolls back failed verification. Database, routes, the private greeting worker
 and Windows installer are unchanged.
 
-After successful activation, refresh with `Ctrl+Shift+R`. Check the new login,
+The remaining check is on the production device: refresh with `Ctrl+Shift+R`.
+Check the new login,
 then sign in once to check construction, blinking, subtle head/pointer response
 and the existing named greeting with lip movement. Idle should remain silent.
-Record the actual receipt before marking production activation complete.
+The receipt establishes application/runtime installation; actual browser motion
+and audible greeting playback remain awaiting the user's device check.
