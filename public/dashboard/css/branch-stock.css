@@ -249,3 +249,12 @@
     #branch-stock .bs-entry-help{padding:6px 10px;font-size:10.5px;line-height:1.6;margin:0!important}
     #branch-stock .bs-entry .bs-primary{min-height:42px;font-size:14px}
 }
+/* stock-balances-full-20261110: nothing under the balances table; it runs to the bottom */
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-balances>.bs-note,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-history,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-legacy,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) [data-stock-unmapped]{display:none!important}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-overview{overflow:hidden}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-balances{flex:1 1 auto;min-height:0;height:100%}
+}
