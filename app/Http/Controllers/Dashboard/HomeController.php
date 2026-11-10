@@ -87,7 +87,8 @@ class HomeController extends Controller
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
         if($request->query('section')==='hologram')return response()->json([
-            'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user())
+            'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user()),
+            'shell'=>\App\Support\DashboardShell::version(),
         ])->header('Cache-Control','private, no-store');
         $data=$request->query('section')==='drawers'
             ?$overview->drawers($request->query(),auth('admin')->user())

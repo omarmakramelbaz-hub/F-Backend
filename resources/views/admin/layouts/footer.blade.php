@@ -197,9 +197,9 @@ $(document).ready(function() {
 <script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>
 <script src="{{ asset('dashboard/js/go-hologram-shell.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram-shell.js')) }}"></script>
 {{-- The persistent shell's version. A window opened before a shell update reloads once on its next page. --}}
-<script>window.GoDashboardShell = '20261110-history2';</script>
+<script>window.GoDashboardShell = '{{ \App\Support\DashboardShell::version() }}';</script>
 <div data-dashboard-page-scripts hidden>
-<script>(function () { var want = '20261110-history2'; if (window.GoDashboardShell === want) return; try { var key = 'go-shell-reload:' + want; if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (e) { return; } location.reload(); })();</script>
+<script>(function () { var want = '{{ \App\Support\DashboardShell::version() }}'; if (window.GoDashboardShell === want) return; try { var key = 'go-shell-reload:' + want; if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (e) { return; } location.reload(); })();</script>
 <script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')
 </div>

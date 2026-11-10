@@ -93,6 +93,13 @@
     function stale() { live.classList.add('stale'); freshness.textContent = 'تعذّر التحديث · آخر أرقام متاحة'; }
     // Server load: every 30 seconds; every 2 minutes on a device untouched for half an hour (dashboard-idle.js).
     function schedule() { clearTimeout(timer); var idle = window.GODashboardIdle; if (!disposed && !root.hidden && !document.hidden) timer = setTimeout(refresh, idle && idle.quiet && idle.quiet() ? 120000 : 30000); }
+    // A page left open after a dashboard update runs old scripts: open it again once, while nobody is using the device.
+    function renewShell(version) {
+        var mine = window.GoDashboardShell, idle = window.GODashboardIdle;
+        if (!version || !mine || version === mine || !idle || !idle.idleFor || idle.idleFor() < 120000) return;
+        try { var key = 'go-shell-renew:' + version; if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (_) { return; }
+        location.reload();
+    }
     async function refresh() {
         if (disposed || root.hidden || document.hidden || controller) return;
         var url = safeURL(boot.url); if (!url) { stale(); return; }
@@ -102,7 +109,7 @@
             var response = await fetch(url.href, {credentials: 'same-origin', headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal});
             if (disposed) return;
             if (response.status === 401 || response.status === 403 || response.redirected) { cardsByKey.forEach(function (n) { n.remove(); }); cardsByKey.clear(); stale(); stopSpeech(); return; }
-            if (!response.ok) throw Error('metrics'); var data = await response.json(); if (!data.success || !data.hologram) throw Error('metrics'); fill(data.hologram);
+            if (!response.ok) throw Error('metrics'); var data = await response.json(); if (!data.success || !data.hologram) throw Error('metrics'); fill(data.hologram); renewShell(data.shell);
         } catch (_) { if (!disposed) stale(); }
         finally { clearTimeout(timeout); controller = null; schedule(); }
     }

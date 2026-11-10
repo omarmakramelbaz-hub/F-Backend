@@ -18,7 +18,7 @@
     try { if (!Number(localStorage.getItem(INPUT_KEY))) localStorage.setItem(INPUT_KEY, String(loadedAt)); } catch (_) {}
     ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (event) { document.addEventListener(event, touched, {passive: true, capture: true}); });
     setInterval(function () { if (quiet()) wasQuiet = true; }, 60000);
-    var api = { quiet: quiet, every: function (normal, slow) { return quiet() ? slow : normal; } };
+    var api = { quiet: quiet, idleFor: function () { return Date.now() - lastInput(); }, every: function (normal, slow) { return quiet() ? slow : normal; } };
     window.GODashboardIdle = api;
     var tag = document.currentScript, target;
     try { target = new URL(tag && tag.dataset.homeUrl || '/admin/dashboard', location.href); }

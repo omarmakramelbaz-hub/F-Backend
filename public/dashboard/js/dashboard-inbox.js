@@ -15,7 +15,7 @@
             options.body = JSON.stringify(data);
         }
         return fetch(url, options).then(function (response) {
-            if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/json')) throw new Error('Inbox unavailable');
+            if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/json')) { var failure = new Error('Inbox unavailable'); failure.status = response.status; throw failure; }
             return response.json();
         }).then(function (result) { if (!result.success) throw new Error('Inbox unavailable'); return result; });
     }
@@ -81,11 +81,18 @@
             if (error) { error.textContent = shell.dataset.inboxReadFailed; error.hidden = false; }
         }).finally(function () { pendingRead = false; refreshNotifications(); });
     }
+    // Server load: when the support service is down (503), this device asks again only after half an hour.
+    var SUPPORT_PAUSE_KEY = 'go-dashboard-support-paused-until';
+    function supportPaused() { try { return Number(localStorage.getItem(SUPPORT_PAUSE_KEY) || 0) > Date.now(); } catch (_) { return false; } }
     function refreshSupport(fresh) {
-        if (localDashboard() || !shell.dataset.supportUrl || supportBusy || document.hidden) return Promise.resolve();
+        if (localDashboard() || !shell.dataset.supportUrl || supportBusy || document.hidden || (!fresh && supportPaused())) return Promise.resolve();
         supportBusy = true;
-        return request(shell.dataset.supportUrl + (fresh ? '?fresh=1' : '')).then(supportBadges).catch(function () {})
-            .finally(function () { supportBusy = false; });
+        return request(shell.dataset.supportUrl + (fresh ? '?fresh=1' : '')).then(function (data) {
+            try { localStorage.removeItem(SUPPORT_PAUSE_KEY); } catch (_) {}
+            return supportBadges(data);
+        }).catch(function (error) {
+            if (error && error.status === 503) { try { localStorage.setItem(SUPPORT_PAUSE_KEY, String(Date.now() + 30 * 60 * 1000)); } catch (_) {} }
+        }).finally(function () { supportBusy = false; });
     }
     function queueSupport() {
         if (localDashboard()) return;

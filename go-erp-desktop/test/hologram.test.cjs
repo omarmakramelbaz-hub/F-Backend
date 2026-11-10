@@ -19,7 +19,7 @@ const RELEASE = {
   'go-hologram.js': 'da67e52ba5ab02bf11e11e596f66206dc0c78b60ae6fafa9d741541e551ba3fa',
   'go-hologram-shell.js': '089934b4e467e144c60a179db3065ea81036b9cf57eba34051c2ec09f2284200',
   'go-hologram.css': '83dd2b84bae97e3a1e6a14b4300875636272981e2b57c471b6647fae9c5bb018',
-  'home-hud.js': 'b242825a74bfabd26fda7d7d48784f11a80e3481a0b23880d00fcb5cc3e061bc',
+  'home-hud.js': '7c120df407a8dd7e2d23f026241940ec305dd4a6e570a6bb960bfde41a6dfc3b',
   'home-hud.css': '9999469049e0d0404b1e9789822e93ffa98c91b258a4259bacc5fcebc9c6dae2',
   'home-hud.html': '1b405989261c885cf9e18b5d1689c6ccf94d2c6db52850708f7e01398610d978',
   'sidebar.html': 'c6f2c09cf917dc117917775cb44c40adeee19f7c31bb69de33f39bce5f0803b9',
