@@ -61,46 +61,41 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await page.addScriptTag({path:path.join(source,'public/dashboard/js/branch-operations.js')});
   await page.addScriptTag({path:path.join(source,'public/dashboard/dist/js/adminlte.js')});
   assert.equal(await arrival().evaluate(el=>el.classList.contains('select2-hidden-accessible')),false,'attendance stays a native select after AdminLTE loads');
-  assert.equal(await departure().evaluate(el=>el.classList.contains('select2-hidden-accessible')),false,'departure stays a native select after AdminLTE loads');
   assert.equal(await page.locator('[data-op-filter=branch]').evaluate(el=>el.classList.contains('select2-hidden-accessible')),true,'AdminLTE still enhances the branch filter');
   assert.equal(await page.locator('[data-op-filter=job_title]').evaluate(el=>el.classList.contains('select2-hidden-accessible')),true,'AdminLTE still enhances the job filter');
 
   await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
-  assert.equal(await arrival().count(),1);assert.equal(await departure().count(),1);
+  assert.equal(await arrival().count(),1);assert.equal(await departure().count(),0);
   assert.ok((await page.locator('[data-op-net]').textContent()).includes('8 يوم'));assert.ok((await page.locator('[data-op-net]').getAttribute('title')).includes('2026-10-01 حتى 2026-10-08'));
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
-  assert.deepEqual(await departure().locator('option').allTextContents(),['تسجيل الانصراف','انصراف صباحًا','انصراف مساءً']);
-  assert.ok(await departure().isDisabled());assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
+  assert.equal(await departure().count(),0,'departure is not recorded on the daily page');assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
   await refreshed(async()=>{await arrival().click();await arrival().press('ArrowDown');await arrival().press('Enter');});await waitRecorded('[data-op-attendance]','12:35');
   assert.equal(posts.length,1);assert.equal(await page.locator('[data-op-entry=bonus]').count(),1);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts[0].v.action,'check_in');assert.ok(!('check_in' in posts[0].v)&&!('checked_in_at' in posts[0].v));assert.ok(posts[0].v.idempotency_key);
-  assert.equal(posts[0].v.expected_revision,null);assert.equal(await arrival().inputValue(),'');assert.ok(!(await departure().isDisabled()));
-  assert.ok(await departure().locator('[value=evening]').evaluate(el=>el.disabled));assert.ok(!(await departure().locator('[value=morning]').evaluate(el=>el.disabled)));
+  assert.equal(posts[0].v.expected_revision,null);assert.equal(await arrival().inputValue(),'');
   assert.ok(await page.locator('[data-op-total=deduction]').textContent().then(x=>x.includes('50.00')));
   assert.equal(await page.evaluate(()=>document.activeElement.matches('[data-op-attendance]')),false);
   assert.ok(await arrival().isDisabled());
   const recordedPosts=posts.length;await arrival().evaluate(el=>{el.value='evening';el.dispatchEvent(new Event('change',{bubbles:true}));});
   assert.equal(posts.length,recordedPosts);assert.equal(await selected(arrival()),'12:35');assert.ok((await page.locator('[data-op-total=deduction]').textContent()).includes('50.00'));
-  await enhanceAttendance();await refreshed(()=>choose(departure(),'morning'));await waitRecorded('[data-op-checkout]','17:00');
-  assert.equal(posts.filter(p=>p.endpoint==='attendance').length,2);assert.equal(await page.locator('.select2-container--open').count(),0);assert.equal(posts.at(-1).v.action,'check_out');assert.equal(posts.at(-1).v.expected_revision,1);assert.ok(!('check_out' in posts.at(-1).v));
-  assert.ok(await departure().isDisabled());assert.equal(await selected(arrival()),'12:35');
-  await page.waitForFunction(()=>document.querySelector('[data-op-net]').textContent.includes('740.00'));
+  assert.equal(posts.filter(p=>p.endpoint==='attendance').length,1);assert.equal(await selected(arrival()),'12:35');
+  await page.waitForFunction(()=>document.querySelector('[data-op-net]').textContent.includes('750.00'));
   await page.locator('[data-op-auto-notes]').fill('ملاحظة محفوظة لليوم');await refreshed(()=>page.locator('[data-op-auto-notes]').press('Tab'),1);
-  assert.ok(await arrival().isDisabled());assert.ok(await departure().isDisabled());
+  assert.ok(await arrival().isDisabled());
   // Independent fresh employee/day cases exercise the first choice, never rewriting a saved one.
   async function fresh(){data.items[0].attendance=null;data.items[0].day_closed=false;updateTotals('0.00');await refresh();await enhanceAttendance();assert.ok(!(await arrival().isDisabled()));}
   await fresh();
   await refreshed(()=>choose(arrival(),'unauthorized_absence'));await waitRecorded('[data-op-attendance]','غياب بدون إذن');
-  assert.equal(posts.at(-1).v.action,'set_status');assert.equal(posts.at(-1).v.notes,'');assert.ok(await arrival().isDisabled());assert.equal(await selected(departure()),'تسجيل الانصراف');assert.ok(await departure().isDisabled());
+  assert.equal(posts.at(-1).v.action,'set_status');assert.equal(posts.at(-1).v.notes,'');assert.ok(await arrival().isDisabled());
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('300.00'));
   await fresh();
   await refreshed(()=>choose(arrival(),'preapproved_leave'));await waitRecorded('[data-op-attendance]','إجازة مسبقة');
   await page.waitForFunction(()=>document.querySelector('[data-op-total=deduction]').textContent.includes('100.00'));
   assert.ok(await arrival().isDisabled());assert.ok((await page.locator('.op-attendance-fixed').textContent()).includes('إجازة مسبقة'));await fresh();rejectAttendance=true;await choose(arrival(),'morning');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent==='لم يتم تسجيل الحضور');
-  assert.equal(await selected(arrival()),'تسجيل الحضور');assert.ok((await arrival().locator('xpath=following-sibling::span[1]').textContent()).includes('تسجيل الحضور'));assert.ok(!(await arrival().isDisabled()));assert.ok(await departure().isDisabled());
+  assert.equal(await selected(arrival()),'تسجيل الحضور');assert.ok((await arrival().locator('xpath=following-sibling::span[1]').textContent()).includes('تسجيل الحضور'));assert.ok(!(await arrival().isDisabled()));
   uncertainAttendance=true;await choose(arrival(),'evening');await page.waitForFunction(()=>document.querySelector('[data-op-message]').textContent.includes('غير مؤكدة'));
   const count=posts.length;assert.ok(await arrival().isDisabled());await refreshed(()=>page.locator('[data-op-retry]').click());await waitRecorded('[data-op-attendance]','12:35');
-  assert.equal(posts.length,count);assert.ok(await arrival().isDisabled());assert.ok(await departure().locator('[value=morning]').evaluate(el=>el.disabled));
-  data.items[0].day_closed=true;await refresh();assert.ok(await arrival().isDisabled());assert.ok(await departure().isDisabled());
+  assert.equal(posts.length,count);assert.ok(await arrival().isDisabled());
+  data.items[0].day_closed=true;await refresh();assert.ok(await arrival().isDisabled());
   data.items[0].day_closed=false;await refresh();assert.ok(await arrival().isDisabled());
   assert.equal(await page.evaluate(()=>window.attendanceDialogOpens),0);
   assert.equal(await page.locator('.op-header-actions [data-op-add]').count(),1);assert.equal(await page.locator('.op-header-actions [data-op-attendance-rules]').count(),1);
@@ -109,9 +104,8 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   await page.waitForFunction(()=>!document.querySelector('[data-op-dialog]').open);assert.equal(posts.at(-1).endpoint,'attendance-rules');assert.equal(posts.at(-1).v.absence,'450.00');assert.equal(posts.at(-1).v.expected_revision,1);
   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT+'.desktop.png',fullPage:true});
   await page.setViewportSize({width:390,height:844});await fresh();await arrival().scrollIntoViewIfNeeded();await refreshed(()=>choose(arrival(),'evening'));assert.ok(await arrival().isDisabled());
-  await departure().scrollIntoViewIfNeeded();await refreshed(()=>choose(departure(),'evening'));await waitRecorded('[data-op-checkout]','17:00');
-  assert.equal(await selected(arrival()),'12:35');assert.equal(await page.evaluate(()=>window.attendanceDialogOpens),1);
-  const bounds=await departure().boundingBox();assert.ok(bounds.width>50&&bounds.width<200&&bounds.x>=0&&bounds.x+bounds.width<=390,JSON.stringify(bounds));
+  assert.equal(await selected(arrival()),'12:35');
+  const bounds=await arrival().boundingBox();assert.ok(bounds.width>50&&bounds.x>=0&&bounds.x+bounds.width<=390,JSON.stringify(bounds));
   if(process.env.ATTENDANCE_BROWSER_SCREENSHOT)await page.screenshot({path:process.env.ATTENDANCE_BROWSER_SCREENSHOT,fullPage:true});
   // Dense ledger uses the existing dashboard CSS and sidebar width, with every money control populated.
   const template=JSON.parse(JSON.stringify(data.items[0]));data.items=Array.from({length:6},(_,i)=>({...JSON.parse(JSON.stringify(template)),id:i+1,name:'موظف الاختبار '+(i+1),daily:{deduction:{count:1,amount:'50.00'},bonus:{count:1,amount:'25.00'},advance:{count:1,amount:'50.00'}}}));data.summary.employees=6;data.pagination.total=6;
