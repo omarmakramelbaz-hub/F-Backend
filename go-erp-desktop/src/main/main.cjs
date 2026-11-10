@@ -1114,13 +1114,43 @@ app.whenReady().then(() => {
   if (app.isPackaged) checkForUpdates();
 });
 
-/** New versions download in the background from GitHub and install the next time the app is closed. */
+/**
+ * New versions download in the background from GitHub and install themselves, with nobody downloading or running a
+ * setup file. A downloaded version installs once the device is quiet and nothing waits to reach the dashboard:
+ *   - nobody is signed in to the program (it was just opened) and the device has been untouched for a minute;
+ *   - between 4 and 6 in the morning (Cairo), before the operating day, after 3 untouched minutes;
+ *   - any time after 30 untouched minutes.
+ * The program closes, installs silently and opens again by itself. It also installs when the program is closed.
+ */
 function checkForUpdates() {
   let updater;
   try { updater = require('electron-updater').autoUpdater; } catch { return; }
-  const check = () => updater.checkForUpdatesAndNotify().catch(() => { /* offline or no release yet */ });
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  let ready = null, installing = false;
+  updater.on('update-downloaded', (info) => {
+    ready = info;
+    console.log(`[goerp] version ${info && info.version} downloaded; it installs once the device is quiet`);
+  });
+  updater.on('error', () => { /* offline or no release yet: tried again later */ });
+  const check = () => { if (!installing) updater.checkForUpdates().catch(() => { /* offline or no release yet */ }); };
   check();
-  setInterval(check, 4 * 60 * 60 * 1000);
+  setInterval(check, 60 * 60 * 1000);
+  setInterval(() => {
+    if (!ready || installing) return;
+    let idle = 0;
+    try { idle = require('electron').powerMonitor.getSystemIdleTime(); } catch { return; }
+    const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+    const quiet = (!current && idle >= 60) || (hour >= 4 && hour < 6 && idle >= 180) || idle >= 1800;
+    if (!quiet) return;
+    let waiting = 0;
+    try { waiting = Number((sync && sync.status().pending) || 0); } catch { return; }
+    if (waiting > 0) return; // operations still on their way to the dashboard: install after they arrive
+    installing = true;
+    console.log(`[goerp] installing version ${ready.version} now (idle ${idle}s)`);
+    try { sync && sync.stop(); } catch { /* stopping anyway */ }
+    setTimeout(() => { try { updater.quitAndInstall(true, true); } catch { installing = false; } }, 1500);
+  }, 30 * 1000);
 }
 
 app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } });
