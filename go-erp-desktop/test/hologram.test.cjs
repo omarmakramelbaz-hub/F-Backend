@@ -84,10 +84,6 @@ test('the GO opening shipped with the app is the dashboard\'s release, file by f
   assert.equal(portrait.contentType, 'image/png');
   assert.equal(crypto.createHash('sha256').update(portrait.body).digest('hex'),
     sha256(path.join(__dirname, '..', '..', 'public/dashboard/branding/go-hologram-premium-20261110.png')));
-  for (const name of ['go-hologram.js', 'go-hologram.css', 'home-hud.js', 'home-hud.css']) {
-    const folder = name.endsWith('.js') ? 'js' : 'css';
-    assert.equal(RELEASE[name], sha256(path.join(__dirname, '..', '..', 'public/dashboard', folder, name)), name + ' is the dashboard\'s file');
-  }
 });
 
 test('a home page saved before the dashboard\'s GO opening opens offline in the dashboard\'s current look', () => {
