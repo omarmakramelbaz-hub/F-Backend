@@ -1,0 +1,21 @@
+/* Compact optional command controls, independent of the business cards. */
+#go-hud .hud-command-toggle{position:absolute;left:9%;bottom:5.7%;z-index:6;min-height:42px;padding:9px 16px;border:1px solid #228399;border-radius:12px;background:#031b28eb;color:#d9faff;font:inherit;font-size:12px;cursor:pointer}
+#go-hud .hud-command-toggle:hover,#go-hud .hud-command-toggle[aria-expanded=true]{border-color:#46dff4;background:#073447}
+#go-hud .hud-command-panel{position:absolute;left:3%;bottom:12%;z-index:7;width:min(355px,92vw);padding:17px;border:1px solid #258ca1;border-radius:16px;background:linear-gradient(140deg,#062331fa,#020e19fc);box-shadow:0 16px 50px #000a;text-align:right;backdrop-filter:blur(14px)}
+#go-hud .hud-command-header{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#ecfbff;font-size:15px}
+#go-hud .hud-command-close{border:0;background:transparent;color:#95b8c5;padding:4px;font:inherit;font-size:11px;cursor:pointer}
+#go-hud .hud-command-hint{margin:12px 0;color:#94c9d9;font-size:11px;line-height:1.8}
+#go-hud .hud-command-form{display:flex;gap:7px}
+#go-hud .hud-command-form input{width:100%;min-width:0;min-height:41px;padding:8px 11px;color:#f0fcff;background:#010c16;border:1px solid #245366;border-radius:8px;font:inherit;font-size:12px}
+#go-hud .hud-command-form input::placeholder{color:#7a9daa}
+#go-hud .hud-command-form button,#go-hud .hud-command-controls button{min-height:38px;padding:7px 12px;border:1px solid #297d8e;border-radius:8px;background:#063044;color:#dcf9ff;font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
+#go-hud .hud-command-form button:hover,#go-hud .hud-command-controls button:hover{border-color:#57e1ef}
+#go-hud .hud-command-controls{display:flex;gap:8px;margin-top:10px}
+#go-hud .hud-command-controls .hud-command-mic{background:#073945;color:#a9f5ff}
+#go-hud .hud-command-controls .hud-command-mic[aria-pressed=true]{border-color:#ff9b22;color:#ffc675;background:#4c2a14}
+#go-hud .hud-command-controls .hud-command-stop{background:transparent;color:#9ebac5;border-color:#294a59}
+#go-hud .hud-command-controls button:disabled{cursor:default;opacity:.55}
+#go-hud .hud-command-status{min-height:36px;margin:14px 0 0;color:#dfedf3;font-size:12px;line-height:1.85;overflow-wrap:anywhere}
+#go-hud .hud-command-note{margin:10px 0 0;color:#7896a4;font-size:10px;line-height:1.7}
+@media(max-width:700px){#go-hud .hud-command-toggle{position:relative;left:auto;bottom:auto;display:block;margin:12px auto 0;min-height:44px}#go-hud .hud-command-panel{position:relative;left:auto;bottom:auto;width:100%;max-width:400px;margin:12px auto 0;padding:14px}}
+@media(max-height:650px) and (min-width:701px){#go-hud .hud-command-toggle{bottom:4%;min-height:38px}#go-hud .hud-command-panel{bottom:13%;max-height:75vh;overflow:auto}}

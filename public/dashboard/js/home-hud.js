@@ -10,8 +10,8 @@
     var freshness = root.querySelector('[data-hud-freshness]'), live = root.querySelector('.hud-live'), voiceButton = root.querySelector('[data-hud-voice]');
     var enter = root.querySelector('[data-hud-enter]'), announcement = root.querySelector('[data-hud-announcement]');
     var robotCanvas = root.querySelector('[data-hud-robot]');
-    var robot = null;
-    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: false}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
+    var robot = null, commands = null;
+    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: false, artwork: true}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
     var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, greetingReady = true, greetingTimer = 0, muted = false, mouthFrame = 0;
     var greetingPoll = 0, greetingTimeout = 0, greetingController = null, greetingEpoch = 0, greetingDeadline = 0, greetingStorageKey = '', greetingNonce = '';
     var currentActor = document.body.dataset.dashboardActor || '';
@@ -320,13 +320,14 @@
     function keydown(event) {
         if (event.key === 'Escape') { event.preventDefault(); leave(); return; }
         if (event.key !== 'Tab') return;
-        var items = Array.from(root.querySelectorAll('a[href],button:not([hidden]):not([disabled])')); var first = items[0], last = items[items.length - 1];
+        var items = Array.from(root.querySelectorAll('a[href],button,input,textarea,select,[tabindex="0"]')).filter(function (node) { return !node.disabled && node.getClientRects().length && !node.closest('[hidden]'); }); var first = items[0], last = items[items.length - 1];
+        if (!first) return;
         if (!root.contains(document.activeElement)) { event.preventDefault(); first.focus(); return; }
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
     function visibility() { if (document.hidden) { clearTimeout(timer); cancelBalance(false); if (bgFrame) cancelAnimationFrame(bgFrame); bgFrame = 0; stopSpeech(); } else { wakeBackground(); refresh(); scheduleBalance(); } }
     function dispose() {
-        if (disposed) return; disposed = true; root.hidden = true; clearTimeout(timer); clearTimeout(timeout); clearTimeout(renderTimer); if (bgFrame) cancelAnimationFrame(bgFrame); bgFrame = 0; if (controller) controller.abort(); stopSpeech(); if (robot) robot.destroy(); robot = null;
+        if (disposed) return; disposed = true; root.hidden = true; clearTimeout(timer); clearTimeout(timeout); clearTimeout(renderTimer); if (bgFrame) cancelAnimationFrame(bgFrame); bgFrame = 0; if (controller) controller.abort(); if (commands) commands.destroy(); commands = null; stopSpeech(); if (robot) robot.destroy(); robot = null;
         cancelBalance(true); if (balanceObserver) balanceObserver.disconnect();
         removers.forEach(function (remove) { remove(); }); document.documentElement.classList.remove('go-hud-open');
     }
@@ -344,5 +345,6 @@
     acceptBalance(boot.initial);
     var overviewRoot = document.getElementById('home-overview'); if (overviewRoot && overviewRoot.goHomeDrawersState) onDrawerState({detail: overviewRoot.goHomeDrawersState});
     if (window.DashboardOrderAlerts) alertState({detail: window.DashboardOrderAlerts.state()});
+    if (window.GoHudCommands) commands = window.GoHudCommands.mount(root, {duckGreeting: stopSpeech, setSpeaking: function (on) { if (robot) robot.setSpeaking(on); }});
     wakeBackground(); enter.focus({preventScroll: true}); greeting();
 })();

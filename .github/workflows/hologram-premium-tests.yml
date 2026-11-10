@@ -1,0 +1,56 @@
+name: Approved GO hologram and Arabic commands
+on:
+  push:
+    branches: ['codex/hologram-premium-commands-20261110']
+  pull_request:
+    paths:
+      - 'public/dashboard/js/go-hologram.js'
+      - 'public/dashboard/js/hud-commands.js'
+      - 'public/dashboard/css/*hologram*'
+      - 'public/dashboard/css/home-hud.css'
+      - 'public/dashboard/css/hud-commands.css'
+      - 'resources/views/admin/home*.blade.php'
+      - 'resources/views/admin/partials/go_hologram_sidebar.blade.php'
+      - 'scripts/hologram_premium/**'
+      - 'tests/browser/hologram-premium.cjs'
+      - 'tests/browser/hud-commands.cjs'
+jobs:
+  browser-and-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser dependency
+        run: |
+          npm install --prefix "$RUNNER_TEMP/go-hologram-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+          "$RUNNER_TEMP/go-hologram-browser/node_modules/.bin/playwright" install --with-deps chromium
+          echo "DESKTOP_TEST_BROWSER_MODULE=$RUNNER_TEMP/go-hologram-browser/node_modules/playwright" >> "$GITHUB_ENV"
+      - name: Check scripts and bounded installer
+        run: |
+          node --check public/dashboard/js/go-hologram.js
+          node --check public/dashboard/js/home-hud.js
+          node --check public/dashboard/js/hud-commands.js
+          node tests/browser/premium-renderer-vm.cjs
+          python3 -m unittest discover -s scripts/hologram_premium -p 'test_*.py' -v
+      - name: Verify voice command behavior with browser service stubs
+        run: node tests/browser/hud-commands.cjs
+      - name: Verify existing opening behavior
+        run: node tests/browser/hologram-opening.cjs
+      - name: Render approved artwork and real depth particles
+        env:
+          HOLOGRAM_PREMIUM_OUTPUT: ${{ runner.temp }}/hologram-premium
+        run: node tests/browser/hologram-premium.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: approved-hologram-browser-review
+          path: ${{ runner.temp }}/hologram-premium
+          if-no-files-found: ignore
+          retention-days: 5
