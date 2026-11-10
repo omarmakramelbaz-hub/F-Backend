@@ -7,7 +7,8 @@
 #go-hud .hud-command-hint{margin:12px 0;color:#94c9d9;font-size:11px;line-height:1.8}
 #go-hud .hud-command-controls button{min-height:44px;padding:10px 16px;border:1px solid #297d8e;border-radius:10px;background:#063044;color:#dcf9ff;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
 #go-hud .hud-command-controls button:hover{border-color:#57e1ef}
-#go-hud .hud-command-controls{display:flex;gap:8px;margin-top:14px}
+#go-hud .hud-command-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+#go-hud .hud-command-controls .hud-command-replay{flex-basis:100%}
 #go-hud .hud-command-controls .hud-command-mic{flex:1;background:#073945;color:#a9f5ff;font-weight:700}
 #go-hud .hud-command-controls button:focus-visible,#go-hud .hud-command-toggle:focus-visible,#go-hud .hud-command-close:focus-visible{outline:2px solid #ff9b22;outline-offset:3px}
 #go-hud .hud-command-controls .hud-command-mic[aria-pressed=true]{border-color:#ff9b22;color:#ffc675;background:#4c2a14}

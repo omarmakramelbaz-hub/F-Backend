@@ -323,8 +323,9 @@ class PackageTests(unittest.TestCase):
                     path.write_bytes(previous)
             changes = DEPLOY.plan(project, manifest)
             changed = [c for c in changes if c['before'] != c['after']]
-            self.assertEqual([c['path'] for c in changed], ['public/dashboard/js/hud-commands.js', 'resources/views/admin/home_hud.blade.php'])
-            self.assertEqual(changed[1]['after'], changed[1]['before'].replace(b'data-hud-commands="0"', b'data-hud-commands="1"', 1))
+            self.assertEqual([c['path'] for c in changed], ['public/dashboard/css/hud-commands.css', 'public/dashboard/js/hud-commands.js', 'resources/views/admin/home_hud.blade.php'])
+            opening = next(c for c in changed if c['path'] == 'resources/views/admin/home_hud.blade.php')
+            self.assertEqual(opening['after'], opening['before'].replace(b'data-hud-commands="0"', b'data-hud-commands="1"', 1))
 
     @unittest.skipUnless((HERE / 'manifest.json').exists(), 'release not finalized')
     def test_release_manifest_matches_current_sources_and_reviewed_baselines(self):

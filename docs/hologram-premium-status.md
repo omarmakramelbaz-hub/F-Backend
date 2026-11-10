@@ -2,6 +2,14 @@
 
 Last verified on 10 November 2026 (Egypt).
 
+## Arabic reply continuation
+
+The subsequent Arabic fallback and microphone lifecycle update has a separate
+bounded package: see [hologram-arabic-voice.md](hologram-arabic-voice.md).
+It can upgrade the confirmed living release directly; the older one-click
+activation command is not a prerequisite. This continuation is awaiting final
+workflow verification and an operator activation receipt.
+
 ## Voice restoration follow-up
 
 The talk control is available beside the living portrait.

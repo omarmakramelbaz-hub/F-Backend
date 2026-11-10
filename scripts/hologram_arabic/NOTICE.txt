@@ -1,0 +1,25 @@
+GO Arabic speech fallback: third-party component notice
+
+This package uses only the eSpeak NG shared library and its language data from
+the official piper-phonemize 1.1.0 Linux wheel published on PyPI by the Piper
+maintainer. No Python extension, ONNX runtime, neural voice model or Piper
+inference code is installed or executed.
+
+eSpeak NG is free software under the GNU General Public License version 3 or
+later. A copy is provided in GPL-3.0.txt. The private helper invokes its public
+speech API to synthesize Arabic locally. No user text is sent to a provider.
+
+Upstream projects and corresponding source:
+https://github.com/espeak-ng/espeak-ng
+https://github.com/rhasspy/espeak-ng
+https://github.com/rhasspy/piper-phonemize
+https://pypi.org/project/piper-phonemize/1.1.0/
+
+Pinned wheel:
+piper_phonemize-1.1.0-cp39-cp39-manylinux_2_28_x86_64.whl
+SHA256 59158d9dce0ee6c6f3f53cd48b13ef0069bf191f4203846f7c1ffab42160b699
+
+The wheel is an archive container only: no Python ABI compatibility is required.
+The extracted eSpeak library is x86_64 and uses standard host C/C++ libraries.
+Deployment runs a real Arabic synthesis as the application UID before publication
+to establish ABI and language-data compatibility on the target host.
