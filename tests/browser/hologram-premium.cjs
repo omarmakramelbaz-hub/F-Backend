@@ -7,6 +7,9 @@ const repo=path.resolve(__dirname,'../..'),out=path.resolve(process.env.HOLOGRAM
 const read=p=>fs.readFileSync(path.join(repo,p),'utf8');
 const server=http.createServer((req,res)=>{
  const url=new URL(req.url,'http://fixture.invalid');
+ if(url.pathname==='/admin/customers'){
+  res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><html lang="ar"><meta charset="utf-8"><title>العملاء</title><body><h1>العملاء</h1></body></html>');return;
+ }
  if(url.pathname.startsWith('/dashboard/')){
   const file=path.resolve(repo,'public','.'+url.pathname),base=path.resolve(repo,'public/dashboard')+path.sep;
   if(!file.startsWith(base)||!fs.existsSync(file)){res.writeHead(404).end();return;}
@@ -26,7 +29,7 @@ const server=http.createServer((req,res)=>{
   await context.route('**/admin/dashboard/overview?**',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({success:true,hologram:metrics()})}));
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{
-   window.commandRecognitionFixture={started:0,current:null,spoken:[],utterance:null,navigations:0};
+   window.commandRecognitionFixture={started:0,current:null,spoken:[],utterance:null};
    const Recognition=class{constructor(){commandRecognitionFixture.current=this;}start(){commandRecognitionFixture.started++;if(this.onstart)this.onstart();}abort(){}};
    for(const name of ['SpeechRecognition','webkitSpeechRecognition'])Object.defineProperty(window,name,{configurable:true,value:Recognition});
    Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
@@ -75,11 +78,15 @@ const server=http.createServer((req,res)=>{
   check(await page.locator('[data-hud-robot]').evaluate(c=>c.__goHologram.speaking),'Spoken command response activates the living portrait speaking state');
   await page.evaluate(()=>commandRecognitionFixture.utterance.onend());
   check(await page.locator('[data-hud-robot]').evaluate(c=>!c.__goHologram.speaking),'Finishing the response returns the portrait to silent idle');
-  await page.locator('[data-hud-key="customers"]').evaluate(card=>card.addEventListener('click',event=>{event.preventDefault();commandRecognitionFixture.navigations++;}));
+  const customerURL=await page.locator('[data-hud-key="customers"]').getAttribute('href');
+  await page.locator('[data-hud-key="customers"]').evaluate(card=>card.addEventListener('click',()=>sessionStorage.setItem('go-test-customer-clicks',String(Number(sessionStorage.getItem('go-test-customer-clicks')||0)+1))));
   await page.locator('[data-hud-command-mic]').click();
-  await page.evaluate(()=>{const rec=commandRecognitionFixture.current;rec.onresult({results:[{isFinal:true,0:{transcript:'افتح العملاء'}}]});});
-  check(await page.evaluate(()=>commandRecognitionFixture.navigations===1),'Recognized navigation clicks the authorized production card exactly once');
-  check(await page.locator('#go-hud').isHidden(),'Recognized navigation uses the production card click and closes the opening');
+  await Promise.all([
+   page.waitForURL(customerURL),
+   page.evaluate(()=>{const rec=commandRecognitionFixture.current;rec.onresult({results:[{isFinal:true,0:{transcript:'افتح العملاء'}}]});})
+  ]);
+  check(await page.evaluate(()=>sessionStorage.getItem('go-test-customer-clicks')==='1'),'Recognized navigation clicks the authorized production card exactly once');
+  check(await page.locator('h1').textContent()==='العملاء'&&await page.locator('#go-hud').count()===0,'Recognized navigation reaches the authorized destination and leaves the opening');
   await page.goto(origin+'/fixture?real=1&silent=1&silentavatar=1');
   await page.locator('#go-hud [data-hologram-artwork]').evaluate(img=>img.decode());
   await page.locator('#go-hud [data-hologram-artwork]').dispatchEvent('error');
