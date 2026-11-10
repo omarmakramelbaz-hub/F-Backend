@@ -204,21 +204,22 @@ function renderKitchen(kitchen, { origin, dashboardPrint = false }) {
 }
 
 const BATCH_STYLE = `
-        @page{size:80mm auto;margin:3mm}
+        @page{size:auto;margin:0}
         *{box-sizing:border-box}
-        body{font:12px Tahoma,Arial,sans-serif;color:#000;width:100%;max-width:72mm;margin:0 auto;padding:0 1mm;overflow-wrap:anywhere}
-        header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}
-        h1{font-size:17px}p{margin:7px 0}
-        table{width:100%;table-layout:fixed;border-collapse:collapse;margin:12px 0}
-        th,td{padding:7px 1px;border-bottom:1px dashed #333;text-align:center;vertical-align:middle}
-        th{font-size:11px;line-height:1.5}td{font-size:11px}th:first-child{width:19%}
+        /* The same size and margins as the sale invoice, which prints right on the branches' 80 mm printers. */
+        body{font:11px/1.4 Tahoma,Arial,sans-serif;color:#000;width:100%;max-width:80mm;margin:0 auto;padding:3mm 2mm;overflow-wrap:anywhere}
+        header,footer{text-align:center}header{padding-bottom:9px;border-bottom:1px dashed #000}header img{width:28mm;height:28mm;object-fit:contain}
+        h1{font-size:14px;margin:2px 0}p{margin:5px 0}header p{margin:3px 0}
+        table{width:100%;table-layout:fixed;border-collapse:collapse;margin:10px 0}
+        th,td{padding:6px 2px;border-bottom:1px solid #888;text-align:center;vertical-align:middle}
+        th{font-size:10px;line-height:1.4;border-color:#000}td{font-size:10.5px}th:first-child{width:19%}
         th:nth-child(2){width:28%}th:nth-child(3){width:25%}th:last-child{width:28%}
-        tr{break-inside:avoid}bdi{font-variant-numeric:tabular-nums}td bdi{white-space:nowrap}
-        .batch-summary{border-top:1px solid #000;padding-top:6px}
-        .batch-summary div{display:flex;justify-content:space-between;gap:6px;padding:5px 0;break-inside:avoid}
+        tr{break-inside:avoid}bdi{font-variant-numeric:tabular-nums}td bdi{white-space:nowrap}td:first-child bdi{white-space:normal;overflow-wrap:anywhere}
+        .batch-summary{border-top:1px solid #000;padding-top:4px;margin:0}
+        .batch-summary div{display:flex;justify-content:space-between;gap:6px;padding:3px 0;font-size:11px;break-inside:avoid}
         .batch-summary dt{flex:1}.batch-summary dd{margin:0;white-space:nowrap}
-        .batch-delivery{font-weight:bold}.batch-grand-total{border-top:1px dashed #000;font-size:14px;font-weight:bold}
-        .batch-note{font-size:11px;line-height:1.6}footer{margin-top:15px;font-size:11px}
+        .batch-delivery{font-weight:bold}.batch-grand-total{border-top:1px solid #000;margin-top:4px;padding-top:6px!important;font-size:16px!important;font-weight:bold}
+        .batch-note{font-size:9.5px;line-height:1.5}footer{margin-top:13px;padding-top:9px;border-top:1px solid #000;font-size:9px}
     `;
 
 /** Carbon's format('Y-m-d H:i') in Cairo time. */
