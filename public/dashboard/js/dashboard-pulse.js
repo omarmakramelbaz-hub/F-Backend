@@ -1,7 +1,8 @@
 /* The dashboard's repeated checks (new orders, print jobs, late deliveries, messages, pending expenses) travel together:
-   GoPulse.fetch(url, options) is fetch() for every script, but a GET to one of those checks waits for the next pulse
-   (at most one every 8 s, never more than 4 s after it was asked) and goes in one request with the checks due then. Each check gets back a
-   Response with its own status and body, as if it had gone alone (DashboardPulseController runs it exactly so).
+   GoPulse.fetch(url, options) is fetch() for every script, but a GET to one of those checks rides with the next
+   delivery print check (the branch device's most frequent one, every 8 s, which never waits), or after at most 6 s goes
+   with whatever checks are waiting by then. Each check gets back a Response with its own status and body, as if it had
+   gone alone (DashboardPulseController runs it exactly so).
    A lone check goes alone. Whenever the pulse fails (offline in the desktop program, an older server, a session
    that ended), its checks go as their own requests at once and the pulse rests for a few minutes. */
 (function () {
@@ -12,10 +13,11 @@
     var CHECKS = [/^\/admin\/getOrders$/, /^\/admin\/phone-orders\/print-jobs$/, /^\/admin\/branch-shift-print\/jobs$/,
         /^\/admin\/app-order-print\/jobs$/, /^\/admin\/phone-orders\/late$/, /^\/admin\/dashboard-inbox\/notifications$/,
         /^\/admin\/branch-expenses\/pending-count$/, /^\/admin\/dashboard\/overview$/];
-    // A check waits at most WAIT for the next pulse (the pages' own time limits are 10 s or more).
-    var TICK = 8000, WAIT = 4000, GATHER = 60, MAX = 8, REST = 5 * 60 * 1000, TIMEOUT = 20000;
+    // The carrier never waits; any other check waits at most WAIT for it (the pages' own time limits are 10 s or more).
+    var CARRIER = /^\/admin\/phone-orders\/print-jobs$/;
+    var WAIT = 6000, GATHER = 60, MAX = 8, REST = 5 * 60 * 1000, TIMEOUT = 20000;
     var NULL_BODY = [101, 204, 205, 304];
-    var queue = [], timer = 0, sending = false, lastSent = 0, restUntil = 0;
+    var queue = [], timer = 0, sending = false, restUntil = 0;
     var nativeFetch = window.fetch ? window.fetch.bind(window) : null;
 
     function header(options, name) {
@@ -64,15 +66,15 @@
 
     function schedule() {
         if (timer || sending || !queue.length) return;
+        var carrier = queue.some(function (item) { return !item.done && CARRIER.test(item.url.pathname); });
         var oldest = queue.reduce(function (first, item) { return Math.min(first, item.at); }, Infinity);
-        timer = setTimeout(flush, Math.max(GATHER, Math.min(lastSent + TICK, oldest + WAIT) - Date.now()));
+        timer = setTimeout(flush, carrier ? GATHER : Math.max(GATHER, oldest + WAIT - Date.now()));
     }
 
     function flush() {
         timer = 0;
         var batch = queue.splice(0, MAX).filter(function (item) { return !item.done; });
         if (!batch.length) { schedule(); return; }
-        lastSent = Date.now();
         if (batch.length === 1 || Date.now() < restUntil) { batch.forEach(alone); schedule(); return; }
         sending = true;
         var address = new URL(endpoint, location.href);
@@ -113,9 +115,11 @@
                 signal.addEventListener('abort', item.onAbort);
             }
             queue.push(item);
+            // The carrier takes every check waiting now, at once.
+            if (CARRIER.test(url.pathname) && timer && !sending) { clearTimeout(timer); timer = 0; }
             schedule();
         });
     }
 
-    window.GoPulse = { fetch: pulseFetch, CHECKS: CHECKS, TICK: TICK, WAIT: WAIT };
+    window.GoPulse = { fetch: pulseFetch, CHECKS: CHECKS, CARRIER: CARRIER, WAIT: WAIT };
 })();

@@ -55,7 +55,7 @@ const tests = {
         });
         const first = pulse.fetch('/admin/getOrders?alerts_only=1', checkHeaders);
         const second = pulse.fetch('https://dash.test/admin/branch-expenses/pending-count?branch=f%3A301', checkHeaders);
-        await advance(100);
+        await advance(6100);
         assert.strictEqual(calls.length, 1, 'One request for both');
         const [a, b] = await Promise.all([first, second]);
         assert.deepStrictEqual([a.ok, a.status, await a.json()], [true, 200, {count: 3}]);
@@ -68,23 +68,36 @@ const tests = {
             pulse.fetch('https://other.test/admin/getOrders')]);
         assert.deepStrictEqual(calls.map(call => call.url.pathname), ['/admin/phone-orders/print-jobs/claim', '/admin/employees/data', '/admin/getOrders']);
         const lone = pulse.fetch('/admin/phone-orders/late', checkHeaders);
-        await advance(100);
+        await advance(6100);
         await lone;
         assert.strictEqual(calls[3].url.pathname, '/admin/phone-orders/late', 'Nothing to gain wrapping one check');
     },
 
-    async 'pulses keep 8 s apart, and a check waits at most 4 s'() {
-        const {pulse, calls, advance} = page(url => url.pathname === '/admin/dashboard/pulse'
-            ? pulseAnswer({answers: [...url.searchParams.keys()].filter(key => key.endsWith('[u]')).map(() => ({status: 200, type: 'application/json', body: '{}'}))})
-            : json({}));
-        pulse.fetch('/admin/getOrders', checkHeaders); pulse.fetch('/admin/phone-orders/late', checkHeaders);
-        await advance(100);
-        assert.strictEqual(calls.length, 1);
+    async 'checks wait for the delivery print check, which never waits, and take it as their carrier'() {
+        const {pulse, calls, advance} = page(url => pulseAnswer({answers: [...url.searchParams.keys()].filter(key => key.endsWith('[u]')).map(() => ({status: 200, type: 'application/json', body: '{}'}))}));
         pulse.fetch('/admin/getOrders', checkHeaders); pulse.fetch('/admin/dashboard-inbox/notifications', checkHeaders);
-        await advance(3800);
-        assert.strictEqual(calls.length, 1, 'Waiting for the next pulse');
-        await advance(300);
-        assert.strictEqual(calls.length, 2, 'Never more than 4 s after it was asked');
+        await advance(3000);
+        assert.strictEqual(calls.length, 0, 'Waiting for the carrier');
+        pulse.fetch('/admin/phone-orders/print-jobs?branch=f%3A301', checkHeaders);
+        await advance(100);
+        assert.strictEqual(calls.length, 1, 'The carrier goes at once with every check waiting');
+        assert.deepStrictEqual([0, 1, 2].map(i => calls[0].url.searchParams.get(`r[${i}][u]`)),
+            ['/admin/getOrders', '/admin/dashboard-inbox/notifications', '/admin/phone-orders/print-jobs?branch=f%3A301']);
+        pulse.fetch('/admin/phone-orders/print-jobs?branch=f%3A301', checkHeaders);
+        await advance(100);
+        assert.strictEqual(calls[1].url.pathname, '/admin/phone-orders/print-jobs', 'A carrier alone goes alone, at once');
+    },
+
+    async 'without a carrier (a device that prints nothing) checks go together after at most 6 s'() {
+        const {pulse, calls, advance} = page(url => pulseAnswer({answers: [...url.searchParams.keys()].filter(key => key.endsWith('[u]')).map(() => ({status: 200, type: 'application/json', body: '{}'}))}));
+        pulse.fetch('/admin/getOrders', checkHeaders);
+        await advance(2000);
+        pulse.fetch('/admin/phone-orders/late', checkHeaders);
+        await advance(3900);
+        assert.strictEqual(calls.length, 0);
+        await advance(200);
+        assert.strictEqual(calls.length, 1, 'Never more than 6 s after the first was asked');
+        assert.strictEqual(calls[0].url.pathname, '/admin/dashboard/pulse');
     },
 
     async 'a pulse answered as JSON (a copy the desktop program kept) is not trusted: the checks go as themselves'() {
@@ -92,7 +105,7 @@ const tests = {
             ? json({answers: [{status: 200, type: 'application/json', body: '{"old":true}'}, {status: 200, type: 'application/json', body: '{"old":true}'}]})
             : json({fresh: url.pathname}));
         const answers = [pulse.fetch('/admin/getOrders', checkHeaders), pulse.fetch('/admin/phone-orders/late', checkHeaders)];
-        await advance(100);
+        await advance(6100);
         assert.deepStrictEqual(await Promise.all(answers.map(p => p.then(r => r.json()))), [{fresh: '/admin/getOrders'}, {fresh: '/admin/phone-orders/late'}]);
     },
 
@@ -103,7 +116,7 @@ const tests = {
             return json({path: url.pathname});
         });
         const answers = [pulse.fetch('/admin/getOrders', checkHeaders), pulse.fetch('/admin/phone-orders/late', checkHeaders)];
-        await advance(100);
+        await advance(6100);
         assert.deepStrictEqual(await Promise.all(answers.map(p => p.then(r => r.json()))), [{path: '/admin/getOrders'}, {path: '/admin/phone-orders/late'}]);
         assert.deepStrictEqual(calls.map(call => call.url.pathname), ['/admin/dashboard/pulse', '/admin/getOrders', '/admin/phone-orders/late']);
         refuse = false;
@@ -116,7 +129,7 @@ const tests = {
             ? pulseAnswer({answers: [{status: 302, type: 'text/html', location: '/admin/login'}, {status: 200, type: 'application/json', body: '{"late":[]}'}]})
             : new Response('<html>login</html>', {status: 200, headers: {'Content-Type': 'text/html'}}));
         const first = pulse.fetch('/admin/getOrders', checkHeaders), second = pulse.fetch('/admin/phone-orders/late', checkHeaders);
-        await advance(100);
+        await advance(6100);
         assert.strictEqual(await (await first).text(), '<html>login</html>');
         assert.deepStrictEqual(await (await second).json(), {late: []});
         assert.deepStrictEqual(calls.map(call => call.url.pathname), ['/admin/dashboard/pulse', '/admin/getOrders']);
@@ -129,7 +142,7 @@ const tests = {
         const kept = pulse.fetch('/admin/phone-orders/late', checkHeaders);
         controller.abort();
         await assert.rejects(given, error => error.name === 'AbortError');
-        await advance(100);
+        await advance(6100);
         await kept;
         assert.deepStrictEqual(calls.map(call => call.url.pathname), ['/admin/phone-orders/late'], 'Only the check still wanted, alone');
     },
