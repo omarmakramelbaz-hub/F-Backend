@@ -106,7 +106,7 @@
         url = new URL(url); url.search = ''; url.searchParams.set('section', 'hologram'); controller = new AbortController();
         timeout = setTimeout(function () { if (controller) controller.abort(); }, 12000);
         try {
-            var response = await fetch(url.href, {credentials: 'same-origin', headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal});
+            var response = await (window.GoPulse ? window.GoPulse.fetch : fetch)(url.href, {credentials: 'same-origin', headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal});
             if (disposed) return;
             if (response.status === 401 || response.status === 403 || response.redirected) { cardsByKey.forEach(function (n) { n.remove(); }); cardsByKey.clear(); stale(); stopSpeech(); return; }
             if (!response.ok) throw Error('metrics'); var data = await response.json(); if (!data.success || !data.hologram) throw Error('metrics'); fill(data.hologram); renewShell(data.shell);
