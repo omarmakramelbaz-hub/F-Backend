@@ -183,3 +183,33 @@
 #branch-stock .bs-history>summary{padding:14px 18px;font-weight:800;color:var(--bs2-ink);cursor:pointer}
 #branch-stock .bs-history>summary small{padding:2px 10px;border-radius:999px;background:var(--bs2-soft);color:#6c7a91;font-weight:700}
 #branch-stock [data-stock-unmapped]{max-height:110px;overflow:auto;border-radius:12px!important;padding:12px 14px!important;background:#fff9ed!important;border:1px solid #f3e1b8!important;color:#7a5200!important;font-size:12px;line-height:1.9}
+/* stock-room-20261110: give the balances table most of the screen */
+#branch-stock .bs-heading{padding:10px 16px;margin-bottom:8px}
+#branch-stock .bs-heading h1{font-size:19px;margin:0}
+#branch-stock .bs-heading h1 i{width:34px;height:34px;font-size:15px;border-radius:10px}
+#branch-stock .bs-heading p{margin:2px 0 0;font-size:11px}
+#branch-stock .bs-heading>label{display:flex;align-items:center;gap:8px;margin:0}
+#branch-stock .bs-heading>label select{margin:0;min-height:36px;min-width:190px}
+#branch-stock .bs-tabs{margin:0;padding:3px;border-bottom:1px solid var(--bs2-line)}
+#branch-stock .bs-tabs button{padding:7px 16px!important}
+#branch-stock .bs-guidance{margin:0 0 8px;padding:6px 12px;font-size:11px;line-height:1.6}
+#branch-stock .bs-balances>header{padding:9px 14px!important;align-items:center}
+#branch-stock .bs-balances>header h2{font-size:15px;margin:0}
+#branch-stock .bs-balances>header p{margin:2px 0 0;font-size:11px}
+#branch-stock .bs-balances>header .bs-button{padding:6px 12px!important;min-height:0}
+#branch-stock .bs-balances .bs-table-wrap th{padding:8px 14px!important}
+#branch-stock .bs-balances .bs-table-wrap td{padding:5px 14px!important;height:40px}
+#branch-stock .bs-balances .bs-minimum-toggle{padding:3px 12px!important;min-height:0}
+#branch-stock .bs-balances .bs-pagination{padding:6px 10px;margin:0}
+#branch-stock .bs-balances .bs-pagination button{padding:5px 12px;min-height:0}
+#branch-stock .bs-balances>.bs-note{padding:5px 12px!important;font-size:10px!important;line-height:1.5!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#branch-stock .bs-balances>.bs-note:hover{white-space:normal}
+#branch-stock .bs-history>summary{padding:9px 14px}
+#branch-stock [data-stock-unmapped]{max-height:48px;padding:6px 12px!important;font-size:11px;line-height:1.7}
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock{padding:12px 16px}
+    #branch-stock .bs-overview{gap:8px}
+    #branch-stock .bs-balances{flex:1 1 auto;min-height:340px}
+    #branch-stock .bs-history,#branch-stock [data-stock-unmapped]{flex-shrink:0}
+    #branch-stock .bs-history[open] .bs-table-wrap{max-height:180px}
+}
