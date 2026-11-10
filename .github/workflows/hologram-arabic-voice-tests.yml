@@ -1,0 +1,66 @@
+name: Offline Arabic hologram voice
+on:
+  push:
+    branches: ['codex/hologram-premium-commands-20261110']
+    paths:
+      - 'app/Services/Dashboard/HomeHologramArabicVoice.php'
+      - 'app/Http/Controllers/Dashboard/HomeHologramArabicVoiceController.php'
+      - 'app/Providers/AppServiceProvider.php'
+      - 'config/home_hologram_arabic_voice.php'
+      - 'routes/hologram_arabic_voice.php'
+      - 'scripts/hologram_arabic/**'
+      - 'tests/hologram_runtime/*arabic*'
+      - 'public/dashboard/js/hud-commands.js'
+      - 'resources/views/admin/home_hud.blade.php'
+      - '.github/workflows/hologram-arabic-voice-tests.yml'
+  pull_request:
+    paths:
+      - 'app/Services/Dashboard/HomeHologramArabicVoice.php'
+      - 'app/Http/Controllers/Dashboard/HomeHologramArabicVoiceController.php'
+      - 'app/Providers/AppServiceProvider.php'
+      - 'config/home_hologram_arabic_voice.php'
+      - 'routes/hologram_arabic_voice.php'
+      - 'scripts/hologram_arabic/**'
+      - 'tests/hologram_runtime/*arabic*'
+      - 'public/dashboard/js/hud-commands.js'
+      - 'resources/views/admin/home_hud.blade.php'
+      - '.github/workflows/hologram-arabic-voice-tests.yml'
+jobs:
+  private-arabic-speech:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          extensions: pdo_sqlite
+          coverage: none
+      - name: Check PHP syntax and real private subprocess behavior
+        run: |
+          php -l app/Services/Dashboard/HomeHologramArabicVoice.php
+          php -l app/Http/Controllers/Dashboard/HomeHologramArabicVoiceController.php
+          php -l app/Providers/AppServiceProvider.php
+          php -l config/home_hologram_arabic_voice.php
+          php -l routes/hologram_arabic_voice.php
+      - name: Verify bounded deployment package
+        run: python3 -B -m unittest discover -s scripts/hologram_arabic -p 'test_*.py' -v
+      - name: Materialize pinned offline Arabic engine
+        run: |
+          python3 -B scripts/hologram_arabic/bootstrap_engine.py --download --destination "$RUNNER_TEMP/go-arabic-runtime/engine"
+          echo "GO_ARABIC_ENGINE_DIR=$RUNNER_TEMP/go-arabic-runtime/engine" >> "$GITHUB_ENV"
+      - name: Verify numeric semantics and actual isolated Arabic waveform
+        run: |
+          python3 -B -m unittest discover -s tests/hologram_runtime -p 'test_arabic_synthesis.py' -v
+          php tests/hologram_runtime/arabic_voice.php
+      - name: Install isolated Laravel HTTP fixture dependencies
+        run: composer install --working-dir=tests/hologram_runtime --no-interaction --prefer-dist --no-progress --no-scripts --no-plugins --no-security-blocking
+      - name: Verify actual authenticated HTTP route, CSRF, private streaming and throttle
+        env:
+          HOLOGRAM_TEST_AUTOLOAD: ${{ github.workspace }}/tests/hologram_runtime/vendor/autoload.php
+        run: php tests/hologram_runtime/arabic_http.php

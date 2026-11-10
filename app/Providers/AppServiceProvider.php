@@ -82,6 +82,7 @@ class AppServiceProvider extends ServiceProvider
         User::observe(UserObserver::class);
         User::observe(\App\Observers\HomeHologramVoiceObserver::class);
         $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));
+        $this->loadRoutesFrom(base_path('routes/hologram_arabic_voice.php'));
         User::observe(\App\Observers\CustomerDirectoryUserObserver::class);
         \App\Models\UserAddress::observe(\App\Observers\CustomerDirectoryAddressObserver::class);
         Order::observe(\App\Observers\CustomerDirectoryOrderObserver::class);
