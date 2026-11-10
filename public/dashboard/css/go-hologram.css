@@ -9,3 +9,7 @@
 .dashboard-theme.sidebar-collapse .main-sidebar:not(:hover) .go-sidebar-robot{width:48px;height:58px;flex:0 0 48px}
 .dashboard-theme.sidebar-collapse #dashboard-sidebar.main-sidebar:not(:hover) > .dashboard-brand:has(.go-sidebar-robot){height:66px;min-height:66px;padding:4px}
 @media(max-width:767px){.main-sidebar .go-sidebar-robot{height:112px}.main-sidebar .dashboard-brand:has(.go-sidebar-robot){min-height:120px}}
+.main-sidebar .go-sidebar-robot>[data-hologram-artwork]{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none}
+.main-sidebar .go-sidebar-robot canvas{position:absolute;inset:0}
+.main-sidebar .go-sidebar-robot[data-artwork-failed="true"]>[data-hologram-artwork]{display:none}
+.main-sidebar .go-sidebar-robot[data-portrait-gpu="true"]>[data-hologram-artwork]{opacity:0}
