@@ -43,7 +43,7 @@ class DashboardHomeHologramMetricsTest extends TestCase
         });
         Schema::create('takeaway_orders', function (Blueprint $t) {
             $t->id(); $t->string('branch'); $t->string('channel')->default('takeaway'); $t->boolean('payment_confirmed')->default(true);
-            $t->string('status')->nullable(); $t->string('refund_status')->nullable();
+            $t->string('status')->nullable(); $t->string('refund_status')->nullable(); $t->string('business_date')->nullable();
         });
         foreach (['branch_expenses', 'branch_employees', 'branch_shift_closings'] as $table) Schema::create($table, function (Blueprint $t) use ($table) {
             $t->id(); $t->string('branch');
@@ -143,10 +143,11 @@ class DashboardHomeHologramMetricsTest extends TestCase
         $this->order(4, 100, 'completed'); $this->order(5, 101, 'completed'); $this->order(6, 200, 'completed');
         $this->order(7, 100, 'cancelled'); $this->order(8, 100, 'pending', ['type'=>'shipping']);
         $this->order(9, 100, 'pending', ['source_app'=>'go_customer']);
-        foreach (['f:100', 'f:101', 'f:200'] as $branch) DB::table('takeaway_orders')->insert(['branch'=>$branch]);
-        DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'payment_confirmed'=>false]);
-        DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'refund_status'=>'refunded']);
-        DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'channel'=>'phone']);
+        $day = \App\Services\Dashboard\OperatingDay::date();
+        foreach (['f:100', 'f:101', 'f:200'] as $branch) DB::table('takeaway_orders')->insert(['branch'=>$branch, 'business_date'=>$day]);
+        DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'payment_confirmed'=>false, 'business_date'=>$day]);
+        DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'refund_status'=>'refunded', 'business_date'=>$day]);
+        DB::table('takeaway_orders')->insert(['branch'=>'f:100', 'channel'=>'phone', 'business_date'=>$day]);
         $branch = $this->cards(10); $this->assertSame(1, $branch['ch-app']['count']);
         $this->assertSame(2, $branch['ch-app']['secondary_count']); $this->assertSame('منتهية اليوم', $branch['ch-app']['secondary_label']); $this->assertSame(1, $branch['ch-takeaway']['count']);
         $owner = $this->cards(30); $this->assertSame(2, $owner['ch-app']['count']); $this->assertSame(3, $owner['ch-app']['secondary_count']);
@@ -223,9 +224,18 @@ class DashboardHomeHologramMetricsTest extends TestCase
         $this->assertSame(1, $this->cards(10)['ch-app']['count']);
     }
 
+    public function test_takeaway_counts_the_operating_day_only(): void
+    {
+        $today = \App\Services\Dashboard\OperatingDay::date();
+        DB::table('takeaway_orders')->insert([['branch'=>'f:100', 'business_date'=>$today], ['branch'=>'f:100', 'business_date'=>$today], ['branch'=>'f:100', 'business_date'=>'2019-12-30']]);
+        $this->assertSame(2, $this->cards(10)['ch-takeaway']['count']);
+    }
+
     public function test_pending_expenses_employees_shared_directory_and_unavailable_are_explicit(): void
     {
-        foreach (['pending', 'approved', 'rejected'] as $status) DB::table('branch_expenses')->insert(['branch'=>'f:100', 'status'=>$status]);
+        foreach (['pending', 'approved', 'rejected'] as $status) DB::table('branch_expenses')->insert(['branch'=>'f:100', 'status'=>$status, 'occurred_on'=>\App\Services\Dashboard\OperatingDay::date()]);
+        // An expense approved on an earlier day is not today's: the count starts again every operating day.
+        DB::table('branch_expenses')->insert(['branch'=>'f:100', 'status'=>'approved', 'occurred_on'=>'2019-12-30']);
         DB::table('branch_expenses')->insert(['branch'=>'f:200', 'status'=>'pending']);
         DB::table('branch_expenses')->where('branch', 'f:100')->where('status', 'pending')->update(['occurred_on'=>'2020-01-01']);
         DB::table('branch_employees')->insert([['branch'=>'f:100'], ['branch'=>'f:200']]);

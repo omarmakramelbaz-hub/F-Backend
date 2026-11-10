@@ -34,11 +34,11 @@ class HomeHologramMetrics
         $specs = [
             'employees'=>['الموظفين والرواتب', 'موظف'],
             'customers'=>['العملاء', 'عميل'],
-            'expenses'=>['المصروفات', 'مصروف معتمد'],
+            'expenses'=>['المصروفات', 'مصروف معتمد اليوم'],
             'drawer'=>['تقفيل الوردية', 'فروع للتقفيل'],
             'stock'=>['مخزون البضاعة', 'صنف'],
             'ch-app'=>['طلبات التطبيق', 'في التجهيز اليوم'],
-            'ch-takeaway'=>['تيك أواي', 'إجمالي الطلبات'],
+            'ch-takeaway'=>['تيك أواي', 'طلب اليوم'],
             'ch-phone'=>['دليفري', 'في التجهيز اليوم'],
             'ch-dine'=>['صالة', 'في التجهيز اليوم'],
             'pending-expenses'=>['مصروفات منتظرة', 'بانتظار الاعتماد'],
@@ -82,6 +82,10 @@ class HomeHologramMetrics
                     $query->whereNull($column)->orWhereNotIn($column, ['cancelled', 'canceled', 'failed', 'refunded', 'refund_pending', 'reversed']);
                 });
             }
+            // The operating day's receipts only, like the other channels: the count starts again every day at 6.
+            if ($this->has('takeaway_orders', ['business_date'])) $receipts->where('business_date', $today);
+            elseif ($this->has('takeaway_orders', ['created_at'])) $receipts->where('created_at', '>=', OperatingDay::start($today)->setTimezone('UTC')->toDateTimeString())
+                ->where('created_at', '<', OperatingDay::end($today)->setTimezone('UTC')->toDateTimeString());
             $set('ch-takeaway', $receipts->count());
         }
         if ($this->has('pos_service_tickets', ['id', 'branch', 'channel', 'payment_status', 'status'])) {
@@ -101,11 +105,14 @@ class HomeHologramMetrics
         if ($this->has('branch_expenses', ['id', 'branch', 'status'])) {
             $expenses = DB::table('branch_expenses')->whereIn('branch', $keys);
             $pending = (clone $expenses)->where('status', 'pending')->count();
-            $set('expenses', (clone $expenses)->where('status', 'approved')->count(), $pending, 'بانتظار الاعتماد');
+            // Approved: the operating day's expenses (by their date); pending: every one still waiting, whatever its date.
+            $approved = (clone $expenses)->where('status', 'approved');
+            if ($this->has('branch_expenses', ['occurred_on'])) $approved->where('occurred_on', $today);
+            $set('expenses', $approved->count(), $pending, 'بانتظار الاعتماد');
             $set('pending-expenses', $pending);
             if (isset($cards['pending-expenses'])) $cards['pending-expenses']['warning'] = $pending > 0;
             if ($this->has('branch_expenses', ['occurred_on'])) {
-                $expenseFrom['expenses'] = (clone $expenses)->min('occurred_on');
+                $expenseFrom['expenses'] = $today;
                 $expenseFrom['pending-expenses'] = (clone $expenses)->where('status', 'pending')->min('occurred_on');
             }
         }
