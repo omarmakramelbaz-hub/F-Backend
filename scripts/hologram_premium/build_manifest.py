@@ -18,7 +18,8 @@ SPEC = importlib.util.spec_from_file_location('premium_release', HERE / 'install
 DEPLOY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(DEPLOY)
 INSTALLED_REVISION = '7dc7c60a8ff69ab03212c4aa44a47bc4724df148'
-BASELINES = [DEPLOY.BASE_REVISION, '47c562af4a7a97509f1ae1947ebee11cc4da2b9a', INSTALLED_REVISION]
+LIVING_REVISION = '4f6e6985113da853368511e221f6e76473a9cd07'
+BASELINES = [DEPLOY.BASE_REVISION, '47c562af4a7a97509f1ae1947ebee11cc4da2b9a', INSTALLED_REVISION, LIVING_REVISION]
 HUD_MOUNT = "    if (window.GoHudCommands) commands = window.GoHudCommands.mount(root, {duckGreeting: stopSpeech, setSpeaking: function (on) { if (robot) robot.setSpeaking(on); }});\n"
 HUD_EDITS = [
     ('    var robot = null;\n', '    var robot = null, commands = null;\n'),
@@ -134,7 +135,7 @@ def integration_variants(relative, current):
         primary = hud_edits(original, installed) + delta
     else:
         primary = bounded(original, current)
-    earlier = [baseline(relative, revision) for revision in BASELINES if revision != INSTALLED_REVISION]
+    earlier = [baseline(relative, revision) for revision in BASELINES if revision not in {INSTALLED_REVISION, LIVING_REVISION}]
     guard = installed_guard(installed, current, earlier) if delta else None
     variants = []
     for revision in BASELINES:
@@ -142,11 +143,13 @@ def integration_variants(relative, current):
         if prior is None:
             raise RuntimeError('Bounded integration source is missing: ' + relative)
         edits = delta if revision == INSTALLED_REVISION and delta else primary
+        if revision == LIVING_REVISION:
+            edits = bounded(prior, current) if prior != current else (delta or primary)
         target = apply_edits(prior, edits)
-        if revision in {DEPLOY.BASE_REVISION, INSTALLED_REVISION} and target != current:
+        if revision in {DEPLOY.BASE_REVISION, INSTALLED_REVISION, LIVING_REVISION} and target != current:
             raise RuntimeError('Bounded integration differs from reviewed source: ' + relative)
         variant = {'before_sha256': digest(prior), 'after_sha256': digest(target), 'edits': edits}
-        if revision == INSTALLED_REVISION and delta and guard:
+        if revision in {INSTALLED_REVISION, LIVING_REVISION} and edits == delta and guard:
             variant['requires'] = [guard]
         if variant not in variants:
             variants.append(variant)

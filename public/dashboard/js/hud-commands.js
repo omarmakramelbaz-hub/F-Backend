@@ -203,7 +203,7 @@
             if (dead) return; panel.hidden = !open; toggle.setAttribute('aria-expanded', String(open));
             if (open) (mic.disabled ? close : mic).focus({preventScroll: true}); else { stop(); if (active()) toggle.focus({preventScroll: true}); }
         }
-        on(toggle, 'click', function () { setOpen(panel.hidden); }); on(close, 'click', function () { setOpen(false); });
+        on(toggle, 'click', function () { var open = panel.hidden; setOpen(open); if (open) startMic(); }); on(close, 'click', function () { setOpen(false); });
         on(mic, 'click', startMic); on(stopButton, 'click', function () { duck(); stop(); reply('تم إيقاف الصوت والميكروفون.', false); });
         on(panel, 'keydown', function (event) { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); } });
         on(document, 'visibilitychange', function () { if (document.hidden) stop(); });

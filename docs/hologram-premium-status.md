@@ -2,13 +2,29 @@
 
 Last verified on 10 November 2026 (Egypt).
 
+## Voice restoration follow-up
+
+The user's correction restores the talk control beside the living portrait.
+A single deliberate click opens the panel and starts Arabic recognition, with
+the browser's normal permission prompt on first use. No settings page is opened
+and no microphone starts on page load. A permission previously denied in the
+browser still requires the user to allow this site; the application cannot
+bypass that decision. Typed commands are not introduced.
+
+The follow-up changes only the production command script and the opening's
+enable flag when applied over the activated living release. The portrait,
+motion, sign-in form, existing greeting and account-scoped cards remain intact.
+All 19 deployment tests and 48 renderer checks pass locally; the new browser
+workflow and production activation are pending. The earlier production receipt
+below confirms the living portrait/login release, not this voice follow-up.
+
 ## Current outcome
 
 The approved blue/cyan portrait assembles from one light point and many coloured
 particles. It blinks, moves its head slightly, responds within bounded angles to
 pointer movement and moves its lips during the existing named opening greeting.
-The opening and compact sidebar share the same portrait. Optional microphone
-controls stay hidden by default; there is no typed-command field.
+The opening and compact sidebar share the same portrait. The voice follow-up
+restores its talk button; there is no typed-command field.
 
 The server sign-in page matches the desktop layout: large hologram left, existing
 sign-in form right, stacked on narrow screens. The form, POST action, CSRF,

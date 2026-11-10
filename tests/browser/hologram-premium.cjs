@@ -26,9 +26,11 @@ const server=http.createServer((req,res)=>{
   await context.route('**/admin/dashboard/overview?**',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({success:true,hologram:metrics()})}));
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{
-   window.commandRecognitionFixture={started:0,current:null};
+   window.commandRecognitionFixture={started:0,current:null,spoken:[],utterance:null,navigations:0};
    const Recognition=class{constructor(){commandRecognitionFixture.current=this;}start(){commandRecognitionFixture.started++;if(this.onstart)this.onstart();}abort(){}};
    for(const name of ['SpeechRecognition','webkitSpeechRecognition'])Object.defineProperty(window,name,{configurable:true,value:Recognition});
+   Object.defineProperty(window,'SpeechSynthesisUtterance',{configurable:true,value:class{constructor(text){this.text=text;}}});
+   Object.defineProperty(window,'speechSynthesis',{configurable:true,value:{getVoices:()=>[{lang:'ar-EG',name:'Arabic fixture'}],cancel(){},speak(item){commandRecognitionFixture.spoken.push(item.text);commandRecognitionFixture.utterance=item;item.onstart?.();}}});
   });
   const origin='http://127.0.0.1:'+server.address().port;
   for(const [width,height] of [[1920,1080],[1366,768],[1024,768],[820,1180],[700,900],[390,844],[320,568]]){
@@ -45,7 +47,7 @@ const server=http.createServer((req,res)=>{
    check(state.src.endsWith('/go-hologram-premium-20261110.png'),'Reviewed character is the production asset');
    check(state.diagnostics&&state.diagnostics.artwork&&state.glError===0,'Real artwork-mode WebGL renders without GPU errors');
    check(state.diagnostics.swarmCapacity<=65536&&state.diagnostics.swarmParticles<=4096,'GPU particle work is bounded');
-   check(!state.commands,'Living opening has no optional command session');
+   check(state.commands,'Living opening mounts its voice-command controller');
    check(state.diagnostics.portraitReady&&state.diagnostics.portraitAnimated,'Approved portrait is rendered by the living GPU surface');
    check(state.scrollWidth<=state.width+1,'No horizontal overflow at '+width);
    check(state.art.x>=-1&&state.art.right<=width+1&&state.art.width>0,'Artwork fits horizontally');
@@ -53,11 +55,32 @@ const server=http.createServer((req,res)=>{
    if(width>700)check(state.art.bottom<=state.enter.y+3,'Projection ring clears the enter button');
    await page.screenshot({path:path.join(out,'premium-'+width+'x'+height+'.png'),fullPage:true,animations:'disabled'});
    check(await page.locator('#go-hud input,#go-hud textarea,#go-hud form').count()===0,'Opening has no text entry');
-   check(await page.locator('[data-hud-commands-toggle],[data-hud-command-mic],.hud-command-panel').count()===0,'Opening has no optional microphone panel');
+   check(await page.locator('[data-hud-commands-toggle]').isVisible(),'Voice interaction toggle is visible at '+width);
    check(await page.evaluate(()=>commandRecognitionFixture.started===0),'Idle opening never starts recognition');
+   await page.locator('[data-hud-commands-toggle]').click();
+   check(await page.locator('[data-hud-command-mic]').isVisible(),'Microphone control is reachable at '+width);
+   const panel=await page.locator('.hud-command-panel').boundingBox();
+   check(panel.x>=0&&panel.x+panel.width<=width+1,'Voice panel fits horizontally at '+width);
+   check(await page.locator('#go-hud input,#go-hud textarea').count()===0,'Open microphone panel remains voice-only');
+   await page.locator('.hud-command-close').click();
+   check(await page.evaluate(()=>commandRecognitionFixture.started===1),'Talk-button click starts exactly one microphone session');
    check(state.diagnostics.mouthOpen===0,'Silent idle portrait keeps the mouth closed');
   }
   await page.setViewportSize({width:1366,height:768});await page.goto(origin+'/fixture?real=1&silent=1&silentavatar=1');
+  await page.locator('[data-hud-commands-toggle]').click();
+  check(await page.evaluate(()=>commandRecognitionFixture.started===1),'A single explicit talk-button click starts listening');
+  await page.evaluate(()=>{const rec=commandRecognitionFixture.current;rec.onresult({results:[{isFinal:true,0:{transcript:'عدد العملاء كام'}}]});});
+  check((await page.locator('[data-hud-command-status]').textContent()).includes('العملاء'),'Recognized speech reads the production authorized card');
+  check(await page.evaluate(()=>commandRecognitionFixture.spoken.some(t=>t.includes('العملاء'))),'Recognized metric command produces an Arabic speech response');
+  check(await page.locator('[data-hud-robot]').evaluate(c=>c.__goHologram.speaking),'Spoken command response activates the living portrait speaking state');
+  await page.evaluate(()=>commandRecognitionFixture.utterance.onend());
+  check(await page.locator('[data-hud-robot]').evaluate(c=>!c.__goHologram.speaking),'Finishing the response returns the portrait to silent idle');
+  await page.locator('[data-hud-key="customers"]').evaluate(card=>card.addEventListener('click',event=>{event.preventDefault();commandRecognitionFixture.navigations++;}));
+  await page.locator('[data-hud-command-mic]').click();
+  await page.evaluate(()=>{const rec=commandRecognitionFixture.current;rec.onresult({results:[{isFinal:true,0:{transcript:'افتح العملاء'}}]});});
+  check(await page.evaluate(()=>commandRecognitionFixture.navigations===1),'Recognized navigation clicks the authorized production card exactly once');
+  check(await page.locator('#go-hud').isHidden(),'Recognized navigation uses the production card click and closes the opening');
+  await page.goto(origin+'/fixture?real=1&silent=1&silentavatar=1');
   await page.locator('#go-hud [data-hologram-artwork]').evaluate(img=>img.decode());
   await page.locator('#go-hud [data-hologram-artwork]').dispatchEvent('error');
   check(await page.locator('[data-hud-robot]').evaluate(c=>c.__goHologram.api.diagnostics().artwork===false&&c.__goHologram.gl.getError()===0),'Failed art uses native GPU fallback');

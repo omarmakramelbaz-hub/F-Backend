@@ -37,11 +37,10 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         equal(await page.evaluate(() => fixture.started), 0, 'No microphone or speech recognition starts on mount');
         equal(await page.locator('.hud-command-panel').isVisible(), false, 'Optional panel begins closed');
         await page.locator('[data-hud-commands-toggle]').click();
-        check(await page.locator('[data-hud-command-mic]').evaluate(e => document.activeElement === e), 'Opening panel focuses microphone without starting it');
-        equal(await page.evaluate(() => fixture.started), 0, 'Opening voice panel does not activate the microphone');
+        check(await page.locator('[data-hud-command-mic]').evaluate(e => document.activeElement === e), 'Opening panel focuses the microphone control');
+        equal(await page.evaluate(() => fixture.started), 1, 'One deliberate talk-button click starts recognition without opening settings');
         equal(await page.locator('.hud-command-panel input, .hud-command-panel textarea, .hud-command-panel form').count(), 0, 'Voice-only panel has no typed command controls');
-        await page.locator('[data-hud-command-mic]').click();
-        equal(await page.evaluate(() => fixture.started), 1, 'An explicit microphone click starts recognition');
+        equal(await page.locator('[data-hud-command-mic]').getAttribute('aria-pressed'), 'true', 'Talk-button gesture leaves the microphone listening');
         await page.evaluate(() => { const r = fixture.recognizers.at(-1); const result = [{transcript: 'عدد العملاء كام؟'}]; result.isFinal = true; r.onresult({results: [result], resultIndex: 0}); });
         check((await status()).includes('50,802 عميل'), 'Final voice phrase reads current metric with separated number and unit');
         check((await status()).includes('جميع الفروع المصرح بها'), 'Read includes actual displayed scope');
@@ -118,7 +117,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         await execute('عدد العملاء كام'); equal(await page.evaluate(() => fixture.wrongVoice), undefined, 'No silent English fallback for Arabic speech');
         await page.locator('[data-hud-command-mic]').press('Escape'); equal(await page.locator('.hud-command-panel').isVisible(), false, 'Escape closes optional panel');
         check(await page.locator('[data-hud-commands-toggle]').evaluate(e => document.activeElement === e), 'Closing panel returns keyboard focus to toggle');
-        await page.locator('[data-hud-commands-toggle]').click(); await page.locator('[data-hud-command-mic]').click();
+        await page.locator('[data-hud-commands-toggle]').click();
         await page.evaluate(() => document.body.dataset.dashboardActor = '2:owner');
         await page.evaluate(() => Promise.resolve());
         equal(await execute('افتح العملاء'), false, 'Actor change fences old mounted command session');
@@ -144,7 +143,6 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
             await page.goto(origin + '/' + mode);
             equal(await page.evaluate(() => fixture.started), 0, mode + ' recognition never starts on mount');
             await page.locator('[data-hud-commands-toggle]').click();
-            await page.locator('[data-hud-command-mic]').click();
             equal(await page.evaluate(() => fixture.started), 1, mode + ' recognition uses the controlled browser service');
             await page.evaluate(() => { const r = fixture.recognizers.at(-1); const result = [{transcript: 'افتح العملاء'}]; result.isFinal = true; r.onresult({results: [result], resultIndex: 0}); });
             equal(await page.evaluate(() => fixture.clicked), ['customers'], mode + ' final voice phrase navigates to the authorized section');

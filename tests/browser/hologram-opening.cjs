@@ -15,8 +15,6 @@ function html(url){
  // Resolve Blade asset helpers in shared production markup.
  partial=partial.replace(/\{\{\s*asset\('([^']+)'\)\s*\}\}/g,(_,p)=>'/'+p);
  partial=partial.replace(/\{\{--[\s\S]*?--\}\}/g,'');
- // Legacy command tests opt in; silentavatar keeps the actual production markup.
- if(!url.searchParams.has('silentavatar'))partial=partial.replace('data-hud-commands="0"','data-hud-commands="1"');
  assert(!/@(?:include|if|php)|\{\{/.test(partial),'Fixture must use production markup with only Blade values substituted');
  const metric=metrics(url.searchParams.has('owner'));
  if(url.searchParams.has('unsafe')){metric.cards[0].url='javascript:window.bad=true';metric.cards[1].url='https://foreign.invalid/steal';metric.cards[2].label='<img src=x onerror="window.bad=true">';}
@@ -38,9 +36,9 @@ async function focusedCases(context,origin,errors){
  const emit=async(p,data)=>{await p.evaluate(data=>document.dispatchEvent(new CustomEvent('go:home-data',{detail:data})),data);};
  const money=p=>p.locator('[data-hud-key="drawer"] .hud-primary b').textContent();
  let p=await open('silentavatar=1&nonce=visual-opening-once');
- equal(await p.locator('#go-hud').getAttribute('data-hud-commands'),'0','Actual production opening disables the optional command panel');
- equal(await p.evaluate(()=>fixture.commandMounts),0,'Visual interaction never mounts microphone or spoken-command controls');
- equal(await p.locator('[data-hud-commands-toggle],[data-hud-command-mic],.hud-command-panel').count(),0,'Production visual opening has no microphone controls');
+ equal(await p.locator('#go-hud').getAttribute('data-hud-commands'),'1','Actual production opening enables deliberate voice interaction');
+ equal(await p.evaluate(()=>fixture.commandMounts),1,'Production opening mounts its voice-command controller once');
+ equal(await p.locator('#go-hud input,#go-hud textarea').count(),0,'Voice interaction adds no typed-command input');
  equal(await p.evaluate(()=>fixture.plays),1,'Visual-only interaction preserves the original opening greeting');
  await p.locator('#go-hud').evaluate(n=>n.dispatchEvent(new PointerEvent('pointermove',{clientX:innerWidth*2,clientY:-10,pointerType:'mouse'})));
  equal(await p.evaluate(()=>fixture.mounted[0].gaze),[1,-1],'Pointer gaze is bounded even for out-of-range coordinates');

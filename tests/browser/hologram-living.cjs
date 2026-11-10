@@ -60,7 +60,7 @@ async function saveReview(context,reviews){
   });
   check(intro.portraitAnimated,'The approved portrait uses the animated GPU surface');
   check(intro.portraitParticles>=8192&&intro.portraitParticles<=65536,'Dense assembly uses a bounded portrait particle population');
-  check(await page.locator('[data-hud-commands-toggle],[data-hud-command-mic],.hud-command-panel').count()===0,'Living opening has no optional microphone controls');
+  check(await page.locator('[data-hud-commands-toggle]').isVisible(),'Living opening keeps voice interaction available');
   check(await page.evaluate(()=>livingFixture.recordings===0),'Visual opening does not start microphone recognition');
 
   async function frame(name,time,voice=0){

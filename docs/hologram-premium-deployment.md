@@ -10,9 +10,11 @@ the lips react to its prepared audio envelope.
 
 The opening preserves its existing named English greeting once after login and
 then remains silent while idle. Its nonce, readiness polling, private audio and
-worker remain unchanged. The optional voice-command controls are disabled by
-default in production markup; mounting them requires an explicit
-`data-hud-commands="1"`. No text-entry field is added.
+worker remain unchanged. Voice-command controls are enabled in production with
+`data-hud-commands="1"`. A deliberate click on the talk button opens the panel
+and starts one recognition session immediately. The browser may request microphone
+permission on first use; a previously denied browser permission cannot be bypassed.
+No microphone starts on page load and no text-entry field is added.
 
 The server login page uses the same animated portrait in a wide visual area
 beside its existing sign-in form. The bounded login integration changes the
@@ -33,7 +35,8 @@ The package is based on
 `47118f609f16cc704fed041a7c8c2c559c9a5e43`. The builder also verifies deployment
 against `47c562af4a7a97509f1ae1947ebee11cc4da2b9a`, whose opening JavaScript has
 different polling and greeting behavior, and the installed premium release
-`7dc7c60a8ff69ab03212c4aa44a47bc4724df148`. The bounded fragments preserve
+`7dc7c60a8ff69ab03212c4aa44a47bc4724df148`, plus the installed living-portrait
+release `4f6e6985113da853368511e221f6e76473a9cd07`. The bounded fragments preserve
 unrelated newer code on every supported baseline. A previously new file may
 be created on an older installation or upgraded from an exact reviewed hash;
 an unknown collision is refused. Conflicting bounded variants and changes
@@ -49,7 +52,7 @@ python3 -B scripts/hologram_premium/test_package.py
 bash -n scripts/hologram_premium/run_root.sh
 ```
 
-Normal builds read the three immutable baselines from Git. An offline checkout
+Normal builds read the four immutable baselines from Git. An offline checkout
 may set `GO_PREMIUM_BASELINES_DIR` to a directory containing
 `source-index.json` and `<revision>/<repository-path>` snapshots. The index maps
 each reviewed revision and allowlisted path to its exact Git blob SHA, or `null`

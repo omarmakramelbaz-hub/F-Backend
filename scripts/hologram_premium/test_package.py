@@ -308,6 +308,25 @@ class PackageTests(unittest.TestCase):
         self.assertNotIn('prewarm', DEPLOY.PROBE)
 
     @unittest.skipUnless((HERE / 'manifest.json').exists(), 'release not finalized')
+    def test_voice_restore_preserves_living_scene_and_authentication(self):
+        spec = importlib.util.spec_from_file_location('premium_builder', HERE / 'build_manifest.py')
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        manifest = json.loads((HERE / 'manifest.json').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            for item in manifest['files']:
+                previous = build.baseline(item['path'], build.LIVING_REVISION)
+                if previous is not None:
+                    path = project / item['path']
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(previous)
+            changes = DEPLOY.plan(project, manifest)
+            changed = [c for c in changes if c['before'] != c['after']]
+            self.assertEqual([c['path'] for c in changed], ['public/dashboard/js/hud-commands.js', 'resources/views/admin/home_hud.blade.php'])
+            self.assertEqual(changed[1]['after'], changed[1]['before'].replace(b'data-hud-commands="0"', b'data-hud-commands="1"', 1))
+
+    @unittest.skipUnless((HERE / 'manifest.json').exists(), 'release not finalized')
     def test_release_manifest_matches_current_sources_and_reviewed_baselines(self):
         spec = importlib.util.spec_from_file_location('premium_builder', HERE / 'build_manifest.py')
         build = importlib.util.module_from_spec(spec)
