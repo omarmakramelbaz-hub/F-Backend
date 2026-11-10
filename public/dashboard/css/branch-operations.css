@@ -118,3 +118,51 @@
 .op-identity-preview img{width:100%;max-height:200px;object-fit:contain;background:#fff;border-radius:4px}
 .op-identity-pending{color:#2861c1;font-size:11px}
 .op-regulation-field .op-regulation{background:#fff}
+
+/* payroll-sheet-20261110: the monthly statement as a clean sheet */
+.op-sheet{display:flex;flex-direction:column;gap:14px}
+.op-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:12px;background:linear-gradient(135deg,#10274a,#1d3f6e);color:#fff}
+.op-sheet-head strong{display:block;font-size:18px;font-weight:800}
+.op-sheet-head span{color:#c9d6ea;font-size:12px}
+.op-sheet-head .op-sheet-status{flex:0 0 auto;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#ffffff1f;color:#fff}
+.op-sheet-status[data-status=draft]{background:#fff3e0!important;color:#a65200!important}
+.op-sheet-status[data-status=closed]{background:#e8f0ff!important;color:#2559a8!important}
+.op-sheet-status[data-status=paid]{background:#e6f7ee!important;color:#137743!important}
+.op-statement .op-sheet-net{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-radius:12px;background:#f1f6ff;border:1px solid #d6e4fb;color:#175abb;font-size:14px;font-weight:700}
+.op-statement .op-sheet-net strong{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.op-statement .op-sheet-net.is-negative{background:#fff1f3;border-color:#f6ccd3;color:#c42636}
+.op-statement dl.op-sheet-figures{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin:0}
+.op-statement dl.op-sheet-figures>div{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:11px 13px;border-radius:10px;background:#f6f8fb;border:1px solid #e8edf3;color:#2b3c52}
+.op-statement dl.op-sheet-figures dt{font-size:11px;font-weight:600;color:#6c7a91}
+.op-statement dl.op-sheet-figures dd{font-size:16px;font-weight:800;margin:0;font-variant-numeric:tabular-nums}
+.op-statement dl.op-sheet-figures>.op-statement-bonus{background:#f0faf4;border-color:#cfeedd;color:#137743}
+.op-statement dl.op-sheet-figures>.op-statement-deduction{background:#fff3f4;border-color:#f6d3d8;color:#c42636}
+.op-statement dl.op-sheet-figures>.op-statement-advance{background:#fff9ed;border-color:#f3e1b8;color:#9a6700}
+.op-statement dl.op-sheet-figures>div dt{color:inherit;opacity:.8}
+.op-sheet-info{display:flex;flex-wrap:wrap;gap:6px 18px}
+.op-sheet-info p{margin:0}
+.op-sheet-warning{color:#c42636!important;background:#fff1f3;padding:8px 12px;border-radius:8px}
+.op-sheet-paid{color:#137743;background:#e6f7ee;padding:8px 12px;border-radius:8px;margin:0}
+.op-statement h3.op-sheet-title{font-size:15px;font-weight:800;color:#10274a;margin:6px 0 0;padding-inline-start:10px;border-inline-start:4px solid #f57800}
+.op-sheet-table table{min-width:640px}
+.op-sheet-table th{position:sticky;top:0;z-index:1}
+.op-sheet-table td,.op-sheet-table th{padding:9px 12px!important}
+.op-sheet-table tbody tr:nth-child(even) td{background:#fafbfd}
+.op-sheet-table tbody tr:hover td{background:#fff7ee}
+.op-sheet-day{white-space:nowrap;font-weight:700;color:#10274a;direction:ltr;unicode-bidi:isolate}
+.op-chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap;background:#eef2f7;color:#4a5b72}
+.op-chip-bonus,.op-chip-present,.op-chip-morning,.op-chip-evening,.op-chip-part_time,.op-chip-ok{background:#e6f7ee;color:#137743}
+.op-chip-deduction,.op-chip-absent,.op-chip-unauthorized_absence{background:#fff0f2;color:#c42636}
+.op-chip-advance,.op-chip-unpaid_leave{background:#fff6e5;color:#9a6700}
+.op-chip-paid_leave,.op-chip-preapproved_leave{background:#e8f0ff;color:#2559a8}
+.op-chip-void{background:#eef0f3;color:#6c7a91}
+.op-sheet-amount{font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+.op-sheet-amount-bonus{color:#137743}.op-sheet-amount-deduction{color:#c42636}.op-sheet-amount-advance{color:#9a6700}
+.op-sheet-void{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.op-sheet-void small{color:#7a8799;font-size:11px;line-height:1.6;max-width:320px;white-space:normal}
+.op-sheet-table tr.is-voided td{color:#98a3b3}
+.op-sheet-table tr.is-voided .op-sheet-amount{text-decoration:line-through;color:#98a3b3}
+.op-sheet-table tr.is-voided .op-chip:not(.op-chip-void){background:#f1f3f6;color:#98a3b3}
+.op-sheet-void-button{border:1px solid #f1c2c9!important;background:#fff!important;color:#c42636!important;border-radius:7px!important;padding:5px 12px!important;font-size:12px!important;font-weight:700;white-space:nowrap;cursor:pointer}
+.op-sheet-void-button:hover{background:#fff1f3!important}
+.op-sheet-empty{padding:18px;text-align:center;color:#7a8799;margin:0}
