@@ -121,7 +121,7 @@ test('a frozen polling tab is replaced after its lease expires', async () => {
     const first = b.open(), second = b.open();
     await b.advance(1000);
     first.frozen = true; b.server.keys = ['legacy:11', 'partner_service:8'];
-    await b.advance(31000);
+    await b.advance(61000);
     assert(second.fetches >= 1, 'A tab whose timers stopped does not block the others');
     assert.deepStrictEqual(pending(second), ['legacy:11', 'partner_service:8']);
 });

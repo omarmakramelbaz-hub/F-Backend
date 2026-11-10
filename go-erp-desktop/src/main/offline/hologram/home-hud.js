@@ -91,7 +91,8 @@
         freshness.textContent = 'العدّادات مباشرة'; live.classList.remove('stale');
     }
     function stale() { live.classList.add('stale'); freshness.textContent = 'تعذّر التحديث · آخر أرقام متاحة'; }
-    function schedule() { clearTimeout(timer); if (!disposed && !root.hidden && !document.hidden) timer = setTimeout(refresh, 30000); }
+    // Server load: every 30 seconds; every 2 minutes on a device untouched for half an hour (dashboard-idle.js).
+    function schedule() { clearTimeout(timer); var idle = window.GODashboardIdle; if (!disposed && !root.hidden && !document.hidden) timer = setTimeout(refresh, idle && idle.quiet && idle.quiet() ? 120000 : 30000); }
     async function refresh() {
         if (disposed || root.hidden || document.hidden || controller) return;
         var url = safeURL(boot.url); if (!url) { stale(); return; }

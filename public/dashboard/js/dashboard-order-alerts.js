@@ -32,8 +32,8 @@
     function leadsFeed() {
         var owner = feedOwner(), now = Date.now();
         // A lease further ahead than one term comes from a changed clock and is not honoured.
-        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 20000) return false;
-        write(feedKey, JSON.stringify({ tab: tab, until: now + 20000 }));
+        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 45000) return false;
+        write(feedKey, JSON.stringify({ tab: tab, until: now + 40000 }));
         return true;
     }
     function releaseFeed() { var owner = feedOwner(); if (owner && owner.tab === tab) write(feedKey, 'null'); }
@@ -195,6 +195,7 @@
         } catch (_) { /* A push signal cannot prove an unpaid order is ready for staff. Polling will retry. */ }
         finally { clearTimeout(timeout); if (signalController === controller) signalController = null; }
     }
+    function goPace(normal, slow) { var idle = window.GODashboardIdle; return idle && typeof idle.every === 'function' ? idle.every(normal, slow) : normal; }
     async function pollOrders() {
         if (stopped || !feedUrl || typeof window.fetch !== 'function') return;
         // The board owns its own polling while mounted. Other dashboard pages still ring.
@@ -216,7 +217,7 @@
             } catch (_) { /* Keep existing alerts while the network or session recovers. */ }
             finally { clearTimeout(timeout); if (feedController === controller) feedController = null; }
         }
-        if (!stopped) feedTimer = setTimeout(pollOrders, 15000); // server load: every 15 seconds
+        if (!stopped) feedTimer = setTimeout(pollOrders, goPace(15000, 30000)); // server load: 15 s, 30 s on an untouched device
     }
     window.DashboardOrderAlerts = {
         notify: notify, acknowledge: acknowledge, sync: sync, observeApp: observeApp, reconcileApp: reconcileApp, checkpoint: function () { return sequence; }, unlock: unlock,
@@ -265,5 +266,6 @@
     window.addEventListener('pageshow', function (event) {
         if (event.persisted && stopped) { stopped = false; heartbeat = setInterval(tick, 2000); reconcile(); pollOrders(); }
     });
+    window.addEventListener('go:dashboard-awake', function () { if (!stopped) { clearTimeout(feedTimer); feedTimer = setTimeout(pollOrders, 300); } });
     update(); reconcile(); feedTimer = setTimeout(pollOrders, 750);
 }());

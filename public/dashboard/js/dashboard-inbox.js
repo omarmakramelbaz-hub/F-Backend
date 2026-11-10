@@ -114,7 +114,13 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshNotifications(); refreshSupport(); } });
     window.DashboardInbox = {refreshNotifications: refreshNotifications, refreshSupport: refreshSupport, request: request};
     refreshNotifications(); refreshSupport(); subscribeSupport();
-    fallbackTimer = setInterval(function () { refreshNotifications(); refreshSupport(); subscribeSupport(); }, 60000); // server load: once a minute
+    var lastFallback = Date.now();
+    fallbackTimer = setInterval(function () {
+        // Server load: once a minute; every five minutes on a device untouched for half an hour.
+        var idle = window.GODashboardIdle; if (idle && idle.quiet && idle.quiet() && Date.now() - lastFallback < 290000) return;
+        lastFallback = Date.now(); refreshNotifications(); refreshSupport(); subscribeSupport();
+    }, 60000);
+    window.addEventListener('go:dashboard-awake', function () { lastFallback = Date.now(); refreshNotifications(); refreshSupport(); });
     window.addEventListener('pagehide', function () {
         clearInterval(fallbackTimer); clearTimeout(refreshTimer);
         roomUnsubscribe.forEach(function (off) { off(); });

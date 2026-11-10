@@ -53,7 +53,7 @@
     }
     async function poll() {
         clearTimeout(timer); if (stopped) return;
-        timer = setTimeout(poll, 60000);
+        timer = setTimeout(poll, window.GODashboardIdle && window.GODashboardIdle.quiet && window.GODashboardIdle.quiet() ? 120000 : 60000); // server load: 1 min, 2 min untouched
         if (!leads()) { var shared = json(sharedKey); if (shared && Date.now() - shared.at < 150000) show(shared.orders || []); return; }
         if (controller) controller.abort();
         controller = new AbortController(); var abort = controller, limit = setTimeout(function () { abort.abort(); }, 20000);

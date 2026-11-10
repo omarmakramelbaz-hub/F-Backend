@@ -9,7 +9,7 @@
     window.DashboardExpenseBadge = true;
     function schedule() {
         clearTimeout(timer);
-        if (!stopped && !document.hidden) timer = setTimeout(refresh, 60000); // server load: once a minute
+        if (!stopped && !document.hidden) timer = setTimeout(refresh, window.GODashboardIdle && window.GODashboardIdle.quiet && window.GODashboardIdle.quiet() ? 300000 : 60000); // server load: 1 min, 5 min untouched
     }
     async function refresh() {
         clearTimeout(timer);

@@ -16,8 +16,8 @@
     var leadKey = 'branch-print-lead:' + (boot.actor_id || 'dashboard') + ':' + boot.branch, tab = Date.now() + ':' + Math.random(), cycle = 0;
     function leads() {
         var owner = null, now = Date.now(); try { owner = JSON.parse(localStorage.getItem(leadKey) || 'null'); } catch (_) {}
-        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 30000) return false;
-        try { localStorage.setItem(leadKey, JSON.stringify({ tab: tab, until: now + 15000 })); } catch (_) {}
+        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 50000) return false;
+        try { localStorage.setItem(leadKey, JSON.stringify({ tab: tab, until: now + 40000 })); } catch (_) {}
         return true;
     }
     function saveReceived() { try { sessionStorage.setItem(receivedKey, JSON.stringify(Array.from(receivedIds).slice(-200))); } catch (_) {} }
@@ -71,8 +71,11 @@
         }
         banner.hidden = false;
     }
+    function goPace(normal, slow) { var idle = window.GODashboardIdle; return idle && typeof idle.every === 'function' ? idle.every(normal, slow) : normal; }
+    var polling = false;
     async function poll() {
-        if (stopped) return;
+        if (stopped || polling) return;
+        polling = true;
         try {
             // The native supervisor owns local burn/outcome persistence even if
             // this page leaves. Do not mix its effects with browser queue claims.
@@ -107,7 +110,7 @@
             if(boot.shifts&&cycle%4===1){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
             if(boot.apps&&cycle%4===1){var appUrl=new URL(address(boot.apps.jobs));appUrl.searchParams.set('branch',boot.branch);var apps=await request(appUrl.href);if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
         } catch (_) { if (!stopped) report(boot.labels.offline); }
-        finally { if (!stopped) timer = setTimeout(poll,8000); } // server load: every 8 seconds
+        finally { polling = false; if (!stopped) timer = setTimeout(poll, goPace(8000, 30000)); } // server load: 8 s, 30 s on an untouched device
     }
     async function processJobs(jobs,queue){
             for (var job of jobs) {
@@ -129,5 +132,6 @@
         if (receivedIds.has(Number(key.slice(6)))) window.DashboardOrderAlerts.acknowledge(key);
         else alertOrder(Number(key.slice(6)));
     });
+    window.addEventListener('go:dashboard-awake', function () { if (!stopped && !polling) { clearTimeout(timer); timer = setTimeout(poll, 300); } });
     timer = setTimeout(poll,500);
 }());
