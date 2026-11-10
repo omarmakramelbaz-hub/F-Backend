@@ -12,6 +12,7 @@ const connection = require('./connection.cjs');
 const { replayScript: deferredReplayScript } = require('./offline/deferred.cjs');
 const rules = require('./rules.cjs');
 const money = require('./money.cjs');
+const { startUpdates } = require('./updater.cjs');
 const { PageCache } = require('./offline/cache.cjs');
 const { DashboardOffline, warmUpScript, WARM_PAGES, REFRESHED_DATA } = require('./offline/interceptor.cjs');
 const { HomeOffline } = require('./offline/home.cjs');
@@ -37,7 +38,6 @@ let sync;
 let pageCache; // the dashboard pages and files saved on this device
 let boardPage; // the app orders board offline (actions taken without the internet)
 let offline; // answers the dashboard window from the device while the internet is down
-let offlineMode = false;
 let mainWindow = null;
 let current = null; // { user, branch } of the signed-in account
 // What the signed-in person typed, kept in memory only, to sign the online dashboard window in as the same account.
@@ -125,7 +125,7 @@ function sessionUser() {
 const handlers = {
   'app:info': () => ({ version: app.getVersion(), server: SERVER, device: publicDevice(), branches: store.branches(),
     session: current, sync: sync.status(), print: printSettings(), autostart: autostart(), embed: EMBED, dashboard_shown: dashboardShown,
-    offline_mode: offlineMode, dashboard_copy: current ? offline.hasCopy(sessionUser()) : false }),
+    offline_mode: watch.offline, dashboard_copy: current ? offline.hasCopy(sessionUser()) : false }),
 
   // The person's computer says the network is gone: the app checks the dashboard before working from the device
   // (Windows sometimes says so while the internet works).
@@ -135,7 +135,7 @@ const handlers = {
     } else {
       sync.kick();
     }
-    return offlineMode;
+    return watch.offline;
   },
 
   'app:autostart': (values) => {
@@ -477,11 +477,12 @@ function layoutDashboard() {
  * answers); the 30-second sync decides when the internet is back.
  */
 function setOfflineMode(value, reason = '') {
-  if (offlineMode === value) return;
-  clearInterval(recoveryTimer);
-  recoveryTimer = value ? setInterval(recover, RECOVERY_EVERY) : null;
+  watch.set(value, reason);
+}
+
+/** What the program does when it switches (the watch below decides when). */
+function connectionChanged(value, reason) {
   console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} ${value ? 'offline' : 'online'}${reason ? ': ' + reason : ''}`);
-  offlineMode = value;
   offline.setOffline(value).catch(() => {});
   notifyDashboard({ type: 'connection', online: !value });
   sendDeviceBranches();
@@ -505,8 +506,6 @@ function setOfflineMode(value, reason = '') {
  */
 const PROBE_PAUSE = Number(process.env.GOERP_PROBE_PAUSE_MS) || 5000;
 const RECOVERY_EVERY = Number(process.env.GOERP_RECOVERY_MS) || 10000;
-let suspecting = null;
-let recoveryTimer = null;
 
 async function dashboardAnswers() {
   try {
@@ -519,37 +518,19 @@ async function dashboardAnswers() {
   }
 }
 
-function suspectOffline(reason) {
-  if (offlineMode || suspecting) return suspecting;
-  suspecting = (async () => {
-    try {
-      if (!(await connection.unreachable(dashboardAnswers, { pause: PROBE_PAUSE, stop: () => offlineMode }))) {
-        if (offlineMode) return;
-        console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} still online (${reason})`);
-        // A page the device showed in place of that one failed load goes back to the dashboard's own once it is idle.
-        refreshSince = Date.now();
-        refreshWhenIdle();
-        return;
-      }
-      setOfflineMode(true, reason);
-      sync.run().catch(() => {});
-    } finally {
-      suspecting = null;
-    }
-  })();
-  return suspecting;
-}
+const watch = new connection.ConnectionWatch({
+  answers: dashboardAnswers, pause: PROBE_PAUSE, every: RECOVERY_EVERY, changed: connectionChanged,
+  runSync: () => { sync.run().catch(() => {}); },
+  stillOnline: (reason) => {
+    console.log(`[goerp] ${new Date().toISOString().slice(11, 19)} still online (${reason})`);
+    // A page the device showed in place of that one failed load goes back to the dashboard's own once it is idle.
+    refreshSince = Date.now();
+    refreshWhenIdle();
+  },
+});
 
-/** Working from the device: as soon as the dashboard answers, a sync brings the app back to it. */
-let recovering = false;
-async function recover() {
-  if (!offlineMode || recovering) return;
-  recovering = true;
-  try {
-    if (await dashboardAnswers()) sync.run().catch(() => {});
-  } finally {
-    recovering = false;
-  }
+function suspectOffline(reason) {
+  return watch.suspect(reason);
 }
 
 // Windows whose current page came from the device's copy: reloaded from the dashboard once it is idle online.
@@ -560,12 +541,12 @@ let refreshSince = 0;
 function refreshWhenIdle() {
   clearTimeout(refreshTimer);
   const contents = dashboardView && dashboardView.webContents;
-  if (offlineMode || !contents || contents.isDestroyed() || !fromCopy.has(contents)) return;
+  if (watch.offline || !contents || contents.isDestroyed() || !fromCopy.has(contents)) return;
   // Dine-in orders opened offline move to the dashboard first (a few seconds), so the reloaded floor shows them on their
   // tables and nobody seats a table that is already taken. Never more than a minute.
   if (store.waitingMoves() > 0 && Date.now() - refreshSince < 60000) { refreshTimer = setTimeout(refreshWhenIdle, 2000); return; }
   contents.executeJavaScript('!window.DashboardSPA || window.DashboardSPA.isIdle()').then((idle) => {
-    if (offlineMode || contents.isDestroyed()) return;
+    if (watch.offline || contents.isDestroyed()) return;
     copyLog(idle ? 'the page from the copy reloads from the dashboard' : 'the page from the copy waits until it is idle');
     if (!idle) { refreshTimer = setTimeout(refreshWhenIdle, 15000); return; }
     dashboardTarget = contents.getURL();
@@ -587,8 +568,8 @@ const warming = new Map(); // account id -> the reading going on now (a new page
 
 function warmUp(contents, { soon = false } = {}) {
   const user = sessionUser();
-  if (!user || offlineMode || !contents || contents.isDestroyed() || warming.has(user.id)) {
-    if (soon || !warmedAt.has(user && user.id)) copyLog(`not now (${!user ? 'no account' : offlineMode ? 'offline' : !contents || contents.isDestroyed() ? 'no window' : 'already reading'})`);
+  if (!user || watch.offline || !contents || contents.isDestroyed() || warming.has(user.id)) {
+    if (soon || !warmedAt.has(user && user.id)) copyLog(`not now (${!user ? 'no account' : watch.offline ? 'offline' : !contents || contents.isDestroyed() ? 'no window' : 'already reading'})`);
     return;
   }
   const now = Date.now();
@@ -608,7 +589,7 @@ function warmUp(contents, { soon = false } = {}) {
   const done = () => { if (warming.get(user.id) === reading) warming.delete(user.id); };
   setTimeout(() => {
     if (warming.get(user.id) !== reading) return copyLog('replaced by a newer reading'); // the page changed: its load reads the copy
-    if (contents.isDestroyed() || offlineMode || !current || current.user.id !== user.id) {
+    if (contents.isDestroyed() || watch.offline || !current || current.user.id !== user.id) {
       copyLog('stopped before reading');
       return done();
     }
@@ -617,7 +598,7 @@ function warmUp(contents, { soon = false } = {}) {
     const stuck = setTimeout(done, 5 * 60 * 1000);
     // Recorded once read: a reading cut short (the page reloaded, the internet dropped) is done again with the next sync.
     contents.executeJavaScript(warmUpScript({ pages: all ? WARM_PAGES : [DASHBOARD_PAGES.home], data: lists, prints }))
-      .then(() => { copyLog('read'); if (!offlineMode) warmedAt.set(user.id, { numbers: started, pages: all ? started : last.pages }); })
+      .then(() => { copyLog('read'); if (!watch.offline) warmedAt.set(user.id, { numbers: started, pages: all ? started : last.pages }); })
       .catch((error) => copyLog('cut short: ' + (error && error.message)))
       .finally(() => { clearTimeout(stuck); done(); });
   }, soon ? 1500 : 4000);
@@ -630,7 +611,7 @@ let replaying = false;
 function replayBoard() {
   const user = sessionUser();
   const contents = dashboardView && dashboardView.webContents;
-  if (replaying || !user || offlineMode || !dashboardSignedIn || !contents || contents.isDestroyed() || contents.isLoading()) return;
+  if (replaying || !user || watch.offline || !dashboardSignedIn || !contents || contents.isDestroyed() || contents.isLoading()) return;
   const commands = store.pendingBoardCommands(user.id);
   if (!commands.length) return;
   replaying = true;
@@ -656,7 +637,7 @@ let replayingDeferred = false;
 function replayDeferred() {
   const user = sessionUser();
   const contents = dashboardView && dashboardView.webContents;
-  if (replayingDeferred || !user || offlineMode || !dashboardSignedIn || !contents || contents.isDestroyed() || contents.isLoading()) return;
+  if (replayingDeferred || !user || watch.offline || !dashboardSignedIn || !contents || contents.isDestroyed() || contents.isLoading()) return;
   const requests = store.pendingDeferred(user.id);
   if (!requests.length) return;
   replayingDeferred = true;
@@ -778,7 +759,7 @@ async function showDashboard(page) {
   if (!EMBED || !current || !mainWindow) return false;
   const user = sessionUser();
   let path = DASHBOARD_PAGES[page] || DASHBOARD_PAGES.home;
-  if (offlineMode) {
+  if (watch.offline) {
     // Offline the dashboard opens from this account's saved pages; without any, the app's own screens are used.
     if (!offline.hasCopy(user)) return false;
     if (page === 'program' && !offline.hasPage(user, PROGRAM_PAGE)) return false;
@@ -869,7 +850,7 @@ async function onDashboardLoad(contents) {
       signedOutWithDashboard();
       return;
     }
-    if (offlineMode) {
+    if (watch.offline) {
       // No signing in without the internet: back to a saved page; the dashboard signs in again once online.
       const landing = offline.landing(sessionUser() || { id: 0, can_checkout: false });
       if (landing) contents.loadURL(SERVER + landing);
@@ -943,7 +924,7 @@ ipcMain.on('dashboard:device-screens', (event) => {
  * dashboard preload marks the other branches in the pages' branch lists as not set up here.
  */
 function deviceBranches() {
-  return { offline: offlineMode, branches: store.device() ? store.branches().map((branch) => branch.value) : [] };
+  return { offline: watch.offline, branches: store.device() ? store.branches().map((branch) => branch.value) : [] };
 }
 
 function sendDeviceBranches() {
@@ -1114,43 +1095,12 @@ app.whenReady().then(() => {
   if (app.isPackaged) checkForUpdates();
 });
 
-/**
- * New versions download in the background from GitHub and install themselves, with nobody downloading or running a
- * setup file. A downloaded version installs once the device is quiet and nothing waits to reach the dashboard:
- *   - nobody is signed in to the program (it was just opened) and the device has been untouched for a minute;
- *   - between 4 and 6 in the morning (Cairo), before the operating day, after 3 untouched minutes;
- *   - any time after 30 untouched minutes.
- * The program closes, installs silently and opens again by itself. It also installs when the program is closed.
- */
+/** New versions download and install themselves when the device is quiet (updater.cjs). */
 function checkForUpdates() {
   let updater;
   try { updater = require('electron-updater').autoUpdater; } catch { return; }
-  updater.autoDownload = true;
-  updater.autoInstallOnAppQuit = true;
-  let ready = null, installing = false;
-  updater.on('update-downloaded', (info) => {
-    ready = info;
-    console.log(`[goerp] version ${info && info.version} downloaded; it installs once the device is quiet`);
-  });
-  updater.on('error', () => { /* offline or no release yet: tried again later */ });
-  const check = () => { if (!installing) updater.checkForUpdates().catch(() => { /* offline or no release yet */ }); };
-  check();
-  setInterval(check, 60 * 60 * 1000);
-  setInterval(() => {
-    if (!ready || installing) return;
-    let idle = 0;
-    try { idle = require('electron').powerMonitor.getSystemIdleTime(); } catch { return; }
-    const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
-    const quiet = (!current && idle >= 60) || (hour >= 4 && hour < 6 && idle >= 180) || idle >= 1800;
-    if (!quiet) return;
-    let waiting = 0;
-    try { waiting = Number((sync && sync.status().pending) || 0); } catch { return; }
-    if (waiting > 0) return; // operations still on their way to the dashboard: install after they arrive
-    installing = true;
-    console.log(`[goerp] installing version ${ready.version} now (idle ${idle}s)`);
-    try { sync && sync.stop(); } catch { /* stopping anyway */ }
-    setTimeout(() => { try { updater.quitAndInstall(true, true); } catch { installing = false; } }, 1500);
-  }, 30 * 1000);
+  startUpdates({ updater, signedIn: () => !!current, pending: () => sync && sync.status().pending,
+    idle: () => require('electron').powerMonitor.getSystemIdleTime(), stopSync: () => sync && sync.stop() });
 }
 
 app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } });
