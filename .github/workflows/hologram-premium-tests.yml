@@ -48,10 +48,10 @@ jobs:
           node --check public/dashboard/js/go-login-hologram.js
           node tests/browser/premium-renderer-vm.cjs
           python3 -m unittest discover -s scripts/hologram_premium -p 'test_*.py' -v
-      - name: Verify voice command behavior with browser service stubs
-        run: |
-          node tests/browser/hud-commands.cjs
-          node tests/browser/hud-command-audio.cjs
+      - name: Verify one-click commands and microphone permission lifecycle
+        run: timeout --signal=TERM 180s node tests/browser/hud-commands.cjs
+      - name: Verify private Arabic playback and cancellation
+        run: timeout --signal=TERM 180s node tests/browser/hud-command-audio.cjs
       - name: Verify existing opening behavior
         run: node tests/browser/hologram-opening.cjs
       - name: Render approved artwork and real depth particles

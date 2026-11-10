@@ -32,6 +32,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
     try {
         const page = await browser.newPage({viewport: {width: 1672, height: 941}}); page.on('pageerror', e => errors.push(e.message));
         await page.goto(origin); await page.clock.install();
+        console.log('GO commands: microphone and authorized commands');
         const execute = text => page.evaluate(text => commands.execute(text), text);
         const status = () => page.locator('[data-hud-command-status]').textContent();
         equal(await page.evaluate(() => fixture.started), 0, 'No microphone or speech recognition starts on mount');
@@ -91,6 +92,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         await page.evaluate(() => fixture.recognizers.at(-1).onerror({error: 'not-allowed'}));
         check((await status()).includes('غير مسموح'), 'Permission refusal explains microphone settings');
         equal(await page.locator('[data-hud-command-mic]').getAttribute('aria-pressed'), 'false', 'Permission failure clears listening state');
+        console.log('GO commands: microphone timeout and voice readiness');
         await page.locator('[data-hud-command-mic]').click(); await page.clock.runFor(15001);
         check((await status()).includes('انتهى وقت الاستماع'), 'Mic shuts off after bounded 15-second session');
         equal(await page.locator('[data-hud-command-mic]').getAttribute('aria-pressed'), 'false', 'Timeout never auto-restarts microphone');
@@ -139,6 +141,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         equal(await page.evaluate(() => fixture.previousHeardNode.textContent), '', 'Actor change erases transcript text before removing the panel');
         await page.evaluate(() => commands.destroy()); equal(await page.locator('.hud-command-panel').count(), 0, 'Destroy removes controls');
         equal(await page.evaluate(() => commands.execute('افتح العملاء')), false, 'Disposed API cannot execute late actions');
+        console.log('GO commands: unsupported recognition and compact viewports');
         await page.goto(origin + '/unsupported');
         check(await page.locator('[data-hud-command-mic]').isDisabled(), 'Unsupported recognition has no active microphone control');
         equal(await page.locator('.hud-command-panel input, .hud-command-panel textarea, .hud-command-panel form').count(), 0, 'Unsupported recognition does not introduce typed controls');
@@ -162,6 +165,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
             await page.evaluate(() => { const r = fixture.recognizers.at(-1); const result = [{transcript: 'افتح العملاء'}]; result.isFinal = true; r.onresult({results: [result], resultIndex: 0}); });
             equal(await page.evaluate(() => fixture.clicked), ['customers'], mode + ' final voice phrase navigates to the authorized section');
         }
+        console.log('GO commands: delayed permission and transcript cleanup');
         await page.goto(origin + '/delayed-permission');
         await page.locator('[data-hud-commands-toggle]').click();
         await page.clock.runFor(20000);

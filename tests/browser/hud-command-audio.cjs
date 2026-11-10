@@ -60,6 +60,7 @@ function check(value,message) { assert(value,message); checks++; }
     const status = () => page.locator('[data-hud-command-status]').textContent();
     let clockInstalled = false;
     async function open(mode, ignoreAbort=false) {
+        console.log('GO private Arabic audio scenario: '+mode);
         await page.goto(origin+'/fixture?mode='+encodeURIComponent(mode)+(ignoreAbort?'&ignoreabort=1':''));
         if (!clockInstalled) { await page.clock.install(); clockInstalled = true; }
         await page.locator('[data-hud-commands-toggle]').click();
