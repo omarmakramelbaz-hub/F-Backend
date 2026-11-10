@@ -169,6 +169,58 @@ class PackageTests(unittest.TestCase):
                 self.assertNotIn('public/dashboard/js/go-hologram.js', [c['path'] for c in changes])
                 self.assertNotIn('resources/views/admin/login.blade.php', [c['path'] for c in changes])
 
+    def test_provider_hook_preserves_live_observers_and_crlf(self):
+        import subprocess
+        manifest = json.loads((HERE / 'manifest.json').read_text())
+        provider_entry = next(entry for entry in manifest['files'] if entry['path'] == PROVIDER)
+        loader = "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n"
+        arabic = "        $this->loadRoutesFrom(base_path('routes/hologram_arabic_voice.php'));\n"
+        observer = '        User::observe(\\App\\Observers\\CustomerDirectoryUserObserver::class);\n'
+        self.assertEqual(provider_entry['edits'], [{'before': loader, 'after': loader + arabic}])
+        self.assertEqual(provider_entry['unique_after'], ['routes/hologram_arabic_voice.php'])
+        baseline = subprocess.check_output(['git', 'show', D.BASE_REVISION + ':' + PROVIDER], cwd=HERE.parents[1]).decode()
+        variants = [baseline.replace(observer, ''),
+                    baseline.replace(loader, loader + '\n'),
+                    baseline.replace(observer, '        User::observe(\\App\\Observers\\LiveCustomerObserver::class);\n')]
+        for variant in variants:
+            for newline in ['\n', '\r\n']:
+                with self.subTest(variant=variants.index(variant), newline=newline), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary); target = root / PROVIDER
+                    target.parent.mkdir(parents=True)
+                    before = variant.replace('\n', newline).encode()
+                    expected = variant.replace(loader, loader + arabic, 1).replace('\n', newline).encode()
+                    target.write_bytes(before); target.chmod(0o640)
+                    package = dict(manifest, files=[provider_entry])
+                    D.apply_plan(root, D.plan(root, package), root / 'backup', (os.getuid(), os.getgid()), lambda: None)
+                    self.assertEqual(target.read_bytes(), expected)
+                    self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+                    self.assertEqual(D.plan(root, package)[0]['after'], expected)
+
+    def test_provider_hook_refuses_missing_duplicate_or_conflicting_loaders(self):
+        import subprocess
+        manifest = json.loads((HERE / 'manifest.json').read_text())
+        entry = next(entry for entry in manifest['files'] if entry['path'] == PROVIDER)
+        loader = "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n"
+        baseline = subprocess.check_output(['git', 'show', D.BASE_REVISION + ':' + PROVIDER], cwd=HERE.parents[1]).decode()
+        variants = [baseline.replace(loader, ''), baseline.replace(loader, loader * 2),
+                    baseline + "\n// existing routes/hologram_arabic_voice.php integration\n"]
+        for before in variants:
+            with self.subTest(variant=variants.index(before)), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); target = root / PROVIDER
+                target.parent.mkdir(parents=True); target.write_text(before)
+                with self.assertRaisesRegex(D.ReviewError, 'SOURCE_CHANGED'):
+                    D.plan(root, dict(manifest, files=[entry]))
+                self.assertEqual(target.read_text(), before)
+
+    def test_patch_unique_markers_are_bounded_and_enforced(self):
+        for markers in ['arabic', [None], [''], ['x' * 257], ['a\nb'], ['a'] * 5, ['missing']]:
+            with self.subTest(markers=markers), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); manifest = fixture(root)
+                manifest['files'][0]['unique_after'] = markers
+                with self.assertRaises(D.ReviewError):
+                    D.plan(root, manifest)
+                self.assertEqual((root / PROVIDER).read_bytes(), b'loader();\n// independent source\n')
+
 
 if __name__ == '__main__':
     unittest.main()

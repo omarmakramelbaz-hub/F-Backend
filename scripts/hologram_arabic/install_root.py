@@ -124,6 +124,15 @@ def plan(project, manifest):
                 if after.count(old) != 1 or after.count(new) != 0:
                     raise ReviewError('GO_ARABIC_SOURCE_CHANGED: ' + relative)
                 after = after.replace(old, new, 1)
+            unique = entry.get('unique_after', [])
+            if not isinstance(unique, list) or len(unique) > 4 or any(
+                    not isinstance(marker, str) or not 1 <= len(marker) <= 256
+                    or '\n' in marker or '\r' in marker for marker in unique):
+                raise ReviewError('GO_ARABIC_PATCH_INVALID')
+            # A loader already inserted elsewhere is an overlapping live edit,
+            # even when the original voice-loader line remains unmodified.
+            if any(after.count(marker.encode('utf-8')) != 1 for marker in unique):
+                raise ReviewError('GO_ARABIC_SOURCE_CHANGED: ' + relative)
             # An exact baseline must produce the exact reviewed result. Compatible
             # changes outside the unique fragments are deliberately preserved.
             if digest(before) == entry['before_sha256'] and digest(after) != entry['after_sha256']:

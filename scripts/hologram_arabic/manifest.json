@@ -18,9 +18,12 @@
       "after_sha256": "14fd26c5c7d439a2a943e01ad9e19e2b6d214c27543ec1301a401cac49a1aac6",
       "edits": [
         {
-          "before": "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n        User::observe(\\App\\Observers\\CustomerDirectoryUserObserver::class);\n",
-          "after": "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n        $this->loadRoutesFrom(base_path('routes/hologram_arabic_voice.php'));\n        User::observe(\\App\\Observers\\CustomerDirectoryUserObserver::class);\n"
+          "before": "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n",
+          "after": "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n        $this->loadRoutesFrom(base_path('routes/hologram_arabic_voice.php'));\n"
         }
+      ],
+      "unique_after": [
+        "routes/hologram_arabic_voice.php"
       ]
     },
     {

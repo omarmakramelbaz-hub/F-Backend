@@ -22,6 +22,9 @@ BASE_BLOBS = {
     'resources/views/admin/home_hud.blade.php': '1e09402f1b1e0bf9aa50389fbcfbc6a523e1ead5',
 }
 LIVING_COMMAND_BLOB = 'd4d9aca2f3588e609e243b58ee5560c98b1b87ac'
+PROVIDER = 'app/Providers/AppServiceProvider.php'
+VOICE_LOADER = "        $this->loadRoutesFrom(base_path('routes/hologram_voice.php'));\n"
+ARABIC_LOADER = "        $this->loadRoutesFrom(base_path('routes/hologram_arabic_voice.php'));\n"
 
 
 def baseline(path):
@@ -63,6 +66,14 @@ def build():
             if path in {'app/Providers/AppServiceProvider.php', 'resources/views/admin/home_hud.blade.php'}:
                 data = {'path': path, 'kind': 'patch', 'before_sha256': DEPLOY.digest(before),
                         'after_sha256': DEPLOY.digest(current), 'edits': bounded(before, current)}
+                if path == PROVIDER:
+                    # Only the existing voice loader belongs to this insertion.
+                    # Customer-directory observers differ on the live checkout.
+                    old, new = VOICE_LOADER.encode(), (VOICE_LOADER + ARABIC_LOADER).encode()
+                    if before.count(old) != 1 or current != before.replace(old, new, 1):
+                        raise RuntimeError('Provider changes exceed the reviewed voice-loader insertion')
+                    data['edits'] = [{'before': old.decode(), 'after': new.decode()}]
+                    data['unique_after'] = ['routes/hologram_arabic_voice.php']
             else:
                 data = entry(path, current)
                 data.update(kind='replace', before_sha256=DEPLOY.digest(before))
