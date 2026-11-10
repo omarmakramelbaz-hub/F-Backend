@@ -210,3 +210,9 @@
 #phone-orders.ph-unified.ph-step-number [data-phone-next-number]:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 20px #f5780050;background:linear-gradient(135deg,#f78a1e,#d86000)}
 #phone-orders.ph-unified.ph-step-number [data-phone-next-number] .ph-next-icon{order:2;font-size:13px}
 #phone-orders.ph-unified.ph-step-number [data-phone-next-number] kbd{display:inline-block;order:3;font:700 10px/1 inherit;padding:4px 6px;border-radius:5px;background:#ffffff2e;border:1px solid #ffffff59;color:#fff}
+/* details-no-scroll-20261110: the customer and delivery details show whole, without an inner scroll; the orders board takes the rest */
+#phone-orders.ph-unified.ph-step-details .ph-compose-panel{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:calc(100% - 210px);overflow:auto}
+#phone-orders.ph-unified.ph-step-details .ph-workspace,#phone-orders.ph-unified.ph-step-details .ph-customer{height:auto!important;max-height:none!important;overflow:visible!important}
+#phone-orders.ph-unified.ph-step-details .ph-customer-scroll{overflow:visible!important;max-height:none!important}
+#phone-orders.ph-unified.ph-step-details [data-phone-details-panel]{min-height:0!important}
+#phone-orders.ph-unified.ph-step-details .ph-orders{flex:1 1 auto!important;min-height:200px}
