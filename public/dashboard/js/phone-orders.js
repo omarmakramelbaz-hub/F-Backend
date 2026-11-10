@@ -399,11 +399,16 @@
         try {
             var response = await get(urls.customers, { branch: scope, phone: phone, prefix: prefix ? 1 : 0 }, controller.signal), result = await read(response, 'lookup_error'); if (disposed || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || locked()) return;
             var matches = result.matches || result.customers || result.items || []; resultBox.replaceChildren(); if (!matches.length) { resultBox.textContent = text('lookup_empty'); return; }
-            suggestionIndex = -1; resultBox.appendChild(element('p', '', text('lookup_found'))); matches.forEach(function (customer, index) {
+            suggestionIndex = -1; var hint = element('p', 'ph-sug-head'); hint.appendChild(element('b', '', matches.length + (matches.length === 1 ? ' عميل' : ' عملاء'))); hint.appendChild(element('span', '', text('lookup_found'))); resultBox.appendChild(hint); resultBox.classList.add('ph-sug-list'); matches.forEach(function (customer, index) {
                 var customerBranch = scope === 'all' && customer.branch ? (boot.branches || []).find(function (option) { return option.value === customer.branch && Array.from(branchSelect.options).some(function (option) { return option.value === customer.branch; }); }) : null;
                 var button = element('button'); button.type = 'button'; button.dataset.phoneSuggestion = String(index);
-                button.appendChild(element('bdi', '', customer.phone)); button.appendChild(element('strong', '', customer.name)); button.appendChild(element('small', '', customer.address || text('address_placeholder')));
-                if (customerBranch) button.appendChild(element('small', '', customerBranch.name));
+                // A tidy row: initial, name and number, the saved address, its branch, and a pick hint.
+                var initial = String(customer.name || '').trim().charAt(0) || '؟', main = element('span', 'ph-sug-main'), line = element('span', 'ph-sug-line');
+                button.appendChild(element('span', 'ph-sug-avatar', initial));
+                line.appendChild(element('strong', '', customer.name || '—')); line.appendChild(element('bdi', '', customer.phone)); main.appendChild(line);
+                main.appendChild(element('small', 'ph-sug-address', customer.address || text('address_placeholder')));
+                if (customerBranch) main.appendChild(element('small', 'ph-sug-branch', customerBranch.name));
+                button.appendChild(main); button.appendChild(element('span', 'ph-sug-pick', 'اختيار'));
                 if (scope === 'all' && customer.branch && !customerBranch) { button.dataset.noAccess = ''; button.disabled = true; }
                 button.addEventListener('click', function () { if (disposed || locked() || generation !== customerGeneration || requestedBranch !== branch || phone !== fields.customer_phone.value.trim() || scope === 'all' && customer.branch && !customerBranch) return;
                     if (customerBranch) {

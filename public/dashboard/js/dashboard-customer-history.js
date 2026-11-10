@@ -11,7 +11,7 @@
         if (document.getElementById('go-history-styles')) return;
         var s = el('style'); s.id = 'go-history-styles';
         s.textContent = '.go-history-open{position:fixed;left:16px;bottom:12px;z-index:2147479000;border:0;border-radius:20px;padding:7px 14px;background:#10274a;color:#fff;font:700 12px Almarai,Tahoma,sans-serif;box-shadow:0 6px 18px #10274a40;cursor:pointer}'
-            + '.go-history-link{border:0;background:transparent;color:#175abb;text-decoration:underline;font-size:12px;padding:2px 4px;cursor:pointer}'
+            + '.go-history-link{white-space:nowrap;flex:0 0 auto;border:0;background:transparent;color:#175abb;text-decoration:underline;font-size:12px;padding:2px 4px;cursor:pointer}'
             + '.go-history{direction:rtl;border:0;border-radius:12px;padding:0;width:min(760px,95vw);max-height:85vh;box-shadow:0 20px 50px #0004;font-family:Almarai,Tahoma,sans-serif}'
             + '.go-history::backdrop{background:#0b142380}.go-history header{display:flex;gap:8px;align-items:center;padding:12px 14px;background:#10274a;color:#fff}'
             + '.go-history header h2{flex:1;margin:0;font-size:15px;color:#fff}.go-history header button{border:0;background:transparent;color:#fff;font-size:22px;cursor:pointer}'

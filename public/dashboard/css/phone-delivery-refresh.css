@@ -178,3 +178,35 @@
 /* A branch account's own branch among the others. */
 .ph-rating-card.is-own{background:transparent;box-shadow:none}
 .ph-rating-own{font-style:normal;font-size:10px;font-weight:700;margin-inline-start:6px;padding:0 6px;border-radius:8px;background:#10274a;color:#fff}
+/* customer-suggestions-20261110: a tidy list of saved customers under the number */
+#phone-orders .ph-lookup-result.ph-sug-list{max-height:330px;overflow:auto;padding:6px;border:1px solid #e1e7ef;border-radius:12px;background:#fff;box-shadow:0 14px 34px #10274a1f;font-size:12px;line-height:1.5}
+#phone-orders .ph-sug-head{position:sticky;top:-6px;z-index:1;display:flex;align-items:center;gap:8px;margin:-6px -6px 4px!important;padding:8px 12px;background:#f6f8fb;border-bottom:1px solid #e8edf3;border-radius:12px 12px 0 0;color:#6c7a91;font-size:11px}
+#phone-orders .ph-sug-head b{background:#10274a;color:#fff;border-radius:999px;padding:2px 9px;font-size:11px}
+#phone-orders .ph-lookup-result.ph-sug-list button{display:flex;flex-wrap:nowrap;align-items:center;gap:12px;width:100%;margin:0;padding:9px 12px;border:0;border-bottom:1px solid #eef1f5;border-radius:8px;background:#fff;color:#192e47;text-align:start;transition:background .12s}
+#phone-orders .ph-lookup-result.ph-sug-list button:last-child{border-bottom:0}
+#phone-orders .ph-lookup-result.ph-sug-list button:hover,#phone-orders .ph-lookup-result.ph-sug-list button.is-highlighted,#phone-orders .ph-lookup-result.ph-sug-list button:focus-visible{background:#fff4e8;border-color:transparent;box-shadow:inset 3px 0 0 #f57800}
+#phone-orders .ph-lookup-result.ph-sug-list button:disabled{opacity:.55;cursor:not-allowed}
+#phone-orders .ph-sug-avatar{flex:0 0 36px;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#eaf2ff;color:#2559a8;font-weight:800;font-size:15px}
+#phone-orders .ph-lookup-result.ph-sug-list button.is-highlighted .ph-sug-avatar,#phone-orders .ph-lookup-result.ph-sug-list button:hover .ph-sug-avatar{background:#f57800;color:#fff}
+#phone-orders .ph-sug-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+#phone-orders .ph-sug-line{display:flex;align-items:baseline;gap:10px;min-width:0}
+#phone-orders .ph-lookup-result.ph-sug-list .ph-sug-line strong{font-size:14px;font-weight:800;color:#10274a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone-orders .ph-lookup-result.ph-sug-list .ph-sug-line bdi{font-size:13px;font-weight:700;color:#4a5b72;direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+#phone-orders .ph-lookup-result.ph-sug-list small.ph-sug-address{width:auto;font-size:11.5px;color:#6c7a91;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone-orders .ph-lookup-result.ph-sug-list small.ph-sug-address::before{content:'\f3c5';font-family:'Font Awesome 5 Free';font-weight:900;margin-inline-end:6px;color:#f57800;font-size:10px}
+#phone-orders .ph-lookup-result.ph-sug-list small.ph-sug-branch{align-self:flex-start;width:auto;padding:1px 8px;border-radius:999px;background:#eef2f7;color:#4a5b72;font-size:10.5px}
+#phone-orders .ph-sug-pick{flex:0 0 auto;padding:4px 10px;border-radius:7px;border:1px solid #e1e6ee;color:#7a8799;font-size:11px;font-weight:700;opacity:0;transition:opacity .12s}
+#phone-orders .ph-lookup-result.ph-sug-list button:hover .ph-sug-pick,#phone-orders .ph-lookup-result.ph-sug-list button.is-highlighted .ph-sug-pick{opacity:1;border-color:#f57800;color:#f57800;background:#fff}
+/* number-row-20261110: one height and a cleaner look for the number, search, history and «تسجيل البيانات» */
+#phone-orders.ph-unified.ph-step-number .ph-lookup{align-items:stretch;gap:8px}
+#phone-orders.ph-unified.ph-step-number [data-phone-field=customer_phone]{height:44px;min-height:44px;border:1.5px solid #d6dee9;border-radius:10px;background:#fff;font-size:20px;font-weight:700;letter-spacing:.5px;padding:6px 14px;transition:border-color .15s,box-shadow .15s}
+#phone-orders.ph-unified.ph-step-number [data-phone-field=customer_phone]:focus{border-color:#f57800;box-shadow:0 0 0 4px #f5780022;outline:none}
+#phone-orders.ph-unified.ph-step-number .ph-lookup [data-phone-lookup]{flex:0 0 44px;height:44px;border:0;border-radius:10px;background:#10274a;color:#fff;font-size:15px;display:grid;place-items:center}
+#phone-orders.ph-unified.ph-step-number .ph-lookup [data-phone-lookup]:hover{background:#1d3f6e}
+#phone-orders.ph-unified.ph-step-number .ph-lookup .go-history-link{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 14px;border:1px solid #d6e4fb;border-radius:10px;background:#f1f6ff;color:#175abb;font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap}
+#phone-orders.ph-unified.ph-step-number .ph-lookup .go-history-link::before{content:'\f1da';font-family:'Font Awesome 5 Free';font-weight:900;font-size:13px}
+#phone-orders.ph-unified.ph-step-number .ph-lookup .go-history-link:hover{background:#e3edff}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number]{align-self:flex-end;height:44px;min-height:44px;padding:0 20px;border-radius:10px;background:linear-gradient(135deg,#f78a1e,#e86a00);color:#fff;font-size:14px;font-weight:800;gap:10px;box-shadow:0 6px 16px #f5780038;transition:transform .12s,box-shadow .12s}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number]:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 20px #f5780050;background:linear-gradient(135deg,#f78a1e,#d86000)}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number] .ph-next-icon{order:2;font-size:13px}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number] kbd{display:inline-block;order:3;font:700 10px/1 inherit;padding:4px 6px;border-radius:5px;background:#ffffff2e;border:1px solid #ffffff59;color:#fff}
