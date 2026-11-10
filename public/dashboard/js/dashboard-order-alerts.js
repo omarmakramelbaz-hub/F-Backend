@@ -187,7 +187,7 @@
         var controller = new AbortController(); signalController = controller;
         var before = sequence, timeout = setTimeout(function () { controller.abort(); }, 15000);
         try {
-            var response = await window.fetch(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+            var response = await (window.GoPulse ? window.GoPulse.fetch : window.fetch)(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
             if (!response.ok) return;
             var payload = await response.json();
@@ -206,7 +206,7 @@
             var before = sequence, startedAt = Date.now();
             var timeout = setTimeout(function () { controller.abort(); }, 15000);
             try {
-                var response = await window.fetch(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal, headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                var response = await (window.GoPulse ? window.GoPulse.fetch : window.fetch)(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal, headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
                 if (!response.ok) throw new Error('Order feed unavailable');
                 var payload = await response.json(), html = payload.html !== undefined ? payload.html : payload.view;
                 if (!stopped && Array.isArray(payload.pending_alert_keys)) {

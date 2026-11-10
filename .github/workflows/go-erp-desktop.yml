@@ -52,6 +52,8 @@ on:
       - 'resources/views/admin/dining/index.blade.php'
       - 'tests/order_alerts_shared_feed_test.js'
       - 'tests/order_alerts_delivery_tone_test.js'
+      - 'tests/dashboard_pulse_test.js'
+      - 'public/dashboard/js/dashboard-pulse.js'
       - 'public/dashboard/js/order-board.js'
       - 'resources/views/admin/orders/board_card.blade.php'
       - 'app/Services/Dashboard/HomeHologramMetrics.php'
@@ -137,6 +139,7 @@ jobs:
         run: |
           node tests/order_alerts_shared_feed_test.js
           node tests/order_alerts_delivery_tone_test.js
+          node tests/dashboard_pulse_test.js
       - name: An item's quantity in an invoice (".5", "0,5" and Arabic digits are read; money boxes never touched)
         run: node tests/pos_line_quantity_test.js
       - name: The dashboard's own attendance rules still pass (BranchPayroll gained the device punch option)

@@ -14,7 +14,7 @@
             options.headers['X-CSRF-TOKEN'] = csrf ? csrf.content : '';
             options.body = JSON.stringify(data);
         }
-        return fetch(url, options).then(function (response) {
+        return (window.GoPulse ? window.GoPulse.fetch : fetch)(url, options).then(function (response) {
             if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/json')) { var failure = new Error('Inbox unavailable'); failure.status = response.status; throw failure; }
             return response.json();
         }).then(function (result) { if (!result.success) throw new Error('Inbox unavailable'); return result; });

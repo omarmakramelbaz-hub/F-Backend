@@ -1701,3 +1701,19 @@ test('a delivery order placed offline and still out when the internet is back mo
   assert.deepEqual([moved.status, moved.location], [302, `${ORIGIN}/admin/phone-orders/tickets/88`]);
   assert.deepEqual((await ask('GET', '/admin/phone-orders/board?branch=f:100')).json.columns.courier.items, [], 'It shows from the dashboard\'s copy now');
 });
+
+test('the dashboard\'s combined check (pulse) is never kept, so offline it fails and each check is answered from the device', async () => {
+  const { DashboardOffline } = require('../src/main/offline/interceptor.cjs');
+  const { PageCache } = require('../src/main/offline/cache.cjs');
+  const ORIGIN = 'https://fasakhaninja.com';
+  const cache = new PageCache(':memory:', { now: () => new Date('2026-11-10T12:00:00Z') });
+  const user = { id: 4, name: 'عمر' };
+  const offline = new DashboardOffline({ origin: ORIGIN, cache, pages: [], user: () => user });
+  const pulse = ORIGIN + '/admin/dashboard/pulse?r%5B0%5D%5Bu%5D=%2Fadmin%2FgetOrders&r%5B1%5D%5Bu%5D=%2Fadmin%2Fphone-orders%2Flate';
+  // Online: the server sends the pulse as plain text, which is not kept (a JSON answer of the same address would be).
+  assert.equal(offline.plan({ url: pulse, headers: {} }, 'Fetch', [{ name: 'Content-Type', value: 'text/plain; charset=UTF-8' }]), null);
+  assert.ok(offline.plan({ url: pulse, headers: {} }, 'Fetch', [{ name: 'Content-Type', value: 'application/json' }]));
+  // Offline: no copy, so the page is told the internet is needed and sends each check on its own.
+  const answer = await offline.answer({}, { request: { url: pulse, method: 'GET', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }, resourceType: 'Fetch' }, true);
+  assert.equal(answer.status, 503);
+});

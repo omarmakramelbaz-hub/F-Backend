@@ -18,7 +18,7 @@
         controller = new AbortController();
         var timeout = setTimeout(function () { controller.abort(); }, 10000);
         try {
-            var response = await fetch(address.href, {credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
+            var response = await (window.GoPulse ? window.GoPulse.fetch : fetch)(address.href, {credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
             if ([401,403,419].includes(response.status)) { stopped = true; badge.hidden = true; return; }
             if (!response.ok) return;
             var data = await response.json();

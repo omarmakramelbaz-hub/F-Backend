@@ -30,7 +30,7 @@
             options.headers['X-CSRF-TOKEN'] = document.querySelector('meta[name="csrf-token"]').content;
             options.body = JSON.stringify(values);
         }
-        try { var response = await fetch(address(url), options); var result = await response.json(); if (!response.ok || !result.success) { var error = new Error('Print request failed'); error.status = response.status; throw error; } return result; }
+        try { var response = await (window.GoPulse ? window.GoPulse.fetch : fetch)(address(url), options); var result = await response.json(); if (!response.ok || !result.success) { var error = new Error('Print request failed'); error.status = response.status; throw error; } return result; }
         finally { clearTimeout(timeout); }
     }
     function report(status) {
@@ -86,6 +86,11 @@
             if (!leads()) { report(boot.labels.ready); return; }
             cycle++;
             var url = new URL(address(boot.jobs)); url.searchParams.set('branch',boot.branch);
+            // The shift closings' and the store orders' lists (every 4th round) are asked together with this one, so they
+            // travel in the same pulse; they print in the same order as before, after this list's jobs.
+            var also = cycle % 4 === 1, shiftList = null, appList = null;
+            if (also && boot.shifts) { var shiftUrl = new URL(address(boot.shifts.jobs)); shiftUrl.searchParams.set('branch', boot.branch); shiftList = request(shiftUrl.href); shiftList.catch(function () {}); }
+            if (also && boot.apps) { var appUrl = new URL(address(boot.apps.jobs)); appUrl.searchParams.set('branch', boot.branch); appList = request(appUrl.href); appList.catch(function () {}); }
             var result = await request(url.href);
             if (stopped) return;
             state.latest = result.latest_ticket_id;
@@ -107,8 +112,8 @@
             latest = state.latest;
             report(result.attention ? boot.labels.attention : boot.labels.ready);
             await processJobs(result.jobs || [],boot);
-            if(boot.shifts&&cycle%4===1){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
-            if(boot.apps&&cycle%4===1){var appUrl=new URL(address(boot.apps.jobs));appUrl.searchParams.set('branch',boot.branch);var apps=await request(appUrl.href);if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
+            if(shiftList){var shifts=await shiftList;if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
+            if(appList){var apps=await appList;if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
         } catch (_) { if (!stopped) report(boot.labels.offline); }
         finally { polling = false; if (!stopped) timer = setTimeout(poll, goPace(8000, 30000)); } // server load: 8 s, 30 s on an untouched device
     }

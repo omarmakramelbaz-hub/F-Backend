@@ -187,6 +187,7 @@ $(document).ready(function() {
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
 <script src="{{ asset('dashboard/js/dashboard-session-expiry.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-session-expiry.js')) }}" data-login="{{ url('admin/login') }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-pulse.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-pulse.js')) }}" data-pulse-url="{{ route('dashboard.pulse') }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-order-alerts.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-order-alerts.js')) }}" data-sound-url="{{ asset('sounds/mixkit-correct-answer-reward-952.wav') }}" data-sound-actor="{{ auth('admin')->user()->id }}" data-sound-feed="{{ route('getOrders', ['alerts_only' => 1]) }}"></script>
 @php($goLateFeed = (function () { try { return \Illuminate\Support\Facades\Route::has('phone-orders.late') && app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()); } catch (\Throwable $error) { return false; } })())
 @if($goLateFeed)

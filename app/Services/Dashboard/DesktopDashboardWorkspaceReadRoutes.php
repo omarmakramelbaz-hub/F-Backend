@@ -60,6 +60,8 @@ final class DesktopDashboardWorkspaceReadRoutes
             'chooseType'=>'admin/choose_type','chooseTypeChange'=>'admin/choose_type/change','loginPage'=>'admin/login',
             'adminLogout'=>'admin/adminLogout','changeLang'=>'change-language/{lang}']as$method=>$uri)
             $add('HomeController',$method,[$uri],in_array($method,['loginPage','adminLogout','chooseType','chooseTypeChange','changeLang'],true)?'session':'actor-scoped');
+        // The dashboard's combined check: each check inside it goes through its own route's policy again.
+        $add('DashboardPulseController','index',['admin/dashboard/pulse'],'actor-scoped');
         $add('HomeController','adminWallet',['admin/admin_wallet'],'central-financial');
         $add('HomeController','resturantControl',['admin/resturantControl'],'journal-mutation');
         $add('HomeController','generatQr',['generate-qr/{ticket}'],'unavailable');

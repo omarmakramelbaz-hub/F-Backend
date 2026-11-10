@@ -817,6 +817,53 @@ class DashboardOrderBoardTest extends TestCase
             ->assertJsonStructure(['html', 'counts', 'updated_at']);
     }
 
+    public function test_one_pulse_answers_each_check_exactly_as_its_own_request(): void
+    {
+        $this->legacy(1);
+        $this->store();
+        $this->services();
+        $this->actingAs($this->actor(10), 'admin');
+        $direct = $this->getJson(route('getOrders'))->assertOk();
+        $pulse = $this->getJson(route('dashboard.pulse', ['r' => [
+            ['u' => '/admin/getOrders', 'a' => 'application/json', 'x' => '1'],
+            ['u' => '/admin/getOrders?alerts_only=1', 'a' => 'application/json', 'x' => '1'],
+            ['u' => '/admin/dashboard', 'a' => 'application/json', 'x' => '1'],
+            ['u' => 'https://example.com/admin/getOrders'],
+            ['u' => '/admin/no-such-check'],
+        ]]))->assertOk()->assertHeader('Cache-Control', 'no-store, private');
+        // Plain text, which the desktop program never keeps as an offline copy.
+        $this->assertStringStartsWith('text/plain', $pulse->headers->get('Content-Type'));
+        $answers = json_decode($pulse->getContent(), true)['answers'];
+        $this->assertCount(5, $answers);
+        $this->assertSame(200, $answers[0]['status']);
+        $this->assertStringContainsString('application/json', $answers[0]['type']);
+        $same = fn (array $data) => \Illuminate\Support\Arr::except($data, ['updated_at']);
+        $this->assertSame($same($direct->json()), $same(json_decode($answers[0]['body'], true)), 'The same answer as its own request');
+        $this->assertSame($same($this->getJson(route('getOrders', ['alerts_only' => 1]))->json()), $same(json_decode($answers[1]['body'], true)));
+        // Only the listed read-only checks, only on this site.
+        $this->assertSame([400, 400, 404], [$answers[2]['status'], $answers[3]['status'], $answers[4]['status']]);
+        // A pulse carries at least one and at most eight checks.
+        $this->getJson(route('dashboard.pulse'))->assertStatus(422);
+        $this->getJson(route('dashboard.pulse', ['r' => array_fill(0, 9, ['u' => '/admin/getOrders'])]))->assertStatus(422);
+    }
+
+    public function test_a_pulse_keeps_each_checks_own_permissions(): void
+    {
+        if (!Schema::hasTable('branch_operation_commands')) { require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up(); }
+        DB::table('resturants')->insert([['id' => 301, 'name' => 'فرع شبرا', 'user_id' => 11, 'parent_id' => null],
+            ['id' => 94, 'name' => 'فرع المحلة', 'user_id' => 11, 'parent_id' => null]]);
+        foreach ([[50, 301], [51, 94]] as [$id, $branch]) DB::table('users')->insert(['id' => $id, 'name' => 'Branch '.$branch,
+            'account_type' => 'admin', 'app_scope' => 'fasakhansta', 'status' => 'accepted', 'owner_resturant_id' => $branch]);
+        $check = ['u' => '/admin/app-order-print/jobs?branch=f:301', 'a' => 'application/json', 'x' => '1'];
+        // Another branch's device never sees Shubra's prints, through a pulse either.
+        $this->actingAs($this->actor(51), 'admin');
+        $this->assertSame(404, json_decode($this->getJson(route('dashboard.pulse', ['r' => [$check]]))->assertOk()->getContent(), true)['answers'][0]['status']);
+        $this->actingAs($this->actor(50), 'admin');
+        $answer = json_decode($this->getJson(route('dashboard.pulse', ['r' => [$check]]))->assertOk()->getContent(), true)['answers'][0];
+        $this->assertSame(200, $answer['status']);
+        $this->assertSame($this->getJson(route('app-order-print.jobs', ['branch' => 'f:301']))->json(), json_decode($answer['body'], true));
+    }
+
     public function test_default_board_keeps_older_open_orders_visible_until_a_date_is_selected(): void
     {
         $this->legacy(1, ['created_at' => now()->subDays(2)]);

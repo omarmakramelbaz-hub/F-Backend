@@ -58,7 +58,7 @@
         if (controller) controller.abort();
         controller = new AbortController(); var abort = controller, limit = setTimeout(function () { abort.abort(); }, 20000);
         try {
-            var response = await fetch(feed, { credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, cache: 'no-store', signal: abort.signal });
+            var response = await (window.GoPulse ? window.GoPulse.fetch : fetch)(feed, { credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, cache: 'no-store', signal: abort.signal });
             if (!response.ok) return;
             var result = await response.json();
             if (!result || !Array.isArray(result.orders)) return;
