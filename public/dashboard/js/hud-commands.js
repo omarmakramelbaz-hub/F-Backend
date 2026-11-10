@@ -36,16 +36,13 @@
         var header = node('div', '', 'hud-command-header'), title = node('strong', 'أنا معاك'), close = node('button', 'إغلاق', 'hud-command-close'); close.type = 'button';
         header.append(title, close);
         var hint = node('p', 'افتح العملاء · عدد العملاء كام؟ · رصيد الفروع كام؟', 'hud-command-hint');
-        var form = node('form', '', 'hud-command-form'), input = node('input');
-        input.type = 'text'; input.maxLength = 120; input.autocomplete = 'off'; input.placeholder = 'اكتب أمرك هنا'; input.setAttribute('aria-label', 'الأمر المطلوب'); input.dataset.hudCommandInput = '';
-        var submit = node('button', 'تنفيذ'); submit.type = 'submit';
         var mic = node('button', 'اتكلم', 'hud-command-mic'); mic.type = 'button'; mic.setAttribute('aria-pressed', 'false'); mic.dataset.hudCommandMic = '';
         var stopButton = node('button', 'إيقاف الصوت', 'hud-command-stop'); stopButton.type = 'button';
         var controls = node('div', '', 'hud-command-controls'); controls.append(mic, stopButton);
         var status = node('p', 'أقدر أفتح الأقسام وأقرأ الملخص الظاهر لحسابك.', 'hud-command-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.dataset.hudCommandStatus = '';
-        var note = node('p', Recognition ? 'قد يستخدم المتصفح خدمة إنترنت للتعرّف على كلامك. الميكروفون يعمل عند الضغط فقط.' : 'المتصفح لا يدعم التعرّف الصوتي هنا؛ اكتب الأمر في الخانة.', 'hud-command-note');
+        var note = node('p', Recognition ? 'قد يستخدم المتصفح خدمة إنترنت للتعرّف على كلامك. الميكروفون يعمل عند الضغط فقط.' : 'التعرّف الصوتي غير متاح في المتصفح ده. افتح GO من متصفح يدعم الأوامر الصوتية.', 'hud-command-note');
         if (!Recognition) { mic.disabled = true; mic.textContent = 'الصوت غير متاح'; }
-        form.append(input, submit); panel.append(header, hint, form, controls, status, note); root.append(toggle, panel);
+        panel.append(header, hint, controls, status, note); root.append(toggle, panel);
         function on(target, event, fn) { target.addEventListener(event, fn); remove.push(function () { target.removeEventListener(event, fn); }); }
         function active() { return !dead && root.isConnected && !root.hidden && !document.hidden && (document.body.dataset.dashboardActor || '') === actor; }
         function robotSpeaking(value) { if (typeof options.setSpeaking === 'function') options.setSpeaking(value); }
@@ -90,7 +87,7 @@
             if (current !== speechEpoch || !active()) return;
             function unavailable() {
                 clearVoiceWait();
-                if (current === speechEpoch && active() && !expireRead()) status.textContent += ' الرد النصي متاح؛ لا يوجد صوت عربي جاهز على الجهاز.';
+                if (current === speechEpoch && active() && !expireRead()) status.textContent += ' لا يوجد صوت عربي جاهز على الجهاز؛ فعّل صوتًا عربيًا من إعدادات الجهاز.';
             }
             // System voices are frequently populated asynchronously on the first request.
             if (window.speechSynthesis.addEventListener) {
@@ -133,7 +130,7 @@
         function execute(text) {
             if (!active()) return false;
             lastReadCard = null; stopMic(); stopSpeech(); duck();
-            var raw = clean(text); input.value = raw.slice(0, 120);
+            var raw = clean(text);
             var command = normalize(raw);
             // Fixed grammar: no arbitrary URLs, fuzzy matches, or inferred mutations.
             command = command.replace(/^(يا (جو|جيو|go) |لو سمحت |من فضلك |ممكن )+/, '').replace(/ (لو سمحت|من فضلك)$/, '');
@@ -155,7 +152,7 @@
             // A redundant question suffix is accepted, but compound requests are not.
             term = term.replace(/ (?:كام|كم|قد ايه)$/, '');
             var matches = targetCards(term);
-            if (matches.length !== 1) { reply(matches.length ? 'الأمر يحتمل أكثر من قسم. اكتب اسم القسم كما يظهر على الكارت.' : 'القسم أو الأمر ده مش متاح ضمن الأقسام الظاهرة لحسابك.'); return false; }
+            if (matches.length !== 1) { reply(matches.length ? 'الأمر يحتمل أكثر من قسم. قول اسم القسم كما يظهر على الكارت.' : 'القسم أو الأمر ده مش متاح ضمن الأقسام الظاهرة لحسابك.'); return false; }
             var card = matches[0], label = clean((card.querySelector('.hud-card-label') || {}).textContent);
             if (intent === 'open') {
                 if (!allowed(card)) { reply('القسم ده غير متاح للفتح من هنا.'); return false; }
@@ -180,7 +177,7 @@
             if (listening || recognition) { stopMic(); reply('تم إيقاف الميكروفون.', false); return; }
             lastReadCard = null; stopSpeech(); duck();
             var session = ++epoch, rec;
-            try { rec = new Recognition(); } catch (_) { reply('تعذّر تشغيل الميكروفون. اكتب الأمر بدلًا منه.', false); return; }
+            try { rec = new Recognition(); } catch (_) { reply('تعذّر تشغيل الميكروفون. اضغط اتكلم وحاول تاني.', false); return; }
             recognition = rec; rec.lang = 'ar-EG'; rec.continuous = false; rec.interimResults = false; rec.maxAlternatives = 1;
             mic.setAttribute('aria-pressed', 'true'); mic.textContent = 'إيقاف الاستماع'; panel.classList.add('listening');
             status.textContent = 'جار طلب الميكروفون…';
@@ -194,20 +191,19 @@
             rec.onerror = function (event) {
                 if (session !== epoch) return;
                 var code = event.error; stopMic();
-                var message = code === 'not-allowed' || code === 'service-not-allowed' ? 'الميكروفون غير مسموح. فعّله من إعدادات المتصفح أو اكتب الأمر.' : code === 'network' ? 'تعذّر الاتصال بخدمة التعرّف الصوتي. اكتب الأمر أو حاول لاحقًا.' : code === 'no-speech' ? 'ما سمعتش أمر واضح. جرّب تاني أو اكتب الأمر.' : 'التعرّف الصوتي غير متاح الآن. اكتب الأمر بدلًا منه.';
+                var message = code === 'not-allowed' || code === 'service-not-allowed' ? 'الميكروفون غير مسموح. فعّله من إعدادات المتصفح واضغط اتكلم.' : code === 'network' ? 'تعذّر الاتصال بخدمة التعرّف الصوتي. تحقق من الاتصال وحاول لاحقًا.' : code === 'no-speech' ? 'ما سمعتش أمر واضح. اضغط اتكلم وقول الأمر تاني.' : 'التعرّف الصوتي غير متاح الآن. حاول لاحقًا.';
                 reply(message, false);
             };
-            rec.onnomatch = function () { if (session !== epoch) return; stopMic(); reply('ما فهمتش الأمر. جرّب تاني أو اكتبه.', false); };
+            rec.onnomatch = function () { if (session !== epoch) return; stopMic(); reply('ما فهمتش الأمر. اضغط اتكلم وقول الأمر تاني.', false); };
             rec.onend = function () { if (session !== epoch) return; stopMic(); reply('انتهى الاستماع. تقدر تضغط اتكلم وتحاول تاني.', false); };
-            micTimer = window.setTimeout(function () { if (session !== epoch) return; stopMic(); reply('انتهى وقت الاستماع. اكتب الأمر أو اضغط اتكلم من جديد.', false); }, 15000);
-            try { rec.start(); } catch (_) { stopMic(); reply('تعذّر تشغيل الميكروفون. اكتب الأمر بدلًا منه.', false); }
+            micTimer = window.setTimeout(function () { if (session !== epoch) return; stopMic(); reply('انتهى وقت الاستماع. اضغط اتكلم من جديد.', false); }, 15000);
+            try { rec.start(); } catch (_) { stopMic(); reply('تعذّر تشغيل الميكروفون. اضغط اتكلم وحاول تاني.', false); }
         }
         function setOpen(open) {
             if (dead) return; panel.hidden = !open; toggle.setAttribute('aria-expanded', String(open));
-            if (open) input.focus({preventScroll: true}); else { stop(); if (active()) toggle.focus({preventScroll: true}); }
+            if (open) (mic.disabled ? close : mic).focus({preventScroll: true}); else { stop(); if (active()) toggle.focus({preventScroll: true}); }
         }
         on(toggle, 'click', function () { setOpen(panel.hidden); }); on(close, 'click', function () { setOpen(false); });
-        on(form, 'submit', function (event) { event.preventDefault(); execute(input.value); });
         on(mic, 'click', startMic); on(stopButton, 'click', function () { duck(); stop(); reply('تم إيقاف الصوت والميكروفون.', false); });
         on(panel, 'keydown', function (event) { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); } });
         on(document, 'visibilitychange', function () { if (document.hidden) stop(); });

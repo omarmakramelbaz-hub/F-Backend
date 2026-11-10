@@ -6,12 +6,12 @@ sidebar. The approved rendered artwork supplies the facial detail; the canvas
 supplies the animated three-dimensional particle layers and response effects.
 The face does not rotate. It is not a general conversational AI model.
 
-The command panel supports selected Arabic commands from a microphone button or
-a typed command. Destinations come from the current account's authorized cards;
+The command panel supports selected Arabic commands from a microphone button.
+Interaction is voice-only, with no text input. Destinations come from the current account's authorized cards;
 metric answers read the values currently displayed. Command responses use an
 available Arabic browser voice. The existing named English login greeting and
 its private voice worker remain separate and unchanged. Microphone support and
-Arabic voices depend on the browser/device; the text controls remain available.
+Arabic voices depend on the browser/device; status messages explain missing support.
 
 ## Scope
 

@@ -5,13 +5,11 @@
 #go-hud .hud-command-header{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#ecfbff;font-size:15px}
 #go-hud .hud-command-close{border:0;background:transparent;color:#95b8c5;padding:4px;font:inherit;font-size:11px;cursor:pointer}
 #go-hud .hud-command-hint{margin:12px 0;color:#94c9d9;font-size:11px;line-height:1.8}
-#go-hud .hud-command-form{display:flex;gap:7px}
-#go-hud .hud-command-form input{width:100%;min-width:0;min-height:41px;padding:8px 11px;color:#f0fcff;background:#010c16;border:1px solid #245366;border-radius:8px;font:inherit;font-size:12px}
-#go-hud .hud-command-form input::placeholder{color:#7a9daa}
-#go-hud .hud-command-form button,#go-hud .hud-command-controls button{min-height:38px;padding:7px 12px;border:1px solid #297d8e;border-radius:8px;background:#063044;color:#dcf9ff;font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
-#go-hud .hud-command-form button:hover,#go-hud .hud-command-controls button:hover{border-color:#57e1ef}
-#go-hud .hud-command-controls{display:flex;gap:8px;margin-top:10px}
-#go-hud .hud-command-controls .hud-command-mic{background:#073945;color:#a9f5ff}
+#go-hud .hud-command-controls button{min-height:44px;padding:10px 16px;border:1px solid #297d8e;border-radius:10px;background:#063044;color:#dcf9ff;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
+#go-hud .hud-command-controls button:hover{border-color:#57e1ef}
+#go-hud .hud-command-controls{display:flex;gap:8px;margin-top:14px}
+#go-hud .hud-command-controls .hud-command-mic{flex:1;background:#073945;color:#a9f5ff;font-weight:700}
+#go-hud .hud-command-controls button:focus-visible,#go-hud .hud-command-toggle:focus-visible,#go-hud .hud-command-close:focus-visible{outline:2px solid #ff9b22;outline-offset:3px}
 #go-hud .hud-command-controls .hud-command-mic[aria-pressed=true]{border-color:#ff9b22;color:#ffc675;background:#4c2a14}
 #go-hud .hud-command-controls .hud-command-stop{background:transparent;color:#9ebac5;border-color:#294a59}
 #go-hud .hud-command-controls button:disabled{cursor:default;opacity:.55}

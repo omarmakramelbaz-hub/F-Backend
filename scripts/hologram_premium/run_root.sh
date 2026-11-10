@@ -8,7 +8,7 @@ go_premium_revision="$1"
 [[ "$go_premium_revision" =~ ^[0-9a-f]{40}$ ]]
 test "$2" = --apply || test "$2" = --check
 INSTALL_SHA256=17e1f22e7a3d69cbb7d61167629b67e86b42315e7b61513a65d0d98aa2c6c2c2
-MANIFEST_SHA256=5617048a5375db01c3cf940edc9d205c02e1b6d316282362c5f8b70a560d2d56
+MANIFEST_SHA256=a7a52d6107c473884a5b1b9bf650016faec17d23c0754878b2352fbcd8224e52
 go_premium_stage=$(mktemp -d /var/tmp/go-hologram-premium.XXXXXXXX)
 trap 'rm -rf -- "$go_premium_stage"' EXIT
 chmod 0755 "$go_premium_stage"

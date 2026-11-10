@@ -5,17 +5,21 @@ const http = require('node:http'), fs = require('node:fs'), path = require('node
 const repo = path.resolve(__dirname, '../..');
 const js = fs.readFileSync(path.join(repo, 'public/dashboard/js/hud-commands.js'), 'utf8');
 const css = fs.readFileSync(path.join(repo, 'public/dashboard/css/hud-commands.css'), 'utf8');
-function fixture(unsupported) {
+function fixture(mode) {
+    const unsupported = mode === 'unsupported';
     return `<!doctype html><html lang="ar"><meta charset="utf-8"><style>body{margin:0}#go-hud{height:100vh;position:relative;background:#010b14;color:white}${css}</style><body data-dashboard-actor="1:owner"><section id="go-hud"><a class="hud-card" data-hud-key="customers" href="/admin/customers"><span class="hud-card-label">العملاء</span><span class="hud-card-values"><span><b>50,802</b>عميل</span></span></a><a class="hud-card" data-hud-key="drawer" data-balance-state="ready" href="/admin/dashboard#drawers"><span class="hud-card-label">رصيد الفروع</span><span class="hud-card-values"><span><b>-1.05</b>ج.م</span></span></a><a class="hud-card" data-hud-key="stock" href="https://foreign.invalid/steal"><span class="hud-card-label">مخزون البضاعة</span><span class="hud-card-values"><span><b>28</b>صنف</span></span></a><a class="hud-card" data-hud-key="expenses" href="javascript:window.pwned=true"><span class="hud-card-label">المصروفات</span><span class="hud-card-values"><span><b>278</b>مصروف</span></span></a><button data-hud-enter>الدخول للرئيسية</button><div class="hud-live"><span data-hud-scope>جميع الفروع المصرح بها</span></div></section><script>
 window.fixture={spoken:[],cancelled:0,started:0,aborted:0,clicked:[],ducked:0,speaking:[],enter:0,recognizers:[]};
 window.SpeechSynthesisUtterance=function(text){this.text=text;};
 Object.defineProperty(window,'speechSynthesis',{configurable:true,value:{getVoices:()=>[{lang:'en-US',name:'English'},{lang:'ar-EG',name:'Arabic'}],speak:item=>{fixture.spoken.push(item);if(item.onstart)item.onstart();},cancel:()=>fixture.cancelled++}});
-${unsupported ? '' : `window.webkitSpeechRecognition=class{constructor(){fixture.recognizers.push(this);}start(){fixture.started++;this.onstart?.();}abort(){fixture.aborted++;}};`}
+// Override both browser API names: newer Chromium can expose the unprefixed API.
+const RecognitionStub=class{constructor(){fixture.recognizers.push(this);}start(){fixture.started++;this.onstart?.();}abort(){fixture.aborted++;}};
+Object.defineProperty(window,'SpeechRecognition',{configurable:true,value:${unsupported || mode === 'prefixed' ? 'undefined' : 'RecognitionStub'}});
+Object.defineProperty(window,'webkitSpeechRecognition',{configurable:true,value:${unsupported || mode === 'standard' ? 'undefined' : 'RecognitionStub'}});
 document.querySelectorAll('a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();fixture.clicked.push(a.dataset.hudKey);}));
 document.querySelector('[data-hud-enter]').addEventListener('click',()=>fixture.enter++);
 </script><script>${js}</script><script>window.commands=GoHudCommands.mount(document.querySelector('#go-hud'),{duckGreeting:()=>fixture.ducked++,setSpeaking:on=>fixture.speaking.push(on)});</script></body></html>`;
 }
-const server = http.createServer((req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(fixture(req.url.includes('unsupported'))); });
+const server = http.createServer((req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(fixture(new URL(req.url, 'http://fixture.invalid').pathname.slice(1))); });
 let checks = 0;
 function check(value, message) { assert(value, message); checks++; }
 function equal(actual, expected, message) { assert.deepEqual(actual, expected, message); checks++; }
@@ -33,9 +37,13 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         equal(await page.evaluate(() => fixture.started), 0, 'No microphone or speech recognition starts on mount');
         equal(await page.locator('.hud-command-panel').isVisible(), false, 'Optional panel begins closed');
         await page.locator('[data-hud-commands-toggle]').click();
-        check(await page.locator('[data-hud-command-input]').evaluate(e => document.activeElement === e), 'Opening panel focuses typed command input');
-        await page.locator('[data-hud-command-input]').fill('عدد العملاء كام؟'); await page.locator('.hud-command-form button').click();
-        check((await status()).includes('50,802 عميل'), 'Typed command reads current metric with separated number and unit');
+        check(await page.locator('[data-hud-command-mic]').evaluate(e => document.activeElement === e), 'Opening panel focuses microphone without starting it');
+        equal(await page.evaluate(() => fixture.started), 0, 'Opening voice panel does not activate the microphone');
+        equal(await page.locator('.hud-command-panel input, .hud-command-panel textarea, .hud-command-panel form').count(), 0, 'Voice-only panel has no typed command controls');
+        await page.locator('[data-hud-command-mic]').click();
+        equal(await page.evaluate(() => fixture.started), 1, 'An explicit microphone click starts recognition');
+        await page.evaluate(() => { const r = fixture.recognizers.at(-1); const result = [{transcript: 'عدد العملاء كام؟'}]; result.isFinal = true; r.onresult({results: [result], resultIndex: 0}); });
+        check((await status()).includes('50,802 عميل'), 'Final voice phrase reads current metric with separated number and unit');
         check((await status()).includes('جميع الفروع المصرح بها'), 'Read includes actual displayed scope');
         equal(await page.evaluate(() => fixture.spoken.at(-1).lang), 'ar-EG', 'Response selects actual Arabic voice');
         equal(await execute('يا جو لو سمحت افتح العملاء'), true, 'Arabic polite navigation command is supported');
@@ -59,8 +67,9 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         await page.evaluate(() => { const a = document.querySelector('[data-hud-key=customers]').cloneNode(true); document.querySelector('#go-hud').append(a); });
         equal(await execute('افتح العملاء'), false, 'Ambiguous duplicate targets fail closed');
         await page.evaluate(() => document.querySelectorAll('[data-hud-key=customers]')[1].remove());
+        const startsBefore = await page.evaluate(() => fixture.started);
         await page.locator('[data-hud-command-mic]').click();
-        equal(await page.evaluate(() => fixture.started), 1, 'Mic starts only after explicit button click');
+        equal(await page.evaluate(() => fixture.started), startsBefore + 1, 'Mic starts only after explicit button click');
         equal(await page.evaluate(() => { const r = fixture.recognizers.at(-1); return [r.lang, r.continuous, r.interimResults]; }), ['ar-EG', false, false], 'Microphone uses a single final Arabic-Egyptian phrase');
         await page.evaluate(() => { const r = fixture.recognizers.at(-1); const result = [{transcript: 'افتح العملاء'}]; result.isFinal = false; r.onresult({results: [result], resultIndex: 0}); });
         equal(await page.evaluate(() => fixture.clicked.length), clicked, 'Interim recognition results never execute');
@@ -69,7 +78,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         equal(await page.evaluate(() => fixture.recognizers.at(-1).onresult), null, 'Final result detaches callbacks and aborts mic');
         await page.locator('[data-hud-command-mic]').click();
         await page.evaluate(() => fixture.recognizers.at(-1).onerror({error: 'not-allowed'}));
-        check((await status()).includes('غير مسموح'), 'Permission refusal offers typed command fallback');
+        check((await status()).includes('غير مسموح'), 'Permission refusal explains microphone settings');
         equal(await page.locator('[data-hud-command-mic]').getAttribute('aria-pressed'), 'false', 'Permission failure clears listening state');
         await page.locator('[data-hud-command-mic]').click(); await page.clock.runFor(15001);
         check((await status()).includes('انتهى وقت الاستماع'), 'Mic shuts off after bounded 15-second session');
@@ -83,12 +92,12 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         await execute('عدد العملاء كام'); equal(await page.evaluate(() => fixture.spoken.length), spoken, 'Initially empty system voices wait without speaking a wrong language');
         await page.evaluate(() => fixture.voiceReady()); equal(await page.evaluate(() => fixture.spoken.length), spoken + 1, 'First Arabic response starts when voiceschanged provides Arabic voice');
         await page.evaluate(() => fixture.voices = []); await execute('عدد العملاء كام');
-        await page.locator('[data-hud-command-input]').press('Escape');
+        await page.locator('[data-hud-command-mic]').press('Escape');
         spoken = await page.evaluate(() => fixture.spoken.length); await page.evaluate(() => fixture.voiceReady()); await page.clock.runFor(1300);
         equal(await page.evaluate(() => fixture.spoken.length), spoken, 'Closing panel cancels pending voice so late voiceschanged cannot speak');
         await page.locator('[data-hud-commands-toggle]').click();
         await page.evaluate(() => fixture.voices = []); await execute('عدد العملاء كام'); await page.clock.runFor(1201);
-        check((await status()).includes('لا يوجد صوت عربي جاهز'), 'Bounded voice wait gives explicit text-only fallback');
+        check((await status()).includes('لا يوجد صوت عربي جاهز'), 'Bounded voice wait explains missing Arabic voice');
         await page.evaluate(() => fixture.voices = []); await execute('عدد العملاء كام');
         await page.evaluate(() => { fixture.readCard = document.querySelector('[data-hud-key=customers]'); fixture.readCard.remove(); }); await page.evaluate(() => Promise.resolve());
         check(!(await status()).includes('50,802') && (await status()).includes('لم يعد متاحًا'), 'Removing the previously read card immediately clears its private response');
@@ -107,7 +116,7 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         await page.evaluate(() => fixture.readCard.hidden = false);
         await page.evaluate(() => Object.defineProperty(window, 'speechSynthesis', {configurable: true, value: {getVoices: () => [{lang: 'en-US'}], speak: () => fixture.wrongVoice = true, cancel() {}}}));
         await execute('عدد العملاء كام'); equal(await page.evaluate(() => fixture.wrongVoice), undefined, 'No silent English fallback for Arabic speech');
-        await page.locator('[data-hud-command-input]').press('Escape'); equal(await page.locator('.hud-command-panel').isVisible(), false, 'Escape closes optional panel');
+        await page.locator('[data-hud-command-mic]').press('Escape'); equal(await page.locator('.hud-command-panel').isVisible(), false, 'Escape closes optional panel');
         check(await page.locator('[data-hud-commands-toggle]').evaluate(e => document.activeElement === e), 'Closing panel returns keyboard focus to toggle');
         await page.locator('[data-hud-commands-toggle]').click(); await page.locator('[data-hud-command-mic]').click();
         await page.evaluate(() => document.body.dataset.dashboardActor = '2:owner');
@@ -118,12 +127,23 @@ function equal(actual, expected, message) { assert.deepEqual(actual, expected, m
         equal(await page.evaluate(() => commands.execute('افتح العملاء')), false, 'Disposed API cannot execute late actions');
         await page.goto(origin + '/unsupported');
         check(await page.locator('[data-hud-command-mic]').isDisabled(), 'Unsupported recognition has no active microphone control');
-        equal(await execute('افتح العملاء'), true, 'Typed navigation remains available without recognition support');
-        equal(await execute('افتح الرئيسية'), true, 'Home command uses existing enter control'); equal(await page.evaluate(() => fixture.enter), 1, 'Home entry is dispatched once');
+        equal(await page.locator('.hud-command-panel input, .hud-command-panel textarea, .hud-command-panel form').count(), 0, 'Unsupported recognition does not introduce typed controls');
+        equal(await page.evaluate(() => fixture.started), 0, 'Unsupported recognition starts no microphone');
+        check(!(await page.locator('.hud-command-note').textContent()).includes('اكتب'), 'Unsupported voice notice does not offer typed commands');
+        equal(await execute('افتح الرئيسية'), true, 'Home command dispatcher uses existing enter control'); equal(await page.evaluate(() => fixture.enter), 1, 'Home entry is dispatched once');
         equal(await page.evaluate(() => GoHudCommands.mount(document.querySelector('#go-hud')) === commands), true, 'Remount is idempotent');
         await page.locator('[data-hud-commands-toggle]').click();
         await page.setViewportSize({width: 375, height: 812});
-        check(await page.locator('.hud-command-panel').evaluate(e => e.getBoundingClientRect().width <= document.documentElement.clientWidth), 'Typed panel fits mobile viewport');
+        check(await page.locator('.hud-command-panel').evaluate(e => e.getBoundingClientRect().width <= document.documentElement.clientWidth), 'Voice panel fits mobile viewport');
+        for (const mode of ['standard', 'prefixed']) {
+            await page.goto(origin + '/' + mode);
+            equal(await page.evaluate(() => fixture.started), 0, mode + ' recognition never starts on mount');
+            await page.locator('[data-hud-commands-toggle]').click();
+            await page.locator('[data-hud-command-mic]').click();
+            equal(await page.evaluate(() => fixture.started), 1, mode + ' recognition uses the controlled browser service');
+            await page.evaluate(() => { const r = fixture.recognizers.at(-1); const result = [{transcript: 'افتح العملاء'}]; result.isFinal = true; r.onresult({results: [result], resultIndex: 0}); });
+            equal(await page.evaluate(() => fixture.clicked), ['customers'], mode + ' final voice phrase navigates to the authorized section');
+        }
         equal(errors, [], 'No browser runtime errors');
         console.log('GO HUD command browser assertions passed: ' + checks);
     } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

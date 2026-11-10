@@ -25,6 +25,11 @@ const server=http.createServer((req,res)=>{
  try{
   await context.route('**/admin/dashboard/overview?**',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({success:true,hologram:metrics()})}));
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(()=>{
+   window.commandRecognitionFixture={started:0,current:null};
+   const Recognition=class{constructor(){commandRecognitionFixture.current=this;}start(){commandRecognitionFixture.started++;if(this.onstart)this.onstart();}abort(){}};
+   for(const name of ['SpeechRecognition','webkitSpeechRecognition'])Object.defineProperty(window,name,{configurable:true,value:Recognition});
+  });
   const origin='http://127.0.0.1:'+server.address().port;
   for(const [width,height] of [[1920,1080],[1366,768],[1024,768],[820,1180],[700,900],[390,844],[320,568]]){
    await page.setViewportSize({width,height});await page.goto(origin+'/fixture?real=1&silent=1');
@@ -46,9 +51,13 @@ const server=http.createServer((req,res)=>{
    if(width>700)check(state.art.bottom<=state.enter.y+3,'Projection ring clears the enter button');
    await page.screenshot({path:path.join(out,'premium-'+width+'x'+height+'.png'),fullPage:true,animations:'disabled'});
    await page.locator('[data-hud-commands-toggle]').click();
-   await page.locator('[data-hud-command-input]').fill('عدد العملاء كام؟');await page.locator('[data-hud-command-input]').press('Enter');
-   check((await page.locator('[data-hud-command-status]').textContent()).includes('العملاء'),'Typed command reads live card');
-   await page.locator('[data-hud-command-input]').press('Escape');
+   check(await page.locator('#go-hud input,#go-hud textarea,#go-hud form').count()===0,'Voice-only opening has no text entry');
+   await page.locator('[data-hud-command-mic]').click();
+   check(await page.evaluate(()=>commandRecognitionFixture.started===1),'Explicit microphone click starts one recognition session');
+   await page.evaluate(()=>{const r=commandRecognitionFixture.current,result=[{transcript:'عدد العملاء كام؟'}];result.isFinal=true;r.onresult({results:[result],resultIndex:0});});
+   check((await page.locator('[data-hud-command-status]').textContent()).includes('العملاء'),'Recognized voice command reads live card');
+   if(width===1920)await page.screenshot({path:path.join(out,'premium-voice-controls.png'),fullPage:true,animations:'disabled'});
+   await page.locator('[data-hud-command-mic]').press('Escape');
    check(await page.locator('[data-hud-commands-toggle]').evaluate(n=>document.activeElement===n),'Escape closes command panel and returns keyboard focus');
    check(await page.locator('#go-hud').isVisible(),'Closing commands preserves the opening');
   }
