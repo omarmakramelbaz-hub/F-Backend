@@ -213,3 +213,21 @@
     #branch-stock .bs-history,#branch-stock [data-stock-unmapped]{flex-shrink:0}
     #branch-stock .bs-history[open] .bs-table-wrap{max-height:180px}
 }
+/* stock-columns-20261110: heading, tabs and branch move above the entry card; the balances table runs the full height beside them */
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])){display:grid;grid-template-columns:minmax(340px,390px) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-auto-flow:row dense;column-gap:12px;row-gap:8px;align-content:stretch}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > [data-inventory-panel="goods"],
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-layout{display:contents}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading{grid-column:1;grid-row:1;margin:0;display:flex!important;grid-template-columns:none!important;flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading>div:first-child{display:flex;align-items:center;gap:8px}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading p{display:none}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading .bs-tabs{display:flex;width:100%}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading .bs-tabs button{flex:1}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading>label{width:100%}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading>label select{flex:1;min-width:0}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-guidance{grid-column:1;grid-row:2;margin:0}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-entry{grid-column:1;grid-row:3;min-height:0;max-height:none;overflow:auto;align-self:stretch}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-overview{grid-column:2;grid-row:1 / -1;height:auto;min-height:0;align-self:stretch}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-message,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > [data-stock-retry]{grid-column:1}
+}
