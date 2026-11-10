@@ -127,3 +127,59 @@
 #branch-stock .bs-minimum-save:hover { background: #234e72; }
 #branch-stock .bs-minimum-editor small { grid-column: 1 / -1; color: #687c91; font-size: 10px; line-height: 1.6; }
 @media (max-width: 600px) { #branch-stock .bs-balances table { min-width: 580px; } }
+
+/* stock-page-20261110: a cleaner «إضافة بضاعة» page */
+#branch-stock{--bs2-ink:#10274a;--bs2-line:#e6ebf2;--bs2-soft:#f6f8fb;--bs2-orange:#f57800}
+#branch-stock .bs-heading{align-items:center;gap:16px;padding:14px 18px;margin-bottom:12px;background:#fff;border:1px solid var(--bs2-line);border-radius:14px;box-shadow:0 2px 10px #10274a0a}
+#branch-stock .bs-heading h1{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;color:var(--bs2-ink)}
+#branch-stock .bs-heading h1 i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#fff1e1;color:var(--bs2-orange);font-size:18px}
+#branch-stock .bs-heading p{color:#6c7a91;font-size:12px;margin-top:4px}
+#branch-stock .bs-tabs{display:inline-flex;gap:4px;padding:4px;background:var(--bs2-soft);border:1px solid var(--bs2-line);border-radius:12px}
+#branch-stock .bs-tabs button{border:0!important;border-radius:9px!important;padding:9px 18px!important;background:transparent!important;color:#4a5b72!important;font-weight:700;box-shadow:none!important}
+#branch-stock .bs-tabs button[aria-pressed=true]{background:var(--bs2-ink)!important;color:#fff!important;box-shadow:0 4px 12px #10274a33!important}
+#branch-stock .bs-heading>label{font-weight:700;color:#4a5b72;font-size:12px}
+#branch-stock .bs-heading>label select{margin-top:6px;min-height:40px;border-radius:10px;border:1.5px solid #d6dee9;font-weight:700;color:var(--bs2-ink)}
+#branch-stock .bs-guidance{border-radius:12px;padding:10px 14px;background:#f1f6ff;border:1px solid #d6e4fb;color:#2559a8}
+#branch-stock .bs-panel{border:1px solid var(--bs2-line)!important;border-radius:14px!important;box-shadow:0 2px 10px #10274a0a;overflow:hidden}
+#branch-stock .bs-panel>header{padding:14px 18px!important;border-bottom:1px solid var(--bs2-line)!important;background:linear-gradient(180deg,#fff,#fafbfd)}
+#branch-stock .bs-panel>header h2{font-size:17px;font-weight:800;color:var(--bs2-ink);display:flex;align-items:center;gap:8px}
+#branch-stock .bs-panel>header h2::before{content:'';width:4px;height:18px;border-radius:2px;background:var(--bs2-orange)}
+#branch-stock .bs-panel>header p{color:#6c7a91;font-size:12px}
+#branch-stock .bs-entry>header>span{padding:4px 12px;border-radius:999px;background:#fff1e1;color:#b85a00;font-weight:700;font-size:11px}
+#branch-stock .bs-entry form{gap:12px}
+#branch-stock .bs-entry label{font-weight:700;color:#34465b;font-size:12px}
+#branch-stock .bs-entry input,#branch-stock .bs-entry select,#branch-stock .bs-entry textarea{min-height:42px;border:1.5px solid #d6dee9!important;border-radius:10px!important;background:#fff!important;transition:border-color .15s,box-shadow .15s}
+#branch-stock .bs-entry input:focus,#branch-stock .bs-entry select:focus,#branch-stock .bs-entry textarea:focus{border-color:var(--bs2-orange)!important;box-shadow:0 0 0 4px #f5780022!important;outline:none}
+#branch-stock .bs-entry input[name=quantity]{font-size:18px;font-weight:800;direction:ltr;text-align:center;color:var(--bs2-ink)}
+#branch-stock .bs-current{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px!important;border-radius:12px!important;background:linear-gradient(135deg,#10274a,#1d3f6e)!important;color:#c9d6ea!important;border:0!important}
+#branch-stock .bs-current span{font-size:12px;color:#c9d6ea}
+#branch-stock .bs-current strong{font-size:20px;font-weight:800;color:#fff!important}
+#branch-stock .bs-entry-help{border-radius:10px;padding:9px 12px;background:#fff9ed;border:1px solid #f3e1b8;color:#8a5d00;font-size:11.5px;line-height:1.8}
+#branch-stock .bs-primary{min-height:48px;border:0!important;border-radius:12px!important;background:linear-gradient(135deg,#f78a1e,#e86a00)!important;color:#fff!important;font-size:15px;font-weight:800;box-shadow:0 8px 18px #f5780038;transition:transform .12s,box-shadow .12s,opacity .12s}
+#branch-stock .bs-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 10px 22px #f5780050}
+#branch-stock .bs-primary:disabled{opacity:.45;box-shadow:none;transform:none}
+#branch-stock .bs-button{border-radius:10px!important;border:1px solid #d6dee9!important;background:#fff!important;color:var(--bs2-ink)!important;font-weight:700}
+#branch-stock .bs-button:hover:not(:disabled){background:#f1f6ff!important;border-color:#bcd0f0!important}
+#branch-stock .bs-table-wrap{border:0!important}
+#branch-stock .bs-table-wrap table{border-collapse:separate;border-spacing:0;width:100%}
+#branch-stock .bs-table-wrap th{position:sticky;top:0;z-index:1;background:#f4f6fa!important;color:#4a5b72!important;font-size:12px;font-weight:700;padding:11px 14px!important;border-bottom:1px solid var(--bs2-line)!important;white-space:nowrap}
+#branch-stock .bs-table-wrap td{padding:10px 14px!important;border-bottom:1px solid #eef1f5!important;vertical-align:middle}
+#branch-stock .bs-table-wrap tbody tr:nth-child(even) td{background:#fafbfd}
+#branch-stock .bs-table-wrap tbody tr:hover td{background:#fff7ee}
+#branch-stock .bs-item{font-weight:800!important;color:var(--bs2-ink)!important;font-size:13px}
+#branch-stock .bs-item:hover:not(:disabled){color:var(--bs2-orange)!important}
+#branch-stock .bs-balances td.bs-quantity,#branch-stock .bs-balances td.is-negative{font-size:14px;font-weight:800;direction:ltr;text-align:right;font-variant-numeric:tabular-nums}
+#branch-stock .bs-balances td.bs-quantity{color:#0f6b3a}
+#branch-stock .bs-balances td.is-negative{color:#c42636}
+#branch-stock .bs-balances td:nth-child(2){color:#6c7a91;font-weight:600}
+#branch-stock .bs-balances td:nth-child(5){white-space:nowrap}
+#branch-stock .bs-balances tbody td:nth-child(5){color:#2559a8;font-size:11.5px;font-weight:700}
+#branch-stock .bs-minimum-toggle{min-width:64px;padding:5px 12px!important;font-variant-numeric:tabular-nums}
+#branch-stock tr.bs-low-stock td{background:#fff4f5!important}
+#branch-stock tr.bs-low-stock td:first-child{box-shadow:inset -3px 0 0 #e5484d}
+#branch-stock .bs-low-badge{display:inline-block;margin-inline-start:8px;padding:2px 9px;border-radius:999px;background:#ffe3e6;color:#c42636;font-size:10.5px;font-weight:800;border:0}
+#branch-stock .bs-pagination{gap:10px}
+#branch-stock .bs-pagination button{border-radius:9px!important}
+#branch-stock .bs-history>summary{padding:14px 18px;font-weight:800;color:var(--bs2-ink);cursor:pointer}
+#branch-stock .bs-history>summary small{padding:2px 10px;border-radius:999px;background:var(--bs2-soft);color:#6c7a91;font-weight:700}
+#branch-stock [data-stock-unmapped]{max-height:110px;overflow:auto;border-radius:12px!important;padding:12px 14px!important;background:#fff9ed!important;border:1px solid #f3e1b8!important;color:#7a5200!important;font-size:12px;line-height:1.9}
