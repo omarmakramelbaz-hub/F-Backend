@@ -14,12 +14,15 @@ $app->instance('config', new Illuminate\Config\Repository([
     'session' => ['driver'=>'array','lifetime'=>120,'cookie'=>'arabic_fixture','path'=>'/','domain'=>null,'secure'=>true,'lottery'=>[0,100]],
     'cache' => ['default'=>'array','stores'=>['array'=>['driver'=>'array']]],
     'desktop_dashboard'=>['local'=>false],
+    'view'=>['paths'=>[],'compiled'=>sys_get_temp_dir()],
 ]));
 class ArabicHttpUser extends Illuminate\Foundation\Auth\User { protected $guarded=[]; }
 foreach ([Illuminate\Events\EventServiceProvider::class, Illuminate\Filesystem\FilesystemServiceProvider::class,
-    Illuminate\Translation\TranslationServiceProvider::class, Illuminate\Encryption\EncryptionServiceProvider::class,
+    Illuminate\Translation\TranslationServiceProvider::class, Illuminate\View\ViewServiceProvider::class,
+    Illuminate\Encryption\EncryptionServiceProvider::class,
     Illuminate\Cookie\CookieServiceProvider::class, Illuminate\Session\SessionServiceProvider::class,
-    Illuminate\Database\DatabaseServiceProvider::class, Illuminate\Auth\AuthServiceProvider::class,
+    Illuminate\Database\DatabaseServiceProvider::class, Illuminate\Hashing\HashServiceProvider::class,
+    Illuminate\Auth\AuthServiceProvider::class,
     Illuminate\Cache\CacheServiceProvider::class, Illuminate\Routing\RoutingServiceProvider::class,
     Illuminate\Foundation\Providers\FoundationServiceProvider::class] as $provider) $app->register($provider);
 Illuminate\Support\Facades\Facade::setFacadeApplication($app);
@@ -58,7 +61,7 @@ function requestSpeech($authenticated=true,$csrf=true,$method='POST',$server=[])
     $request->setLaravelSession($session);
     if ($csrf) $request->headers->set('X-CSRF-TOKEN',$session->token());
     $app->instance('request',$request);
-    $guard=Auth::guard('admin'); $guard->forgetUser(); $guard->setRequest($request);
+    Auth::forgetGuards(); $guard=Auth::guard('admin'); $guard->setRequest($request);
     if ($authenticated) $guard->setUser(new ArabicHttpUser(['id'=>1,'account_type'=>'admin']));
     $request->setUserResolver(fn($name=null)=>Auth::guard($name ?: 'admin')->user());
     return $router->dispatch($request);
