@@ -109,17 +109,23 @@ class HomeController extends Controller
         ]);
         $identity = trim($request->input('email'));
         $mobiles = \App\Services\Dashboard\DashboardLoginIdentity::mobileVariants($identity);
-        $user = User::where(function ($query) use ($identity, $mobiles) {
+        $candidates = User::where(function ($query) use ($identity, $mobiles) {
             $query->where('email', $identity)->orWhere('mobile', $identity);
             if ($mobiles !== []) { $query->orWhereIn('mobile', $mobiles); }
-        })->whereIn('account_type', \App\Services\Dashboard\DashboardLoginIdentity::ACCOUNT_TYPES)->first();
+        })->whereIn('account_type', \App\Services\Dashboard\DashboardLoginIdentity::ACCOUNT_TYPES)->orderBy('id')->limit(10)->get()
+            ->sortBy(fn ($candidate) => strcasecmp((string) $candidate->email, $identity) === 0 ? 0 : 1)->values();
 
-        // Authenticate the exact selected account, including legacy owners without a mobile.
-        if ($user && Auth::guard('admin')->attempt([
-            'id' => $user->getAuthIdentifier(),
-            'account_type' => $user->account_type,
-            'password' => $request->input('password'),
-        ], $request->boolean('remember'))) {
+        // Several dashboard accounts can share an email or a mobile. Taking whichever row came first signed a correct
+        // password in against the wrong account now and then; sign in the one whose password matches (email first).
+        $user = null;
+        foreach ($candidates as $candidate) {
+            if (Auth::guard('admin')->attempt([
+                'id' => $candidate->getAuthIdentifier(),
+                'account_type' => $candidate->account_type,
+                'password' => $request->input('password'),
+            ], $request->boolean('remember'))) { $user = $candidate; break; }
+        }
+        if ($user) {
             $request->session()->regenerate();
             session()->forget('id_user');
             session()->put('id_user', auth('admin')->id());
