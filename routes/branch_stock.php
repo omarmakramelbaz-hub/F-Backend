@@ -10,4 +10,5 @@ Route::middleware(['lang','IsAdmin'])->prefix('admin/branch-stock')->name('branc
     Route::get('basic-recipes',[BranchStockController::class,'basicRecipes'])->name('basic-status');
     Route::post('basic-recipes',[BranchStockController::class,'applyBasicRecipes'])->name('basic-apply');
     Route::post('receive',[BranchStockController::class,'receive'])->name('receive');
+    Route::post('adjust',[BranchStockController::class,'adjust'])->name('adjust');
 });

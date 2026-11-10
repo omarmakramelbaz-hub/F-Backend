@@ -52,6 +52,24 @@ class BranchInventory
                 'stock'=>$this->stock($i,DB::table('branch_inventory')->where('id',$r->id)->first())];
         });
     }
+    public function canAdjust($actor): bool{return DashboardAccountRole::isOwner($this->ops->access->actor($actor));}
+    /** Owner only: set an item's branch balance to a counted figure, kept as an adjustment movement with its reason. */
+    public function adjust(array $values,$actor): array
+    {
+        $this->ready();abort_unless($this->canAdjust($actor),403,'تعديل رصيد البضاعة متاح للأونر فقط.');
+        $v=Validator::make($values,$this->ops->rules()+['ingredient_id'=>'required|integer|min:1','quantity'=>'required|string|max:16','reason'=>'required|string|max:300'])->validate();
+        $text=\App\Support\Quantity::text($v['quantity']);abort_unless(preg_match('/^[0-9]{1,7}(?:\.[0-9]{1,3})?$/D',$text),422,'أدخل الرصيد الجديد حتى ثلاث منازل عشرية.');
+        $p=explode('.',$text);$target=(int)$p[0]*1000000+(int)str_pad($p[1]??'',6,'0');$reason=trim($v['reason']);abort_unless($reason!=='',422,'اكتب سبب تعديل الرصيد.');
+        return $this->ops->write('inventory.adjust',$v,$actor,function($b,$a)use($v,$target,$reason){
+            abort_unless($b['kind']==='f',404);$i=$this->ingredientList()[$v['ingredient_id']]??null;abort_unless($i,404,'اختر صنفًا من قائمة البضاعة فقط.');
+            abort_if($i['unit']==='piece'&&$target%1000000,422,'رصيد القطع يجب أن يكون عددًا صحيحًا.');
+            $r=$this->lockedStock($b['value'],$i['id']);if(!empty($v['expected_revision']))$this->ops->revision($r,$v);
+            $delta=$target-(int)$r->quantity_units;
+            $id=$delta===0?null:$this->move($r,$i,$delta,'adjustment',$a->id.':'.$v['idempotency_key'],(int)$a->id,'',$reason);
+            return ['adjustment'=>['id'=>$id,'branch'=>$b['value'],'ingredient_id'=>$i['id'],'quantity'=>$this->quantity($target),'delta'=>$this->quantity($delta)],
+                'stock'=>$this->stock($i,DB::table('branch_inventory')->where('id',$r->id)->first())];
+        });
+    }
     /** Transaction-bound expense receipt/reversal; caller already owns the restaurant row lock. */
     public function expenseMovement(string $branch,int $ingredientId,int $units,int $expenseId,int $actorId,bool $reverse=false,string $supplier=''): int
     {

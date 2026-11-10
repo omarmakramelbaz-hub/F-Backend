@@ -64,6 +64,42 @@
         editor.addEventListener('submit', function (event) { event.preventDefault(); saveMinimum(item); });
         editor.addEventListener('keydown', function (event) { if (event.key === 'Escape') { event.preventDefault(); closeMinimum(); } });
     }
+    // Owner only: set a branch balance to the counted figure, with a reason kept in the goods movements.
+    function adjustStock(item) {
+        if (locked() || boot.can_adjust !== true) return;
+        var stock = item.stock || {}, piece = (stock.unit || item.unit) === 'piece', unitLabel = stock.unit_label || (piece ? 'قطعة' : 'كجم'), target = item.branch || current.branch.value;
+        if (!target || target === 'all') { notice('اختر الفرع أولًا لتعديل رصيده.'); return; }
+        var dialog = el('dialog', undefined, 'bs-adjust'), formNode = el('form'), head = el('header'), close = el('button', '×'); close.type = 'button'; close.setAttribute('aria-label', 'إغلاق');
+        head.appendChild(el('h2', 'تعديل رصيد البضاعة')); head.appendChild(close); formNode.appendChild(head);
+        var body = el('div', undefined, 'bs-adjust-body'), info = el('div', undefined, 'bs-adjust-info');
+        info.appendChild(el('strong', (item.branch_name ? item.branch_name + ' · ' : '') + item.name)); info.appendChild(el('span', 'الرصيد الحالي: ' + (stock.quantity || '0') + ' ' + unitLabel)); body.appendChild(info);
+        var amountLabel = el('label', 'الرصيد الجديد (' + unitLabel + ')'), amount = el('input'); amount.type = 'text'; amount.inputMode = 'decimal'; amount.maxLength = 16; amount.required = true; amount.autocomplete = 'off'; amount.value = stock.quantity && !stock.negative ? stock.quantity : '0'; amountLabel.appendChild(amount); body.appendChild(amountLabel);
+        var reasonLabel = el('label', 'سبب التعديل'), reason = el('input'); reason.maxLength = 300; reason.required = true; reason.placeholder = 'مثال: جرد فعلي، تالف، تصحيح تسجيل'; reasonLabel.appendChild(reason); body.appendChild(reasonLabel);
+        var error = el('p', '', 'bs-adjust-error'); error.hidden = true; body.appendChild(error);
+        body.appendChild(el('p', 'يتسجل الفرق كحركة «تعديل رصيد» في آخر حركات البضاعة باسمك والسبب.', 'bs-adjust-note')); formNode.appendChild(body);
+        var foot = el('footer'), save = el('button', 'حفظ الرصيد', 'bs-primary'), cancel = el('button', 'إلغاء', 'bs-button'); save.type = 'submit'; cancel.type = 'button'; foot.appendChild(save); foot.appendChild(cancel); formNode.appendChild(foot);
+        dialog.appendChild(formNode); document.body.appendChild(dialog);
+        var key = crypto.randomUUID(), busyAdjust = false;
+        function done() { if (busyAdjust) return; dialog.close(); dialog.remove(); }
+        close.addEventListener('click', done); cancel.addEventListener('click', done);
+        dialog.addEventListener('cancel', function (event) { event.preventDefault(); done(); });
+        dialog.addEventListener('keydown', function (event) { event.stopPropagation(); });
+        formNode.addEventListener('submit', async function (event) {
+            event.preventDefault(); if (busyAdjust) return;
+            var value = amountText(amount.value), why = reason.value.trim(); error.hidden = true;
+            if (!/^\d{1,7}(?:\.\d{1,3})?$/.test(value) || Number(value) > 1000000 || piece && !Number.isInteger(Number(value))) { error.textContent = piece ? 'أدخل عدد القطع (رقم صحيح).' : 'أدخل الوزن بالكيلو حتى 3 أرقام بعد العلامة.'; error.hidden = false; amount.focus(); return; }
+            if (!why) { error.textContent = 'اكتب سبب تعديل الرصيد.'; error.hidden = false; reason.focus(); return; }
+            busyAdjust = true; save.disabled = true; save.textContent = 'جارٍ الحفظ…';
+            try {
+                await request(address(boot.urls.adjust), { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify({ branch: target, ingredient_id: Number(item.id), quantity: value, reason: why, expected_revision: Number(stock.revision || 0) || null, idempotency_key: key }) });
+                busyAdjust = false; done(); notice('تم تعديل الرصيد إلى ' + value + ' ' + unitLabel + '.'); if (!disposed) load(current.pagination.page);
+            } catch (failure) {
+                busyAdjust = false; save.disabled = false; save.textContent = 'حفظ الرصيد';
+                error.textContent = failure.message + (failure.status === 409 ? ' أغلق النافذة وحدّث الصفحة.' : ''); error.hidden = false;
+            }
+        });
+        dialog.showModal(); amount.select();
+    }
     async function saveMinimum(item) {
         if (locked() || !minimumEditor || !canManageMinimum()) return;
         var stock = item.stock || {}, amount = amountText(minimumEditor.input.value);
@@ -91,7 +127,9 @@
             if (!data.all_branches) items.set(String(item.id), item); var stock = item.stock, option = el('option', item.name + ' — ' + (stock ? stock.quantity + ' ' + stock.unit_label : 'دون رصيد مسجل')); option.value = item.id; product.appendChild(option);
             var row = el('tr', undefined, stock && stock.low_stock === true ? 'bs-low-stock' : ''), name = el('td'), choose = el('button', (item.branch_name ? item.branch_name + ' · ' : '') + item.name, 'bs-item'); choose.disabled = !!data.all_branches; choose.type = 'button'; choose.addEventListener('click', function () { if (locked() || minimumEditor || branch.value === 'all') return; product.value = String(item.id); selected(); form.elements.quantity.focus(); }); name.appendChild(choose); if (stock && stock.low_stock === true) name.appendChild(el('span', 'مخزون منخفض', 'bs-low-badge')); row.appendChild(name);
             row.appendChild(el('td', stock ? stock.unit_label : '—'));
-            row.appendChild(el('td', stock ? stock.quantity : 'لم يبدأ التسجيل', stock && stock.negative ? 'is-negative' : 'bs-quantity'));
+            var quantityCell = el('td', stock ? stock.quantity : 'لم يبدأ التسجيل', stock && stock.negative ? 'is-negative' : 'bs-quantity');
+            if (boot.can_adjust === true && boot.urls.adjust) { var adjustButton = el('button', '✎', 'bs-adjust-open'); adjustButton.type = 'button'; adjustButton.title = 'تعديل الرصيد'; adjustButton.setAttribute('aria-label', 'تعديل رصيد ' + (item.branch_name ? item.branch_name + ' · ' : '') + item.name); adjustButton.addEventListener('click', function () { adjustStock(item); }); quantityCell.appendChild(adjustButton); }
+            row.appendChild(quantityCell);
             var minimum = el('td', undefined, 'bs-minimum-cell'), minimumText = stock && stock.minimum_quantity != null ? stock.minimum_quantity : 'غير محدد';
             if (canManageMinimum()) { var minimumButton = el('button', minimumText === 'غير محدد' ? 'تحديد' : minimumText, 'bs-button bs-minimum-toggle'); minimumButton.type = 'button'; minimumButton.setAttribute('aria-label', 'تعديل الحد الأدنى: ' + (item.branch_name ? item.branch_name + ' · ' : '') + item.name); minimumButton.setAttribute('aria-expanded', 'false'); minimumButton.addEventListener('click', function () { editMinimum(minimum, minimumButton, item); }); minimum.appendChild(minimumButton); }
             else minimum.appendChild(el('span', minimumText, minimumText === 'غير محدد' ? 'bs-untracked' : 'bs-quantity'));
@@ -102,7 +140,7 @@
         product.value = items.has(chosen) ? chosen : '';
         root.querySelector('[data-stock-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total + ' صنف';
         var history = root.querySelector('[data-stock-history]'); history.replaceChildren();
-        data.history.forEach(function (entry) { var row = el('tr'); [entry.created_at, (entry.branch_name ? entry.branch_name + ' · ' : '') + entry.name, entry.source_type === 'receipt' ? 'توريد بضاعة' : entry.source_type === 'expense' ? 'مشتريات مصروف #'+entry.source_id : entry.source_type === 'expense_reverse' ? 'عكس مشتريات مصروف #'+entry.source_id : entry.source_type === 'app' ? 'بيع تطبيق #' + entry.source_id : 'بيع فاتورة #' + entry.source_id, entry.quantity + ' ' + entry.unit_label, entry.balance + ' ' + entry.unit_label, entry.actor, [entry.supplier, entry.notes].filter(Boolean).join(' · ') || '—'].forEach(function (text, index) { row.appendChild(el('td', text, index === 3 || index === 4 ? 'bs-quantity' : '')); }); history.appendChild(row); });
+        data.history.forEach(function (entry) { var row = el('tr'); [entry.created_at, (entry.branch_name ? entry.branch_name + ' · ' : '') + entry.name, entry.source_type === 'receipt' ? 'توريد بضاعة' : entry.source_type === 'expense' ? 'مشتريات مصروف #'+entry.source_id : entry.source_type === 'expense_reverse' ? 'عكس مشتريات مصروف #'+entry.source_id : entry.source_type === 'adjustment' ? 'تعديل رصيد (الأونر)' : entry.source_type === 'app' ? 'بيع تطبيق #' + entry.source_id : 'بيع فاتورة #' + entry.source_id, entry.quantity + ' ' + entry.unit_label, entry.balance + ' ' + entry.unit_label, entry.actor, [entry.supplier, entry.notes].filter(Boolean).join(' · ') || '—'].forEach(function (text, index) { row.appendChild(el('td', text, index === 3 || index === 4 ? 'bs-quantity' : '')); }); history.appendChild(row); });
         if (!data.history.length) { var row = el('tr'), cell = el('td', 'لا توجد حركات بضاعة مسجلة بعد.'); cell.colSpan = 7; row.appendChild(cell); history.appendChild(row); }
         var legacy=root.querySelector('[data-stock-legacy]'), oldRows=root.querySelector('[data-stock-legacy-rows]');legacy.hidden=!(data.legacy||[]).length;oldRows.replaceChildren();(data.legacy||[]).forEach(function(item){var row=el('tr');[(item.branch_name ? item.branch_name + ' · ' : '') + item.name,item.quantity,item.unit_label].forEach(function(value){row.appendChild(el('td',value));});oldRows.appendChild(row);});
         root.querySelector('[data-stock-guidance]').textContent=(data.all_branches ? 'عرض أرصدة جميع الفروع. اختر فرعًا لتسجيل بضاعة أو مراجعة وصفاته. ' : '')+'كروت الأصناف مرتبطة بالبضاعة والوصفات المسجلة. '+(data.unconfigured_count ? data.unconfigured_count+' صنف بيع لم تُسجّل وصفته بعد؛ لن تخصم مكونات هذه الأصناف حتى تسجيل الوصفات.' : 'راجع وصفة كل حجم من أحجام المينيو.');

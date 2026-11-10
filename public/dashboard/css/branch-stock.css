@@ -258,3 +258,25 @@
     #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-overview{overflow:hidden}
     #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-balances{flex:1 1 auto;min-height:0;height:100%}
 }
+/* stock-adjust-20261110: the owner's balance adjustment */
+#branch-stock .bs-adjust-open{margin-inline-start:8px;width:26px;height:26px;padding:0;border:1px solid #d6e4fb;border-radius:7px;background:#f1f6ff;color:#175abb;font-size:13px;line-height:1;cursor:pointer;vertical-align:middle}
+#branch-stock .bs-adjust-open:hover:not(:disabled){background:#175abb;color:#fff}
+.bs-adjust{direction:rtl;width:min(420px,94vw);padding:0;border:0;border-radius:14px;box-shadow:0 24px 60px #0b142355;font-family:inherit;color:#17304a}
+.bs-adjust::backdrop{background:#0b142380}
+.bs-adjust header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#10274a;color:#fff}
+.bs-adjust header h2{margin:0;font-size:16px;font-weight:800;color:#fff}
+.bs-adjust header button{border:0;background:transparent;color:#fff;font-size:24px;line-height:1;cursor:pointer}
+.bs-adjust-body{display:flex;flex-direction:column;gap:12px;padding:16px 18px}
+.bs-adjust-info{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:#f6f8fb;border:1px solid #e6ebf2}
+.bs-adjust-info strong{font-size:14px;font-weight:800;color:#10274a}
+.bs-adjust-info span{font-size:12px;color:#6c7a91}
+.bs-adjust label{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:12px;color:#34465b}
+.bs-adjust input{min-height:40px;border:1.5px solid #d6dee9;border-radius:10px;padding:6px 12px;font:inherit;font-size:14px}
+.bs-adjust input:focus{outline:none;border-color:#f57800;box-shadow:0 0 0 4px #f5780022}
+.bs-adjust label:first-of-type input{font-size:18px;font-weight:800;text-align:center;direction:ltr}
+.bs-adjust-error{margin:0;padding:8px 10px;border-radius:8px;background:#fff1f3;color:#c42636;font-size:12px}
+.bs-adjust-note{margin:0;font-size:11px;color:#7a8799}
+.bs-adjust footer{display:flex;gap:8px;padding:12px 18px;border-top:1px solid #eef1f5;background:#fafbfd}
+.bs-adjust footer .bs-primary{flex:1;min-height:42px;border:0;border-radius:10px;background:linear-gradient(135deg,#f78a1e,#e86a00);color:#fff;font-weight:800;cursor:pointer}
+.bs-adjust footer .bs-primary:disabled{opacity:.5}
+.bs-adjust footer .bs-button{min-height:42px;padding:0 18px;border:1px solid #d6dee9;border-radius:10px;background:#fff;font-weight:700;cursor:pointer}

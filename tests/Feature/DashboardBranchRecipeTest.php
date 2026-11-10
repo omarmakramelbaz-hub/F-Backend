@@ -51,6 +51,23 @@ class DashboardBranchRecipeTest extends TestCase
     protected function tearDown(): void{Carbon::setTestNow();if($this->connection==='mysql'&&config('database.connections.mysql.database')==='takeaway_test'){$this->dropFixtures();DB::disconnect('mysql');}parent::tearDown();}
     private function dropFixtures(): void{foreach(['branch_recipe_sales','branch_stock_recipes','branch_inventory_movements','branch_inventory','stock_ingredients','branch_stock_movements','branch_stock','branch_payrolls','branch_employee_entries','branch_employee_days','branch_employee_salaries','branch_employees','branch_delivery_companies','branch_customers','branch_operation_commands','pos_branch_print_jobs','pos_service_kitchen_tickets','pos_service_commands','pos_service_tickets','pos_service_tables','pos_service_settings','takeaway_till_entries','takeaway_order_items','takeaway_orders','takeaway_tills','model_has_roles','model_has_permissions','role_has_permissions','permissions','roles','go_store_products','go_stores','user_address','order_board_clocks','carts','orders','wallets','settings','pending_vendors','product_features','resturant_products','categories','resturants','users'] as $table)Schema::dropIfExists($table);}
     private function actor(int $id=10): User{return User::withoutGlobalScopes()->findOrFail($id);}
+    public function test_only_the_owner_sets_a_counted_balance_kept_as_an_adjustment_with_its_reason(): void
+    {
+        $this->receiveIngredient(1,'5');$this->assertSame(5000000,$this->ingredientBalance(1));
+        $this->assertTrue($this->inventory()->canAdjust($this->actor(1)));$this->assertFalse($this->inventory()->canAdjust($this->actor(12)));
+        $values=['branch'=>'f:100','ingredient_id'=>1,'quantity'=>'3.25','reason'=>'جرد فعلي','idempotency_key'=>$this->key(301)];
+        $this->denied(fn()=>$this->inventory()->adjust($values+['idempotency_key'=>$this->key(302)],$this->actor(12)),403);
+        $this->denied(fn()=>$this->inventory()->adjust($values,$this->actor(10)),403);
+        $result=$this->inventory()->adjust($values,$this->actor(1));
+        $this->assertSame('3.25',$result['stock']['quantity']);$this->assertSame('-1.75',$result['adjustment']['delta']);$this->assertSame(3250000,$this->ingredientBalance(1));
+        $move=DB::table('branch_inventory_movements')->where('source_type','adjustment')->first();
+        $this->assertSame(-1750000,(int)$move->quantity_units);$this->assertSame(3250000,(int)$move->balance_units);$this->assertSame('جرد فعلي',$move->notes);$this->assertSame(1,(int)$move->actor_id);
+        $this->assertTrue($this->inventory()->adjust($values,$this->actor(1))['replayed']);$this->assertSame(3250000,$this->ingredientBalance(1));
+        $this->inventory()->adjust(['quantity'=>'0','idempotency_key'=>$this->key(303)]+$values,$this->actor(1));$this->assertSame(0,$this->ingredientBalance(1));
+        $this->invalid(fn()=>$this->inventory()->adjust(['reason'=>'']+$values+['idempotency_key'=>$this->key(304)],$this->actor(1)));
+        $this->denied(fn()=>$this->inventory()->adjust(['quantity'=>'-1','idempotency_key'=>$this->key(305)]+$values,$this->actor(1)),422);
+    }
+
     public function test_canned_menu_names_bind_to_piece_goods_of_the_correct_size(): void
     {
         $names=['علبة أنشوجة وزن 200 جرام'=>15,'علبة بطارخ رنجة وزن400جرام'=>13,'علبة رنجة كان مخليه وزن400 جرام'=>25,'علبة سردين مخلي وزن200 جرام'=>11,'علبة سردين مخلي وزن400 جرام'=>12,'علبة فسيخ وزن200جرام'=>9,'علية فسيخ وزن400جرام'=>10,'علبة ملوحه وزن200جرام'=>14,'علبة رنجه كان مخلية وزن٢٠٠جرام'=>24];
