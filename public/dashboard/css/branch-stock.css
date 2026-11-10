@@ -231,3 +231,21 @@
     #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-message,
     #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > [data-stock-retry]{grid-column:1}
 }
+/* stock-entry-fit-20261110: no note under the branch, and the entry card fits without a scroll */
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])){grid-template-rows:auto minmax(0,1fr)}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-guidance{display:none!important}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-entry{grid-row:2;overflow:visible;align-self:start}
+    #branch-stock .bs-entry>header{padding:10px 14px!important}
+    #branch-stock .bs-entry>header h2{font-size:16px;margin:0}
+    #branch-stock .bs-entry form{gap:8px 10px!important;padding:10px 14px!important}
+    #branch-stock .bs-entry label{font-size:11.5px;margin:0}
+    #branch-stock .bs-entry input,#branch-stock .bs-entry select{min-height:36px!important;height:36px;padding-block:4px!important;margin-top:4px}
+    #branch-stock .bs-entry textarea{min-height:36px!important;height:36px!important;padding-block:6px!important;margin-top:4px}
+    #branch-stock .bs-entry input[name=quantity]{font-size:16px}
+    #branch-stock .bs-current{padding:9px 14px!important;border-radius:10px!important}
+    #branch-stock .bs-current span{font-size:11px;white-space:nowrap}
+    #branch-stock .bs-current strong{font-size:15px;line-height:1.4;text-align:end}
+    #branch-stock .bs-entry-help{padding:6px 10px;font-size:10.5px;line-height:1.6;margin:0!important}
+    #branch-stock .bs-entry .bs-primary{min-height:42px;font-size:14px}
+}
