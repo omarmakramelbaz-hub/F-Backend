@@ -13,6 +13,7 @@ const { replayScript: deferredReplayScript } = require('./offline/deferred.cjs')
 const rules = require('./rules.cjs');
 const money = require('./money.cjs');
 const { startUpdates } = require('./updater.cjs');
+const { posHandlers } = require('./handlers/pos.cjs');
 const { PageCache } = require('./offline/cache.cjs');
 const { DashboardOffline, warmUpScript, WARM_PAGES, REFRESHED_DATA } = require('./offline/interceptor.cjs');
 const { HomeOffline } = require('./offline/home.cjs');
@@ -276,131 +277,7 @@ const handlers = {
     return session;
   },
 
-  'catalog:get': () => {
-    const session = requireSession();
-    const catalog = store.catalog(session.branch);
-    if (!catalog) throw new Error('لم يتم تنزيل مينيو هذا الفرع بعد. اتصل بالإنترنت للمزامنة مرة واحدة.');
-    return catalog;
-  },
-
-  'tickets:open': () => store.openTickets(requireSession().branch),
-
-  'tickets:save': (values) => {
-    const session = requireSession();
-    return store.saveTicket(session.user, { ...values, branch: session.branch });
-  },
-
-  'tickets:delete': (values) => store.deleteTicket(requireSession().user, values.id),
-
-  'tickets:quote': (values) => {
-    const session = requireSession();
-    return store.quoteTicket(session.branch, values.channel, values.data).quote;
-  },
-
-  'tickets:pay': async (values) => {
-    const session = requireSession();
-    const ticket = store.payTicket(session.user, values.id, { cash_received: values.cash_received, data: values.data });
-    sync.kick();
-    let printed = null;
-    const settings = printSettings();
-    if (settings.auto_print) printed = await printing.print(BrowserWindow, printing.receipt(ticket, branchInfo(ticket.branch), settings), settings);
-    if (settings.kitchen_auto) {
-      await printing.print(BrowserWindow, printing.kitchen(ticket, ticket.totals, branchInfo(ticket.branch), settings),
-        { ...settings, printer: settings.kitchen_printer || settings.printer });
-    }
-    return { ticket, printed };
-  },
-
-  // The bill before payment; for a delivery order it also records that the order left with the driver.
-  'tickets:bill': async (values) => {
-    const session = requireSession();
-    let ticket = store.ticket(values.id);
-    if (!ticket || ticket.branch !== session.branch || ticket.status !== 'open') throw new Error('الفاتورة غير موجودة.');
-    if (values.out) ticket = store.markOut(session.user, ticket.id, values.data || {});
-    const catalog = store.catalog(ticket.branch) || {};
-    const quote = store.quoteTicket(ticket.branch, ticket.channel, ticket.data).quote;
-    const settings = printSettings();
-    const printed = await printing.print(BrowserWindow, printing.bill(ticket, quote, branchInfo(ticket.branch),
-      { ...settings, companies: catalog.delivery_companies || [] }), settings);
-    return { ticket, printed };
-  },
-
-  'tickets:kitchen': async (values) => {
-    const session = requireSession();
-    const ticket = store.ticket(values.id);
-    if (!ticket || ticket.branch !== session.branch) throw new Error('الفاتورة غير موجودة.');
-    const quote = store.quoteTicket(ticket.branch, ticket.channel, ticket.data).quote;
-    const settings = printSettings();
-    return printing.print(BrowserWindow, printing.kitchen(ticket, quote, branchInfo(ticket.branch), settings),
-      { ...settings, printer: settings.kitchen_printer || settings.printer });
-  },
-
-  'receipts:list': (values) => {
-    const session = requireSession();
-    const day = values.day || rules.operatingDay(now());
-    return { day, today: rules.operatingDay(now()), summary: store.daySummary(session.branch, day), items: store.receipts(session.branch, day) };
-  },
-
-  'receipts:print': async (values) => {
-    const session = requireSession();
-    const ticket = store.ticket(values.id);
-    if (!ticket || ticket.status !== 'paid' || ticket.branch !== session.branch) throw new Error('الفاتورة غير موجودة.');
-    if (!session.user.can_reprint) throw new Error('إعادة طباعة الفواتير متاحة للمالك والإدارة فقط.');
-    return printing.print(BrowserWindow, printing.receipt(ticket, branchInfo(ticket.branch), { ...printSettings(), copy: true }), printSettings());
-  },
-
-  'cash:summary': (values) => {
-    const session = requireSession();
-    const day = values.day || rules.operatingDay(now());
-    const user = session.user;
-    return { day, today: rules.operatingDay(now()), summary: store.cashSummary(session.branch, day), items: store.journal(session.branch, day),
-      categories: store.expenseCategories(session.branch),
-      can: { expense: user.can_checkout, approve: user.can_approve_expenses, till: user.can_manage, shift: user.can_close_shift } };
-  },
-
-  'cash:expense': (values) => {
-    const session = requireSession();
-    const entry = store.recordExpense(session.user, session.branch, values);
-    sync.kick();
-    return entry;
-  },
-
-  'cash:till': (values) => {
-    const session = requireSession();
-    const entry = store.recordTill(session.user, session.branch, values);
-    sync.kick();
-    return entry;
-  },
-
-  'attendance:board': () => {
-    const session = requireSession();
-    const day = rules.operatingDay(now());
-    return { day, now: now().toISOString(), shifts: store.attendanceShifts(session.branch), items: store.attendanceBoard(session.branch, day) };
-  },
-
-  'attendance:punch': (values) => {
-    const session = requireSession();
-    const entry = store.recordPunch(session.user, session.branch, values);
-    sync.kick();
-    return entry;
-  },
-
-  'reports:sales': (values) => {
-    const session = requireSession();
-    if (!session.user.can_manage) throw new Error('التقارير متاحة للمالك والإدارة فقط.');
-    const today = rules.operatingDay(now());
-    const from = values.from || today;
-    const to = values.to || from;
-    const report = store.salesReport(session.branch, from, to);
-    if (from === to) report.cash = store.cashSummary(session.branch, from);
-    return { today, report };
-  },
-
-  'reports:print': async (values) => {
-    const session = requireSession();
-    const { report } = handlers['reports:sales'](values);
-    return printing.print(BrowserWindow, printing.report(report, branchInfo(session.branch), printSettings()), printSettings());
-  },
+  ...posHandlers({ get store() { return store; }, get sync() { return sync; }, requireSession, printSettings, branchInfo, now }),
 
   'print:printers': async () => {
     const list = mainWindow ? await mainWindow.webContents.getPrintersAsync() : [];

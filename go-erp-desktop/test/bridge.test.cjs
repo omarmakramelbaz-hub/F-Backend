@@ -23,7 +23,9 @@ test('every action the screens call is allowed by the bridge and handled by the 
   }
   assert.ok(used.has('setup:release'));
   assert.deepEqual([...used].filter((channel) => !allowed.has(channel)), [], 'Called by the screens but not allowed by the bridge');
-  const main = fs.readFileSync(path.join(SOURCE, 'main/main.cjs'), 'utf8');
+  // The app's handlers: main.cjs and the handler groups it spreads in (src/main/handlers).
+  const main = [path.join(SOURCE, 'main/main.cjs'), ...fs.readdirSync(path.join(SOURCE, 'main/handlers')).map((name) => path.join(SOURCE, 'main/handlers', name))]
+    .map((file) => fs.readFileSync(file, 'utf8')).join('\n');
   assert.deepEqual([...allowed].filter((channel) => !main.includes(`'${channel}':`)), [], 'Allowed by the bridge but handled nowhere');
 });
 
