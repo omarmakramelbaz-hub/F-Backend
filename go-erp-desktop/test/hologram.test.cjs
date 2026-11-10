@@ -14,15 +14,16 @@ const { DashboardOffline, warmUpScript, REFRESHED_DATA } = require('../src/main/
 const ORIGIN = 'https://fasakhaninja.com';
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
-// deployment/hologram/manifest.json of the dashboard's release hologram-energy-20261101-v5 (after_sha256).
+// The dashboard's live hologram files of 2026-11-10 (public/dashboard: go-hologram.js, go-hologram.css, home-hud.js,
+// home-hud.css), with the opening's and the sidebar's markup carrying the GO portrait.
 const RELEASE = {
-  'go-hologram.js': 'da67e52ba5ab02bf11e11e596f66206dc0c78b60ae6fafa9d741541e551ba3fa',
+  'go-hologram.js': '80635415eb0853ee0694dfe9704ce0429cd567e46b792fd7c37e47803bd29fd0',
   'go-hologram-shell.js': '089934b4e467e144c60a179db3065ea81036b9cf57eba34051c2ec09f2284200',
-  'go-hologram.css': '83dd2b84bae97e3a1e6a14b4300875636272981e2b57c471b6647fae9c5bb018',
-  'home-hud.js': '7c120df407a8dd7e2d23f026241940ec305dd4a6e570a6bb960bfde41a6dfc3b',
-  'home-hud.css': '9999469049e0d0404b1e9789822e93ffa98c91b258a4259bacc5fcebc9c6dae2',
-  'home-hud.html': '1b405989261c885cf9e18b5d1689c6ccf94d2c6db52850708f7e01398610d978',
-  'sidebar.html': 'c6f2c09cf917dc117917775cb44c40adeee19f7c31bb69de33f39bce5f0803b9',
+  'go-hologram.css': '328b6a13ccdb91e4ad112fd9c46284101043d03900b2c650cc9b7a42f18d6f36',
+  'home-hud.js': '1bf13c675f8632842df69fd9e288f1e4a0b458fcb666a0d5e69d8811a6621cdd',
+  'home-hud.css': 'd9b39f86e9860afa8675af9118def48f37573516d46d7e96d1dab6ea1de1e5a2',
+  'home-hud.html': '36ffd696a9702c67390bd4c4d814295cba8e198dc2209fd4ec53b97b4e1a6f50',
+  'sidebar.html': '9f2d6bd8a1a6d98618435abb151f9303866061e7132574615c65fc4ec159ddbf',
 };
 
 /** A dashboard page as the dashboard rendered it before the hologram release (the solar opening, the GO ERP logo). */
@@ -78,6 +79,15 @@ test('the GO opening shipped with the app is the dashboard\'s release, file by f
     assert.equal(hologramFile(PREFIX + other), null, other);
   }
   assert.equal(hologramFile('/dashboard/js/home-hud.js'), null);
+  // The GO portrait, the dashboard's own picture, served to the opening and the sidebar.
+  const portrait = hologramFile(PREFIX + 'branding/go-hologram-premium-20261110.png');
+  assert.equal(portrait.contentType, 'image/png');
+  assert.equal(crypto.createHash('sha256').update(portrait.body).digest('hex'),
+    sha256(path.join(__dirname, '..', '..', 'public/dashboard/branding/go-hologram-premium-20261110.png')));
+  for (const name of ['go-hologram.js', 'go-hologram.css', 'home-hud.js', 'home-hud.css']) {
+    const folder = name.endsWith('.js') ? 'js' : 'css';
+    assert.equal(RELEASE[name], sha256(path.join(__dirname, '..', '..', 'public/dashboard', folder, name)), name + ' is the dashboard\'s file');
+  }
 });
 
 test('a home page saved before the dashboard\'s GO opening opens offline in the dashboard\'s current look', () => {
@@ -98,6 +108,9 @@ test('a home page saved before the dashboard\'s GO opening opens offline in the 
   // The home page: the release's opening in place of the solar one, with the person's name and the GO mark.
   assert.ok(!html.includes('data-hud-core') && !html.includes('hud-checks') && !html.includes('hud-solar'), 'Nothing of the earlier opening is left');
   assert.ok(html.includes('<canvas data-hud-robot></canvas>') && html.includes('data-hud-right') && html.includes('data-hud-enter'));
+  // The GO portrait in the opening and the sidebar, from the app's own copy; nothing is left of the Blade helper.
+  assert.equal(html.split(`<img data-hologram-artwork src="${PREFIX}branding/go-hologram-premium-20261110.png"`).length, 3);
+  assert.ok(!html.includes('{{') && !html.includes('asset('));
   assert.ok(html.includes('data-intro="1"'), 'Its start-up plays as the saved page said');
   assert.ok(html.includes('<strong data-hud-who>عمر &lt;المالك&gt;</strong>'), 'The name, escaped');
   assert.ok(html.includes('<linearGradient id="go-hud-mark-fill"'), 'The GO mark');

@@ -1,7 +1,7 @@
-/* GO hologram v5: native three-dimensional surfaces, contour shaders and a moving point cloud. */
+/* GO hologram v7: portrait particle assembly and a living textured facial surface. */
 (function (window, document) {
     'use strict';
-    if (window.GoHologram && window.GoHologram.version >= 5) return;
+    if (window.GoHologram && window.GoHologram.version >= 7) return;
 
     var items = [], frame = 0, queued = false, TAU = Math.PI * 2;
     var ASSEMBLY_DURATION = 5.6, EMITTER = [0, -.32, .64];
@@ -343,14 +343,14 @@
     ].join('\n');
 
     function buildSwarm(compact) {
-        var random = randomGenerator(92531), count = compact ? 4096 : 2097152, data = new Float32Array(count * 4);
+        var random = randomGenerator(92531), count = compact ? 2048 : 65536, data = new Float32Array(count * 4);
         for (var i = 0; i < data.length; i++) data[i] = random();
-        var motes = compact ? 48 : 768;
+        var motes = compact ? 24 : 96;
         for (i = 0; i < count; i++) data[i * 4 + 2] = i < motes ? .99965 + data[i * 4 + 2] * .00035 : data[i * 4 + 2] * .9996;
         return {data: data, count: count, motes: motes};
     }
     var SWARM_VERTEX = [
-        'precision highp float;attribute vec4 aSwarm;uniform mat4 uProjection;uniform mat4 uView;uniform float uSwarmTime;uniform float uDpr;uniform float uDensityGain;',
+        'precision highp float;attribute vec4 aSwarm;uniform mat4 uProjection;uniform mat4 uView;uniform float uSwarmTime;uniform float uDpr;uniform float uDensityGain;uniform float uArtwork;',
         'varying float vSwarmWarm;varying float vSwarmAlpha;',
         'void main(){float t=uSwarmTime,seed=aSwarm.x,lane=aSwarm.y,depth=aSwarm.z;vec3 p;',
         ' float spread=fract(seed*19.37+lane*43.13+aSwarm.w*11.7);float a=lane*6.2831853+t*(.12+depth*.14);',
@@ -365,10 +365,17 @@
         '   a+=sin(q*9.-t*.20)*.35;',
         '   p=vec3(cos(a)*radius,h+sin(a*2.+t*.24)*.065,sin(a)*(.28+spread*.25));',
         ' }',
+        ' if(uArtwork>.5){',
+        '   float h=fract(seed+t*(.014+depth*.010)),v=h*2.-1.;',
+        '   if(aSwarm.w<.53){float r=.53*sqrt(max(0.,1.-v*v));p=vec3(cos(a)*r*1.15,1.13+v*.72,sin(a)*r*.78);}',
+        '   else{float q=h,r=.27+1.0*smoothstep(.04,1.,q);p=vec3(cos(a)*r,.57-q*1.15,sin(a)*(.20+q*.18));}',
+        '   p.x+=sign(p.x)*(.028+.12*spread);',
+        ' }',
         ' float medium=step(.986,depth),bright=step(.99965,depth);vSwarmWarm=step(.55,fract(lane*7.13+seed*3.71));',
         ' float pulse=.64+.36*sin(seed*38.+t*(1.0+lane));',
         ' vSwarmAlpha=mix(mix(.010,.12,medium),1.1,bright)*pulse*mix(uDensityGain,1.,bright)*smoothstep(5.6,7.4,t)*(1.-smoothstep(.68,1.,spread)*mix(.90,.25,bright));',
-        ' gl_PointSize=(mix(1.05,1.75,medium)+bright*(2.4+seed*1.8))*uDpr;',
+        ' vSwarmAlpha*=mix(1.,.24,uArtwork);vSwarmWarm*=mix(1.,step(.84,seed),uArtwork);',
+        ' gl_PointSize=(mix(1.05,1.75,medium)+bright*(2.4+seed*1.8))*uDpr*mix(1.,.65,uArtwork);',
         ' gl_Position=uProjection*uView*vec4(p,1.);',
         '}'
     ].join('\n');
@@ -377,6 +384,28 @@
         'void main(){float d=length(gl_PointCoord-.5)*2.;float glow=exp(-d*d*3.8)*(1.-smoothstep(.78,1.,d));',
         ' vec3 color=mix(vec3(.015,.55,1.),vec3(1.,.25,.025),vSwarmWarm);',
         ' float alpha=glow*vSwarmAlpha;if(alpha<.0001)discard;gl_FragColor=vec4(color*alpha,alpha);}'
+    ].join('\n');
+
+    function buildProjectionRing() {
+        var points = [];
+        for (var ring = 0; ring < 3; ring++) for (var i = 0; i <= 192; i++) {
+            var a = i / 192 * TAU, radius = 1.22 + ring * .085;
+            points.push(Math.cos(a) * radius, -.46 - ring * .012, Math.sin(a) * radius * .30, i / 192, ring);
+        }
+        return new Float32Array(points);
+    }
+    var RING_VERTEX = [
+        'precision highp float;attribute vec3 aRingPosition;attribute vec2 aRingUV;',
+        'uniform mat4 uProjection;uniform mat4 uView;varying vec2 vRingUV;',
+        'void main(){vRingUV=aRingUV;gl_Position=uProjection*uView*vec4(aRingPosition,1.);}'
+    ].join('\n');
+    var RING_FRAGMENT = [
+        'precision highp float;varying vec2 vRingUV;uniform float uRingTime;uniform float uRingVoice;uniform float uRingReduced;',
+        'void main(){float angle=vRingUV.x*6.2831853;',
+        ' float cursor=pow(.5+.5*cos(angle-uRingTime*.24*(1.-uRingReduced)),14.);',
+        ' float alpha=(.14+cursor*.38+uRingVoice*.10)*smoothstep(4.3,5.6,uRingTime);',
+        ' vec3 color=vec3(.03,.62,.84)+vec3(.13,.22,.20)*cursor;',
+        ' gl_FragColor=vec4(color*alpha,alpha);}'
     ].join('\n');
 
     function shader(gl, type, source) {
@@ -401,10 +430,50 @@
         matrix[13] = fullViewport ? -.52 : -.52; matrix[14] = -6.2;
         return matrix;
     }
+    // The approved portrait is mapped onto a deformable grid, with separate
+    // image-coloured assembly particles. UV landmarks are in the original asset.
+    var PORTRAIT_VERTEX = [
+        'precision highp float; attribute vec2 aPortraitUV;',
+        'uniform vec4 uRect; uniform vec2 uViewport; uniform float uTime,uYaw,uPitch,uBlink,uVoice,uPoint,uDpr;',
+        'varying vec2 vPortraitUV; varying float vArrival;',
+        'float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+        'vec2 eyelid(vec2 p,vec2 eye,vec2 size){vec2 q=(p-eye)/size; float w=exp(-dot(q,q)*1.7);p.y+=(eye.y-p.y)*uBlink*.97*w;return p;}',
+        'void main(){vec2 uv=aPortraitUV,p=uv;vPortraitUV=uv;',
+        'p=eyelid(p,vec2(.503,.315),vec2(.050,.029));p=eyelid(p,vec2(.620,.324),vec2(.038,.025));',
+        'vec2 lip=(p-vec2(.562,.467))/vec2(.057,.025);float lips=exp(-lip.x*lip.x*1.8-lip.y*lip.y*.8);',
+        'p.y+=uVoice*.009*(lip.y/(.33+abs(lip.y)))*lips;',
+        'float j=(p.x-.562)/.105;float jaw=exp(-j*j*j*j)*smoothstep(.455,.50,p.y)*(1.-smoothstep(.54,.59,p.y));p.y+=uVoice*.008*jaw;',
+        'float head=(1.-smoothstep(.50,.68,uv.y))*smoothstep(.30,.39,uv.x)*(1.-smoothstep(.69,.75,uv.x));',
+        'vec2 h=p-vec2(.56,.58),depthUV=(p-vec2(.545,.30))/vec2(.17,.32);float depth=sqrt(max(0.,1.-dot(depthUV,depthUV)))*.10;',
+        'p.x+=head*(sin(uYaw)*depth+h.y*uPitch*.35);p.y+=head*(-sin(uPitch)*depth+h.x*uYaw*.12);',
+        'float seed=hash(uv),delay=.18+(1.-uv.y)*1.10+seed*.75;',
+        'float travel=smoothstep(delay,delay+2.85,uTime);vArrival=smoothstep(delay-.09,delay+.18,uTime);',
+        'if(uPoint>.5){vec2 emitter=vec2(.56,.78),delta=p-emitter;float spiral=sin(travel*9.42478+seed*6.28318);',
+        'p=mix(emitter,p,travel)+vec2(spiral,cos(seed*6.28318+travel*8.))*sin(travel*3.14159)*(.055+seed*.11)*(1.-travel*.65);}',
+        'vec2 pixel=uRect.xy+p*uRect.zw;gl_Position=vec4(pixel.x/uViewport.x*2.-1.,1.-pixel.y/uViewport.y*2.,0.,1.);',
+        'gl_PointSize=clamp((1.7+seed*1.3)*uDpr,1.,4.5);}'
+    ].join('\n');
+    var PORTRAIT_FRAGMENT = [
+        'precision highp float; uniform sampler2D uPortrait;uniform float uTime,uPoint,uVoice;',
+        'varying vec2 vPortraitUV;varying float vArrival;',
+        'void main(){vec4 c=texture2D(uPortrait,vPortraitUV);if(c.a<.025)discard;',
+        'float reveal=smoothstep(4.35,5.6,uTime);float alpha=c.a;',
+        'if(uPoint>.5){float r=length(gl_PointCoord-.5)*2.;alpha*=exp(-r*r*2.8)*vArrival*(1.-reveal);}',
+        'else{alpha*=reveal;vec2 m=(vPortraitUV-vec2(.562,.467))/vec2(.043,.008);float cavity=exp(-m.x*m.x*m.x*m.x-m.y*m.y*3.)*uVoice*.80;c.rgb=mix(c.rgb,vec3(.002,.015,.025),cavity);}',
+        'c.rgb*=1.+uVoice*.055;gl_FragColor=vec4(c.rgb*alpha,alpha);}'
+    ].join('\n');
+    var SEED_VERTEX = 'attribute vec2 aQuad;uniform vec4 uRect;uniform vec2 uViewport;uniform float uDpr;void main(){vec2 p=uRect.xy+vec2(.56,.78)*uRect.zw;gl_Position=vec4(p.x/uViewport.x*2.-1.,1.-p.y/uViewport.y*2.,0.,1.);gl_PointSize=48.*uDpr;}';
+    var SEED_FRAGMENT = 'precision mediump float;uniform float uTime;void main(){float r=length(gl_PointCoord-.5)*2.;float core=exp(-r*r*70.),halo=exp(-r*r*6.);float a=(core+halo*.55)*(1.-smoothstep(1.2,4.0,uTime));gl_FragColor=vec4(vec3(1.,.55,.12)*a,a);}';
+    function portraitGrid(columns, rows, points) {
+        var uv=[], indices=[], rng=randomGenerator(91723);
+        for(var y=0;y<=rows;y++)for(var x=0;x<=columns;x++)uv.push(clamp((x+(points?rng()*.8:0))/columns,0,1),clamp((y+(points?rng()*.8:0))/rows,0,1));
+        if(!points)for(y=0;y<rows;y++)for(x=0;x<columns;x++){var a=y*(columns+1)+x,b=a+columns+1;indices.push(a,b,a+1,a+1,b,b+1);}
+        return {uv:new Float32Array(uv),indices:new Uint16Array(indices),count:uv.length/2};
+    }
     function Hologram(canvas, options) {
-        this.canvas = canvas; this.options = options; this.compact = !!options.compact;
+        this.canvas = canvas; this.options = options; this.compact = !!options.compact; this.artwork = typeof options.artwork === 'boolean' ? options.artwork : !!(canvas.parentElement && canvas.parentElement.querySelector('[data-hologram-artwork]'));
         this.fullViewport = !!options.fullViewport || (!!options.background && !this.compact);
-        this.interval = 1000 / (this.compact ? 15 : 30);
+        this.interval = 1000 / (this.compact ? 12 : this.artwork ? 24 : 30);
         this.visible = true; this.dead = false; this.lost = false; this.last = 0; this.elapsed = 0;
         this.width = 0; this.height = 0; this.speaking = false; this.alert = false;
         this.voiceLevel = 0; this.explicitVoice = false; this.mouthOpen = 0; this.gazeX = 0; this.gazeY = 0;
@@ -421,8 +490,8 @@
             if (typeof options.reducedMotion !== 'boolean') self.reduced = !!(media && media.matches);
             self.last = 0; if (active(self)) self.render(self.reduced ? 6 : self.elapsed); wake();
         };
-        this.onLost = function (event) { event.preventDefault(); self.lost = true; canvas.dataset.goHologramState = 'recovering'; };
-        this.onRestored = function () { if (self.dead) return; self.lost = false; self.prepare(); self.resize(); wake(); };
+        this.onLost = function (event) { event.preventDefault(); self.lost = true; self.releasePortrait(); canvas.dataset.goHologramState = 'recovering'; };
+        this.onRestored = function () { if (self.dead) return; self.lost = false; self.prepare(); self.resize(); if(self.artwork)self.loadPortrait(); wake(); };
         canvas.addEventListener('webglcontextlost', this.onLost);
         canvas.addEventListener('webglcontextrestored', this.onRestored);
         if (window.ResizeObserver) { this.resizeObserver = new window.ResizeObserver(this.onResize); this.resizeObserver.observe(canvas); } else window.addEventListener('resize', this.onResize);
@@ -431,8 +500,84 @@
             this.intersectionObserver.observe(canvas);
         }
         if (media) { if (media.addEventListener) media.addEventListener('change', this.onMotion); else if (media.addListener) media.addListener(this.onMotion); }
-        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = 'webgl-geometry-v5'; this.resize();
+        canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.goHologramRenderer = this.artwork ? 'webgl-depth-artwork-v6' : 'webgl-geometry-v6'; this.resize();
+        this.artworkImage = canvas.parentElement ? canvas.parentElement.querySelector('[data-hologram-artwork]') : null;
+        if (this.artworkImage) {
+            this.onArtworkError = function () {
+                if (self.dead) return;
+                self.artworkImage.hidden = true;
+                self.releasePortrait();
+                if (canvas.parentElement) canvas.parentElement.dataset.artworkFailed = 'true';
+                self.setArtwork(false);
+            };
+            this.onArtworkLoad = function () {
+                if (self.dead || !self.artworkImage.naturalWidth) return;
+                self.artworkImage.hidden = false;
+                if (canvas.parentElement) delete canvas.parentElement.dataset.artworkFailed;
+                self.setArtwork(true);
+                self.loadPortrait();
+            };
+            this.artworkImage.addEventListener('error', this.onArtworkError);
+            this.artworkImage.addEventListener('load', this.onArtworkLoad);
+            if (this.artworkImage.complete && (this.artworkImage.currentSrc || this.artworkImage.getAttribute('src'))) {
+                if (this.artworkImage.naturalWidth) this.onArtworkLoad(); else this.onArtworkError();
+            }
+        }
     }
+    Hologram.prototype.setArtwork = function (value) {
+        if (this.dead) return;
+        var next = !!value;
+        if (next === this.artwork) return;
+        this.artwork = next; this.interval = 1000 / (this.compact ? 12 : this.artwork ? 24 : 30);
+        this.canvas.dataset.goHologramRenderer = this.artwork ? 'webgl-depth-artwork-v6' : 'webgl-geometry-v6';
+        this.resize(); wake();
+    };
+    Hologram.prototype.loadPortrait = function () {
+        if(this.dead || this.lost || !this.artworkImage || !this.artworkImage.naturalWidth)return;
+        var gl=this.gl;
+        try {
+            if(!this.portraitProgram){
+                this.portraitProgram=makeProgram(gl,PORTRAIT_VERTEX,PORTRAIT_FRAGMENT);this.portraitUV=gl.getAttribLocation(this.portraitProgram,'aPortraitUV');this.portraitUniforms={};
+                ['uRect','uViewport','uTime','uYaw','uPitch','uBlink','uVoice','uPoint','uDpr','uPortrait'].forEach(function(n){this.portraitUniforms[n]=gl.getUniformLocation(this.portraitProgram,n);},this);
+                var grid=portraitGrid(this.compact?64:160,this.compact?48:120,false),dots=portraitGrid(this.compact?63:255,this.compact?63:191,true);
+                this.portraitMesh=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitMesh);gl.bufferData(gl.ARRAY_BUFFER,grid.uv,gl.STATIC_DRAW);
+                this.portraitIndex=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.portraitIndex);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,grid.indices,gl.STATIC_DRAW);this.portraitIndexCount=grid.indices.length;
+                this.portraitDots=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitDots);gl.bufferData(gl.ARRAY_BUFFER,dots.uv,gl.STATIC_DRAW);this.portraitParticles=dots.count;
+                this.seedProgram=makeProgram(gl,SEED_VERTEX,SEED_FRAGMENT);this.seedAttribute=gl.getAttribLocation(this.seedProgram,'aQuad');this.seedUniforms={};
+                ['uRect','uViewport','uDpr','uTime'].forEach(function(n){this.seedUniforms[n]=gl.getUniformLocation(this.seedProgram,n);},this);
+                this.portraitTexture=gl.createTexture();
+            }
+            gl.bindTexture(gl.TEXTURE_2D,this.portraitTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+            gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,this.artworkImage);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+            this.portraitReady=true;this.canvas.parentElement.dataset.portraitGpu='true';this.updatePortraitRect();this.render(this.reduced?6:this.elapsed);wake();
+        } catch(_){this.portraitReady=false;delete this.canvas.parentElement.dataset.portraitGpu;}
+    };
+    Hologram.prototype.updatePortraitRect = function () {
+        if(!this.artworkImage)return;
+        var cb=this.canvas.getBoundingClientRect(),ib=typeof this.artworkImage.getBoundingClientRect==='function'?this.artworkImage.getBoundingClientRect():cb;
+        var aspect=this.artworkImage.naturalWidth/(this.artworkImage.naturalHeight||1082),w=Math.min(ib.width,ib.height*aspect),h=w/aspect;
+        this.portraitRect=[(ib.left||0)-(cb.left||0)+(ib.width-w)/2,(ib.top||0)-(cb.top||0)+(ib.height-h)/2,w,h];
+    };
+    Hologram.prototype.releasePortrait = function () {
+        var gl=this.gl;
+        if(!this.lost){[this.portraitMesh,this.portraitIndex,this.portraitDots].forEach(function(b){if(b)gl.deleteBuffer(b);});if(this.portraitProgram)gl.deleteProgram(this.portraitProgram);if(this.seedProgram)gl.deleteProgram(this.seedProgram);if(this.portraitTexture)gl.deleteTexture(this.portraitTexture);}
+        this.portraitProgram=null;this.seedProgram=null;this.portraitTexture=null;this.portraitReady=false;
+        if(this.canvas.parentElement)delete this.canvas.parentElement.dataset.portraitGpu;
+    };
+    Hologram.prototype.renderPortrait = function(time) {
+        if(!this.portraitReady || !this.portraitRect)return;
+        var gl=this.gl,u=this.portraitUniforms,r=this.portraitRect,t=this.compact||this.reduced?6:Math.max(0,time);
+        this.assemblyProgress=clamp(t/ASSEMBLY_DURATION,0,1);
+        gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+        gl.useProgram(this.portraitProgram);gl.uniform4f(u.uRect,r[0],r[1],r[2],r[3]);gl.uniform2f(u.uViewport,this.width,this.height);
+        gl.uniform1f(u.uTime,t);gl.uniform1f(u.uYaw,this.headYaw);gl.uniform1f(u.uPitch,this.pitch);gl.uniform1f(u.uBlink,this.blink);gl.uniform1f(u.uVoice,this.level);gl.uniform1f(u.uDpr,this.ratio);
+        gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,this.portraitTexture);gl.uniform1i(u.uPortrait,0);
+        if(t>4.35){gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitMesh);gl.enableVertexAttribArray(this.portraitUV);gl.vertexAttribPointer(this.portraitUV,2,gl.FLOAT,false,0,0);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.portraitIndex);gl.uniform1f(u.uPoint,0);gl.drawElements(gl.TRIANGLES,this.portraitIndexCount,gl.UNSIGNED_SHORT,0);}
+        if(t<ASSEMBLY_DURATION){gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitDots);gl.enableVertexAttribArray(this.portraitUV);gl.vertexAttribPointer(this.portraitUV,2,gl.FLOAT,false,0,0);gl.uniform1f(u.uPoint,1);gl.drawArrays(gl.POINTS,0,this.portraitParticles);
+            u=this.seedUniforms;gl.useProgram(this.seedProgram);gl.uniform4f(u.uRect,r[0],r[1],r[2],r[3]);gl.uniform2f(u.uViewport,this.width,this.height);gl.uniform1f(u.uDpr,this.ratio);gl.uniform1f(u.uTime,t);if(this.seedAttribute>=0){gl.bindBuffer(gl.ARRAY_BUFFER,this.quadBuffer);gl.enableVertexAttribArray(this.seedAttribute);gl.vertexAttribPointer(this.seedAttribute,2,gl.FLOAT,false,0,0);}gl.drawArrays(gl.POINTS,0,1);}
+    };
     Hologram.prototype.prepare = function () {
         var gl = this.gl; gl.getExtension('OES_standard_derivatives'); this.program = makeProgram(gl); gl.useProgram(this.program);
         var names = ['aPosition', 'aNormal', 'aUV', 'aPart', 'aPhase', 'aSize']; this.attributes = {};
@@ -462,9 +607,17 @@
         gl.bufferData(gl.ARRAY_BUFFER, this.energyParticles.data, gl.STATIC_DRAW);
         this.swarmProgram = makeProgram(gl, SWARM_VERTEX, SWARM_FRAGMENT);
         this.swarmAttribute = gl.getAttribLocation(this.swarmProgram, 'aSwarm'); this.swarmUniforms = {};
-        names = ['uProjection', 'uView', 'uSwarmTime', 'uDpr', 'uDensityGain'];
+        names = ['uProjection', 'uView', 'uSwarmTime', 'uDpr', 'uDensityGain', 'uArtwork'];
         for (i = 0; i < names.length; i++) this.swarmUniforms[names[i]] = gl.getUniformLocation(this.swarmProgram, names[i]);
         this.swarmBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.swarmBuffer); gl.bufferData(gl.ARRAY_BUFFER, this.swarmParticles.data, gl.STATIC_DRAW);
+        this.ringProgram = makeProgram(gl, RING_VERTEX, RING_FRAGMENT);
+        this.ringPosition = gl.getAttribLocation(this.ringProgram, 'aRingPosition');
+        this.ringUV = gl.getAttribLocation(this.ringProgram, 'aRingUV');
+        this.ringUniforms = {};
+        names = ['uProjection', 'uView', 'uRingTime', 'uRingVoice', 'uRingReduced'];
+        for (i = 0; i < names.length; i++) this.ringUniforms[names[i]] = gl.getUniformLocation(this.ringProgram, names[i]);
+        this.ringBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, buildProjectionRing(), gl.STATIC_DRAW);
         gl.getExtension('OES_standard_derivatives'); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
         gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
         this.canvas.dataset.goHologramState = 'ready';
@@ -475,6 +628,7 @@
         if (this.sceneTexture) gl.deleteTexture(this.sceneTexture);
         if (this.sceneFramebuffer) gl.deleteFramebuffer(this.sceneFramebuffer);
         if (this.sceneDepth) gl.deleteRenderbuffer(this.sceneDepth);
+        if (this.artwork) { this.bloomTargets = []; this.sceneTexture = this.sceneFramebuffer = this.sceneDepth = null; return; }
         // This texture contains only geometry rendered by this engine. Allocation
         // supplies null data; no photographs or face sprites are ever uploaded.
         this.sceneTexture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
@@ -505,19 +659,22 @@
         if (this.dead || this.lost) return;
         var box = this.canvas.getBoundingClientRect(); this.width = Math.round(box.width); this.height = Math.round(box.height);
         if (this.width < 2 || this.height < 2) return;
-        this.ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1, Math.sqrt(4000000 / (this.width * this.height))));
+        this.ratio = Math.max(.5, Math.min(this.artwork ? 1.5 : 2, window.devicePixelRatio || 1, Math.sqrt((this.artwork ? 2100000 : 4000000) / (this.width * this.height))));
         this.canvas.width = Math.round(this.width * this.ratio); this.canvas.height = Math.round(this.height * this.ratio);
-        var density = this.compact ? 4096 : this.width < 700 ? 131072 : 2097152;
+        var density = this.artwork ? (this.compact ? 256 : this.width < 700 ? 2048 : 4096) : this.compact ? 2048 : this.width < 700 ? 16384 : 65536;
         if (typeof this.options.swarmCount === 'number') density = clamp(Math.floor(this.options.swarmCount), 1024, this.swarmParticles.count);
         if (density !== this.swarmLimit) { this.swarmLimit = density; this.swarmCount = density; this.swarmSlow = 0; this.swarmFast = 0; }
         this.allocateTarget();
         this.projection = projection(this.width / this.height); this.view = viewMatrix(this.fullViewport);
+        this.updatePortraitRect();
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height); this.last = 0;
         this.render(this.reduced ? 6 : this.elapsed); wake();
     };
     Hologram.prototype.pose = function (time) {
-        // The V5 face always looks forward; particles and speech carry the motion.
-        this.headYaw = 0; this.bodyYaw = 0; this.pitch = 0;
+        this.px += (this.gazeX-this.px)*.08;this.py += (this.gazeY-this.py)*.08;
+        this.headYaw = this.reduced?0:.022*Math.sin(time*.47)+.009*Math.sin(time*.83)+this.px*.035;
+        this.bodyYaw = 0;this.pitch = this.reduced?0:.012*Math.sin(time*.38)+this.py*.018;
+        var blinkPhase=time%4.6;this.blink=this.reduced?0:Math.sin(Math.PI*clamp((blinkPhase-3.35)/.30,0,1));
         var level = this.explicitVoice ? this.voiceLevel : this.speaking ? .36 + .24 * Math.sin(time * 12.7) + .18 * Math.sin(time * 19.1) : 0;
         this.level = this.reduced ? 0 : clamp(level, 0, 1); this.mouthOpen = this.level * .095;
     };
@@ -551,11 +708,11 @@
     };
     Hologram.prototype.adaptDensity = function (frameMs) {
         if (this.options.adaptiveParticles === false || this.compact || !this.lastSwarmDrawCount) return;
-        if (frameMs > 220 && this.swarmCount > 65536) { this.swarmCount = Math.max(65536, this.swarmCount / 4); this.swarmSlow = 0; this.swarmFast = 0; return; }
+        if (frameMs > 220 && this.swarmCount > 4096) { this.swarmCount = Math.max(4096, this.swarmCount / 4); this.swarmSlow = 0; this.swarmFast = 0; return; }
         if (frameMs > 78) { this.swarmSlow++; this.swarmFast = 0; }
         else if (frameMs < 40) { this.swarmFast++; this.swarmSlow = Math.max(0, this.swarmSlow - 1); }
         else { this.swarmSlow = Math.max(0, this.swarmSlow - 1); this.swarmFast = 0; }
-        if (this.swarmSlow >= 8 && this.swarmCount > 65536) { this.swarmCount = Math.max(65536, this.swarmCount / 2); this.swarmSlow = 0; }
+        if (this.swarmSlow >= 8 && this.swarmCount > 4096) { this.swarmCount = Math.max(4096, this.swarmCount / 2); this.swarmSlow = 0; }
         if (this.swarmFast >= 120 && this.swarmCount < this.swarmLimit) { this.swarmCount = Math.min(this.swarmLimit, this.swarmCount * 2); this.swarmFast = 0; }
     };
     Hologram.prototype.renderSwarm = function (time) {
@@ -566,14 +723,35 @@
         gl.useProgram(this.swarmProgram); gl.bindBuffer(gl.ARRAY_BUFFER, this.swarmBuffer);
         gl.enableVertexAttribArray(this.swarmAttribute); gl.vertexAttribPointer(this.swarmAttribute, 4, gl.FLOAT, false, 16, 0);
         gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
-        gl.uniform1f(u.uSwarmTime, flowTime); gl.uniform1f(u.uDpr, this.ratio); gl.uniform1f(u.uDensityGain, Math.min(2.2, Math.sqrt(this.swarmLimit / this.swarmCount)));
+        gl.uniform1f(u.uSwarmTime, flowTime); gl.uniform1f(u.uDpr, this.ratio); gl.uniform1f(u.uDensityGain, Math.min(2.2, Math.sqrt(this.swarmLimit / this.swarmCount))); gl.uniform1f(u.uArtwork, this.artwork ? 1 : 0);
         gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
         this.lastSwarmDrawCount = this.swarmCount; gl.drawArrays(gl.POINTS, 0, this.swarmCount);
+    };
+    Hologram.prototype.renderProjectionRing = function (time) {
+        if (this.options.projectionRing === false || (this.artwork && this.options.projectionRing !== true)) return;
+        var gl = this.gl, u = this.ringUniforms;
+        gl.useProgram(this.ringProgram); gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
+        gl.enableVertexAttribArray(this.ringPosition); gl.vertexAttribPointer(this.ringPosition, 3, gl.FLOAT, false, 20, 0);
+        gl.enableVertexAttribArray(this.ringUV); gl.vertexAttribPointer(this.ringUV, 2, gl.FLOAT, false, 20, 12);
+        gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
+        gl.uniform1f(u.uRingTime, this.reduced || this.compact ? Math.max(6, time) : time);
+        gl.uniform1f(u.uRingVoice, this.level); gl.uniform1f(u.uRingReduced, this.reduced ? 1 : 0);
+        gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+        for (var ring = 0; ring < 3; ring++) gl.drawArrays(gl.LINE_STRIP, ring * 193, 193);
     };
     Hologram.prototype.render = function (time) {
         if (this.dead || this.lost || this.width < 2 || this.height < 2) return;
         this.pose(time);
-        var gl = this.gl, u = this.uniforms; gl.useProgram(this.program);
+        var gl = this.gl, u = this.uniforms;
+        // Texture/grid and image-coloured particles share the approved portrait.
+        if (this.artwork) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            gl.colorMask(true, true, true, true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            this.renderPortrait(time);
+            this.renderSwarm(time); this.renderProjectionRing(time);
+            gl.depthMask(true); gl.disable(gl.BLEND); return;
+        }
+        gl.useProgram(this.program);
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
         gl.uniformMatrix4fv(u.uProjection, false, this.projection); gl.uniformMatrix4fv(u.uView, false, this.view);
         gl.uniform1f(u.uTime, this.reduced ? 6 : this.compact ? Math.max(6, time + 6) : Math.max(0, time)); gl.uniform1f(u.uHeadYaw, this.headYaw); gl.uniform1f(u.uBodyYaw, this.bodyYaw); gl.uniform1f(u.uPitch, this.pitch);
@@ -593,7 +771,7 @@
         for (var i = 0; i < shells.length; i++) { gl.uniform1f(u.uExpand, shells[i]); gl.drawElements(gl.TRIANGLES, this.mesh.indices.length, gl.UNSIGNED_SHORT, 0); }
         gl.uniform1f(u.uExpand, 0); gl.uniform1f(u.uGlowPass, 0); gl.uniform1f(u.uPointPass, 1); gl.disable(gl.CULL_FACE);
         this.bind(true); gl.drawArrays(gl.POINTS, 0, this.particles.count);
-        this.renderEnergy(time); this.renderSwarm(time);
+        this.renderEnergy(time); this.renderSwarm(time); this.renderProjectionRing(time);
         gl.depthMask(true); gl.disable(gl.BLEND);
         // A broad, continuous energy envelope from a separable generated-light blur.
         gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.useProgram(this.blurProgram);
@@ -739,13 +917,18 @@
     };
     Hologram.prototype.destroy = function () {
         if (this.dead) return; this.dead = true;
+        this.releasePortrait();
+        if (this.artworkImage) {
+            this.artworkImage.removeEventListener('error', this.onArtworkError);
+            this.artworkImage.removeEventListener('load', this.onArtworkLoad);
+        }
         if (this.resizeObserver) this.resizeObserver.disconnect(); else window.removeEventListener('resize', this.onResize);
         if (this.intersectionObserver) this.intersectionObserver.disconnect();
         this.canvas.removeEventListener('webglcontextlost', this.onLost); this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
         if (media) { if (media.removeEventListener) media.removeEventListener('change', this.onMotion); else if (media.removeListener) media.removeListener(this.onMotion); }
         if (!this.lost) {
-            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer); gl.deleteBuffer(this.energyBuffer); gl.deleteBuffer(this.swarmBuffer);
-            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteProgram(this.blurProgram); gl.deleteProgram(this.energyProgram); gl.deleteProgram(this.swarmProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
+            var gl = this.gl; gl.deleteBuffer(this.vertexBuffer); gl.deleteBuffer(this.indexBuffer); gl.deleteBuffer(this.particleBuffer); gl.deleteBuffer(this.quadBuffer); gl.deleteBuffer(this.energyBuffer); gl.deleteBuffer(this.swarmBuffer); gl.deleteBuffer(this.ringBuffer);
+            gl.deleteProgram(this.program); gl.deleteProgram(this.postProgram); gl.deleteProgram(this.blurProgram); gl.deleteProgram(this.energyProgram); gl.deleteProgram(this.swarmProgram); gl.deleteProgram(this.ringProgram); gl.deleteTexture(this.sceneTexture); gl.deleteFramebuffer(this.sceneFramebuffer); gl.deleteRenderbuffer(this.sceneDepth);
             if (this.bloomTargets) this.bloomTargets.forEach(function (target) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.framebuffer); });
         }
         items = items.filter(function (item) { return item !== this; }, this);
@@ -753,7 +936,7 @@
         if (!items.some(moving) && frame) { window.cancelAnimationFrame(frame); frame = 0; }
     };
     window.GoHologram = {
-        version: 5,
+        version: 7,
         mount: function (canvas, options) {
             if (!canvas || typeof canvas.getContext !== 'function') return null;
             if (canvas.__goHologram && !canvas.__goHologram.dead) return canvas.__goHologram.api;
@@ -766,15 +949,16 @@
             }
             var api = {
                 destroy: function () { item.destroy(); },
-                setSpeaking: function (value) { item.speaking = !!value; if (!value) { item.voiceLevel = 0; item.explicitVoice = false; } wake(); },
-                setVoiceLevel: function (value) { item.voiceLevel = clamp(Number(value) || 0, 0, 1); item.explicitVoice = true; wake(); },
-                setAlert: function (value) { item.alert = !!value; wake(); },
+                setArtwork: function (value) { item.setArtwork(value); },
+                setSpeaking: function (value) { item.speaking = !!value; if (canvas.parentElement) canvas.parentElement.dataset.speaking = item.speaking ? 'true' : 'false'; if (!value) { item.voiceLevel = 0; item.explicitVoice = false; } wake(); },
+                setVoiceLevel: function (value) { item.voiceLevel = clamp(Number(value) || 0, 0, 1); item.explicitVoice = true; if (canvas.parentElement) canvas.parentElement.style.setProperty('--hologram-voice-level', String(item.voiceLevel)); wake(); },
+                setAlert: function (value) { item.alert = !!value; if (canvas.parentElement) canvas.parentElement.dataset.alert = item.alert ? 'true' : 'false'; wake(); },
                 setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); },
                 setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 6 : item.elapsed); wake(); },
                 assembly: function (time) { return item.assembly(time); },
                 energy: function (time) { return item.internalFlow(time); },
                 swarm: function (time) { return item.swarm(time); },
-                diagnostics: function () { return {version: 5, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, swarmParticles: item.swarmCount, swarmCapacity: item.swarmParticles.count, swarmVisibleMotes: item.swarmParticles.motes, swarmTier: item.compact ? 'compact' : item.swarmCount < item.swarmLimit ? 'adaptive' : item.swarmLimit < 2097152 ? 'mobile' : 'desktop-full', swarmSubmitted: item.lastSwarmDrawCount, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
+                diagnostics: function () { return {version: 7, artwork: item.artwork, portraitAnimated:!!item.portraitReady,portraitReady:!!item.portraitReady,portraitParticles:item.portraitParticles||0,assemblyProgress:item.assemblyProgress||0,blink:item.blink||0,pitch:item.pitch, renderer: 'webgl', vertices: item.mesh.vertexCount, particles: item.particles.count, swarmParticles: item.swarmCount, swarmCapacity: item.swarmParticles.count, swarmVisibleMotes: item.swarmParticles.motes, swarmTier: item.compact ? 'compact' : item.swarmCount < item.swarmLimit ? 'adaptive' : item.artwork ? 'artwork-depth' : item.swarmLimit < 65536 ? 'mobile' : 'desktop', swarmSubmitted: item.lastSwarmDrawCount, width: item.canvas.width, height: item.canvas.height, yaw: item.headYaw, mouthOpen: item.mouthOpen}; }
             };
             item.api = api; canvas.__goHologram = item; items.push(item); wake(); return api;
         }

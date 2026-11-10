@@ -1,7 +1,8 @@
 <template>
-  <div class="login-page dashboard-login-page hud-login">
+  <div class="login-page dashboard-login-page dashboard-login-hologram hud-login">
     <HudBackdrop />
     <main class="dashboard-login" aria-labelledby="setup-title">
+      <LoginHologram />
 
       <section class="dashboard-login-form-panel">
         <span class="dashboard-login-eyebrow">برنامج الكمبيوتر</span>
@@ -60,6 +61,7 @@
 import { ref } from 'vue';
 import { call } from '../api.js';
 import HudBackdrop from '../components/HudBackdrop.vue';
+import LoginHologram from '../components/LoginHologram.vue';
 
 defineProps({ server: String });
 const emit = defineEmits(['done']);

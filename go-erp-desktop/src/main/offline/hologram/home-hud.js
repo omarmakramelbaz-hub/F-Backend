@@ -10,8 +10,8 @@
     var freshness = root.querySelector('[data-hud-freshness]'), live = root.querySelector('.hud-live'), voiceButton = root.querySelector('[data-hud-voice]');
     var enter = root.querySelector('[data-hud-enter]'), announcement = root.querySelector('[data-hud-announcement]');
     var robotCanvas = root.querySelector('[data-hud-robot]');
-    var robot = null;
-    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: false}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
+    var robot = null, commands = null;
+    try { if (window.GoHologram) robot = window.GoHologram.mount(robotCanvas, {background: true, fullViewport: true, interactive: false, artwork: true}); } catch (_) { root.dataset.hudRenderer = 'unavailable'; }
     var metric = null, speech = null, speechQueued = false, pendingGreeting = false, greetingDone = false, greetingReady = true, greetingTimer = 0, muted = false, mouthFrame = 0;
     var currentActor = document.body.dataset.dashboardActor || '';
     var bg = root.querySelector('[data-hud-background]'), bgContext = bg ? bg.getContext('2d') : null, bgFrame = 0, bgLast = 0;
@@ -115,6 +115,15 @@
     }
     function onData(event) { if (event.detail && event.detail.hologram) fill(event.detail.hologram); }
     function alertState(event) { if (robot) robot.setAlert(!!(event.detail && event.detail.pending && event.detail.pending.length)); }
+    function gaze(event) {
+        if (disposed || root.hidden || document.hidden || !robot || !robot.setGaze || event.pointerType === 'touch') return;
+        var bounds = root.getBoundingClientRect();
+        if (bounds.width < 1 || bounds.height < 1) return;
+        var x = Math.max(-1, Math.min(1, (event.clientX - bounds.left) / bounds.width * 2 - 1));
+        var y = Math.max(-1, Math.min(1, (event.clientY - bounds.top) / bounds.height * 2 - 1));
+        robot.setGaze(x, y);
+    }
+    function restGaze() { if (robot && robot.setGaze) robot.setGaze(0, 0); }
     function speaking(on) {
         if (robot) robot.setSpeaking(on); var refocus = !on && document.activeElement === voiceButton;
         voiceButton.hidden = !on;
@@ -180,18 +189,20 @@
     function keydown(event) {
         if (event.key === 'Escape') { event.preventDefault(); leave(); return; }
         if (event.key !== 'Tab') return;
-        var items = Array.from(root.querySelectorAll('a[href],button:not([hidden]):not([disabled])')); var first = items[0], last = items[items.length - 1];
+        var items = Array.from(root.querySelectorAll('a[href],button,input,textarea,select,[tabindex="0"]')).filter(function (node) { return !node.disabled && node.getClientRects().length && !node.closest('[hidden]'); }); var first = items[0], last = items[items.length - 1];
+        if (!first) return;
         if (!root.contains(document.activeElement)) { event.preventDefault(); first.focus(); return; }
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
     function visibility() { if (document.hidden) { clearTimeout(timer); if (bgFrame) cancelAnimationFrame(bgFrame); bgFrame = 0; stopSpeech(); } else { wakeBackground(); refresh(); } }
     function dispose() {
-        if (disposed) return; disposed = true; root.hidden = true; clearTimeout(timer); clearTimeout(timeout); clearTimeout(renderTimer); if (bgFrame) cancelAnimationFrame(bgFrame); bgFrame = 0; if (controller) controller.abort(); stopSpeech(); if (robot) robot.destroy(); robot = null;
+        if (disposed) return; disposed = true; root.hidden = true; clearTimeout(timer); clearTimeout(timeout); clearTimeout(renderTimer); if (bgFrame) cancelAnimationFrame(bgFrame); bgFrame = 0; if (controller) controller.abort(); if (commands) commands.destroy(); commands = null; stopSpeech(); if (robot) robot.destroy(); robot = null;
         removers.forEach(function (remove) { remove(); }); document.documentElement.classList.remove('go-hud-open');
     }
     document.documentElement.classList.add('go-hud-open');
     on(enter, 'click', leave); on(root, 'click', drawersClick); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'dashboard:order-alert-state', alertState);
     on(document, 'visibilitychange', visibility); on(document, 'dashboard:before-unload', dispose); on(window, 'pagehide', dispose);
+    on(root, 'pointermove', gaze, {passive: true}); on(root, 'pointerleave', restGaze);
     on(window, 'resize', wakeBackground); if (reduce && reduce.addEventListener) on(reduce, 'change', wakeBackground);
     function resumeGreeting(event) { if (!voiceButton.contains(event.target)) sayGreeting(); }
     on(root, 'pointerdown', resumeGreeting, {capture: true}); on(root, 'keydown', resumeGreeting, {capture: true});
@@ -201,5 +212,6 @@
     if (location.hash === '#branch-drawers') { setTimeout(showDrawers, 0); return; }
     if (!metric) { freshness.textContent = 'جار تحميل العدّادات'; refresh(); } else schedule();
     if (window.DashboardOrderAlerts) alertState({detail: window.DashboardOrderAlerts.state()});
+    if (root.dataset.hudCommands === '1' && window.GoHudCommands) commands = window.GoHudCommands.mount(root, {duckGreeting: stopSpeech, setSpeaking: function (on) { if (robot) robot.setSpeaking(on); }});
     wakeBackground(); enter.focus({preventScroll: true}); greeting();
 })();

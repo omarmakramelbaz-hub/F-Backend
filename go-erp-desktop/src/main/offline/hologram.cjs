@@ -1,6 +1,6 @@
 'use strict';
-// The dashboard's GO opening on its home page and the GO in its sidebar (the dashboard's hologram release
-// hologram-energy-20261101-v5), shipped with the app in ./hologram: the release's own files, unchanged.
+// The dashboard's GO opening on its home page and the GO in its sidebar (the dashboard's live hologram of 2026-11-10,
+// with the GO portrait), shipped with the app in ./hologram: the dashboard's own files, unchanged.
 // A page saved on this device before the dashboard got that look opens offline in the look the dashboard has now;
 // pages saved since already have it and are left as they are.
 const fs = require('node:fs');
@@ -17,7 +17,10 @@ const SERVED = {
   'css/go-hologram.css': 'text/css; charset=utf-8',
   'js/home-hud.js': 'application/javascript; charset=utf-8',
   'css/home-hud.css': 'text/css; charset=utf-8',
+  'branding/go-hologram-premium-20261110.png': 'image/png',
 };
+// The GO portrait the hologram brings to life (the dashboard's own picture), in the opening and in the sidebar.
+const ARTWORK = ["{{ asset('dashboard/branding/go-hologram-premium-20261110.png') }}", PREFIX + 'branding/go-hologram-premium-20261110.png'];
 // The opening's sections (App\Services\Dashboard\HomeHologramMetrics): key, title, what is counted.
 const SECTIONS = [['employees', 'الموظفين والرواتب', 'موظف'], ['customers', 'العملاء', 'عميل'], ['expenses', 'المصروفات', 'مصروف معتمد'],
   ['drawer', 'تقفيل الوردية', 'فروع للتقفيل'], ['stock', 'مخزون البضاعة', 'صنف'], ['ch-app', 'طلبات التطبيق', 'في التجهيز اليوم'],
@@ -69,7 +72,8 @@ function currentShell(html, origin) {
   const scripts = html.indexOf('<div data-dashboard-page-scripts');
   const head = html.indexOf('</head>');
   if (end < 0 || scripts < end || head < 0 || head > logo) return html;
-  const robot = read('sidebar.html').trim().replace("{{ url('/admin/dashboard') }}", () => escape(origin + '/admin/dashboard'));
+  const robot = read('sidebar.html').trim().replace("{{ url('/admin/dashboard') }}", () => escape(origin + '/admin/dashboard'))
+    .replace(ARTWORK[0], () => ARTWORK[1]);
   const files = `<script src="${PREFIX}js/go-hologram.js"></script>\n<script src="${PREFIX}js/go-hologram-shell.js"></script>\n`;
   return html.slice(0, head) + `<link rel="stylesheet" href="${PREFIX}css/go-hologram.css">\n` + html.slice(head, logo) + robot
     + html.slice(end, scripts) + files + html.slice(scripts);
@@ -117,7 +121,7 @@ function currentHome(html, name, counters) {
   const intro = /^<section\b[^>]*\bdata-intro="1"/.test(earlier) ? '1' : '0';
   const blade = read('home-hud.html');
   const parts = [["{{ !empty($boot['intro']) ? '1' : '0' }}", intro], ["{{ auth('admin')->user()->name }}", escape(name)],
-    ["@include('admin.partials.go_hud_mark')", read('go-hud-mark.svg').trim()]];
+    ["@include('admin.partials.go_hud_mark')", read('go-hud-mark.svg').trim()], ARTWORK];
   if (parts.some(([mark]) => !blade.includes(mark))) return html;
   let opening = blade.replace(/^\{\{--[\s\S]*?--\}\}\s*/, '').trim();
   for (const [mark, value] of parts) opening = opening.replace(mark, () => value);

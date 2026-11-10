@@ -1,7 +1,8 @@
 <template>
-  <div class="login-page dashboard-login-page hud-login">
+  <div class="login-page dashboard-login-page dashboard-login-hologram hud-login">
     <HudBackdrop />
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
+      <LoginHologram />
 
       <section class="dashboard-login-form-panel">
         <span class="dashboard-login-eyebrow">لوحة التحكم</span>
@@ -59,6 +60,7 @@ import { computed, onMounted, ref } from 'vue';
 import { call } from '../api.js';
 import SyncBadge from '../components/SyncBadge.vue';
 import HudBackdrop from '../components/HudBackdrop.vue';
+import LoginHologram from '../components/LoginHologram.vue';
 
 const props = defineProps({ info: Object, sync: Object });
 const emit = defineEmits(['signed-in', 'sync-now', 'reset']);

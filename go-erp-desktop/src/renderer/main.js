@@ -5,5 +5,6 @@ import '@fontsource/almarai/800.css';
 import App from './App.vue';
 import './dashboard-theme.css';
 import './styles.css';
+import './go-login-hologram.css';
 
 createApp(App).mount('#app');

@@ -258,41 +258,10 @@ td.punch { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; 
 .splash.opening { align-content: center; gap: 18px; }
 .splash.opening p { margin: 0; text-align: center; color: #b8c4d4; font-size: 15px; }
 
-/* Sign-in and setup in the dashboard's GO opening (the live hologram, home-hud.css): its background, the figure on the
-   left, and the form as one of its cards on the right. */
-.login-page.dashboard-login-page.hud-login { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: flex-start;
-  padding: 3vh 6vw; overflow: auto; color: #e9f7ff; background: radial-gradient(ellipse at 50% 53%, #062331 0%, #03131f 39%, #010b14 76%); }
-.hud-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
-.hud-backdrop-lines { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .65; }
-.hud-backdrop-figure { position: absolute; top: 0; bottom: 0; left: 0; width: 58%; }
-.hud-backdrop-figure canvas { display: block; width: 100%; height: 100%; }
-.hud-backdrop-still { position: absolute; top: 50%; left: 50%; width: min(360px, 60%); transform: translate(-50%, -50%); filter: drop-shadow(0 0 18px #41dfff55); }
-.hud-backdrop-still svg, .hud-backdrop-brand svg { display: block; width: 100%; height: auto; }
-.hud-backdrop-brand { position: absolute; left: 3%; bottom: 5%; width: 54px; filter: drop-shadow(0 0 4px #41dfff66); }
-.hud-backdrop-tagline { position: absolute; left: 50%; bottom: 1.6%; transform: translateX(-50%); margin: 0; white-space: nowrap; font-size: 10px; letter-spacing: .08em; color: #73939f; }
-.hud-login .dashboard-login { display: block; width: min(430px, 100%); padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
-.hud-login .dashboard-login-form-panel { padding: 30px 30px 22px; border: 1px solid #13bcd1a6; border-radius: 14px;
-  background: linear-gradient(125deg, #042031e0, #01111bf0); box-shadow: inset 0 1px 0 #c8f7ff0d, 0 24px 70px #000a; backdrop-filter: blur(4px); }
-.hud-login .dashboard-login-eyebrow { color: #ffa322; }
-.hud-login .dashboard-login-form-panel h1 { color: #f1f9ff; }
-.hud-login .dashboard-login-description { color: #98b8c8; margin-bottom: 24px; }
-.hud-login .dashboard-login-field > label { color: #dcfaff; }
-.hud-login .dashboard-login-input-wrap { border-color: #13bcd17a; background: #021723cc; }
-.hud-login .dashboard-login-input-wrap:focus-within { border-color: #28def5; box-shadow: 0 0 0 3px #28def51f; }
-.hud-login .dashboard-login-input-wrap > i { color: #30e5f8; }
-.hud-login .dashboard-login-input-wrap > input::placeholder { color: #6f93a3; }
-.hud-login .dashboard-login-input-wrap > input:-webkit-autofill { box-shadow: inset 0 0 0 1000px #021723; }
-.hud-login .dashboard-login-submit { border: 1px solid #1bd2f1; border-radius: 12px; background: linear-gradient(#062134, #020f1c);
-  box-shadow: inset 0 1px 0 #d6fcff22, 0 6px 22px #0007; color: #f1f9ff; font-weight: 400; font-size: 16px; }
-.hud-login .dashboard-login-submit > i { color: #ffa322; }
-.hud-login .dashboard-login-submit:hover:not(:disabled) { background: #073148; border-color: #1bd2f1; box-shadow: 0 0 20px #1bd2f122; }
-.hud-login .login-device { color: #98b8c8; border-top-color: #13bcd140; }
-.hud-login .branch-choice, .hud-login .dashboard-login-field input[type="checkbox"] { accent-color: #28def5; }
-@media (max-width: 900px) {
-  .login-page.dashboard-login-page.hud-login { justify-content: center; }
-  .hud-backdrop-figure { width: 100%; opacity: .35; }
-}
+/* Sign-in and setup: the dashboard's sign-in page as it is (go-login-hologram.css, imported as it is). Here only what
+   the app's screens add to it: the device line, the setup page's branch choices, and the app's own page scroll. */
+.login-page.dashboard-login-page.dashboard-login-hologram { height: 100vh; overflow-y: auto; }
 .hud-login .dashboard-login-input-wrap > input:focus, .hud-login .dashboard-login-input-wrap > input:focus-visible { outline: none; box-shadow: none; }
-
-.hud-login .dashboard-login-remember { display: inline-flex; flex-direction: row; align-items: center; gap: 9px; color: #dcfaff; }
-.hud-login .dashboard-login-remember input { accent-color: #28def5; }
+.hud-login .dashboard-login-remember { display: inline-flex; flex-direction: row; align-items: center; gap: 9px; }
+.hud-login .login-device { color: #8eafbf; border-top-color: #13bcd140; }
+.hud-login .branch-choice, .hud-login .dashboard-login-field input[type="checkbox"] { accent-color: #22dff5; }
