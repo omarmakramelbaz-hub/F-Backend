@@ -1,85 +1,79 @@
-# GO hologram: verified release and continuation
+# GO hologram: living portrait and server login release
 
 Last verified on 10 November 2026 (Egypt).
 
-## Accepted outcome
+## Current outcome
 
-- Keep the approved blue/cyan portrait with restrained orange energy and a projection base.
-- Assemble that portrait from one luminous point and many particles, as in the earlier opening.
-- Add natural blinking, slight head movement and a bounded pointer response.
-- Move the lips during the existing named opening greeting, then remain silent while idle.
-- Use the same approved portrait in the opening and the compact sidebar.
-- Keep the existing named English greeting once after login; preserve its worker, nonce and readiness behavior.
-- Hide the optional microphone/command panel by default; do not add text entry.
-- Preserve the existing login greeting, counters, drawer scopes and other dashboard behavior.
+The approved blue/cyan portrait assembles from one light point and many coloured
+particles. It blinks, moves its head slightly, responds within bounded angles to
+pointer movement and moves its lips during the existing named opening greeting.
+The opening and compact sidebar share the same portrait. Optional microphone
+controls stay hidden by default; there is no typed-command field.
 
-## Previously verified immutable release
+The server sign-in page matches the desktop layout: large hologram left, existing
+sign-in form right, stacked on narrow screens. The form, POST action, CSRF,
+remember option, password controls and authentication handler are retained.
+The login avatar is silent. After successful sign-in the existing named English
+greeting runs once; refresh, ordinary navigation and idle remain silent.
+
+## Verified immutable release
 
 - Branch: `codex/hologram-premium-commands-20261110`.
-- Reviewed application commit: `7dc7c60a8ff69ab03212c4aa44a47bc4724df148`.
-- Passing workflow: https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42750149110
+- Application commit: `4f6e6985113da853368511e221f6e76473a9cd07`.
+- Passing PR workflow: https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42754040461
+- Passing push workflow: https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42754033058
 - Runner: `scripts/hologram_premium/run_root.sh`.
-- Runner SHA-256: `4cb3596b99c3725e674c910edff81215991b6bc4c54d8d19fd065693c3ab2746`.
-- Manifest SHA-256: `6c534170432185048fda544c4fcbefbfeb12720a0aaded0eda3a3c1f73af2442`.
+- Runner SHA-256: `1be711b3c0ba4fffa566af8c62f99040fbc1c0c056520eff2fef72d16017108c`.
+- Installer SHA-256: `56de0984d1bf4cbd1aacbf091431783d4055442d2830f7880133cf1854f04d75`.
+- Manifest SHA-256: `fadc951557291f7057b3b921034b6dee846b734a0141bf958cd85afcffc16b14`.
 
-## Completed validation
+The later documentation checkpoint does not change these payloads. Activate the
+exact application commit above.
 
-The workflow above completed successfully on that exact application commit:
+## Validation
 
-- 24 renderer lifecycle checks.
-- All 13 bounded-deployment tests, including application against both reviewed baselines.
-- 69 voice-command browser assertions with controlled browser speech services.
-- 178 existing opening-behavior browser assertions.
-- 100 premium browser assertions across seven viewport sizes with real WebGL, the approved portrait, voice-only controls, and cleanup.
+Both workflows passed on that application commit:
 
-Exact release payload bytes and the installer/manifest pins were independently checked after retrieving the source.
+- 48 renderer lifecycle checks, including context recovery and image fallback.
+- 18 bounded-deployment tests, including all three reviewed baselines, unknown
+  source rejection, repeat application and rollback.
+- 69 optional voice-command assertions using controlled browser speech services.
+- 191 existing opening assertions covering the named greeting and idle behavior.
+- 100 premium portrait/layout checks across seven viewport sizes with real WebGL.
+- 29 construction/facial-motion checks, including actual eye/mouth pixel changes,
+  subtle head movement, pause, cleanup and reduced motion.
+- 84 login checks across seven viewport sizes, including fixture POST/CSRF and
+  remember, password controls, pointer limits, fallback and history restoration.
+  Form and authentication-script hashes remain identical to the reviewed baseline.
 
-Browser speech recognition and Arabic voice availability still depend on the user's browser/device. Automated service stubs verify the controls and command lifecycle; they do not establish microphone accuracy or audible output on the production device.
+Workflow screenshots were inspected for construction, complete portrait,
+open/closed eyes, speech deformation and the full login. Local reruns passed all
+48 renderer and 18 deployment checks, plus syntax, payload identity, runner pins
+and whitespace checks. Local Chromium cannot create its required socket, so
+browser results and screenshots come from the successful GitHub jobs.
 
-## Activation status and next step
+These results establish the hologram/login workflow. Other repository workflows
+have separate failures and are not represented as passing here. Stubbed speech
+services do not establish real-device microphone accuracy. The existing named
+recording still needs a production-device playback check after sign-in.
 
-The receipt below confirms the earlier premium portrait release. The newly
-requested point assembly, living face and silent idle changes are a subsequent
-upgrade: they require final motion validation and a newly pinned activation
-command before being described as installed.
+## Activation status
 
-The user supplied a successful production receipt from `srv1836524` on 10 November 2026 at 05:43 Egypt time (03:43 UTC):
+**Ready for activation. The living portrait/server-login upgrade has not been
+executed on production from this session.** Its production receipt is pending.
+The earlier premium portrait release was activated by the operator; that earlier
+receipt does not establish installation of this subsequent upgrade.
 
-```json
-{"status":"GO_HOLOGRAM_PREMIUM_APPLIED_AND_VERIFIED","feature":"hologram-premium-commands-20261110","changed_files":11,"tenant_contexts":0,"backup":"/root/go-hologram-premium-backups/20261110T034300Z-7d2718d6","database_changes":false,"route_changes":false,"voice_worker_changed":false,"desktop_rebuilt":false}
-```
+The release runner and immutable hashes above identify the reviewed payload.
+Operator-specific instructions remain in the private task conversation.
+Expected success marker: `GO_HOLOGRAM_PREMIUM_APPLIED_AND_VERIFIED`.
+An unchanged replay reports `GO_HOLOGRAM_PREMIUM_ALREADY_APPLIED`.
 
-Activation of the central application is confirmed by that operator-supplied receipt; no server session was used by the assistant. `tenant_contexts: 0` counts additional Owner runtimes, while the central runtime is always verified separately. The receipt does not establish verification of separate Owner runtimes. No extra server action is indicated by this successful result.
+The package backs up changed source, rejects unknown overlapping edits and
+rolls back failed verification. Database, routes, the private greeting worker
+and Windows installer are unchanged.
 
-The command below records the exact activation used. It is retained for reproducibility; reinstalling is not required:
-
-```bash
-bash <<'SH'
-set -euo pipefail
-umask 077
-test "$(id -u)" -eq 0
-test "$(hostname -s)" = srv1836524
-
-go_hologram_rev=7dc7c60a8ff69ab03212c4aa44a47bc4724df148
-go_hologram_run=$(mktemp /var/tmp/go-hologram-premium-resume.XXXXXXXX)
-trap 'rm -f -- "$go_hologram_run"' EXIT
-
-curl --fail --silent --show-error --location \
-  --proto '=https' --proto-redir '=https' --max-time 60 \
-  "https://raw.githubusercontent.com/omarmakramelbaz-hub/F-Backend/$go_hologram_rev/scripts/hologram_premium/run_root.sh" \
-  -o "$go_hologram_run"
-
-printf '%s  %s\n' \
-  4cb3596b99c3725e674c910edff81215991b6bc4c54d8d19fd065693c3ab2746 \
-  "$go_hologram_run" | sha256sum --check --status
-
-bash "$go_hologram_run" "$go_hologram_rev" --apply
-SH
-```
-
-Expected first-application marker: `GO_HOLOGRAM_PREMIUM_APPLIED_AND_VERIFIED`.
-A successful unchanged replay reports `GO_HOLOGRAM_PREMIUM_ALREADY_APPLIED`.
-
-The remaining check is on the production device: refresh the dashboard with `Ctrl+Shift+R`, verify the approved portrait in the opening and sidebar, open the command controls, press the microphone, and allow microphone access. Try `عدد العملاء كام؟` to verify an audible Arabic reply, then `افتح العملاء` to verify navigation. An installed Arabic browser voice is required. Use one command per microphone press.
-
-Use this file and the immutable workflow/commit above to resume after a conversation interruption. The earlier premium portrait release is verified and activated in the central application. Complete validation and activation of the requested living-face/point-assembly revision next, then verify the named opening greeting and silent idle behavior on the production device.
+After successful activation, refresh with `Ctrl+Shift+R`. Check the new login,
+then sign in once to check construction, blinking, subtle head/pointer response
+and the existing named greeting with lip movement. Idle should remain silent.
+Record the actual receipt before marking production activation complete.
