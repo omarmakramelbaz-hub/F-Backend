@@ -220,7 +220,9 @@ async function cashierDevice() {
   const punchedAt = Date.now();
   await page.locator('.attendance tr', { hasText: 'سعيد' }).getByRole('button', { name: 'حضور صباحي' }).click();
   await page.locator('.notice', { hasText: 'تم تسجيل حضور سعيد' }).waitFor();
-  await page.locator('.attendance tr', { hasText: 'سعيد' }).getByRole('button', { name: 'انصراف' }).waitFor();
+  // Arrival only: no departure button once he is recorded.
+  await page.locator('.attendance tr', { hasText: 'سعيد' }).getByText('في الانتظار').waitFor();
+  assert.equal(await page.locator('.attendance tr', { hasText: 'سعيد' }).getByRole('button', { name: 'انصراف' }).count(), 0);
   await shot(page, '05b-attendance-offline');
 
   // The internet is back: the waiting sale is sent without being duplicated.
@@ -647,11 +649,12 @@ async function dashboardOffline() {
     throw error;
   }
   await dashboardShot(app, '16-dashboard-expense-offline');
-  // The employees page offline: سعيد (checked in earlier) leaves, recorded from the dashboard's own page with the device's time.
+  // The employees page offline: سعيد (checked in earlier on this device) shows as recorded; the daily page records
+  // arrival only, with no departure control.
   await inDashboard(app, "location.href = '/admin/employees'");
-  const arrival = "document.querySelector('select[aria-label=\"الانصراف — سعيد\"]')";
+  const arrival = "document.querySelector('select[aria-label=\"الحضور — سعيد\"]')";
   try {
-    await until(async () => await inDashboard(app, `!!${arrival}`).catch(() => false), 'the employees page opens offline');
+    await until(async () => await inDashboard(app, `!!${arrival} && ${arrival}.disabled`).catch(() => false), 'the employees page opens offline with سعيد recorded');
   } catch (error) {
     console.log('DEBUG employees', String(await inDashboard(app, `JSON.stringify({ url: location.href, root: !!document.querySelector('#branch-operations'),
       message: (document.querySelector('[data-op-message]') || {}).textContent, selects: Array.from(document.querySelectorAll('select')).map((x) => x.getAttribute('aria-label')).filter(Boolean).slice(0, 8),
@@ -659,17 +662,7 @@ async function dashboardOffline() {
     console.log('DEBUG console', JSON.stringify((await app.evaluate(() => global.__dashboardConsole || [])).filter((line) => !/CKEDITOR|toastr|rateYo|firebase|jstree|ServiceWorker/.test(line)).slice(-10)));
     throw error;
   }
-  await inDashboard(app, `(() => { const select = ${arrival}; select.value = 'morning'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-  try {
-    // Recorded: the departure control is locked and shows the time it was recorded.
-    await until(async () => await inDashboard(app, `${arrival}.disabled && /^\\d{2}:\\d{2}$/.test(${arrival}.options[0].textContent.trim())`).catch(() => false),
-      'the offline check-out shows on the employees page', 20000);
-  } catch (error) {
-    console.log('DEBUG punch', String(await inDashboard(app, `JSON.stringify({ cell: ${arrival}.closest('.op-attendance-cell').innerText, disabled: ${arrival}.disabled,
-      notice: Array.from(document.querySelectorAll('[role=status],[data-op-message],.op-message')).map((x) => x.textContent).join(' | ').slice(0, 400) })`).catch((e) => 'ERR ' + e.message)));
-    console.log('DEBUG journal', JSON.stringify(deviceRows(userData, 'goerp.sqlite', "SELECT kind, sync_status, data FROM journal WHERE kind = 'attendance'")));
-    throw error;
-  }
+  assert.equal(await inDashboard(app, "document.querySelectorAll('select[aria-label^=\"الانصراف\"]').length"), 0, 'no departure control on the daily page');
   await dashboardShot(app, '17-dashboard-attendance-offline');
   // The day's absence from the same page: كريم did not come. The dashboard applies its absence deduction once the internet is back.
   const absentee = "document.querySelector('select[aria-label=\"الحضور — كريم\"]')";
@@ -835,8 +828,8 @@ async function dashboardOffline() {
     input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('[data-phone-next-number]').click();`);
   await checked("document.querySelector('[data-phone-field=\"customer_name\"]').value === 'هبة' && document.querySelector('[data-phone-lat]').value !== ''",
     'the returning customer is found on the device with her location');
-  await phone("document.querySelector('[data-phone-confirm-location]').click();");
-  await checked("document.querySelector('[data-phone-field=\"delivery_fee\"]').value === '20.00' && /تم تأكيد/.test(document.querySelector('[data-phone-distance]').textContent)",
+  // The pin needs no separate confirmation: going on to the products confirms the saved location.
+  await checked("document.querySelector('[data-phone-field=\"delivery_fee\"]').value === '20.00'",
     'the delivery fee is calculated on the device');
   await dashboardShot(app, '22-dashboard-new-delivery-location-offline');
   await phone("document.querySelector('[data-phone-next-details]').click();");
@@ -881,8 +874,8 @@ async function dashboardOffline() {
   assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].total_cents, 20500);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_expenses WHERE amount_cents = 8825 AND category = 'electricity'")[0].c === 1,
     'the offline expense reaches the dashboard', 40000);
-  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 50 AND check_out IS NOT NULL")[0].c === 1,
-    'the offline check-out reaches the dashboard', 40000);
+  await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 50 AND check_in IS NOT NULL")[0].c === 1,
+    'the offline check-in reaches the dashboard', 40000);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_employee_days WHERE employee_id = 51 AND status = 'unauthorized_absence'")[0].c === 1,
     'the offline absence reaches the dashboard', 40000);
   assert.equal(serverRows('SELECT SUM(amount_cents) AS c FROM branch_employee_entries WHERE employee_id = 51 AND voided_at IS NULL')[0].c, 30000,

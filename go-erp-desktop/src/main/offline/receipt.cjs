@@ -203,9 +203,23 @@ function renderKitchen(kitchen, { origin, dashboardPrint = false }) {
   return html;
 }
 
-const BATCH_STYLE = '@page{size:80mm auto;margin:3mm}*{box-sizing:border-box}body{font:12px Tahoma,Arial;color:#000;width:72mm;margin:0 auto;overflow-wrap:anywhere}'
-  + 'header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}h1{font-size:17px}p{margin:7px 0}table{width:100%;border-collapse:collapse;margin:14px 0}'
-  + 'th,td{padding:9px 3px;border-bottom:1px dashed #333;text-align:start}tr{break-inside:avoid}tfoot{font-size:16px;font-weight:bold}footer{margin-top:15px;font-size:11px}';
+const BATCH_STYLE = `
+        @page{size:80mm auto;margin:3mm}
+        *{box-sizing:border-box}
+        body{font:12px Tahoma,Arial,sans-serif;color:#000;width:100%;max-width:72mm;margin:0 auto;padding:0 1mm;overflow-wrap:anywhere}
+        header,footer{text-align:center}header img{width:28mm;height:28mm;object-fit:contain}
+        h1{font-size:17px}p{margin:7px 0}
+        table{width:100%;table-layout:fixed;border-collapse:collapse;margin:12px 0}
+        th,td{padding:7px 1px;border-bottom:1px dashed #333;text-align:center;vertical-align:middle}
+        th{font-size:11px;line-height:1.5}td{font-size:11px}th:first-child{width:19%}
+        th:nth-child(2){width:28%}th:nth-child(3){width:25%}th:last-child{width:28%}
+        tr{break-inside:avoid}bdi{font-variant-numeric:tabular-nums}td bdi{white-space:nowrap}
+        .batch-summary{border-top:1px solid #000;padding-top:6px}
+        .batch-summary div{display:flex;justify-content:space-between;gap:6px;padding:5px 0;break-inside:avoid}
+        .batch-summary dt{flex:1}.batch-summary dd{margin:0;white-space:nowrap}
+        .batch-delivery{font-weight:bold}.batch-grand-total{border-top:1px dashed #000;font-size:14px;font-weight:bold}
+        .batch-note{font-size:11px;line-height:1.6}footer{margin-top:15px;font-size:11px}
+    `;
 
 /** Carbon's format('Y-m-d H:i') in Cairo time. */
 function cairoDay(value) {
@@ -215,24 +229,36 @@ function cairoDay(value) {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
-/** admin.phone_orders.batch_receipt: the courier's receipt for delivery orders collected together. */
+/**
+ * admin.phone_orders.batch_receipt: the courier's receipt for delivery orders collected together, with each order's
+ * delivery fee apart when the original receipts give it (otherwise «—» and the note, as on the dashboard).
+ */
 function renderBatch(batch, { origin }) {
-  let html = '<!doctype html>\n<html lang="ar" dir="rtl" data-dashboard-receipt="phone-batch">\n';
-  html += `<head><meta charset="utf-8"><title>${e(t('phone_orders.batch_receipt'))} #${e(batch.id)}</title>\n<style>${BATCH_STYLE}</style></head>\n`;
-  html += `<body><header><img src="${e(origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا"><h1>${e(t('phone_orders.batch_receipt'))}</h1>`;
-  html += `<p>${e(batch.branch && batch.branch.name)}</p><bdi>#${e(batch.id)}</bdi><p><bdi>${e(cairoDay(batch.created_at))}</bdi></p></header>\n`;
+  const dash = (value) => (value === undefined || value === null ? '—' : value);
+  let html = '<!doctype html>\n<html lang="ar" dir="rtl" data-dashboard-receipt="phone-batch">\n<head>\n    <meta charset="utf-8">\n';
+  html += `    <title>${e(t('phone_orders.batch_receipt'))} #${e(batch.id)}</title>\n    <style>${BATCH_STYLE}</style>\n</head>\n<body>\n<header>\n`;
+  html += `    <img src="${e(origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا">\n    <h1>${e(t('phone_orders.batch_receipt'))}</h1>\n`;
+  html += `    <p>${e(batch.branch && batch.branch.name)}</p><bdi>#${e(batch.id)}</bdi>\n    <p><bdi>${e(cairoDay(batch.created_at))}</bdi></p>\n</header>\n`;
   html += `<p>${e(t('phone_orders.courier_company'))}: ${e(batch.company && batch.company.name)}</p>\n`;
   if (filled(batch.courier_name)) html += `<p>${e(t('phone_orders.courier_name'))}: ${e(batch.courier_name)}</p>`;
-  html += `\n<p>${e(t('phone_orders.cashier'))}: ${e(batch.cashier && batch.cashier.name)}</p>\n`;
-  html += `<table><thead><tr><th>${e(t('phone_orders.saved_number'))}</th><th>${e(t('phone_orders.total'))}</th></tr></thead><tbody>`;
-  for (const line of batch.items || []) html += `<tr><td><bdi>#${e(line.ticket_id)}</bdi></td><td><bdi>${e(line.total)}</bdi></td></tr>`;
-  html += `</tbody><tfoot><tr><td>${e(t('phone_orders.total'))}</td><td><bdi>${e(batch.total)}</bdi> ${e(t('phone_orders.currency'))}</td></tr></tfoot></table>\n`;
+  html += `<p>${e(t('phone_orders.cashier'))}: ${e(batch.cashier && batch.cashier.name)}</p>\n<table>\n    <thead><tr>\n`;
+  html += `        <th>${e(t('phone_orders.saved_number'))}</th>\n        <th>${e(t('phone_batch.orders_column'))}</th>\n`;
+  html += `        <th>${e(t('phone_batch.delivery_column'))}</th>\n        <th>${e(t('phone_batch.total_column'))}</th>\n    </tr></thead>\n    <tbody>\n    `;
+  for (const line of batch.items || []) {
+    html += `        <tr>\n            <td><bdi>#${e(line.ticket_id)}</bdi></td>\n            <td><bdi>${e(dash(line.total_without_delivery))}</bdi></td>\n`;
+    html += `            <td><bdi>${e(dash(line.delivery))}</bdi></td>\n            <td><bdi>${e(line.total)}</bdi></td>\n        </tr>\n    `;
+  }
+  html += '    </tbody>\n</table>\n<dl class="batch-summary">\n';
+  html += `    <div><dt>${e(t('phone_batch.orders_total'))}</dt><dd><bdi>${e(dash(batch.orders_total))}</bdi> ${e(t('phone_orders.currency'))}</dd></div>\n`;
+  html += `    <div class="batch-delivery"><dt>${e(t('phone_batch.delivery_total'))}</dt><dd><bdi>${e(dash(batch.delivery_total))}</bdi> ${e(t('phone_orders.currency'))}</dd></div>\n`;
+  html += `    <div class="batch-grand-total"><dt>${e(t('phone_batch.grand_total'))}</dt><dd><bdi>${e(batch.total)}</bdi> ${e(t('phone_orders.currency'))}</dd></div>\n</dl>\n`;
+  if (!batch.delivery_breakdown_complete) html += `<p class="batch-note">${e(t('phone_batch.breakdown_unavailable'))}</p>`;
   html += `<p>${e(t('phone_orders.payment_method'))}: ${e(t('phone_orders.' + batch.payment_method))}</p>\n`;
   if (batch.payment_method === 'cash') {
     html += `<p>${e(t('phone_orders.cash_received'))}: <bdi>${e(batch.cash_received)}</bdi></p><p>${e(t('phone_orders.change'))}: <bdi>${e(batch.change)}</bdi></p>`;
   }
   if (filled(batch.payment_reference)) html += `<p>${e(t('phone_orders.payment_reference'))}: <bdi>${e(batch.payment_reference)}</bdi></p>`;
-  html += `\n<footer>${e(t('phone_orders.batch_paid_note'))}</footer></body></html>\n`;
+  html += `<footer>${e(t('phone_orders.batch_paid_note'))}</footer>\n</body>\n</html>\n`;
   return html;
 }
 

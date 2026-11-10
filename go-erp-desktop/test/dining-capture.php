@@ -52,7 +52,7 @@ $saved = ['branch' => 'f:100', 'items' => array_map(fn ($line) => ['product_id' 
 $phone = DB::table('pos_service_tickets')->insertGetId(['branch' => 'f:100', 'channel' => 'phone', 'customer_name' => 'منى', 'customer_phone' => '+201112223334',
     'address' => 'شارع النصر، عمارة ٥', 'area' => 'المعادي', 'delivery_cents' => 2500, 'cart_snapshot' => json_encode($saved, JSON_UNESCAPED_UNICODE),
     'quote_snapshot' => json_encode($q, JSON_UNESCAPED_UNICODE), 'revision' => 1, 'actor_id' => 4, 'status' => 'preparing', 'payment_status' => 'unpaid',
-    'business_date' => now()->toDateString(), 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+    'business_date' => \App\Services\Dashboard\OperatingDay::date(), 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
 $call('GET', '/admin/phone-orders/board?branch=f:100');
 $call('GET', "/admin/phone-orders/tickets/$phone");
 $quote = $call('POST', '/admin/phone-orders/quote', ['branch' => 'f:100', 'ticket_id' => $phone]);
@@ -68,7 +68,7 @@ foreach ([1, 2] as $n) {
     $order = DB::table('pos_service_tickets')->insertGetId(['branch' => 'f:100', 'channel' => 'phone', 'customer_name' => 'عميل '.$n, 'customer_phone' => '+20111222333'.$n,
         'address' => 'المعادي', 'area' => 'المعادي', 'delivery_cents' => 2500, 'cart_snapshot' => json_encode($saved, JSON_UNESCAPED_UNICODE),
         'quote_snapshot' => json_encode($q, JSON_UNESCAPED_UNICODE), 'revision' => 1, 'actor_id' => 4, 'status' => 'preparing', 'payment_status' => 'unpaid',
-        'business_date' => now()->toDateString(), 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
+        'business_date' => \App\Services\Dashboard\OperatingDay::date(), 'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
     $call('POST', '/admin/phone-orders/dispatch-company', ['branch' => 'f:100', 'ticket_id' => $order, 'company_id' => 7, 'expected_revision' => 1, 'idempotency_key' => $key()]);
     $batch[] = ['id' => $order, 'revision' => 2, 'quote_hash' => $q['quote_hash']];
 }

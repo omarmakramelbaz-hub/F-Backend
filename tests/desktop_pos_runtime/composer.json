@@ -10,6 +10,6 @@
     "ramsey/uuid": "^4.2",
     "symfony/http-kernel": "^5.4"
   },
-  "autoload": {"psr-4":{"App\\Services\\":"../../app/Services/"}},
+  "autoload": {"psr-4":{"App\\Services\\":"../../app/Services/","App\\Support\\":"../../app/Support/"}},
   "config": {"sort-packages":true}
 }

@@ -2,7 +2,7 @@
   <div class="attendance">
     <div class="toolbar">
       <div>
-        <h2>حضور وانصراف الموظفين</h2>
+        <h2>حضور الموظفين</h2>
         <p class="muted small">يوم العمل {{ day }} · الوقت بساعة الجهاز (مصححة بفرق السرفر) ويشتغل من غير إنترنت. الخصومات بتتحسب في الداشبورد بنفس القواعد.</p>
       </div>
       <span class="spacer"></span>
@@ -13,14 +13,13 @@
     <p v-if="notice" class="notice">{{ notice }}</p>
 
     <table class="list" v-if="items.length">
-      <thead><tr><th>الموظف</th><th>الدوام</th><th>الحالة</th><th>الحضور</th><th>الانصراف</th><th>الداشبورد</th><th></th></tr></thead>
+      <thead><tr><th>الموظف</th><th>الدوام</th><th>الحالة</th><th>الحضور</th><th>الداشبورد</th><th></th></tr></thead>
       <tbody>
         <tr v-for="item in items" :key="item.employee.id" :class="{ rejected: item.error }">
           <td><b>{{ item.employee.name }}</b><div class="muted small">{{ item.employee.job_title }}</div></td>
           <td>{{ scheduleLabel(item.employee) }}</td>
           <td>{{ statusLabel(item) }}</td>
           <td>{{ item.checked_in_at ? time(item.checked_in_at) : '-' }}</td>
-          <td>{{ item.checked_out_at ? time(item.checked_out_at) : '-' }}</td>
           <td>
             <span v-if="item.error" class="pill danger" :title="item.error">مرفوض: {{ item.error }}</span>
             <span v-else-if="item.pending" class="pill warn">في الانتظار</span>
@@ -36,7 +35,6 @@
                 <button class="primary small" :disabled="busy" @click="punch(item, 'check_in', 'evening')">حضور مسائي</button>
               </template>
             </template>
-            <button v-else-if="item.checked_in_at && !item.checked_out_at" class="strong small" :disabled="busy" @click="punch(item, 'check_out')">انصراف</button>
           </td>
         </tr>
       </tbody>
