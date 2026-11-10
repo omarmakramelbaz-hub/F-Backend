@@ -4,11 +4,48 @@ Last verified on 10 November 2026 (Egypt).
 
 ## Arabic reply continuation
 
-The subsequent Arabic fallback and microphone lifecycle update has a separate
-bounded package: see [hologram-arabic-voice.md](hologram-arabic-voice.md).
-It can upgrade the confirmed living release directly; the older one-click
-activation command is not a prerequisite. This continuation is awaiting final
-workflow verification and an operator activation receipt.
+The Arabic fallback and microphone lifecycle continuation is verified and ready
+for operator activation. Its separate bounded package is documented in
+[hologram-arabic-voice.md](hologram-arabic-voice.md). It upgrades the confirmed
+living release directly; the older one-click activation is not a prerequisite.
+Production activation of this continuation remains pending an operator receipt.
+
+Immutable application commit: `7096a56d0f0e4fc1ac3f29f75a6be1996429969d`.
+Both relevant PR workflows passed on that exact revision:
+
+- Browser, living portrait and server login:
+  https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42763224761
+- Real offline Arabic speech, PHP service and authenticated HTTP route:
+  https://github.com/omarmakramelbaz-hub/F-Backend/actions/runs/42763224674
+
+Validation includes 103 command/permission assertions, 195 private-audio
+assertions, 39 real PHP subprocess assertions and 34 Laravel HTTP assertions.
+All 11 Arabic deployment tests and four helper/number tests passed, including an
+actual non-silent Arabic WAV. Regression checks passed: 48 renderer checks,
+19 premium deployment tests, 191 existing-opening assertions, 135 portrait/layout
+checks, 29 facial-motion/assembly checks and 84 login checks across seven sizes.
+The workflow contact sheet and full login screenshot were visually inspected.
+
+The browser cases establish native-voice preference, missing/broken/silent voice
+fallback, autoplay replay, distinct permission/speaking timeouts, and cancellation
+on close, hide, account/card/scope changes. The late-response fixture drains a
+cloned response before checking that cancelled sessions cannot begin playback.
+Speech recognition and playback APIs are controlled stubs; real-device
+recognition, audible speech and voice quality still require the production device.
+The fallback is a basic local synthesized Arabic voice, not a neural voice.
+
+Pinned Arabic activation package:
+
+- Runner: `scripts/hologram_arabic/run_root.sh`.
+- Runner SHA-256: `148e9b79ff80b5445bd76087fa5507ee88429c92ddf484e9da3de7ea302ce7b2`.
+- Installer SHA-256: `3b6e5c42c53d150a784ef5d32526eda2ce5946a128655b4f4bfb71bb812c41ba`.
+- Manifest SHA-256: `496f96daaef1cd2c9cc9f3415ac8138a2349bdff010ea8899f854b300cc1f214`.
+
+The package changes eight bounded application paths, preserves the approved
+portrait/login and named opening, verifies each enumerated runtime, and rolls
+back failed verification. No remote server command was executed in this session.
+Other repository workflows have separate failures and are not covered by these
+two successful workflows.
 
 ## Voice restoration follow-up
 

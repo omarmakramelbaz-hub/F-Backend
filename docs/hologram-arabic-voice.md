@@ -30,8 +30,12 @@ single `تشغيل الرد` button that reuses the existing private audio.
 
 ## Deployment
 
-Use `scripts/hologram_arabic/run_root.sh` at the final reviewed commit, with the
-published SHA-256 pin. It accepts `--check` or `--apply` on the known host.
+Use `scripts/hologram_arabic/run_root.sh` at verified application commit
+`7096a56d0f0e4fc1ac3f29f75a6be1996429969d`, with runner SHA-256
+`148e9b79ff80b5445bd76087fa5507ee88429c92ddf484e9da3de7ea302ce7b2`.
+It accepts `--check` or `--apply` on the known host. The complete workflow
+receipts and installer/manifest pins are in
+[hologram-premium-status.md](hologram-premium-status.md#arabic-reply-continuation).
 The package upgrades either the operator-confirmed living release
 `4f6e6985113da853368511e221f6e76473a9cd07` or the one-click release
 `7258fd82706494020aa9c4262d41a1ce354ed442`; running the earlier microphone
