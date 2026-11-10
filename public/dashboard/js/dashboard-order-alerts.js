@@ -216,7 +216,7 @@
             } catch (_) { /* Keep existing alerts while the network or session recovers. */ }
             finally { clearTimeout(timeout); if (feedController === controller) feedController = null; }
         }
-        if (!stopped) feedTimer = setTimeout(pollOrders, 10000);
+        if (!stopped) feedTimer = setTimeout(pollOrders, 15000); // server load: every 15 seconds
     }
     window.DashboardOrderAlerts = {
         notify: notify, acknowledge: acknowledge, sync: sync, observeApp: observeApp, reconcileApp: reconcileApp, checkpoint: function () { return sequence; }, unlock: unlock,

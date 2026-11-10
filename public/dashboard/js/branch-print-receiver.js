@@ -11,8 +11,8 @@
     try { receivedIds = new Set(JSON.parse(sessionStorage.getItem(receivedKey) || '[]').map(Number).filter(validId)); } catch (_) {}
     window.DashboardBranchPrinter = state;
     function validId(id) { return Number.isSafeInteger(id) && id > 0; }
-    // One window of this account and branch asks the server (the PC program's windows share it); every 5 seconds
-    // for delivery orders, every 20 for shift receipts and app orders.
+    // One window of this account and branch asks the server (the PC program's windows share it); every 8 seconds
+    // for delivery orders, every 32 for shift receipts and app orders.
     var leadKey = 'branch-print-lead:' + (boot.actor_id || 'dashboard') + ':' + boot.branch, tab = Date.now() + ':' + Math.random(), cycle = 0;
     function leads() {
         var owner = null, now = Date.now(); try { owner = JSON.parse(localStorage.getItem(leadKey) || 'null'); } catch (_) {}
@@ -107,7 +107,7 @@
             if(boot.shifts&&cycle%4===1){var shiftUrl=new URL(address(boot.shifts.jobs));shiftUrl.searchParams.set('branch',boot.branch);var shifts=await request(shiftUrl.href);if(shifts.attention)report(boot.labels.attention);await processJobs(shifts.jobs || [],boot.shifts);}
             if(boot.apps&&cycle%4===1){var appUrl=new URL(address(boot.apps.jobs));appUrl.searchParams.set('branch',boot.branch);var apps=await request(appUrl.href);if(apps.attention)report(boot.labels.attention);await processJobs(apps.jobs || [],boot.apps);}
         } catch (_) { if (!stopped) report(boot.labels.offline); }
-        finally { if (!stopped) timer = setTimeout(poll,5000); }
+        finally { if (!stopped) timer = setTimeout(poll,8000); } // server load: every 8 seconds
     }
     async function processJobs(jobs,queue){
             for (var job of jobs) {

@@ -114,7 +114,7 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshNotifications(); refreshSupport(); } });
     window.DashboardInbox = {refreshNotifications: refreshNotifications, refreshSupport: refreshSupport, request: request};
     refreshNotifications(); refreshSupport(); subscribeSupport();
-    fallbackTimer = setInterval(function () { refreshNotifications(); refreshSupport(); subscribeSupport(); }, 15000);
+    fallbackTimer = setInterval(function () { refreshNotifications(); refreshSupport(); subscribeSupport(); }, 60000); // server load: once a minute
     window.addEventListener('pagehide', function () {
         clearInterval(fallbackTimer); clearTimeout(refreshTimer);
         roomUnsubscribe.forEach(function (off) { off(); });

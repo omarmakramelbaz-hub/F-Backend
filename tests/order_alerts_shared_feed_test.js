@@ -90,8 +90,8 @@ test('one tab polls while every tab learns the pending orders', async () => {
     await b.advance(1000);
     assert.strictEqual(b.server.calls.length, 1, 'Three open tabs make one request');
     [first, second, third].forEach(tab => assert.deepStrictEqual(pending(tab), ['legacy:11', 'store:5']));
-    await b.advance(30000);
-    assert.strictEqual(b.server.calls.length, 4, 'Each 10 second cycle still makes one request in total');
+    await b.advance(45000);
+    assert.strictEqual(b.server.calls.length, 4, 'Each 15 second cycle still makes one request in total');
     assert(b.server.calls.every(call => call.tab === first), 'The first tab keeps leading while it is open');
 });
 
@@ -100,7 +100,7 @@ test('orders handled on the server stop ringing in every tab', async () => {
     const first = b.open(), second = b.open();
     await b.advance(1000);
     b.server.keys = ['store:5'];
-    await b.advance(10000);
+    await b.advance(15000);
     assert.deepStrictEqual(pending(first), ['store:5']);
     assert.deepStrictEqual(pending(second), ['store:5']);
 });
@@ -111,7 +111,7 @@ test('another tab takes over when the polling tab closes', async () => {
     await b.advance(1000);
     first.close();
     b.server.keys = ['legacy:11', 'service:3'];
-    await b.advance(10500);
+    await b.advance(15500);
     assert(second.fetches >= 1, 'The remaining tab polls after the leader closes');
     assert.deepStrictEqual(pending(second), ['legacy:11', 'service:3']);
 });
@@ -131,7 +131,7 @@ test('an order acknowledged while the shared request is in flight is not resurre
     const first = b.open(), second = b.open();
     await b.advance(1000);
     let release; b.server.hold = {promise: new Promise(resolve => { release = resolve; })};
-    await b.advance(10000);
+    await b.advance(15000);
     assert.strictEqual(b.server.calls.length, 2, 'The next shared request has started');
     second.api.acknowledge('legacy:11');
     await b.flush();

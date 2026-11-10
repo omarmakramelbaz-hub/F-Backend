@@ -9,7 +9,7 @@
     window.DashboardExpenseBadge = true;
     function schedule() {
         clearTimeout(timer);
-        if (!stopped && !document.hidden) timer = setTimeout(refresh, 15000);
+        if (!stopped && !document.hidden) timer = setTimeout(refresh, 60000); // server load: once a minute
     }
     async function refresh() {
         clearTimeout(timer);

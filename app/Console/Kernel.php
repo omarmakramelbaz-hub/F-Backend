@@ -39,17 +39,18 @@ class Kernel extends ConsoleKernel
     {
         // The central server owns provider dispatch, attendance automation and releases.
         if (config('desktop_dashboard.local')) return;
-        $schedule->command('crm:customers-sync')->everyMinute()->withoutOverlapping(5);
+        // Server load (Hostinger CPU limit): jobs that need no minute precision run every five minutes.
+        $schedule->command('crm:customers-sync')->everyFiveMinutes()->withoutOverlapping(5);
         $schedule->command('crm:whatsapp-process')->everyMinute()->withoutOverlapping(5);
         $schedule->command('dashboard-push:dispatch')->everyMinute()->withoutOverlapping(2);
         $schedule->command('order-board:advance')->everyMinute()->withoutOverlapping(5);
-        $schedule->command('order-payments:reconcile --apply --limit=5')->everyMinute()->withoutOverlapping(5);
-        $schedule->command('orders:retry-live-activities')->everyMinute()->withoutOverlapping(5);
+        $schedule->command('order-payments:reconcile --apply --limit=5')->everyFiveMinutes()->withoutOverlapping(5);
+        $schedule->command('orders:retry-live-activities')->everyFiveMinutes()->withoutOverlapping(5);
         // Continue quotation waves and retry notices even while clients are closed.
         // The command checks schema/readiness before touching marketplace tables.
         $schedule->command('go-services:dispatch')->everyMinute()->withoutOverlapping();
         $schedule->command('go-stores:prune-signup-uploads')->hourly()->withoutOverlapping();
-        $schedule->command('branch-stock:notify-minimum')->everyMinute()->withoutOverlapping(20);
+        $schedule->command('branch-stock:notify-minimum')->everyFiveMinutes()->withoutOverlapping(20);
 
         // One-time approved menu release through the existing application scheduler (applied in September 2026).
         // The migration receipt prevents overwriting later dashboard price edits. Checked daily now: every minute it
@@ -59,7 +60,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('menu:apply-approved-20260923')->daily()->withoutOverlapping();
         // Check every minute so the home screen can switch to the winner state
         // as soon as an ended competition becomes eligible for the draw.
-        $schedule->command('notify:coupon')->everyMinute();
+        $schedule->command('notify:coupon')->everyFiveMinutes(); // expired coupons by date
         $schedule->command('notify:schedule')->daily();
         $schedule->command('notify:delete')->daily();
         // Completed orders' commission transfers: every 5 minutes (it walks the same unsettled orders each run).
