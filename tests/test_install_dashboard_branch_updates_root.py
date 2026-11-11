@@ -71,7 +71,10 @@ class DashboardUpdatesTests(unittest.TestCase):
         self.assertEqual([base is None for name, base, marker in self.original[0]], [False, False, False, False, True], 'Only the tone is new')
         # The repository's own files are this release's versions.
         installer.FILES = self.original[0]
-        self.assertTrue(all(marker in (ROOT / name).read_bytes() for name, base, marker in installer.FILES if (ROOT / name).exists()))
+        # Later releases replaced the board card's print on «مندوب الفرع» with the card's own print button (with the courier).
+        superseded = {'resources/views/admin/orders/board_card.blade.php'}
+        self.assertTrue(all(marker in (ROOT / name).read_bytes() for name, base, marker in installer.FILES
+                            if (ROOT / name).exists() and name not in superseded))
 
     def test_the_plan_only_reads(self):
         result = installer.plan(self.site, self.package)

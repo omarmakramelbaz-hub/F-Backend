@@ -131,7 +131,7 @@ jobs:
           php artisan key:generate
       - name: Desktop sync API tests
         run: vendor/bin/phpunit --filter DesktopSyncTest
-      - name: The app orders board («مندوب الفرع» prints) and the GO opening's counters (the owner's drawers)
+      - name: The app orders board (print with the courier, late orders) and the GO opening's counters (the owner's drawers)
         run: vendor/bin/phpunit --filter 'DashboardOrderBoardTest|DashboardHomeHologramMetricsTest'
       - name: Server installer tests
         run: python3 -B -m unittest tests/test_install_go_erp_desktop_sync_root.py tests/test_publish_go_erp_desktop_download_root.py tests/test_activate_employee_auto_absence_root.py tests/test_reset_branch_operations_root.py tests/test_install_dashboard_branch_updates_root.py tests/test_backup_server_full_root.py tests/test_compare_live_code_root.py tests/test_inspect_live_server_root.py tests/test_tune_server_root.py tests/test_cleanup_server_root.py tests/test_analyze_live_server_root.py tests/test_release_root.py tests/test_add_speed_indexes_root.py tests/test_diagnose_load_root.py
