@@ -18,7 +18,7 @@
     <script src="{{ asset('dashboard/vendor/leaflet/leaflet.js') }}" defer></script>
     <script src="{{ asset('storefront/storefront.js') }}?v=20261111-start-order-1" defer></script>
     <link rel="stylesheet" href="{{ asset('storefront/motion.css') }}?v=20261111-1">
-    <script src="{{ asset('storefront/motion.js') }}?v=20261111-1" defer></script>
+    <script src="{{ asset('storefront/motion.js') }}?v=20261111-menu-nav-1" defer></script>
 </head>
 <body id="fasakhansta-storefront-concept" class="storefront-motion" data-release="storefront-motion-20261111">
 <a class="skip-link" href="#menu">انتقل للمينيو</a>

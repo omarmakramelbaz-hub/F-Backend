@@ -52,8 +52,9 @@ menuToggle?.addEventListener('click', () => {
     const open = menu.hidden; menu.hidden = !open;
     menuToggle.setAttribute('aria-expanded', String(open)); menuToggle.setAttribute('aria-label', open ? 'أغلق القائمة' : 'افتح القائمة'); menuToggle.replaceChildren(motionIcon(open ? 'close' : 'menu'));
 });
-root.querySelectorAll('[data-scroll]').forEach(button => button.addEventListener('click', () => {
-    const target = document.getElementById(button.dataset.scroll);
+root.querySelectorAll('[data-scroll], [data-action="start-order"], [data-action="choose-store"]').forEach(button => button.addEventListener('click', event => {
+    if (button.dataset.action === 'choose-store' && event.target.closest('select')) return;
+    const target = button.dataset.scroll ? document.getElementById(button.dataset.scroll) : null;
     if (target && root.contains(target)) scrollTo(target);
     closeMenu();
 }));

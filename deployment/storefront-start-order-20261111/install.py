@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install only the reviewed start-order CTA and its existing storefront bridge."""
+"""Install only the reviewed hero/navigation menu actions and their storefront bridges."""
 import argparse
 from contextlib import ExitStack
 from datetime import datetime, timezone
@@ -32,13 +32,19 @@ BACKUPS = Path('/root/fasakhansta-storefront-start-order-backups')
 LOCK = Path('/var/lock/fasakhansta-storefront-start-order.lock')
 HOME_VIEW = 'resources/views/site/home.blade.php'
 HERO_VIEW = 'resources/views/site/motion/hero.blade.php'
+HEADER_VIEW = 'resources/views/site/motion/header.blade.php'
 JS_PATH = 'public/storefront/storefront.js'
 JS_VERSION = '20261111-start-order-1'
-ALLOWED = frozenset({HOME_VIEW, HERO_VIEW, JS_PATH})
+MOTION_JS_PATH = 'public/storefront/motion.js'
+MOTION_JS_VERSION = '20261111-menu-nav-1'
+SCRIPT_VERSIONS = {JS_PATH: JS_VERSION, MOTION_JS_PATH: MOTION_JS_VERSION}
+ALLOWED = frozenset({HOME_VIEW, HERO_VIEW, HEADER_VIEW, JS_PATH, MOTION_JS_PATH})
 BASELINES = {
     HOME_VIEW: '555d5ea5595d2f417eec81b79d89f6a15e1fe5f554f8310e269d31869e41f0c8',
     HERO_VIEW: 'ebaa6134a5abe8ac0bbade4d6f7098ffbbc1b8a7c68a17d8ef7fea5b54c54fd5',
     JS_PATH: '4bf2d3133c8ab1a4e75a522c6dcf2eece7b38d734e4590428febcb2249eb9c14',
+    HEADER_VIEW: 'a654e5de3f58d28ad33f698c6c62c8e520b585eac0903cc9f07bd3247d951531',
+    MOTION_JS_PATH: 'c296a4169214ba25e5b426e25ddb764d2d3f94c0c103b0c3f0e42f7cef08a539',
 }
 MAX_FILE = 2 * 1024 * 1024
 MAX_TOTAL = 4 * 1024 * 1024
@@ -57,7 +63,7 @@ def digest(data):
 
 
 def validate_manifest(payload):
-    need(isinstance(payload, list) and len(payload) == 3, 'Exactly three manifest entries are required')
+    need(isinstance(payload, list) and len(payload) == 5, 'Exactly five manifest entries are required')
     seen = set()
     for entry in payload:
         need(isinstance(entry, dict) and set(entry) == {'path', 'sha256', 'baseline_sha256'}, 'Invalid manifest entry')
@@ -68,7 +74,7 @@ def validate_manifest(payload):
         need(isinstance(entry['sha256'], str) and SHA256.fullmatch(entry['sha256']), 'Invalid target hash')
         need(entry['baseline_sha256'] == BASELINES[path], 'Manifest baseline is not the reviewed 4K source: ' + path)
         seen.add(path)
-    need(seen == ALLOWED, 'Manifest must contain only the reviewed JS and two views')
+    need(seen == ALLOWED, 'Manifest must contain only the two reviewed JS files and three views')
     return payload
 
 
@@ -97,9 +103,25 @@ class PageMarkers(HTMLParser):
         self.scripts = []
         self.sources = []
         self.posters = []
+        self.nav_stack = []
+        self.nav_capture = None
+        self.menu_nav = {'desktop': 0, 'mobile': 0}
+        self.picker_label = False
+        self.store_picker = 0
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == 'label':
+            self.picker_label = (attrs.get('data-action') == 'choose-store'
+                                 and {'branch-picker', 'header-store-picker'} <= set(attrs.get('class', '').split()))
+        if tag == 'select' and attrs.get('id') == 'branch-select' and self.picker_label:
+            self.store_picker += 1
+        if tag == 'nav':
+            classes = attrs.get('class', '').split()
+            self.nav_stack.append('desktop' if 'f-nav' in classes else 'mobile' if 'f-mobile-menu' in classes else None)
+        if tag in ('a', 'button') and self.nav_stack and self.nav_stack[-1] is not None:
+            if attrs.get('data-action') == 'start-order' and 'data-scroll' not in attrs:
+                self.nav_capture = {'tag': tag, 'nav': self.nav_stack[-1], 'parts': []}
         if tag == 'a' and attrs.get('data-action') == 'start-order' and attrs.get('href') == '#menu':
             self.start_order = True
         if tag == 'script' and attrs.get('src'):
@@ -108,6 +130,21 @@ class PageMarkers(HTMLParser):
             self.sources.append((attrs['src'], attrs.get('media', '')))
         if tag == 'video' and attrs.get('poster'):
             self.posters.append(attrs['poster'])
+
+    def handle_data(self, data):
+        if self.nav_capture is not None:
+            self.nav_capture['parts'].append(data)
+
+    def handle_endtag(self, tag):
+        if self.nav_capture is not None and tag == self.nav_capture['tag']:
+            label = ' '.join(''.join(self.nav_capture['parts']).split())
+            if label == 'منتجاتنا':
+                self.menu_nav[self.nav_capture['nav']] += 1
+            self.nav_capture = None
+        if tag == 'nav' and self.nav_stack:
+            self.nav_stack.pop()
+        if tag == 'label':
+            self.picker_label = False
 
 
 def validate_sources(files):
@@ -120,8 +157,14 @@ def validate_sources(files):
     need('(max-width: 767px)' in hero and 'hero-motion-4k-poster.webp' in home, 'Existing mobile condition/poster preload must remain')
     page = PageMarkers()
     page.feed(home)
-    need(any('storefront/storefront.js' in src and src.endswith('?v=' + JS_VERSION) for src in page.scripts), 'The start-order JS cache version is missing')
-    need('start-order' in files[JS_PATH].decode('utf-8'), 'The reviewed start-order JS bridge is missing')
+    for path, version in SCRIPT_VERSIONS.items():
+        need(any(path[len('public/'):] in src and src.endswith('?v=' + version) for src in page.scripts), 'The reviewed JS cache version is missing: ' + path)
+        need('start-order' in files[path].decode('utf-8'), 'The reviewed start-order bridge is missing: ' + path)
+    page = PageMarkers()
+    page.feed(files[HEADER_VIEW].decode('utf-8'))
+    need(page.menu_nav == {'desktop': 1, 'mobile': 1}, 'Both product navigation buttons must use the start-order action')
+    need(page.store_picker == 1, 'The header store label must keep the choose-store action and branch-select control')
+    need('choose-store' in files[JS_PATH].decode('utf-8'), 'The reviewed choose-store JS action is missing')
 
 
 def read_release(revision, manifest_hash):
@@ -279,12 +322,15 @@ def smoke(revision, files):
     page = PageMarkers()
     page.feed(homepage)
     need(page.start_order, 'The start-order CTA is not served in the homepage')
+    need(page.menu_nav == {'desktop': 1, 'mobile': 1}, 'The desktop/mobile product navigation hooks are not served')
+    need(page.store_picker == 1, 'The header choose-store label and branch-select control are not served')
     urls = [urllib.parse.urlsplit(urllib.parse.urljoin('https://fasakhaninja.com/', src)) for src in page.scripts]
-    matching = [url for url in urls if url.scheme == 'https' and url.netloc == 'fasakhaninja.com'
-                and url.path == '/storefront/storefront.js' and url.query == 'v=' + JS_VERSION and not url.fragment]
-    need(matching, 'The homepage is not serving the reviewed JS cache version')
-    served_js = download(urllib.parse.urlunsplit(matching[0]), MAX_FILE)
-    need(digest(served_js) == digest(files[JS_PATH]), 'The reviewed start-order JS is not served')
+    for path, version in SCRIPT_VERSIONS.items():
+        matching = [url for url in urls if url.scheme == 'https' and url.netloc == 'fasakhaninja.com'
+                    and url.path == '/' + path[len('public/'):] and url.query == 'v=' + version and not url.fragment]
+        need(matching, 'The homepage is not serving the reviewed JS cache version: ' + path)
+        served_js = download(urllib.parse.urlunsplit(matching[0]), MAX_FILE)
+        need(digest(served_js) == digest(files[path]), 'The reviewed JS is not served: ' + path)
     source_paths = {urllib.parse.urlsplit(urllib.parse.urljoin('https://fasakhaninja.com/', src)).path for src, _ in page.sources}
     poster_paths = {urllib.parse.urlsplit(urllib.parse.urljoin('https://fasakhaninja.com/', src)).path for src in page.posters}
     need({'/storefront/hero-motion-4k.mp4', '/storefront/hero-motion-hd.mp4'} <= source_paths
@@ -294,7 +340,7 @@ def smoke(revision, files):
 
 def installation_order(changed):
     need(set(changed) <= ALLOWED, 'Unexpected publication path')
-    return [path for path in (JS_PATH, HERO_VIEW, HOME_VIEW) if path in changed]
+    return [path for path in (JS_PATH, MOTION_JS_PATH, HERO_VIEW, HEADER_VIEW, HOME_VIEW) if path in changed]
 
 
 def preflight(entries, user, stack):
@@ -348,7 +394,7 @@ def install(revision, manifest_hash):
     os.umask(0o077)
     user = pwd.getpwnam(SITE_USER)
     entries, files = read_release(revision, manifest_hash)
-    blade_paths = [HERO_VIEW, HOME_VIEW]
+    blade_paths = [HERO_VIEW, HEADER_VIEW, HOME_VIEW]
     for path in blade_paths:
         check_blade(files[path])
     lock_fd = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)

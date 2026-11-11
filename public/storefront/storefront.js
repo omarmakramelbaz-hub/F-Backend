@@ -151,10 +151,8 @@ function focusDelivery() {
  if(!state.context){if($('#delivery-form').hidden&&customerProfile){$('#saved-address-select').focus({preventScroll:true});return;}initMap();$('#delivery-form').elements.customer_phone.focus({preventScroll:true});}
  else {document.getElementById('menu').scrollIntoView({behavior:'smooth'});$('#branch-select').focus({preventScroll:true});}
 }
-function startOrder(event) {
+function chooseStore(event) {
  if(state.pending||state.submitting)return openCart();
- // Keep the selected eligible store even while its catalog is loading or failed.
- if(state.context&&state.branch&&branch())return document.getElementById('menu').scrollIntoView({behavior:'smooth'});
  if(state.context&&data.branches.length){
   const picker=$('#branch-select');
   picker.scrollIntoView({behavior:'instant',block:'center'});
@@ -163,6 +161,12 @@ function startOrder(event) {
   return;
  }
  focusDelivery();
+}
+function startOrder(event) {
+ if(state.pending||state.submitting)return openCart();
+ // Keep the selected eligible store even while its catalog is loading or failed.
+ if(state.context&&state.branch&&branch())return document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+ chooseStore(event);
 }
 function resetDelivery(scroll=true) {
  menuRequest?.abort();state.context=null;data.branches=[];state.branch='';state.cart=[];state.products=[];state.categories=[];state.menuReady=false;state.quote=null;state.open=false;restorable=null;
@@ -405,6 +409,10 @@ document.addEventListener('click',event=>{
  if(action==='start-order'){
   if(event.button>0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
   event.preventDefault();startOrder(event);return;
+ }
+ if(action==='choose-store'){
+  if(event.target.closest('select'))return;
+  event.preventDefault();chooseStore(event);return;
  }
  if(action==='choose-branch')focusDelivery();
  if(action==='edit-location')editLocation();

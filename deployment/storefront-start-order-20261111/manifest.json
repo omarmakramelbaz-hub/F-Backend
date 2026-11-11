@@ -1,8 +1,13 @@
 [
   {
     "path": "public/storefront/storefront.js",
-    "sha256": "1774be09f240be3001e33f145eb26bff6d2c65942174858211f7f98f85d6551e",
+    "sha256": "8cf1443d2799713d658bdaf45b4bbe800d491e4dd2d2722b14b49cf66475c2b0",
     "baseline_sha256": "4bf2d3133c8ab1a4e75a522c6dcf2eece7b38d734e4590428febcb2249eb9c14"
+  },
+  {
+    "path": "public/storefront/motion.js",
+    "sha256": "ee4fa7e2b01ba5de2aca1c4646ba6a4476570e897f4e5b5711d2ba8073623d8e",
+    "baseline_sha256": "c296a4169214ba25e5b426e25ddb764d2d3f94c0c103b0c3f0e42f7cef08a539"
   },
   {
     "path": "resources/views/site/motion/hero.blade.php",
@@ -10,8 +15,13 @@
     "baseline_sha256": "ebaa6134a5abe8ac0bbade4d6f7098ffbbc1b8a7c68a17d8ef7fea5b54c54fd5"
   },
   {
+    "path": "resources/views/site/motion/header.blade.php",
+    "sha256": "38e0f0be50262a68660a657b99dc0911b3cf3dbf53bc69f92148969b4484d608",
+    "baseline_sha256": "a654e5de3f58d28ad33f698c6c62c8e520b585eac0903cc9f07bd3247d951531"
+  },
+  {
     "path": "resources/views/site/home.blade.php",
-    "sha256": "1feebeaf74ffa910116891dd0be208507a4d71ef93717f9798ed6b1dac1a26f5",
+    "sha256": "bfd6b2bed21cd7acb9a2faa9153ee117eabba8487b460b18c3cfa759cd500091",
     "baseline_sha256": "555d5ea5595d2f417eec81b79d89f6a15e1fe5f554f8310e269d31869e41f0c8"
   }
 ]
