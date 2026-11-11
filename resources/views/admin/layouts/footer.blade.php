@@ -192,7 +192,11 @@ $(document).ready(function() {
 @php($goLateFeed = (function () { try { return \Illuminate\Support\Facades\Route::has('phone-orders.late') && app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()); } catch (\Throwable $error) { return false; } })())
 @if($goLateFeed)
 <script src="{{ asset('dashboard/js/dashboard-customer-history.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-customer-history.js')) }}" data-history-url="{{ route('customers.history') }}"></script>
-<script src="{{ asset('dashboard/js/dashboard-delivery-late.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-delivery-late.js')) }}" data-late-feed="{{ route('phone-orders.late') }}" data-late-page="{{ route('phone-orders.index', ['view' => 'orders']) }}" data-late-sound="{{ asset('sounds/go-delivery-late.wav') }}" data-actor="{{ auth('admin')->user()->id }}"></script>
+@endif
+{{-- Late delivery orders and late app orders: the same warning (AppOrderLateness for the app orders board's accounts). --}}
+@php($goBoardLate = !$goLateFeed && (function () { try { return \Illuminate\Support\Facades\Route::has('phone-orders.late') && app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()); } catch (\Throwable $error) { return false; } })())
+@if($goLateFeed || $goBoardLate)
+<script src="{{ asset('dashboard/js/dashboard-delivery-late.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-delivery-late.js')) }}" data-late-feed="{{ route('phone-orders.late') }}" data-late-page="{{ route('phone-orders.index', ['view' => 'orders']) }}" data-late-board="{{ \Illuminate\Support\Facades\Route::has('orders.applies') ? route('orders.applies') : '' }}" data-late-sound="{{ asset('sounds/go-delivery-late.wav') }}" data-actor="{{ auth('admin')->user()->id }}"></script>
 @endif
 {{-- Shared robot renderer and sidebar belong to the persistent shell, outside page scopes. --}}
 <script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>

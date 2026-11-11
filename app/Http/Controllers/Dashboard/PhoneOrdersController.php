@@ -13,8 +13,13 @@ class PhoneOrdersController extends PosServiceController
     public function addressSuggestions(Request $request,\App\Services\Dashboard\PhoneMapProvider $maps){return response()->json($maps->suggestions($request->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function customers(Request $request,PosServicePhone $phone){return response()->json($phone->customers($request->all(),auth('admin')->user()));}
     public function board(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->listing($request->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
-    // Late delivery orders (a warning every 5 minutes, everywhere in the dashboard) and the branches' lateness rating.
-    public function late(\App\Services\Dashboard\PhoneDeliveryLateness $lateness){return response()->json($lateness->late(auth('admin')->user()))->header('Cache-Control','private, no-store');}
+    // Late delivery and app orders (a warning every 5 minutes, everywhere in the dashboard) and the branches' lateness rating.
+    public function late(\App\Services\Dashboard\PhoneDeliveryLateness $lateness,\App\Services\Dashboard\AppOrderLateness $app){
+        $actor=auth('admin')->user();$result=$lateness->late($actor);
+        $orders=array_merge($result['orders']??[],$app->orders($actor));
+        usort($orders,fn($a,$b)=>$b['minutes']<=>$a['minutes']); // the longest late first
+        $result['orders']=array_slice($orders,0,50);
+        return response()->json($result)->header('Cache-Control','private, no-store');}
     public function performance(Request $request,\App\Services\Dashboard\PhoneDeliveryLateness $lateness){return response()->json($lateness->performance($request->only(['from','to','branch']),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function dispatchCompany(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->dispatch($request->all(),auth('admin')->user()));}
     public function finishBatch(Request $request,\App\Services\Dashboard\PhoneDeliveryBoard $board){return response()->json($board->finish($request->all(),auth('admin')->user(),true));}

@@ -1,10 +1,10 @@
 (function () {
     'use strict';
-    // Late delivery orders, everywhere in the dashboard: an order still being prepared at 15 minutes, or still with the
-    // courier at 35, shows in a red box and sounds a warning, again every 5 minutes while one stays late. One tab of the
+    // Late delivery orders and late app orders (kind «app»), everywhere in the dashboard: an order still being prepared at
+    // 15 minutes, or still with the courier at 35, shows in a red box and sounds a warning, again every 5 minutes while one stays late. One tab of the
     // account asks the server every minute and rings; the other tabs show its result. The order sound's mute applies.
     if (window.DashboardDeliveryLateness) return;
-    var script = document.currentScript, feed = script && script.dataset.lateFeed, page = script && script.dataset.latePage;
+    var script = document.currentScript, feed = script && script.dataset.lateFeed, page = script && script.dataset.latePage, boardPage = script && script.dataset.lateBoard;
     if (!feed) return;
     var actor = script.dataset.actor || 'dashboard', prefix = 'dashboardDeliveryLate:' + actor;
     var leadKey = prefix + ':lead', sharedKey = prefix + ':orders', rungKey = prefix + ':rung';
@@ -20,11 +20,12 @@
         return true;
     }
     function stage(order) { return order.stage === 'courier' ? 'مع المندوب' : 'في التجهيز'; }
+    function app(order) { return order.kind === 'app'; }
+    function key(order) { return order.stage + ':' + (order.key || order.id); }
     function show(orders) {
         if (!orders.length) { if (box) box.hidden = true; return; }
         if (!box) {
-            box = document.createElement(page ? 'a' : 'div'); box.className = 'go-delivery-late'; box.setAttribute('role', 'alert');
-            if (page) box.href = page;
+            box = document.createElement(page || boardPage ? 'a' : 'div'); box.className = 'go-delivery-late'; box.setAttribute('role', 'alert');
             var style = document.createElement('style');
             style.textContent = '.go-delivery-late{position:fixed;left:16px;bottom:52px;z-index:2147480000;display:block;max-width:330px;padding:10px 14px;border-radius:10px;'
                 + 'background:#c21f2c;color:#fff!important;font:600 13px/1.6 Almarai,Tahoma,sans-serif;direction:rtl;text-decoration:none!important;box-shadow:0 8px 24px #0005;'
@@ -33,10 +34,13 @@
             document.head.appendChild(style); document.body.appendChild(box);
         }
         box.hidden = false; box.replaceChildren();
-        var title = document.createElement('b'); title.textContent = '⚠ تأخير في الدليفري: ' + orders.length + (orders.length === 1 ? ' طلب' : ' طلبات'); box.appendChild(title);
+        // Opens the page of the late orders: the app orders board when they are all app orders.
+        var target = orders.every(app) ? (boardPage || page) : (page || boardPage);
+        if (box.tagName === 'A' && target) box.href = target;
+        var title = document.createElement('b'); title.textContent = '⚠ ' + (orders.every(app) ? 'تأخير في طلبات التطبيق' : orders.some(app) ? 'تأخير في الطلبات' : 'تأخير في الدليفري') + ': ' + orders.length + (orders.length === 1 ? ' طلب' : ' طلبات'); box.appendChild(title);
         orders.slice(0, 4).forEach(function (order) {
             var line = document.createElement('small');
-            line.textContent = '#' + order.number + ' · ' + order.branch + ' · ' + stage(order) + ' ' + order.minutes + ' دقيقة';
+            line.textContent = '#' + order.number + (app(order) ? ' · تطبيق' : '') + (order.branch ? ' · ' + order.branch : '') + ' · ' + stage(order) + ' ' + order.minutes + ' دقيقة';
             box.appendChild(line);
         });
         if (orders.length > 4) { var more = document.createElement('small'); more.textContent = 'و' + (orders.length - 4) + ' غيرهم'; box.appendChild(more); }
@@ -44,10 +48,10 @@
     function ring(orders) {
         if (!orders.length || read('soundEnabled') === 'false') return;
         var rung = json(rungKey) || { at: 0, ids: [] }, now = Date.now();
-        var fresh = orders.some(function (order) { return rung.ids.indexOf(order.stage + ':' + order.id) < 0; });
+        var fresh = orders.some(function (order) { return rung.ids.indexOf(key(order)) < 0; });
         // Again every 5 minutes while late; at once (at most once a minute) when another order becomes late.
         if (now - rung.at < repeat * 60000 && !(fresh && now - rung.at >= 60000)) return;
-        write(rungKey, JSON.stringify({ at: now, ids: orders.map(function (order) { return order.stage + ':' + order.id; }) }));
+        write(rungKey, JSON.stringify({ at: now, ids: orders.map(key) }));
         if (!audio) return;
         try { audio.currentTime = 0; var playing = audio.play(); if (playing && playing.catch) playing.catch(function () {}); } catch (_) {}
     }

@@ -482,6 +482,38 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame(3, $this->board(1)['counts']['courier']);
     }
 
+    public function test_late_app_orders_turn_red_and_sound_the_same_warning_as_delivery_orders(): void
+    {
+        $this->legacy(1, ['accepted_notify'=>'yes', 'created_at'=>now()->subMinutes(20)]);                         // preparing 20 min: late
+        $this->legacy(2, ['status'=>'accepted', 'accepted_notify'=>'yes', 'delegate_from_out'=>'in_resturant', 'created_at'=>now()->subMinutes(20)]); // courier 20: on time
+        $this->legacy(3, ['status'=>'shipped', 'created_at'=>now()->subMinutes(40)]);                                // courier 40: late
+        $this->legacy(4, ['created_at'=>now()->subMinutes(10)]);                                                     // new 10: on time
+        $this->legacy(5, ['status'=>'completed', 'created_at'=>now()->subMinutes(50)]);                              // delivered
+        $this->legacy(6, ['created_at'=>now()->subHours(13)]);                                                       // forgotten, not on its way
+        $this->legacy(7, ['resturant_id'=>101, 'created_at'=>now()->subMinutes(30)]);                                // another branch's
+        $this->store(200, ['created_at'=>now()->subMinutes(16)]);                                                    // a store order 16 min: late
+        $late = app(\App\Services\Dashboard\AppOrderLateness::class);
+        $this->assertSame([['legacy:3', 'courier', 40], ['legacy:1', 'preparing', 20]],
+            array_map(fn ($o) => [$o['key'], $o['stage'], $o['minutes']], $late->orders($this->actor(10))));
+        $this->assertSame('R100-1', $late->orders($this->actor(10))[1]['number']);
+        $this->assertSame(['store:200'], array_column($late->orders($this->actor(30)), 'key'));
+        $this->assertEqualsCanonicalizing(['legacy:1', 'legacy:3', 'legacy:7', 'store:200'], array_column($late->orders($this->actor(1)), 'key'));
+        // The board: the late cards are red.
+        $this->actingAs($this->actor(10), 'admin');
+        $cards = collect($this->cards($this->board(10)))->keyBy('key');
+        $this->assertTrue($cards['legacy:1']['late']);
+        $this->assertFalse($cards['legacy:2']['late']);
+        $this->assertTrue($cards['legacy:3']['late']);
+        $this->assertFalse($cards['legacy:4']['late']);
+        $this->assertStringContainsString('class="ob-order is-late"', view('admin.orders.board_card', ['card'=>$cards['legacy:1']])->render());
+        $this->assertStringContainsString('class="ob-order"', view('admin.orders.board_card', ['card'=>$cards['legacy:2']])->render());
+        // The dashboard's late warning carries them, the longest late first, and stops once handed over.
+        $this->getJson(route('phone-orders.late'))->assertOk()->assertJsonPath('orders.0.key', 'legacy:3')
+            ->assertJsonPath('orders.0.kind', 'app')->assertJsonPath('orders.1.key', 'legacy:1')->assertJsonPath('policy.repeat_minutes', 5);
+        DB::table('orders')->whereIn('id', [1, 3])->update(['status'=>'completed']);
+        $this->assertSame([], $this->getJson(route('phone-orders.late'))->json('orders'));
+    }
+
     public function test_an_app_order_prints_once_from_its_card_when_it_is_with_the_courier(): void
     {
         if (!Schema::hasTable('branch_operation_commands')) { require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up(); }

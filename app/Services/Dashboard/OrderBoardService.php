@@ -587,6 +587,7 @@ class OrderBoardService
             'number'=>$row->order_no ?? ($source === 'store' ? 'GS-' : ($source === 'legacy' ? '#' : 'GO-')).$row->id,
             'status'=>$status, 'status_label'=>$this->statusLabel($status), 'group'=>$this->group($source, $row),
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
+            'late'=>AppOrderLateness::late($source, $this->group($source, $row), $row, $created),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
             'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'payment_paid'=>false, 'total'=>null,
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],

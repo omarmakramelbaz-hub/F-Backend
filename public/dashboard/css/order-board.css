@@ -102,6 +102,9 @@
 .ob-order { color: #1e2633; background: #fff; border: 1px solid #e2e6eb; border-radius: 6px; padding: 7px 8px; margin-bottom: 7px; box-shadow: 0 1px 2px #07132104; font-size: 11px; line-height: 1.4; transition: opacity .15s; min-width: 0; }
 .ob-order:last-child { margin-bottom: 0; }
 .ob-order.is-busy { opacity: .72; }
+/* Late (AppOrderLateness): not with the courier at 15 minutes, or still with the courier at 35 — the same red as the delivery cards. */
+.ob-order.is-late { border-color: #c21f2c; background: #fff1f2; box-shadow: 0 0 0 2px #c21f2c33; }
+.ob-order.is-late .ob-elapsed { color: #c21f2c; font-weight: 700; }
 .ob-order-top { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-bottom: 3px; min-height: 18px; }
 .ob-order-identity { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1; overflow: hidden; }
 .ob-order-number { color: #151b24; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
