@@ -377,6 +377,14 @@ class CartController extends Controller
                 ], 422);
             }
 
+            // The address must be the customer's own (its mobile goes to the branch and the courier).
+            $address = \App\Models\UserAddress::query()->whereKey($request->user_address_id)->where('user_id', auth('api')->id())->first();
+            if (! $address) {
+                return $this->errorResponse(__('validation.exists', ['attribute' => __('main.user_address_id')]));
+            }
+            // The branch's own delivery tariff, watched before checkouts are held to it (CustomerDeliveryCheck).
+            \App\Services\Dashboard\CustomerDeliveryCheck::watch($restaurant, $address, $request->delivery_price, (int) auth('api')->id());
+
             $order = Order::create([
                 'user_id' => auth('api')->user()->id,
                 // 'status'=>'pending',

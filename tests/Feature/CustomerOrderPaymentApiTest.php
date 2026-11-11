@@ -34,7 +34,8 @@ class CustomerOrderPaymentApiTest extends TestCase
         Schema::create('resturants', function (Blueprint $t) {
             $t->id(); $t->string('name'); $t->unsignedBigInteger('user_id')->nullable(); $t->unsignedBigInteger('parent_id')->nullable();
             $t->string('status')->nullable(); $t->string('open_at')->nullable(); $t->string('close_at')->nullable();
-            $t->decimal('min_order_price', 10, 2)->default(0); $t->decimal('service_fees', 5, 2)->default(0); $t->timestamps();
+            $t->decimal('min_order_price', 10, 2)->default(0); $t->decimal('service_fees', 5, 2)->default(0);
+            $t->string('lat')->nullable(); $t->string('lng')->nullable(); $t->string('km_price')->nullable(); $t->string('default_0_1')->nullable(); $t->string('default_1_2')->nullable(); $t->string('default_2_3')->nullable(); $t->timestamps();
         });
         Schema::create('resturant_products', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('resturant_id'); $t->unsignedBigInteger('product_id')->nullable(); $t->unsignedBigInteger('added_by')->nullable(); $t->text('product_description')->nullable(); $t->string('highest_rated')->default('no'); $t->string('product_name'); $t->string('product_price')->default('0'); $t->text('price')->nullable();
@@ -54,7 +55,7 @@ class CustomerOrderPaymentApiTest extends TestCase
             $t->decimal('user_tax', 10, 2)->nullable(); $t->decimal('tax', 10, 2)->nullable(); $t->decimal('vendor_tax', 10, 2)->nullable();
             $t->string('order_no')->nullable(); $t->string('transfer_price_by')->nullable(); $t->timestamp('shipping_cancelled_block')->nullable(); $t->unsignedInteger('shift_sequence')->nullable(); $t->unsignedInteger('shift_order_number')->nullable(); $t->timestamps();
         });
-        Schema::create('user_address', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('user_id'); $t->string('mobile')->nullable(); $t->timestamps(); });
+        Schema::create('user_address', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('user_id'); $t->string('mobile')->nullable(); $t->string('lat')->nullable(); $t->string('lng')->nullable(); $t->timestamps(); });
         Schema::create('wallets', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('from_user')->nullable(); $t->unsignedBigInteger('to_user')->nullable(); $t->string('status')->nullable();
             $t->string('payment')->nullable(); $t->string('type')->nullable(); $t->decimal('amount', 12, 2)->default(0); $t->unsignedBigInteger('order_id')->nullable(); $t->timestamps();
@@ -85,10 +86,14 @@ class CustomerOrderPaymentApiTest extends TestCase
 
         DB::table('users')->insert([['id' => 7, 'name' => 'عميل', 'mobile' => '1000000007', 'app_scope' => 'fasakhansta', 'balance' => 1000],
             ['id' => 8, 'name' => 'عميل تاني', 'mobile' => '1000000008', 'app_scope' => 'fasakhansta', 'balance' => 0]]);
-        DB::table('resturants')->insert(['id' => 301, 'name' => 'فرع شبرا', 'status' => 'opened', 'min_order_price' => 100, 'service_fees' => 10]);
+        // Its tariff: 15, 20 and 25 for the first three kilometres, then 9 a kilometre.
+        DB::table('resturants')->insert(['id' => 301, 'name' => 'فرع شبرا', 'status' => 'opened', 'min_order_price' => 100, 'service_fees' => 10,
+            'lat' => '30.0800', 'lng' => '31.2450', 'km_price' => '9', 'default_0_1' => '15', 'default_1_2' => '20', 'default_2_3' => '25']);
         DB::table('products')->insert(['id' => 5, 'name_ar' => 'فسيخ', 'name_en' => 'Feseekh']);
         DB::table('resturant_products')->insert(['id' => 10, 'resturant_id' => 301, 'product_id' => 5, 'product_name' => 'فسيخ كيلو', 'product_price' => '400', 'price' => json_encode(['extra_combo' => 0, 'extra_large' => 0, 'extra_medium' => 0, 'extra_clean' => 0, 'extra_clear' => 0, 'extra_vacuim' => 0])]);
-        DB::table('user_address')->insert(['id' => 70, 'user_id' => 7, 'mobile' => '1000000007']);
+        // About 2.2 km from the branch (the 2-3 km price: 25), and another customer's address.
+        DB::table('user_address')->insert([['id' => 70, 'user_id' => 7, 'mobile' => '1000000007', 'lat' => '30.0998', 'lng' => '31.2450'],
+            ['id' => 80, 'user_id' => 8, 'mobile' => '1000000008', 'lat' => '30.0998', 'lng' => '31.2450']]);
         DB::table('carts')->insert(['user_id' => 7, 'resturant_id' => 301, 'resturant_product_id' => 10, 'qty' => 2, 'price' => 400]);
     }
 
@@ -222,6 +227,27 @@ class CustomerOrderPaymentApiTest extends TestCase
         $this->assertEquals(1000, (float) DB::table('users')->where('id', 7)->value('balance'), 'Paid back once');
         $this->assertSame('admin', DB::table('orders')->where('id', $id)->value('transfer_price_by'));
         $this->assertEquals([937.0, 937.0], DB::table('wallets')->orderBy('id')->pluck('amount')->map(fn ($v) => (float) $v)->all());
+    }
+
+    public function test_an_order_goes_only_to_the_customers_own_address(): void
+    {
+        $this->pay(['payment_type' => 'cash', 'user_address_id' => 80])->assertStatus(500)->assertJsonPath('status', 'Error');
+        $this->assertSame(0, DB::table('orders')->count());
+        $this->assertSame(1, DB::table('carts')->where('user_id', 7)->where('is_order', false)->count(), 'The cart stays as it was');
+    }
+
+    public function test_a_delivery_below_the_branch_tariff_is_written_down_and_the_order_still_goes(): void
+    {
+        $expected = \App\Services\Dashboard\CustomerDeliveryCheck::expected(\App\Models\Resturant::withoutGlobalScopes()->find(301), \App\Models\UserAddress::find(70));
+        $this->assertSame(['25.00', 'app_branch_tier', 'default_2_3'], [$expected['delivery_fee'], $expected['pricing_rule'], $expected['pricing_tier']]);
+        \Illuminate\Support\Facades\Log::spy();
+        $this->pay(['payment_type' => 'cash', 'delivery_price' => 24.5])->assertOk();
+        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('warning');
+        DB::table('carts')->insert(['user_id' => 7, 'resturant_id' => 301, 'resturant_product_id' => 10, 'qty' => 2, 'price' => 400]);
+        $this->pay(['payment_type' => 'cash', 'delivery_price' => 5])->assertOk();
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->once()->withArgs(fn ($message, $context) => $message === 'GO_CUSTOMER_DELIVERY_BELOW_TARIFF'
+            && $context['sent'] === '5' && $context['tariff'] === '25.00' && $context['customer'] === 7 && $context['branch'] === 301);
+        $this->assertSame(2, DB::table('orders')->where('status', 'pending')->count(), 'Watched only: both orders went');
     }
 
     public function test_the_delivery_price_is_never_negative(): void
