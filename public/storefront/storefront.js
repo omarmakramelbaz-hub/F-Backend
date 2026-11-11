@@ -14,6 +14,7 @@ data.branches = [];
 const state = { context: null, discovering: false, branch: '', products: [], categories: [], cart: [], category: '', search: '', limit: 12, menuReady: false, storeFilter: 'all', storeSearch: '', storeLimit: 12, open: false, quote: null, point: null, submitting: false, pending: readStorage(pendingKey) };
 let menuRequest, map, marker, suggestionRequest, suggestionTimer, toastTimer, pendingBranch, pendingAddress = null, quoteRequest = 0;
 let customerProfile = readCustomer(), selectedAddress = '', locationRevision = 0, geolocationRequest = 0;
+let pendingDirectoryStore = null;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = value => new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(Number(value || 0));
 const imageUrl = value => { try { const url = new URL(value, location.origin); return /^https?:$/.test(url.protocol) ? url.href : placeholder; } catch (_) { return placeholder; } };
@@ -150,6 +151,23 @@ function focusDelivery() {
  if(!state.context){if($('#delivery-form').hidden&&customerProfile){$('#saved-address-select').focus({preventScroll:true});return;}initMap();$('#delivery-form').elements.customer_phone.focus({preventScroll:true});}
  else {document.getElementById('menu').scrollIntoView({behavior:'smooth'});$('#branch-select').focus({preventScroll:true});}
 }
+function chooseStore(event) {
+ if(state.pending||state.submitting)return openCart();
+ if(state.context&&data.branches.length){
+  const picker=$('#branch-select');
+  picker.scrollIntoView({behavior:'instant',block:'center'});
+  picker.focus({preventScroll:true});
+  if(event?.isTrusted){try{picker.showPicker?.();}catch(_){/* Native focus remains the fallback. */}}
+  return;
+ }
+ focusDelivery();
+}
+function startOrder(event) {
+ if(state.pending||state.submitting)return openCart();
+ // Keep the selected eligible store even while its catalog is loading or failed.
+ if(state.context&&state.branch&&branch())return document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+ chooseStore(event);
+}
 function resetDelivery(scroll=true) {
  menuRequest?.abort();state.context=null;data.branches=[];state.branch='';state.cart=[];state.products=[];state.categories=[];state.menuReady=false;state.quote=null;state.open=false;restorable=null;
  state.storeSearch='';state.storeFilter='all';state.storeLimit=12;$('#store-search').value='';
@@ -218,6 +236,21 @@ function chooseBranch(id) {
  if (state.cart.length) { pendingBranch = String(id); $('#branch-select').value = state.branch; showDialog('#confirm-branch-dialog'); }
  else {const restored=String(restorable?.branch)===String(id)?restorable.cart:[];restorable=null;loadBranch(id,restored);}
 }
+function requestDirectoryStore(id) {
+ const requested = String(id ?? '');
+ if(!/^[1-9]\d{0,9}$/.test(requested))return;
+ pendingDirectoryStore=requested;
+ if(!state.context||state.discovering)return focusDelivery();
+ if(!data.branches.some(b=>String(b.id)===requested)){
+  notify('المتجر ده مش ضمن المتاجر اللي بتخدم عنوانك الحالي. تقدر تختار عنوان توصيل تاني.');
+  return editLocation();
+ }
+ pendingDirectoryStore=null;
+ chooseBranch(requested);
+ document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+}
+document.addEventListener('storefront:request-store',event=>requestDirectoryStore(event.detail?.id));
+document.body.dataset.storefrontOrderBridge='ready';
 function productDialog(id) {
  const p = state.products.find(p => p.id === Number(id)); if (!p) return;
  const options = [{id:'', label:'الاختيار الأساسي', price:p.price}, ...p.options];
@@ -373,6 +406,14 @@ document.addEventListener('click',event=>{
  const button=event.target.closest('[data-action]');if(!button)return;
  const {action,id,index,delta}=button.dataset;
  if(action==='terms'||action==='policy'){$('#legal-title').textContent=action==='terms'?'الشروط والأحكام':'سياسة الخصوصية';$('#legal-content').textContent=data.info?.[action]||'';showDialog('#legal-dialog');}
+ if(action==='start-order'){
+  if(event.button>0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+  event.preventDefault();startOrder(event);return;
+ }
+ if(action==='choose-store'){
+  if(event.target.closest('select'))return;
+  event.preventDefault();chooseStore(event);return;
+ }
  if(action==='choose-branch')focusDelivery();
  if(action==='edit-location')editLocation();
  if(action==='cart')openCart();
@@ -421,7 +462,13 @@ async function discoverDelivery(automatic=false) {
   form.hidden=true;$('#delivery-summary').hidden=false;renderBranches();
   $('#saved-address-status').textContent=data.branches.length?'تقدر تختار متجرك وتبدأ طلبك مباشرة.':'مفيش متجر بيغطي العنوان ده حاليًا. اختار عنوان تاني من القائمة بالأعلى.';
   status(data.branches.length?'اختار المتجر المناسب ليك':'مفيش متجر بيغطي موقعك حاليًا',data.branches.length?'المتاجر مرتبة من الأقرب. اختار متجر لعرض المنيو والأسعار.':'جرّب عنوان توصيل تاني أو غيّر الموقع من بيانات التوصيل.');
-  if(!automatic)document.getElementById(data.branches.length?'branches':'delivery').scrollIntoView({behavior:'smooth'});
+  const requested=pendingDirectoryStore;pendingDirectoryStore=null;
+  if(requested&&data.branches.some(b=>String(b.id)===requested)){
+   chooseBranch(requested);document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+  }else{
+   if(requested)notify('المتجر اللي اخترته مش بيخدم العنوان ده. اختار من المتاجر المتاحة لعنوانك.');
+   if(!automatic)document.getElementById(data.branches.length?'branches':'delivery').scrollIntoView({behavior:'smooth'});
+  }
  }catch(error){state.context=null;data.branches=[];renderBranches();$('#delivery-error').textContent=error.message;
   if(automatic){$('#saved-address-status').textContent=error.message;$('#retry-saved-address').hidden=false;status('تعذر تحميل متاجر العنوان','العنوان محفوظ. حاول تحميل المتاجر تاني من عنوان التوصيل.');}
  }
