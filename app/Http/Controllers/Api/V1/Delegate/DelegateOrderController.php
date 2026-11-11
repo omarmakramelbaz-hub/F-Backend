@@ -164,6 +164,8 @@ class DelegateOrderController extends Controller {
     }
     
     public function getSingleOrder(Request $request, Order $order){
+        // An order's details (the customer's name, address and mobile) are for couriers, never another customer.
+        abort_unless(!auth('api')->check() || auth('api')->user()->account_type === 'delegate', 403);
         $carts=OrderResource::make($order);
         return $this->successResponse($carts,__('api.success data'));
     }
@@ -288,7 +290,11 @@ class DelegateOrderController extends Controller {
     }
 
     public function acceptDeclineOrder(Request $request,Order $order){
-        if ($order->type !== 'current') return $this->acceptDeclineOrderLocked($request, $order);
+        if ($order->type !== 'current') {
+            // A shipping order: answered by a courier it was sent to, moved on by its own courier.
+            $this->assertApiDelegateParty($order, in_array($request->status, ['accept', 'declined'], true));
+            return $this->acceptDeclineOrderLocked($request, $order);
+        }
         return DB::transaction(function () use ($request, $order) {
             $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $this->assertApiDelegateParty($locked, in_array($request->status, ['accept', 'declined'], true));
@@ -401,6 +407,8 @@ class DelegateOrderController extends Controller {
             }, 3);
             return $this->successResponse('success', __('api.order updated successfully'));
         }
+        // A shipping order is completed (and its money settled) by its own courier alone.
+        $this->assertApiDelegateParty($order);
         if($order->status!='completed'){
         $order->update(['status'=>'completed']);
                if($order->type=='shipping'){
@@ -646,7 +654,10 @@ class DelegateOrderController extends Controller {
     public function transfer_order_price($id){
         return DB::transaction(function () use ($id) {
             $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
-            if ($locked->type === 'current') $this->assertApiDelegateParty($locked);
+            // Asked for through this address, any order is settled by its own courier only; the vendor's and the
+            // scheduler's own calls (shipping orders they complete) keep settling as before.
+            $direct = str_ends_with((string) request()->route()?->getActionName(), 'DelegateOrderController@transfer_order_price');
+            if ($locked->type === 'current' || $direct) $this->assertApiDelegateParty($locked);
             if ($locked->type === 'current') app(LegacyOrderCompletion::class)->lockParties($locked);
             $eligible = $locked->type === 'current' && $locked->grand_total > 0 && $locked->delegate_id
                 && $locked->reason === null && $locked->transfer_price_by === null && $locked->status === 'completed';
@@ -729,7 +740,10 @@ class DelegateOrderController extends Controller {
 
     private function assertApiDelegateParty(Order $order, bool $allowInvitation = false): void
     {
-        if (auth('admin')->check() || !auth('api')->check()) return;
+        // The dashboard and the scheduler have no app token: they are not held to a courier's part. An app request is,
+        // whatever auth('admin') says: the JWT sign-in (JWTAuth::authenticate, CustomJwtAuth) also puts the app's
+        // account in the default «admin» guard for the rest of the request.
+        if (!auth('api')->check()) return;
         $actor = auth('api')->user();
         abort_unless($actor->account_type === 'delegate' && $actor->status === 'accepted', 403);
         $assigned = (int) $order->delegate_id === (int) $actor->id;
