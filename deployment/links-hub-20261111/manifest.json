@@ -1,0 +1,17 @@
+[
+  {
+    "path": "public/links.html",
+    "sha256": "c6756f41c287f46da9aa105c97627e48bede4fb018ad65d7181af4c79d40c4c1",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/fasakhansta-qr.png",
+    "sha256": "c35eaed4e69af140f844a4a50ed6bd48fea5e2b1daa1da7a3f1280d6b0a07c30",
+    "baseline_sha256": "d5b29eb811bcb73e77d8864199ffbc25747f1353dce02ba8c58feaf73e248a16"
+  },
+  {
+    "path": "public/storefront/fasakhansta-qr.svg",
+    "sha256": "8fad3324489d5925c8461bfe0f4708711557aa231322ae8e1b1917a63380d305",
+    "baseline_sha256": "49e01d1337b2b37207c60ea0090404a6739c4117f1792e588300f4a484b378b2"
+  }
+]
