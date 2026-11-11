@@ -46,6 +46,16 @@ class CartController extends Controller
 
     use ApiResponses;
 
+    /**
+     * What the server alone decides about a customer's order, whatever the app sends at checkout: which order, whose,
+     * which branch, its kind and state, its totals and taxes, its courier and payment records. The order takes every
+     * other field the app sends (the address, schedule, payment type, notes, delivery price) as before.
+     */
+    private const ORDER_FIELDS_THE_SERVER_DECIDES = ['id', 'user_id', 'resturant_id', 'status', 'type', 'order_no', 'shift_sequence',
+        'shift_order_number', 'total', 'updated_total', 'grand_total', 'service_fees', 'user_tax', 'tax', 'vendor_tax', 'delegate_id',
+        'transfer_price_by', 'shipping_id', 'shipping_cancelled_block', 'expiration_date', 'connected', 'paymob_order_id',
+        'accepted_notify', 'declined_by', 'reason', 'wallet_id', 'created_at', 'updated_at', 'deleted_at'];
+
     //  ===================================================================================
     //  =============================================cart==================================
     //  ===================================================================================
@@ -377,7 +387,7 @@ class CartController extends Controller
             $orderCount = $order->resturant->orders()->where('status', 'pending')->whereDate('created_at', '=', now()->toDateString())->count();
 
             if ($order && $order->carts->count() > 0 && $order->grand_total >= $order->resturant->min_order_price) {
-                $updated = $order->update($request->input());
+                $updated = $order->update($request->except(self::ORDER_FIELDS_THE_SERVER_DECIDES));
 
                 //          $order->notes=$request->notes;
 
