@@ -113,6 +113,13 @@ class CartController extends Controller
             return $this->msgResponse(__('api.empty your cart first'));
         }
     }
+    /** A checkout that was refused: its order is removed and the customer's cart is back as it was, to pay again. */
+    private function undoCheckout(Order $order, array $cartIds): void
+    {
+        Cart::whereIn('id', $cartIds)->update(['order_id' => null, 'is_order' => false]);
+        Order::withoutGlobalScopes()->whereKey($order->id)->delete();
+    }
+
     /** One of the signed-in customer's own cart items; another customer's item is as if it did not exist. */
     private function ownCart($id): ?Cart
     {
@@ -378,7 +385,8 @@ class CartController extends Controller
                 'resturant_id' => $carts->first()->resturant_id,
             ]);
 
-            Cart::whereIn('id', $carts->pluck('id')->all())->update([
+            $cartIds = $carts->pluck('id')->all();
+            Cart::whereIn('id', $cartIds)->update([
                 'order_id' => $order->id,
                 'is_order' => true,
             ]);
@@ -428,7 +436,10 @@ class CartController extends Controller
                         $order->user_address?->mobile
                     );
                 } else if ($request->payment_type == 'wallet') {
-                    if (auth('api')->user()->balance >= $order->grand_total) {
+                    // Taken in one step, only while the balance covers it: two checkouts at once never spend the same money.
+                    $amount = $order->grand_total;
+                    $paid = DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount);
+                    if ($paid) {
                         Wallet::create([
                             'from_user' => auth('api')->user()->id,
                             'to_user' => null,
@@ -439,10 +450,12 @@ class CartController extends Controller
                             'order_id' => $order->id
                         ]);
                         $order->update(['status' => 'pending']);
-                        $user = auth('api')->user();
-                        $user->update(['balance' => $user->balance - $order->grand_total]);
+                        // The app's balance shows the new amount at once, as the user observer does on any balance change.
+                        $customer = User::withoutGlobalScopes()->find(auth('api')->id());
+                        if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
                         // (new \App\Http\Controllers\Dashboard\OrderController)->transferPrice($order->id);
                     } else {
+                        $this->undoCheckout($order, $cartIds);
                         return $this->errorResponse(__('api.charge your wallet first'));
                     }
                 } elseif ($request->payment_type == 'cash') {
@@ -488,6 +501,7 @@ class CartController extends Controller
                     );
                 }
             }
+            $this->undoCheckout($order, $cartIds);
             return $this->errorResponse(__('api.cannot create order'));
         }
     }

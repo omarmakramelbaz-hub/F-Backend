@@ -106,7 +106,12 @@ class CustomerOrderPaymentApiTest extends TestCase
 
     public function test_a_wallet_order_takes_its_whole_price_from_the_balance(): void
     {
+        $live = new class { public array $events = []; public function event(object $event, ?int $orderId = null): void { $this->events[] = $event; } };
+        $this->app->instance(\App\Services\Dashboard\OrderProviderDelivery::class, $live);
         $this->pay(['payment_type' => 'wallet'])->assertOk();
+        $balance = collect($live->events)->first(fn ($event) => $event instanceof \App\Events\BalanceUpdated);
+        $this->assertNotNull($balance, 'The app is told the new balance');
+        $this->assertSame([7, 63.0], [(int) $balance->senderId, (float) $balance->user->balance]);
         $order = $this->order();
         $this->assertSame('pending', $order->status);
         $this->assertEquals(1000 - 937, (float) DB::table('users')->where('id', 7)->value('balance'));
@@ -123,6 +128,34 @@ class CustomerOrderPaymentApiTest extends TestCase
         $this->assertSame(['current', 7, 301, 'pending', null], [$order->type, (int) $order->user_id, (int) $order->resturant_id, $order->status, $order->delegate_id]);
         $this->assertEquals(937, $order->grand_total);
         $this->assertEquals(1000 - 937, (float) DB::table('users')->where('id', 7)->value('balance'), 'The whole price is paid');
+    }
+
+    public function test_a_refused_checkout_leaves_the_cart_as_it_was(): void
+    {
+        $cartBefore = DB::table('carts')->where('user_id', 7)->get(['id', 'is_order', 'order_id'])->toArray();
+        // Not enough in the wallet (937 to pay).
+        DB::table('users')->where('id', 7)->update(['balance' => 900]);
+        $this->pay(['payment_type' => 'wallet'])->assertStatus(500)->assertJsonPath('status', 'Error');
+        // Below the branch's minimum order.
+        DB::table('resturants')->where('id', 301)->update(['min_order_price' => 5000]);
+        $this->pay(['payment_type' => 'cash'])->assertStatus(500)->assertJsonPath('status', 'Error');
+        $this->assertEquals($cartBefore, DB::table('carts')->where('user_id', 7)->get(['id', 'is_order', 'order_id'])->toArray(), 'The cart is still there to pay');
+        $this->assertSame(0, DB::table('orders')->count(), 'No order left behind');
+        $this->assertEquals(900, (float) DB::table('users')->where('id', 7)->value('balance'));
+        $this->assertSame(0, DB::table('wallets')->count());
+    }
+
+    public function test_the_wallet_pays_one_order_with_the_same_money_once(): void
+    {
+        DB::table('users')->where('id', 7)->update(['balance' => 937]);
+        $this->pay(['payment_type' => 'wallet'])->assertOk();
+        $this->assertEquals(0, (float) DB::table('users')->where('id', 7)->value('balance'));
+        // A second order from the same (now empty) balance is refused, and its cart stays.
+        DB::table('carts')->insert(['user_id' => 7, 'resturant_id' => 301, 'resturant_product_id' => 10, 'qty' => 2, 'price' => 400]);
+        $this->pay(['payment_type' => 'wallet'])->assertStatus(500);
+        $this->assertEquals(0, (float) DB::table('users')->where('id', 7)->value('balance'));
+        $this->assertSame(1, DB::table('wallets')->count());
+        $this->assertSame(1, DB::table('carts')->where('user_id', 7)->where('is_order', false)->count());
     }
 
     public function test_the_delivery_price_is_never_negative(): void
