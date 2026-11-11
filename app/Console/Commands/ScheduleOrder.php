@@ -48,21 +48,23 @@ class ScheduleOrder extends Command
                 // \Log::info($orders);
 
         foreach($orders as $order){
-         if($order->resturant_id){
-            $to_email = $order->resturant?->user?->email;
-         }
-                //  \Log::info($to_email);
+            // Each order's own branch: an order without one is mailed to nobody (never the previous order's branch).
+            $resturant_owner = $order->resturant_id ? $order->resturant?->user : null;
+            $to_email = $resturant_owner?->email;
             if($to_email){
-            $mail=Mail::send('emails.resturant_schedule_order', ['cart' => $order], function($message) use ( $to_email) {
-                 $message->to($to_email);
-                 $message->subject('reminder schedule order');
-            });
+                try {
+                    Mail::send('emails.resturant_schedule_order', ['cart' => $order], function($message) use ($to_email) {
+                        $message->to($to_email);
+                        $message->subject('reminder schedule order');
+                    });
+                } catch (\Throwable $error) {
+                    // The dashboard reminder below still goes, and the other branches are still mailed.
+                    \Log::warning('GO_SCHEDULE_REMINDER_EMAIL_FAILED', ['order' => $order->id, 'error' => class_basename($error)]);
+                }
             }
-            $resturant_owner= $order->resturant?->user;
             if($resturant_owner){
-             Notification::send($resturant_owner,new \App\Notifications\NotifySheduleOrderNotification($order));
+                Notification::send($resturant_owner,new \App\Notifications\NotifySheduleOrderNotification($order));
             }
-            
         }
 //        return 0;
     }
