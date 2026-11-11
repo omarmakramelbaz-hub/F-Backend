@@ -103,9 +103,16 @@ class CartController extends Controller
             return $this->msgResponse(__('api.empty your cart first'));
         }
     }
+    /** One of the signed-in customer's own cart items; another customer's item is as if it did not exist. */
+    private function ownCart($id): ?Cart
+    {
+        return Cart::query()->whereKey($id)->where('user_id', auth('api')->id())->first();
+    }
+
     public function update_cart_item($id, CartRequest $request)
     {
-        $cart = Cart::find($id);
+        $cart = $this->ownCart($id);
+        if (! $cart) return $this->errorResponse(__('api.empty'));
         $product = ResturantProduct::find($request->resturant_product_id);
         if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         $cart->update([
@@ -123,7 +130,8 @@ class CartController extends Controller
     }
     public function show($id)
     {
-        $cart = Cart::find($id);
+        $cart = $this->ownCart($id);
+        if (! $cart) return $this->errorResponse(__('api.empty'));
         $cart_data = new CartResource($cart);
         return $this->successResponse($cart_data, __('api.AddToCartSuccessfully'));
 
@@ -242,7 +250,7 @@ class CartController extends Controller
 
     public function update($id, Request $request)
     {
-        $cart = Cart::find($id);
+        $cart = $this->ownCart($id);
         if ($cart) {
             if ($request->qty == 0) {
                 $cart->delete();
