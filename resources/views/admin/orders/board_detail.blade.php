@@ -6,7 +6,7 @@
     $inlineItems = !$printing && !empty($card['urls']['items']);
 @endphp
 <!doctype html>
-<html lang="ar" dir="rtl" data-dashboard-receipt="order-board">
+<html lang="ar" dir="rtl" data-dashboard-receipt="order-board"@if(!$printing) data-dashboard-invoice-details="1"@endif>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

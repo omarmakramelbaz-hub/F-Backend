@@ -42,7 +42,8 @@ class CustomerOrderHistory
                     $orders[] = ['at'=>$this->time($p->paid_at), 'branch'=>$names[$p->branch] ?? $p->branch, 'channel'=>self::CHANNELS[$channel] ?? $channel,
                         'number'=>$app ? ($app->order_no ?? '#'.$app->id) : ($receipt ? 'R-'.$receipt->id : $p->source_id),
                         'total'=>$receipt ? Money::decimal((int) $receipt->total_cents) : ($app && isset($app->total_price) ? number_format((float) $app->total_price, 2, '.', '') : null),
-                        'status'=>'مدفوع'];
+                        'status'=>'مدفوع',
+                        'details_url'=>$receipt ? $this->link('takeaway.details', ['id'=>$receipt->id]) : ($app ? $this->link('order-board.details', ['source'=>'legacy', 'id'=>$app->id]) : null)];
                 }
             }
         }
@@ -53,7 +54,8 @@ class CustomerOrderHistory
                 $quote = json_decode((string) ($t->quote_snapshot ?? ''), true) ?: [];
                 $orders[] = ['at'=>$this->time($t->created_at), 'branch'=>$names[$t->branch] ?? $t->branch, 'channel'=>self::CHANNELS[$t->channel] ?? $t->channel,
                     'number'=>!empty($t->shift_order_number) ? BranchOrderSequence::display($t, $t->branch, $t->channel, (string) $t->id) : '#'.$t->id,
-                    'total'=>$quote['total'] ?? null, 'status'=>'جاري'];
+                    'total'=>$quote['total'] ?? null, 'status'=>'جاري',
+                    'details_url'=>$this->link($t->channel === 'dine' ? 'dining.details' : 'phone-orders.details', ['id'=>$t->id])];
             }
         }
         usort($orders, fn ($a, $b) => strcmp($b['at'] ?? '', $a['at'] ?? ''));
@@ -61,6 +63,12 @@ class CustomerOrderHistory
         return ['success'=>true, 'phone'=>$key, 'name'=>$customer->name ?? null, 'orders'=>$orders,
             'summary'=>['count'=>count($orders), 'paid_total'=>number_format(array_sum(array_map(fn ($o) => (float) $o['total'], $paid)), 2, '.', ''),
                 'last'=>$orders[0]['at'] ?? null]];
+    }
+
+    /** The order's invoice as the invoice review opens it (a preview: viewing never counts as printing). */
+    private function link(string $route, array $parameters): ?string
+    {
+        return \Illuminate\Support\Facades\Route::has($route) ? route($route, $parameters, false) : null;
     }
 
     private function time($value): ?string

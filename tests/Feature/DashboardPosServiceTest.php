@@ -761,6 +761,9 @@ class DashboardPosServiceTest extends TestCase
         $ticket=$this->tickets()->save('phone',$this->savePayload('phone',1800),$this->actor())['ticket'];
         $open=$history->history(['phone'=>'٠١٠ 1234 5678'],$this->actor());
         $this->assertSame([1,'جاري','دليفري'],[$open['summary']['count'],$open['orders'][0]['status'],$open['orders'][0]['channel']]);
+        // Each row opens its invoice as the invoice review does: the open order's ticket, then the paid receipt.
+        $this->assertSame('/admin/phone-orders/tickets/'.$ticket['id'].'/details',$open['orders'][0]['details_url']);
+        $this->actingAs($this->actor(),'admin');$this->get($open['orders'][0]['details_url'])->assertOk()->assertSee('data-dashboard-invoice-details',false);
         $this->assertSame([],$history->history(['phone'=>'01012345678'],$this->actor(11))['orders'],'another branch does not see it');
         // Collected: it is in his paid orders with its amount (from the customer directory), no longer open.
         $fresh=$this->tickets()->show('phone',$ticket['id'],$this->actor())['ticket'];
@@ -768,6 +771,9 @@ class DashboardPosServiceTest extends TestCase
         $paid=$history->history(['phone'=>'01012345678'],$this->actor());
         $this->assertSame(['مدفوع'],array_column($paid['orders'],'status'));
         $this->assertSame($fresh['total'],$paid['orders'][0]['total']);$this->assertSame($fresh['total'],$paid['summary']['paid_total']);
+        $receipt=(int)DB::table('pos_service_tickets')->where('id',$fresh['id'])->value('paid_order_id');
+        $this->assertSame('/admin/takeaway/receipts/'.$receipt.'/details',$paid['orders'][0]['details_url']);
+        $this->get($paid['orders'][0]['details_url'])->assertOk()->assertSee('data-dashboard-invoice-details',false);
         $this->actingAs($this->actor(),'admin');$this->getJson(route('customers.history',['phone'=>'01012345678']))->assertOk()->assertJsonPath('summary.count',1);
         $this->getJson(route('customers.history',['phone'=>'abc']))->assertStatus(422);
     }

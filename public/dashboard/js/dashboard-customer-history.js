@@ -19,6 +19,7 @@
             + '.go-history form button{border:0;border-radius:6px;background:#f57800;color:#fff;padding:7px 16px;font-weight:700;cursor:pointer}'
             + '.go-history-body{padding:0 14px 10px;overflow:auto;max-height:60vh}.go-history-summary{padding-top:10px}.go-history-summary{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px;font-size:12px;color:#33435c}.go-history-summary b{color:#10274a}'
             + '.go-history table{width:100%;border-collapse:collapse;font-size:12px}.go-history th,.go-history td{padding:7px 6px;border-bottom:1px solid #eef1f5;text-align:right}.go-history th{background:#f4f6fa;position:sticky;top:0}'
+            + '.go-history-row{cursor:pointer}.go-history-row:hover td,.go-history-row:focus td{background:#eef4ff}.go-history-row td:nth-child(4){color:#175abb;text-decoration:underline}'
             + '.go-history .is-open td{background:#fff8ec}.go-history-empty{color:#6c7a91;padding:14px 0;margin:0}';
         document.head.appendChild(s);
     }
@@ -64,6 +65,13 @@
             data.orders.forEach(function (o) {
                 var tr = el('tr', undefined, o.status === 'جاري' ? 'is-open' : '');
                 [o.at || '—', o.channel, o.branch, o.number, o.total === null || o.total === undefined ? '—' : o.total + ' ج', o.status].forEach(function (v) { tr.appendChild(el('td', v)); });
+                // A row opens its invoice, as the invoice review does.
+                if (o.details_url && window.DashboardInvoiceDetails) {
+                    tr.classList.add('go-history-row'); tr.tabIndex = 0; tr.title = 'اضغط لعرض الفاتورة'; tr.dataset.historyDetails = o.details_url;
+                    var show = function () { window.DashboardInvoiceDetails.open(o.details_url); };
+                    tr.addEventListener('click', show);
+                    tr.addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(); } });
+                }
                 tbody.appendChild(tr);
             });
             table.appendChild(tbody); body.appendChild(table);

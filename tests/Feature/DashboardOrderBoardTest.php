@@ -539,6 +539,8 @@ class DashboardOrderBoardTest extends TestCase
         ]);
         $this->actingAs($this->actor(10), 'admin');
         $detail = $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertSee('17,500.00')->assertSee('18,043.12');
+        // The invoice viewer (customer history, invoice review) opens the details view; the printed copy is not one.
+        $detail->assertSee('data-dashboard-invoice-details', false);
         $print = $this->get(route('order-board.print', ['legacy', 1]))->assertOk()->assertSee('17,500.00')->assertSee('18,043.12');
         $card = $print->viewData('card');
         $this->assertSame($detail->viewData('card')['items'], $card['items']);
