@@ -103,7 +103,8 @@ class CartController extends Controller
                 'product_feature' => $request->product_feature,
             ])->first();
             if ($cart) {
-                $total = self::quantity((float) $cart->qty + $qty);
+                // The same item again with no quantity keeps the line's quantity, as the app has always had it.
+                $total = ($request->qty === null || $request->qty === '') ? (float) $cart->qty : self::quantity((float) $cart->qty + $qty);
                 if ($total === null) return $this->errorResponse('الكمية غير صحيحة.');
                 $cart->update(['qty' => $total]);
             } else {
