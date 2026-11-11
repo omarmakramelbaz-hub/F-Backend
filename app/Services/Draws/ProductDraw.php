@@ -10,10 +10,11 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
- * «مسابقة السحب» by chosen products: during the draw's dates, the products picked on the dashboard carry a badge in the
- * customer app (in every participating branch: the customer orders from the branch nearest to them) with the prize:
- * «هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه». Each piece of them in a delivered order (completed) is one entry
- * in that draw; a weighed line (half a kilo) is one.
+ * «مسابقة السحب» by chosen products: during the draw's dates, the products picked on the dashboard carry a badge in
+ * every branch, in the app (its stores near the customer too) and on the website: «هذا الصنف يرشحك للدخول على سحب بقيمة
+ * 5,000 جنيه». Only these products qualify, bought the ordinary way (not from the draw screen). Each piece of them in a
+ * delivered order is one entry with its own code, sent to the customer to follow the draw with; the winning code shows
+ * on the draw screen. A weighed line (half a kilo) is one entry.
  * The other draws keep their own rule: an order of at least the draw's amount from a participating branch (order_total).
  */
 class ProductDraw
@@ -48,7 +49,7 @@ class ProductDraw
         });
     }
 
-    /** The draws running today by products, with their branches and products: [id => {wheel, restaurants[], products[]}]. */
+    /** The draws running today by products, with their products (in every branch): [id => {wheel, products[]}]. */
     public static function active(): array
     {
         if (!self::ready()) return [];
@@ -58,25 +59,23 @@ class ProductDraw
                 ->whereDate('start_date', '<=', $today)->whereDate('end_date', '>=', $today)->orderBy('id')->get();
             if ($wheels->isEmpty()) return [];
             $ids = $wheels->pluck('id')->all();
-            $branches = DB::table('coupon_wheel_resturants')->whereIn('coupon_wheel_id', $ids)->get()->groupBy('coupon_wheel_id');
             $products = DB::table('coupon_wheel_products')->whereIn('coupon_wheel_id', $ids)->get()->groupBy('coupon_wheel_id');
             $active = [];
             foreach ($wheels as $wheel) {
                 $chosen = array_map('intval', ($products[$wheel->id] ?? collect())->pluck('product_id')->all());
                 if (!$chosen) continue;
-                $active[(int) $wheel->id] = ['wheel'=>$wheel, 'products'=>$chosen,
-                    'restaurants'=>array_map('intval', ($branches[$wheel->id] ?? collect())->pluck('resturant_id')->all())];
+                $active[(int) $wheel->id] = ['wheel'=>$wheel, 'products'=>$chosen];
             }
             return $active;
         });
     }
 
-    /** The badge on a branch's product in the app: the draw it qualifies for and its prize, or null. */
+    /** The badge on a branch's product (app and website): the draw it qualifies for and its prize, or null. */
     public static function badge(?int $restaurantId, ?int $productId): ?array
     {
         if (!$restaurantId || !$productId) return null;
         foreach (self::active() as $id => $draw) {
-            if (!in_array($productId, $draw['products'], true) || !in_array($restaurantId, $draw['restaurants'], true)) continue;
+            if (!in_array($productId, $draw['products'], true)) continue;
             $prize = $draw['wheel']->prize_amount === null ? null : (float) $draw['wheel']->prize_amount;
             return ['coupon_wheel_id'=>$id, 'name'=>(string) $draw['wheel']->name, 'prize_amount'=>$prize,
                 'end_date'=>(string) $draw['wheel']->end_date,
@@ -129,26 +128,45 @@ class ProductDraw
         return $id ? (int) $id : null;
     }
 
-    /** One entry per piece (a weighed line is one) of each running draw's products sold by this branch, once per source. */
+    /**
+     * One entry per piece (a weighed line is one) of each running draw's products, from any branch, once per source; the
+     * customer is sent the new codes once the order is saved.
+     */
     private function grant(int $restaurantId, array $lines, int $userId, string $source, ?int $orderId): int
     {
-        $draws = array_filter(self::active(), fn ($draw) => in_array($restaurantId, $draw['restaurants'], true));
         $created = 0;
-        foreach ($draws as $id => $draw) {
+        foreach (self::active() as $id => $draw) {
+            $codes = [];
             $pieces = 0;
             foreach ($lines as [$product, $qty]) {
                 if ($qty <= 0 || !in_array($product, $draw['products'], true)) continue;
                 $pieces += max(1, (int) floor($qty + 1e-9));
             }
             for ($n = 1; $n <= min($pieces, 500); $n++) {
-                $created += DB::table('coupon_subscripes')->insertOrIgnore([
-                    'user_id'=>$userId, 'user_coupon_code'=>$this->code(), 'coupon_wheel_id'=>$id, 'price'=>0, 'amount'=>1,
+                $code = $this->code();
+                if (DB::table('coupon_subscripes')->insertOrIgnore([
+                    'user_id'=>$userId, 'user_coupon_code'=>$code, 'coupon_wheel_id'=>$id, 'price'=>0, 'amount'=>1,
                     'status'=>null, 'order_id'=>$orderId, 'entry_key'=>"{$source}:draw:{$id}:{$n}",
                     'created_at'=>now(), 'updated_at'=>now(),
-                ]);
+                ])) $codes[] = $code;
             }
+            $created += count($codes);
+            if ($codes) $this->tell($userId, $draw['wheel'], $codes);
         }
         return $created;
+    }
+
+    /** The customer's new entry codes, in the app's notices (and a push), once the order is saved. */
+    private function tell(int $userId, object $wheel, array $codes): void
+    {
+        DB::afterCommit(function () use ($userId, $wheel, $codes) {
+            try {
+                $user = \App\Models\User::withoutGlobalScopes()->find($userId);
+                if ($user) \Illuminate\Support\Facades\Notification::send($user, new \App\Notifications\NotifyUserDrawEntryNotification($wheel, $codes));
+            } catch (\Throwable $error) {
+                \Log::warning('Draw entry notice unavailable', ['user_id'=>$userId, 'coupon_wheel_id'=>(int) $wheel->id, 'error_class'=>get_class($error)]);
+            }
+        });
     }
 
     /** The badge's words: «هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه». */

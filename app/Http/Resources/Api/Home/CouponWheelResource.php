@@ -41,6 +41,10 @@ class CouponWheelResource extends JsonResource
             'products' => $products->map(fn ($product) => ['id' => (int) $product->id, 'name' => (string) $product->name_ar])->values()->all(),
             'badge_label' => $isProduct ? \App\Services\Draws\ProductDraw::label($this->prize_amount === null ? null : (float) $this->prize_amount) : null,
             'my_entries' => $isProduct && auth('api')->check() ? \App\Services\Draws\ProductDraw::entries((int) $this->id, (int) auth('api')->id()) : null,
+            // The customer's entry codes in this draw, and the winning code once drawn.
+            'my_codes' => auth('api')->check() ? \App\Models\CouponSubscripe::where('coupon_wheel_id', $this->id)->where('user_id', auth('api')->id())
+                ->orderBy('id')->limit(200)->pluck('user_coupon_code')->all() : [],
+            'winner_code' => \App\Models\CouponSubscripe::where('coupon_wheel_id', $this->id)->where('status', 'winner')->latest('updated_at')->value('user_coupon_code'),
             'price' => $this->price,
             'prize_amount' => $this->prize_amount,
             'start_date' => $this->start_date,

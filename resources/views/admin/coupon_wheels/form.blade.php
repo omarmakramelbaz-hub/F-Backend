@@ -24,7 +24,7 @@
             <option value="{{ $drawProduct->id }}" @if(in_array((int) $drawProduct->id, $drawProducts, true)) selected @endif>{{ $drawProduct->name_ar }}</option>
         @endforeach
     </select>
-    <small class="text-muted">اختار منتج أو أكتر (Ctrl + ضغطة). كل منتج منهم هيظهر عليه في التطبيق «هذا الصنف يرشحك للدخول على سحب بقيمة» الجائزة، في الفروع المشاركة.</small>
+    <small class="text-muted">اختار منتج أو أكتر (Ctrl + ضغطة). كل منتج منهم هيظهر عليه في كل الفروع، في التطبيق والموقع، «هذا الصنف يرشحك للدخول على سحب بقيمة» الجائزة. وكل قطعة منه في أوردر اتسلّم بتدّي العميل كود دخول بيوصله إشعار.</small>
 </div>
 @endif
 
@@ -51,7 +51,7 @@
     <input type="date" name="end_date" value="{{ old('end_date', $coupon_wheel->end_date) }}"
         class="form-control @error('end_date') is-invalid @enderror" id="end_date" placeholder="@lang('main.Enter') @lang('main.wheel end_date')">
 </div>
-<div class="form-group col-sm-6">
+<div class="form-group col-sm-6" data-draw-branches @if(($drawPolicy ?? 'order_total') === 'product') hidden @endif>
     <label for="name_en"> @lang('main.resturant')</label>
         <select name="restraunt_id[]" multiple class="form-control @error('restraunt_id') is-invalid @enderror">
             <option value="">@lang('main.choose') @lang('main.resturant')</option>
@@ -117,6 +117,7 @@
         var product = policy.value === 'product';
         document.querySelector('[data-draw-product]').hidden = !product;
         document.querySelector('[data-draw-price]').hidden = product;
+        document.querySelector('[data-draw-branches]').hidden = product;
     }
     policy.addEventListener('change', show);
 })();

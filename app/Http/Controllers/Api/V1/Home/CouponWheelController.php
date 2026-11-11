@@ -35,6 +35,7 @@ class CouponWheelController extends Controller
                 'flag' => 'coupon',
                 'data' => new CouponWheelResource($couponWheel),
                 'draws' => CouponWheelResource::collection($running),
+                'recent_winners' => $this->recentWinners(),
                 'winner' => null,
                 'winner_data' => null,
             ], __('api.success data'));
@@ -55,6 +56,7 @@ class CouponWheelController extends Controller
                 return $this->successResponse([
                     'flag' => 'winner',
                     'data' => new CouponWheelResource($endedCoupon),
+                    'recent_winners' => $this->recentWinners(),
                     'winner' => $winner->user_coupon_code,
                     'winner_data' => UserDataResource::make($winner->user),
                 ], __('api.success data'));
@@ -62,6 +64,20 @@ class CouponWheelController extends Controller
         }
 
         return $this->errorResponse(__('api.there is no coupon wheel'));
+    }
+
+    /** The draws ended in the last 30 days and their winning codes, newest first (the draw screen shows them). */
+    private function recentWinners(): array
+    {
+        $winners = [];
+        $ended = CouponWheel::where('status', 'show')->whereDate('end_date', '<', Carbon::now()->toDateString())
+            ->whereDate('end_date', '>=', Carbon::now()->subDays(30)->toDateString())->orderByDesc('end_date')->limit(10)->get();
+        foreach ($ended as $wheel) {
+            $code = CouponSubscripe::where('coupon_wheel_id', $wheel->id)->where('status', 'winner')->latest('updated_at')->value('user_coupon_code');
+            if ($code) $winners[] = ['id' => (int) $wheel->id, 'name' => $wheel->name, 'prize_amount' => $wheel->prize_amount,
+                'end_date' => $wheel->end_date, 'winner_code' => $code];
+        }
+        return $winners;
     }
 
     /**

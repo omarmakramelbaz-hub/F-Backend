@@ -16,7 +16,8 @@ class StoreCouponWheelRequest extends FormRequest
         return [
             'added_by' => 'required|exists:users,id',
             'name' => 'required|string|min:3|max:200',
-            'restraunt_id'=>'required|array|min:1',
+            // A draw by products runs in every branch; an order-total draw in the branches chosen.
+            'restraunt_id'=>$this->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT ? 'nullable|array' : 'required|array|min:1',
             'restraunt_id.*' => 'sometimes|nullable|exists:resturants,id',
             'start_date'=>'required|date',
             'end_date'=>'required|date|after:start_date',

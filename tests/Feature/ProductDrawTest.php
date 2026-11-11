@@ -37,6 +37,7 @@ class ProductDrawTest extends TestCase
         });
         if (!Schema::hasColumn('orders', 'coupon_wheel_id')) Schema::table('orders', fn (Blueprint $t) => $t->unsignedBigInteger('coupon_wheel_id')->nullable());
         if (!Schema::hasColumn('orders', 'updated_total')) Schema::table('orders', fn (Blueprint $t) => $t->decimal('updated_total', 10, 2)->nullable());
+        if (!Schema::hasTable('user_tokens')) Schema::create('user_tokens', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('user_id'); $t->string('token'); $t->timestamps(); });
         $this->artisan('draws:install-schema')->assertExitCode(0);
         \App\Database\SchemaMemory::forgetEverything();
         DB::table('resturants')->insert(['id' => 302, 'name' => 'فرع المنصورة', 'status' => 'opened']);
@@ -70,13 +71,13 @@ class ProductDrawTest extends TestCase
         return DB::table('coupon_subscripes')->where('coupon_wheel_id', 1)->when($order, fn ($q) => $q->where('order_id', $order))->count();
     }
 
-    public function test_the_product_carries_the_prize_badge_in_the_participating_branches_only(): void
+    public function test_the_chosen_products_carry_the_prize_badge_in_every_branch(): void
     {
         $this->assertTrue(ProductDraw::ready());
         $badge = ProductDraw::badge(301, 5);
         $this->assertSame(['coupon_wheel_id' => 1, 'prize_amount' => 5000.0, 'label' => 'هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه'],
             array_intersect_key($badge, array_flip(['coupon_wheel_id', 'prize_amount', 'label'])));
-        $this->assertNull(ProductDraw::badge(302, 5), 'Not a participating branch');
+        $this->assertSame(1, ProductDraw::badge(302, 5)['coupon_wheel_id'], 'Every branch, not only the ones chosen for an order-total draw');
         $this->assertSame(1, ProductDraw::badge(301, 6)['coupon_wheel_id'], 'Every chosen product carries it');
         $this->assertNull(ProductDraw::badge(301, 7), 'A product not chosen');
         DB::table('coupon_wheels')->where('id', 1)->update(['end_date' => '2026-11-11']);
@@ -101,10 +102,33 @@ class ProductDrawTest extends TestCase
         // Half a kilo is one entry.
         $this->deliver($this->order(501, 301, 10, 0.5));
         $this->assertSame(1, $this->entries(501));
-        // Another branch's order is not in this draw.
+        // Bought from any branch.
         $this->deliver($this->order(502, 302, 11, 2));
-        $this->assertSame(0, $this->entries(502));
-        $this->assertSame(7, ProductDraw::entries(1, 7));
+        $this->assertSame(2, $this->entries(502));
+        $this->assertSame(9, ProductDraw::entries(1, 7));
+        // Each order's new codes are sent to the customer (once: the second save sent nothing).
+        Notification::assertSentToTimes(\App\Models\User::withoutGlobalScopes()->find(7), \App\Notifications\NotifyUserDrawEntryNotification::class, 4);
+        $notice = null;
+        Notification::assertSentTo(\App\Models\User::withoutGlobalScopes()->find(7), \App\Notifications\NotifyUserDrawEntryNotification::class,
+            function ($sent) use (&$notice) { $notice = $sent; return true; });
+        $text = $notice->toDatabase(\App\Models\User::withoutGlobalScopes()->find(7))['text'];
+        $this->assertStringContainsString('بقيمة 5,000 جنيه', $text);
+        $this->assertStringContainsString('تابع الكود الفائز على شاشة المسابقة', $text);
+    }
+
+    public function test_the_draw_screen_shows_the_customers_codes_and_the_winning_code(): void
+    {
+        $this->deliver($this->order(500, 301, 10, 2));
+        $codes = DB::table('coupon_subscripes')->where('coupon_wheel_id', 1)->orderBy('id')->pluck('user_coupon_code')->all();
+        $draw = (new \App\Http\Resources\Api\Home\CouponWheelResource(\App\Models\CouponWheel::find(1)))->resolve(request());
+        $this->assertSame(['product', 'هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه', [5, 6], [], null],
+            [$draw['policy'], $draw['badge_label'], array_column($draw['products'], 'id'), $draw['my_codes'], $draw['winner_code']]);
+        $this->travelTo(now()->setDate(2026, 12, 1));
+        $this->artisan('notify:coupon')->assertExitCode(0);
+        $winner = DB::table('coupon_subscripes')->where('status', 'winner')->value('user_coupon_code');
+        $this->assertContains($winner, $codes);
+        $draw = (new \App\Http\Resources\Api\Home\CouponWheelResource(\App\Models\CouponWheel::find(1)))->resolve(request());
+        $this->assertSame($winner, $draw['winner_code']);
     }
 
     public function test_the_order_total_draw_keeps_its_own_rule(): void
@@ -154,6 +178,7 @@ class ProductDrawTest extends TestCase
         $this->assertMatchesRegularExpression('/<option value="7"\s*>سردين</', $html);
         $rules = (new \App\Http\Requests\Dashboard\StoreCouponWheelRequest())->merge(['policy' => 'product'])->rules();
         $this->assertSame('nullable|numeric|min:0', $rules['price']);
+        $this->assertSame('nullable|array', $rules['restraunt_id'], 'A draw by products runs in every branch');
         $this->assertSame('required|numeric|min:1', (new \App\Http\Requests\Dashboard\StoreCouponWheelRequest())->rules()['price']);
     }
 
