@@ -1,3 +1,6 @@
+@if($printing)
+    @include('admin.printing.order_receipt')
+@else
 @php
     $money = static function ($value) {
         return is_numeric($value) ? number_format((float) $value, 2, '.', ',') : $value;
@@ -6,7 +9,7 @@
     $inlineItems = !$printing && !empty($card['urls']['items']);
 @endphp
 <!doctype html>
-<html lang="ar" dir="rtl" data-dashboard-receipt="order-board"@if(!$printing) data-dashboard-invoice-details="1"@endif>
+<html lang="ar" dir="rtl" data-dashboard-receipt="order-board">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -115,3 +118,5 @@
 @if($printing && !request()->boolean('dashboard_print'))<script>window.addEventListener('load',function(){window.print();});</script>@endif
 </body>
 </html>
+
+@endif
