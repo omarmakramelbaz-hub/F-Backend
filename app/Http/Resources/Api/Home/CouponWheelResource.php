@@ -28,9 +28,18 @@ class CouponWheelResource extends JsonResource
             }), 2);
         }
 
+        $policy = $this->policy ?? null;
+        $isProduct = $policy === \App\Services\Draws\ProductDraw::PRODUCT;
+        $product = $isProduct && $this->product_id ? \App\Models\Product::find($this->product_id) : null;
+
         return [
             'id' => $this->id,
             'name' => $this->name,
+            // order_total: an order of at least «price» from a participating branch; product: each piece of «product».
+            'policy' => $isProduct ? 'product' : 'order_total',
+            'product' => $product ? ['id' => (int) $product->id, 'name' => $product->name_ar ?? $product->name ?? ''] : null,
+            'badge_label' => $isProduct ? \App\Services\Draws\ProductDraw::label($this->prize_amount === null ? null : (float) $this->prize_amount) : null,
+            'my_entries' => $isProduct && auth('api')->check() ? \App\Services\Draws\ProductDraw::entries((int) $this->id, (int) auth('api')->id()) : null,
             'price' => $this->price,
             'prize_amount' => $this->prize_amount,
             'start_date' => $this->start_date,

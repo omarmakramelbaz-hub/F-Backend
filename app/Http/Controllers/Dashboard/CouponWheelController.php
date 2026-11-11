@@ -57,7 +57,7 @@ class CouponWheelController extends Controller
         
        
         
-        $coupon_wheel = CouponWheel::create($request->except('images','restraunt_id'));
+        $coupon_wheel = CouponWheel::create($this->values($request));
          broadcast(new CouponWheelUpdated($coupon_wheel))->toOthers();
        if($request->hasFile('images') )
         {
@@ -100,7 +100,7 @@ class CouponWheelController extends Controller
             
         }
        
-        $coupon_wheel->update($request->except('images','restraunt_id'));
+        $coupon_wheel->update($this->values($request));
                       broadcast(new CouponWheelUpdated($coupon_wheel))->toOthers();
 
         $coupon_wheel->resturants()->delete();
@@ -133,6 +133,18 @@ class CouponWheelController extends Controller
         return response()->json(['success'=> trans('messages.RecordsDeleteSuccessfully')]);
     }
     
+    /** The draw's fields: its rule (order total or a product) once the server has the columns for it. */
+    private function values(Request $request): array
+    {
+        $values = $request->except('images', 'restraunt_id', 'policy', 'product_id');
+        if (!\App\Services\Draws\ProductDraw::ready()) return $values;
+        $product = $request->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT;
+        $values['policy'] = $product ? \App\Services\Draws\ProductDraw::PRODUCT : \App\Services\Draws\ProductDraw::ORDER_TOTAL;
+        $values['product_id'] = $product ? (int) $request->input('product_id') : null;
+        if ($product) $values['price'] = $request->filled('price') ? $request->input('price') : 0;
+        return $values;
+    }
+
      public function delete_image(Request $request){
         //   dd($request);
           $coupon_wheel=CouponWheel::find($request->coupon_wheel_id);

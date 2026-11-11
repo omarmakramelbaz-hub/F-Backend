@@ -7,7 +7,28 @@
         class="form-control @error('name') is-invalid @enderror" id="name" placeholder="@lang('main.Enter') @lang('main.wheel name')">
 </div>
 
+@if(\App\Services\Draws\ProductDraw::ready())
+@php($drawPolicy = old('policy', $coupon_wheel->policy ?? 'order_total'))
 <div class="form-group col-sm-6">
+    <label for="policy">سياسة دخول السحب</label>
+    <select name="policy" id="policy" class="form-select @error('policy') is-invalid @enderror" data-draw-policy>
+        <option value="order_total" @if($drawPolicy !== 'product') selected @endif>أوردر بقيمة معينة من فرع مشارك</option>
+        <option value="product" @if($drawPolicy === 'product') selected @endif>شراء منتج معين (كل قطعة = فرصة)</option>
+    </select>
+</div>
+<div class="form-group col-sm-6" data-draw-product @if($drawPolicy !== 'product') hidden @endif>
+    <label for="product_id">المنتج</label>
+    <select name="product_id" id="product_id" class="form-select @error('product_id') is-invalid @enderror">
+        <option value="">اختار المنتج</option>
+        @foreach(\Illuminate\Support\Facades\DB::table('products')->where('status', 'show')->orderBy('name_ar')->get(['id', 'name_ar']) as $drawProduct)
+            <option value="{{ $drawProduct->id }}" @if((int) old('product_id', $coupon_wheel->product_id) === (int) $drawProduct->id) selected @endif>{{ $drawProduct->name_ar }}</option>
+        @endforeach
+    </select>
+    <small class="text-muted">المنتج ده هيظهر عليه في التطبيق «يؤهلك لسحب على» قيمة الجائزة، في الفروع المشاركة.</small>
+</div>
+@endif
+
+<div class="form-group col-sm-6" data-draw-price @if(($drawPolicy ?? 'order_total') === 'product') hidden @endif>
     <label for="price"> @lang('main.wheel price')</label>
     <input type="number" min="1" step="0.01" name="price" value="{{ old('price', $coupon_wheel->price) }}"
         class="form-control @error('price') is-invalid @enderror" id="price" placeholder="@lang('main.Enter') @lang('main.wheel price')">
@@ -86,3 +107,18 @@
 <div class="form-group col-sm-10">
     <button type="submit" class="btn btn-success from-prevent-multiple-submits">@lang('main.save')</button>
 </div>
+
+@if(\App\Services\Draws\ProductDraw::ready())
+<script>
+(function () {
+    var policy = document.querySelector('[data-draw-policy]');
+    if (!policy) return;
+    function show() {
+        var product = policy.value === 'product';
+        document.querySelector('[data-draw-product]').hidden = !product;
+        document.querySelector('[data-draw-price]').hidden = product;
+    }
+    policy.addEventListener('change', show);
+})();
+</script>
+@endif

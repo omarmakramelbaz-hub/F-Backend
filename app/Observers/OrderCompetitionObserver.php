@@ -15,7 +15,15 @@ class OrderCompetitionObserver
             return;
         }
 
+        // A draw by product: each piece of its product is an entry (its own rule, beside the order-total draw).
+        try {
+            app(\App\Services\Draws\ProductDraw::class)->enter($order);
+        } catch (\Throwable $error) {
+            \Log::warning('Product draw entry unavailable', ['order_id'=>(int) $order->id, 'error_class'=>get_class($error)]);
+        }
+
         $couponWheel = CouponWheel::where('status', 'show')
+            ->when(\App\Services\Draws\ProductDraw::ready(), fn ($query) => $query->where(fn ($q) => $q->whereNull('policy')->orWhere('policy', \App\Services\Draws\ProductDraw::ORDER_TOTAL)))
             ->whereDate('start_date', '<=', now())
             ->whereDate('end_date', '>=', now())
             ->whereHas('resturants', function ($query) use ($order) {

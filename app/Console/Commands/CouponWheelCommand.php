@@ -24,16 +24,33 @@ class CouponWheelCommand extends Command
             ->whereNotNull('coupon_wheel_id')
             ->pluck('coupon_wheel_id');
 
-        $coupon = CouponWheel::where('status', 'show')
+        $coupons = CouponWheel::where('status', 'show')
             ->whereDate('end_date', '<', Carbon::now()->toDateString())
             ->when($finishedCouponIds->isNotEmpty(), function ($query) use ($finishedCouponIds) {
                 $query->whereNotIn('id', $finishedCouponIds);
             })
             ->orderBy('end_date')
-            ->first();
+            ->get();
 
-        if (!$coupon) {
-            return 0;
+        // Every ended draw without a winner gets one; a draw nobody entered no longer holds back the ones after it.
+        foreach ($coupons as $coupon) {
+            $this->draw($coupon);
+        }
+        return 0;
+    }
+
+    private function draw(CouponWheel $coupon): void
+    {
+        if (($coupon->policy ?? null) === \App\Services\Draws\ProductDraw::PRODUCT) {
+            // A draw by product: every entry (one per piece bought) is one chance.
+            $winner = CouponSubscripe::where('coupon_wheel_id', $coupon->id)->where('amount', 1)->whereNull('status')->inRandomOrder()->first();
+            if (!$winner) {
+                \Log::info('No entries for coupon: '.$coupon->id);
+                return;
+            }
+            $this->announce($coupon, $winner);
+            \Log::info('winner:'.$winner->id.' coupon:'.$coupon->id.' order:'.($winner->order_id ?? ''));
+            return;
         }
 
         // Every qualifying completed order is one independent chance in the draw.
@@ -45,7 +62,7 @@ class CouponWheelCommand extends Command
 
         if (!$winnerOrder) {
             \Log::info('No qualifying orders for coupon: '.$coupon->id);
-            return 0;
+            return;
         }
 
         $winner = CouponSubscripe::where('coupon_wheel_id', $coupon->id)
@@ -74,6 +91,14 @@ class CouponWheelCommand extends Command
             ]);
         }
 
+        $this->announce($coupon, $winner);
+
+        \Log::info('winner:'.$winner->id.' coupon:'.$coupon->id.' order:'.$winnerOrder->id);
+    }
+
+    /** The winner is kept, the other entries lose, the winner is told and the home screens refresh. */
+    private function announce(CouponWheel $coupon, CouponSubscripe $winner): void
+    {
         $winner->update(['status' => 'winner']);
 
         CouponSubscripe::where('coupon_wheel_id', $coupon->id)
@@ -91,10 +116,6 @@ class CouponWheelCommand extends Command
 
         // Home screens refresh only after the winner is persisted.
         broadcast(new CouponWheelUpdated($coupon))->toOthers();
-
-        \Log::info('winner:'.$winner->id.' coupon:'.$coupon->id.' order:'.$winnerOrder->id);
-
-        return 0;
     }
 
     private function generateUniqueCode($length = 10)

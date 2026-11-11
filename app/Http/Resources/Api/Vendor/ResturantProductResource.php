@@ -35,6 +35,8 @@ class ResturantProductResource extends JsonResource
             'status'                    =>$this->status,
             'highest_rated'             =>$this->highest_rated,
             'has_clean'                    =>$this->product?->has_clean,
+            // «مسابقة السحب» by this product: the badge and its prize (null when none runs in this branch).
+            'draw'                      =>\App\Services\Draws\ProductDraw::badge((int) $this->resturant_id, $this->product_id === null ? null : (int) $this->product_id),
 
             'product_image'             => $this->getFirstMediaUrl('product_image','thumb'),
             'created_at'                => $this->created_at,

@@ -21,17 +21,20 @@ class CouponWheelController extends Controller
     {
         $now = Carbon::now();
 
-        $couponWheel = CouponWheel::with('resturants')
+        $running = CouponWheel::with('resturants')
             ->where('status', 'show')
             ->whereDate('start_date', '<=', $now)
             ->whereDate('end_date', '>=', $now)
             ->orderByDesc('start_date')
-            ->first();
+            ->get();
+        // Installed apps show one draw («data»), read as an order-total draw: that one first. «draws» has them all.
+        $couponWheel = $running->first(fn ($wheel) => ($wheel->policy ?? null) !== \App\Services\Draws\ProductDraw::PRODUCT) ?? $running->first();
 
         if ($couponWheel) {
             return $this->successResponse([
                 'flag' => 'coupon',
                 'data' => new CouponWheelResource($couponWheel),
+                'draws' => CouponWheelResource::collection($running),
                 'winner' => null,
                 'winner_data' => null,
             ], __('api.success data'));
