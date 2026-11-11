@@ -31,7 +31,7 @@ PREFIX = 'deployment/links-copy-20261111'
 BACKUPS = Path('/root/fasakhansta-links-copy-backups')
 LOCK = Path('/var/lock/fasakhansta-links-copy.lock')
 PAGE = 'public/links.html'
-BASELINES = {PAGE: '3fe271c3190fe1429e938a6288f4bf18163091111efe3b46f746199490783efc'}
+BASELINES = {PAGE: 'c914d3e9b734196292bd6a0373675a42a7975551398e0367ee269bfe126faa9c'}
 ALLOWED = frozenset(BASELINES)
 MAX_FILE = 4 * 1024 * 1024
 MAX_TOTAL = MAX_FILE
@@ -106,7 +106,7 @@ class PageMarkers(HTMLParser):
         self.logo = None
         self.capture = None
         self.parts = []
-        self.texts = {'h1': [], 'p': []}
+        self.texts = {'h1': [], 'p': [], 'h2': []}
         self.all_text = []
 
     def handle_starttag(self, tag, attrs):
@@ -142,6 +142,7 @@ def validate_page(data):
     need(EXPECTED_HREFS <= page.hrefs, 'One or more reviewed social/payment/branch links are missing')
     need(page.logo is not None, 'The page must use the reviewed same-origin logo')
     need(page.texts['h1'] == ['اللمة الحلوة ليها ناسها'], 'The single reviewed main headline is missing')
+    need('لوكيشن فروعنا وتقييم جوجل' in page.texts['h2'], 'The reviewed branches and Google reviews heading is missing')
     removed = 'أحسن فسيخ في العالم'
     need(removed not in ' '.join(unescape(html).split())
          and removed not in ' '.join(''.join(page.all_text).split()), 'The removed subtitle remains in the links page')
