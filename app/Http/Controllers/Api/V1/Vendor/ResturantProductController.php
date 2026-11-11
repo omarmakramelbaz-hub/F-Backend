@@ -24,6 +24,21 @@ use Illuminate\Support\Facades\Storage;
 class ResturantProductController extends Controller {
 
   use ApiResponses;
+
+    /** What an item's form never decides: which item it is, whose and which branch's. */
+    private const ITEM_FIELDS_THE_SERVER_DECIDES = ['_token', 'id', 'resturant_id', 'added_by', 'created_at', 'updated_at', 'deleted_at'];
+
+    /**
+     * From the app, a branch's items are the business of that branch's own accounts (OrderBoardService::restaurantIds):
+     * never a customer's, a courier's or another branch's. The dashboard (no app token) keeps its own permissions.
+     */
+    private function assertOwnBranch($branchId): void
+    {
+        if (!auth('api')->check()) return;
+        $actor = auth('api')->user();
+        abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner', 'admin'], true)
+            && in_array((int) $branchId, array_map('intval', app(\App\Services\Dashboard\OrderBoardService::class)->restaurantIds($actor)), true), 403);
+    }
   use UploadImageTrait;
 
     private ResturantProductRepositoryInterface $ResturantProductRepository;
@@ -38,6 +53,7 @@ class ResturantProductController extends Controller {
   }
 
    public function store(Request $request) {
+    $this->assertOwnBranch($request->input('resturant_id'));
     $ResturantProduct = $this->ResturantProductRepository->createResturantProduct($request->except('_token')+['added_by' => auth('api')->user()->id]);
     $ResturantProductData = ResturantProductResource::make($ResturantProduct);
     return $this->successResponse('success',__('api.create new item'));
@@ -45,13 +61,15 @@ class ResturantProductController extends Controller {
   
   
    public function update(Request $request,ResturantProduct $menu) {
-    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except('_token')+['added_by' => auth('api')->user()->id]);
+    $this->assertOwnBranch($menu->resturant_id);
+    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except(self::ITEM_FIELDS_THE_SERVER_DECIDES)+['added_by' => auth('api')->user()->id]);
     $ResturantProductData = ResturantProductResource::make($menu->fresh());
     return $this->successResponse($ResturantProductData,__('api.update item'));
   }
 
 
   public function destroy(ResturantProduct $menu) {
+    $this->assertOwnBranch($menu->resturant_id);
     $ResturantProduct = $this->ResturantProductRepository->deleteResturantProduct($menu->id);
     return $this->successResponse($ResturantProduct,__('api.delete item'));
   }
@@ -65,6 +83,7 @@ class ResturantProductController extends Controller {
   }
   
  public function copy_menu(CopyMenuRequest $request){
+        $this->assertOwnBranch($request->resturant_id);
         $resturant=Resturant::find($request->resturant_id);
           foreach(array_values($request->restraunt_product) as $selectionIndex => $restraunt_product){
             $mainproduct=ResturantProduct::find($restraunt_product);
@@ -105,7 +124,8 @@ class ResturantProductController extends Controller {
   }
   
   public function update_item_status(UpdateStatusRequest $request,ResturantProduct $menu) {
-    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except('_token')+['added_by' => auth('api')->user()->id]);
+    $this->assertOwnBranch($menu->resturant_id);
+    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except(self::ITEM_FIELDS_THE_SERVER_DECIDES)+['added_by' => auth('api')->user()->id]);
     $ResturantProductData = ResturantProductResource::make($menu->fresh());
     return $this->successResponse($ResturantProductData,__('api.update item'));
   }
