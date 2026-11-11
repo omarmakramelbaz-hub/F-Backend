@@ -750,7 +750,9 @@ if ($resturant_owner) {
 
     private function assertApiRestaurantParty(Order $order): void
     {
-        if (auth('admin')->check() || !auth('api')->check() || $order->type !== 'current') return;
+        // The dashboard has no app token. An app request is held to its branches whatever auth('admin') says: the JWT
+        // sign-in (CustomJwtAuth) also puts the app's account in the default «admin» guard.
+        if (!auth('api')->check() || $order->type !== 'current') return;
         $actor = auth('api')->user();
         abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner'], true)
             && in_array((int) $order->resturant_id, array_map('intval', app(\App\Services\Dashboard\OrderBoardService::class)->restaurantIds($actor)), true), 403);

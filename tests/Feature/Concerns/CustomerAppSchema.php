@@ -48,7 +48,7 @@ trait CustomerAppSchema
             $t->string('payment_type')->nullable(); $t->decimal('delivery_price', 10, 2)->nullable(); $t->text('notes')->nullable(); $t->string('order_type')->nullable();
             $t->string('delegate_from_out')->nullable(); $t->unsignedBigInteger('delegate_id')->nullable(); $t->unsignedBigInteger('shipping_id')->nullable();
             $t->decimal('user_tax', 10, 2)->nullable(); $t->decimal('tax', 10, 2)->nullable(); $t->decimal('vendor_tax', 10, 2)->nullable();
-            $t->string('order_no')->nullable(); $t->string('transfer_price_by')->nullable(); $t->timestamp('shipping_cancelled_block')->nullable(); $t->unsignedInteger('shift_sequence')->nullable(); $t->unsignedInteger('shift_order_number')->nullable(); $t->timestamps();
+            $t->string('order_no')->nullable(); $t->string('transfer_price_by')->nullable(); $t->timestamp('shipping_cancelled_block')->nullable(); $t->unsignedInteger('shift_sequence')->nullable(); $t->unsignedInteger('shift_order_number')->nullable(); $t->string('accepted_notify')->nullable(); $t->timestamps();
         });
         Schema::create('user_address', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('user_id'); $t->string('mobile')->nullable(); $t->string('lat')->nullable(); $t->string('lng')->nullable(); $t->timestamps(); });
         Schema::create('wallets', function (Blueprint $t) {

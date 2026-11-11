@@ -68,4 +68,20 @@ class VendorMenuApiTest extends TestCase
         $this->assertSame(['opened', 30, 'فرع شبرا'], [DB::table('resturants')->where('id', 301)->value('status'),
             (int) DB::table('resturants')->where('id', 301)->value('user_id'), DB::table('resturants')->where('id', 301)->value('name')]);
     }
+
+    public function test_a_branchs_order_is_accepted_by_its_own_vendor_only(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        DB::table('orders')->insert(['id' => 500, 'user_id' => 7, 'resturant_id' => 301, 'status' => 'pending', 'type' => 'current', 'user_address_id' => 70,
+            'payment_type' => 'cash', 'delivery_price' => 25]);
+        DB::table('carts')->where('user_id', 7)->update(['order_id' => 500, 'is_order' => true]);
+        foreach ([8, 31] as $stranger) {
+            $this->assertContains($this->as($stranger)->postJson('/api/vendor/orders/500/accept', ['status' => 'accepted'])->status(), [403, 404]);
+            $this->assertContains($this->as($stranger)->postJson('/api/vendor/update/orders/500/total/price', ['total' => 1, 'reason' => 'x'])->status(), [403, 404, 500]);
+        }
+        // Accepting tells the customer (accepted_notify); a stranger's taps change nothing.
+        $this->assertSame(['pending', null], [DB::table('orders')->where('id', 500)->value('status'), DB::table('orders')->where('id', 500)->value('accepted_notify')]);
+        $this->as(30)->postJson('/api/vendor/orders/500/accept', ['status' => 'accepted'])->assertOk();
+        $this->assertSame('yes', DB::table('orders')->where('id', 500)->value('accepted_notify'));
+    }
 }
