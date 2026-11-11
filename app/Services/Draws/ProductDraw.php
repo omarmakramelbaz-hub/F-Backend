@@ -21,11 +21,7 @@ class ProductDraw
 {
     public const ORDER_TOTAL = 'order_total';
     public const PRODUCT = 'product';
-    /** A draw ticket bought in the app (App\Services\Draws\DrawTickets): each ticket is one entry. */
-    public const TICKET = 'ticket';
-    public const POLICIES = [self::ORDER_TOTAL, self::PRODUCT, self::TICKET];
-    /** The draws whose winner is drawn from their entries (one chance each). */
-    public const BY_ENTRY = [self::PRODUCT, self::TICKET];
+    public const POLICIES = [self::ORDER_TOTAL, self::PRODUCT];
 
     /** The columns and the products table the product draw needs (php artisan draws:install-schema adds them). */
     public static function ready(): bool
@@ -161,7 +157,7 @@ class ProductDraw
     }
 
     /** The customer's new entry codes, in the app's notices (and a push), once the order is saved. */
-    public function tell(int $userId, object $wheel, array $codes): void
+    private function tell(int $userId, object $wheel, array $codes): void
     {
         DB::afterCommit(function () use ($userId, $wheel, $codes) {
             try {
@@ -186,7 +182,7 @@ class ProductDraw
         return DB::table('coupon_subscripes')->where('coupon_wheel_id', $wheelId)->where('user_id', $userId)->where('amount', 1)->count();
     }
 
-    public function code(int $length = 10): string
+    private function code(int $length = 10): string
     {
         do {
             $code = Str::upper(Str::random($length));

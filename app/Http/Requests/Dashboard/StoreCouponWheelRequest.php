@@ -17,11 +17,11 @@ class StoreCouponWheelRequest extends FormRequest
             'added_by' => 'required|exists:users,id',
             'name' => 'required|string|min:3|max:200',
             // A draw by products runs in every branch; an order-total draw in the branches chosen.
-            'restraunt_id'=>in_array($this->input('policy'), [\App\Services\Draws\ProductDraw::PRODUCT, \App\Services\Draws\ProductDraw::TICKET], true) ? 'nullable|array' : 'required|array|min:1',
+            'restraunt_id'=>$this->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT ? 'nullable|array' : 'required|array|min:1',
             'restraunt_id.*' => 'sometimes|nullable|exists:resturants,id',
             'start_date'=>'required|date',
             'end_date'=>'required|date|after:start_date',
-            // A draw by products has no minimum order (each piece is an entry); a draw by tickets: «price» is a ticket's price.
+            // A draw by product has no minimum order: each piece of its product is an entry.
             'price'=>$this->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT ? 'nullable|numeric|min:0' : 'required|numeric|min:1',
             'policy'=>'nullable|in:'.implode(',', \App\Services\Draws\ProductDraw::POLICIES),
             'product_ids'=>'nullable|required_if:policy,'.\App\Services\Draws\ProductDraw::PRODUCT.'|array|min:1|max:200',

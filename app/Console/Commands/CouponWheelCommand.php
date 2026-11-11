@@ -41,8 +41,8 @@ class CouponWheelCommand extends Command
 
     private function draw(CouponWheel $coupon): void
     {
-        if (in_array($coupon->policy ?? null, \App\Services\Draws\ProductDraw::BY_ENTRY, true)) {
-            // A draw by products or by tickets: every entry (a piece bought, a ticket bought) is one chance.
+        if (($coupon->policy ?? null) === \App\Services\Draws\ProductDraw::PRODUCT) {
+            // A draw by product: every entry (one per piece bought) is one chance.
             $winner = CouponSubscripe::where('coupon_wheel_id', $coupon->id)->where('amount', 1)->whereNull('status')->inRandomOrder()->first();
             if (!$winner) {
                 \Log::info('No entries for coupon: '.$coupon->id);

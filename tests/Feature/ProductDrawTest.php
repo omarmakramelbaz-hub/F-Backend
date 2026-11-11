@@ -18,7 +18,6 @@ use Tests\TestCase;
 class ProductDrawTest extends TestCase
 {
     use Concerns\CustomerAppSchema;
-    use Concerns\AppRequests;
 
     protected function setUp(): void
     {
@@ -208,67 +207,5 @@ class ProductDrawTest extends TestCase
         $this->assertSame(0, $draws->enterWebsiteTicket(902), 'No app account with this mobile');
         $this->assertSame(0, $draws->enterWebsiteTicket(903), 'Not collected yet');
         $this->assertSame(7, ProductDraw::customerByPhone('+201012345678'));
-    }
-
-    private function ticketDraw(): void
-    {
-        if (!Schema::hasColumn('wallets', 'transfer_reference')) Schema::table('wallets', fn (Blueprint $t) => $t->char('transfer_reference', 36)->nullable());
-        DB::table('coupon_wheels')->insert(['id' => 4, 'added_by' => 1, 'name' => 'فاتورة السحب', 'price' => 20, 'prize_amount' => 10000, 'policy' => 'ticket',
-            'start_date' => '2026-11-01', 'end_date' => '2026-11-30', 'status' => 'show']);
-        DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->update(['payload' => json_encode('100.00')]);
-    }
-
-    private function appBalance(): float
-    {
-        return (float) json_decode(DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->value('payload'), true);
-    }
-
-    public function test_a_customer_buys_draw_tickets_from_the_wallet_once_per_purchase(): void
-    {
-        $this->ticketDraw();
-        $key = (string) \Illuminate\Support\Str::uuid();
-        $response = $this->postJson('/api/coupon_wheels/4/tickets', ['count' => 3, 'idempotency_key' => $key], $this->appHeaders(7))->assertOk();
-        $codes = $response->json('data.codes');
-        $this->assertCount(3, $codes);
-        $this->assertEquals(940, (float) DB::table('users')->where('id', 7)->value('balance'), '1000 less 3 tickets of 20');
-        $this->assertEquals(160, $this->appBalance());
-        $this->assertSame(1, DB::table('wallets')->where('transfer_reference', $key)->where('from_user', 7)->where('amount', 60)->count());
-        $this->assertSame($codes, DB::table('coupon_subscripes')->where('coupon_wheel_id', 4)->orderBy('id')->pluck('user_coupon_code')->all());
-        Notification::assertSentTo(\App\Models\User::withoutGlobalScopes()->find(7), \App\Notifications\NotifyUserDrawEntryNotification::class);
-        // The same purchase again (the app retried): nothing more is taken.
-        $again = $this->postJson('/api/coupon_wheels/4/tickets', ['count' => 3, 'idempotency_key' => $key], $this->appHeaders(7))->assertOk();
-        $this->assertSame($codes, $again->json('data.codes'));
-        $this->assertTrue($again->json('data.already_bought'));
-        $this->assertEquals(940, (float) DB::table('users')->where('id', 7)->value('balance'));
-        $this->assertSame(3, DB::table('coupon_subscripes')->where('coupon_wheel_id', 4)->count());
-        // The draw screen shows the ticket price and the customer's codes.
-        $this->actingAs(\App\Models\User::withoutGlobalScopes()->find(7), 'api');
-        $draw = (new \App\Http\Resources\Api\Home\CouponWheelResource(\App\Models\CouponWheel::find(4)))->resolve(request());
-        $this->assertSame(['ticket', 20.0, $codes], [$draw['policy'], $draw['ticket_price'], $draw['my_codes']]);
-    }
-
-    public function test_a_ticket_is_never_sold_without_the_balance_or_outside_its_draw(): void
-    {
-        $this->ticketDraw();
-        $buy = fn (int $user, int $wheel, int $count) => $this->postJson("/api/coupon_wheels/{$wheel}/tickets",
-            ['count' => $count, 'idempotency_key' => (string) \Illuminate\Support\Str::uuid()], $this->appHeaders($user));
-        $buy(8, 4, 1)->assertStatus(422);                                       // no balance
-        $this->assertEquals(0, (float) DB::table('users')->where('id', 8)->value('balance'));
-        $buy(7, 1, 1)->assertStatus(422);                                       // a draw by products: no tickets
-        $buy(7, 4, 51)->assertStatus(422);                                      // too many at once
-        DB::table('coupon_wheels')->where('id', 4)->update(['end_date' => '2026-11-11']);
-        $buy(7, 4, 1)->assertStatus(422);                                       // ended
-        $this->postJson('/api/coupon_wheels/4/tickets', ['count' => 1, 'idempotency_key' => (string) \Illuminate\Support\Str::uuid()])->assertStatus(401);
-        $this->assertEquals(1000, (float) DB::table('users')->where('id', 7)->value('balance'));
-        $this->assertSame(0, DB::table('coupon_subscripes')->where('coupon_wheel_id', 4)->count());
-    }
-
-    public function test_the_ticket_draws_winner_is_one_of_its_tickets(): void
-    {
-        $this->ticketDraw();
-        app(\App\Services\Draws\DrawTickets::class)->buy(7, 4, ['count' => 2, 'idempotency_key' => (string) \Illuminate\Support\Str::uuid()]);
-        $this->travelTo(now()->setDate(2026, 12, 1));
-        $this->artisan('notify:coupon')->assertExitCode(0);
-        $this->assertSame(['loser', 'winner'], DB::table('coupon_subscripes')->where('coupon_wheel_id', 4)->orderBy('status')->pluck('status')->all());
     }
 }
