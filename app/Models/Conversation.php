@@ -19,7 +19,4 @@ class Conversation extends Model
     public function msgs(){
         return $this->hasMany(MessageConversation::class,'conv_id');
     }
-    public function RecieveMsg(){
-        return $this->hasMany(MessageConversation::class,'conv_id')->where('sender','!=',auth()->guard('web')->user()->id)->where('read',0)->orderBy('created_at','desc');
-    }
 }
