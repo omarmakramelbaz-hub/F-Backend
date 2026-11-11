@@ -151,6 +151,19 @@ function focusDelivery() {
  if(!state.context){if($('#delivery-form').hidden&&customerProfile){$('#saved-address-select').focus({preventScroll:true});return;}initMap();$('#delivery-form').elements.customer_phone.focus({preventScroll:true});}
  else {document.getElementById('menu').scrollIntoView({behavior:'smooth'});$('#branch-select').focus({preventScroll:true});}
 }
+function startOrder(event) {
+ if(state.pending||state.submitting)return openCart();
+ // Keep the selected eligible store even while its catalog is loading or failed.
+ if(state.context&&state.branch&&branch())return document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+ if(state.context&&data.branches.length){
+  const picker=$('#branch-select');
+  picker.scrollIntoView({behavior:'instant',block:'center'});
+  picker.focus({preventScroll:true});
+  if(event?.isTrusted){try{picker.showPicker?.();}catch(_){/* Native focus remains the fallback. */}}
+  return;
+ }
+ focusDelivery();
+}
 function resetDelivery(scroll=true) {
  menuRequest?.abort();state.context=null;data.branches=[];state.branch='';state.cart=[];state.products=[];state.categories=[];state.menuReady=false;state.quote=null;state.open=false;restorable=null;
  state.storeSearch='';state.storeFilter='all';state.storeLimit=12;$('#store-search').value='';
@@ -389,6 +402,10 @@ document.addEventListener('click',event=>{
  const button=event.target.closest('[data-action]');if(!button)return;
  const {action,id,index,delta}=button.dataset;
  if(action==='terms'||action==='policy'){$('#legal-title').textContent=action==='terms'?'الشروط والأحكام':'سياسة الخصوصية';$('#legal-content').textContent=data.info?.[action]||'';showDialog('#legal-dialog');}
+ if(action==='start-order'){
+  if(event.button>0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+  event.preventDefault();startOrder(event);return;
+ }
  if(action==='choose-branch')focusDelivery();
  if(action==='edit-location')editLocation();
  if(action==='cart')openCart();

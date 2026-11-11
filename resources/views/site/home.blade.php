@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="{{ asset('storefront/seo.css') }}?v=20261017-1">
     <script id="storefront-data" type="application/json">{!! json_encode(['branches'=>$storefrontBranches,'info'=>$storefrontInfo,'endpoints'=>['branches'=>route('storefront.branches'),'catalog'=>route('storefront.catalog'),'addresses'=>route('storefront.addresses'),'quote'=>route('storefront.quote'),'checkout'=>route('storefront.checkout')]], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) !!}</script>
     <script src="{{ asset('dashboard/vendor/leaflet/leaflet.js') }}" defer></script>
-    <script src="{{ asset('storefront/storefront.js') }}?v=20261111-motion-1" defer></script>
+    <script src="{{ asset('storefront/storefront.js') }}?v=20261111-start-order-1" defer></script>
     <link rel="stylesheet" href="{{ asset('storefront/motion.css') }}?v=20261111-1">
     <script src="{{ asset('storefront/motion.js') }}?v=20261111-1" defer></script>
 </head>
