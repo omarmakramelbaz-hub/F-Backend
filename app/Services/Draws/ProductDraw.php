@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 
 /**
  * «مسابقة السحب» by chosen products: during the draw's dates, the products picked on the dashboard carry a badge in
- * every branch, in the app (its stores near the customer too) and on the website: «هذا الصنف يرشحك للدخول على سحب بقيمة
+ * every branch, in the app (its stores near the customer too) and on the website: «يؤهلك للدخول في السحب بقيمة
  * 5,000 جنيه». Only these products qualify, bought the ordinary way (not from the draw screen). Each piece of them in a
  * delivered order is one entry with its own code, sent to the customer to follow the draw with; the winning code shows
  * on the draw screen. A weighed line (half a kilo) is one entry.
@@ -169,10 +169,10 @@ class ProductDraw
         });
     }
 
-    /** The badge's words: «هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه». */
+    /** The badge's words: «يؤهلك للدخول في السحب بقيمة 5,000 جنيه». */
     public static function label(?float $prize): string
     {
-        return $prize ? 'هذا الصنف يرشحك للدخول على سحب بقيمة '.self::money($prize).' جنيه' : 'هذا الصنف يرشحك للدخول على السحب';
+        return $prize ? 'يؤهلك للدخول في السحب بقيمة '.self::money($prize).' جنيه' : 'يؤهلك للدخول في السحب';
     }
 
     /** A customer's entries in a draw. */

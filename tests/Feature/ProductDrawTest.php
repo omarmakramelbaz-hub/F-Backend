@@ -75,7 +75,7 @@ class ProductDrawTest extends TestCase
     {
         $this->assertTrue(ProductDraw::ready());
         $badge = ProductDraw::badge(301, 5);
-        $this->assertSame(['coupon_wheel_id' => 1, 'prize_amount' => 5000.0, 'label' => 'هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه'],
+        $this->assertSame(['coupon_wheel_id' => 1, 'prize_amount' => 5000.0, 'label' => 'يؤهلك للدخول في السحب بقيمة 5,000 جنيه'],
             array_intersect_key($badge, array_flip(['coupon_wheel_id', 'prize_amount', 'label'])));
         $this->assertSame(1, ProductDraw::badge(302, 5)['coupon_wheel_id'], 'Every branch, not only the ones chosen for an order-total draw');
         $this->assertSame(1, ProductDraw::badge(301, 6)['coupon_wheel_id'], 'Every chosen product carries it');
@@ -121,7 +121,7 @@ class ProductDrawTest extends TestCase
         $this->deliver($this->order(500, 301, 10, 2));
         $codes = DB::table('coupon_subscripes')->where('coupon_wheel_id', 1)->orderBy('id')->pluck('user_coupon_code')->all();
         $draw = (new \App\Http\Resources\Api\Home\CouponWheelResource(\App\Models\CouponWheel::find(1)))->resolve(request());
-        $this->assertSame(['product', 'هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه', [5, 6], [], null],
+        $this->assertSame(['product', 'يؤهلك للدخول في السحب بقيمة 5,000 جنيه', [5, 6], [], null],
             [$draw['policy'], $draw['badge_label'], array_column($draw['products'], 'id'), $draw['my_codes'], $draw['winner_code']]);
         $this->travelTo(now()->setDate(2026, 12, 1));
         $this->artisan('notify:coupon')->assertExitCode(0);

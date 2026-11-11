@@ -24,7 +24,7 @@
             <option value="{{ $drawProduct->id }}" @if(in_array((int) $drawProduct->id, $drawProducts, true)) selected @endif>{{ $drawProduct->name_ar }}</option>
         @endforeach
     </select>
-    <small class="text-muted">اختار منتج أو أكتر (Ctrl + ضغطة). كل منتج منهم هيظهر عليه في كل الفروع، في التطبيق والموقع، «هذا الصنف يرشحك للدخول على سحب بقيمة» الجائزة. وكل قطعة منه في أوردر اتسلّم بتدّي العميل كود دخول بيوصله إشعار.</small>
+    <small class="text-muted">اختار منتج أو أكتر (Ctrl + ضغطة). كل منتج منهم هيظهر عليه في كل الفروع، في التطبيق والموقع، «يؤهلك للدخول في السحب بقيمة» الجائزة. وكل قطعة منه في أوردر اتسلّم بتدّي العميل كود دخول بيوصله إشعار.</small>
 </div>
 @endif
 
