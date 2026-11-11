@@ -1,0 +1,30 @@
+[
+  {
+    "path": "public/storefront/hero-motion-4k.mp4",
+    "sha256": "eca3bbdd6c498de587722c546349816e6b2876f938f92b280ccf64202feb80ec",
+    "baseline_sha256": null,
+    "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3L9hAVB0leeJA8weUHck7mTKTXG/d0c4f09e-6fb9-487a-ac7b-9f6a53257063.mp4"
+  },
+  {
+    "path": "public/storefront/hero-motion-hd.mp4",
+    "sha256": "4199e0c8ddbc538b12f7a63466648138507e1b32f7f67ecb6b0e69b17a04ce83",
+    "baseline_sha256": null,
+    "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3L9hAVB0leeJA8weUHck7mTKTXG/64f7da28-87a5-4e84-8fbd-96e0b9c3612e.mp4"
+  },
+  {
+    "path": "public/storefront/hero-motion-4k-poster.webp",
+    "sha256": "377401065e0e96ce7af1b17123f17b6112960ead40927a4f2f5f5d5ed45b79a2",
+    "baseline_sha256": null,
+    "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_3L9hAVB0leeJA8weUHck7mTKTXG/0c04e0d9-0c3f-42ac-b977-b130256ac035.webp"
+  },
+  {
+    "path": "resources/views/site/motion/hero.blade.php",
+    "sha256": "ebaa6134a5abe8ac0bbade4d6f7098ffbbc1b8a7c68a17d8ef7fea5b54c54fd5",
+    "baseline_sha256": "b9fd50daa1087903fc9e8ccbdec071fd4fae11a3cbf34633be11fcfba9e5648b"
+  },
+  {
+    "path": "resources/views/site/home.blade.php",
+    "sha256": "555d5ea5595d2f417eec81b79d89f6a15e1fe5f554f8310e269d31869e41f0c8",
+    "baseline_sha256": "ed9c803063049b4f9dea61f51e4cea3c253171772bf2965cc3d5f94c0c6633a7"
+  }
+]

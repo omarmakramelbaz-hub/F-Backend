@@ -10,7 +10,7 @@
     {{-- STOREFRONT_SEO_HEAD_END --}}
     <link rel="icon" href="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}?v=20261017-3" type="image/png" sizes="any">
     <link rel="apple-touch-icon" href="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}?v=20261017-3">
-    <link rel="preload" as="image" href="{{ asset('storefront/hero-motion-poster.webp') }}">
+    <link rel="preload" as="image" href="{{ asset('storefront/hero-motion-4k-poster.webp') }}">
     <link rel="stylesheet" href="{{ asset('dashboard/vendor/leaflet/leaflet.css') }}">
     <link rel="stylesheet" href="{{ asset('storefront/storefront.css') }}?v=20261017-6">
     <link rel="stylesheet" href="{{ asset('storefront/seo.css') }}?v=20261017-1">
