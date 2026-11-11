@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Update only the reviewed headline text on the dedicated links page."""
+"""Update only the reviewed copy and presentation of the dedicated links page."""
 import argparse
 from contextlib import ExitStack
 from datetime import datetime, timezone
 import fcntl
 import hashlib
+from html import unescape
 from html.parser import HTMLParser
 import json
 import os
@@ -30,7 +31,7 @@ PREFIX = 'deployment/links-copy-20261111'
 BACKUPS = Path('/root/fasakhansta-links-copy-backups')
 LOCK = Path('/var/lock/fasakhansta-links-copy.lock')
 PAGE = 'public/links.html'
-BASELINES = {PAGE: 'c6756f41c287f46da9aa105c97627e48bede4fb018ad65d7181af4c79d40c4c1'}
+BASELINES = {PAGE: '3fe271c3190fe1429e938a6288f4bf18163091111efe3b46f746199490783efc'}
 ALLOWED = frozenset(BASELINES)
 MAX_FILE = 4 * 1024 * 1024
 MAX_TOTAL = MAX_FILE
@@ -106,6 +107,7 @@ class PageMarkers(HTMLParser):
         self.capture = None
         self.parts = []
         self.texts = {'h1': [], 'p': []}
+        self.all_text = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -122,6 +124,7 @@ class PageMarkers(HTMLParser):
 
 
     def handle_data(self, data):
+        self.all_text.append(data)
         if self.capture is not None:
             self.parts.append(data)
 
@@ -132,13 +135,16 @@ class PageMarkers(HTMLParser):
 
 
 def validate_page(data):
+    html = data.decode('utf-8')
     page = PageMarkers()
-    page.feed(data.decode('utf-8'))
+    page.feed(html)
     need(page.release, 'Dedicated links-page release marker is missing')
     need(EXPECTED_HREFS <= page.hrefs, 'One or more reviewed social/payment/branch links are missing')
     need(page.logo is not None, 'The page must use the reviewed same-origin logo')
-    need('اللمة الحلوة ليها ناسها' in page.texts['h1'], 'The reviewed main headline is missing')
-    need('أحسن فسيخ في العالم' in page.texts['p'], 'The reviewed orange subtitle is missing')
+    need(page.texts['h1'] == ['اللمة الحلوة ليها ناسها'], 'The single reviewed main headline is missing')
+    removed = 'أحسن فسيخ في العالم'
+    need(removed not in ' '.join(unescape(html).split())
+         and removed not in ' '.join(''.join(page.all_text).split()), 'The removed subtitle remains in the links page')
     return page
 
 
