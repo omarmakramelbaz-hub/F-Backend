@@ -40,13 +40,10 @@ class SendDelegateBalanceCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is SendDelegateBalanceCommand!");
             $delegates=User::where('account_type','delegate')->where('status','accepted')->whereNotNull('min_wallet')
             ->whereRaw('balance <= min_wallet/2')->get();
             // ->where('balance','<=',500)->get();
-            \Log::info("count".$delegates->count());
            foreach($delegates as $delegate){
-                 \Log::info("Cron is SendVendorBalanceCommand!".$delegate->id);
                 $fdate = now();
                 $tdate = $delegate->expiration_date;
                 $datetime1 = new \DateTime($fdate);
@@ -57,7 +54,6 @@ class SendDelegateBalanceCommand extends Command
                     $up = $delegate->update(['expiration_date' => now()->addDays(3)]);
                     Notification::send($delegate,new \App\Notifications\NotifyDelegateMinBalanceNotification($delegate));
                }elseif($diff <= 3 && $diff > 0 ){
-                            \Log::info($diff);
                     Notification::send($delegate,new \App\Notifications\NotifyDelegateMinBalanceNotification($delegate));
                }
                elseif($tdate < now()){

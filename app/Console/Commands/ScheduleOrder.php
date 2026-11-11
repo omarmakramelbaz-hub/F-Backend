@@ -41,19 +41,16 @@ class ScheduleOrder extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is working fine!");
 
         $orders = Order::whereIn('order_type',['schedule','another_zone'])->whereDate('schedule_date', now()->addDay()->toDateString())
         ->where('status', 'pending')
         ->get();
-        \Log::info(now()->addDay()->toDateString());
                 // \Log::info($orders);
 
         foreach($orders as $order){
          if($order->resturant_id){
             $to_email = $order->resturant?->user?->email;
          }
-         \Log::info($to_email);
                 //  \Log::info($to_email);
             if($to_email){
             $mail=Mail::send('emails.resturant_schedule_order', ['cart' => $order], function($message) use ( $to_email) {

@@ -40,12 +40,10 @@ class SendUserMoneybackCommand extends Command
      */
     public function handle()
     {
-         \Log::info("moneyback!");
              $twoMinutesAgo = now()->subHours(2);
 
             $orders=Order::where('status','cancelled')->whereIn('type',['current','shipping'])->whereNull('transfer_price_by')->whereIn('payment_type',['online','v_cash','wallet'])->where('updated_at','<=', $twoMinutesAgo)->get();
            foreach($orders as $order){
-                        \Log::info($order);
 
                 (new \App\Http\Controllers\Dashboard\OrderController)->transferCancelledOrderPrice($order->id);
            }

@@ -40,10 +40,8 @@ class SendDailyDelegateReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("delegate daily report !");
 
         $delegates = User::where('account_type','delegate')->where('status','accepted')->get();
-                \Log::info($delegates);
         foreach ($delegates as $delegate) {
                 // Generate daily report here
                 $to_email = $delegate->email;

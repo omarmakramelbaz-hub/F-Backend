@@ -40,7 +40,6 @@ class SendDailyReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is resturant is closed !");
 
         $resturants = Resturant::where('status','!=','disabled')->where('close_at', now()->format('H:i'))->get();
                 // \Log::info($resturants);

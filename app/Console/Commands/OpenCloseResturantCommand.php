@@ -41,7 +41,6 @@ class OpenCloseResturantCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is open_close_resturant!");
 
         $currentTime = now()->format('H:i'); 
 
@@ -50,7 +49,6 @@ class OpenCloseResturantCommand extends Command
              $orders = Order::where('resturant_id', $value->id)->whereIn('order_type',['schedule','another_zone'])->whereDate('schedule_date', now()->toDateString())
                 ->where('status', 'pending')
                 ->get();
-                 \Log::info(now()->toDateString());
 
                 foreach($orders as $order){
                  if($order->resturant_id){

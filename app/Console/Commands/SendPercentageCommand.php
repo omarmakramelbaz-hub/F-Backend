@@ -40,10 +40,8 @@ class SendPercentageCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is Order!");
             $orders=Order::whereIn('status',['completed','declined'])->whereNull('transfer_price_by')->whereIn('payment_type',['online','v_cash','wallet','cash'])->get();
            foreach($orders as $order){
-              \Log::info("Cron is Order!".$order->id); 
               if($order->status=='completed'){
                    if($order->payment_type=='online'||$order->payment_type=='v_cash' || $order->payment_type=='wallet'){
                     $x=(new \App\Http\Controllers\Dashboard\OrderController)->transferPrice($order->id);

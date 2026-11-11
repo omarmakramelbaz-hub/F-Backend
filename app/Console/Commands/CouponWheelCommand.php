@@ -19,7 +19,6 @@ class CouponWheelCommand extends Command
 
     public function handle()
     {
-        \Log::info('Coupon Cron is working fine!');
 
         $finishedCouponIds = CouponSubscripe::where('status', 'winner')
             ->whereNotNull('coupon_wheel_id')
