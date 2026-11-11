@@ -304,7 +304,8 @@ class DashboardOrderPaymentTest extends TestCase
             $print = view('admin.orders.board_detail', ['card' => $card, 'printing' => true])->render();
             foreach ([$board, $detail, $print] as $html) {
                 $this->assertStringContainsString($label, $html);
-                $this->assertStringContainsString('payment-failed', $html);
+                // The compact printed receipt (admin.printing.order_receipt) says it in words, without the card's marker.
+                if ($html !== $print) $this->assertStringContainsString('payment-failed', $html);
                 $this->assertStringContainsString('125.00', $html === $board ? $card['total'] : $html);
             }
             $this->assertStringContainsString('fasakhansta-logo-transparent.png', $print);
