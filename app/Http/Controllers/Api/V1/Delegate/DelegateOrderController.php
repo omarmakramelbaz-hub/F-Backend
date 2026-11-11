@@ -242,47 +242,57 @@ class DelegateOrderController extends Controller {
             return $this->successResponse(OrderResource::make($order), __('api.declined order successfully'));
         }
 
-        $newPrice = (float) $offer->offer_price;
+        // Customer acceptance makes this proposal the new final fare and settles the commission to match it, once: the
+        // order, the proposal and the courier are locked and checked again inside the transaction (two taps never
+        // charge or refund twice), and the courier is charged only while the balance covers it.
         $setting = app(GeneralSettings::class);
-        $newCommission = round($newPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
-        $chargedCommission = (float) ($offer->commission_amount ?? 0);
-        $difference = round($newCommission - $chargedCommission, 2);
-        $delegate = User::where('id',$order->delegate_id)->lockForUpdate()->first();
-
-        if(!$delegate){
-            return $this->errorResponse(__('api.delegate not found'));
-        }
-        if($difference > 0 && (float)$delegate->balance < $difference){
-            return $this->errorResponse(__('api.charge your wallet first'));
-        }
-
-        // Customer acceptance makes this proposal the new final fare. Only now
-        // do we settle the commission to exactly match that accepted final fare.
-        DB::transaction(function() use($order,$offer,$delegate,$newPrice,$newCommission,$difference){
-            $order->shipping->update(['actual_price'=>$newPrice]);
-            $order->update(['delivery_price'=>$newPrice]);
-
+        $result = DB::transaction(function() use($order, $setting){
+            $locked = Order::where('id', $order->id)->lockForUpdate()->first();
+            if(!$locked || $locked->type != 'shipping' || $locked->status != 'accepted' || !$locked->delegate_id){
+                return __('api.order not found');
+            }
+            $offer = DelegateNotification::where('order_id', $locked->id)->where('delegate_id', $locked->delegate_id)
+                ->where('status', 'price_revision')->lockForUpdate()->first();
+            if(!$offer){
+                return __('api.order not found');
+            }
+            $delegate = User::where('id', $locked->delegate_id)->lockForUpdate()->first();
+            if(!$delegate){
+                return __('api.delegate not found');
+            }
+            $newPrice = (float) $offer->offer_price;
+            $newCommission = round($newPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
+            $difference = round($newCommission - (float) ($offer->commission_amount ?? 0), 2);
             if($difference > 0){
-                $delegate->decrement('balance',$difference);
+                if(!DB::table('users')->where('id', $delegate->id)->where('balance', '>=', $difference)->decrement('balance', $difference)){
+                    return __('api.charge your wallet first');
+                }
                 Wallet::create([
                     'from_user'=>$delegate->id,'to_user'=>null,'status'=>'completed',
-                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$order->id
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$locked->id
                 ]);
             } elseif($difference < 0){
                 $refund=abs($difference);
-                $delegate->increment('balance',$refund);
+                DB::table('users')->where('id', $delegate->id)->increment('balance', $refund);
                 Wallet::create([
                     'from_user'=>null,'to_user'=>$delegate->id,'status'=>'completed',
-                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$order->id
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$locked->id
                 ]);
             }
-
+            if($locked->shipping){
+                $locked->shipping->update(['actual_price'=>$newPrice]);
+            }
+            $locked->update(['delivery_price'=>$newPrice]);
             $offer->update([
                 'status'=>'accepted',
                 'offer_price'=>$newPrice,
                 'commission_amount'=>$newCommission,
             ]);
+            return true;
         });
+        if(is_string($result)){
+            return $this->errorResponse($result);
+        }
 
         app(OrderProviderDelivery::class)->event(new ShippingUpdated($order->fresh(),1,$order->user_id), (int) $order->id);
         app(OrderProviderDelivery::class)->event(new DelegateUpdated($order->fresh(),1,$order->delegate_id), (int) $order->id);

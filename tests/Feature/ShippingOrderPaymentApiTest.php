@@ -107,4 +107,76 @@ class ShippingOrderPaymentApiTest extends TestCase
         // Another customer's request: not found.
         $this->assertNotSame(200, $this->shipping('updated_actual_price', ['order_id' => 600, 'new_price' => 40], 8)->status());
     }
+
+    /** A courier (20) offered 100 on the request; the app's commission on deliveries is 10%. */
+    private function courierOffer(): void
+    {
+        foreach (['offer_price' => 'decimal', 'commission_amount' => 'decimal'] as $column => $type) {
+            if (!Schema::hasColumn('delegate_notifications', $column)) Schema::table('delegate_notifications', fn (Blueprint $t) => $t->decimal($column, 10, 2)->nullable());
+        }
+        DB::table('users')->insert(['id' => 20, 'name' => 'مندوب', 'mobile' => '1000000020', 'account_type' => 'delegate', 'status' => 'accepted', 'balance' => 100]);
+        if (!DB::table('users')->where('id', 1)->exists()) DB::table('users')->insert(['id' => 1, 'name' => 'الأدمن', 'mobile' => '1000000001', 'account_type' => 'admin', 'status' => 'accepted']);
+        DB::table('orders')->where('id', 600)->update(['status' => 'pending']);
+        DB::table('delegate_notifications')->insert(['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted', 'offer_price' => 100]);
+        DB::table('settings')->where('group', 'general')->where('name', 'shipping_min_price')->update(['payload' => json_encode('10')]);
+    }
+
+    private function uri(string $action, array $parameters): string
+    {
+        $route = collect(app('router')->getRoutes())->first(fn ($route) => str_ends_with($route->getActionName(), $action));
+        return '/'.preg_replace_callback('/\{(\w+)\}/', fn ($m) => $parameters[$m[1]], $route->uri());
+    }
+
+    private function courierBalance(): float { return (float) DB::table('users')->where('id', 20)->value('balance'); }
+
+    public function test_only_the_requests_customer_accepts_or_declines_a_courier_or_sees_the_offers(): void
+    {
+        $this->courierOffer();
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'], 8)->assertJson(['status' => 'Error']);
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'declined'], 8)->assertJson(['status' => 'Error']);
+        $this->assertSame(['pending', 1], [$this->order()->status, DB::table('delegate_notifications')->where('order_id', 600)->count()]);
+        $this->assertEquals(100, $this->courierBalance());
+        $this->withHeaders($this->appHeaders(8))->getJson($this->uri('ShippingController@accepted_delegates', ['id' => 600]))->assertJson(['status' => 'Error']);
+        $this->withHeaders($this->appHeaders(7))->getJson($this->uri('ShippingController@accepted_delegates', ['id' => 600]))->assertJson(['status' => 'Success']);
+    }
+
+    public function test_accepting_a_courier_charges_the_commission_once(): void
+    {
+        $this->courierOffer();
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Success']);
+        $this->assertSame(['accepted', 20, 100.0], [$this->order()->status, (int) $this->order()->delegate_id, (float) $this->order()->delivery_price]);
+        $this->assertEquals(90, $this->courierBalance());
+        // The same tap again: nothing more is taken.
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Error']);
+        $this->assertEquals(90, $this->courierBalance());
+        $this->assertSame(1, DB::table('wallets')->where('order_id', 600)->where('from_user', 20)->count());
+        // The courier taken is not dropped by a decline afterwards.
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'declined'])->assertJson(['status' => 'Error']);
+        $this->assertSame(1, DB::table('delegate_notifications')->where('order_id', 600)->where('delegate_id', 20)->count());
+    }
+
+    public function test_a_courier_without_the_commission_is_not_taken(): void
+    {
+        $this->courierOffer();
+        DB::table('users')->where('id', 20)->update(['balance' => 5]);
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Error']);
+        $this->assertSame(['pending', null], [$this->order()->status, $this->order()->delegate_id]);
+        $this->assertEquals(5, $this->courierBalance());
+    }
+
+    public function test_a_price_revision_the_customer_accepts_settles_the_commission_once(): void
+    {
+        $this->courierOffer();
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Success']);
+        // The courier asks 150: 5 more commission when the customer accepts.
+        DB::table('delegate_notifications')->where('order_id', 600)->update(['status' => 'price_revision', 'offer_price' => 150]);
+        $respond = fn (int $user) => $this->withHeaders($this->appHeaders($user))->postJson($this->uri('DelegateOrderController@respondShippingRevision', ['order' => 600]), ['status' => 'accepted']);
+        $respond(8)->assertJson(['status' => 'Error']);
+        $this->assertEquals(90, $this->courierBalance());
+        $respond(7)->assertJson(['status' => 'Success']);
+        $this->assertEquals(85, $this->courierBalance());
+        $this->assertSame([150.0, 'accepted'], [(float) $this->order()->delivery_price, DB::table('delegate_notifications')->where('order_id', 600)->value('status')]);
+        $respond(7)->assertJson(['status' => 'Error']);
+        $this->assertEquals(85, $this->courierBalance(), 'Settled once');
+    }
 }

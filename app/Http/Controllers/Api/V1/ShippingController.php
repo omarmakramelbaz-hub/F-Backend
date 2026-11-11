@@ -24,6 +24,7 @@ use App\Http\Resources\Api\ShippingResource;
 use Notification;
 use Mail;
 use App\Events\DelegateUpdated;
+use App\Events\ShippingUpdated;
 use App\Models\DelegateNotification;
 use Illuminate\Support\Facades\DB;
 class ShippingController extends Controller {
@@ -301,6 +302,10 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
 
     }
     public function accepted_delegates($order_id){
+        // A customer sees the couriers' offers on their own delivery request only.
+        if(!Order::where('id',$order_id)->where('user_id',auth('api')->id())->where('type','shipping')->exists()){
+            return $this->errorResponse(__('api.order not found'));
+        }
         $offers=DelegateNotification::where('order_id',$order_id)
             ->whereIn('status' , ['accepted','price_revision'])->get()->keyBy('delegate_id');
         $delegates=User::whereIn('id',$offers->keys())->get();
@@ -330,99 +335,81 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         ],__('api.success data'));
     }
     
+    /**
+     * The customer accepts (or declines) a courier's offer on their own delivery request. Accepting charges the courier
+     * the app's commission once: the order, the offer and the courier are locked and checked again inside one
+     * transaction, so two taps (or two couriers at once) never charge twice nor leave a charged courier unassigned.
+     */
     public function accept_delegate(AcceptDelegateRequest $request){
-        $order=Order::find($request->order_id);
-       
-            if($request->status=='accepted'){
-                 if($order->status=='pending'){
-                        $offer = DelegateNotification::where('order_id',$order->id)
-                            ->where('delegate_id',$request->delegate_id)
-                            ->where('status','accepted')
-                            ->lockForUpdate()
-                            ->first();
-                        if(!$offer || $offer->offer_price === null){
-                            return $this->errorResponse(__('api.delegate not found'));
-                        }
-                        $delegate = User::where('account_type','delegate')
-                            ->where('id', $request->delegate_id)
-                            ->lockForUpdate()
-                            ->first();
-                        if(!$delegate){
-                            return $this->errorResponse(__('api.delegate not found'));
-                        }
+        $customerId = (int) auth('api')->id();
+        $order = Order::where('id', $request->order_id)->where('user_id', $customerId)->where('type', 'shipping')->first();
+        if(!$order){
+            return $this->errorResponse(__('api.order not found'));
+        }
 
-                        // The delegate's offer is stored on the shipping order before
-                        // customer confirmation. Commission is charged only here, after
-                        // both sides have agreed to the request.
-                        $setting = app(GeneralSettings::class);
-                        $finalPrice = (float) $offer->offer_price;
-                        $commissionRate = max(0, (float) $setting->shipping_min_price);
-                        $commission = round($finalPrice * ($commissionRate / 100), 2);
-
-                        if($commission > 0 && (float) $delegate->balance < $commission){
-                            return $this->errorResponse(__('api.charge your wallet first'));
-                        }
-
-                        DB::transaction(function () use ($order, $delegate, $offer, $commission, $finalPrice) {
-                            $order->update([
-                                'status'=>'accepted',
-                                'delegate_id'=>$delegate->id,
-                                'delivery_price'=>$finalPrice,
-                            ]);
-                            if($order->shipping){
-                                $order->shipping->update(['actual_price'=>$finalPrice]);
-                            }
-
-                            // Make the accepted driver exclusive; all other offers are closed.
-                            DelegateNotification::where('order_id',$order->id)
-                                ->where('delegate_id','!=',$delegate->id)
-                                ->delete();
-
-                            if($commission > 0){
-                                $delegate->decrement('balance', $commission);
-                                Wallet::create([
-                                    'from_user'=>$delegate->id,
-                                    'to_user'=>null,
-                                    'status'=>'completed',
-                                    'payment'=>'wallet',
-                                    'type'=>'transfer',
-                                    'amount'=>$commission,
-                                    'order_id'=>$order->id,
-                                ]);
-                            }
-                            // Persist exactly what was charged for this mutually
-                            // accepted final fare. Future revisions settle against
-                            // this amount, never against an unaccepted offer.
-                            $offer->update(['commission_amount'=>$commission]);
-                        });
-
-                        $order->refresh();
-                        $order_data=ShippingResource::make($order);
-                        Notification::send($delegate,new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
-                        broadcast(new DelegateUpdated($order,1,$delegate->id));
-                        broadcast(new ShippingUpdated($order,1,$order->user_id));
-                        return $this->successResponse($order_data,__('api.accept order successfully'));
-                 }else{
-                     return $this->errorResponse(__('api.already accepted delegate'));
-                 }
-            }else{
-              $delegate=DelegateNotification::where('order_id',$request->order_id)->where('delegate_id' , $request->delegate_id)->first();  
-              if($delegate){
-                  $delegate->delete();
-                  $value=User::find($request->delegate_id);
-                     broadcast(new DelegateUpdated($order,1,$value->id));
-
-                   Notification::send($value,new \App\Notifications\NotifyDelegatesShippingOrderStatusNotification($order,$request->status));
-                    $order_data=ShippingResource::make($order);
-                   return $this->successResponse($order_data,__('api.declined order successfully'));
-              }
-              return $this->errorResponse(__('api.delegate not found'));
+        if($request->status != 'accepted'){
+            $offer = DelegateNotification::where('order_id', $order->id)->where('delegate_id', $request->delegate_id)->first();
+            if(!$offer){
+                return $this->errorResponse(__('api.delegate not found'));
             }
-        
-         
+            // The courier already taken on this request is not dropped from here.
+            if((int) $order->delegate_id === (int) $request->delegate_id && $order->status !== 'pending'){
+                return $this->errorResponse(__('api.already accepted delegate'));
+            }
+            $offer->delete();
+            $value = User::find($request->delegate_id);
+            if($value){
+                broadcast(new DelegateUpdated($order, 1, $value->id));
+                Notification::send($value, new \App\Notifications\NotifyDelegatesShippingOrderStatusNotification($order, $request->status));
+            }
+            return $this->successResponse(ShippingResource::make($order), __('api.declined order successfully'));
+        }
+
+        $setting = app(GeneralSettings::class);
+        $result = DB::transaction(function () use ($order, $request, $setting) {
+            $locked = Order::where('id', $order->id)->lockForUpdate()->first();
+            if(!$locked || $locked->status !== 'pending'){
+                return __('api.already accepted delegate');
+            }
+            $offer = DelegateNotification::where('order_id', $locked->id)->where('delegate_id', $request->delegate_id)
+                ->where('status', 'accepted')->lockForUpdate()->first();
+            if(!$offer || $offer->offer_price === null){
+                return __('api.delegate not found');
+            }
+            $delegate = User::where('account_type', 'delegate')->where('id', $request->delegate_id)->lockForUpdate()->first();
+            if(!$delegate){
+                return __('api.delegate not found');
+            }
+            // The delegate's offer is stored on the shipping order before customer confirmation. Commission is charged
+            // only here, after both sides have agreed to the request.
+            $finalPrice = (float) $offer->offer_price;
+            $commission = round($finalPrice * (max(0, (float) $setting->shipping_min_price) / 100), 2);
+            if($commission > 0 && !DB::table('users')->where('id', $delegate->id)->where('balance', '>=', $commission)->decrement('balance', $commission)){
+                return __('api.charge your wallet first');
+            }
+            $locked->update(['status'=>'accepted', 'delegate_id'=>$delegate->id, 'delivery_price'=>$finalPrice]);
+            if($locked->shipping){
+                $locked->shipping->update(['actual_price'=>$finalPrice]);
+            }
+            // Make the accepted driver exclusive; all other offers are closed.
+            DelegateNotification::where('order_id', $locked->id)->where('delegate_id', '!=', $delegate->id)->delete();
+            if($commission > 0){
+                Wallet::create(['from_user'=>$delegate->id, 'to_user'=>null, 'status'=>'completed', 'payment'=>'wallet',
+                    'type'=>'transfer', 'amount'=>$commission, 'order_id'=>$locked->id]);
+            }
+            // Persist exactly what was charged for this mutually accepted final fare. Future revisions settle against
+            // this amount, never against an unaccepted offer.
+            $offer->update(['commission_amount'=>$commission]);
+            return $delegate;
+        });
+        if(is_string($result)){
+            return $this->errorResponse($result);
+        }
+
+        $order->refresh();
+        Notification::send($result, new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
+        broadcast(new DelegateUpdated($order, 1, $result->id));
+        broadcast(new ShippingUpdated($order, 1, $order->user_id));
+        return $this->successResponse(ShippingResource::make($order), __('api.accept order successfully'));
     }
-    
-    
-    
-  
 }
