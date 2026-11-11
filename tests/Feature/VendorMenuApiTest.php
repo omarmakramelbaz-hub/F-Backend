@@ -2,10 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 /**
  * The vendor app's menu (/api/vendor/items...): a branch's items are changed, hidden or removed by that branch's vendor
@@ -27,10 +25,7 @@ class VendorMenuApiTest extends TestCase
 
     protected function as(int $user): self
     {
-        app('auth')->forgetGuards();
-        JWTAuth::unsetToken();
-        app('tymon.jwt')->unsetToken();
-        return $this->withHeaders(['Authorization' => 'Bearer '.JWTAuth::fromUser(User::query()->find($user)), 'Accept' => 'application/json']);
+        return $this->withHeaders($this->appHeaders($user));
     }
 
     private function item(): array

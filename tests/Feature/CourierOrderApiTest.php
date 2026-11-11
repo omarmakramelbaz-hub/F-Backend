@@ -2,10 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 /**
  * The courier app's orders (/api/delegate/...): who reads an order's details (the customer's name, address and mobile),
@@ -31,10 +29,7 @@ class CourierOrderApiTest extends TestCase
 
     protected function as(int $user): self
     {
-        app('auth')->forgetGuards();
-        JWTAuth::unsetToken();
-        app('tymon.jwt')->unsetToken();
-        return $this->withHeaders(['Authorization' => 'Bearer '.JWTAuth::fromUser(User::query()->find($user)), 'Accept' => 'application/json']);
+        return $this->withHeaders($this->appHeaders($user));
     }
 
     private function status(int $order): ?string
@@ -71,6 +66,18 @@ class CourierOrderApiTest extends TestCase
         $this->assertContains($this->as(20)->postJson('/api/delegate/accept_decline/orders/500', ['status' => 'shipped'])->status(), [403, 404]);
         $this->as(21)->postJson('/api/delegate/accept_decline/orders/500', ['status' => 'shipped'])->assertOk();
         $this->assertSame('shipped', $this->status(500));
+    }
+
+    public function test_the_board_clock_starts_the_couriers_time_when_their_app_ships_the_order(): void
+    {
+        require_once database_path('migrations/2026_10_03_060000_create_order_board_clocks.php');
+        (new \CreateOrderBoardClocks)->up();
+        DB::table('order_board_clocks')->insert(['source' => 'legacy', 'order_id' => 500, 'accepted_at' => now()->subMinutes(10), 'created_at' => now(), 'updated_at' => now()]);
+        // Another courier's refused tap starts nothing.
+        $this->assertContains($this->as(21)->postJson('/api/delegate/accept_decline/orders/500', ['status' => 'shipped'])->status(), [403, 404]);
+        $this->assertNull(DB::table('order_board_clocks')->where('order_id', 500)->value('courier_at'));
+        $this->as(20)->postJson('/api/delegate/accept_decline/orders/500', ['status' => 'shipped'])->assertOk();
+        $this->assertNotNull(DB::table('order_board_clocks')->where('order_id', 500)->value('courier_at'), 'The courier time starts when the courier ships');
     }
 
     public function test_a_shipping_order_moves_on_only_by_its_own_courier(): void

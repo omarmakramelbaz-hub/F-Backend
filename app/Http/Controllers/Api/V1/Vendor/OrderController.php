@@ -750,8 +750,8 @@ if ($resturant_owner) {
 
     private function assertApiRestaurantParty(Order $order): void
     {
-        // The dashboard has no app token. An app request is held to its branches whatever auth('admin') says: the JWT
-        // sign-in (CustomJwtAuth) also puts the app's account in the default «admin» guard.
+        // The dashboard has no app token. An app request, told apart by its app token (auth('api')) and never by the
+        // «admin» guard being empty, is held to its own branches.
         if (!auth('api')->check() || $order->type !== 'current') return;
         $actor = auth('api')->user();
         abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner'], true)

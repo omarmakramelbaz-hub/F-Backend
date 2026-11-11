@@ -2,12 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 /**
  * The customer app's cart (/api/user/cart/...) as it works today, pinned before its code is reorganised: prices with
@@ -16,6 +14,8 @@ use Tymon\JWTAuth\Facades\JWTAuth;
  */
 class CustomerCartApiTest extends TestCase
 {
+    use Concerns\AppRequests;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -77,10 +77,7 @@ class CustomerCartApiTest extends TestCase
     private function as(int $user): self
     {
         // Each request reads its own token, as each app request does.
-        app('auth')->forgetGuards();
-        JWTAuth::unsetToken();
-        app('tymon.jwt')->unsetToken();
-        return $this->withHeaders(['Authorization' => 'Bearer '.JWTAuth::fromUser(User::query()->find($user)), 'Accept' => 'application/json']);
+        return $this->withHeaders($this->appHeaders($user));
     }
 
     private function cart(int $user): array

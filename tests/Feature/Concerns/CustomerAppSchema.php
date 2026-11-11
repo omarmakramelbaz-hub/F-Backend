@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Schema;
  */
 trait CustomerAppSchema
 {
+    use AppRequests;
+
     protected function customerAppSchema(): void
     {
         config(['database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:', 'broadcasting.default' => 'null']);

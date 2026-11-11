@@ -12,8 +12,11 @@ class CustomJwtAuth
     public function handle(Request $request, Closure $next)
     {
         try {
-            // Attempt to authenticate the user using the token
-            $user = JWTAuth::parseToken()->authenticate();
+            // The token is checked here (expired or invalid get their own message), and the account is the one auth:api
+            // already found. Never JWTAuth::authenticate(): it signs the account into whichever guard is the default at
+            // that moment, which would make an app account look like a dashboard («admin») sign-in to the code after it.
+            JWTAuth::parseToken()->checkOrFail();
+            $user = auth('api')->user();
             // Check if the user is active (or any other custom logic)
             if (!$user || $user->status == 'declined') {
                 return response()->json(['message' => __('api.User is inactive')], 401);

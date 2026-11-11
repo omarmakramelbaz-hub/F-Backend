@@ -67,7 +67,7 @@ class SendMinWalletBalnaceCommand extends Command
                    $admins = User::where('account_type','admin')->get();
                     foreach ($admins as $key => $value) {   
                         if($value->hasPermissionTo('delegate-list')){
-                            Notification::send($admin,new \App\Notifications\NotifyDelegateStatusNotification($user));
+                            Notification::send($value,new \App\Notifications\NotifyDelegateStatusNotification($user));
                         }
                     }
                    

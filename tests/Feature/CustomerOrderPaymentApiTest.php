@@ -2,13 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 /**
  * The customer app's checkout (/api/user/order/payment): the cart becomes an order priced from its items, the delivery
@@ -27,11 +25,8 @@ class CustomerOrderPaymentApiTest extends TestCase
 
     private function pay(array $values, int $user = 7)
     {
-        app('auth')->forgetGuards();
-        JWTAuth::unsetToken();
-        app('tymon.jwt')->unsetToken();
         $route = collect(app('router')->getRoutes())->first(fn ($route) => str_ends_with($route->getActionName(), 'CartController@order_payment'));
-        return $this->withHeaders(['Authorization' => 'Bearer '.JWTAuth::fromUser(User::query()->find($user)), 'Accept' => 'application/json'])
+        return $this->withHeaders($this->appHeaders($user))
             ->json($route->methods()[0], '/'.$route->uri(), $values + ['user_address_id' => 70, 'delivery_price' => 25]);
     }
 
@@ -110,10 +105,7 @@ class CustomerOrderPaymentApiTest extends TestCase
 
     private function cancel(int $order, int $user = 7)
     {
-        app('auth')->forgetGuards();
-        JWTAuth::unsetToken();
-        app('tymon.jwt')->unsetToken();
-        return $this->withHeaders(['Authorization' => 'Bearer '.JWTAuth::fromUser(User::query()->find($user)), 'Accept' => 'application/json'])
+        return $this->withHeaders($this->appHeaders($user))
             ->postJson('/api/user/cancel/order/'.$order);
     }
 
@@ -176,6 +168,23 @@ class CustomerOrderPaymentApiTest extends TestCase
         \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->once()->withArgs(fn ($message, $context) => $message === 'GO_CUSTOMER_DELIVERY_BELOW_TARIFF'
             && $context['sent'] === '5' && $context['tariff'] === '25.00' && $context['customer'] === 7 && $context['branch'] === 301);
         $this->assertSame(2, DB::table('orders')->where('status', 'pending')->count(), 'Watched only: both orders went');
+    }
+
+    public function test_an_app_request_never_signs_into_the_dashboard_guard(): void
+    {
+        // The worst case: the JWT library already built while «admin» was the default guard (what the old sign-in step
+        // turned into a dashboard sign-in for the app's account).
+        $token = \Tymon\JWTAuth\Facades\JWTAuth::fromUser(\App\Models\User::query()->find(7));
+        $dashboard = [];
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Authenticated::class, function ($event) use (&$dashboard) {
+            if ($event->guard === 'admin') $dashboard[] = $event->user->id;
+        });
+        $route = collect(app('router')->getRoutes())->first(fn ($route) => str_ends_with($route->getActionName(), 'CartController@order_payment'));
+        $this->withHeaders(['Authorization' => 'Bearer '.$token, 'Accept' => 'application/json'])
+            ->json($route->methods()[0], '/'.$route->uri(), ['payment_type' => 'cash', 'user_address_id' => 70, 'delivery_price' => 25])->assertOk();
+        $this->assertSame([], $dashboard);
+        $this->assertNull(auth('admin')->user());
+        $this->assertSame(7, (int) \App\Models\Order::withoutGlobalScopes()->value('user_id'));
     }
 
     public function test_the_delivery_price_is_never_negative(): void

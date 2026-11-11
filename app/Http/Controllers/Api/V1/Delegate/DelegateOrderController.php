@@ -741,8 +741,7 @@ class DelegateOrderController extends Controller {
     private function assertApiDelegateParty(Order $order, bool $allowInvitation = false): void
     {
         // The dashboard and the scheduler have no app token: they are not held to a courier's part. An app request is,
-        // whatever auth('admin') says: the JWT sign-in (JWTAuth::authenticate, CustomJwtAuth) also puts the app's
-        // account in the default «admin» guard for the rest of the request.
+        // told apart by its app token (auth('api')), never by the «admin» guard being empty.
         if (!auth('api')->check()) return;
         $actor = auth('api')->user();
         abort_unless($actor->account_type === 'delegate' && $actor->status === 'accepted', 403);
