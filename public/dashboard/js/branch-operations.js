@@ -92,24 +92,28 @@ async function loadHours(){var branch=f.elements.branch&&f.elements.branch.value
 function update(){if(f.elements.salary&&!preview.dataset.opPlaced){f.appendChild(preview);preview.dataset.opPlaced='1';}var custom=type.value==='part_time';[start,end,shift].forEach(function(input){input.parentElement.hidden=!custom;input.required=custom;fixedDisabled(input,!custom);});hint.hidden=!custom;loadHours();}
 f.addEventListener('input',function(e){if(['salary','attendance_start','attendance_end'].includes(e.target.name))salaryPreview();});f.addEventListener('change',function(e){if(['branch','effective_month','schedule_type'].includes(e.target.name))update();else if(['salary','attendance_start','attendance_end'].includes(e.target.name))salaryPreview();});update();return update;
 }
+// A day outside the employee's work period (before the hire date, or after the service ended) takes no attendance:
+// the server refuses it, so the cell says why instead of offering the list.
+function workPeriod(item){var day=data.filters&&data.filters.day;if(!day)return null;if(item.left_on&&day>String(item.left_on).slice(0,10))return {short:'انتهت الخدمة',long:'انتهت خدمة الموظف يوم '+String(item.left_on).slice(0,10)};if(item.hired_on&&day<String(item.hired_on).slice(0,10))return {short:'لم يبدأ العمل',long:'يبدأ عمل الموظف يوم '+String(item.hired_on).slice(0,10)};return null;}
 function attendanceCell(item){
-var a=item.attendance||{},box=n('div',undefined,'op-attendance-cell'),present=['morning','evening','part_time'].includes(a.status),recorded=!!a.status&&a.status!=='unrecorded';
+var a=item.attendance||{},box=n('div',undefined,'op-attendance-cell'),present=['morning','evening','part_time'].includes(a.status),recorded=!!a.status&&a.status!=='unrecorded',period=workPeriod(item);
 ['check_in'].forEach(function(action){
-var arrival=action==='check_in',time=arrival?a.check_in:a.check_out,label=n('label'),select=n('select',undefined,'op-attendance op-status-'+(a.status||'empty')),placeholder=n('option',time?time.slice(0,5):arrival?(names[a.status]||'تسجيل الحضور'):'تسجيل الانصراف');
+var arrival=action==='check_in',time=arrival?a.check_in:a.check_out,label=n('label'),select=n('select',undefined,'op-attendance op-status-'+(a.status||'empty')),placeholder=n('option',time?time.slice(0,5):arrival?(names[a.status]||(period&&!recorded?period.short:'تسجيل الحضور')):'تسجيل الانصراف');
 label.appendChild(n('span',arrival?'الحضور':'الانصراف'));placeholder.value='';select.appendChild(placeholder);
 select.setAttribute('aria-label',(arrival?'الحضور':'الانصراف')+' — '+item.name);select.dataset[arrival?'opAttendance':'opCheckout']='';if(time)select.dataset.opRecorded='';
 (arrival?(item.schedule_type==='part_time'?['part_time','preapproved_leave','unauthorized_absence']:['morning','evening','preapproved_leave','unauthorized_absence']):(a.status==='part_time'||!present&&item.schedule_type==='part_time'?['part_time']:['morning','evening'])).forEach(function(status){var option=n('option',arrival?names[status]:status==='part_time'?'انصراف دوام جزئي':status==='morning'?'انصراف صباحًا':'انصراف مساءً');option.value=status;option.disabled=!arrival&&status!==a.status;select.appendChild(option);});
-fixedDisabled(select,item.day_closed||(arrival?recorded:!present||!a.checked_in_at||!!a.checked_out_at));
-select.title=item.day_closed?'تم إقفال حساب هذا الشهر':time?(names[a.status]||'')+' — '+time.slice(0,5)+' بتوقيت مصر · تم تثبيت التسجيل':arrival&&recorded?'تم تثبيت '+(names[a.status]||'الحالة')+'؛ لا يمكن تغييرها بعد التسجيل':!arrival&&!a.checked_in_at?'سجل الحضور أولًا':'اختيار الحالة يسجل الساعة الحالية بتوقيت مصر';
+fixedDisabled(select,item.day_closed||(!recorded&&!!period)||(arrival?recorded:!present||!a.checked_in_at||!!a.checked_out_at));
+select.title=item.day_closed?'تم إقفال حساب هذا الشهر':period&&!recorded?period.long:time?(names[a.status]||'')+' — '+time.slice(0,5)+' بتوقيت مصر · تم تثبيت التسجيل':arrival&&recorded?'تم تثبيت '+(names[a.status]||'الحالة')+'؛ لا يمكن تغييرها بعد التسجيل':!arrival&&!a.checked_in_at?'سجل الحضور أولًا':'اختيار الحالة يسجل الساعة الحالية بتوقيت مصر';
 function changed(){var status=select.value;select.value='';if(window.jQuery&&select.classList.contains('select2-hidden-accessible')){window.jQuery(select).trigger('change.select2').select2('close');}select.blur();if(!status||select.disabled||busy||pending)return;recordAttendance(item,status,arrival?(['morning','evening','part_time'].includes(status)?'check_in':'set_status'):'check_out');}
 select.addEventListener('change',changed);if(window.jQuery)window.jQuery(select).on('change.branchAttendance',function(e){if(!e.originalEvent)changed();});
 label.appendChild(select);box.appendChild(label);
 });
+if(period&&!recorded)box.appendChild(n('small',period.long,'op-attendance-status op-attendance-fixed'));
 if(recorded){var reason=item.day_closed?'الشهر مقفل':present?'الحضور مسجل':names[a.status];box.appendChild(n('small',reason,'op-attendance-status op-attendance-fixed'));}
 if(a.status==='part_time'){try{var schedule=typeof a.attendance_rule_snapshot==='string'?JSON.parse(a.attendance_rule_snapshot):a.attendance_rule_snapshot;if(schedule)box.appendChild(n('small','الموعد المسجل: '+schedule.starts_at+' – '+schedule.ends_at,'op-attendance-status'));}catch(e){}}return box;
 }
 function recordAttendance(item,status,action){
-var a=item.attendance||{},key=dayKey(item),draft=rowDrafts[key];if(busy||pending||item.day_closed)return;
+var a=item.attendance||{},key=dayKey(item),draft=rowDrafts[key];if(busy||pending||item.day_closed)return;var period=workPeriod(item);if(period){message(period.long+'؛ لا يُسجل له حضور في هذا اليوم.');return;}
 syncClock();if(data.filters.day!==filters.day.value||(rollover&&data.filters.day===rollover.previous)){message('بدأ يوم تشغيل جديد الساعة 6 صباحًا. جاري تحديث الحضور لليوم الجديد.');refresh();return;}
 write(urls.attendance,{branch:item.branch,employee_id:item.id,day:data.filters.day,status:status,action:action,notes:draft?draft.notes:a.notes||'',expected_revision:a.revision||null},function(r){item.attendance=r.attendance;delete rowDrafts[key];render();});
 }

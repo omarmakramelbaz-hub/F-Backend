@@ -66,6 +66,14 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
 
   await page.evaluate(()=>{window.attendanceTableRenders=0;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.matches('.op-table-wrap'))window.attendanceTableRenders++;}).observe(document.querySelector('[data-op-table]'),{childList:true});window.attendanceDialogOpens=0;const dialog=document.querySelector('[data-op-dialog]'),show=dialog.showModal.bind(dialog);dialog.showModal=()=>{window.attendanceDialogOpens++;show();};});
   assert.equal(await arrival().count(),1);assert.equal(await departure().count(),0);
+  // Service ended the day before: no attendance offered (the server refuses it), the cell says why; nothing is sent.
+  data.items[0].left_on='2026-10-07';await refresh();
+  assert.ok(await arrival().isDisabled());assert.equal(await selected(arrival()),'انتهت الخدمة');
+  assert.ok((await page.locator('[data-op-table] .op-attendance-cell').textContent()).includes('انتهت خدمة الموظف يوم 2026-10-07'));
+  data.items[0].left_on='2026-10-08';data.items[0].hired_on='2026-10-09';await refresh();
+  assert.ok(await arrival().isDisabled());assert.equal(await selected(arrival()),'لم يبدأ العمل');
+  delete data.items[0].left_on;data.items[0].hired_on='2026-10-01';await refresh();
+  assert.equal(await arrival().isDisabled(),false);assert.equal(posts.length,0);
   assert.ok((await page.locator('[data-op-net]').textContent()).includes('8 يوم'));assert.ok((await page.locator('[data-op-net]').getAttribute('title')).includes('2026-10-01 حتى 2026-10-08'));
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
   assert.equal(await departure().count(),0,'departure is not recorded on the daily page');assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);
