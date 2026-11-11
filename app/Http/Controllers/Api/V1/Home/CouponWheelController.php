@@ -28,7 +28,7 @@ class CouponWheelController extends Controller
             ->orderByDesc('start_date')
             ->get();
         // Installed apps show one draw («data»), read as an order-total draw: that one first. «draws» has them all.
-        $couponWheel = $running->first(fn ($wheel) => ($wheel->policy ?? null) !== \App\Services\Draws\ProductDraw::PRODUCT) ?? $running->first();
+        $couponWheel = $running->first(fn ($wheel) => in_array($wheel->policy ?? null, [null, \App\Services\Draws\ProductDraw::ORDER_TOTAL], true)) ?? $running->first();
 
         if ($couponWheel) {
             return $this->successResponse([
@@ -64,6 +64,13 @@ class CouponWheelController extends Controller
         }
 
         return $this->errorResponse(__('api.there is no coupon wheel'));
+    }
+
+    /** «فاتورة السحب»: the customer buys tickets of a draw by tickets from their wallet. */
+    public function buyTickets(\Illuminate\Http\Request $request, int $coupon_wheel)
+    {
+        $result = app(\App\Services\Draws\DrawTickets::class)->buy((int) auth('api')->id(), $coupon_wheel, $request->only(['count', 'idempotency_key']));
+        return $this->successResponse($result, $result['message']);
     }
 
     /** The draws ended in the last 30 days and their winning codes, newest first (the draw screen shows them). */

@@ -141,7 +141,8 @@ class CouponWheelController extends Controller
         $values = $request->except('images', 'restraunt_id', 'policy', 'product_ids');
         if (!\App\Services\Draws\ProductDraw::ready()) return $values;
         $product = $request->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT;
-        $values['policy'] = $product ? \App\Services\Draws\ProductDraw::PRODUCT : \App\Services\Draws\ProductDraw::ORDER_TOTAL;
+        $values['policy'] = in_array($request->input('policy'), \App\Services\Draws\ProductDraw::POLICIES, true)
+            ? $request->input('policy') : \App\Services\Draws\ProductDraw::ORDER_TOTAL;
         if ($product) $values['price'] = $request->filled('price') ? $request->input('price') : 0;
         return $values;
     }

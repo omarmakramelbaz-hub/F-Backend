@@ -83,6 +83,9 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/slidears', [MainController::class, 'slidears']);
     Route::get('/advertising', [MainController::class, 'advertising']);
     Route::get('/coupon_wheels', [CouponWheelController::class, 'coupon_wheels']);
+    // «فاتورة السحب»: buy draw tickets from the wallet (signed-in customers).
+    Route::post('/coupon_wheels/{coupon_wheel}/tickets', [CouponWheelController::class, 'buyTickets'])
+        ->middleware(['auth:api', 'app.scope', 'custom.jwt', 'throttle:20,1'])->whereNumber('coupon_wheel');
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
 
     // GO Partners public onboarding and discovery

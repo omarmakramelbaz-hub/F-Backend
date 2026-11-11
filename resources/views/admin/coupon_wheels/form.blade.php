@@ -14,6 +14,7 @@
     <select name="policy" id="policy" class="form-select @error('policy') is-invalid @enderror" data-draw-policy>
         <option value="order_total" @if($drawPolicy !== 'product') selected @endif>أوردر بقيمة معينة من فرع مشارك</option>
         <option value="product" @if($drawPolicy === 'product') selected @endif>شراء منتجات معينة (كل قطعة = فرصة)</option>
+        <option value="ticket" @if($drawPolicy === 'ticket') selected @endif>فاتورة سحب (العميل يشتري تذكرة من التطبيق)</option>
     </select>
 </div>
 @php($drawProducts = array_map('intval', (array) old('product_ids', $coupon_wheel->id ? \App\Services\Draws\ProductDraw::products((int) $coupon_wheel->id) : [])))
@@ -29,10 +30,11 @@
 @endif
 
 <div class="form-group col-sm-6" data-draw-price @if(($drawPolicy ?? 'order_total') === 'product') hidden @endif>
-    <label for="price"> @lang('main.wheel price')</label>
+    <label for="price"><span data-draw-price-label="order_total" @if(($drawPolicy ?? 'order_total') === 'ticket') hidden @endif>@lang('main.wheel price')</span><span data-draw-price-label="ticket" @if(($drawPolicy ?? 'order_total') !== 'ticket') hidden @endif>سعر التذكرة</span></label>
     <input type="number" min="1" step="0.01" name="price" value="{{ old('price', $coupon_wheel->price) }}"
         class="form-control @error('price') is-invalid @enderror" id="price" placeholder="@lang('main.Enter') @lang('main.wheel price')">
-    <small class="text-muted">الحد الأدنى لقيمة الطلب المؤهل للمسابقة</small>
+    <small class="text-muted" data-draw-price-label="order_total" @if(($drawPolicy ?? 'order_total') === 'ticket') hidden @endif>الحد الأدنى لقيمة الطلب المؤهل للمسابقة</small>
+    <small class="text-muted" data-draw-price-label="ticket" @if(($drawPolicy ?? 'order_total') !== 'ticket') hidden @endif>العميل بيدفعه من محفظته في التطبيق، وكل تذكرة = كود دخول في السحب.</small>
 </div>
 
 <div class="form-group col-sm-6">
@@ -51,7 +53,7 @@
     <input type="date" name="end_date" value="{{ old('end_date', $coupon_wheel->end_date) }}"
         class="form-control @error('end_date') is-invalid @enderror" id="end_date" placeholder="@lang('main.Enter') @lang('main.wheel end_date')">
 </div>
-<div class="form-group col-sm-6" data-draw-branches @if(($drawPolicy ?? 'order_total') === 'product') hidden @endif>
+<div class="form-group col-sm-6" data-draw-branches @if(($drawPolicy ?? 'order_total') !== 'order_total') hidden @endif>
     <label for="name_en"> @lang('main.resturant')</label>
         <select name="restraunt_id[]" multiple class="form-control @error('restraunt_id') is-invalid @enderror">
             <option value="">@lang('main.choose') @lang('main.resturant')</option>
@@ -117,7 +119,10 @@
         var product = policy.value === 'product';
         document.querySelector('[data-draw-product]').hidden = !product;
         document.querySelector('[data-draw-price]').hidden = product;
-        document.querySelector('[data-draw-branches]').hidden = product;
+        document.querySelector('[data-draw-branches]').hidden = policy.value !== 'order_total';
+        document.querySelectorAll('[data-draw-price-label]').forEach(function (label) {
+            label.hidden = label.getAttribute('data-draw-price-label') !== (policy.value === 'ticket' ? 'ticket' : 'order_total');
+        });
     }
     policy.addEventListener('change', show);
 })();
