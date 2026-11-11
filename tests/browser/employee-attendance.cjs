@@ -70,10 +70,11 @@ function html(owner=true){const boot={module:'employees',branches:data.branches,
   data.items[0].left_on='2026-10-07';await refresh();
   assert.ok(await arrival().isDisabled());assert.equal(await selected(arrival()),'انتهت الخدمة');
   assert.ok((await page.locator('[data-op-table] .op-attendance-cell').textContent()).includes('انتهت خدمة الموظف يوم 2026-10-07'));
+  assert.ok((await page.locator('[data-op-table] .op-employee-ended').textContent()).includes('انتهت الخدمة 2026-10-07'),'the list says whose service ended');
   data.items[0].left_on='2026-10-08';data.items[0].hired_on='2026-10-09';await refresh();
   assert.ok(await arrival().isDisabled());assert.equal(await selected(arrival()),'لم يبدأ العمل');
   delete data.items[0].left_on;data.items[0].hired_on='2026-10-01';await refresh();
-  assert.equal(await arrival().isDisabled(),false);assert.equal(posts.length,0);
+  assert.equal(await arrival().isDisabled(),false);assert.equal(posts.length,0);assert.equal(await page.locator('[data-op-table] .op-employee-ended').count(),0);
   assert.ok((await page.locator('[data-op-net]').textContent()).includes('8 يوم'));assert.ok((await page.locator('[data-op-net]').getAttribute('title')).includes('2026-10-01 حتى 2026-10-08'));
   assert.deepEqual(await arrival().locator('option').allTextContents(),['تسجيل الحضور','حضور صباحًا','حضور مساءً','إجازة مسبقة','غياب بدون إذن']);
   assert.equal(await departure().count(),0,'departure is not recorded on the daily page');assert.equal(await page.locator('[name=check_in],[name=check_out]').count(),0);

@@ -166,3 +166,6 @@
 .op-sheet-void-button{border:1px solid #f1c2c9!important;background:#fff!important;color:#c42636!important;border-radius:7px!important;padding:5px 12px!important;font-size:12px!important;font-weight:700;white-space:nowrap;cursor:pointer}
 .op-sheet-void-button:hover{background:#fff1f3!important}
 .op-sheet-empty{padding:18px;text-align:center;color:#7a8799;margin:0}
+/* An employee whose service ended stays listed through the month (its pay closes there): shown faded. */
+.op-employee-ended{opacity:.6}
+.op-employee-ended small{color:#b42318;font-weight:600}
