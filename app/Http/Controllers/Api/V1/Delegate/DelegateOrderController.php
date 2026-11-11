@@ -722,7 +722,8 @@ class DelegateOrderController extends Controller {
                     Notification::send($admin,new \App\Notifications\NotifyOrderPercentageNotification($order));
 
                     if($delegate->balance<0){
-                     $order->update(['expiration_date' => now()->addHours(2),'connected'=>'inactive']);   
+                     // The courier in debt is paused, not the order (orders have no such columns: the write failed).
+                     $delegate->update(['expiration_date' => now()->addHours(2),'connected'=>'inactive']);
                      Notification::send($delegate,new \App\Notifications\NotifyMinWalletBalanceNotification($delegate));
                     }
                     return $this->successResponse(OrderResource::make($order),__('api.successfully transfer')); 
