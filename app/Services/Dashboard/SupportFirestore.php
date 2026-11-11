@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
-/** The same Firestore project used by the customer app and dashboard SDK. */
+/** The support chat's Firestore project (services.support_chat), which may differ from the push notifications' one. */
 class SupportFirestore
 {
     protected function token(): string
@@ -29,7 +29,7 @@ class SupportFirestore
 
     public function project(): string
     {
-        $project = (string) config('services.fcm.project_id');
+        $project = (string) config('services.support_chat.project_id');
         if (!preg_match('/^[a-z][a-z0-9-]{3,62}$/D', $project)) throw new RuntimeException('Support project unavailable.');
         return $project;
     }

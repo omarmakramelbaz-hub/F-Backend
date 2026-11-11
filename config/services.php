@@ -38,6 +38,12 @@ return [
         'project_id' => env('FCM_PROJECT_ID', 'fasakhaninjatest'),
     ],
 
+    // The app's support chat (Firestore, DashboardChat): in the owner's own Firebase project, apart from the project the
+    // apps' push notifications go through (fcm above).
+    'support_chat' => [
+        'project_id' => env('SUPPORT_CHAT_PROJECT_ID', 'fasakha-16ecd'),
+    ],
+
     // Paymob's card and wallet checkout. Read through config(): once the configuration is cached, env() outside the
     // config files returns nothing.
     'paymob' => [

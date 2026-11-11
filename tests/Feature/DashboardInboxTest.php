@@ -24,7 +24,7 @@ class DashboardInboxTest extends TestCase
     {
         parent::setUp();
         config(['app.key' => 'base64:'.base64_encode(str_repeat('i', 32)), 'database.default' => 'sqlite',
-            'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array', 'services.fcm.project_id' => 'fasakhaninjatest']);
+            'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array', 'services.fcm.project_id' => 'push-project', 'services.support_chat.project_id' => 'fasakhaninjatest']);
         DB::purge('sqlite'); Schema::clearResolvedInstance('db.schema');
         Carbon::setTestNow(Carbon::parse('2026-10-03 10:00:00', 'Africa/Cairo'));
         Schema::create('users', function (Blueprint $t) {
