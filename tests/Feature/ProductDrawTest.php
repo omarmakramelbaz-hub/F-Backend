@@ -42,8 +42,13 @@ class ProductDrawTest extends TestCase
         DB::table('resturants')->insert(['id' => 302, 'name' => 'فرع المنصورة', 'status' => 'opened']);
         DB::table('resturant_products')->insert(['id' => 11, 'resturant_id' => 302, 'product_id' => 5, 'product_name' => 'فسيخ كيلو', 'product_price' => '400',
             'price' => DB::table('resturant_products')->where('id', 10)->value('price')]);
-        DB::table('coupon_wheels')->insert(['id' => 1, 'added_by' => 1, 'name' => 'سحب الفسيخ', 'price' => 0, 'prize_amount' => 5000, 'policy' => 'product', 'product_id' => 5,
+        DB::table('products')->insert(['id' => 6, 'name_ar' => 'رنجة', 'name_en' => 'Herring']);
+        DB::table('products')->insert(['id' => 7, 'name_ar' => 'سردين', 'name_en' => 'Sardine']);
+        DB::table('resturant_products')->insert(['id' => 12, 'resturant_id' => 301, 'product_id' => 6, 'product_name' => 'رنجة', 'product_price' => '200',
+            'price' => DB::table('resturant_products')->where('id', 10)->value('price')]);
+        DB::table('coupon_wheels')->insert(['id' => 1, 'added_by' => 1, 'name' => 'سحب الفسيخ', 'price' => 0, 'prize_amount' => 5000, 'policy' => 'product',
             'start_date' => '2026-11-01', 'end_date' => '2026-11-30', 'status' => 'show']);
+        ProductDraw::choose(1, [5, 6]);
         DB::table('coupon_wheel_resturants')->insert(['coupon_wheel_id' => 1, 'resturant_id' => 301]);
     }
 
@@ -69,10 +74,11 @@ class ProductDrawTest extends TestCase
     {
         $this->assertTrue(ProductDraw::ready());
         $badge = ProductDraw::badge(301, 5);
-        $this->assertSame(['coupon_wheel_id' => 1, 'prize_amount' => 5000.0, 'label' => 'يؤهلك لسحب على 5,000 جنيه'],
+        $this->assertSame(['coupon_wheel_id' => 1, 'prize_amount' => 5000.0, 'label' => 'هذا الصنف يرشحك للدخول على سحب بقيمة 5,000 جنيه'],
             array_intersect_key($badge, array_flip(['coupon_wheel_id', 'prize_amount', 'label'])));
         $this->assertNull(ProductDraw::badge(302, 5), 'Not a participating branch');
-        $this->assertNull(ProductDraw::badge(301, 6), 'Another product');
+        $this->assertSame(1, ProductDraw::badge(301, 6)['coupon_wheel_id'], 'Every chosen product carries it');
+        $this->assertNull(ProductDraw::badge(301, 7), 'A product not chosen');
         DB::table('coupon_wheels')->where('id', 1)->update(['end_date' => '2026-11-11']);
         $this->assertNull(ProductDraw::badge(301, 5), 'An ended draw shows no badge');
     }
@@ -87,13 +93,18 @@ class ProductDrawTest extends TestCase
         // Saved again (or completed again by a retry): no more entries.
         $this->assertSame(0, app(ProductDraw::class)->enter($order->fresh()));
         $this->assertSame(3, $this->entries(500));
+        // Pieces of every chosen product count: 2 of one and 1 of the other.
+        $both = $this->order(503, 301, 10, 2);
+        DB::table('carts')->insert(['user_id' => 7, 'resturant_id' => 301, 'resturant_product_id' => 12, 'qty' => 1, 'price' => 200, 'order_id' => 503, 'is_order' => true]);
+        $this->deliver($both);
+        $this->assertSame(3, $this->entries(503));
         // Half a kilo is one entry.
         $this->deliver($this->order(501, 301, 10, 0.5));
         $this->assertSame(1, $this->entries(501));
         // Another branch's order is not in this draw.
         $this->deliver($this->order(502, 302, 11, 2));
         $this->assertSame(0, $this->entries(502));
-        $this->assertSame(4, ProductDraw::entries(1, 7));
+        $this->assertSame(7, ProductDraw::entries(1, 7));
     }
 
     public function test_the_order_total_draw_keeps_its_own_rule(): void
@@ -112,8 +123,9 @@ class ProductDrawTest extends TestCase
     public function test_the_winner_is_drawn_from_the_entries_after_the_draw_ends(): void
     {
         $this->deliver($this->order(500, 301, 10, 2));
-        DB::table('coupon_wheels')->insert(['id' => 3, 'added_by' => 1, 'name' => 'سحب فاضي', 'price' => 0, 'policy' => 'product', 'product_id' => 6,
+        DB::table('coupon_wheels')->insert(['id' => 3, 'added_by' => 1, 'name' => 'سحب فاضي', 'price' => 0, 'policy' => 'product',
             'start_date' => '2026-10-01', 'end_date' => '2026-10-31', 'status' => 'show']);
+        ProductDraw::choose(3, [7]);
         $this->travelTo(now()->setDate(2026, 12, 1));
         $this->artisan('notify:coupon')->assertExitCode(0);
         $this->assertSame(['loser', 'winner'], DB::table('coupon_subscripes')->where('coupon_wheel_id', 1)->orderBy('status')->pluck('status')->all());
@@ -138,8 +150,37 @@ class ProductDrawTest extends TestCase
         $this->assertStringContainsString('name="policy"', $html);
         $this->assertMatchesRegularExpression('/<option value="product"\s+selected/', $html);
         $this->assertMatchesRegularExpression('/<option value="5"\s+selected[^>]*>فسيخ</', $html);
+        $this->assertMatchesRegularExpression('/<option value="6"\s+selected[^>]*>رنجة</', $html);
+        $this->assertMatchesRegularExpression('/<option value="7"\s*>سردين</', $html);
         $rules = (new \App\Http\Requests\Dashboard\StoreCouponWheelRequest())->merge(['policy' => 'product'])->rules();
         $this->assertSame('nullable|numeric|min:0', $rules['price']);
         $this->assertSame('required|numeric|min:1', (new \App\Http\Requests\Dashboard\StoreCouponWheelRequest())->rules()['price']);
+    }
+
+    public function test_a_collected_website_order_gives_entries_to_the_app_account_with_the_same_mobile(): void
+    {
+        Schema::create('pos_service_tickets', function (Blueprint $t) {
+            $t->id(); $t->string('branch', 40); $t->string('channel', 10); $t->string('status', 30); $t->string('payment_status', 10)->default('unpaid');
+            $t->string('customer_phone', 30)->nullable(); $t->mediumText('cart_snapshot'); $t->timestamps();
+        });
+        Schema::create('web_storefront_orders', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('ticket_id'); $t->unsignedBigInteger('branch_id'); $t->timestamps(); });
+        DB::table('users')->where('id', 7)->update(['mobile' => '1012345678']);
+        $cart = json_encode(['branch' => 'f:301', 'items' => [['product_id' => 10, 'quantity' => '2.000'], ['product_id' => 12, 'quantity' => '0.5']]]);
+        DB::table('pos_service_tickets')->insert([
+            ['id' => 900, 'branch' => 'f:301', 'channel' => 'phone', 'status' => 'finished', 'payment_status' => 'paid', 'customer_phone' => '01012345678', 'cart_snapshot' => $cart],
+            ['id' => 901, 'branch' => 'f:301', 'channel' => 'phone', 'status' => 'finished', 'payment_status' => 'paid', 'customer_phone' => '01012345678', 'cart_snapshot' => $cart],
+            ['id' => 902, 'branch' => 'f:301', 'channel' => 'phone', 'status' => 'finished', 'payment_status' => 'paid', 'customer_phone' => '01099999999', 'cart_snapshot' => $cart],
+            ['id' => 903, 'branch' => 'f:301', 'channel' => 'phone', 'status' => 'finished', 'payment_status' => 'unpaid', 'customer_phone' => '01012345678', 'cart_snapshot' => $cart],
+        ]);
+        DB::table('web_storefront_orders')->insert([['ticket_id' => 900, 'branch_id' => 301], ['ticket_id' => 902, 'branch_id' => 301], ['ticket_id' => 903, 'branch_id' => 301]]);
+        $draws = app(ProductDraw::class);
+        // 2 of one chosen product and half a kilo of the other: 3 entries, for the customer whose app account has this mobile.
+        $this->assertSame(3, $draws->enterWebsiteTicket(900));
+        $this->assertSame(0, $draws->enterWebsiteTicket(900), 'Once');
+        $this->assertSame(3, DB::table('coupon_subscripes')->where('user_id', 7)->where('entry_key', 'like', 'ticket:900:%')->count());
+        $this->assertSame(0, $draws->enterWebsiteTicket(901), 'A delivery order not from the website');
+        $this->assertSame(0, $draws->enterWebsiteTicket(902), 'No app account with this mobile');
+        $this->assertSame(0, $draws->enterWebsiteTicket(903), 'Not collected yet');
+        $this->assertSame(7, ProductDraw::customerByPhone('+201012345678'));
     }
 }

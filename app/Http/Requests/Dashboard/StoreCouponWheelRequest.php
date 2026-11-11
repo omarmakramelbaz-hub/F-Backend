@@ -23,7 +23,8 @@ class StoreCouponWheelRequest extends FormRequest
             // A draw by product has no minimum order: each piece of its product is an entry.
             'price'=>$this->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT ? 'nullable|numeric|min:0' : 'required|numeric|min:1',
             'policy'=>'nullable|in:'.implode(',', \App\Services\Draws\ProductDraw::POLICIES),
-            'product_id'=>'nullable|required_if:policy,'.\App\Services\Draws\ProductDraw::PRODUCT.'|integer|exists:products,id',
+            'product_ids'=>'nullable|required_if:policy,'.\App\Services\Draws\ProductDraw::PRODUCT.'|array|min:1|max:200',
+            'product_ids.*'=>'integer|distinct|exists:products,id',
             'prize_amount'=>'nullable|numeric|min:0',
         ]
         +
@@ -46,6 +47,6 @@ class StoreCouponWheelRequest extends FormRequest
 
     public function messages()
     {
-        return ['product_id.required_if' => 'اختار المنتج اللي شراؤه بيدخّل العميل السحب.'];
+        return ['product_ids.required_if' => 'اختار المنتجات اللي شراؤها بيدخّل العميل السحب.'];
     }
 }

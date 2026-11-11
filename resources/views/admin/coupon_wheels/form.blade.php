@@ -13,18 +13,18 @@
     <label for="policy">سياسة دخول السحب</label>
     <select name="policy" id="policy" class="form-select @error('policy') is-invalid @enderror" data-draw-policy>
         <option value="order_total" @if($drawPolicy !== 'product') selected @endif>أوردر بقيمة معينة من فرع مشارك</option>
-        <option value="product" @if($drawPolicy === 'product') selected @endif>شراء منتج معين (كل قطعة = فرصة)</option>
+        <option value="product" @if($drawPolicy === 'product') selected @endif>شراء منتجات معينة (كل قطعة = فرصة)</option>
     </select>
 </div>
+@php($drawProducts = array_map('intval', (array) old('product_ids', $coupon_wheel->id ? \App\Services\Draws\ProductDraw::products((int) $coupon_wheel->id) : [])))
 <div class="form-group col-sm-6" data-draw-product @if($drawPolicy !== 'product') hidden @endif>
-    <label for="product_id">المنتج</label>
-    <select name="product_id" id="product_id" class="form-select @error('product_id') is-invalid @enderror">
-        <option value="">اختار المنتج</option>
+    <label for="product_ids">المنتجات</label>
+    <select name="product_ids[]" id="product_ids" multiple size="8" class="form-control @error('product_ids') is-invalid @enderror">
         @foreach(\Illuminate\Support\Facades\DB::table('products')->where('status', 'show')->orderBy('name_ar')->get(['id', 'name_ar']) as $drawProduct)
-            <option value="{{ $drawProduct->id }}" @if((int) old('product_id', $coupon_wheel->product_id) === (int) $drawProduct->id) selected @endif>{{ $drawProduct->name_ar }}</option>
+            <option value="{{ $drawProduct->id }}" @if(in_array((int) $drawProduct->id, $drawProducts, true)) selected @endif>{{ $drawProduct->name_ar }}</option>
         @endforeach
     </select>
-    <small class="text-muted">المنتج ده هيظهر عليه في التطبيق «يؤهلك لسحب على» قيمة الجائزة، في الفروع المشاركة.</small>
+    <small class="text-muted">اختار منتج أو أكتر (Ctrl + ضغطة). كل منتج منهم هيظهر عليه في التطبيق «هذا الصنف يرشحك للدخول على سحب بقيمة» الجائزة، في الفروع المشاركة.</small>
 </div>
 @endif
 

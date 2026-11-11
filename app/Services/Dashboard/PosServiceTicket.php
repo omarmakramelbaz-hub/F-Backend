@@ -211,6 +211,9 @@ class PosServiceTicket
             $payment=$this->sales->checkout($cart+$paymentValues+['notes'=>$row->notes??''],$actor,$context);$when=now('UTC');
             DB::table('pos_service_tickets')->where('id',$id)->update(['status'=>$channel==='dine'?'paid':'finished','payment_status'=>'paid','paid_order_id'=>$payment['receipt']['id'],'revision'=>(int)$row->revision+1,'updated_at'=>$when]);
             $this->release($row,$when);$op=$this->record($v,$actor,$hash,'settle',$id,(int)$row->revision+1,['order_id'=>$payment['receipt']['id']]);
+            // A website order collected: its draw products' pieces are entries (App\Services\Draws\ProductDraw), once saved.
+            if($channel==='phone')DB::afterCommit(function()use($id){try{app(\App\Services\Draws\ProductDraw::class)->enterWebsiteTicket($id);}
+                catch(\Throwable $error){\Log::warning('Website draw entry unavailable',['ticket_id'=>$id,'error_class'=>get_class($error)]);}});
             return $this->result($op,$actor,false)+['register'=>$payment['register'],'today'=>$payment['today']];
         },3);
     }
