@@ -1089,3 +1089,26 @@ html:has(.app-order-board-page) {
     .dashboard-theme .main-header .dashboard-quick-label-short { display: inline; }
 }
 /* dashboard-header-employee-shortcut:end */
+
+/* Easier reading: the dashboard's text a little bolder (Almarai has no weight between 400 and 700), on screen only.
+   Icons and printed receipts keep their own weight. */
+@media screen {
+    body { -webkit-text-stroke: .3px currentColor; }
+    .fa, .fas, .far, .fab, .fal, [class^="fa-"], [class*=" fa-"], .material-icons, .glyphicon, svg, canvas { -webkit-text-stroke: 0; }
+}
+
+/* dashboard-root-hud-scrollbar-20261111: hide only page and HUD scrollbar chrome. */
+html,
+body.dashboard-theme,
+body.dashboard-login-page,
+#go-hud {
+    scrollbar-width: none !important;
+}
+html::-webkit-scrollbar,
+body.dashboard-theme::-webkit-scrollbar,
+body.dashboard-login-page::-webkit-scrollbar,
+#go-hud::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+}
