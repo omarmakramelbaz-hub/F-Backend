@@ -49,10 +49,11 @@ class ShippingController extends Controller {
                 
             ]);
 
-            $cart= Shipping::create(array_merge([
+            // The request's own details, then what the server decides: the request never names another user or order.
+            $cart= Shipping::create(array_merge($request->except(['payment_type', 'id', 'user_id', 'order_id', 'created_at', 'updated_at']), [
              'user_id'=>auth('api')->user()->id,
              'order_id'=>$order->id,
-             ],$request->except('payment_type')));
+             ]));
              
 
                 if($request->payment_type == 'online'){
@@ -71,7 +72,7 @@ class ShippingController extends Controller {
              }else if($request->payment_type == 'wallet'){
                  // Taken in one step, only while the balance covers it: two requests at once never spend the same money.
                  $amount = $order->grand_total;
-                 if(\Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
+                 if($amount > 0 && \Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
                      Wallet::create([
                          'from_user' => auth('api')->user()->id,
                          'to_user' => null,
@@ -143,7 +144,7 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
              }else if($request->payment_type == 'wallet'){
                  // Taken in one step, only while the balance covers it: two payments at once never spend the same money.
                  $amount = $order->grand_total;
-                 if(\Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
+                 if($amount > 0 && \Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
                      Wallet::create([
                          'from_user' => auth('api')->user()->id,
                          'to_user' => null,
@@ -246,56 +247,41 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         }
     }
     public function updated_actual_price(UpdateActualPriceRequest $request,GeneralSettings $setting){
-        $order=auth('api')->user()->orders()->where('type','shipping')->where('id',$request->order_id)->first();
-       if($order){
-           if($order->status!='pending'){
-                 return $this->errorResponse(__('api.can not update price now'));
-           }
-           $shipping=$order->shipping;
-           $expected_price=$shipping->expected_price;
-           $new_price=$expected_price-($expected_price*($setting->shipping_min_price/100));
-           if( $request->new_price < $new_price){
-               return $this->errorResponse(__('api.price must be greater than or  equal ').$new_price);
-           }else{
-                    if($order->payment_type!='cash'){
-                            $user_price=$shipping->actual_price-$request->new_price;
-                            $user_order_owner=$order->user;
-                            if($user_price>0 && $user_order_owner){
-                                   
-                                    $user_order_owner->update(['balance' => $user_order_owner->balance+$user_price]); 
-                                     Wallet::create([
-                                    'to_user'=>$user_order_owner->id,
-                                    'amount'=>$user_price,
-                                    'payment'=>'wallet',
-                                    'type'=>'transfer',
-                                    'order_id' => $order->id,
-                                    'status' => 'completed',
-                                    ]);
-                                    Notification::send($user_order_owner,new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($order,$user_price));
-                           }elseif($user_price<0 && $user_order_owner){
-                                   $user_price=$request->new_price-$shipping->actual_price;
-                                    $user_order_owner->update(['balance' => $user_order_owner->balance-$user_price]); 
-                                     Wallet::create([
-                                    'from_user'=>$user_order_owner->id,
-                                    'amount'=>$user_price,
-                                    'payment'=>'wallet',
-                                    'type'=>'transfer',
-                                    'order_id' => $order->id,
-                                    'status' => 'completed',
-                                    ]);
-                           }
+        $customerId = (int) auth('api')->id();
+        $result = DB::transaction(function () use ($request, $setting, $customerId) {
+            $order = Order::withoutGlobalScopes()->where('user_id', $customerId)->where('type', 'shipping')->whereKey($request->order_id)->lockForUpdate()->first();
+            if (!$order) return $this->errorResponse(__('api.order not found'));
+            if ($order->status != 'pending') return $this->errorResponse(__('api.can not update price now'));
+            $shipping = $order->shipping;
+            $newPrice = round((float) $request->new_price, 2);
+            $expected = (float) $shipping->expected_price;
+            $lowest = $expected - ($expected * ((float) $setting->shipping_min_price / 100));
+            if ($newPrice <= 0 || $newPrice < $lowest) return $this->errorResponse(__('api.price must be greater than or  equal ').$lowest);
+            if ($order->payment_type != 'cash') {
+                // Paid ahead: the customer is refunded a lower price's difference, or pays a higher one's (only from his balance).
+                $difference = round((float) $shipping->actual_price - $newPrice, 2);
+                if ($difference > 0) {
+                    DB::table('users')->where('id', $customerId)->increment('balance', $difference);
+                    Wallet::create(['to_user' => $customerId, 'amount' => $difference, 'payment' => 'wallet', 'type' => 'transfer', 'order_id' => $order->id, 'status' => 'completed']);
+                    $refund = $difference;
+                } elseif ($difference < 0) {
+                    $extra = -$difference;
+                    if (!DB::table('users')->where('id', $customerId)->where('balance', '>=', $extra)->decrement('balance', $extra)) {
+                        return $this->errorResponse(__('api.charge your wallet first'));
                     }
-               $shipping->update(['actual_price'=>$request->new_price]);
-               $order->update(['delivery_price'=>$request->new_price]);
-               $this->searchDelegates($order->id);
-              $order_data=new OrderResource($order);
-              return $this->successResponse($order_data,__('api.order updated successfully'));
-           }
-       
-    }else{
-         return $this->errorResponse(__('api.order not found'));
-
-    }
+                    Wallet::create(['from_user' => $customerId, 'amount' => $extra, 'payment' => 'wallet', 'type' => 'transfer', 'order_id' => $order->id, 'status' => 'completed']);
+                }
+            }
+            $shipping->update(['actual_price' => $newPrice]);
+            $order->update(['delivery_price' => $newPrice]);
+            return ['order' => $order, 'refund' => $refund ?? 0];
+        });
+        if (!is_array($result)) return $result;
+        $customer = User::withoutGlobalScopes()->find($customerId);
+        if ($customer && $result['refund'] > 0) Notification::send($customer, new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($result['order'], $result['refund']));
+        if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
+        $this->searchDelegates($result['order']->id);
+        return $this->successResponse(new OrderResource($result['order']), __('api.order updated successfully'));
     }
 
     public function get_orders(){

@@ -21,7 +21,10 @@ class ShippingOrderPaymentApiTest extends TestCase
         parent::setUp();
         $this->customerAppSchema();
         Notification::fake();
-        Schema::table('shippings', function (Blueprint $t) { $t->unsignedBigInteger('user_id')->nullable(); $t->string('from_lat')->nullable(); $t->string('from_lng')->nullable(); });
+        Schema::table('shippings', function (Blueprint $t) {
+            $t->unsignedBigInteger('user_id')->nullable(); $t->decimal('expected_price', 10, 2)->nullable();
+            foreach (['from_lat', 'from_lng', 'to_lat', 'to_lng', 'from_address', 'to_address', 'description'] as $column) $t->string($column)->nullable();
+        });
         foreach (['connected', 'lat', 'lng'] as $column) if (!Schema::hasColumn('users', $column)) Schema::table('users', fn (Blueprint $t) => $t->string($column)->nullable());
         DB::table('orders')->insert(['id' => 600, 'user_id' => 7, 'status' => null, 'type' => 'shipping', 'payment_type' => 'cash', 'delivery_price' => 40]);
         DB::table('shippings')->insert(['order_id' => 600, 'user_id' => 7, 'actual_price' => 40, 'from_lat' => '30.08', 'from_lng' => '31.24']);
@@ -62,5 +65,46 @@ class ShippingOrderPaymentApiTest extends TestCase
     {
         $this->assertNotSame(200, $this->pay(['payment_type' => 'free'])->status());
         $this->assertSame([null, 'cash'], [$this->order()->status, $this->order()->payment_type]);
+    }
+
+    private function shipping(string $action, array $values, int $user = 7)
+    {
+        $route = collect(app('router')->getRoutes())->first(fn ($route) => str_ends_with($route->getActionName(), 'ShippingController@'.$action));
+        return $this->withHeaders($this->appHeaders($user))->json($route->methods()[0], '/'.$route->uri(), $values);
+    }
+
+    private function balance(): float { return (float) DB::table('users')->where('id', 7)->value('balance'); }
+
+    public function test_a_negative_or_zero_price_never_adds_to_the_wallet(): void
+    {
+        if (!Schema::hasTable('payments')) Schema::create('payments', fn (Blueprint $t) => [$t->id(), $t->unsignedBigInteger('order_id'), $t->boolean('status')->default(false)]);
+        foreach ([-500, 0] as $price) {
+            $this->assertNotSame(200, $this->shipping('store', ['from_lat' => '30', 'from_lng' => '31', 'to_lat' => '30.1', 'to_lng' => '31.1', 'from_address' => 'أ', 'to_address' => 'ب',
+                'description' => 'x', 'actual_price' => $price, 'expected_price' => 40, 'payment_type' => 'wallet'])->status());
+        }
+        $this->assertEquals(1000, $this->balance());
+        $this->assertSame(1, DB::table('orders')->where('type', 'shipping')->count(), 'No new request');
+    }
+
+    public function test_changing_a_paid_requests_price_moves_only_the_difference_and_never_below_zero(): void
+    {
+        DB::table('orders')->where('id', 600)->update(['status' => 'pending', 'payment_type' => 'wallet']);
+        DB::table('shippings')->where('order_id', 600)->update(['expected_price' => 40]);
+        // A negative price (which would refund more than was paid) is refused.
+        $this->assertNotSame(200, $this->shipping('updated_actual_price', ['order_id' => 600, 'new_price' => -5000])->status());
+        $this->assertEquals(1000, $this->balance());
+        // Raised beyond the wallet: refused, nothing taken.
+        DB::table('users')->where('id', 7)->update(['balance' => 5]);
+        $this->assertNotSame(200, $this->shipping('updated_actual_price', ['order_id' => 600, 'new_price' => 50])->status());
+        $this->assertSame([5.0, 40.0], [$this->balance(), (float) DB::table('orders')->where('id', 600)->value('delivery_price')]);
+        // Raised within the wallet: the difference is taken.
+        DB::table('users')->where('id', 7)->update(['balance' => 100]);
+        $this->shipping('updated_actual_price', ['order_id' => 600, 'new_price' => 50])->assertOk();
+        $this->assertSame([90.0, 50.0], [$this->balance(), (float) DB::table('orders')->where('id', 600)->value('delivery_price')]);
+        // Lowered: the difference comes back.
+        $this->shipping('updated_actual_price', ['order_id' => 600, 'new_price' => 45])->assertOk();
+        $this->assertEquals(95, $this->balance());
+        // Another customer's request: not found.
+        $this->assertNotSame(200, $this->shipping('updated_actual_price', ['order_id' => 600, 'new_price' => 40], 8)->status());
     }
 }

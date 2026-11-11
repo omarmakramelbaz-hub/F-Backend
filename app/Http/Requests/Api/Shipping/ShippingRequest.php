@@ -36,8 +36,8 @@ class ShippingRequest extends FormRequest
             'to_lng'=>'required',
             'from_address'=>'required',
             'to_address'=>'required',
-            'actual_price'=>'required|numeric',
-            'expected_price'=>'required|numeric',
+            'actual_price'=>'required|numeric|gt:0|max:100000', // a price is never negative or zero
+            'expected_price'=>'required|numeric|gt:0|max:100000',
             'description'=>'required',
             'payment_type'=>'required|in:wallet,cash,v_cash,online'
 
