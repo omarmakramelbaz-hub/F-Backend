@@ -30,15 +30,15 @@ class CouponWheelResource extends JsonResource
 
         $policy = $this->policy ?? null;
         $isProduct = $policy === \App\Services\Draws\ProductDraw::PRODUCT;
-        $productIds = $isProduct ? \App\Services\Draws\ProductDraw::products((int) $this->id) : [];
-        $products = $productIds ? \Illuminate\Support\Facades\DB::table('products')->whereIn('id', $productIds)->get(['id', 'name_ar']) : collect();
+        $items = $isProduct ? \App\Services\Draws\ProductDraw::items((int) $this->id) : [];
 
         return [
             'id' => $this->id,
             'name' => $this->name,
             // order_total: an order of at least «price» from a participating branch; product: each piece of «products».
             'policy' => $isProduct ? 'product' : 'order_total',
-            'products' => $products->map(fn ($product) => ['id' => (int) $product->id, 'name' => (string) $product->name_ar])->values()->all(),
+            // The chosen items, by name (the same item on every branch's menu).
+            'products' => array_map(fn ($name) => ['id' => null, 'name' => $name], $items),
             'badge_label' => $isProduct ? \App\Services\Draws\ProductDraw::label($this->prize_amount === null ? null : (float) $this->prize_amount) : null,
             'my_entries' => $isProduct && auth('api')->check() ? \App\Services\Draws\ProductDraw::entries((int) $this->id, (int) auth('api')->id()) : null,
             // The customer's entry codes in this draw, and the winning code once drawn.

@@ -49,7 +49,8 @@ class ProductDrawTest extends TestCase
             'price' => DB::table('resturant_products')->where('id', 10)->value('price')]);
         DB::table('coupon_wheels')->insert(['id' => 1, 'added_by' => 1, 'name' => 'سحب الفسيخ', 'price' => 0, 'prize_amount' => 5000, 'policy' => 'product',
             'start_date' => '2026-11-01', 'end_date' => '2026-11-30', 'status' => 'show']);
-        ProductDraw::choose(1, [5, 6]);
+        // Chosen by the items' names on the branches' menus (written «رنجه» here, «رنجة» on the menu).
+        ProductDraw::choose(1, ['فسيخ كيلو', 'رنجه']);
         DB::table('coupon_wheel_resturants')->insert(['coupon_wheel_id' => 1, 'resturant_id' => 301]);
     }
 
@@ -74,14 +75,15 @@ class ProductDrawTest extends TestCase
     public function test_the_chosen_products_carry_the_prize_badge_in_every_branch(): void
     {
         $this->assertTrue(ProductDraw::ready());
-        $badge = ProductDraw::badge(301, 5);
+        $badge = ProductDraw::badge('فسيخ كيلو');
         $this->assertSame(['coupon_wheel_id' => 1, 'prize_amount' => 5000.0, 'label' => 'يؤهلك للدخول في السحب بقيمة 5,000 جنيه'],
             array_intersect_key($badge, array_flip(['coupon_wheel_id', 'prize_amount', 'label'])));
-        $this->assertSame(1, ProductDraw::badge(302, 5)['coupon_wheel_id'], 'Every branch, not only the ones chosen for an order-total draw');
-        $this->assertSame(1, ProductDraw::badge(301, 6)['coupon_wheel_id'], 'Every chosen product carries it');
-        $this->assertNull(ProductDraw::badge(301, 7), 'A product not chosen');
+        $this->assertSame(1, ProductDraw::badge(' فسيخ  كيلو ')['coupon_wheel_id'], 'The same item on another branch menu, spaces aside');
+        $this->assertSame(1, ProductDraw::badge('رنجة')['coupon_wheel_id'], 'Every chosen item carries it, ة or ه');
+        $this->assertNull(ProductDraw::badge('سردين'), 'An item not chosen');
+        $this->assertNull(ProductDraw::badge('فسيخ كيلو مخلي'), 'Another item with a longer name');
         DB::table('coupon_wheels')->where('id', 1)->update(['end_date' => '2026-11-11']);
-        $this->assertNull(ProductDraw::badge(301, 5), 'An ended draw shows no badge');
+        $this->assertNull(ProductDraw::badge('فسيخ كيلو'), 'An ended draw shows no badge');
     }
 
     public function test_each_piece_in_a_delivered_order_is_one_entry_once(): void
@@ -121,8 +123,8 @@ class ProductDrawTest extends TestCase
         $this->deliver($this->order(500, 301, 10, 2));
         $codes = DB::table('coupon_subscripes')->where('coupon_wheel_id', 1)->orderBy('id')->pluck('user_coupon_code')->all();
         $draw = (new \App\Http\Resources\Api\Home\CouponWheelResource(\App\Models\CouponWheel::find(1)))->resolve(request());
-        $this->assertSame(['product', 'يؤهلك للدخول في السحب بقيمة 5,000 جنيه', [5, 6], [], null],
-            [$draw['policy'], $draw['badge_label'], array_column($draw['products'], 'id'), $draw['my_codes'], $draw['winner_code']]);
+        $this->assertSame(['product', 'يؤهلك للدخول في السحب بقيمة 5,000 جنيه', ['فسيخ كيلو', 'رنجه'], [], null],
+            [$draw['policy'], $draw['badge_label'], array_column($draw['products'], 'name'), $draw['my_codes'], $draw['winner_code']]);
         $this->travelTo(now()->setDate(2026, 12, 1));
         $this->artisan('notify:coupon')->assertExitCode(0);
         $winner = DB::table('coupon_subscripes')->where('status', 'winner')->value('user_coupon_code');
@@ -149,7 +151,7 @@ class ProductDrawTest extends TestCase
         $this->deliver($this->order(500, 301, 10, 2));
         DB::table('coupon_wheels')->insert(['id' => 3, 'added_by' => 1, 'name' => 'سحب فاضي', 'price' => 0, 'policy' => 'product',
             'start_date' => '2026-10-01', 'end_date' => '2026-10-31', 'status' => 'show']);
-        ProductDraw::choose(3, [7]);
+        ProductDraw::choose(3, ['سردين']);
         $this->travelTo(now()->setDate(2026, 12, 1));
         $this->artisan('notify:coupon')->assertExitCode(0);
         $this->assertSame(['loser', 'winner'], DB::table('coupon_subscripes')->where('coupon_wheel_id', 1)->orderBy('status')->pluck('status')->all());
@@ -173,9 +175,10 @@ class ProductDrawTest extends TestCase
         $html = view('admin.coupon_wheels.form', ['coupon_wheel' => \App\Models\CouponWheel::find(1), 'errors' => new \Illuminate\Support\ViewErrorBag()])->render();
         $this->assertStringContainsString('name="policy"', $html);
         $this->assertMatchesRegularExpression('/<option value="product"\s+selected/', $html);
-        $this->assertMatchesRegularExpression('/<option value="5"\s+selected[^>]*>فسيخ</', $html);
-        $this->assertMatchesRegularExpression('/<option value="6"\s+selected[^>]*>رنجة</', $html);
-        $this->assertMatchesRegularExpression('/<option value="7"\s*>سردين</', $html);
+        // The branches' menu items, once each, the chosen ones selected.
+        $this->assertSame(1, substr_count($html, '>فسيخ كيلو</option>'));
+        $this->assertMatchesRegularExpression('/<option value="فسيخ كيلو"\s+selected[^>]*>فسيخ كيلو</', $html);
+        $this->assertMatchesRegularExpression('/<option value="رنجة"\s+selected[^>]*>رنجة</', $html);
         $rules = (new \App\Http\Requests\Dashboard\StoreCouponWheelRequest())->merge(['policy' => 'product'])->rules();
         $this->assertSame('nullable|numeric|min:0', $rules['price']);
         $this->assertSame('nullable|array', $rules['restraunt_id'], 'A draw by products runs in every branch');
@@ -207,5 +210,16 @@ class ProductDrawTest extends TestCase
         $this->assertSame(0, $draws->enterWebsiteTicket(902), 'No app account with this mobile');
         $this->assertSame(0, $draws->enterWebsiteTicket(903), 'Not collected yet');
         $this->assertSame(7, ProductDraw::customerByPhone('+201012345678'));
+    }
+
+    public function test_a_draw_saved_with_catalog_products_keeps_them_by_name(): void
+    {
+        Schema::drop('coupon_wheel_items');
+        Schema::create('coupon_wheel_products', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('coupon_wheel_id'); $t->unsignedBigInteger('product_id'); $t->timestamps(); });
+        DB::table('coupon_wheel_products')->insert(['coupon_wheel_id' => 1, 'product_id' => 5]);
+        \App\Database\SchemaMemory::forgetEverything();
+        $this->artisan('draws:install-schema')->assertExitCode(0);
+        $this->assertSame(['فسيخ'], ProductDraw::items(1));
+        $this->assertNull(ProductDraw::badge('فسيخ كيلو'), 'Matched by the whole name');
     }
 }

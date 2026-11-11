@@ -138,7 +138,7 @@ class CouponWheelController extends Controller
     /** The draw's fields: its rule (order total or a product) once the server has the columns for it. */
     private function values(Request $request): array
     {
-        $values = $request->except('images', 'restraunt_id', 'policy', 'product_ids');
+        $values = $request->except('images', 'restraunt_id', 'policy', 'item_names');
         if (!\App\Services\Draws\ProductDraw::ready()) return $values;
         $product = $request->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT;
         $values['policy'] = $product ? \App\Services\Draws\ProductDraw::PRODUCT : \App\Services\Draws\ProductDraw::ORDER_TOTAL;
@@ -150,7 +150,7 @@ class CouponWheelController extends Controller
     private function chooseProducts(Request $request, CouponWheel $wheel): void
     {
         $product = $request->input('policy') === \App\Services\Draws\ProductDraw::PRODUCT;
-        \App\Services\Draws\ProductDraw::choose((int) $wheel->id, $product ? (array) $request->input('product_ids', []) : []);
+        \App\Services\Draws\ProductDraw::choose((int) $wheel->id, $product ? (array) $request->input('item_names', []) : []);
     }
 
      public function delete_image(Request $request){

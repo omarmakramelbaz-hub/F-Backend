@@ -88,13 +88,11 @@ class WebStorefront
         // Cost, recipes, balances, internal actors and administrative permissions are private.
         $products = [];
         // «مسابقة السحب» by products: the branch's products in a running draw carry its badge (App\Services\Draws\ProductDraw).
-        $catalogProducts = \App\Services\Draws\ProductDraw::active()
-            ? DB::table('resturant_products')->whereIn('id', array_column($catalog['items'], 'id'))->pluck('product_id', 'id') : collect();
         foreach ($catalog['items'] as $item) {
             // Staff-only items (\App\Support\PosOnlyProducts) are sold at the branch, not on the website.
             if (!$item['available'] || \App\Support\PosOnlyProducts::is($item['id'])) continue;
             $product = array_intersect_key($item, array_flip(['id','name','price','image_url','unit','quantity_mode','category_id','options']));
-            $draw = isset($catalogProducts[$item['id']]) ? \App\Services\Draws\ProductDraw::badge($id, (int) $catalogProducts[$item['id']]) : null;
+            $draw = \App\Services\Draws\ProductDraw::badge($item['name'] ?? null);
             if ($draw) $product['draw'] = ['label'=>$draw['label'], 'prize_amount'=>$draw['prize_amount'], 'end_date'=>$draw['end_date']];
             $products[] = $product;
         }

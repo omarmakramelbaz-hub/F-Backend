@@ -13,18 +13,18 @@
     <label for="policy">سياسة دخول السحب</label>
     <select name="policy" id="policy" class="form-select @error('policy') is-invalid @enderror" data-draw-policy>
         <option value="order_total" @if($drawPolicy !== 'product') selected @endif>أوردر بقيمة معينة من فرع مشارك</option>
-        <option value="product" @if($drawPolicy === 'product') selected @endif>شراء منتجات معينة (كل قطعة = فرصة)</option>
+        <option value="product" @if($drawPolicy === 'product') selected @endif>شراء أصناف معينة (كل قطعة = فرصة)</option>
     </select>
 </div>
-@php($drawProducts = array_map('intval', (array) old('product_ids', $coupon_wheel->id ? \App\Services\Draws\ProductDraw::products((int) $coupon_wheel->id) : [])))
+@php($drawItems = array_map(fn ($name) => \App\Services\Draws\ProductDraw::key($name), (array) old('item_names', $coupon_wheel->id ? \App\Services\Draws\ProductDraw::items((int) $coupon_wheel->id) : [])))
 <div class="form-group col-sm-6" data-draw-product @if($drawPolicy !== 'product') hidden @endif>
-    <label for="product_ids">المنتجات</label>
-    <select name="product_ids[]" id="product_ids" multiple size="8" class="form-control @error('product_ids') is-invalid @enderror">
-        @foreach(\Illuminate\Support\Facades\DB::table('products')->where('status', 'show')->orderBy('name_ar')->get(['id', 'name_ar']) as $drawProduct)
-            <option value="{{ $drawProduct->id }}" @if(in_array((int) $drawProduct->id, $drawProducts, true)) selected @endif>{{ $drawProduct->name_ar }}</option>
+    <label for="item_names">الأصناف</label>
+    <select name="item_names[]" id="item_names" multiple size="10" class="form-control @error('item_names') is-invalid @enderror">
+        @foreach(\App\Services\Draws\ProductDraw::menuItems() as $drawItem)
+            <option value="{{ $drawItem }}" @if(in_array(\App\Services\Draws\ProductDraw::key($drawItem), $drawItems, true)) selected @endif>{{ $drawItem }}</option>
         @endforeach
     </select>
-    <small class="text-muted">اختار منتج أو أكتر (Ctrl + ضغطة). كل منتج منهم هيظهر عليه في كل الفروع، في التطبيق والموقع، «يؤهلك للدخول في السحب بقيمة» الجائزة. وكل قطعة منه في أوردر اتسلّم بتدّي العميل كود دخول بيوصله إشعار.</small>
+    <small class="text-muted">أصناف منيو الفروع. اختار صنف أو أكتر (Ctrl + ضغطة). الصنف هيظهر عليه في كل فرع فيه نفس الاسم، في التطبيق والموقع، «يؤهلك للدخول في السحب بقيمة» الجائزة. وكل قطعة منه في أوردر اتسلّم بتدّي العميل كود دخول بيوصله إشعار.</small>
 </div>
 @endif
 
