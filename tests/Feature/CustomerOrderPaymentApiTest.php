@@ -37,7 +37,7 @@ class CustomerOrderPaymentApiTest extends TestCase
             $t->decimal('min_order_price', 10, 2)->default(0); $t->decimal('service_fees', 5, 2)->default(0); $t->timestamps();
         });
         Schema::create('resturant_products', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('resturant_id'); $t->string('product_name'); $t->string('product_price')->default('0'); $t->text('price')->nullable();
+            $t->id(); $t->unsignedBigInteger('resturant_id'); $t->unsignedBigInteger('product_id')->nullable(); $t->unsignedBigInteger('added_by')->nullable(); $t->text('product_description')->nullable(); $t->string('highest_rated')->default('no'); $t->string('product_name'); $t->string('product_price')->default('0'); $t->text('price')->nullable();
             $t->unsignedBigInteger('category_id')->nullable(); $t->string('status')->default('show'); $t->timestamps();
         });
         Schema::create('carts', function (Blueprint $t) {
@@ -52,13 +52,29 @@ class CustomerOrderPaymentApiTest extends TestCase
             $t->string('payment_type')->nullable(); $t->decimal('delivery_price', 10, 2)->nullable(); $t->text('notes')->nullable(); $t->string('order_type')->nullable();
             $t->string('delegate_from_out')->nullable(); $t->unsignedBigInteger('delegate_id')->nullable(); $t->unsignedBigInteger('shipping_id')->nullable();
             $t->decimal('user_tax', 10, 2)->nullable(); $t->decimal('tax', 10, 2)->nullable(); $t->decimal('vendor_tax', 10, 2)->nullable();
-            $t->string('order_no')->nullable(); $t->unsignedInteger('shift_sequence')->nullable(); $t->unsignedInteger('shift_order_number')->nullable(); $t->timestamps();
+            $t->string('order_no')->nullable(); $t->string('transfer_price_by')->nullable(); $t->timestamp('shipping_cancelled_block')->nullable(); $t->unsignedInteger('shift_sequence')->nullable(); $t->unsignedInteger('shift_order_number')->nullable(); $t->timestamps();
         });
         Schema::create('user_address', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('user_id'); $t->string('mobile')->nullable(); $t->timestamps(); });
         Schema::create('wallets', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('from_user')->nullable(); $t->unsignedBigInteger('to_user')->nullable(); $t->string('status')->nullable();
             $t->string('payment')->nullable(); $t->string('type')->nullable(); $t->decimal('amount', 12, 2)->default(0); $t->unsignedBigInteger('order_id')->nullable(); $t->timestamps();
         });
+        Schema::create('resturant_areas', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('resturant_id'); $t->unsignedBigInteger('area_id')->nullable(); $t->string('lat')->nullable(); $t->string('lng')->nullable(); $t->string('expected_delivery')->nullable(); $t->timestamps(); });
+        Schema::create('areas', function (Blueprint $t) { $t->id(); $t->string('title_ar')->nullable(); $t->string('title_en')->nullable(); $t->timestamps(); });
+        Schema::create('delegate_notifications', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('order_id')->nullable(); $t->unsignedBigInteger('delegate_id')->nullable(); $t->timestamps(); });
+        Schema::create('reviews', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('order_id')->nullable(); $t->unsignedBigInteger('user_id')->nullable(); $t->unsignedBigInteger('resturant_id')->nullable(); $t->integer('rate')->nullable(); $t->text('comment')->nullable(); $t->timestamps(); });
+        Schema::create('media', function (Blueprint $t) {
+            $t->id(); $t->morphs('model'); $t->uuid('uuid')->nullable(); $t->string('collection_name'); $t->string('name'); $t->string('file_name');
+            $t->string('mime_type')->nullable(); $t->string('disk'); $t->string('conversions_disk')->nullable(); $t->unsignedBigInteger('size');
+            $t->json('manipulations'); $t->json('custom_properties'); $t->json('generated_conversions'); $t->json('responsive_images');
+            $t->unsignedInteger('order_column')->nullable(); $t->timestamps();
+        });
+        Schema::create('categories', function (Blueprint $t) { $t->id(); $t->string('name_ar')->nullable(); $t->string('name_en')->nullable(); $t->timestamps(); });
+        Schema::create('products', function (Blueprint $t) { $t->id(); $t->string('name_ar')->nullable(); $t->string('name_en')->nullable(); $t->unsignedBigInteger('category_id')->nullable(); $t->unsignedBigInteger('subcategory_id')->nullable(); $t->string('has_clean')->nullable(); $t->unsignedBigInteger('added_by')->nullable(); $t->timestamps(); });
+        Schema::create('product_features', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('product_id')->nullable(); $t->string('name'); $t->timestamps(); });
+        Schema::create('commissions', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('order_id')->nullable(); $t->unsignedBigInteger('user_id')->nullable(); $t->decimal('amount', 10, 2)->default(0); $t->timestamps(); });
+        Schema::create('shippings', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('order_id')->nullable(); $t->decimal('actual_price', 10, 2)->nullable(); $t->timestamps(); });
+        Schema::create('notifications', function (Blueprint $t) { $t->uuid('id')->primary(); $t->string('type'); $t->morphs('notifiable'); $t->text('data'); $t->timestamp('read_at')->nullable(); $t->timestamps(); });
         Schema::create('settings', function (Blueprint $t) { $t->id(); $t->string('group'); $t->string('name'); $t->boolean('locked')->default(false); $t->json('payload'); $t->timestamps(); });
         $settings = (new \ReflectionClass(\App\Models\GeneralSettings::class))->getProperties(\ReflectionProperty::IS_PUBLIC);
         $values = ['tax' => '14', 'service_fees' => '0', 'min_order_price' => '100', 'km_price' => '5'];
@@ -70,7 +86,8 @@ class CustomerOrderPaymentApiTest extends TestCase
         DB::table('users')->insert([['id' => 7, 'name' => 'عميل', 'mobile' => '1000000007', 'app_scope' => 'fasakhansta', 'balance' => 1000],
             ['id' => 8, 'name' => 'عميل تاني', 'mobile' => '1000000008', 'app_scope' => 'fasakhansta', 'balance' => 0]]);
         DB::table('resturants')->insert(['id' => 301, 'name' => 'فرع شبرا', 'status' => 'opened', 'min_order_price' => 100, 'service_fees' => 10]);
-        DB::table('resturant_products')->insert(['id' => 10, 'resturant_id' => 301, 'product_name' => 'فسيخ كيلو', 'product_price' => '400']);
+        DB::table('products')->insert(['id' => 5, 'name_ar' => 'فسيخ', 'name_en' => 'Feseekh']);
+        DB::table('resturant_products')->insert(['id' => 10, 'resturant_id' => 301, 'product_id' => 5, 'product_name' => 'فسيخ كيلو', 'product_price' => '400', 'price' => json_encode(['extra_combo' => 0, 'extra_large' => 0, 'extra_medium' => 0, 'extra_clean' => 0, 'extra_clear' => 0, 'extra_vacuim' => 0])]);
         DB::table('user_address')->insert(['id' => 70, 'user_id' => 7, 'mobile' => '1000000007']);
         DB::table('carts')->insert(['user_id' => 7, 'resturant_id' => 301, 'resturant_product_id' => 10, 'qty' => 2, 'price' => 400]);
     }
@@ -156,6 +173,55 @@ class CustomerOrderPaymentApiTest extends TestCase
         $this->assertEquals(0, (float) DB::table('users')->where('id', 7)->value('balance'));
         $this->assertSame(1, DB::table('wallets')->count());
         $this->assertSame(1, DB::table('carts')->where('user_id', 7)->where('is_order', false)->count());
+    }
+
+    private function cancel(int $order, int $user = 7)
+    {
+        app('auth')->forgetGuards();
+        JWTAuth::unsetToken();
+        app('tymon.jwt')->unsetToken();
+        return $this->withHeaders(['Authorization' => 'Bearer '.JWTAuth::fromUser(User::query()->find($user)), 'Accept' => 'application/json'])
+            ->postJson('/api/user/cancel/order/'.$order);
+    }
+
+    public function test_a_customer_cancels_their_own_waiting_order_once(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        $id = $this->pay(['payment_type' => 'cash'])->assertOk()->json('data.id');
+        // Not someone else's order (OrderCancellationController serves this address): refused, nothing changes.
+        $this->cancel($id, 8)->assertStatus(500)->assertJsonPath('status', 'Error');
+        $this->assertSame('pending', DB::table('orders')->where('id', $id)->value('status'));
+        $this->cancel($id)->assertOk()->assertJsonPath('status', 'Success');
+        $this->assertSame('cancelled', DB::table('orders')->where('id', $id)->value('status'));
+        // A second tap (or a stale screen) is answered as done, and changes nothing.
+        $this->cancel($id)->assertOk()->assertJsonPath('message', __('api.already cancelled'));
+        $this->assertSame('cancelled', DB::table('orders')->where('id', $id)->value('status'));
+    }
+
+    public function test_an_order_the_branch_accepted_is_not_cancelled_by_the_customer(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        $id = $this->pay(['payment_type' => 'cash'])->assertOk()->json('data.id');
+        DB::table('orders')->where('id', $id)->update(['status' => 'accepted']);
+        $this->cancel($id)->assertStatus(500)->assertJsonPath('status', 'Error');
+        $this->assertSame('accepted', DB::table('orders')->where('id', $id)->value('status'));
+    }
+
+    public function test_a_cancelled_wallet_order_is_paid_back_once_two_hours_later(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        $id = $this->pay(['payment_type' => 'wallet'])->assertOk()->json('data.id');
+        $this->assertEquals(63, (float) DB::table('users')->where('id', 7)->value('balance'));
+        $this->cancel($id)->assertOk();
+        $this->artisan('notify:moneyback')->assertExitCode(0);
+        $this->assertEquals(63, (float) DB::table('users')->where('id', 7)->value('balance'), 'Not before two hours');
+        $this->travel(121)->minutes();
+        $this->artisan('notify:moneyback')->assertExitCode(0);
+        $this->assertEquals(1000, (float) DB::table('users')->where('id', 7)->value('balance'), 'The whole price is back');
+        $this->artisan('notify:moneyback')->assertExitCode(0);
+        $this->assertEquals(1000, (float) DB::table('users')->where('id', 7)->value('balance'), 'Paid back once');
+        $this->assertSame('admin', DB::table('orders')->where('id', $id)->value('transfer_price_by'));
+        $this->assertEquals([937.0, 937.0], DB::table('wallets')->orderBy('id')->pluck('amount')->map(fn ($v) => (float) $v)->all());
     }
 
     public function test_the_delivery_price_is_never_negative(): void
