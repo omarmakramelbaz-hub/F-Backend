@@ -171,14 +171,19 @@ class ProductDrawTest extends TestCase
     {
         DB::table('users')->insert(['id' => 1, 'name' => 'الأدمن', 'mobile' => '1000000001', 'account_type' => 'admin', 'status' => 'accepted']);
         if (!Schema::hasColumn('products', 'status')) Schema::table('products', fn (Blueprint $t) => $t->string('status')->default('show'));
+        DB::table('resturant_products')->insert(['id' => 13, 'resturant_id' => 301, 'product_id' => 7, 'product_name' => 'سردين', 'product_price' => '90',
+            'price' => DB::table('resturant_products')->where('id', 10)->value('price')]);
         $this->actingAs(\App\Models\User::withoutGlobalScopes()->find(1), 'admin');
         $html = view('admin.coupon_wheels.form', ['coupon_wheel' => \App\Models\CouponWheel::find(1), 'errors' => new \Illuminate\Support\ViewErrorBag()])->render();
         $this->assertStringContainsString('name="policy"', $html);
         $this->assertMatchesRegularExpression('/<option value="product"\s+selected/', $html);
-        // The branches' menu items, once each, the chosen ones selected.
-        $this->assertSame(1, substr_count($html, '>فسيخ كيلو</option>'));
-        $this->assertMatchesRegularExpression('/<option value="فسيخ كيلو"\s+selected[^>]*>فسيخ كيلو</', $html);
-        $this->assertMatchesRegularExpression('/<option value="رنجة"\s+selected[^>]*>رنجة</', $html);
+        // The branches' menu items, once each, as checkboxes: the chosen ones ticked and listed first.
+        $this->assertSame(1, substr_count($html, '<span>فسيخ كيلو</span>'));
+        $this->assertMatchesRegularExpression('/value="فسيخ كيلو"\s+checked/', $html);
+        $this->assertMatchesRegularExpression('/value="رنجة"\s+checked/', $html);
+        $this->assertDoesNotMatchRegularExpression('/value="سردين"\s+checked/', $html);
+        $this->assertLessThan(strpos($html, '<span>سردين</span>'), strpos($html, '<span>رنجة</span>'), 'The chosen first');
+        $this->assertStringContainsString('data-draw-search', $html);
         $rules = (new \App\Http\Requests\Dashboard\StoreCouponWheelRequest())->merge(['policy' => 'product'])->rules();
         $this->assertSame('nullable|numeric|min:0', $rules['price']);
         $this->assertSame('nullable|array', $rules['restraunt_id'], 'A draw by products runs in every branch');
