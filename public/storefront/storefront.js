@@ -14,6 +14,7 @@ data.branches = [];
 const state = { context: null, discovering: false, branch: '', products: [], categories: [], cart: [], category: '', search: '', limit: 12, menuReady: false, storeFilter: 'all', storeSearch: '', storeLimit: 12, open: false, quote: null, point: null, submitting: false, pending: readStorage(pendingKey) };
 let menuRequest, map, marker, suggestionRequest, suggestionTimer, toastTimer, pendingBranch, pendingAddress = null, quoteRequest = 0;
 let customerProfile = readCustomer(), selectedAddress = '', locationRevision = 0, geolocationRequest = 0;
+let pendingDirectoryStore = null;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = value => new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 2 }).format(Number(value || 0));
 const imageUrl = value => { try { const url = new URL(value, location.origin); return /^https?:$/.test(url.protocol) ? url.href : placeholder; } catch (_) { return placeholder; } };
@@ -218,6 +219,21 @@ function chooseBranch(id) {
  if (state.cart.length) { pendingBranch = String(id); $('#branch-select').value = state.branch; showDialog('#confirm-branch-dialog'); }
  else {const restored=String(restorable?.branch)===String(id)?restorable.cart:[];restorable=null;loadBranch(id,restored);}
 }
+function requestDirectoryStore(id) {
+ const requested = String(id ?? '');
+ if(!/^[1-9]\d{0,9}$/.test(requested))return;
+ pendingDirectoryStore=requested;
+ if(!state.context||state.discovering)return focusDelivery();
+ if(!data.branches.some(b=>String(b.id)===requested)){
+  notify('المتجر ده مش ضمن المتاجر اللي بتخدم عنوانك الحالي. تقدر تختار عنوان توصيل تاني.');
+  return editLocation();
+ }
+ pendingDirectoryStore=null;
+ chooseBranch(requested);
+ document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+}
+document.addEventListener('storefront:request-store',event=>requestDirectoryStore(event.detail?.id));
+document.body.dataset.storefrontOrderBridge='ready';
 function productDialog(id) {
  const p = state.products.find(p => p.id === Number(id)); if (!p) return;
  const options = [{id:'', label:'الاختيار الأساسي', price:p.price}, ...p.options];
@@ -421,7 +437,13 @@ async function discoverDelivery(automatic=false) {
   form.hidden=true;$('#delivery-summary').hidden=false;renderBranches();
   $('#saved-address-status').textContent=data.branches.length?'تقدر تختار متجرك وتبدأ طلبك مباشرة.':'مفيش متجر بيغطي العنوان ده حاليًا. اختار عنوان تاني من القائمة بالأعلى.';
   status(data.branches.length?'اختار المتجر المناسب ليك':'مفيش متجر بيغطي موقعك حاليًا',data.branches.length?'المتاجر مرتبة من الأقرب. اختار متجر لعرض المنيو والأسعار.':'جرّب عنوان توصيل تاني أو غيّر الموقع من بيانات التوصيل.');
-  if(!automatic)document.getElementById(data.branches.length?'branches':'delivery').scrollIntoView({behavior:'smooth'});
+  const requested=pendingDirectoryStore;pendingDirectoryStore=null;
+  if(requested&&data.branches.some(b=>String(b.id)===requested)){
+   chooseBranch(requested);document.getElementById('menu').scrollIntoView({behavior:'smooth'});
+  }else{
+   if(requested)notify('المتجر اللي اخترته مش بيخدم العنوان ده. اختار من المتاجر المتاحة لعنوانك.');
+   if(!automatic)document.getElementById(data.branches.length?'branches':'delivery').scrollIntoView({behavior:'smooth'});
+  }
  }catch(error){state.context=null;data.branches=[];renderBranches();$('#delivery-error').textContent=error.message;
   if(automatic){$('#saved-address-status').textContent=error.message;$('#retry-saved-address').hidden=false;status('تعذر تحميل متاجر العنوان','العنوان محفوظ. حاول تحميل المتاجر تاني من عنوان التوصيل.');}
  }

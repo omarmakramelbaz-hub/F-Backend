@@ -1,0 +1,97 @@
+[
+  {
+    "path": "public/storefront/fasakhansta-qr.png",
+    "sha256": "d5b29eb811bcb73e77d8864199ffbc25747f1353dce02ba8c58feaf73e248a16",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/fasakhansta-qr.svg",
+    "sha256": "49e01d1337b2b37207c60ea0090404a6739c4117f1792e588300f4a484b378b2",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/hero-motion-poster.webp",
+    "sha256": "0ddedd86b73717ccce6530322cfbe2c66ff97facbe3d201d0615f520dba64e09",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/hero-motion.mp4",
+    "sha256": "e94a31e6786fad9adfbb97e534f36859b052e79f1bae30a6896a14b5cd909dc1",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/motion-bold.woff",
+    "sha256": "3420bf3d11222f1977829b2fe4bb931908e3f19c38d37c3ec9f1de1fc00e9f6e",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/motion-logo.webp",
+    "sha256": "3c0c0f81f1e30f4ba55ce3d71f412bce59266e0f1f04b4269740dda3a0cb3cc0",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/motion-regular.woff",
+    "sha256": "7f862e2ee43725292eb45e97f484f45eb796c189f8e4144ad5480874553d0f88",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/motion.css",
+    "sha256": "db71b10d20f9446e61a5c5d4666bad6b21207aa0304bc200ac786f28d22e8c95",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/motion.js",
+    "sha256": "c296a4169214ba25e5b426e25ddb764d2d3f94c0c103b0c3f0e42f7cef08a539",
+    "baseline_sha256": null
+  },
+  {
+    "path": "public/storefront/storefront.js",
+    "sha256": "4bf2d3133c8ab1a4e75a522c6dcf2eece7b38d734e4590428febcb2249eb9c14",
+    "baseline_sha256": "1ce1f3a6997241e8074e0b31fa0539cbacd3cc05c69bcae3e0f8eeb2a4e88b45"
+  },
+  {
+    "path": "resources/views/site/home.blade.php",
+    "sha256": "ed9c803063049b4f9dea61f51e4cea3c253171772bf2965cc3d5f94c0c6633a7",
+    "baseline_sha256": "ea480281ee2acbf39f8d1fa3a41a0dae07888bb6e671dfe34a369c51d1b50b28"
+  },
+  {
+    "path": "resources/views/site/motion/app.blade.php",
+    "sha256": "17266e33c9f08faf3d1ddf7b57747aaf863fc71618af0509c05ef82dd12027b4",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/contact.blade.php",
+    "sha256": "f6cd5e7f40b464c9bbc666c6ae45d825f3ab02898ef86888d6e342fd1cc90778",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/directory.blade.php",
+    "sha256": "a56b79c1b80f64bb3d2fb6d088fc2ec07e40c7337b8a4ae993201eb4b90f0ce1",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/footer.blade.php",
+    "sha256": "ef8f9ccbd77cc1c9d4c323b5db245f41a96aee5f1f86eb0ec62e27f268f67ff0",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/header.blade.php",
+    "sha256": "a654e5de3f58d28ad33f698c6c62c8e520b585eac0903cc9f07bd3247d951531",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/hero.blade.php",
+    "sha256": "b9fd50daa1087903fc9e8ccbdec071fd4fae11a3cbf34633be11fcfba9e5648b",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/products.blade.php",
+    "sha256": "a187a601346ce412e02dafff25f50bba45a716cb64a35551e82ea5f74f5efc74",
+    "baseline_sha256": null
+  },
+  {
+    "path": "resources/views/site/motion/visit.blade.php",
+    "sha256": "3162e1851e6bc25bc909dc82facbb6d33130c1796f8b5d2a2babc8a5b501ed3b",
+    "baseline_sha256": null
+  }
+]

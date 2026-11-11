@@ -1,0 +1,104 @@
+name: Storefront motion UI deployment
+
+on:
+  push:
+    branches:
+      - codex/storefront-motion-live-20261111
+    paths:
+      - resources/views/site/home.blade.php
+      - resources/views/site/motion/header.blade.php
+      - resources/views/site/motion/hero.blade.php
+      - resources/views/site/motion/directory.blade.php
+      - resources/views/site/motion/products.blade.php
+      - resources/views/site/motion/visit.blade.php
+      - resources/views/site/motion/app.blade.php
+      - resources/views/site/motion/contact.blade.php
+      - resources/views/site/motion/footer.blade.php
+      - public/storefront/storefront.js
+      - public/storefront/motion.js
+      - public/storefront/motion.css
+      - public/storefront/motion-regular.woff
+      - public/storefront/motion-bold.woff
+      - public/storefront/motion-logo.webp
+      - public/storefront/hero-motion.mp4
+      - public/storefront/hero-motion-poster.webp
+      - public/storefront/fasakhansta-qr.png
+      - public/storefront/fasakhansta-qr.svg
+      - tests/storefront/**
+      - deployment/storefront-motion-20261111/**
+      - .github/workflows/storefront-motion-20261111.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fasakhansta-storefront-motion-production
+  cancel-in-progress: false
+
+jobs:
+  storefront:
+    if: github.repository == 'omarmakramelbaz-hub/F-Backend' && github.ref == 'refs/heads/codex/storefront-motion-live-20261111'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated storefront test dependencies
+        shell: bash
+        run: npm install --prefix "$RUNNER_TEMP/storefront-test-deps" --ignore-scripts --no-audit --no-fund happy-dom@21.0.4
+      - name: Validate storefront contract and deployment source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check public/storefront/storefront.js
+          node --check public/storefront/motion.js
+          NODE_PATH="$RUNNER_TEMP/storefront-test-deps/node_modules" node --test tests/storefront/*.test.cjs
+          bash -n deployment/storefront-motion-20261111/run_root.sh
+          python3 -m py_compile deployment/storefront-motion-20261111/install.py
+          python3 deployment/storefront-motion-20261111/install.py --revision "$GITHUB_SHA" --check-local "$GITHUB_WORKSPACE"
+      - name: Deploy only the pinned storefront UI
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY_B64: ${{ secrets.VPS_SSH_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$DEPLOY_SSH_KEY_B64"
+          [[ "$GITHUB_SHA" =~ ^[a-f0-9]{40}$ ]]
+          motion_work=$(mktemp -d "$RUNNER_TEMP/fasakhansta-storefront-motion.XXXXXXXX")
+          trap 'rm -f -- "$motion_work/key" "$motion_work/known_hosts" "$motion_work/run_root.sh"; rmdir -- "$motion_work"' EXIT
+          printf '%s' "$DEPLOY_SSH_KEY_B64" | tr -d '\r\n ' | base64 --decode > "$motion_work/key"
+          chmod 600 "$motion_work/key"
+          ssh-keygen -y -f "$motion_work/key" >/dev/null
+          motion_runner_sha=$(sha256sum deployment/storefront-motion-20261111/run_root.sh | cut -d ' ' -f 1)
+          motion_installer_sha=$(sha256sum deployment/storefront-motion-20261111/install.py | cut -d ' ' -f 1)
+          motion_manifest_sha=$(sha256sum deployment/storefront-motion-20261111/manifest.json | cut -d ' ' -f 1)
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 60 \
+            "https://raw.githubusercontent.com/omarmakramelbaz-hub/F-Backend/$GITHUB_SHA/deployment/storefront-motion-20261111/run_root.sh" \
+            -o "$motion_work/run_root.sh"
+          printf '%s  %s\n' "$motion_runner_sha" "$motion_work/run_root.sh" | sha256sum --check --status
+          motion_ssh=(-i "$motion_work/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$motion_work/known_hosts" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          motion_remote=$(ssh -T "${motion_ssh[@]}" root@187.127.92.124 'set -e; umask 077; test "$(hostname -s)" = srv1836524; test -d /home/fasakha/public_html; mktemp -d /var/tmp/fasakhansta-storefront-motion-runner.XXXXXXXX')
+          [[ "$motion_remote" =~ ^/var/tmp/fasakhansta-storefront-motion-runner\.[a-zA-Z0-9]{8}$ ]]
+          scp -q "${motion_ssh[@]}" "$motion_work/run_root.sh" "root@187.127.92.124:$motion_remote/run_root.sh"
+          ssh -T "${motion_ssh[@]}" root@187.127.92.124 bash -s -- "$motion_remote" "$motion_runner_sha" "$GITHUB_SHA" "$motion_installer_sha" "$motion_manifest_sha" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          motion_remote=$1
+          motion_runner_sha=$2
+          motion_revision=$3
+          motion_installer_sha=$4
+          motion_manifest_sha=$5
+          [[ "$motion_remote" =~ ^/var/tmp/fasakhansta-storefront-motion-runner\.[a-zA-Z0-9]{8}$ ]]
+          trap 'rm -f -- "$motion_remote/run_root.sh"; rmdir -- "$motion_remote"' EXIT
+          test "$(id -u)" -eq 0
+          test "$(hostname -s)" = srv1836524
+          printf '%s  %s\n' "$motion_runner_sha" "$motion_remote/run_root.sh" | sha256sum --check --status
+          bash "$motion_remote/run_root.sh" "$motion_revision" "$motion_installer_sha" "$motion_manifest_sha"
+          REMOTE
