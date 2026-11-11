@@ -16,3 +16,8 @@ storage/app/firebase.json
 public/firebase_credentials.json
 error_log
 *.log
+
+# Google service account keys: on the server only (storage/app), never in the repository or under public/.
+*firebase_credentials*
+*service-account*.json
+*serviceAccount*.json

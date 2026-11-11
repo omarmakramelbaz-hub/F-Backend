@@ -143,7 +143,8 @@ trait FcmFirebase {
 //     /** Resolve the Kreait Messaging service */
     protected function messaging(): Messaging
     {
-        $path = public_path('firebase_credentials.json');
+        // The private key lives outside the web folder (config/firebase.php), never under public/.
+        $path = config('firebase.credentials');
         // Ensure the file exists there
         $factory = (new Factory())->withServiceAccount($path);
         return $factory->createMessaging();
