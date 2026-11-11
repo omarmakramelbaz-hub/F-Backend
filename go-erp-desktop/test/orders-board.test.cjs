@@ -13,10 +13,9 @@ const GROUPS = ['new', 'preparing', 'courier', 'completed'];
 const USER = { id: 4, name: 'كاشير المعادي', account_type: 'admin', can_checkout: 1 };
 
 /** A card as resources/views/admin/orders/board_card.blade.php renders it. */
-function card({ id, status = 'pending', label = 'طلب جديد', actions = ['accept', 'reject'], notify = '', source = 'legacy' }) {
+function card({ id, status = 'pending', label = 'طلب جديد', actions = ['accept', 'reject'], notify = '', source = 'legacy', print = false }) {
   const key = `${source}:${id}`;
-  const form = actions.length ? `<form class="ob-order-actions" action="${ORIGIN}/admin/order-board/${source}/${id}/action" method="post" data-order-action data-desktop-board-generation="server"${
-    actions.includes('prepare') ? ` data-print-after="prepare" data-print-url="${ORIGIN}/admin/order-board/${source}/${id}/print"` : ''}>
+  const form = actions.length ? `<form class="ob-order-actions" action="${ORIGIN}/admin/order-board/${source}/${id}/action" method="post" data-order-action data-desktop-board-generation="server">
             <input type="hidden" name="_token" value="csrf-token">            <input type="hidden" name="expected_status" value="${status}">
             <input type="hidden" name="expected_accepted_notify" value="${notify}">
             <input type="hidden" name="expected_revision" value="">
@@ -29,7 +28,8 @@ ${actions.map((name) => `                    <button type="submit" name="action"
             <span class="ob-order-status">${label}</span>
     </div>
     <div class="ob-order-tools">
-            <a href="${ORIGIN}/admin/order-board/${source}/${id}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>عرض التفاصيل</a>
+            <a href="${ORIGIN}/admin/order-board/${source}/${id}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>عرض التفاصيل</a>${print ? `
+            <button type="button" class="ob-print-order" data-board-print="${ORIGIN}/admin/order-board/${source}/${id}/print"><i class="fas fa-print" aria-hidden="true"></i>طباعة الأوردر</button>` : ''}
         </div>
     ${form}
 </article>`;
@@ -94,7 +94,7 @@ test('an app order accepted offline moves to «قيد التجهيز» with its 
     'The next action checks the order as the dashboard will have it');
   assert.match(moved.html, /<span class="ob-order-status">قيد التجهيز<\/span>/);
   assert.match(moved.html, /data-device-pending/);
-  assert.match(moved.html, /data-print-after="prepare" data-print-url="\/admin\/order-board\/legacy\/1\/print"/, '«مندوب الفرع» prints it');
+  assert.ok(!/data-print-after/.test(moved.html), 'Nothing prints on sending it out');
   assert.match(moved.html, /name="_token" value="csrf-token"/);
   const [command] = store.pendingBoardCommands(USER.id);
   assert.deepEqual([command.source, command.order_id, command.order_number, command.action, command.from_group, command.to_group],
@@ -184,8 +184,11 @@ test('sent: a copy saved before shows the order as sent until it is read again; 
 });
 
 test('the print pages of the board\'s orders are known to the device, and the sending script is the page\'s own request', () => {
-  const { board, store } = setup();
-  assert.deepEqual(board.printPages(USER), [ORIGIN + '/admin/order-board/legacy/3/print']);
+  const { board, store, cache } = setup();
+  assert.deepEqual(board.printPages(USER), [], 'Nothing prints before it is with the courier');
+  const html = columns({ courier: [card({ id: 5, status: 'accepted', label: 'مع المندوب', actions: ['complete'], notify: 'yes', print: true })] });
+  cache.put('u:4', 'data', ORIGIN + '/admin/getOrders?search=&app=&branch=', 'application/json', Buffer.from(JSON.stringify({ html, view: html, counts: { courier: 1 } })));
+  assert.deepEqual(board.printPages(USER), [ORIGIN + '/admin/order-board/legacy/5/print']);
   const script = replayScript([{ id: 'a', source: 'legacy', order_id: 1, fields: { action: 'accept', expected_status: 'pending' } }]);
   assert.doesNotThrow(() => new Function(script));
   assert.match(script, /'\/admin\/order-board\/' \+ command\.source/);
@@ -216,11 +219,12 @@ test('on the dashboard\'s own board markup: accept, «مندوب الفرع» an
   const afterAccept = cardState(accepted.json.card.html);
   assert.deepEqual([afterAccept.actions, afterAccept.fields.expected_status, afterAccept.fields.expected_accepted_notify], [['prepare', 'dispatch'], 'pending', 'yes']);
   assert.equal(afterAccept.fields._token, 'csrf-token', 'The page\'s own form, token included');
-  assert.match(accepted.json.card.html, /data-print-after="prepare" data-print-url="\/admin\/order-board\/legacy\/1\/print"/);
+  assert.ok(!/data-print-after/.test(accepted.json.card.html), 'No print on «مندوب الفرع»');
   const branchCourier = await act(2, 'prepare');
   assert.deepEqual([branchCourier.json.card.from_group, branchCourier.json.card.group], ['preparing', 'courier']);
   assert.deepEqual(cardState(branchCourier.json.card.html).actions, ['complete']);
   assert.ok(!/data-print-after/.test(branchCourier.json.card.html), 'Delivered prints nothing');
+  assert.match(branchCourier.json.card.html, /<span>تم التسليم للمندوب<\/span>/, 'With the courier: «تم التسليم للمندوب»');
   const delivered = await act(3, 'complete');
   assert.deepEqual([delivered.json.card.from_group, delivered.json.card.group, cardState(delivered.json.card.html).actions], ['courier', 'completed', []]);
   // The same board read offline: every card where the device left it, and the counts with them.

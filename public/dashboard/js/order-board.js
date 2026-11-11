@@ -381,6 +381,22 @@
     board.querySelector('[data-board-retry]').addEventListener('click', function () { refresh(true); });
 
     columns.addEventListener('click', function (event) {
+        // «طباعة الأوردر» (with the courier): prints once; the button locks at once and the server keeps it locked.
+        var printButton = event.target.closest('[data-board-print]');
+        if (printButton) {
+            event.preventDefault();
+            if (printButton.disabled) return;
+            var address = printButton.getAttribute('data-board-print');
+            printButton.disabled = true;
+            printButton.classList.add('is-printed');
+            printButton.removeAttribute('data-board-print');
+            var done = document.createElement('i');
+            done.className = 'fas fa-check'; done.setAttribute('aria-hidden', 'true');
+            printButton.replaceChildren(done, document.createTextNode(document.documentElement.dir === 'rtl' ? 'تمت الطباعة' : 'Printed'));
+            printOrder(address);
+            setTimeout(function () { if (!disposed) refresh(false); }, 1500);
+            return;
+        }
         var printLink = event.target.closest('a[href]');
         if (printLink && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) {
             var printUrl = new URL(printLink.href, window.location.href);
@@ -457,7 +473,7 @@
         if ((action === 'reject' || action === 'cancel') && !window.confirm(translated('confirm_' + action))) return;
         var data = new FormData(actionForm);
         data.set('action', action);
-        // «مندوب الفرع» prints the order as it sends it out (the card has no print button).
+        // Printing is the card's own «طباعة الأوردر» once the order is with the courier (no print on sending it out).
         var printAfter = actionForm.dataset.printAfter === action ? actionForm.dataset.printUrl : '';
         try { journalCommand(actionForm, data); }
         catch (error) { notify(error.message || translated('error'), false, false); return; }

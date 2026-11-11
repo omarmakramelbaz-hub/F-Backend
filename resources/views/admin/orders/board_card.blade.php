@@ -59,10 +59,17 @@
         @if(!empty($card['urls']['details']))
             <a href="{{ $card['urls']['details'] }}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('order_board.details') }}</a>
         @endif
-        {{-- No print button: «مندوب الفرع» prints the order as it sends it out; its details page prints it again. --}}
+        {{-- An app order prints from here once it is with the courier; the button locks once it is printed. --}}
+        @if(($card['group'] ?? '') === 'courier' && in_array($card['source'] ?? '', \App\Services\Dashboard\OrderBoardPrinting::COURIER_STAGE_SOURCES, true))
+            @if(!empty($card['printed']))
+                <button type="button" class="ob-print-order is-printed" disabled><i class="fas fa-check" aria-hidden="true"></i>{{ app()->getLocale() === 'ar' ? 'تمت الطباعة' : 'Printed' }}</button>
+            @elseif(!empty($card['urls']['print']))
+                <button type="button" class="ob-print-order" data-board-print="{{ $card['urls']['print'] }}"><i class="fas fa-print" aria-hidden="true"></i>{{ app()->getLocale() === 'ar' ? 'طباعة الأوردر' : 'Print order' }}</button>
+            @endif
+        @endif
     </div>
     @if(!empty($actions) && !empty($card['urls']['action']))
-        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action data-desktop-board-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}"@if(($card['source'] ?? '') === 'legacy' && in_array('prepare', $actions, true) && !empty($card['urls']['print'])) data-print-after="prepare" data-print-url="{{ $card['urls']['print'] }}"@endif>
+        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action data-desktop-board-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}">
             @csrf
             <input type="hidden" name="expected_status" value="{{ $card['status'] }}">
             <input type="hidden" name="expected_accepted_notify" value="{{ $card['accepted_notify'] ?? '' }}">

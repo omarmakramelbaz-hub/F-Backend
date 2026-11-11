@@ -685,6 +685,8 @@ class OrderBoardService
                 $card['total'] = number_format($subtotal + $delivery + $tax + $serviceFee, 2, '.', '');
                 $card['actions'] = $this->legacyActions($row, $restaurant !== null);
                 $card['action_labels'] = ['prepare'=>'مندوب الفرع', 'dispatch'=>'طلب مندوب'];
+                // With the courier, the branch's last step is handing it over: the order is then finished.
+                if ($card['group'] === 'courier') $card['action_labels']['complete'] = 'تم التسليم للمندوب';
                 if ($this->awaitingLegacyPayment($row)) $card['action_labels']['cancel'] = 'إلغاء طلب غير مدفوع';
             }
             $card['payment_label'] = $this->payment($row->payment_type ?? '');
@@ -727,7 +729,12 @@ class OrderBoardService
         }
         if ($this->printingPolicy === null) $this->printingPolicy = app(OrderBoardPrinting::class);
         $card['can_print'] = $this->printingPolicy->allowed($source, $row, $actor);
+        // An app order prints once it is with the courier, not while it is still being prepared.
+        if (in_array($source, OrderBoardPrinting::COURIER_STAGE_SOURCES, true) && $card['group'] !== 'courier') $card['can_print'] = false;
         if (!$card['can_print']) $card['urls']['print'] = null;
+        // The card's print button locks once the order is printed (the owner may still reprint from its details).
+        $card['printed'] = $card['group'] === 'courier' && in_array($source, OrderBoardPrinting::COURIER_STAGE_SOURCES, true)
+            && $this->printingPolicy->ready() && $this->printingPolicy->printed($source, $row);
         if ($this->itemsEditor === null) $this->itemsEditor = app(OrderBoardItems::class);
         if ($this->itemsEditor->available($source, $row, $actor)) {
             $card['urls']['items'] = route('order-board.items', [$source, $row->id]);
@@ -756,6 +763,12 @@ class OrderBoardService
         $origin = !empty($row->source_app) ? $row->source_app : ($row->app_scope ?? null);
         if ($origin === null || $origin === '') $origin = $customer->app_scope ?? 'fasakhansta';
         return in_array($origin, ['go','go_customer','go_partner','go_drive'], true) ? 'go' : 'fasakhansta';
+    }
+
+    /** The board column an order is in: new, preparing, courier or completed. */
+    public function stage(string $source, object $row): string
+    {
+        return $this->group($source, $row);
     }
 
     private function group(string $source, object $row): string

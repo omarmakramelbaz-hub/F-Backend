@@ -270,7 +270,7 @@ class DashboardOrderBoardTest extends TestCase
             ['id' => 94, 'name' => 'فرع المحلة', 'user_id' => 11, 'parent_id' => null]]);
         foreach ([[50, 301], [51, 94]] as [$id, $branch]) DB::table('users')->insert(['id' => $id, 'name' => 'Branch '.$branch,
             'account_type' => 'admin', 'app_scope' => 'fasakhansta', 'status' => 'accepted', 'owner_resturant_id' => $branch]);
-        $this->legacy(1, ['resturant_id' => 301, 'status' => 'accepted']);$this->legacy(2, ['resturant_id' => 310, 'status' => 'accepted']);
+        $this->legacy(1, ['resturant_id' => 301, 'status' => 'accepted', 'delegate_from_out' => 'in_resturant']);$this->legacy(2, ['resturant_id' => 310, 'status' => 'accepted', 'delegate_from_out' => 'in_resturant']);
         $cards = collect($this->cards($this->board(1)))->keyBy('id');
         $this->assertStringEndsWith('/legacy/2/print-remote', $cards[2]['urls']['print'], "a store's order goes to Shubra's printer");
         $this->assertStringEndsWith('/legacy/1/print', $cards[1]['urls']['print'], "Shubra's own order prints where it is handled, as before");
@@ -482,27 +482,35 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertSame(3, $this->board(1)['counts']['courier']);
     }
 
-    public function test_branch_courier_prints_the_order_and_cards_have_no_print_button(): void
+    public function test_an_app_order_prints_once_from_its_card_when_it_is_with_the_courier(): void
     {
+        if (!Schema::hasTable('branch_operation_commands')) { require_once database_path('migrations/2026_10_04_080000_create_branch_operations.php'); (new \CreateBranchOperations)->up(); }
         $this->legacy(1, ['status'=>'pending', 'accepted_notify'=>'yes']);
         $this->legacy(2, ['status'=>'accepted', 'accepted_notify'=>'yes', 'delegate_from_out'=>'in_resturant']);
         $this->actingAs($this->actor(10), 'admin');
         $service = app(OrderBoardService::class);
+        // Being prepared: no print anywhere, and «مندوب الفرع» sends it out without printing.
         $preparing = $service->detail('legacy', 1, $this->actor(10));
         $this->assertSame(['prepare', 'dispatch'], $preparing['actions']);
-        $this->assertSame('مندوب الفرع', $preparing['action_labels']['prepare']);
+        $this->assertNull($preparing['urls']['print']);
         $html = view('admin.orders.board_card', ['card'=>$preparing])->render();
-        // «مندوب الفرع» prints the order as it sends it out: the form carries the order's print page.
-        $print = route('order-board.print', ['legacy', 1]);
-        $this->assertStringContainsString('data-print-after="prepare" data-print-url="'.e($print).'"', $html);
-        $this->assertStringNotContainsString('fa-print', $html, 'No print button on the card');
-        $this->assertStringNotContainsString('href="'.e($print).'"', $html);
-        // An order with the courier: no print button and nothing printed by its actions.
-        $courier = view('admin.orders.board_card', ['card'=>$service->detail('legacy', 2, $this->actor(10))])->render();
-        $this->assertStringNotContainsString('fa-print', $courier);
-        $this->assertStringNotContainsString('data-print-after', $courier);
-        // The order's details page still prints it again.
-        $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertSee($print, false);
+        $this->assertStringNotContainsString('data-print-after', $html);
+        $this->assertStringNotContainsString('data-board-print', $html);
+        $this->get(route('order-board.print', ['legacy', 1]))->assertStatus(422);
+        $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertDontSee('طباعة الطلب')->assertDontSee('متابعة الطلبات');
+        // With the courier: the card prints it; handing it over finishes it.
+        $courier = $service->detail('legacy', 2, $this->actor(10));
+        $this->assertSame('تم التسليم للمندوب', $courier['action_labels']['complete']);
+        $print = route('order-board.print', ['legacy', 2]);
+        $html = view('admin.orders.board_card', ['card'=>$courier])->render();
+        $this->assertStringContainsString('data-board-print="'.e($print).'"', $html);
+        $this->assertStringContainsString('تم التسليم للمندوب', $html);
+        $this->get($print)->assertOk();
+        // Printed: the card's button is locked, and a second print is refused to a branch.
+        $printed = view('admin.orders.board_card', ['card'=>$service->detail('legacy', 2, $this->actor(10))])->render();
+        $this->assertStringNotContainsString('data-board-print', $printed);
+        $this->assertStringContainsString('تمت الطباعة', $printed);
+        $this->get($print)->assertForbidden();
     }
 
     public function test_the_desktop_app_reads_the_board_markup_of_this_fixture_offline(): void
@@ -541,6 +549,8 @@ class DashboardOrderBoardTest extends TestCase
         $detail = $this->get(route('order-board.details', ['legacy', 1]))->assertOk()->assertSee('17,500.00')->assertSee('18,043.12');
         // The invoice viewer (customer history, invoice review) opens the details view; the printed copy is not one.
         $detail->assertSee('data-dashboard-invoice-details', false);
+        // The order prints once it is with the courier.
+        DB::table('orders')->where('id', 1)->update(['status' => 'accepted', 'delegate_from_out' => 'in_resturant']);
         $print = $this->get(route('order-board.print', ['legacy', 1]))->assertOk()->assertSee('17,500.00')->assertSee('18,043.12');
         $card = $print->viewData('card');
         $this->assertSame($detail->viewData('card')['items'], $card['items']);
@@ -603,6 +613,7 @@ class DashboardOrderBoardTest extends TestCase
                 return $card['source'] === 'store' && $card['id'] === 200
                     && $card['total'] === '100.00' && $card['items'][0]['name'] === 'Checkout product';
             });
+        DB::table('go_store_orders')->where('id', 200)->update(['status' => 'out_for_delivery']);
         $this->get(route('order-board.print', ['store', 200]))->assertOk()
             ->assertViewHas('printing', true)->assertViewHas('card', function (array $card) {
                 return $card['address'] === 'Checkout address، الدور 3، شقة 7';

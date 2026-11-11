@@ -153,6 +153,9 @@
 .ob-order-tools { display: flex; gap: 5px; }
 .ob-order-tools a { display: flex; align-items: center; justify-content: center; gap: 4px; color: #354250; background: #fff; border: 1px solid #e0e5eb; border-radius: 4px; min-height: 32px; padding: 3px 4px; font-size: 11px; text-decoration: none; flex: 1; line-height: 1.4; }
 .ob-order-tools a:hover { background: #f1f5f9; border-color: #b6c0cb; color: #18222e; }
+.ob-print-order { display: flex; align-items: center; justify-content: center; gap: 4px; flex: 1; min-height: 32px; padding: 3px 4px; border: 1px solid #f57800; border-radius: 4px; background: #fff7ee; color: #b85600; font: inherit; font-size: 11px; font-weight: 700; line-height: 1.4; cursor: pointer; }
+.ob-print-order:hover { background: #f57800; color: #fff; }
+.ob-print-order.is-printed, .ob-print-order:disabled { border-color: #d5dbe2; background: #eef1f4; color: #7a8796; cursor: not-allowed; }
 .ob-order-actions { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 5px; }
 .ob-action { display: flex; justify-content: center; align-items: center; gap: 4px; flex: 1 1 40%; min-width: 0; padding: 3px 4px; min-height: 32px; background: #13844a; border: 1px solid #13844a; border-radius: 4px; color: #fff; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; line-height: 1.4; }
 .ob-action:hover { background: #0b6a38; }

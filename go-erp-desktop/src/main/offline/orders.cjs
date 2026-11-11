@@ -18,7 +18,7 @@ const LABELS = { accept: 'قبول وإرسال للمطبخ', reject: 'رفض �
 // its column, status, label, and the actions it offers next.
 const LEGACY = {
   accept: { group: 'preparing', status: 'pending', notify: 'yes', label: 'قيد التجهيز', next: ['prepare', 'dispatch'] },
-  prepare: { group: 'courier', status: 'accepted', notify: 'yes', label: 'مع المندوب', next: ['complete'] },
+  prepare: { group: 'courier', status: 'accepted', notify: 'yes', label: 'مع المندوب', next: ['complete'], labels: { complete: 'تم التسليم للمندوب' } },
   dispatch: { label: 'بانتظار مندوب التطبيق', next: [] },
   complete: { group: 'completed', status: 'completed', label: 'تم التسليم', next: [] },
   cancel: { group: 'completed', status: 'cancelled', label: 'ملغي', next: [] },
@@ -97,8 +97,8 @@ function nextCard(card, source, action, orderId) {
   let form = '';
   if (next.length && state.form) {
     const open = /^<form\b[^>]*>/.exec(state.form)[0].replace(/\s+data-print-after="[^"]*"/, '').replace(/\s+data-print-url="[^"]*"/, '');
-    const print = `/admin/order-board/legacy/${orderId}/print`;
-    const opening = next.includes('prepare') ? open.replace(/>$/, ` data-print-after="prepare" data-print-url="${escapeHtml(print)}">`) : open;
+    // Nothing prints on sending it out: the card's own «طباعة الأوردر» prints it once it is with the courier (online).
+    const opening = open;
     const token = /<input\b[^>]*\bname="_token"[^>]*>/.exec(state.form);
     const fields = { expected_status: status, expected_accepted_notify: legacy.notify ?? state.fields.expected_accepted_notify ?? '',
       expected_revision: state.fields.expected_revision ?? '' };
@@ -106,7 +106,7 @@ function nextCard(card, source, action, orderId) {
       + Object.entries(fields).map(([name, value]) => `<input type="hidden" name="${name}" value="${escapeHtml(value)}">`).join('')
       + next.map((name) => `<button type="submit" name="action" value="${name}" class="ob-action ob-action-${name}"><i class="fas ${
         ['reject', 'cancel'].includes(name) ? 'fa-times' : ['dispatch', 'prepare'].includes(name) ? 'fa-motorcycle' : 'fa-check'}" aria-hidden="true"></i><span>${
-        escapeHtml(LABELS[name] || name)}</span></button>`).join('') + '</form>';
+        escapeHtml((legacy.labels && legacy.labels[name]) || LABELS[name] || name)}</span></button>`).join('') + '</form>';
   }
   html = state.form ? html.replace(state.form, () => form) : html;
   return { html, group: legacy && legacy.group ? legacy.group : null };
@@ -279,7 +279,7 @@ class OrdersBoardOffline {
       card: { key, from_group: found.group, group, html: next.html } } };
   }
 
-  /** The print pages of the orders on the saved board that «مندوب الفرع» may print offline (saved while online). */
+  /** The print pages of the orders on the saved board that may print offline: those already with the courier (saved while online). */
   printPages(user, limit = 30) {
     const saved = this.savedBoard(user);
     if (!saved) return [];

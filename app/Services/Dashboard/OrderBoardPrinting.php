@@ -12,6 +12,9 @@ class OrderBoardPrinting
     private TakeawayAccess $access;
     private ?bool $schemaReady = null;
 
+    /** App orders print only once they are with the courier (the board's «مع المندوب» column). */
+    public const COURIER_STAGE_SOURCES = ['legacy', 'store'];
+
     public function __construct(TakeawayAccess $access) { $this->access = $access; }
 
     public function ready(): bool
@@ -84,6 +87,8 @@ class OrderBoardPrinting
                 : ($this->access->canReprintReceipts($actor) || (!$printed && !$this->ended($source, $row)));
             abort_unless($allowed,
                 403, 'إعادة طباعة الفاتورة متاحة للمالك أو الإدارة فقط.');
+            abort_if(in_array($source, self::COURIER_STAGE_SOURCES, true) && $board->stage($source, $row) !== 'courier'
+                && !$this->access->canReprintReceipts($actor), 422, 'طباعة الطلب متاحة لما يكون مع المندوب.');
             $branchPrint = $remote && $source === 'legacy' ? AppOrderBranchPrinting::remoteBranch($row) : null;
             abort_if($remote && !$branchPrint, 422, 'هذا الطلب يطبع على هذا الجهاز.');
             $queued = $branchPrint ? app(AppOrderBranchPrinting::class)->enqueue($branchPrint, $id, (int) $actor->id) : null;

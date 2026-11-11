@@ -24,7 +24,7 @@
     <div class="ob-order-tools">
                             <a href="http://localhost/admin/order-board/legacy/1" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>عرض التفاصيل</a>
                 
-    </div>
+            </div>
             <form class="ob-order-actions" action="http://localhost/admin/order-board/legacy/1/action" method="post" data-order-action data-desktop-board-generation="server">
             <input type="hidden" name="_token" value="csrf-token">            <input type="hidden" name="expected_status" value="pending">
             <input type="hidden" name="expected_accepted_notify" value="">
@@ -66,8 +66,8 @@
     <div class="ob-order-tools">
                             <a href="http://localhost/admin/order-board/legacy/2" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>عرض التفاصيل</a>
                 
-    </div>
-            <form class="ob-order-actions" action="http://localhost/admin/order-board/legacy/2/action" method="post" data-order-action data-desktop-board-generation="server" data-print-after="prepare" data-print-url="http://localhost/admin/order-board/legacy/2/print">
+            </div>
+            <form class="ob-order-actions" action="http://localhost/admin/order-board/legacy/2/action" method="post" data-order-action data-desktop-board-generation="server">
             <input type="hidden" name="_token" value="csrf-token">            <input type="hidden" name="expected_status" value="pending">
             <input type="hidden" name="expected_accepted_notify" value="yes">
             <input type="hidden" name="expected_revision" value="0">
@@ -108,12 +108,13 @@
     <div class="ob-order-tools">
                             <a href="http://localhost/admin/order-board/legacy/3" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>عرض التفاصيل</a>
                 
-    </div>
+                                    <button type="button" class="ob-print-order" data-board-print="http://localhost/admin/order-board/legacy/3/print"><i class="fas fa-print" aria-hidden="true"></i>طباعة الأوردر</button>
+                        </div>
             <form class="ob-order-actions" action="http://localhost/admin/order-board/legacy/3/action" method="post" data-order-action data-desktop-board-generation="server">
             <input type="hidden" name="_token" value="csrf-token">            <input type="hidden" name="expected_status" value="accepted">
             <input type="hidden" name="expected_accepted_notify" value="yes">
             <input type="hidden" name="expected_revision" value="0">
-                                                            <button type="submit" name="action" value="complete" class="ob-action ob-action-complete"><i class="fas fa-check" aria-hidden="true"></i><span>تم التسليم للعميل</span></button>
+                                                            <button type="submit" name="action" value="complete" class="ob-action ob-action-complete"><i class="fas fa-check" aria-hidden="true"></i><span>تم التسليم للمندوب</span></button>
                                     </form>
         </article>
                     </div>
