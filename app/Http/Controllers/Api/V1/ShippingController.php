@@ -69,21 +69,23 @@ class ShippingController extends Controller {
                         $order->id,
                         $order->user_address?->mobile);
              }else if($request->payment_type == 'wallet'){
-                 if(auth('api')->user()->balance >= $order->grand_total){
+                 // Taken in one step, only while the balance covers it: two requests at once never spend the same money.
+                 $amount = $order->grand_total;
+                 if(\Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
                      Wallet::create([
                          'from_user' => auth('api')->user()->id,
                          'to_user' => null,
                          'status' => 'completed',
                          'payment' => 'wallet',
                          'type' => 'transfer',
-                         'amount' => $order->grand_total,
+                         'amount' => $amount,
                          'order_id'=>$order->id
                          ]);
                     $order->update([
                         'status' => 'pending',
                         ]);
-                    $user=auth('api')->user();
-                    $user->update(['balance'=>$user->balance-$order->grand_total]);
+                    $customer = User::withoutGlobalScopes()->find(auth('api')->id());
+                    if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
                      $this->searchDelegates($order->id);
                     // (new \App\Http\Controllers\Dashboard\OrderController)->transferPrice($order->id);
                  }
@@ -119,7 +121,9 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
       
          if($order  && $order->grand_total > 0){
            
-             $updated = $order->update($request->input()+[ 'created_at' => now()]);
+             // Only what the customer chooses at payment: never the price agreed before, the parties or the order's state.
+             $updated = $order->update($request->except(array_merge(\App\Services\Orders\CustomerOrderFields::SERVER_DECIDES,
+                 \App\Services\Orders\CustomerOrderFields::SHIPPING_PAYMENT_DECIDES)) + ['created_at' => now()]);
              $order_data=new OrderResource($order);
               
                 
@@ -137,21 +141,23 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
                         $order->id,
                         $order->user_address?->mobile);
              }else if($request->payment_type == 'wallet'){
-                 if(auth('api')->user()->balance >= $order->grand_total){
+                 // Taken in one step, only while the balance covers it: two payments at once never spend the same money.
+                 $amount = $order->grand_total;
+                 if(\Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
                      Wallet::create([
                          'from_user' => auth('api')->user()->id,
                          'to_user' => null,
                          'status' => 'completed',
                          'payment' => 'wallet',
                          'type' => 'transfer',
-                         'amount' => $order->grand_total,
+                         'amount' => $amount,
                          'order_id'=>$order->id
                          ]);
-                    $user=auth('api')->user();
                       $order->update([
                         'status' => 'pending',
                         ]);
-                    $user->update(['balance'=>$user->balance-$order->grand_total]);
+                    $customer = User::withoutGlobalScopes()->find(auth('api')->id());
+                    if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
                     return $this->searchDelegates($order->id);
                  }
                  else{

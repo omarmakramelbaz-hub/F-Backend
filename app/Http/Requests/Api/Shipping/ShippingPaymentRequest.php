@@ -30,7 +30,7 @@ class ShippingPaymentRequest extends FormRequest
     public function rules()
     {
         return [
-            'payment_type'=>'required',
+            'payment_type'=>'required|in:'.implode(',', \App\Services\Orders\CustomerOrderFields::PAYMENT_TYPES),
             
 
         ];

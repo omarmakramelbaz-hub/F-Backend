@@ -51,10 +51,7 @@ class CartController extends Controller
      * which branch, its kind and state, its totals and taxes, its courier and payment records. The order takes every
      * other field the app sends (the address, schedule, payment type, notes, delivery price) as before.
      */
-    private const ORDER_FIELDS_THE_SERVER_DECIDES = ['id', 'user_id', 'resturant_id', 'status', 'type', 'order_no', 'shift_sequence',
-        'shift_order_number', 'total', 'updated_total', 'grand_total', 'service_fees', 'user_tax', 'tax', 'vendor_tax', 'delegate_id',
-        'transfer_price_by', 'shipping_id', 'shipping_cancelled_block', 'expiration_date', 'connected', 'paymob_order_id',
-        'accepted_notify', 'declined_by', 'reason', 'wallet_id', 'created_at', 'updated_at', 'deleted_at'];
+    private const ORDER_FIELDS_THE_SERVER_DECIDES = \App\Services\Orders\CustomerOrderFields::SERVER_DECIDES;
 
     //  ===================================================================================
     //  =============================================cart==================================
@@ -766,40 +763,25 @@ class CartController extends Controller
 
     public function Commission_order_delegate(ComessionOrderDelegateRequest $request)
     {
-        $order = Order::find($request->order_id);
         $user = auth('api')->user();
-        if ($order && $order->status == 'completed' && $order->delegate) {
-            if ($user->balance >= $request->commission) {
-                $commission = Commission::create([
-                    'user_id' => $user->id,
-                    'delegate_id' => $order->delegate_id,
-                    'order_id' => $request->order_id,
-                    'commission' => $request->commission,
-                ]);
-                Wallet::create([
-                    'order_id' => $order->id,
-                    'from_user' => $user->id,
-                    'to_user' => $order->delegate_id,
-                    'amount' => $request->commission,
-                    'type' => 'transfer',
-                    'payment' => 'wallet',
-                    'status' => 'completed',
-                ]);
-                $delegate = $order->delegate;
-                $delegate->balance = $delegate->balance + $request->commission;
-                $delegate->save();
-                $user->balance = $user->balance - $request->commission;
-                $user->save();
-                //send notification for delegate -> user sent commission
-                $delegate = User::where('id', $order->delegate_id)->first();
-                if ($delegate) {
-                    Notification::send($delegate, new \App\Notifications\NotifyDelegateCommissionSentNotification($commission));
-                }
-                return $this->successResponse($commission, __('api.Your commesion sent successfully'));
-            }
-            return $this->errorResponse(__('api.cannot add commesion charge your wallet first'));
+        $amount = round((float) $request->commission, 2);
+        // Only the order's own customer tips its courier, a positive amount (the request refuses any other).
+        $order = Order::withoutGlobalScopes()->whereKey($request->order_id)->where('user_id', $user->id)->first();
+        if (!$order || $order->status !== 'completed' || !$order->delegate_id || $amount <= 0) {
+            return $this->errorResponse(__('api.cannot add commesion now'));
         }
-        return $this->errorResponse(__('api.cannot add commesion now'));
+        $commission = DB::transaction(function () use ($order, $user, $amount) {
+            // Taken in one step, only while the balance covers it: two tips at once never spend the same money.
+            if (!DB::table('users')->where('id', $user->id)->where('balance', '>=', $amount)->decrement('balance', $amount)) return null;
+            DB::table('users')->where('id', $order->delegate_id)->increment('balance', $amount);
+            Wallet::create(['order_id' => $order->id, 'from_user' => $user->id, 'to_user' => $order->delegate_id, 'amount' => $amount,
+                'type' => 'transfer', 'payment' => 'wallet', 'status' => 'completed']);
+            return Commission::create(['user_id' => $user->id, 'delegate_id' => $order->delegate_id, 'order_id' => $order->id, 'commission' => $amount]);
+        });
+        if (!$commission) return $this->errorResponse(__('api.cannot add commesion charge your wallet first'));
+        $delegate = User::withoutGlobalScopes()->find($order->delegate_id);
+        if ($delegate) Notification::send($delegate, new \App\Notifications\NotifyDelegateCommissionSentNotification($commission));
+        return $this->successResponse($commission, __('api.Your commesion sent successfully'));
     }
 
 
