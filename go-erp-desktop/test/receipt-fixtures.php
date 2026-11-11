@@ -33,6 +33,9 @@ if (($argv[1] ?? '') === 'labels') {
         'phone_orders' => $pick('phone_orders', ['title', 'app_delivery_distance', 'branch_tariff_fixed', 'branch_tariff_free', 'branch_tariff_per_km', 'currency',
             'batch_receipt', 'courier_company', 'courier_name', 'cashier', 'saved_number', 'total', 'payment_method', 'cash', 'cash_received', 'change',
             'payment_reference', 'batch_paid_note']),
+        'receipt' => $pick('receipt', ['app', 'delivery_company', 'courier', 'amount_pending', 'preparation_notes', 'phone_short', 'kitchen_short',
+            'mobile_short', 'address_short', 'line_total_short', 'total_short', 'currency_short', 'paid_short']),
+        'order_board' => $pick('order_board', ['payment_failed', 'payment_paid']),
         'phone_batch' => $pick('phone_batch', ['orders_column', 'delivery_column', 'total_column', 'orders_total', 'delivery_total', 'grand_total', 'breakdown_unavailable']),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n";
     exit;

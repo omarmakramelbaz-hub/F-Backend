@@ -1,6 +1,7 @@
 'use strict';
-// The dashboard's print pages for what this device saved while offline: the receipt (admin/takeaway/receipt.blade.php),
-// an order's bill before payment (admin/pos_service/ticket.blade.php), the kitchen ticket (admin/pos_service/kitchen.blade.php)
+// The dashboard's print pages for what this device saved while offline: the receipt (admin/printing/receipt.blade.php,
+// shared by admin/takeaway/receipt), an order's bill before payment (admin/pos_service/ticket.blade.php), the kitchen ticket
+// (admin/pos_service/kitchen.blade.php, the receipt's kitchen copy)
 // and the courier's receipt for delivery orders collected together (admin/phone_orders/batch_receipt.blade.php),
 // with the same layout, texts, style and print sizes. test/receipt-fixtures.php renders the dashboard's own pages for
 // sample invoices and the tests compare both.
@@ -9,7 +10,6 @@ const path = require('node:path');
 const labels = require('./labels.json');
 
 const STYLE = fs.readFileSync(path.join(__dirname, 'receipt.css'), 'utf8');
-const KITCHEN_STYLE = fs.readFileSync(path.join(__dirname, 'kitchen.css'), 'utf8');
 const CAIRO = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
@@ -37,131 +37,144 @@ function cairoTime(value) {
   return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
-const positive = (value) => Number.parseFloat(String(value ?? '0')) > 0;
 const filled = (value) => value !== undefined && value !== null && value !== '' && value !== false && value !== '0' && value !== 0
   && !(Array.isArray(value) && value.length === 0);
 
-/** admin.pos_service.context: the invoice's dine-in or delivery details. */
+const compactMoney = (value) => money(value).replace(/0+$/, '').replace(/\.+$/, '');
+const isset = (value) => value !== undefined && value !== null;
+const numberOf = (value) => Number.parseFloat(String(value ?? '0')) || 0;
+
+/** admin.printing.receipt_context: who the order is for and how it goes out. */
 function contextRows(channel, context) {
-  let html = `<div><dt>${e(t('pos_service.channel'))}</dt><dd>${e(t('pos_service.' + (channel || 'takeaway')))}</dd></div>`;
+  let html = '';
+  if (filled(context.customer_name)) html += `<div><dt>${e(t('pos_service.customer'))}</dt><dd>${e(context.customer_name)}</dd></div>`;
+  if (filled(context.customer_phone)) html += `<div><dt>${e(t('receipt.mobile_short'))}</dt><dd><bdi>${e(context.customer_phone)}</bdi></dd></div>`;
   if (channel === 'dine') {
-    if (filled(context.customer_name)) html += `<div><dt>${e(t('pos_service.customer'))}</dt><dd>${e(context.customer_name)}</dd></div>`;
     if (context.table && filled(context.table.name)) html += `<div><dt>${e(t('pos_service.table'))}</dt><dd>${e(context.table.name)}</dd></div>`;
     if (filled(context.waiter_name)) html += `<div><dt>${e(t('pos_service.waiter'))}</dt><dd>${e(context.waiter_name)}</dd></div>`;
     if (filled(context.guest_count)) html += `<div><dt>${e(t('pos_service.guests'))}</dt><dd><bdi>${e(context.guest_count)}</bdi></dd></div>`;
-  } else if (channel === 'phone') {
-    if (filled(context.customer_name)) html += `<div><dt>${e(t('pos_service.customer'))}</dt><dd>${e(context.customer_name)}</dd></div>`;
-    if (filled(context.customer_phone)) html += `<div><dt>${e(t('pos_service.phone_number'))}</dt><dd><bdi>${e(context.customer_phone)}</bdi></dd></div>`;
-    if (filled(context.area)) html += `<div><dt>${e(t('pos_service.area'))}</dt><dd>${e(context.area)}</dd></div>`;
-    if (filled(context.address)) html += `<div class="full-width"><dt>${e(t('pos_service.address'))}</dt><dd>${e(context.address)}</dd></div>`;
-    if (filled(context.delivery_notes)) html += `<div class="full-width"><dt>${e(t('pos_service.delivery_notes'))}</dt><dd>${e(context.delivery_notes)}</dd></div>`;
   }
-  if (filled(context.delivery_company)) {
-    html += `<div><dt>شركة التوصيل</dt><dd>${e(context.delivery_company.name)} · <bdi>${e(context.delivery_company.phone)}</bdi></dd></div>`;
-  }
-  const location = context.delivery_location;
-  if (location && typeof location === 'object' && Object.keys(location).length) {
-    html += `<div><dt>مسافة التوصيل</dt><dd><bdi>${e(location.distance_km)}</bdi> كم\n`;
-    if ((location.method ?? '') === 'app_direct') {
-      const rule = location.pricing_rule ?? '';
-      const tariff = rule === 'app_branch_tier' ? 'branch_tariff_fixed' : (rule === 'app_zero_rate' ? 'branch_tariff_free' : 'branch_tariff_per_km');
-      html += ` · ${e(t('phone_orders.app_delivery_distance'))} · ${e(t('phone_orders.' + tariff))}\n`;
-      if (!['app_branch_tier', 'app_zero_rate'].includes(rule)) html += `<bdi>${e(location.km_price)}</bdi> ${e(t('phone_orders.currency'))}`;
-    } else {
-      html += ` × <bdi>${e(location.km_price)}</bdi> ج.م / كم\n`;
+  if (filled(context.area)) html += `<div><dt>${e(t('pos_service.area'))}</dt><dd>${e(context.area)}</dd></div>`;
+  if (filled(context.address)) html += `<div><dt>${e(t('receipt.address_short'))}</dt><dd>${e(context.address)}</dd></div>`;
+  if (filled(context.delivery_notes)) html += `<div><dt>${e(t('pos_service.delivery_notes'))}</dt><dd>${e(context.delivery_notes)}</dd></div>`;
+  for (const [key, label] of [['delivery_company', 'receipt.delivery_company'], ['courier', 'receipt.courier']]) {
+    const party = context[key];
+    if (party && typeof party === 'object' && filled(party.name)) {
+      html += `<div><dt>${e(t(label))}</dt><dd>${e(party.name)}${filled(party.phone) ? ` · <bdi>${e(party.phone)}</bdi>` : ''}</dd></div>`;
     }
-    html += `</dd></div><div><dt>موقع العميل</dt><dd><bdi>${e(location.latitude)}, ${e(location.longitude)}</bdi></dd></div>`;
   }
   return html;
 }
 
-function summaryRow(label, value, extraClass = '') {
-  return `<div class="summary-row${extraClass}"><span>${label}</span><span class="summary-value"><bdi>${e(money(value))}</bdi><small class="currency">${e(t('takeaway.currency'))}</small></span></div>`;
+/** admin.printing.receipt_items */
+function itemRows(receipt, kitchenCopy, showUnitPrices) {
+  let html = `<table class="ft-items ${!kitchenCopy && !showUnitPrices ? 'ft-no-price ' : ''}">`;
+  html += '<colgroup><col class="ft-name-col"><col class="ft-qty-col">';
+  if (!kitchenCopy) html += `${showUnitPrices ? '<col class="ft-price-col">' : ''}<col class="ft-amount-col">`;
+  html += `</colgroup><thead><tr><th scope="col">${e(t('takeaway.item'))}</th><th scope="col" class="ft-qty">${e(t('takeaway.quantity_short'))}</th>`;
+  if (!kitchenCopy) {
+    if (showUnitPrices) html += `<th scope="col" class="ft-price">${e(t('takeaway.price'))}</th>`;
+    html += `<th scope="col" class="ft-amount">${e(t('receipt.line_total_short'))}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for (const item of receipt.items) {
+    let quantity = item.display_quantity ?? (item.quantity_mode === 'piece' ? String(item.quantity).split('.')[0] : item.quantity);
+    if (String(quantity).includes('.')) quantity = String(quantity).replace(/0+$/, '').replace(/\.+$/, '');
+    const unit = item.quantity_unit ?? (isset(item.quantity_mode) ? t('takeaway.' + (item.quantity_mode === 'weight' ? 'kg' : 'piece')) : '');
+    html += `<tr><td><span class="ft-item-label"><strong class="ft-item-name">${e(item.name)}</strong>`;
+    if (filled(item.option_label)) html += `<span class="ft-option"> · ${e(item.option_label)}</span>`;
+    html += `</span></td><td class="ft-qty"><span class="ft-cell-value"><bdi>${e(quantity)}</bdi>${unit !== '' ? ` <span class="ft-unit">${e(unit)}</span>` : ''}</span></td>`;
+    if (!kitchenCopy) {
+      if (showUnitPrices) html += `<td class="ft-price"><span class="ft-cell-value"><bdi>${e(compactMoney(item.unit_price ?? null))}</bdi></span></td>`;
+      html += `<td class="ft-amount"><span class="ft-cell-value"><bdi>${e(compactMoney(item.total ?? item.line_total ?? null))}</bdi></span></td>`;
+    }
+    html += '</tr>';
+  }
+  return html + '</tbody></table>';
 }
 
+const sumRow = (label, amount) => `<div class="ft-sum"><span>${label}</span><span class="ft-value"><bdi>${e(money(amount))}</bdi></span></div>`;
+
 /**
- * receipt: the dashboard's receipt array (TakeawayService::presentReceipt). origin: the dashboard's address, for the
- * logo. preview: the details view; dashboardPrint: printed from the dashboard's hidden frame (no automatic print).
+ * admin.printing.receipt (the receipt, an order's bill and the kitchen ticket). receipt: the dashboard's receipt array
+ * (TakeawayService::presentReceipt). origin: the dashboard's address, for the logo. preview: the details view;
+ * dashboardPrint: printed from the dashboard's hidden frame (no automatic print); kitchenCopy: the kitchen's copy.
  */
-function renderReceipt(receipt, { origin, preview = false, dashboardPrint = false }) {
-  const channel = receipt.channel || 'takeaway';
+function renderReceipt(receipt, { origin, preview = false, dashboardPrint = false, kitchenCopy = false }) {
+  const channel = receipt.channel ?? 'takeaway';
   const context = receipt.context && typeof receipt.context === 'object' && !Array.isArray(receipt.context) ? receipt.context : {};
   const unpaid = filled(receipt.unpaid);
-  const cancelled = (receipt.status || '') === 'cancelled';
-  const channelTitle = channel === 'dine' ? t('dining.title') : (channel === 'phone' ? t('phone_orders.title') : t('takeaway.title'));
+  const cancelled = (receipt.status ?? '') === 'cancelled';
+  const showUnitPrices = receipt.show_unit_prices ?? true;
+  const channelTitle = receipt.channel_label ?? (channel === 'phone' ? t('receipt.phone_short') : (channel === 'app' ? t('receipt.app') : t('pos_service.' + channel)));
+  const method = receipt.payment_method ?? 'unpaid';
   const paymentLabels = { cash: t('takeaway.cash'), card: t('takeaway.card'), mobile_wallet: t('takeaway.wallet'), other: t('takeaway.other'),
     mixed: t('pos_service.mixed'), unpaid: t('pos_service.unpaid') };
-  const paymentLabel = paymentLabels[receipt.payment_method] ?? receipt.payment_method;
+  const paymentLabel = receipt.payment_label ?? paymentLabels[method] ?? method;
   const branch = receipt.branch || {};
-  const currency = e(t('takeaway.currency'));
+  const number = String(receipt.number ?? '');
   let html = '<!doctype html>\n';
   html += `<html lang="ar" dir="rtl" ${preview ? 'data-dashboard-invoice-details="1"' : `data-dashboard-receipt="${e(receipt.print_marker ?? 'takeaway')}"`}>\n`;
-  html += '<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n';
-  html += `<title>${e(t('takeaway.current_invoice'))} ${e(receipt.number)}</title>\n<style>\n${STYLE}</style>\n</head>\n<body>\n<main class="receipt">\n`;
+  html += '<head>\n<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n';
+  html += `<title>${e(kitchenCopy ? t('pos_service.kitchen_ticket') : t('takeaway.current_invoice'))} ${e(number)}</title>\n<style>\n${STYLE}</style>\n</head>\n<body>\n`;
   if (preview) html += `<h2 class="preview-title">${e(t('pos_service.details'))}</h2>`;
-  html += '<header class="heading">\n';
-  html += `<img class="logo" src="${e(origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا" width="1254" height="1254">\n`;
-  html += `<h2>${e(branch.name)}</h2>\n`;
-  if (filled(branch.address)) html += `<p class="branch-contact">${e(branch.address)}</p>`;
-  if (filled(branch.phone)) html += `<p class="branch-contact"><bdi class="number">${e(branch.phone)}</bdi></p>`;
-  html += `<div class="receipt-channel">${e(t('pos_service.' + channel))}</div>\n`;
-  html += `<div class="receipt-identity">\n<h1>${e(unpaid ? t('pos_service.unpaid_bill') : t('takeaway.invoice_number'))}</h1>\n`;
-  html += `<bdi class="receipt-number">${e(receipt.number)}</bdi>\n</div>\n`;
-  if (cancelled) html += `<p class="receipt-state">${e(t('pos_service.cancelled'))}</p>`;
-  html += '</header>\n<dl class="information">\n';
-  html += `<div><dt>${e(t('takeaway.date'))}</dt><dd><bdi>${e(cairoTime(receipt.created_at))}</bdi></dd></div>\n`;
-  html += `<div><dt>${e(t('takeaway.cashier'))}</dt><dd>${e(receipt.cashier && receipt.cashier.name)}</dd></div>\n`;
-  if (channel !== 'takeaway') {
-    html += contextRows(channel, context);
-  } else {
-    if (filled(context.customer_name)) html += `<div><dt>${e(t('pos_service.customer'))}</dt><dd>${e(context.customer_name)}</dd></div>`;
-    if (filled(context.customer_phone)) html += `<div><dt>${e(t('pos_service.phone_number'))}</dt><dd><bdi>${e(context.customer_phone)}</bdi></dd></div>`;
-  }
-  html += `<div><dt>${e(t('takeaway.payment_method'))}</dt><dd>${e(paymentLabel)}</dd></div>\n`;
-  if (filled(receipt.payment_reference)) html += `<div class="full-width"><dt>${e(t('takeaway.payment_reference'))}</dt><dd>${e(receipt.payment_reference)}</dd></div>`;
-  html += '</dl>\n<table>\n<colgroup><col class="item-col"><col class="quantity-col"><col class="price-col"><col class="amount-col"></colgroup>\n';
-  html += `<thead><tr><th scope="col">${e(t('takeaway.item'))}</th><th scope="col" class="item-quantity">${e(t('takeaway.quantity_short'))}</th>`
-    + `<th scope="col" class="item-price">${e(t('takeaway.price'))}</th><th scope="col" class="item-total">${e(t('takeaway.line_total'))}</th></tr></thead>\n<tbody>\n`;
-  for (const item of receipt.items || []) {
-    const quantity = item.quantity_mode === 'piece' ? String(item.quantity).split('.')[0] : item.quantity;
-    html += '<tr>\n';
-    html += `<td class="item-name">${e(item.name)}${filled(item.option_label) ? `<span class="item-option">${e(item.option_label)}</span>` : ''}</td>\n`;
-    html += `<td class="item-quantity"><bdi class="number">${e(quantity)}</bdi><span class="item-unit">${e(t('takeaway.' + (item.quantity_mode === 'weight' ? 'kg' : 'piece')))}</span></td>\n`;
-    html += `<td class="item-price"><bdi class="number">${e(money(item.unit_price))}</bdi></td>\n`;
-    html += `<td class="item-total"><bdi class="number">${e(money(item.total))}</bdi></td>\n`;
-    html += '</tr>\n';
-  }
-  html += '</tbody>\n</table>\n<div class="summary">\n';
-  html += summaryRow(e(t('takeaway.subtotal')), receipt.subtotal) + '\n';
-  if (positive(receipt.discount)) html += summaryRow(e(t('takeaway.discount')), receipt.discount);
-  html += summaryRow(`${e(t('takeaway.tax'))} (<bdi>${e(receipt.tax_rate)}%</bdi>)`, receipt.tax) + '\n';
-  if (positive(receipt.service)) {
-    const rate = receipt.service_rate !== undefined && receipt.service_rate !== null ? ` (<bdi>${e(receipt.service_rate)}%</bdi>)` : '';
-    html += summaryRow(e(t('takeaway.service')) + rate, receipt.service);
-  }
-  if (positive(receipt.delivery ?? '0')) html += summaryRow(e(t('pos_service.delivery')), receipt.delivery);
-  html += summaryRow(e(t('takeaway.total')), receipt.total, ' grand-total') + '\n';
-  if (receipt.payment_method === 'mixed') {
-    for (const part of receipt.payment_breakdown || []) {
-      const name = { cash: t('takeaway.cash'), card: t('takeaway.card'), mobile_wallet: t('takeaway.wallet') }[part.method] ?? part.method;
-      html += summaryRow(e(name), part.amount);
-      if (filled(part.reference)) html += `<div class="notes">${e(t('takeaway.payment_reference'))}: ${e(part.reference)}</div>`;
-    }
-  }
-  if (['cash', 'mixed'].includes(receipt.payment_method)) {
-    html += summaryRow(e(t('takeaway.cash_paid')), receipt.cash_received, ' payment-total') + '\n';
-    html += summaryRow(e(t('takeaway.change')), receipt.change, ' change-total') + '\n';
-  }
+  html += `<main class="receipt ${kitchenCopy ? 'ft-kitchen ' : ''}" dir="rtl">\n<header class="ft-brand">\n`;
+  html += `<img class="ft-logo" src="${e(receipt.logo_url ?? origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا" width="1254" height="1254">\n`;
+  html += `<p class="ft-branch">${e(branch.name)}</p>\n`;
+  if (filled(branch.address)) html += `<p class="ft-contact-line">${e(branch.address)}</p>`;
+  if (filled(branch.phone)) html += `<p class="ft-contact-line"><bdi>${e(branch.phone)}</bdi></p>`;
+  html += '</header>\n<div class="ft-identity">\n';
+  html += `<div class="ft-type">${kitchenCopy ? `${e(t('receipt.kitchen_short'))} · ` : ''}${e(channelTitle)}</div>\n`;
+  html += `<bdi class="ft-number ${Buffer.byteLength(number) > 24 ? 'ft-number-long ' : ''}">${e(number)}</bdi>\n</div>\n`;
+  html += `<div class="ft-date"><bdi>${e(cairoTime(receipt.created_at))}</bdi>`;
+  if (kitchenCopy) html += `<span>${e(t('pos_service.revision'))} <bdi>${e(receipt.revision)}</bdi></span>`;
+  else if (receipt.cashier && filled(receipt.cashier.name)) html += `<span>${e(t('takeaway.cashier'))}: ${e(receipt.cashier.name)}</span>`;
   html += '</div>\n';
-  if (filled(receipt.discount_reason)) html += `<div class="notes"><strong>${e(t('takeaway.discount_reason'))}</strong>${e(receipt.discount_reason)}</div>`;
-  if (filled(receipt.notes)) html += `<div class="notes"><strong>${e(t('takeaway.order_notes'))}</strong>${e(receipt.notes)}</div>`;
-  html += '\n<footer class="footer">\n';
-  html += `<strong>${e(t('takeaway.receipt_thanks'))}</strong>\n<p>${e(t('takeaway.receipt_welcome'))}</p>\n`;
-  html += `<p>${e(channelTitle)}${unpaid ? ` · ${e(t('pos_service.unpaid'))}` : ''}</p>\n</footer>\n`;
-  if (!preview && (receipt.can_reprint ?? true)) {
-    html += `<div class="controls"><button type="button" onclick="window.print()">${e(t('takeaway.print_invoice'))}</button></div>`;
+  if (cancelled) html += `<p class="ft-state">${e(t('pos_service.cancelled'))}</p>`;
+  if (unpaid) html += `<p class="ft-state">${e(t('pos_service.unpaid_bill'))}</p>`;
+  if (filled(receipt.order_state)) html += `<p class="ft-state">${e(receipt.order_state)}</p>`;
+  if (!kitchenCopy && filled(receipt.payment_failed)) html += `<p class="ft-state">${e(t('order_board.payment_failed'))}</p>`;
+  html += `<dl class="ft-meta">${contextRows(channel, context)}</dl>\n`;
+  if (filled(receipt.items)) html += itemRows(receipt, kitchenCopy, showUnitPrices);
+  if (!kitchenCopy) {
+    html += '<div class="ft-summary">';
+    if (Object.prototype.hasOwnProperty.call(receipt, 'summary_lines')) {
+      for (const line of receipt.summary_lines || []) html += sumRow(e(line.label), line.amount);
+    } else {
+      html += sumRow(e(t('takeaway.subtotal')), receipt.subtotal);
+      if (numberOf(receipt.discount) > 0) html += sumRow(e(t('takeaway.discount')), receipt.discount);
+      if (numberOf(receipt.tax) !== 0 || numberOf(receipt.tax_rate ?? 0) !== 0) {
+        html += sumRow(`${e(t('takeaway.tax'))}${isset(receipt.tax_rate) ? ` (<bdi>${e(receipt.tax_rate)}%</bdi>)` : ''}`, receipt.tax);
+      }
+      if (numberOf(receipt.service) > 0) {
+        html += sumRow(`${e(t('takeaway.service'))}${isset(receipt.service_rate) ? ` (<bdi>${e(receipt.service_rate)}%</bdi>)` : ''}`, receipt.service);
+      }
+      if (numberOf(receipt.delivery ?? 0) > 0) html += sumRow(e(t('pos_service.delivery')), receipt.delivery);
+    }
+    html += `<div class="ft-sum ft-grand"><span>${e(t('receipt.total_short'))}</span><span class="ft-value">`;
+    html += isset(receipt.total) ? `<bdi>${e(money(receipt.total))}</bdi> <small class="ft-currency">${e(t('receipt.currency_short'))}</small>` : e(t('receipt.amount_pending'));
+    html += `</span></div><div class="ft-pay">${e(t('takeaway.payment_method'))}: <strong>${e(paymentLabel)}</strong></div>`;
+    if (filled(receipt.payment_paid)) html += `<p class="ft-state">${e(t('order_board.payment_paid'))}</p>`;
+    if (method === 'mixed') {
+      for (const part of receipt.payment_breakdown || []) {
+        const name = { cash: t('takeaway.cash'), card: t('takeaway.card'), mobile_wallet: t('takeaway.wallet') }[part.method] ?? part.method;
+        html += sumRow(e(name), part.amount);
+        if (filled(part.reference)) html += `<p class="ft-note"><strong>${e(t('takeaway.payment_reference'))}:</strong> ${e(part.reference)}</p>`;
+      }
+    }
+    if ((receipt.show_cash_tender ?? true) && ['cash', 'mixed'].includes(method)) {
+      html += `<div class="ft-tender"><span>${e(t('receipt.paid_short'))} <bdi>${e(money(receipt.cash_received))}</bdi></span>`
+        + `<strong>${e(t('takeaway.change'))} <bdi>${e(money(receipt.change))}</bdi></strong></div>`;
+    }
+    if (filled(receipt.payment_reference)) html += `<p class="ft-note"><strong>${e(t('takeaway.payment_reference'))}:</strong> ${e(receipt.payment_reference)}</p>`;
+    html += '</div>';
+    if (filled(receipt.discount_reason)) html += `<p class="ft-note"><strong>${e(t('takeaway.discount_reason'))}:</strong> ${e(receipt.discount_reason)}</p>`;
   }
-  html += '\n</main>\n';
+  if (filled(receipt.notes)) html += `<p class="ft-note"><strong>${e(kitchenCopy ? t('receipt.preparation_notes') : t('takeaway.order_notes'))}:</strong> ${e(receipt.notes)}</p>`;
+  html += '<footer class="ft-footer">';
+  html += kitchenCopy ? e(t('pos_service.kitchen_copy')) : `<strong>${e(t('takeaway.receipt_thanks'))}</strong>${unpaid ? `<p>${e(t('pos_service.unpaid'))}</p>` : ''}`;
+  html += '</footer>\n</main>\n';
+  if (!preview && (receipt.can_reprint ?? true)) html += `<div class="controls"><button type="button" onclick="window.print()">${e(t('takeaway.print_invoice'))}</button></div>`;
   if (!preview && !dashboardPrint) html += "<script>window.addEventListener('load',function(){window.print();});</script>";
   html += '\n</body>\n</html>\n';
   return html;
@@ -175,32 +188,14 @@ function ticketBill(ticket) {
 }
 
 /**
- * admin.pos_service.kitchen: what the kitchen prepares. kitchen: { id, ticket_id, revision, created_at, ticket } where ticket
- * is the order as it was sent.
+ * admin.pos_service.kitchen: what the kitchen prepares, as the receipt's kitchen copy. kitchen: { id, ticket_id, revision,
+ * created_at, ticket } where ticket is the order as it was sent.
  */
 function renderKitchen(kitchen, { origin, dashboardPrint = false }) {
   const ticket = kitchen.ticket;
-  const branch = ticket.branch || {};
-  let html = '<!doctype html>\n<html lang="ar" dir="rtl" data-dashboard-receipt="pos-kitchen">\n';
-  html += '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">\n';
-  html += `<title>${e(t('pos_service.kitchen_ticket'))} ${e(ticket.id)}</title>\n<style>\n${KITCHEN_STYLE}</style></head><body><main class="receipt">\n`;
-  html += `<header class="heading"><img class="logo" src="${e(origin + '/dashboard/branding/fasakhansta-logo-transparent.png')}" alt="فسخانستا" width="1254" height="1254">`;
-  html += `<p>${e(branch.name)}</p><h1>${e(t('pos_service.kitchen_ticket'))}</h1><p>${e(t('pos_service.ticket_number'))} <bdi>${e(ticket.number ?? ticket.id)}</bdi>`;
-  html += ` · ${e(t('pos_service.revision'))} <bdi>${e(kitchen.revision)}</bdi></p></header>\n`;
-  html += `<dl class="information"><div><dt>${e(t('pos_service.sent_at'))}</dt><dd><bdi>${e(cairoTime(kitchen.created_at))}</bdi></dd></div>`;
-  html += contextRows(ticket.channel, ticket) + '</dl>\n';
-  html += `<table><thead><tr><th>${e(t('takeaway.item'))}</th><th class="quantity">${e(t('takeaway.quantity'))}</th></tr></thead><tbody>`;
-  for (const item of ticket.items || []) {
-    const quantity = item.quantity_mode === 'piece' ? String(item.quantity).split('.')[0] : item.quantity;
-    html += `<tr><td>${e(item.name)}${filled(item.option_label) ? `<small class="option">${e(item.option_label)}</small>` : ''}</td>`;
-    html += `<td class="quantity"><bdi>${e(quantity)}</bdi> ${e(t('takeaway.' + (item.quantity_mode === 'weight' ? 'kg' : 'piece')))}</td></tr>`;
-  }
-  html += '</tbody></table>\n';
-  if (filled(ticket.notes)) html += `<div class="notes">${e(ticket.notes)}</div>`;
-  html += `<p class="footer">${e(t('pos_service.kitchen_copy'))}</p><div class="controls"><button type="button" onclick="window.print()">${e(t('takeaway.print_invoice'))}</button></div>\n</main>`;
-  if (!dashboardPrint) html += "<script>window.addEventListener('load',function(){window.print();});</script>";
-  html += '</body></html>\n';
-  return html;
+  const receipt = { ...ticket, number: ticket.number ?? ticket.id, created_at: kitchen.created_at, revision: kitchen.revision, context: ticket,
+    print_marker: 'pos-kitchen' };
+  return renderReceipt(receipt, { origin, preview: false, dashboardPrint, kitchenCopy: true });
 }
 
 const BATCH_STYLE = `

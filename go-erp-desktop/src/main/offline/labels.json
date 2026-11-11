@@ -81,6 +81,25 @@
         "payment_reference": "مرجع المعاملة",
         "batch_paid_note": "تم تحصيل قيمة هذه الطلبات. إعادة الطباعة لا تسجل تحصيلًا جديدًا."
     },
+    "receipt": {
+        "app": "طلب تطبيق",
+        "delivery_company": "شركة التوصيل",
+        "courier": "المندوب",
+        "amount_pending": "لم يتم الاتفاق",
+        "preparation_notes": "ملاحظات التجهيز",
+        "phone_short": "دليفري",
+        "kitchen_short": "مطبخ",
+        "mobile_short": "موبايل",
+        "address_short": "العنوان",
+        "line_total_short": "القيمة",
+        "total_short": "الإجمالي",
+        "currency_short": "ج.م",
+        "paid_short": "المدفوع"
+    },
+    "order_board": {
+        "payment_failed": "فشل الدفع",
+        "payment_paid": "مدفوع"
+    },
     "phone_batch": {
         "orders_column": "بدون توصيل",
         "delivery_column": "التوصيل",
