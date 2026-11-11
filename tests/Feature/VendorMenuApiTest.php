@@ -79,4 +79,17 @@ class VendorMenuApiTest extends TestCase
         $this->as(30)->postJson('/api/vendor/orders/500/accept', ['status' => 'accepted'])->assertOk();
         $this->assertSame('yes', DB::table('orders')->where('id', 500)->value('accepted_notify'));
     }
+
+    public function test_a_vendor_never_sets_a_negative_item_total(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        DB::table('orders')->insert(['id' => 500, 'user_id' => 7, 'resturant_id' => 301, 'status' => 'accepted', 'type' => 'current', 'user_address_id' => 70,
+            'payment_type' => 'wallet', 'delivery_price' => 25]);
+        DB::table('carts')->where('user_id', 7)->update(['order_id' => 500, 'is_order' => true]);
+        $item = (int) DB::table('carts')->where('order_id', 500)->value('id');
+        $this->assertNotSame(200, $this->as(30)->postJson('/api/vendor/update/orders/500/total/price', ['total' => -1000, 'reason' => 'x', 'item_id' => $item])->status());
+        $this->assertNull(DB::table('carts')->where('id', $item)->value('updated_total'));
+        $this->as(30)->postJson('/api/vendor/update/orders/500/total/price', ['total' => 700, 'reason' => 'نقص صنف', 'item_id' => $item])->assertOk();
+        $this->assertEquals(700, (float) DB::table('carts')->where('id', $item)->value('updated_total'));
+    }
 }

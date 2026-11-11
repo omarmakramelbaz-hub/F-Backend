@@ -30,7 +30,7 @@ class UpdateOrderTotalRequest extends FormRequest
     public function rules()
     {
         return [
-            'total'           => 'required|integer',
+            'total'           => 'required|integer|min:0|max:1000000', // never negative: a lower total refunds the customer the difference
             'reason'          =>'required|string|max:255',
             'item_id'         =>'required|exists:carts,id',
 
