@@ -43,6 +43,10 @@ class UserController extends Controller {
     }
     
      public function updateUserLocation(Request $request, User $user) {
+        // An account adds a location to itself only (the address in the link is checked against the one signed in).
+        if ((int) $user->id !== (int) auth('api')->id()) {
+            return $this->errorResponse(__('api.not found'));
+        }
         $up_Resturant = UserAddress::create([
                 'user_id' => $user->id,
                 'country_name'  => $request->country_name,
@@ -393,7 +397,8 @@ public function resend_code(Request $request){
     }
     
     public function deleteNotifications($id){
-        $del = DB::table('notifications')->where('id', $id)->delete();
+        // An account deletes its own notifications only.
+        $del = DB::table('notifications')->where('id', $id)->where('notifiable_id', auth('api')->id())->delete();
         return $this->successResponse($del,trans('api.delete notification'));
     }
 

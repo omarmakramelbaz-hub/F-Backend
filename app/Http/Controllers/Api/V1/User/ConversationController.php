@@ -24,8 +24,19 @@ class ConversationController extends Controller
         $data = ConversationResource::collection($conversations);    
         return $this->successResponse($data,trans('messages.success data'));
     }
+    /** A conversation the signed-in user takes part in (as its starter or its receiver), or null. */
+    private function own($id): ?Conversation
+    {
+        $me = auth('api')->id();
+        return Conversation::where('id', $id)->where(fn ($q) => $q->where('user_id', $me)->orWhere('receiver', $me))->first();
+    }
+
     public function conversation($id){
-        $conversation=Conversation::find($id);
+        // Only the two people in a conversation read its messages.
+        $conversation=$this->own($id);
+        if(!$conversation){
+            return $this->errorResponse(trans('messages.SomeThingWrong'));
+        }
         foreach($conversation->msgs->where('reciever',auth('api')->user()->id) as $msg){
             $msg->update(['read'=>1]);
         }
@@ -33,14 +44,20 @@ class ConversationController extends Controller
         return $this->successResponse($data,trans('messages.success data'));
     }
     public function send_message(Request $request){
+        $request->validate(['conv_id'=>'required|integer', 'message'=>'required|string|max:5000']);
+        // Only into a conversation the sender takes part in, and always to its other person.
+        $conversation=$this->own($request->conv_id);
+        if(!$conversation){
+            return $this->errorResponse(trans('messages.SomeThingWrong'));
+        }
+        $me=(int) auth('api')->id();
         MessageConversation::create([
-            'conv_id'=>$request->conv_id,
-            'sender'=>auth('api')->user()->id,
-            'reciever'=>$request['receiver'],
+            'conv_id'=>$conversation->id,
+            'sender'=>$me,
+            'reciever'=>(int) $conversation->user_id === $me ? $conversation->receiver : $conversation->user_id,
             'message'=>$request['message'],
         ]);
-        $conversation=Conversation::find($request->conv_id);
-        $data =ConversationMessagesResource::collection($conversation->msgs);    
+        $data =ConversationMessagesResource::collection($conversation->fresh()->msgs);    
         return $this->successResponse($data,trans('messages.success data'));
     }
     public function new_conv($user_id){

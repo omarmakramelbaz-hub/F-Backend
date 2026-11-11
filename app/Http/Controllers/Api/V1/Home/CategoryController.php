@@ -461,7 +461,8 @@ class CategoryController extends Controller
     public function deleteSearch($id)
     {
         try {
-            $search = LastSearch::find($id);
+            // A user deletes their own searches only.
+            $search = LastSearch::where('id', $id)->where('user_id', auth('api')->id())->first();
             if ($search) {
                 $search->delete();
             }

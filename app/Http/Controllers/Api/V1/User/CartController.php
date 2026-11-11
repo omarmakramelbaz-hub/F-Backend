@@ -57,8 +57,24 @@ class CartController extends Controller
     //  =============================================cart==================================
     //  ===================================================================================
 
+    /**
+     * A cart quantity as the app sends it (Arabic digits and half a kilo too), only above zero and at most 1000 a line:
+     * the order's total is price × quantity, so a zero, negative or huge quantity is never kept. Null when refused.
+     */
+    public static function quantity($value, $default = 1): ?float
+    {
+        if ($value === null || $value === '') $value = $default;
+        if (is_array($value)) return null;
+        $text = \App\Support\Quantity::text($value);
+        if (!preg_match('/^\d{1,4}(\.\d{1,3})?$/D', $text)) return null;
+        $quantity = round((float) $text, 3);
+        return $quantity > 0 && $quantity <= 1000 ? $quantity : null;
+    }
+
     public function store(CartRequest $request)
     {
+        $qty = self::quantity($request->qty);
+        if ($qty === null) return $this->errorResponse('الكمية غير صحيحة.');
         $product = ResturantProduct::find($request->resturant_product_id);
         if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         // $order=auth('api')->user()->orders()->whereNull('status')->where('type','current')->first();
@@ -87,12 +103,14 @@ class CartController extends Controller
                 'product_feature' => $request->product_feature,
             ])->first();
             if ($cart) {
-                $cart->update(['qty' => $cart->qty + $request->qty ?? 1]);
+                $total = self::quantity((float) $cart->qty + $qty);
+                if ($total === null) return $this->errorResponse('الكمية غير صحيحة.');
+                $cart->update(['qty' => $total]);
             } else {
                 $cart = Cart::create([
                     'user_id' => auth('api')->user()->id,
                     //  'order_id'=>$order->id,
-                    'qty' => $request->qty ?? 1,
+                    'qty' => $qty,
                     'price' => $product->calculate_price($request->product_feature, $request->product_clean),
                     'resturant_id' => $product->resturant_id,
                     'resturant_product_id' => $product->id,
@@ -127,10 +145,12 @@ class CartController extends Controller
     {
         $cart = $this->ownCart($id);
         if (! $cart) return $this->errorResponse(__('api.empty'));
+        $qty = self::quantity($request->qty);
+        if ($qty === null) return $this->errorResponse('الكمية غير صحيحة.');
         $product = ResturantProduct::find($request->resturant_product_id);
         if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         $cart->update([
-            'qty' => $request->qty ?? 1,
+            'qty' => $qty,
             'price' => $product->calculate_price($request->product_feature, $request->product_clean),
             'resturant_id' => $product->resturant_id,
             'resturant_product_id' => $product->id,
@@ -174,7 +194,9 @@ class CartController extends Controller
         }
         // if($order->resturant_id ==null || ($order->resturant_id !=null && $order->resturant_id == $product->resturant_id)){
 
-        foreach ($request->resturant_product_id as $i => $product_id) {
+        foreach ((array) $request->resturant_product_id as $i => $product_id) {
+            $qty = self::quantity(is_array($request->qty) ? ($request->qty[$i] ?? null) : null);
+            if ($qty === null) continue;
             $product = ResturantProduct::find($product_id);
             if ($product && !\App\Support\PosOnlyProducts::is($product)) {
                 $cart = Cart::where([
@@ -187,13 +209,14 @@ class CartController extends Controller
                     'product_feature' => $request->product_feature[$i] ?? null,
                 ])->first();
                 if ($cart) {
-                    $cart->update(['qty' => $cart->qty + $request->qty[$i] ?? 1]);
+                    $total = self::quantity((float) $cart->qty + $qty);
+                    if ($total !== null) $cart->update(['qty' => $total]);
                 } else {
                     $cart = Cart::create([
                         'user_id' => auth('api')->user()->id,
                         'is_order'=>false,
                         //  'order_id'=>$order->id,
-                        'qty' => $request->qty[$i] ?? 1,
+                        'qty' => $qty,
                         'price' => $product->calculate_price($request->product_feature[$i], $request->product_clean[$i]),
                         'resturant_id' => $product->resturant_id,
                         'resturant_product_id' => $product->id,
@@ -266,12 +289,14 @@ class CartController extends Controller
     {
         $cart = $this->ownCart($id);
         if ($cart) {
-            if ($request->qty == 0) {
+            if ($request->has('qty') && !is_array($request->qty) && is_numeric(\App\Support\Quantity::text($request->qty)) && (float) \App\Support\Quantity::text($request->qty) == 0) {
                 $cart->delete();
 
             } else {
+                $qty = self::quantity($request->qty, $cart->qty);
+                if ($qty === null) return $this->errorResponse('الكمية غير صحيحة.');
                 $cart->update([
-                    'qty' => $request->qty ?? $cart->qty,
+                    'qty' => $qty,
                 ]);
             }
             $cartItems = Cart::isNotOrder()->get();
@@ -335,6 +360,10 @@ class CartController extends Controller
             $carts = Cart::isNotOrder()->get();
             if ($carts->count() == 0) {
                 return $this->errorResponse(__('api.empty'));
+            }
+            // A line saved before quantities were checked (zero, negative or huge) never lowers or swells an order.
+            if ($carts->contains(fn ($cart) => self::quantity($cart->qty) === null)) {
+                return $this->errorResponse('في صنف كميته غير صحيحة في السلة. عدّل الكمية أو امسح الصنف.');
             }
 
             $restaurant = $carts->first()->resturant;
