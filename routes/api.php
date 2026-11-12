@@ -317,3 +317,10 @@ require __DIR__.'/whatsapp.php';
 require __DIR__.'/meta_messaging.php';
 
 require __DIR__.'/customer_crm_api.php';
+
+
+// Dedicated registration for the typed ActivityKit content-state client.
+\Illuminate\Support\Facades\Route::middleware(['CheckLang', 'auth:api', 'app.scope', 'custom.jwt', 'throttle:60,1'])->group(function () {
+    \Illuminate\Support\Facades\Route::post('user/order-activity-subscriptions', [\App\Http\Controllers\Api\V1\User\OrderActivitySubscriptionController::class, 'store']);
+    \Illuminate\Support\Facades\Route::post('user/order-activity-subscriptions/unregister', [\App\Http\Controllers\Api\V1\User\OrderActivitySubscriptionController::class, 'unregister']);
+});
