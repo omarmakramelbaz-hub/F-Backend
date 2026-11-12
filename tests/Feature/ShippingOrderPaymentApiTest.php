@@ -119,6 +119,12 @@ class ShippingOrderPaymentApiTest extends TestCase
         DB::table('orders')->where('id', 600)->update(['status' => 'pending']);
         DB::table('delegate_notifications')->insert(['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted', 'offer_price' => 100]);
         DB::table('settings')->where('group', 'general')->where('name', 'shipping_min_price')->update(['payload' => json_encode('10')]);
+        DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->update(['payload' => json_encode('500.00')]);
+    }
+
+    private function appBalance(): float
+    {
+        return (float) json_decode(DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->value('payload'), true);
     }
 
     private function uri(string $action, array $parameters): string
@@ -146,6 +152,7 @@ class ShippingOrderPaymentApiTest extends TestCase
         $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Success']);
         $this->assertSame(['accepted', 20, 100.0], [$this->order()->status, (int) $this->order()->delegate_id, (float) $this->order()->delivery_price]);
         $this->assertEquals(90, $this->courierBalance());
+        $this->assertEquals(510, $this->appBalance(), 'The commission is the app\'s');
         // The same tap again: nothing more is taken.
         $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Error']);
         $this->assertEquals(90, $this->courierBalance());
@@ -162,6 +169,7 @@ class ShippingOrderPaymentApiTest extends TestCase
         $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Error']);
         $this->assertSame(['pending', null], [$this->order()->status, $this->order()->delegate_id]);
         $this->assertEquals(5, $this->courierBalance());
+        $this->assertEquals(500, $this->appBalance());
     }
 
     public function test_a_price_revision_the_customer_accepts_settles_the_commission_once(): void
@@ -175,8 +183,26 @@ class ShippingOrderPaymentApiTest extends TestCase
         $this->assertEquals(90, $this->courierBalance());
         $respond(7)->assertJson(['status' => 'Success']);
         $this->assertEquals(85, $this->courierBalance());
+        $this->assertEquals(515, $this->appBalance(), '10 when taken, 5 more for the higher price');
         $this->assertSame([150.0, 'accepted'], [(float) $this->order()->delivery_price, DB::table('delegate_notifications')->where('order_id', 600)->value('status')]);
         $respond(7)->assertJson(['status' => 'Error']);
         $this->assertEquals(85, $this->courierBalance(), 'Settled once');
+        $this->assertEquals(515, $this->appBalance());
+        // A lower price later: the courier gets 8 back (150 → 70), and the app's balance gives them back.
+        DB::table('delegate_notifications')->where('order_id', 600)->update(['status' => 'price_revision', 'offer_price' => 70]);
+        $respond(7)->assertJson(['status' => 'Success']);
+        $this->assertEquals(93, $this->courierBalance());
+        $this->assertEquals(507, $this->appBalance());
+    }
+
+    public function test_a_higher_price_the_courier_cannot_cover_changes_nothing(): void
+    {
+        $this->courierOffer();
+        $this->shipping('accept_delegate', ['order_id' => 600, 'delegate_id' => 20, 'status' => 'accepted'])->assertJson(['status' => 'Success']);
+        DB::table('users')->where('id', 20)->update(['balance' => 1]);
+        DB::table('delegate_notifications')->where('order_id', 600)->update(['status' => 'price_revision', 'offer_price' => 500]);
+        $this->withHeaders($this->appHeaders(7))->postJson($this->uri('DelegateOrderController@respondShippingRevision', ['order' => 600]), ['status' => 'accepted'])
+            ->assertJson(['status' => 'Error']);
+        $this->assertSame([1.0, 510.0, 100.0], [$this->courierBalance(), $this->appBalance(), (float) $this->order()->delivery_price]);
     }
 }

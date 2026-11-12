@@ -396,6 +396,8 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
             if($commission > 0){
                 Wallet::create(['from_user'=>$delegate->id, 'to_user'=>null, 'status'=>'completed', 'payment'=>'wallet',
                     'type'=>'transfer', 'amount'=>$commission, 'order_id'=>$locked->id]);
+                // The commission is the app's: its balance shows it, as an order's commission.
+                app(\App\Services\Dashboard\LegacyOrderCompletion::class)->incrementAppBalance(\App\Services\GoServices\Money::minor(number_format($commission, 2, '.', '')));
             }
             // Persist exactly what was charged for this mutually accepted final fare. Future revisions settle against
             // this amount, never against an unaccepted offer.

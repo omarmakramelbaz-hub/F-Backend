@@ -279,6 +279,11 @@ class DelegateOrderController extends Controller {
                     'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$locked->id
                 ]);
             }
+            // Once the courier is charged (or refunded), the app's balance follows the commission: up when more is
+            // taken, down when some is given back.
+            if($difference != 0){
+                app(\App\Services\Dashboard\LegacyOrderCompletion::class)->changeAppBalance(\App\Services\GoServices\Money::minor(number_format($difference, 2, '.', '')));
+            }
             if($locked->shipping){
                 $locked->shipping->update(['actual_price'=>$newPrice]);
             }

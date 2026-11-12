@@ -148,6 +148,12 @@ class LegacyOrderCompletion
     public function incrementAppBalance(int $amount): void
     {
         abort_if($amount < 0, 409, 'قيمة العمولة غير صالحة.');
+        $this->changeAppBalance($amount);
+    }
+
+    /** The app's balance moved by this many piastres: up for a commission taken, down for one given back. */
+    public function changeAppBalance(int $amount): void
+    {
         if ($amount === 0) return;
         DB::transaction(function () use ($amount) {
             $row = DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->lockForUpdate()->first();
