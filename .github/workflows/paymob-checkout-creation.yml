@@ -1,0 +1,25 @@
+name: Paymob checkout creation package
+
+on:
+  pull_request:
+    paths:
+      - 'deployment/paymob_checkout_speed_20261112/**'
+      - '.github/workflows/paymob-checkout-creation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Guarded publication and scope regression
+        run: python3 -m unittest discover -s deployment/paymob_checkout_speed_20261112/tests -p 'test_*.py' -v
+      - name: Execute synthetic checkout cases without network
+        run: php deployment/paymob_checkout_speed_20261112/tests/checkout_harness.php

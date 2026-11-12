@@ -1,0 +1,111 @@
+    public function checkingOut($payment_method, $integration_id, $order_id, $iframe_id_or_wallet_number)
+    {
+        // Creation only. Signed callbacks/inquiry remain the payment authority.
+        $failure = static function (string $code, int $status, bool $uncertain = false) {
+            $arabic = app()->getLocale() === 'ar';
+            $message = $uncertain
+                ? ($arabic ? 'تعذّر تأكيد تجهيز صفحة الدفع. لم يتم تأكيد أي دفع؛ راجع المحفظة قبل المحاولة مجددًا.'
+                    : 'Checkout preparation could not be confirmed. No payment is confirmed; check your wallet before trying again.')
+                : ($arabic ? 'تعذّر تجهيز صفحة الدفع. راجع بيانات حسابك ووسيلة الدفع ثم حاول مجددًا.'
+                    : 'Could not prepare checkout. Check your account details and payment method before trying again.');
+            if (auth('api')->check()) {
+                return response()->json([
+                    'status' => 'Error', 'message' => $message, 'data' => null,
+                    'checkout_error' => $code, 'checkout_outcome_uncertain' => $uncertain,
+                ], $status);
+            }
+            return redirect()->back()->with(['error' => $message]);
+        };
+
+        $order = Order::findOrFail($order_id);
+        $user = Auth::user();
+        if (!$user) return $failure('authentication_required', 401);
+        if (!preg_match('/\A[1-9][0-9]{0,14}\z/', (string) $integration_id)) {
+            return $failure('invalid_payment_method', 422);
+        }
+        try {
+            $amountCents = \App\Services\GoServices\Money::minor($order->grand_total);
+        } catch (\InvalidArgumentException $error) {
+            return $failure('invalid_amount', 422);
+        }
+        if ($amountCents <= 0) return $failure('invalid_amount', 422);
+
+        // These placeholders are filled privately from the exact guarded live
+        // baseline, never from package contents, output, or request parameters.
+        $paymobAuthorization = '__PAYMOB_AUTHORIZATION__';
+        $paymobPublicKey = '__PAYMOB_PUBLIC_KEY__';
+        $names = preg_split('/\s+/', trim((string) $user->name), 2);
+        $firstName = $names[0] ?? 'NA';
+        $lastName = $names[1] ?? $firstName;
+        $payload = [
+            'expiration' => 36000,
+            'amount' => $amountCents,
+            'currency' => 'EGP',
+            'payment_methods' => [(int) $integration_id],
+            // Preserve the existing merchant correlation and callback consumers.
+            'metadata' => ['merchant_order_id' => $order->id],
+            'billing_data' => [
+                'first_name' => $firstName ?: 'NA', 'last_name' => $lastName ?: 'NA',
+                'phone_number' => $user->mobile ?: 'NA', 'email' => $user->email ?: 'NA',
+                'apartment' => 'NA', 'floor' => 'NA', 'street' => 'NA', 'building' => 'NA',
+                'shipping_method' => 'NA', 'postal_code' => 'NA', 'city' => 'NA',
+                'state' => 'NA', 'country' => 'NA',
+            ],
+        ];
+        $base = rtrim((string) config('app.url'), '/');
+        if ($order->type === 'wallet') {
+            $payload['notification_url'] = $base . '/api/wallet-topup/paymob/notify';
+            $payload['redirection_url'] = $base . '/api/wallet-topup/paymob/return';
+        } elseif ($order->type === 'current') {
+            $payload['notification_url'] = $base . '/api/order-payments/paymob/notify';
+            $payload['redirection_url'] = $base . '/api/order-payments/paymob/return';
+        }
+
+        try {
+            // Intention already creates its Paymob order. Never replay this POST
+            // automatically: a lost response does not prove creation failed.
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json', 'Accept' => 'application/json',
+                'Authorization' => $paymobAuthorization,
+            ])->withOptions([
+                'connect_timeout' => 3, 'timeout' => 15, 'allow_redirects' => false,
+            ])->post('https://accept.paymob.com/v1/intention/', $payload);
+        } catch (\Illuminate\Http\Client\ConnectionException $error) {
+            return $failure('gateway_timeout', 504, true);
+        } catch (\Throwable $error) {
+            return $failure('gateway_unavailable', 502, true);
+        }
+        if (!$response->successful()) {
+            return $failure('gateway_rejected', 502, $response->status() >= 500);
+        }
+        try {
+            $result = $response->json();
+        } catch (\Throwable $error) {
+            return $failure('invalid_gateway_response', 502, true);
+        }
+        $clientSecret = is_array($result) ? ($result['client_secret'] ?? null) : null;
+        $gatewayOrder = is_array($result) ? ($result['intention_order_id'] ?? null) : null;
+        $detail = is_array($result) ? ($result['intention_detail'] ?? null) : null;
+        if (!is_string($clientSecret) || !preg_match('/\A[A-Za-z0-9_-]{10,512}\z/', $clientSecret)
+            || !(is_int($gatewayOrder) || is_string($gatewayOrder))
+            || !preg_match('/\A[1-9][0-9]{0,29}\z/', (string) $gatewayOrder)
+            || !is_array($detail) || ($detail['currency'] ?? null) !== 'EGP'
+            || !in_array($detail['amount'] ?? null, [$amountCents, (string) $amountCents], true)) {
+            return $failure('invalid_gateway_response', 502, true);
+        }
+        try {
+            Payment::create([
+                'order_id' => $order->id, 'user_id' => $order->user_id,
+                'intention_order_id' => $gatewayOrder,
+                'total_price' => \App\Services\GoServices\Money::decimal($amountCents),
+            ]);
+        } catch (\Throwable $error) {
+            return $failure('checkout_record_unavailable', 503, true);
+        }
+        $link = 'https://accept.paymob.com/unifiedcheckout/?publicKey='
+            . rawurlencode($paymobPublicKey) . '&clientSecret=' . rawurlencode($clientSecret);
+        if (auth('api')->check()) {
+            return $this->successResponse(['order_id' => $order->id, 'link' => $link], __('api.wallet charge successfully'));
+        }
+        return redirect($link);
+    }
