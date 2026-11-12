@@ -96,6 +96,8 @@ final class DesktopDashboardWorkspaceReadRoutes
         $add('FcmNotificationsController','testNotification',['test-notification'],'unavailable');
         $add('FcmNotificationsController','chat',['admin/chat'],'actor-scoped');
         foreach(['index'=>'admin/settings','advertising'=>'admin/advertising','enviroSetting'=>'admin/env-setting']as$method=>$uri)$add('SettingsController',$method,[$uri],$method==='enviroSetting'?'connected-only':'public-reference');
+        // The customer app's forced update is set on the connected dashboard only.
+        $add('AppUpdateController','edit',['admin/app-update'],'connected-only');
         foreach(['index'=>'admin/go-stores','create'=>'admin/go-stores/create','show'=>'admin/go-stores/{owner}']as$method=>$uri)$add('GoStores\\StoreController',$method,[$uri],'typed-target');
         $add('GoStores\\StoreController','editProduct',['admin/go-stores/{owner}/products/create','admin/go-stores/{owner}/products/{product}/edit'],'typed-target');
         foreach(['index'=>'admin/orders','create'=>'admin/orders/create','show'=>'admin/orders/{order}','edit'=>'admin/orders/{order}/edit',
