@@ -198,6 +198,8 @@ Route::post('/pusher/auth', function (Request $request) {
 
         });
         Route::group(['prefix' => 'user'],function(){
+            Route::post('live-activities', [\App\Http\Controllers\Api\V1\User\OrderLiveActivityController::class, 'store'])->middleware('throttle:60,1');
+            Route::post('live-activities/unregister', [\App\Http\Controllers\Api\V1\User\OrderLiveActivityController::class, 'unregister'])->middleware('throttle:60,1');
             Route::post('/check-otp-order', [UserController::class, 'checkOtpFirstOrder']);
             Route::get('/partner-service-requests', [PartnerServiceRequestController::class, 'customerIndex']);
             Route::post('/partner-service-requests', [PartnerServiceRequestController::class, 'store']);

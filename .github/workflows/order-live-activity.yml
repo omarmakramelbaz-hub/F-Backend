@@ -1,0 +1,24 @@
+name: Order Live Activity checks
+on:
+  pull_request:
+    paths: ['app/**', 'routes/api.php', 'database/migrations/*live_activities*', 'tests/Feature/OrderLiveActivityTest.php', '.github/workflows/order-live-activity.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  activity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          extensions: mbstring, sqlite3, pdo_sqlite, gd, bcmath, curl, dom
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --no-scripts --ignore-platform-req=php+ --no-security-blocking
+      - name: Prepare isolated test configuration
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+      - name: Test registration, order stages, ownership, retries, and final state
+        run: vendor/bin/phpunit tests/Feature/OrderLiveActivityTest.php
