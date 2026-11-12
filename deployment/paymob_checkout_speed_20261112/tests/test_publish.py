@@ -1,10 +1,13 @@
 import importlib.util
+import json
 from pathlib import Path
 import os
+import re
 import stat
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 
 PACKAGE = Path(__file__).resolve().parents[1]
@@ -50,13 +53,14 @@ class PublisherTests(unittest.TestCase):
             path.write_bytes(data)
             path.chmod(0o640)
             desired = fix.controller_target(data, TEMPLATE) if name == fix.CONTROLLER else fix.wallet_target(data)
-            self.specs[name] = {'before': fix.digest(data), 'after': fix.digest(desired)}
+            self.specs[name] = {'before': fix.digest(data), 'after': fix.digest(desired),
+                'attributes': [os.geteuid(), os.getegid(), 0o640]}
 
     def tearDown(self):
         self.temporary.cleanup()
 
     def plan(self):
-        return fix.plan(self.root, self.specs, TEMPLATE, owner_uid=os.geteuid())
+        return fix.plan(self.root, self.specs, TEMPLATE)
 
     def test_scope_and_callback_are_unchanged(self):
         target = fix.controller_target(CONTROLLER, TEMPLATE)
@@ -100,12 +104,98 @@ class PublisherTests(unittest.TestCase):
         self.assertFalse(self.backup.exists())
         self.assertEqual(WALLET, (self.root / fix.WALLET).read_bytes())
 
-    def test_unexpected_target_hash_and_wrong_owner_rejected(self):
+    def test_unexpected_target_hash_rejected(self):
         with self.assertRaisesRegex(RuntimeError, 'TARGET_HASH_MISMATCH'):
             fix.plan(self.root, self.specs, TEMPLATE + b'changed')
-        with self.assertRaisesRegex(RuntimeError, 'SOURCE_OWNER_INVALID'):
-            fix.plan(self.root, self.specs, TEMPLATE, owner_uid=os.geteuid() + 100)
 
+    def test_reviewed_live_digests_and_distinct_attributes_are_pinned(self):
+        self.assertEqual({
+            fix.CONTROLLER: {
+                'before': 'c679ab86629ccd103f2cbe8e96c96c274fba6ff84d726d912cf49ed8c4ec4a48',
+                'after': 'de966706defacd95d07ffe34938f65f6f69819dab7a73bc1edbf021792b4d634',
+                'attributes': [1001, 1003, 0o755],
+            },
+            fix.WALLET: {
+                'before': 'c8f7dec64024046eb1d59c480f8c731ab00c64d53147c8628abeb919251203aa',
+                'after': 'a0b48a59a5ed92f31da049fd2962aa32148aa309007ecf05935509689ff4c023',
+                'attributes': [0, 0, 0o644],
+            },
+        }, fix.SPECS)
+        self.assertEqual('52aca681dfad03927021f168b8878391fc27f4679957b5360c2c68b4c55492ac', fix.digest(TEMPLATE))
+
+    def test_mode_owner_and_group_drift_are_rejected_even_if_content_matches(self):
+        real_source = fix.source
+        for field in ('st_uid', 'st_gid', 'st_mode'):
+            def changed_source(root, name):
+                path, info = real_source(root, name)
+                values = {'st_uid': info.st_uid, 'st_gid': info.st_gid, 'st_mode': info.st_mode}
+                values[field] += 1
+                return path, SimpleNamespace(**values)
+            with patch.object(fix, 'source', side_effect=changed_source):
+                with self.assertRaisesRegex(RuntimeError, 'SOURCE_ATTRIBUTES_MISMATCH'):
+                    self.plan()
+        (self.root / fix.WALLET).chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, 'SOURCE_ATTRIBUTES_MISMATCH'):
+            self.plan()
+        self.assertFalse(self.backup.exists())
+
+    def test_mixed_live_attributes_are_preserved_in_publication_and_rollback(self):
+        specs = {name: {**entry, 'attributes': fix.SPECS[name]['attributes']} for name, entry in self.specs.items()}
+        real_source = fix.source
+        writes = []
+
+        def mixed_source(root, name):
+            path, info = real_source(root, name)
+            if root == self.root:
+                uid, gid, mode = specs[name]['attributes']
+                info = SimpleNamespace(st_uid=uid, st_gid=gid, st_mode=stat.S_IFREG | mode)
+            return path, info
+
+        def capture_replace(path, content, attributes):
+            writes.append((path.relative_to(self.root).as_posix(), attributes))
+            path.write_bytes(content)
+
+        with patch.object(fix, 'source', side_effect=mixed_source), patch.object(fix, 'replace', side_effect=capture_replace):
+            changes = fix.plan(self.root, specs, TEMPLATE)
+            self.assertEqual([(1001, 1003, 0o755), (0, 0, 0o644)], [change[3] for change in changes])
+            fix.publish(self.root, changes, self.backup)
+            metadata = json.loads((self.backup / 'metadata.json').read_text())
+            self.assertEqual([0, 0, 0o644], metadata[fix.WALLET]['attributes'])
+            with patch.object(fix, 'SPECS', specs):
+                rollback = fix.rollback_plan(self.root, self.backup)
+                fix.publish(self.root, rollback, self.backup.with_name('mixed-rollback'))
+        expected = [(fix.CONTROLLER, (1001, 1003, 0o755)), (fix.WALLET, (0, 0, 0o644))]
+        self.assertEqual(expected, writes[:2])
+        self.assertCountEqual(expected, writes[2:])
+        for name, original in self.originals.items():
+            self.assertEqual(original, (self.root / name).read_bytes())
+
+    def test_fasakha_account_identity_is_exactly_the_observed_uid(self):
+        with patch.object(fix.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1001)):
+            fix.require_account_identity()
+        with patch.object(fix.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=0)):
+            with self.assertRaisesRegex(RuntimeError, 'ACCOUNT_IDENTITY_MISMATCH'):
+                fix.require_account_identity()
+        with patch.object(fix.pwd, 'getpwnam', side_effect=KeyError('missing')):
+            with self.assertRaisesRegex(RuntimeError, 'ACCOUNT_IDENTITY_MISMATCH'):
+                fix.require_account_identity()
+
+    def test_both_pinned_runners_match_every_actual_payload_digest(self):
+        diagnostic = PACKAGE.parent / 'paymob_checkout_diagnostics_20261112'
+        payloads = {
+            'publish.py': PACKAGE / 'publish.py',
+            'checking_out.php.template': PACKAGE / 'checking_out.php.template',
+            'diagnostics.py': diagnostic / 'diagnostics.py',
+        }
+        for runner, variable, expected_names in [
+            (PACKAGE / 'run_root.sh', 'checkout_run', {'publish.py', 'checking_out.php.template'}),
+            (diagnostic / 'run_root.sh', 'diagnostic_run', set(payloads)),
+        ]:
+            entries = re.findall(r'([a-f0-9]{64}) "\$' + variable + r'/([^"\n]+)"', runner.read_text())
+            self.assertEqual(expected_names, {name for _, name in entries})
+            self.assertEqual(len(expected_names), len(entries))
+            for expected, name in entries:
+                self.assertEqual(expected, fix.digest(payloads[name].read_bytes()), name)
     def test_symlink_and_hardlink_rejected(self):
         path = self.root / fix.CONTROLLER
         other = path.with_suffix('.other')
@@ -196,6 +286,20 @@ class PublisherTests(unittest.TestCase):
             path.write_bytes(published)
             (self.backup / fix.CONTROLLER).write_bytes(b'corrupt source')
             with self.assertRaisesRegex(RuntimeError, 'BACKUP_SOURCE_INVALID'):
+                fix.rollback_plan(self.root, self.backup)
+
+    def test_rollback_refuses_attribute_drift_and_forged_backup_attributes(self):
+        fix.publish(self.root, self.plan(), self.backup)
+        (self.root / fix.WALLET).chmod(0o600)
+        with patch.object(fix, 'SPECS', self.specs):
+            with self.assertRaisesRegex(RuntimeError, 'BACKUP_SOURCE_INVALID'):
+                fix.rollback_plan(self.root, self.backup)
+            (self.root / fix.WALLET).chmod(0o640)
+            audit = self.backup / 'metadata.json'
+            metadata = json.loads(audit.read_text())
+            metadata[fix.WALLET]['attributes'][0] += 1
+            audit.write_text(json.dumps(metadata))
+            with self.assertRaisesRegex(RuntimeError, 'BACKUP_METADATA_INVALID'):
                 fix.rollback_plan(self.root, self.backup)
 
     def test_automatic_rollback_preserves_a_concurrent_edit(self):
