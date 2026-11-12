@@ -115,6 +115,9 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/settings', [SettingsController::class, 'index']);
         Route::put('/settings/update', [SettingsController::class, 'update'])->name('updateSetting');
         Route::get('/env-setting', [SettingsController::class, 'enviroSetting']);
+        // The customer app's forced update (lowest version per platform, store links).
+        Route::get('/app-update', [\App\Http\Controllers\Dashboard\AppUpdateController::class, 'edit'])->name('app-update.edit');
+        Route::put('/app-update', [\App\Http\Controllers\Dashboard\AppUpdateController::class, 'update'])->name('app-update.update');
         Route::put('/settings/updateEnv', [SettingsController::class, 'updateEnv'])->name('updateEnv');
         Route::put('/settings/updatePaymentActivation', [SettingsController::class, 'updatePaymentActivation'])->name('updatePaymentActivation');
 

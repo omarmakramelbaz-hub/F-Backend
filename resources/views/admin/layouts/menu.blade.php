@@ -110,6 +110,15 @@
                         </a>
                     </li>
                 @endif
+                @if(Auth::guard('admin')->user()->can('setting-list'))
+                    <li class="nav-item">
+                        <a href="{{ url('/admin/app-update') }}"
+                            class="nav-link {{ request()->is('admin/app-update') ? 'active' : '' }}">
+                            <i class="fas fa-mobile-alt nav-icon"></i>
+                            <p>تحديث التطبيق الإجباري</p>
+                        </a>
+                    </li>
+                @endif
                 @if(Auth::guard('admin')->user()->can('paymob-list'))
                     <li class="nav-item">
                         <a href="{{ url('/admin/env-setting') }}"

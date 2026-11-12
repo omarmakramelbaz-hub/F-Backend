@@ -83,6 +83,8 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/slidears', [MainController::class, 'slidears']);
     Route::get('/advertising', [MainController::class, 'advertising']);
     Route::get('/coupon_wheels', [CouponWheelController::class, 'coupon_wheels']);
+    // The customer app's forced update: the lowest version allowed per platform and its store link.
+    Route::get('/app-version', [\App\Http\Controllers\Api\V1\Home\AppVersionController::class, 'show'])->middleware('throttle:60,1');
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
 
     // GO Partners public onboarding and discovery
