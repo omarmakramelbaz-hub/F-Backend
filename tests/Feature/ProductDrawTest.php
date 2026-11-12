@@ -227,4 +227,17 @@ class ProductDrawTest extends TestCase
         $this->assertSame(['فسيخ'], ProductDraw::items(1));
         $this->assertNull(ProductDraw::badge('فسيخ كيلو'), 'Matched by the whole name');
     }
+
+    public function test_the_draw_update_signal_stays_small_for_pusher(): void
+    {
+        // A draw over many branches (Pusher refuses an event over 10 KB): the apps only reload the draw when they hear it.
+        foreach (range(1000, 1080) as $id) {
+            DB::table('resturants')->insert(['id' => $id, 'name' => str_repeat('فرع طويل الاسم ', 5), 'status' => 'opened']);
+            DB::table('coupon_wheel_resturants')->insert(['coupon_wheel_id' => 1, 'resturant_id' => $id]);
+        }
+        $signal = (new \App\Events\CouponWheelUpdated(\App\Models\CouponWheel::find(1)))->broadcastWith();
+        $this->assertSame(['flag' => 'coupon', 'coupon_wheel_id' => 1, 'winner' => null], $signal);
+        $this->assertLessThan(200, strlen(json_encode($signal)));
+        $this->assertSame('deleted', (new \App\Events\CouponWheelUpdated((object) ['id' => 999]))->broadcastWith()['flag']);
+    }
 }

@@ -17,7 +17,6 @@ use App\Http\Controllers\Dashboard\ContractController;
 use App\Http\Controllers\Dashboard\ContactController;
 use App\Http\Controllers\Dashboard\FeatureController;
 use App\Http\Controllers\Dashboard\BannerController;
-use App\Http\Controllers\Dashboard\BlogController;
 use App\Http\Controllers\Dashboard\SubscriberController;
 use App\Http\Controllers\Dashboard\ReportController;
 use App\Http\Controllers\Dashboard\QuestionAnswerController;
@@ -197,8 +196,6 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
 
         Route::resource('/features', FeatureController::class);
         Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll'])->name('features.destroy-all');
-        Route::resource('/blogs', BlogController::class);
-        Route::delete('blogsDeleteAll', [BlogController::class,'deleteAll']);
         Route::resource('/banners', BannerController::class);
         Route::delete('bannersDeleteAll', [BannerController::class,'deleteAll']);
 
