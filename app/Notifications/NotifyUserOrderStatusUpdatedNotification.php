@@ -56,6 +56,7 @@ class NotifyUserOrderStatusUpdatedNotification extends Notification
                     'live_activity' => true,
                     'activity_id' => 'order_'.$this->msg->id,
                     'order_status' => $this->msg->status,
+                    'updated_at' => $this->msg->updated_at?->timestamp ?? 0,
                     'order_id'          => (int) $this->msg->id,
                     'resturant_id'      => $this->msg->resturant_id,
                     'user_id'           => $this->msg->user_id,

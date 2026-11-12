@@ -80,6 +80,7 @@ class AppServiceProvider extends ServiceProvider
         User::observe(UserObserver::class);
         Order::observe(OrderCompetitionObserver::class);
         Order::observe(OrderMetaConversionObserver::class);
+        Order::observe(\App\Observers\OrderLiveActivityObserver::class);
         DatabaseNotification::observe(NotificationObserver::class);
 
         view()->composer('*', function ($view)
