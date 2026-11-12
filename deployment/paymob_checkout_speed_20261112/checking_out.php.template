@@ -23,12 +23,20 @@
         if (!preg_match('/\A[1-9][0-9]{0,14}\z/', (string) $integration_id)) {
             return $failure('invalid_payment_method', 422);
         }
-        try {
-            $amountCents = \App\Services\GoServices\Money::minor($order->grand_total);
-        } catch (\InvalidArgumentException $error) {
+        // Parse the server-owned decimal directly: ten whole digits, at most
+        // two decimal places, and integer arithmetic only. Do not depend on a
+        // shared utility that may differ between deployed server revisions.
+        $amount = $order->grand_total;
+        if (!(is_string($amount) || is_int($amount) || is_float($amount))
+            || !preg_match('/\A(-?)([0-9]{1,10})(?:\.([0-9]{1,2}))?\z/', trim((string) $amount), $amountParts)) {
             return $failure('invalid_amount', 422);
         }
+        $amountCents = ((int) $amountParts[2]) * 100
+            + (int) str_pad($amountParts[3] ?? '', 2, '0', STR_PAD_RIGHT);
+        if ($amountParts[1] === '-') $amountCents = -$amountCents;
         if ($amountCents <= 0) return $failure('invalid_amount', 422);
+        $amountDecimal = intdiv($amountCents, 100) . '.'
+            . str_pad((string) ($amountCents % 100), 2, '0', STR_PAD_LEFT);
 
         // These placeholders are filled privately from the exact guarded live
         // baseline, never from package contents, output, or request parameters.
@@ -86,18 +94,23 @@
         $clientSecret = is_array($result) ? ($result['client_secret'] ?? null) : null;
         $gatewayOrder = is_array($result) ? ($result['intention_order_id'] ?? null) : null;
         $detail = is_array($result) ? ($result['intention_detail'] ?? null) : null;
+        $gatewayAmount = is_array($detail) ? ($detail['amount'] ?? null) : null;
+        // JSON permits integral numbers encoded as floats. Compare only against
+        // the bounded exact integer cents; never round or convert gateway money.
+        $amountMatches = in_array($gatewayAmount, [$amountCents, (string) $amountCents], true)
+            || (is_float($gatewayAmount) && is_finite($gatewayAmount) && $gatewayAmount == $amountCents);
         if (!is_string($clientSecret) || !preg_match('/\A[A-Za-z0-9_-]{10,512}\z/', $clientSecret)
             || !(is_int($gatewayOrder) || is_string($gatewayOrder))
             || !preg_match('/\A[1-9][0-9]{0,29}\z/', (string) $gatewayOrder)
             || !is_array($detail) || ($detail['currency'] ?? null) !== 'EGP'
-            || !in_array($detail['amount'] ?? null, [$amountCents, (string) $amountCents], true)) {
+            || !$amountMatches) {
             return $failure('invalid_gateway_response', 502, true);
         }
         try {
             Payment::create([
                 'order_id' => $order->id, 'user_id' => $order->user_id,
                 'intention_order_id' => $gatewayOrder,
-                'total_price' => \App\Services\GoServices\Money::decimal($amountCents),
+                'total_price' => $amountDecimal,
             ]);
         } catch (\Throwable $error) {
             return $failure('checkout_record_unavailable', 503, true);

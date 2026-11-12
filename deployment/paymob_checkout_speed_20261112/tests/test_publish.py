@@ -152,19 +152,29 @@ class PublisherTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '^PHP_LINT_FAILED$'):
                 fix.lint_php(self.plan(), 'php')
 
-    def test_runtime_dependency_must_exist_and_match_before_publication(self):
-        name = 'app/Services/GoServices/Money.php'
-        path = self.root / name
+    def test_missing_shared_money_utility_is_unneeded_and_not_created(self):
+        path = self.root / 'app/Services/GoServices/Money.php'
+        self.assertFalse(path.exists())
+        fix.publish(self.root, self.plan(), self.backup)
+        self.assertFalse(path.exists())
+        self.assertNotIn(b'GoServices', TEMPLATE)
+
+    def test_foreign_shared_money_utility_is_neither_read_nor_changed(self):
+        path = self.root / 'app/Services/GoServices/Money.php'
         path.parent.mkdir(parents=True)
-        with patch.object(fix, 'DEPENDENCIES', {name: fix.digest(b'expected-money-runtime')}):
-            with self.assertRaisesRegex(RuntimeError, 'DEPENDENCY_MISMATCH'):
-                fix.guard_dependencies(self.root)
-            path.write_bytes(b'wrong-version')
-            with self.assertRaisesRegex(RuntimeError, 'DEPENDENCY_MISMATCH'):
-                fix.guard_dependencies(self.root)
-            path.write_bytes(b'expected-money-runtime')
-            fix.guard_dependencies(self.root, owner_uid=os.geteuid())
-        self.assertEqual(CONTROLLER, (self.root / fix.CONTROLLER).read_bytes())
+        foreign = b'<?php // unrelated runtime utility must stay unchanged\n'
+        path.write_bytes(foreign)
+        read_bytes = Path.read_bytes
+
+        def guarded_read(source):
+            self.assertNotEqual(path, source, 'publisher must not read the shared utility')
+            return read_bytes(source)
+
+        with patch.object(Path, 'read_bytes', guarded_read):
+            self.assertEqual({fix.CONTROLLER, fix.WALLET}, {change[0] for change in self.plan()})
+            fix.publish(self.root, self.plan(), self.backup)
+        self.assertEqual(foreign, path.read_bytes())
+        self.assertFalse((self.backup / 'app/Services').exists())
 
     def test_explicit_rollback_restores_exact_sources_and_can_repeat(self):
         fix.publish(self.root, self.plan(), self.backup)
