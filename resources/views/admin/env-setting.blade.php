@@ -130,40 +130,20 @@ input:checked +.slider:before{
           @if(config('desktop_dashboard.local'))
           <div class="alert alert-info" role="status">مفاتيح الاتصال وتفعيل الدفع بالكارت والمحفظة تُعدّل من الداشبورد المتصلة فقط. الإعدادات المحفوظة على الجهاز لا تُغيّر إعدادات مزوّد الدفع.</div>
           @else
-          <form method="post" action="{{route('updateEnv')}}" enctype="multipart/form-data">
-            @csrf
-            @method('PUT')
-            
-              <div class="" role="tabpanel" aria-labelledby="pills-home-tab">
-                <div class="row">
-                <div class="form-group col-sm-12">
-                  <label for="PAYMOB_API_KEY">PAYMOB_API_KEY</label>
-                  <textarea type="text" name="PAYMOB_API_KEY" class="form-control" id="PAYMOB_API_KEY" 
-                  placeholder="Enter PAYMOB_API_KEY">{{env('PAYMOB_API_KEY')}}</textarea>
-                </div>
-                
-                <div class="form-group col-sm-12">
-                  <label for="PAYMOB_CARD_INTEGRATION_ID">PAYMOB_CARD_INTEGRATION_ID</label>
-                  <textarea type="text" name="PAYMOB_CARD_INTEGRATION_ID" class="form-control " id="PAYMOB_CARD_INTEGRATION_ID" 
-                  placeholder="Enter PAYMOB_CARD_INTEGRATION_ID">{{env('PAYMOB_CARD_INTEGRATION_ID')}}</textarea>
-                </div>
-                
-                <div class="form-group col-sm-12">
-                  <label for="PAYMOB_CARD_IFRAME_ID">PAYMOB_CARD_IFRAME_ID</label>
-                  <textarea type="text" name="PAYMOB_CARD_IFRAME_ID" class="form-control " id="PAYMOB_CARD_IFRAME_ID" 
-                  placeholder="Enter PAYMOB_CARD_IFRAME_ID">{{env('PAYMOB_CARD_IFRAME_ID')}}</textarea>
-                </div>
-                
-                <div class="form-group col-sm-12">
-                  <label for="PAYMOB_MOBILE_WALLET_INTEGRATION_ID">PAYMOB_MOBILE_WALLET_INTEGRATION_ID</label>
-                  <textarea type="text" name="PAYMOB_MOBILE_WALLET_INTEGRATION_ID" class="form-control " id="PAYMOB_MOBILE_WALLET_INTEGRATION_ID" 
-                  placeholder="Enter PAYMOB_MOBILE_WALLET_INTEGRATION_ID">{{env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID')}}</textarea>
-                </div>
-               
-              </div>
-              </div>
-          <button type="submit" class="btn btn-success">@lang('main.save')</button>
-         </form>
+          {{-- Read from the server's configuration; changed on the server only (never written from here). --}}
+          <div class="table-responsive">
+            <table class="table table-bordered mb-2">
+              <tbody>
+              @foreach(($paymob ?? []) as [$key, $label, $value])
+                <tr>
+                  <th style="width:40%">{{ $label }} <small class="text-muted d-block" dir="ltr">{{ $key }}</small></th>
+                  <td dir="ltr" class="text-start">@if(filled($value)){{ $value }}@else<span class="text-danger">مش مضبوط</span>@endif</td>
+                </tr>
+              @endforeach
+              </tbody>
+            </table>
+          </div>
+          <p class="text-muted small mb-0">القيم دي مقروءة من إعدادات السيرفر. المفتاح السري مش بيظهر هنا علشان أمانه، والتعديل بيتم على السيرفر بس.</p>
          @endif
          <div class="my-3">
             <hr>

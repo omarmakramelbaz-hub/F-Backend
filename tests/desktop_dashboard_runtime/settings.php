@@ -100,7 +100,7 @@ config(['desktop_dashboard.local'=>true]);$localWidget=$render($widget);$localPr
 $check(!str_contains($localWidget,'name="app_balance"')&&!str_contains($localWidget,'98765.43')&&str_contains($localWidget,'لا يتغير عند حفظ'),'the actual original local settings widget explains the financial display boundary instead of presenting masked zero as a balance');
 $check(!str_contains($localProvider,'name="PAYMOB_API_KEY"')&&!str_contains($localProvider,'name="payment_card_activate"')&&str_contains($localProvider,'المتصلة فقط'),'the actual original local payment view hides credential and activation forms with connected-only guidance');
 config(['desktop_dashboard.local'=>false]);$onlineWidget=$render($widget);$onlineProvider=$render($provider);
-$check(str_contains($onlineWidget,'name="app_balance"')&&str_contains($onlineWidget,'98765.43')&&str_contains($onlineProvider,'name="PAYMOB_API_KEY"')&&str_contains($onlineProvider,'name="payment_card_activate"'),'the original connected settings and payment controls retain their existing values and forms');
+$check(str_contains($onlineWidget,'name="app_balance"')&&str_contains($onlineWidget,'98765.43')&&!str_contains($onlineProvider,'name="PAYMOB_API_KEY"')&&str_contains($onlineProvider,'مقروءة من إعدادات السيرفر')&&str_contains($onlineProvider,'name="payment_card_activate"'),'the connected settings keep their values; the payment keys are shown read-only (never written from the page) and the activation form stays');
 require __DIR__.'/settings-sync.php';
 require __DIR__.'/settings-images.php';
 require __DIR__.'/settings-legacy-images.php';

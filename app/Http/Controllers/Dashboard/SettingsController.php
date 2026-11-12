@@ -115,7 +115,15 @@ class SettingsController extends Controller
     
     
     public function enviroSetting(GeneralSettings $settings){
-        return view('admin.env-setting',compact('settings'));
+        // Paymob as the server has it (read from its configuration, cached or not): the ids as they are, the secret key
+        // only whether it is set. They are changed on the server only, never from this page.
+        $paymob = [
+            ['PAYMOB_API_KEY', 'المفتاح السري', filled(config('services.paymob.api_key')) ? 'مضبوط ✓' : null],
+            ['PAYMOB_CARD_INTEGRATION_ID', 'رقم الدفع بالكارت', config('services.paymob.card_integration_id')],
+            ['PAYMOB_CARD_IFRAME_ID', 'رقم صفحة الكارت', config('services.paymob.card_iframe_id')],
+            ['PAYMOB_MOBILE_WALLET_INTEGRATION_ID', 'رقم الدفع بالمحفظة (فودافون كاش)', config('services.paymob.wallet_integration_id')],
+        ];
+        return view('admin.env-setting',compact('settings', 'paymob'));
     }
     public function updatePaymentActivation(Request $request, GeneralSettings $settings){
         if($request->input('wallet_card_activate')){
@@ -133,66 +141,11 @@ class SettingsController extends Controller
                         ->with('success',trans('messages.UpdateSuccessfully'));
 
     }
+    /**
+     * The Paymob keys are no longer written from the dashboard: the page saw empty values once the configuration was
+     * cached (and saving wrote them over the real keys), and rewriting .env split every value that holds a space.
+     */
     public function updateEnv(){
-        // some code
-        $env_update = $this->changeEnv([
-            'PAYMOB_API_KEY'=> request('PAYMOB_API_KEY'),
-            'PAYMOB_CARD_INTEGRATION_ID'=> request('PAYMOB_CARD_INTEGRATION_ID'),
-            'PAYMOB_CARD_IFRAME_ID'=>request('PAYMOB_CARD_IFRAME_ID'),
-            'PAYMOB_MOBILE_WALLET_INTEGRATION_ID'=> request('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
-        ]);
-        if($env_update){
-            // dd('done');
-             return redirect()->back()
-                        ->with('success',trans('main.UpdatedSuccessfully'));
-            // Do something
-        } else {
-            // Do something else
-             return redirect()->back()
-                        ->with('error',trans('main.error'));
-        }
-        // more code
-    }
-    
-    protected function changeEnv($data = array()){
-        if(count($data) > 0){
-
-            // Read .env-file
-            $env = file_get_contents(base_path() . '/.env');
-
-            // Split string on every " " and write into array
-            $env = preg_split('/\s+/', $env);;
-
-            // Loop through given data
-            foreach((array)$data as $key => $value){
-
-                // Loop through .env-data
-                foreach($env as $env_key => $env_value){
-
-                    // Turn the value into an array and stop after the first split
-                    // So it's not possible to split e.g. the App-Key by accident
-                    $entry = explode("=", $env_value, 2);
-
-                    // Check, if new key fits the actual .env-key
-                    if($entry[0] == $key){
-                        // If yes, overwrite it with the new one
-                        $env[$env_key] = $key . "=" . $value;
-                    } else {
-                        // If not, keep the old one
-                        $env[$env_key] = $env_value;
-                    }
-                }
-            }
-
-            // Turn the array back to an String
-            $env = implode("\n", $env);
-
-            // And overwrite the .env with the new data
-            file_put_contents(base_path() . '/.env', $env);
-            
-            return true;
-        } else {
-            return false;
-        }
+        return redirect()->back()->with('error', 'مفاتيح Paymob بتتظبط على السيرفر بس، مش من الداشبورد.');
     }
 }
