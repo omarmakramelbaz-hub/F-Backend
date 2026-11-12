@@ -4,12 +4,18 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class CreateOrderLiveActivitiesTable extends Migration
+class CreateOrderActivitySubscriptionsTable extends Migration
 {
     public function up()
     {
-        if (Schema::hasTable('order_live_activities')) return;
-        Schema::create('order_live_activities', function (Blueprint $table) {
+        if (Schema::hasTable('order_activity_subscriptions')) {
+            $required = ['id','user_id','order_id','activity_id','token_hash','activity_token','fcm_token','last_status','last_sent_at','expires_at','ended_at','created_at','updated_at'];
+            if (array_diff($required, Schema::getColumnListing('order_activity_subscriptions'))) {
+                throw new \RuntimeException('Existing order activity subscription schema is incompatible');
+            }
+            return;
+        }
+        Schema::create('order_activity_subscriptions', function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('order_id');
@@ -29,6 +35,6 @@ class CreateOrderLiveActivitiesTable extends Migration
 
     public function down()
     {
-        Schema::dropIfExists('order_live_activities');
+        Schema::dropIfExists('order_activity_subscriptions');
     }
 }

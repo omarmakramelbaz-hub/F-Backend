@@ -17,21 +17,23 @@ import tempfile
 ROOT = Path('/home/fasakha/public_html')
 PHP = '/opt/cpanel/ea-php82/root/usr/bin/php'
 PACKAGE = Path(__file__).resolve().parent
-MIGRATION = 'database/migrations/2026_11_12_150000_create_order_live_activities_table.php'
+MIGRATION = 'database/migrations/2026_11_12_153000_create_order_activity_subscriptions_table.php'
 PATCHES = {
     'app/Providers/AppServiceProvider.php': (
-        '        Order::observe(OrderCompetitionObserver::class);',
-        '        Order::observe(\\App\\Observers\\OrderLiveActivityObserver::class);', 'after'),
+        r'(?m)^([ \t]*)public function boot\([^)]*\)(?:\s*:\s*void)?\s*\{',
+        '        \\App\\Models\\Order::observe(\\App\\Observers\\OrderLiveActivityObserver::class);'),
     'app/Console/Kernel.php': (
-        '    protected function schedule(Schedule $schedule)\n    {',
-        "        $schedule->command('orders:sync-live-activities')->everyMinute()->withoutOverlapping();", 'after'),
-    'routes/api.php': (
-        "            Route::post('/check-otp-order', [UserController::class, 'checkOtpFirstOrder']);",
-        "            Route::post('live-activities', [\\App\\Http\\Controllers\\Api\\V1\\User\\OrderLiveActivityController::class, 'store'])->middleware('throttle:60,1');\n            Route::post('live-activities/unregister', [\\App\\Http\\Controllers\\Api\\V1\\User\\OrderLiveActivityController::class, 'unregister'])->middleware('throttle:60,1');", 'before'),
-    'app/Notifications/NotifyUserOrderStatusUpdatedNotification.php': (
-        "                    'order_status' => $this->msg->status,",
-        "                    'updated_at' => $this->msg->updated_at?->timestamp ?? 0,", 'after'),
+        r'(?m)^([ \t]*)protected function schedule\(Schedule \$schedule\)(?:\s*:\s*void)?\s*\{',
+        "        $schedule->command('orders:sync-live-activities')->everyMinute()->withoutOverlapping();"),
 }
+ROUTES = """
+// Dedicated registration for the typed ActivityKit content-state client.
+\\Illuminate\\Support\\Facades\\Route::middleware(['CheckLang', 'auth:api', 'app.scope', 'custom.jwt', 'throttle:60,1'])->group(function () {
+    \\Illuminate\\Support\\Facades\\Route::post('user/order-activity-subscriptions', [\\App\\Http\\Controllers\\Api\\V1\\User\\OrderActivitySubscriptionController::class, 'store']);
+    \\Illuminate\\Support\\Facades\\Route::post('user/order-activity-subscriptions/unregister', [\\App\\Http\\Controllers\\Api\\V1\\User\\OrderActivitySubscriptionController::class, 'unregister']);
+});
+"""
+
 
 
 def digest(data):
@@ -39,16 +41,30 @@ def digest(data):
 
 
 def patched(name, original):
-    anchor, insert, position = PATCHES[name]
     text = original.decode('utf-8')
+    if name == 'routes/api.php':
+        marker = 'OrderActivitySubscriptionController::class'
+        if marker in text:
+            if text.count(marker) != 2:
+                raise RuntimeError('INCOMPLETE_SUBSCRIPTION_ROUTES')
+            return original
+        # Adding explicit authenticated routes avoids changing existing route groups.
+        # A trailing closing tag is retained by opening another PHP block.
+        opening = '\n<?php\n' if text.rstrip().endswith('?>') else '\n'
+        return (text + opening + ROUTES).encode('utf-8')
+    pattern, insert = PATCHES[name]
     if insert in text:
         if text.count(insert) != 1:
             raise RuntimeError('DUPLICATED_RELEASE_MARKER: ' + name)
         return original
-    if text.count(anchor) != 1:
+    # The original GitHub release used the imported model class.
+    if name.endswith('AppServiceProvider.php') and 'Order::observe(\\App\\Observers\\OrderLiveActivityObserver::class);' in text:
+        return original
+    matches = list(re.finditer(pattern, text))
+    if len(matches) != 1:
         raise RuntimeError('RELEASE_ANCHOR_MISMATCH: ' + name)
-    replacement = (insert + '\n' + anchor) if position == 'before' else (anchor + '\n' + insert)
-    return text.replace(anchor, replacement, 1).encode('utf-8')
+    pos = matches[0].end()
+    return (text[:pos] + '\n' + insert + text[pos:]).encode('utf-8')
 
 
 def checked_path(root, name, missing=False):
@@ -81,10 +97,11 @@ def plan(root, package):
         before = target.read_bytes() if target.exists() else None
         if before == source:
             continue
-        if (digest(before) if before is not None else None) != spec['before']:
+        actual_before = digest(before) if before is not None else None
+        if actual_before != spec['before'] and actual_before not in spec.get('compatible_before', []):
             raise RuntimeError('BASELINE_MISMATCH: ' + name)
         changes[name] = (before, source)
-    for name in PATCHES:
+    for name in [*PATCHES, 'routes/api.php']:
         before = checked_path(root, name).read_bytes()
         after = patched(name, before)
         if before != after:
@@ -175,8 +192,8 @@ def apply(root, package, backup, uid, gid, php=PHP, runner=run):
             written.append(name)
         runner([php, 'artisan', 'migrate', '--path=' + MIGRATION, '--force'], root)
         runner([php, 'artisan', 'optimize:clear'], root)
-        routes = runner([php, 'artisan', 'route:list', '--path=live-activities'], root)
-        if 'live-activities' not in routes:
+        routes = runner([php, 'artisan', 'route:list', '--path=order-activity-subscriptions'], root)
+        if 'order-activity-subscriptions' not in routes:
             raise RuntimeError('ROUTE_VERIFICATION_FAILED')
         runner([php, 'artisan', 'orders:sync-live-activities'], root)
     except Exception:

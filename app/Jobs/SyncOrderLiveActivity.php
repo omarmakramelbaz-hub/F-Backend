@@ -2,7 +2,7 @@
 
 namespace App\Jobs;
 
-use App\Events\OrderStatusUpdated;
+use App\Events\CustomerOrderActivityStatusUpdated;
 use App\Models\Order;
 use App\Services\OrderLiveActivity\Sync;
 use Illuminate\Bus\Queueable;
@@ -18,7 +18,7 @@ class SyncOrderLiveActivity
     {
         $order = Order::withoutGlobalScopes()->find($this->orderId);
         if (!$order || !$order->user_id) return;
-        try { event(new OrderStatusUpdated($order)); }
+        try { event(new CustomerOrderActivityStatusUpdated($order)); }
         catch (\Throwable $e) { Log::warning('ORDER_LIVE_ACTIVITY_BROADCAST_PENDING', ['order_id' => $order->id]); }
         $sync->order($order);
     }

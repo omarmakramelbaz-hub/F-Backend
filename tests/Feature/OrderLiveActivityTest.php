@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\SyncOrderLiveActivity;
 use App\Models\Order;
-use App\Models\OrderLiveActivity;
+use App\Models\OrderActivitySubscription;
 use App\Models\User;
 use App\Services\OrderLiveActivity\Push;
 use App\Services\OrderLiveActivity\Sync;
@@ -34,18 +34,24 @@ class OrderLiveActivityTest extends TestCase
             $t->string('status'); $t->string('type')->default('current'); $t->timestamps();
         });
         Schema::create('resturants', function (Blueprint $t) { $t->id(); $t->timestamps(); });
-        require_once base_path('database/migrations/2026_11_12_150000_create_order_live_activities_table.php');
-        (new \CreateOrderLiveActivitiesTable())->up();
+        require_once base_path('database/migrations/2026_11_12_153000_create_order_activity_subscriptions_table.php');
+        (new \CreateOrderActivitySubscriptionsTable())->up();
         DB::table('users')->insert([['id' => 1, 'name' => 'First', 'account_type' => 'user'], ['id' => 2, 'name' => 'Other', 'account_type' => 'user']]);
         DB::table('orders')->insert([
             ['id' => 10, 'user_id' => 1, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()],
             ['id' => 20, 'user_id' => 2, 'status' => 'shipped', 'created_at' => now(), 'updated_at' => now()],
         ]);
+        Schema::create('order_live_activities', function (Blueprint $t) {
+            $t->id();
+            foreach (['order_id','user_id','activity_id_hash','activity_token','fcm_token','token_hash','fcm_token_hash','state_hash','last_timestamp','attempts','next_attempt_at','ended_at','expires_at'] as $field) $t->text($field)->nullable();
+            $t->timestamps();
+        });
+        DB::table('order_live_activities')->insert(['id' => 99, 'order_id' => 20, 'user_id' => 2, 'activity_id_hash' => 'synthetic-legacy-id', 'activity_token' => 'synthetic-legacy-encrypted-token']);
         $this->actingAs(User::withoutGlobalScopes()->find(1), 'api');
         $this->push = new class extends Push {
             public $sent = [];
             public $fail = false;
-            public function send(OrderLiveActivity $activity, array $state, bool $terminal): void {
+            public function send(OrderActivitySubscription $activity, array $state, bool $terminal): void {
                 if ($this->fail) throw new \RuntimeException('Simulated delivery outage');
                 $this->sent[] = ['activity' => $activity->id, 'state' => $state, 'terminal' => $terminal];
             }
@@ -61,19 +67,31 @@ class OrderLiveActivityTest extends TestCase
 
     private function register(array $overrides = []): void
     {
-        $this->postJson('/api/user/live-activities', $this->payload($overrides))->assertOk();
+        $this->postJson('/api/user/order-activity-subscriptions', $this->payload($overrides))->assertOk();
+    }
+
+    public function test_existing_legacy_schema_and_rows_are_untouched_by_the_new_delivery_path(): void
+    {
+        $legacy = (array) DB::table('order_live_activities')->first();
+        $columns = Schema::getColumnListing('order_live_activities');
+        $this->register();
+        $this->app->make(Sync::class)->order(Order::withoutGlobalScopes()->find(10));
+        $this->assertSame($legacy, (array) DB::table('order_live_activities')->first());
+        $this->assertSame($columns, Schema::getColumnListing('order_live_activities'));
+        $this->assertSame(1, OrderActivitySubscription::count());
+        $this->assertCount(1, $this->push->sent);
     }
 
     public function test_registration_is_idempotent_private_and_contains_both_delivery_tokens(): void
     {
-        $response = $this->postJson('/api/user/live-activities', $this->payload())->assertOk();
+        $response = $this->postJson('/api/user/order-activity-subscriptions', $this->payload())->assertOk();
         $response->assertJsonPath('data.activity_id', 'native-uuid-10');
         $this->assertStringNotContainsString(str_repeat('ab', 32), $response->getContent());
         $this->register(['fcm_token' => 'synthetic-rotated-fcm-token']);
-        $this->assertSame(1, OrderLiveActivity::count());
-        $registration = OrderLiveActivity::first();
+        $this->assertSame(1, OrderActivitySubscription::count());
+        $registration = OrderActivitySubscription::first();
         $this->assertSame('synthetic-rotated-fcm-token', $registration->fcm_token);
-        $raw = DB::table('order_live_activities')->first();
+        $raw = DB::table('order_activity_subscriptions')->first();
         $this->assertNotSame(str_repeat('ab', 32), $raw->activity_token);
         $this->assertNotSame('synthetic-rotated-fcm-token', $raw->fcm_token);
         Bus::assertDispatchedAfterResponse(SyncOrderLiveActivity::class);
@@ -83,25 +101,25 @@ class OrderLiveActivityTest extends TestCase
     {
         $this->register();
         $this->register(['live_activity_token' => str_repeat('cd', 32)]);
-        $this->assertSame(2, OrderLiveActivity::count());
-        $this->assertSame(1, OrderLiveActivity::whereNull('ended_at')->count());
-        $this->assertNotNull(OrderLiveActivity::orderBy('id')->first()->ended_at);
+        $this->assertSame(2, OrderActivitySubscription::count());
+        $this->assertSame(1, OrderActivitySubscription::whereNull('ended_at')->count());
+        $this->assertNotNull(OrderActivitySubscription::orderBy('id')->first()->ended_at);
     }
 
     public function test_guests_cannot_register_an_activity(): void
     {
         $this->app['auth']->forgetGuards();
         $this->withMiddleware();
-        $this->postJson('/api/user/live-activities', $this->payload())->assertUnauthorized();
-        $this->assertSame(0, OrderLiveActivity::count());
+        $this->postJson('/api/user/order-activity-subscriptions', $this->payload())->assertUnauthorized();
+        $this->assertSame(0, OrderActivitySubscription::count());
     }
 
     public function test_order_ownership_and_payload_validation_are_enforced(): void
     {
-        $this->postJson('/api/user/live-activities', $this->payload(['order_id' => 20]))->assertNotFound();
-        $this->postJson('/api/user/live-activities', $this->payload(['live_activity_token' => 'wrong']))->assertStatus(422);
-        $this->postJson('/api/user/live-activities', $this->payload(['fcm_token' => '']))->assertStatus(422);
-        $this->assertSame(0, OrderLiveActivity::count());
+        $this->postJson('/api/user/order-activity-subscriptions', $this->payload(['order_id' => 20]))->assertNotFound();
+        $this->postJson('/api/user/order-activity-subscriptions', $this->payload(['live_activity_token' => 'wrong']))->assertStatus(422);
+        $this->postJson('/api/user/order-activity-subscriptions', $this->payload(['fcm_token' => '']))->assertStatus(422);
+        $this->assertSame(0, OrderActivitySubscription::count());
     }
 
     public function test_every_stage_updates_only_its_order_and_delivery_preserves_final_state(): void
@@ -116,8 +134,8 @@ class OrderLiveActivityTest extends TestCase
         $this->assertSame(['pending', 'shipped', 'completed'], array_column(array_column($this->push->sent, 'state'), 'orderStatus'));
         $this->assertSame(['10', '10', '10'], array_column(array_column($this->push->sent, 'state'), 'orderId'));
         $this->assertTrue($this->push->sent[2]['terminal']);
-        $this->assertNotNull(OrderLiveActivity::first()->ended_at);
-        $message = Push::payload(OrderLiveActivity::first(), $this->push->sent[2]['state'], true, 1000)['message'];
+        $this->assertNotNull(OrderActivitySubscription::first()->ended_at);
+        $message = Push::payload(OrderActivitySubscription::first(), $this->push->sent[2]['state'], true, 1000)['message'];
         $this->assertSame(str_repeat('ab', 32), $message['apns']['live_activity_token']);
         $this->assertSame('liveactivity', $message['apns']['headers']['apns-push-type']);
         $this->assertSame('end', $message['apns']['payload']['aps']['event']);
@@ -131,14 +149,14 @@ class OrderLiveActivityTest extends TestCase
         $sync = $this->app->make(Sync::class);
         $this->push->fail = true;
         $sync->order(Order::withoutGlobalScopes()->find(10));
-        $this->assertNull(OrderLiveActivity::first()->last_status);
+        $this->assertNull(OrderActivitySubscription::first()->last_status);
         $this->push->fail = false;
         $sync->order(Order::withoutGlobalScopes()->find(10));
         $this->assertCount(1, $this->push->sent);
-        OrderLiveActivity::query()->update(['last_status' => null, 'user_id' => 2]);
+        OrderActivitySubscription::query()->update(['last_status' => null, 'user_id' => 2]);
         $sync->order(Order::withoutGlobalScopes()->find(10));
         $this->assertCount(1, $this->push->sent);
-        OrderLiveActivity::query()->update(['user_id' => 1, 'expires_at' => now()->subMinute()]);
+        OrderActivitySubscription::query()->update(['user_id' => 1, 'expires_at' => now()->subMinute()]);
         $sync->order(Order::withoutGlobalScopes()->find(10));
         $this->assertCount(1, $this->push->sent);
     }
@@ -146,10 +164,10 @@ class OrderLiveActivityTest extends TestCase
     public function test_unregister_is_scoped_to_the_signed_in_user_and_native_activity(): void
     {
         $this->register();
-        $this->postJson('/api/user/live-activities/unregister', ['order_id' => 20, 'live_activity_id' => 'native-uuid-10'])->assertOk();
-        $this->assertNull(OrderLiveActivity::first()->ended_at);
-        $this->postJson('/api/user/live-activities/unregister', ['order_id' => 10, 'live_activity_id' => 'native-uuid-10'])->assertOk();
-        $this->assertNotNull(OrderLiveActivity::first()->ended_at);
+        $this->postJson('/api/user/order-activity-subscriptions/unregister', ['order_id' => 20, 'live_activity_id' => 'native-uuid-10'])->assertOk();
+        $this->assertNull(OrderActivitySubscription::first()->ended_at);
+        $this->postJson('/api/user/order-activity-subscriptions/unregister', ['order_id' => 10, 'live_activity_id' => 'native-uuid-10'])->assertOk();
+        $this->assertNotNull(OrderActivitySubscription::first()->ended_at);
     }
 
     public function test_status_observer_dispatches_after_response_and_scheduler_catches_bulk_changes(): void

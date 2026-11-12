@@ -14,8 +14,8 @@ for activity_file in publish.py manifest.json; do
     "$activity_base/$activity_file" -o "$activity_run/$activity_file"
 done
 printf '%s  %s\n' \
-  db40d90d4c2c0bfb78118344654076fecbda9de181e2e381a7135836222c0ad6 "$activity_run/publish.py" \
-  480966ea0109f110d7297f0554489c6b10167d1acd3c7bf8b6a358f749b02d94 "$activity_run/manifest.json" | sha256sum --check
+  707206d642c0bfa47e0a55bd09132960e8662238867ad3dfcde41ba52e99b344 "$activity_run/publish.py" \
+  13b88c3c7cae588f00430aeb80d2fda7b148f162217edbab23b6fbf6a585648c "$activity_run/manifest.json" | sha256sum --check
 python3 - "$activity_run" "$activity_base" <<'PYLOAD'
 import hashlib,json,re,sys,urllib.request
 from pathlib import Path
