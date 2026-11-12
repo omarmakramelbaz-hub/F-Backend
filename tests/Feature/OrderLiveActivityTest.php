@@ -79,6 +79,23 @@ class OrderLiveActivityTest extends TestCase
         Bus::assertDispatchedAfterResponse(SyncOrderLiveActivity::class);
     }
 
+    public function test_rotating_an_activity_token_retires_the_previous_delivery_target(): void
+    {
+        $this->register();
+        $this->register(['live_activity_token' => str_repeat('cd', 32)]);
+        $this->assertSame(2, OrderLiveActivity::count());
+        $this->assertSame(1, OrderLiveActivity::whereNull('ended_at')->count());
+        $this->assertNotNull(OrderLiveActivity::orderBy('id')->first()->ended_at);
+    }
+
+    public function test_guests_cannot_register_an_activity(): void
+    {
+        $this->app['auth']->forgetGuards();
+        $this->withMiddleware();
+        $this->postJson('/api/user/live-activities', $this->payload())->assertUnauthorized();
+        $this->assertSame(0, OrderLiveActivity::count());
+    }
+
     public function test_order_ownership_and_payload_validation_are_enforced(): void
     {
         $this->postJson('/api/user/live-activities', $this->payload(['order_id' => 20]))->assertNotFound();

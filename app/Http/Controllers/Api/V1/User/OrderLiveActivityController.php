@@ -33,6 +33,10 @@ class OrderLiveActivityController extends Controller
         // An expired or ended native activity cannot be revived by registration.
         if (!$registration->exists) $registration->expires_at = now()->addHours(8);
         $registration->save();
+        // Apple can rotate the push token for the same native activity.
+        OrderLiveActivity::where('user_id', $order->user_id)->where('order_id', $order->id)
+            ->where('activity_id', $data['live_activity_id'])->where('token_hash', '!=', $hash)
+            ->whereNull('ended_at')->update(['ended_at' => now()]);
         SyncOrderLiveActivity::dispatchAfterResponse($order->id);
         return response()->json(['status' => true, 'data' => ['order_id' => $order->id, 'activity_id' => $registration->activity_id]]);
     }

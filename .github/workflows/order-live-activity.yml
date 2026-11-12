@@ -1,7 +1,7 @@
 name: Order Live Activity checks
 on:
   pull_request:
-    paths: ['app/**', 'routes/api.php', 'database/migrations/*live_activities*', 'tests/Feature/OrderLiveActivityTest.php', '.github/workflows/order-live-activity.yml']
+    paths: ['app/**', 'routes/api.php', 'database/migrations/*live_activities*', 'tests/Feature/OrderLiveActivityTest.php', 'deployment/order_live_activity_20261112/**', '.github/workflows/order-live-activity.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.0'
@@ -22,3 +24,7 @@ jobs:
           php artisan key:generate
       - name: Test registration, order stages, ownership, retries, and final state
         run: vendor/bin/phpunit tests/Feature/OrderLiveActivityTest.php
+      - name: Check incremental publication and rollback
+        run: |
+          bash -n deployment/order_live_activity_20261112/run_root.sh
+          python3 -m unittest discover -s deployment/order_live_activity_20261112/tests -v
