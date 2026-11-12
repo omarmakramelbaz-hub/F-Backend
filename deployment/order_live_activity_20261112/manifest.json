@@ -1,38 +1,53 @@
 {
-  "app/Models/OrderLiveActivity.php": {
+  "app/Models/OrderActivitySubscription.php": {
     "before": null,
-    "after": "a3bb433a3926b3417b445f1bd3034c7a51f0e17a25840e4ff69bdb5a707b9546"
+    "after": "cfa8ecb1c9544a33f69d0d84be532ad9084441ef2787f89a715ad5c87399bce1"
   },
-  "app/Http/Controllers/Api/V1/User/OrderLiveActivityController.php": {
+  "app/Http/Controllers/Api/V1/User/OrderActivitySubscriptionController.php": {
     "before": null,
-    "after": "14f800826f91f976e64d1d4d01e31701145f69311cd3dcab7612ef593873fa2a"
+    "after": "ec61a6d7890603eb1d86390c3c66b40e142917e96eb30fc75f9b6a20d802b7ee"
+  },
+  "app/Events/CustomerOrderActivityStatusUpdated.php": {
+    "before": null,
+    "after": "8b74cac1ed990434d9166c398acbf6893be1eebffd358001e7ac2bce7e10e2d0"
   },
   "app/Jobs/SyncOrderLiveActivity.php": {
     "before": null,
-    "after": "f470e6985052f356f68a4d16b474720a039fb1214b554f576acbec2e93842405"
+    "after": "fbb4ccae6eff7b2e0138783980ded60676bdb94472feaab95ca3744a9fcd6da1",
+    "compatible_before": [
+      "f470e6985052f356f68a4d16b474720a039fb1214b554f576acbec2e93842405"
+    ]
   },
   "app/Observers/OrderLiveActivityObserver.php": {
     "before": null,
-    "after": "25a1545796a19588925ec3fa8501b03018ce3ab8e4a92ce4474fe347545d8544"
+    "after": "25a1545796a19588925ec3fa8501b03018ce3ab8e4a92ce4474fe347545d8544",
+    "compatible_before": [
+      "25a1545796a19588925ec3fa8501b03018ce3ab8e4a92ce4474fe347545d8544"
+    ]
   },
   "app/Services/OrderLiveActivity/Push.php": {
     "before": null,
-    "after": "7a9d877c613295c0635cc665106bbbceba3aefd21b1ee6e44d8958ac060fdcf3"
+    "after": "d34f0fa4cb457cd6f960f85df603b268f3f5d779b0df04851544a28224b68180",
+    "compatible_before": [
+      "7a9d877c613295c0635cc665106bbbceba3aefd21b1ee6e44d8958ac060fdcf3"
+    ]
   },
   "app/Services/OrderLiveActivity/Sync.php": {
     "before": null,
-    "after": "e03418231c41b5408dd009c4e17178e33b7fe68476afbdb51d5de680f5ffbe43"
+    "after": "d69da7c2d151ab9e3335522b7c9fde9e81fa1ba0f509f7cbd3d52853d647f09c",
+    "compatible_before": [
+      "e03418231c41b5408dd009c4e17178e33b7fe68476afbdb51d5de680f5ffbe43"
+    ]
   },
   "app/Console/Commands/SyncOrderLiveActivities.php": {
     "before": null,
-    "after": "020ec51d1894392217c52d78f1e1c02f6e925b85cff66bf550d9a6d7cc814b13"
+    "after": "8a9591b1f4c872ba121d16fe52cc39d6dd0b00e72d768fcc91100132938bf677",
+    "compatible_before": [
+      "020ec51d1894392217c52d78f1e1c02f6e925b85cff66bf550d9a6d7cc814b13"
+    ]
   },
-  "database/migrations/2026_11_12_150000_create_order_live_activities_table.php": {
+  "database/migrations/2026_11_12_153000_create_order_activity_subscriptions_table.php": {
     "before": null,
-    "after": "acdb1a6e2ec8407cf607fcbfd4484f1b3ae2b34805005504d198d658cced105b"
-  },
-  "app/Events/OrderStatusUpdated.php": {
-    "before": "0901f4378671d17084b1620df733492921ce3eaeba198fed8e844a9886def3c7",
-    "after": "4cec9ea032b65caa4bce0dede2ab64056dc34db3a5c5126e70b09c0dff0adb95"
+    "after": "181babac84c8b12fc24d538da8bbb7d9c94db33aaf1b1de83b031cec942ac09c"
   }
 }

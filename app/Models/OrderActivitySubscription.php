@@ -4,8 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class OrderLiveActivity extends Model
+class OrderActivitySubscription extends Model
 {
+    protected $table = 'order_activity_subscriptions';
     protected $guarded = [];
     protected $hidden = ['activity_token', 'fcm_token', 'token_hash'];
     protected $casts = [

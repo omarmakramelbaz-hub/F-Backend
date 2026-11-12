@@ -3,7 +3,7 @@
 namespace App\Services\OrderLiveActivity;
 
 use App\Models\Order;
-use App\Models\OrderLiveActivity;
+use App\Models\OrderActivitySubscription;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -31,15 +31,15 @@ class Sync
 
     public function order(Order $order): void
     {
-        if (!$order->user_id || !Schema::hasTable('order_live_activities')) return;
+        if (!$order->user_id || !Schema::hasTable('order_activity_subscriptions')) return;
         // Serialize the response job and scheduler for the same order.
-        $lock = Cache::lock('order_live_activity_'.$order->id, 60);
+        $lock = Cache::lock('order_activity_subscription_'.$order->id, 60);
         if (!$lock->get()) return;
         try {
             // Read committed state inside the lock, never a queued historical stage.
             $current = Order::withoutGlobalScopes()->find($order->id);
             if (!$current) return;
-            $activities = OrderLiveActivity::where('order_id', $current->id)
+            $activities = OrderActivitySubscription::where('order_id', $current->id)
                 ->where('user_id', $current->user_id)->whereNull('ended_at')
                 ->where('expires_at', '>', now())->get();
             foreach ($activities as $activity) {

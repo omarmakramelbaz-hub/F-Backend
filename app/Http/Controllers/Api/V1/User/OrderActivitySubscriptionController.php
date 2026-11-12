@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Api\V1\User;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncOrderLiveActivity;
 use App\Models\Order;
-use App\Models\OrderLiveActivity;
+use App\Models\OrderActivitySubscription;
 use Illuminate\Http\Request;
 
-class OrderLiveActivityController extends Controller
+class OrderActivitySubscriptionController extends Controller
 {
     public function store(Request $request)
     {
@@ -21,9 +21,9 @@ class OrderLiveActivityController extends Controller
         ]);
         $order = Order::withoutGlobalScopes()->where('user_id', $request->user()->id)->findOrFail($data['order_id']);
         $hash = hash('sha256', strtolower($data['live_activity_token']));
-        $existing = OrderLiveActivity::where('token_hash', $hash)->first();
+        $existing = OrderActivitySubscription::where('token_hash', $hash)->first();
         abort_if($existing && ((int) $existing->user_id !== (int) $order->user_id || (int) $existing->order_id !== (int) $order->id), 403);
-        $registration = OrderLiveActivity::firstOrNew(['token_hash' => $hash]);
+        $registration = OrderActivitySubscription::firstOrNew(['token_hash' => $hash]);
         $registration->fill([
             'user_id' => $order->user_id, 'order_id' => $order->id,
             'activity_id' => $data['live_activity_id'],
@@ -34,7 +34,7 @@ class OrderLiveActivityController extends Controller
         if (!$registration->exists) $registration->expires_at = now()->addHours(8);
         $registration->save();
         // Apple can rotate the push token for the same native activity.
-        OrderLiveActivity::where('user_id', $order->user_id)->where('order_id', $order->id)
+        OrderActivitySubscription::where('user_id', $order->user_id)->where('order_id', $order->id)
             ->where('activity_id', $data['live_activity_id'])->where('token_hash', '!=', $hash)
             ->whereNull('ended_at')->update(['ended_at' => now()]);
         SyncOrderLiveActivity::dispatchAfterResponse($order->id);
@@ -47,7 +47,7 @@ class OrderLiveActivityController extends Controller
             'order_id' => 'required|integer|min:1',
             'live_activity_id' => 'required|string|max:255',
         ]);
-        OrderLiveActivity::where('user_id', $request->user()->id)->where('order_id', $data['order_id'])
+        OrderActivitySubscription::where('user_id', $request->user()->id)->where('order_id', $data['order_id'])
             ->where('activity_id', $data['live_activity_id'])->update(['ended_at' => now()]);
         return response()->json(['status' => true]);
     }

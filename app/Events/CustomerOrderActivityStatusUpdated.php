@@ -8,7 +8,7 @@ use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Queue\SerializesModels;
 
-class OrderStatusUpdated implements ShouldBroadcastNow
+class CustomerOrderActivityStatusUpdated implements ShouldBroadcastNow
 {
     use InteractsWithSockets, SerializesModels;
 
@@ -40,13 +40,4 @@ class OrderStatusUpdated implements ShouldBroadcastNow
         ];
     }
     
-    private function getStatus($status)
-    {
-        $data = [
-            'pending' => 'Preparing',
-            'shipped' => 'On the Way',
-            'completed' => 'Delivered',
-        ];
-        return $data[$status] ?? 'Preparing';
-    }
 }

@@ -2,14 +2,14 @@
 
 namespace App\Services\OrderLiveActivity;
 
-use App\Models\OrderLiveActivity;
+use App\Models\OrderActivitySubscription;
 use Google\Client;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class Push
 {
-    public static function payload(OrderLiveActivity $activity, array $state, bool $terminal, int $timestamp): array
+    public static function payload(OrderActivitySubscription $activity, array $state, bool $terminal, int $timestamp): array
     {
         $aps = ['timestamp' => $timestamp, 'event' => $terminal ? 'end' : 'update', 'content-state' => $state];
         if ($terminal) $aps['dismissal-date'] = $timestamp + 120;
@@ -27,7 +27,7 @@ class Push
         ]];
     }
 
-    public function send(OrderLiveActivity $activity, array $state, bool $terminal): void
+    public function send(OrderActivitySubscription $activity, array $state, bool $terminal): void
     {
         $project = config('services.fcm.project_id');
         if (!$project) throw new \RuntimeException('FCM project is not configured');
