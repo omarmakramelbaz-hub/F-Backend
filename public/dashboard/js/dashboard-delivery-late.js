@@ -22,28 +22,42 @@
     function stage(order) { return order.stage === 'courier' ? 'مع المندوب' : 'في التجهيز'; }
     function app(order) { return order.kind === 'app'; }
     function key(order) { return order.stage + ':' + (order.key || order.id); }
+    // A ringing bell (the count on it) with the late orders' card above it, 2 cm above where the box was.
+    var BELL = '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true" fill="currentColor"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-1.7 1.7A1 1 0 0 0 4 19.4h16a1 1 0 0 0 .7-1.7Z"/></svg>';
     function show(orders) {
         if (!orders.length) { if (box) box.hidden = true; return; }
         if (!box) {
             box = document.createElement(page || boardPage ? 'a' : 'div'); box.className = 'go-delivery-late'; box.setAttribute('role', 'alert');
             var style = document.createElement('style');
-            style.textContent = '.go-delivery-late{position:fixed;left:16px;bottom:52px;z-index:2147480000;display:block;max-width:330px;padding:10px 14px;border-radius:10px;'
-                + 'background:#c21f2c;color:#fff!important;font:600 13px/1.6 Almarai,Tahoma,sans-serif;direction:rtl;text-decoration:none!important;box-shadow:0 8px 24px #0005;'
-                + 'animation:go-late-pulse 1.4s ease-in-out infinite}.go-delivery-late b{display:block;font-size:14px}.go-delivery-late small{display:block;opacity:.95}'
-                + '@keyframes go-late-pulse{50%{box-shadow:0 0 0 6px #c21f2c55}}@media print{.go-delivery-late{display:none}}';
+            style.textContent = '.go-delivery-late{position:fixed;left:16px;bottom:128px;z-index:2147480000;display:flex;flex-direction:column;align-items:flex-start;gap:10px;'
+                + 'max-width:330px;color:#fff!important;font:600 13px/1.6 Almarai,Tahoma,sans-serif;direction:ltr;text-decoration:none!important}'
+                + '.go-late-card{direction:rtl;background:#c21f2c;border-radius:12px;padding:10px 14px;box-shadow:0 8px 24px #0005;position:relative}'
+                + '.go-late-card:after{content:"";position:absolute;left:22px;bottom:-7px;width:14px;height:14px;background:#c21f2c;transform:rotate(45deg)}'
+                + '.go-late-card b{display:block;font-size:14px}.go-late-card small{display:block;opacity:.95}'
+                + '.go-late-bell{position:relative;width:58px;height:58px;border-radius:50%;background:#c21f2c;display:grid;place-items:center;box-shadow:0 8px 24px #0005;'
+                + 'animation:go-late-pulse 1.4s ease-in-out infinite}.go-late-bell svg{animation:go-late-ring 1.4s ease-in-out infinite;transform-origin:50% 8%}'
+                + '.go-late-count{position:absolute;top:-4px;right:-4px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#fff;color:#c21f2c;'
+                + 'font:800 12px/22px Almarai,Tahoma,sans-serif;text-align:center;box-shadow:0 2px 6px #0004}'
+                + '@keyframes go-late-pulse{50%{box-shadow:0 0 0 8px #c21f2c55}}'
+                + '@keyframes go-late-ring{0%,50%,100%{transform:rotate(0)}10%,30%{transform:rotate(14deg)}20%,40%{transform:rotate(-14deg)}}'
+                + '@media(prefers-reduced-motion:reduce){.go-late-bell,.go-late-bell svg{animation:none}}@media print{.go-delivery-late{display:none}}';
             document.head.appendChild(style); document.body.appendChild(box);
         }
         box.hidden = false; box.replaceChildren();
         // Opens the page of the late orders: the app orders board when they are all app orders.
         var target = orders.every(app) ? (boardPage || page) : (page || boardPage);
         if (box.tagName === 'A' && target) box.href = target;
-        var title = document.createElement('b'); title.textContent = '⚠ ' + (orders.every(app) ? 'تأخير في طلبات التطبيق' : orders.some(app) ? 'تأخير في الطلبات' : 'تأخير في الدليفري') + ': ' + orders.length + (orders.length === 1 ? ' طلب' : ' طلبات'); box.appendChild(title);
+        var card = document.createElement('div'); card.className = 'go-late-card';
+        var title = document.createElement('b'); title.textContent = (orders.every(app) ? 'تأخير في طلبات التطبيق' : orders.some(app) ? 'تأخير في الطلبات' : 'تأخير في الدليفري') + ': ' + orders.length + (orders.length === 1 ? ' طلب' : ' طلبات'); card.appendChild(title);
         orders.slice(0, 4).forEach(function (order) {
             var line = document.createElement('small');
             line.textContent = '#' + order.number + (app(order) ? ' · تطبيق' : '') + (order.branch ? ' · ' + order.branch : '') + ' · ' + stage(order) + ' ' + order.minutes + ' دقيقة';
-            box.appendChild(line);
+            card.appendChild(line);
         });
-        if (orders.length > 4) { var more = document.createElement('small'); more.textContent = 'و' + (orders.length - 4) + ' غيرهم'; box.appendChild(more); }
+        if (orders.length > 4) { var more = document.createElement('small'); more.textContent = 'و' + (orders.length - 4) + ' غيرهم'; card.appendChild(more); }
+        var bell = document.createElement('span'); bell.className = 'go-late-bell'; bell.innerHTML = BELL;
+        var count = document.createElement('span'); count.className = 'go-late-count'; count.textContent = String(orders.length); bell.appendChild(count);
+        box.appendChild(card); box.appendChild(bell);
     }
     function ring(orders) {
         if (!orders.length || read('soundEnabled') === 'false') return;
