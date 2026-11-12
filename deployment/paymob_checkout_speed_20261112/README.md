@@ -1,6 +1,6 @@
 # Paymob checkout creation reliability
 
-This package removes redundant legacy auth/order requests before Intention creation. It publishes only the active `checkingOut()` method and the wallet's pre-write email validation, against the exact deployed baseline `31d4020a9195904e1578bd6207f5dc805aa1541d`. It never replaces a live controller with the repository's older main version.
+This package removes redundant legacy auth/order requests before Intention creation. It publishes only the active `checkingOut()` method and the wallet's pre-write email validation. The exact source snapshots and in-memory candidate hashes were captured by reviewed read-only diagnostic release `658ad44e5f00dc3288215b98cc6a05d916fe6bdd`; the redacted live methods and their import context were reviewed before these digest pins were updated. It never replaces a live controller with the repository's older main version.
 
 The request uses one Intention POST with a 3-second connection timeout and 15-second total timeout. HTTP/JSON/amount/currency/identifier errors return a structured failure instead of indexing invalid gateway data. Server-owned amounts are parsed locally with the existing ten-whole-digit/two-decimal bound and integer arithmetic; formatting also uses integers. No shared money utility is needed or changed. A lost response remains uncertain; the POST is never automatically retried and creation never confirms payment.
 
@@ -19,7 +19,9 @@ The PHP harness uses synthetic model/HTTP/authentication stubs; it makes no netw
 
 Use `run_root.sh` with a full pinned commit SHA. Its default mode checks only; pass `--apply` for publication. The runner verifies downloaded file digests and runs the publisher on `srv1836524` as root.
 
-The publisher rejects any unexpected edit to either complete live source file. If it reports `BASELINE_MISMATCH`, obtain a new read-only fingerprint and review the delta; do not weaken the guard or use a whole controller from main. Before publication it lints the generated complete PHP files with the server's PHP 8.2 binary, then creates protected backups and replaces files atomically. It preserves ownership/mode and checks for concurrent edits again before each replacement. It does not read or modify the shared money utility, callbacks, settlement services, balances, routes, scheduler settings, or disabled live-update timers.
+The publisher rejects any unexpected edit to either complete live source file or its exact observed attributes. PaymobController must remain UID/GID `1001:1003`, mode `0755`; WalletController must remain root-owned `0:0`, mode `0644`. These distinct attributes are preserved during publication and rollback; the wallet is not reassigned to the application account. The named `fasakha` account must still have UID `1001`.
+
+If it reports `BASELINE_MISMATCH` or `SOURCE_ATTRIBUTES_MISMATCH`, obtain a new read-only fingerprint and review the delta; do not weaken the guard or use a whole controller from main. Before publication it lints the generated complete PHP files with the server's PHP 8.2 binary, then creates protected backups and replaces files atomically. It checks for concurrent edits again before each replacement. It does not read or modify the shared money utility, callbacks, settlement services, balances, routes, scheduler settings, or disabled live-update timers.
 
 For rollback, run the same pinned runner with `--rollback` and the exact `BACKUP=` path it returned. Rollback refuses files changed since publication and creates an additional protected backup. Application PHP-FPM cache behavior and a user-driven checkout still need live verification after source publication. No real charge is part of these tests.
 

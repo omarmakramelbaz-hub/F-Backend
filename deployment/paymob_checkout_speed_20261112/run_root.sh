@@ -18,6 +18,6 @@ for checkout_file in publish.py checking_out.php.template; do
 done
 
 printf '%s  %s\n' \
-  ddb275eb550d554e6ae2abd3f42d06fadaea23cd0407147ee3ffe0af382896b9 "$checkout_run/publish.py" \
+  d9c0f96d940e36d768329504a10cc537259b29c0673a5697768f3e267be24ff9 "$checkout_run/publish.py" \
   52aca681dfad03927021f168b8878391fc27f4679957b5360c2c68b4c55492ac "$checkout_run/checking_out.php.template" | sha256sum --check
 python3 "$checkout_run/publish.py" "$@"

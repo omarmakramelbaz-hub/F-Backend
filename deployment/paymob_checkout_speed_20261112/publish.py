@@ -20,8 +20,20 @@ BACKUPS = Path('/home/fasakha/paymob-checkout-backups')
 PACKAGE = Path(__file__).resolve().parent
 CONTROLLER = 'app/Http/Controllers/Payment/PaymobController.php'
 WALLET = 'app/Http/Controllers/Api/V1/User/WalletController.php'
-BASELINE = '31d4020a9195904e1578bd6207f5dc805aa1541d'
-SPECS = {'app/Http/Controllers/Payment/PaymobController.php': {'before': '7ebc0f5eb5d66da7804a3678cddc9fc7cd9af600020d234569b5bd5ade07e266', 'after': 'de966706defacd95d07ffe34938f65f6f69819dab7a73bc1edbf021792b4d634'}, 'app/Http/Controllers/Api/V1/User/WalletController.php': {'before': '518b9d665bf465dbd12c5a7be47aaa55b9466e9c6db93bdb93517ae5dbe14963', 'after': 'dfd44ebb18d4d1d40596a6bfe820c30d1483135d6a9078300c31226e383954a3'}}
+BASELINE = 'reviewed-live-diagnostic-658ad44e5f00dc3288215b98cc6a05d916fe6bdd'
+ACCOUNT_UID = 1001
+SPECS = {
+    CONTROLLER: {
+        'before': 'c679ab86629ccd103f2cbe8e96c96c274fba6ff84d726d912cf49ed8c4ec4a48',
+        'after': 'de966706defacd95d07ffe34938f65f6f69819dab7a73bc1edbf021792b4d634',
+        'attributes': [1001, 1003, 0o755],
+    },
+    WALLET: {
+        'before': 'c8f7dec64024046eb1d59c480f8c731ab00c64d53147c8628abeb919251203aa',
+        'after': 'a0b48a59a5ed92f31da049fd2962aa32148aa309007ecf05935509689ff4c023',
+        'attributes': [0, 0, 0o644],
+    },
+}
 
 
 def digest(data):
@@ -86,18 +98,22 @@ def attrs(info):
     return (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
 
 
-def plan(root, specs, template, owner_uid=None):
+def plan(root, specs, template):
     if set(specs) != {CONTROLLER, WALLET}:
         raise RuntimeError('PACKAGE_PATHS_INVALID')
     changes = []
     for name in (CONTROLLER, WALLET):
         path, info = source(root, name)
-        if owner_uid is not None and info.st_uid != owner_uid:
-            raise RuntimeError('SOURCE_OWNER_INVALID')
         original = path.read_bytes()
         entry = specs[name]
-        if set(entry) != {'before', 'after'} or any(not re.fullmatch('[a-f0-9]{64}', entry[k]) for k in entry):
+        if (set(entry) != {'before', 'after', 'attributes'}
+                or any(not re.fullmatch('[a-f0-9]{64}', entry[key]) for key in ('before', 'after'))
+                or not isinstance(entry['attributes'], list) or len(entry['attributes']) != 3
+                or any(type(value) is not int for value in entry['attributes'])
+                or min(entry['attributes']) < 0 or entry['attributes'][2] > 0o7777):
             raise RuntimeError('MANIFEST_INVALID')
+        if attrs(info) != tuple(entry['attributes']):
+            raise RuntimeError('SOURCE_ATTRIBUTES_MISMATCH')
         if digest(original) == entry['after']:
             continue
         if digest(original) != entry['before']:
@@ -204,7 +220,8 @@ def rollback_plan(root, backup):
         if (not isinstance(entry, dict) or set(entry) != {'before', 'after', 'attributes'}
                 or entry['before'] != expected['before'] or entry['after'] != expected['after']
                 or not isinstance(entry['attributes'], list) or len(entry['attributes']) != 3
-                or any(type(value) is not int for value in entry['attributes'])):
+                or any(type(value) is not int for value in entry['attributes'])
+                or entry['attributes'] != expected['attributes']):
             raise RuntimeError('BACKUP_METADATA_INVALID')
         saved, saved_info = source(backup, name)
         if (not stat.S_ISREG(saved_info.st_mode) or saved_info.st_nlink != 1 or saved_info.st_uid != backup_owner
@@ -223,6 +240,15 @@ def rollback_plan(root, backup):
     return changes
 
 
+def require_account_identity():
+    try:
+        account = pwd.getpwnam('fasakha')
+    except KeyError:
+        raise RuntimeError('ACCOUNT_IDENTITY_MISMATCH') from None
+    if account.pw_uid != ACCOUNT_UID:
+        raise RuntimeError('ACCOUNT_IDENTITY_MISMATCH')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true', help='Publish after checks; default only checks.')
@@ -235,7 +261,7 @@ def main():
         raise RuntimeError('SERVER_IDENTITY_MISMATCH')
     if not ROOT.is_dir() or ROOT.resolve() != ROOT:
         raise RuntimeError('APPLICATION_ROOT_INVALID')
-    account = pwd.getpwnam('fasakha')
+    require_account_identity()
     lock = Path('/var/lock/fasakhansta-paymob-checkout.lock')
     if lock.is_symlink():
         raise RuntimeError('LOCK_INVALID')
@@ -251,7 +277,7 @@ def main():
             changes = rollback_plan(ROOT, arguments.rollback)
         else:
             template = (PACKAGE / 'checking_out.php.template').read_bytes()
-            changes = plan(ROOT, SPECS, template, owner_uid=account.pw_uid)
+            changes = plan(ROOT, SPECS, template)
         lint_php(changes, PHP)
         if not changes:
             print('PAYMOB_CHECKOUT_ALREADY_RESTORED' if arguments.rollback else 'PAYMOB_CHECKOUT_ALREADY_APPLIED')

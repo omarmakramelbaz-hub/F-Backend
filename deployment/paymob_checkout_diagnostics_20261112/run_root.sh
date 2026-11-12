@@ -23,6 +23,6 @@ for diagnostic_file in diagnostics.py publish.py checking_out.php.template; do
 done
 printf '%s  %s\n' \
   845ab7f71f1b8ec0c75188232364018e40e63f48f4c4fb10ebed40f66dfc780e "$diagnostic_run/diagnostics.py" \
-  ddb275eb550d554e6ae2abd3f42d06fadaea23cd0407147ee3ffe0af382896b9 "$diagnostic_run/publish.py" \
+  d9c0f96d940e36d768329504a10cc537259b29c0673a5697768f3e267be24ff9 "$diagnostic_run/publish.py" \
   52aca681dfad03927021f168b8878391fc27f4679957b5360c2c68b4c55492ac "$diagnostic_run/checking_out.php.template" | sha256sum --check
 python3 "$diagnostic_run/diagnostics.py"
