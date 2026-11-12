@@ -21,8 +21,7 @@ PACKAGE = Path(__file__).resolve().parent
 CONTROLLER = 'app/Http/Controllers/Payment/PaymobController.php'
 WALLET = 'app/Http/Controllers/Api/V1/User/WalletController.php'
 BASELINE = '31d4020a9195904e1578bd6207f5dc805aa1541d'
-DEPENDENCIES = {'app/Services/GoServices/Money.php': '547a35e86953a510e237871468040a586c42251b5c633f5cfe19091e25a64286'}
-SPECS = {'app/Http/Controllers/Payment/PaymobController.php': {'before': '7ebc0f5eb5d66da7804a3678cddc9fc7cd9af600020d234569b5bd5ade07e266', 'after': '264079f9895b9db50cfb44f24022fbffd3af82ef465081d9bd5e6f74ac4e914e'}, 'app/Http/Controllers/Api/V1/User/WalletController.php': {'before': '518b9d665bf465dbd12c5a7be47aaa55b9466e9c6db93bdb93517ae5dbe14963', 'after': 'dfd44ebb18d4d1d40596a6bfe820c30d1483135d6a9078300c31226e383954a3'}}
+SPECS = {'app/Http/Controllers/Payment/PaymobController.php': {'before': '7ebc0f5eb5d66da7804a3678cddc9fc7cd9af600020d234569b5bd5ade07e266', 'after': 'de966706defacd95d07ffe34938f65f6f69819dab7a73bc1edbf021792b4d634'}, 'app/Http/Controllers/Api/V1/User/WalletController.php': {'before': '518b9d665bf465dbd12c5a7be47aaa55b9466e9c6db93bdb93517ae5dbe14963', 'after': 'dfd44ebb18d4d1d40596a6bfe820c30d1483135d6a9078300c31226e383954a3'}}
 
 
 def digest(data):
@@ -71,7 +70,7 @@ def wallet_target(original):
 
 
 def source(root, name):
-    if name not in (CONTROLLER, WALLET, *DEPENDENCIES) or root.resolve() != root:
+    if name not in (CONTROLLER, WALLET) or root.resolve() != root:
         raise RuntimeError('ROOT_OR_PATH_INVALID')
     path = root / name
     for parent in list(path.parents)[:len(Path(name).parts) - 1]:
@@ -85,18 +84,6 @@ def source(root, name):
 
 def attrs(info):
     return (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
-
-
-def guard_dependencies(root, owner_uid=None):
-    for name, expected in DEPENDENCIES.items():
-        try:
-            path, info = source(root, name)
-            if owner_uid is not None and info.st_uid != owner_uid:
-                raise RuntimeError('DEPENDENCY_MISMATCH')
-            if digest(path.read_bytes()) != expected:
-                raise RuntimeError('DEPENDENCY_MISMATCH')
-        except OSError:
-            raise RuntimeError('DEPENDENCY_MISMATCH') from None
 
 
 def plan(root, specs, template, owner_uid=None):
@@ -264,7 +251,6 @@ def main():
             changes = rollback_plan(ROOT, arguments.rollback)
         else:
             template = (PACKAGE / 'checking_out.php.template').read_bytes()
-            guard_dependencies(ROOT, owner_uid=account.pw_uid)
             changes = plan(ROOT, SPECS, template, owner_uid=account.pw_uid)
         lint_php(changes, PHP)
         if not changes:

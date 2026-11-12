@@ -35,7 +35,6 @@ namespace App\Models {
     }
 }
 namespace {
-    require dirname(__DIR__, 3) . '/app/Services/GoServices/Money.php';
     require dirname(__DIR__, 3) . '/app/Http/Traits/ApiResponses.php';
     class FakeGatewayResponse {
         private $data;
@@ -136,7 +135,9 @@ namespace {
         }
     };
     $tests['malformed and mismatching responses fail closed'] = function () {
-        foreach (['scalar', 'missing_secret', 'missing_order', 'wrong_amount', 'wrong_currency', 'zero_order', 'array_secret'] as $case) {
+        foreach (['scalar', 'missing_secret', 'missing_order', 'wrong_amount', 'fractional_amount',
+            'boolean_amount', 'malformed_string_amount', 'infinite_amount', 'nan_amount',
+            'wrong_currency', 'zero_order', 'array_secret'] as $case) {
             resetScenario();
             \Illuminate\Support\Facades\Http::$handler = function ($payload) use ($case) {
                 $data = validPayload($payload);
@@ -144,6 +145,11 @@ namespace {
                 if ($case === 'missing_secret') unset($data['client_secret']);
                 if ($case === 'missing_order') unset($data['intention_order_id']);
                 if ($case === 'wrong_amount') $data['intention_detail']['amount'] = 5001;
+                if ($case === 'fractional_amount') $data['intention_detail']['amount'] = 5000.5;
+                if ($case === 'boolean_amount') $data['intention_detail']['amount'] = true;
+                if ($case === 'malformed_string_amount') $data['intention_detail']['amount'] = '5000.0';
+                if ($case === 'infinite_amount') $data['intention_detail']['amount'] = INF;
+                if ($case === 'nan_amount') $data['intention_detail']['amount'] = NAN;
                 if ($case === 'wrong_currency') $data['intention_detail']['currency'] = 'USD';
                 if ($case === 'zero_order') $data['intention_order_id'] = 0;
                 if ($case === 'array_secret') $data['client_secret'] = [];
@@ -172,6 +178,51 @@ namespace {
         $response = checkout();
         check($response->code === 503 && $response->body['checkout_outcome_uncertain'] === true, 'storage failure uncertain');
         check(count(\Illuminate\Support\Facades\Http::$calls) === 1, 'storage failure no replay');
+    };
+    $tests['decimal amounts preserve exact cents and two-place records'] = function () {
+        $cases = [
+            ['0.01', 1, '0.01'], ['1.01', 101, '1.01'], ['50', 5000, '50.00'],
+            ['50.1', 5010, '50.10'], ['0000000050.01', 5001, '50.01'],
+            ["\t50.09 \n", 5009, '50.09'], [50, 5000, '50.00'], [50.25, 5025, '50.25'],
+            ['9999999999.99', 999999999999, '9999999999.99'],
+        ];
+        foreach ($cases as [$amount, $cents, $decimal]) {
+            resetScenario(); \App\Models\Order::$order->grand_total = $amount;
+            $response = checkout();
+            check($response->code === 200, 'valid decimal accepted');
+            check(\Illuminate\Support\Facades\Http::$calls[0]['payload']['amount'] === $cents, 'exact integer cents');
+            check(\App\Models\Payment::$created[0]['total_price'] === $decimal, 'exact two-place decimal');
+        }
+    };
+    $tests['exact integral JSON float cents are accepted without changing stored money'] = function () {
+        foreach (['50.00' => 5000.0, '9999999999.99' => 999999999999.0] as $amount => $gatewayAmount) {
+            resetScenario(); \App\Models\Order::$order->grand_total = $amount;
+            \Illuminate\Support\Facades\Http::$handler = function ($payload) use ($gatewayAmount) {
+                $data = validPayload($payload); $data['intention_detail']['amount'] = $gatewayAmount;
+                return new FakeGatewayResponse($data);
+            };
+            $response = checkout();
+            check($response->code === 200, 'exact integral gateway float accepted');
+            check(is_int(\Illuminate\Support\Facades\Http::$calls[0]['payload']['amount']), 'request cents remain integer');
+            check(\App\Models\Payment::$created[0]['total_price'] === $amount, 'stored amount remains exact decimal');
+        }
+    };
+    $tests['invalid decimals never reach the gateway'] = function () {
+        foreach (['0', '-0.01', '+1.00', '50.001', '1e2', 'NaN', 'INF', '1,00', '.50', '50.',
+            '10000000000.00', '00000000001.00', '', null, [], new \stdClass(), true, false] as $amount) {
+            resetScenario(); \App\Models\Order::$order->grand_total = $amount;
+            $response = checkout();
+            check($response->code === 422, 'invalid decimal rejected');
+            check(count(\Illuminate\Support\Facades\Http::$calls) === 0 && count(\App\Models\Payment::$created) === 0, 'invalid decimal has no gateway or record effect');
+        }
+    };
+    $tests['shared money utility is not required or consulted'] = function () {
+        check(!class_exists('App\\Services\\GoServices\\Money', false), 'utility initially absent');
+        resetScenario(); check(checkout()->code === 200, 'works without utility');
+        eval('namespace App\\Services\\GoServices; class Money { '
+            . 'public static function minor($value) { throw new \\RuntimeException("foreign utility must not run"); } '
+            . 'public static function decimal($value) { throw new \\RuntimeException("foreign utility must not run"); } }');
+        resetScenario(); check(checkout()->code === 200, 'foreign utility never consulted');
     };
     $tests['web checkout preserves redirect behavior'] = function () {
         resetScenario(); FakeAuth::$api = false;
