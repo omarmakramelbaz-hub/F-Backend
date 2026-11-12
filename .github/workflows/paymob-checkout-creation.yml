@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'deployment/paymob_checkout_speed_20261112/**'
+      - 'deployment/paymob_checkout_diagnostics_20261112/**'
       - '.github/workflows/paymob-checkout-creation.yml'
   workflow_dispatch:
 
@@ -23,3 +24,5 @@ jobs:
         run: python3 -m unittest discover -s deployment/paymob_checkout_speed_20261112/tests -p 'test_*.py' -v
       - name: Execute synthetic checkout cases without network
         run: php deployment/paymob_checkout_speed_20261112/tests/checkout_harness.php
+      - name: Read-only source diagnostic and actual PHP redaction cases
+        run: python3 -m unittest discover -s deployment/paymob_checkout_diagnostics_20261112/tests -p 'test_*.py' -v
