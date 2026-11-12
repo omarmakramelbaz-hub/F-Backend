@@ -115,6 +115,11 @@ class OrderLiveActivityService
                 'order_status' => $state['live_activity_status'], 'status' => $state['status'],
                 'restaurant_name' => (string) ($order->resturant?->name ?? ''),
                 'updateId' => (float) $state['updated_at'],
+                // The iPhone decodes the Live Activity's state by these names (LiveActivitiesAppAttributes.ContentState:
+                // orderId, orderStatus, restaurantName, updatedAt, all required); an update without them is dropped.
+                'orderId' => (string) $state['order_id'], 'orderStatus' => $state['live_activity_status'],
+                'restaurantName' => (string) ($order->resturant?->name ?: 'Fasakhansta'),
+                'updatedAt' => (int) $state['updated_at'],
             ];
             $stateHash = hash('sha256', json_encode([$content, $state['updated_at'], $state['is_terminal']]));
             if ($registration->state_hash === $stateHash) {
