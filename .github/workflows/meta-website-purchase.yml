@@ -1,0 +1,33 @@
+name: Website Purchase checks
+
+on:
+  push:
+    branches: ['codex/meta-website-purchase-20261113']
+    paths: ['deployment/meta_website_purchase_20261113/**', '.github/workflows/meta-website-purchase.yml']
+  pull_request:
+    paths: ['deployment/meta_website_purchase_20261113/**', '.github/workflows/meta-website-purchase.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  website-purchase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: json
+          coverage: none
+      - name: Check PHP syntax
+        run: find deployment/meta_website_purchase_20261113 -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Check sender and checkout behavior without external requests
+        run: |
+          php deployment/meta_website_purchase_20261113/tests/website_purchase_unit.php
+          php deployment/meta_website_purchase_20261113/tests/website_checkout_hook_unit.php
+      - name: Check publication guards and rollback
+        run: |
+          bash -n deployment/meta_website_purchase_20261113/run_root.sh
+          python3 -m unittest discover -s deployment/meta_website_purchase_20261113/tests -v

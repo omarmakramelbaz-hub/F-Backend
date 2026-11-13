@@ -1,0 +1,18 @@
+{
+  "app/Console/Commands/SendWebsiteMetaPurchases.php": {
+    "before": null,
+    "after": "26238174fdcfc1c63467dc274c0b21fcdd6d59fd86e057bc94ca3061ca1da628"
+  },
+  "app/Services/Site/WebStorefront.php": {
+    "before": "4ac8ad8560df02ef2a163d63c39b9df33c15ac386bae25669e6648537ed242d4",
+    "after": "5f7edf2871a1fafb1384b7a8f08896af5ab50e46985bb4715e45b48b9104fb52"
+  },
+  "app/Services/Site/WebsiteMetaPurchase.php": {
+    "before": null,
+    "after": "507dfd07b587763118d5196b7c662f205b337e8e08437f385dd45029bbd71e46"
+  },
+  "database/migrations/2026_11_13_200000_create_meta_website_purchases_table.php": {
+    "before": null,
+    "after": "bc506b026d61aa7ea71484df86bf826fda3abdb790c1e5c47ae1106aecf9a22e"
+  }
+}
