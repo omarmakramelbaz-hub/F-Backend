@@ -250,6 +250,8 @@ Route::post('/pusher/auth', function (Request $request) {
             Route::get('/conversation/{id}', [ConversationController::class,'conversation']);
             Route::post('send_message', [ConversationController::class,'send_message']);
             Route::get('new_conversation/{id}',[ConversationController::class,'new_conv']);
+            // A chat message's push, sent by the server (the app holds no Firebase key).
+            Route::post('chat_notify', [\App\Http\Controllers\Api\V1\User\ChatPushController::class, '__invoke'])->middleware('throttle:30,1');
             
             
             Route::get('address',[AddressController::class,'index']);
