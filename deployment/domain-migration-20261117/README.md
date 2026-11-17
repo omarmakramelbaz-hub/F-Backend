@@ -1,23 +1,65 @@
-# faskhansta.com migration inventory
+# Canonical website domain migration: faskhansta.com
 
-The new apex and www domains already serve the production Laravel site over HTTPS.
-This inventory is the prerequisite for moving all site links to the new canonical
-domain: production contains additional source files beyond the default branch.
-Do not deploy a checkout of the default branch over that application.
+Moves website URL generation, the asset origin, public literal links, product SEO,
+app-download links, robots/sitemap origin and WhatsApp website links from the old
+host to https://faskhansta.com. Existing site files are transformed in place against
+the exact SHA-256 fingerprints reported by srv1836524 on 2026-11-17. It never
+overlays the production application with the default branch.
 
-Run `python3 audit.py` on srv1836524. The program reads the known application
-directory and outputs filenames, SHA-256 fingerprints, domain reference counts,
-and selected non-secret domain settings. It does not boot Laravel, run Artisan,
-access the database, make network requests, or modify application files. Source
-lines, URL paths and queries, and credentials are not emitted. Symlinks and upload
-directories are excluded. Large files and output truncation are explicitly reported.
+## Run
 
-Test with `python3 -m unittest discover -s deployment/domain-migration-20261117 -p 'test_*.py'`.
+`python3 migrate.py` performs preflight only.
 
-The migration remains pending until production output is reviewed. Its next steps
-are to update application URL generation, literal site/asset links and cookie
-settings; verify login/cart behavior and callback URLs; and redirect old browser
-links. Existing customer clients still contain the old API base URL, so blanket
-redirects must not be enabled before reviewing API/webhook/signed-link handling.
-No customer app release, provider callback change, or live payment is performed
-by this inventory.
+`python3 migrate.py --apply` applies the reviewed transformations with a private
+backup under `/var/backups/faskhansta-canonical.*`, preserved owner/group/mode/xattrs,
+and automatic rollback if verification fails. The final output includes an explicit
+manual rollback command. A changed baseline stops before publication; reruns do not
+blindly overwrite later edits. Do not re-run the old domain-connection script to
+revert application changes.
+
+## Publication and validation
+
+- Checks exact source/config/payment-controller fingerprints and the audited .env
+  domain settings. Private .env values and payment keys are never printed.
+- Updates APP_URL and ASSET_URL, uses host-only secure sessions, and adds canonical
+  Laravel URL generation without replacing existing provider behavior.
+- Preserves unrelated .env fields, all database records, mail identity and keys.
+- Performs PHP lint before writes and reloads the existing PHP 8.2 FPM service.
+- Clears compiled views only; it does not flush sessions or general application
+  caches, migrate a database, or introduce config caching.
+- Starts browser redirects as 302, checks HTTPS responses and rendered links, then
+  promotes to 301 and checks again. Paths, escaping and query strings are preserved.
+- Checks apex/public pages, the new www host, old apex redirects, API settings on
+  both hosts, Android/iOS app-store redirects, generated URLs/assets, and GO payment
+  route origins. No real checkout, charge or authenticated login is executed.
+
+## Compatibility and follow-up
+
+The old apex and www browser links redirect to the new canonical site. API paths,
+payment/OAuth callback paths, signed-query URLs, certificate validation and
+non-GET/HEAD requests are deliberately not externally redirected. Existing
+installed clients and registered webhook endpoints must keep working until their
+origins and provider registrations have been changed and verified. This is a
+compatibility bridge, not a completed retirement of the old domain.
+
+The reviewed order/wallet Paymob controller derives notification and redirect
+URLs from app.url. GO-services payment routes use canonical URL generation.
+Already-created payment sessions and external provider settings are preserved.
+
+Mail sender setup/DNS authentication, stored database URL values (if any),
+provider dashboards, released mobile/desktop clients, supervised queue worker
+reloads and authenticated order/payment tests remain separate follow-up work.
+The script reports running queue processes without terminating unsupervised work.
+It cannot verify or update an installed app binary or third-party provider setting.
+
+## Inventory and tests
+
+`audit.py` is read-only: no Laravel boot, database access, network or source edits.
+It reports hashes/counts and selected non-secret settings; source text and URL
+paths/queries are omitted.
+
+Run `python3 -m unittest discover -s deployment/domain-migration-20261117 -p 'test_*.py' -v`.
+The scoped GitHub Actions workflow installs Apache/PHP and runs real redirect
+integration tests, PHP behavior checks, env/link preservation and rollback tests.
+It fetches only this package, uses read-only repository permission and has no
+production access.
