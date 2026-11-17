@@ -864,11 +864,11 @@ class OrderBoardService
         return implode('، ', $parts);
     }
 
-    private function setting(string $name): int
+    private function setting(string $name): float
     {
         if (!array_key_exists('setting:'.$name, $this->related)) {
             $payload = $this->has('settings', 'name') ? DB::table('settings')->where('name', $name)->value('payload') : 0;
-            $this->related['setting:'.$name] = (int) filter_var($payload ?? 0, FILTER_SANITIZE_NUMBER_INT);
+            $this->related['setting:'.$name] = \App\Support\SettingPercent::parse($payload ?? 0);
         }
         return $this->related['setting:'.$name];
     }

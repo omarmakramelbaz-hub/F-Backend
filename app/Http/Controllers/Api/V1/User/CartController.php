@@ -554,10 +554,7 @@ class CartController extends Controller
         $serviceFeeRaw = DB::table('settings')
             ->where('name', 'service_fees')
             ->value('payload');
-        $serviceFeeRate = (int) filter_var(
-            (string) $serviceFeeRaw,
-            FILTER_SANITIZE_NUMBER_INT
-        );
+        $serviceFeeRate = \App\Support\SettingPercent::parse($serviceFeeRaw);
 
         $orders = Order::query()
             ->select([

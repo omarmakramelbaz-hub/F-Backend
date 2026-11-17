@@ -259,8 +259,7 @@ public static function generateUniqueOrderNumber($restaurantId)
     public function getServiceFeesAttribute(){
         if( $this->type!='shipping'){
         $setting = \DB::table('settings')->where('name','service_fees')->pluck('payload')->first();
-        $setting_service_fees =( filter_var($setting, FILTER_SANITIZE_NUMBER_INT));
-        $service_fees=($this->updated_total * (int)$setting_service_fees) / 100;
+        $service_fees=($this->updated_total * \App\Support\SettingPercent::parse($setting)) / 100;
         
         return round($service_fees,2);
         }else{
@@ -270,8 +269,7 @@ public static function generateUniqueOrderNumber($restaurantId)
     //الضريبه 14% زياده من المستخدم
     public function getTaxAttribute(){
         $setting = \DB::table('settings')->where('name','tax')->pluck('payload')->first();
-        $setting_tax =( filter_var($setting, FILTER_SANITIZE_NUMBER_INT));
-        $tax=($this->updated_total * (int)$setting_tax) / 100;
+        $tax=($this->updated_total * \App\Support\SettingPercent::parse($setting)) / 100;
         
         return round($tax,2);
     }
