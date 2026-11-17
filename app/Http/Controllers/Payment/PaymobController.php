@@ -98,14 +98,13 @@ $token = $json['token'];
             "expiration"=> 36000,
             "amount"=>$amount_cents,
             "payment_methods" =>[(int)$integration_id],
-            // Server notification confirms payment even if the customer closes checkout. The customer comes back to the
-            // domain their app called (an installed app still on the old domain must see its own return page).
+            // Server notification confirms payment even if the customer closes checkout.
             ...($order->type === 'wallet' ? [
                 'notification_url' => rtrim((string) config('app.url'), '/') . '/api/wallet-topup/paymob/notify',
-                'redirection_url' => url('/api/wallet-topup/paymob/return'),
+                'redirection_url' => rtrim((string) config('app.url'), '/') . '/api/wallet-topup/paymob/return',
             ] : ($order->type === 'current' ? [
                 'notification_url' => rtrim((string) config('app.url'), '/') . '/api/order-payments/paymob/notify',
-                'redirection_url' => url('/api/order-payments/paymob/return'),
+                'redirection_url' => rtrim((string) config('app.url'), '/') . '/api/order-payments/paymob/return',
             ] : [])),
             "metadata"=>[
                 "merchant_order_id"=> $order->id,  // Your custom order ID
