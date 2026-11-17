@@ -4,7 +4,7 @@ namespace App\Services\Site;
 /** Public editorial pages. Never reads a branch catalog or a visitor's delivery context. */
 class StorefrontSeo
 {
-    public const BASE_URL = 'https://fasakhaninja.com';
+    public const BASE_URL = 'https://faskhansta.com';
 
     public static function url(string $path = ''): string
     {

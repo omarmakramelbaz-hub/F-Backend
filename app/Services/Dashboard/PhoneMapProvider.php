@@ -110,7 +110,7 @@ class PhoneMapProvider
             $cache->put($provider.':next',microtime(true)+1.0,5);return true;
         });}catch(LockTimeoutException $e){$allowed=false;}
         abort_unless($allowed,429,'جارٍ تحديث اقتراحات العناوين.');
-        try{$response=Http::acceptJson()->withHeaders(['User-Agent'=>'FasakhanstaDashboard/1.0 (+https://fasakhaninja.com)'])->withOptions(['allow_redirects'=>false,'connect_timeout'=>2])->timeout(5)->get($url,$params);}
+        try{$response=Http::acceptJson()->withHeaders(['User-Agent'=>'FasakhanstaDashboard/1.0 (+https://faskhansta.com)'])->withOptions(['allow_redirects'=>false,'connect_timeout'=>2])->timeout(5)->get($url,$params);}
         catch(\Illuminate\Http\Client\ConnectionException $e){abort(503,'تأخر مزود البحث بالعناوين. أعد المحاولة.');}
         if($response->status()===429){$cache->put($provider.':next',microtime(true)+5,6);abort(429,'مزود العناوين مشغول للحظات.');}
         abort_unless($response->successful(),503,'خدمة البحث بالعناوين غير متاحة حاليًا.');$data=$response->json();
@@ -129,7 +129,7 @@ class PhoneMapProvider
         try{return $cache->lock($provider,15)->block(2,function()use($cache,$provider,$key,$url,$params,$ttl,$kind){
             if(is_array($hit=$cache->get($key)))return $hit;
             $wait=(float)$cache->get($provider.':next',0)-microtime(true);if($wait>0)usleep((int)(min(1.1,$wait)*1000000));$cache->put($provider.':next',microtime(true)+1.05,5);
-            try{$response=Http::acceptJson()->withHeaders(['User-Agent'=>'FasakhanstaDashboard/1.0 (+https://fasakhaninja.com)'])->withOptions(['allow_redirects'=>false,'connect_timeout'=>3])->timeout(8)->get($url,$params);}
+            try{$response=Http::acceptJson()->withHeaders(['User-Agent'=>'FasakhanstaDashboard/1.0 (+https://faskhansta.com)'])->withOptions(['allow_redirects'=>false,'connect_timeout'=>3])->timeout(8)->get($url,$params);}
             catch(\Illuminate\Http\Client\ConnectionException $e){abort(503,'تعذر الاتصال بخدمة الخرائط. أعد المحاولة بعد لحظات.');}
             abort_unless($response->successful(),503,'خدمة الخرائط غير متاحة حاليًا. أعد المحاولة بعد لحظات.');$data=$response->json();abort_unless(is_array($data),503,'استجابة خدمة الخرائط غير صالحة.');
             if(($kind==='search'&&isset($data['features']))||($kind==='route'&&($data['code']??'')==='Ok'))$cache->put($key,$data,$ttl);

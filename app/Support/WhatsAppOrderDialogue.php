@@ -5,7 +5,7 @@ namespace App\Support;
 /** Dialogue answers are separate from order extraction and can use only supplied business facts. */
 final class WhatsAppOrderDialogue
 {
-    private const OFFICIAL_URLS = ['https://wa.me/c/201285545554', 'https://fasakhaninja.com/downloadApp'];
+    private const OFFICIAL_URLS = ['https://wa.me/c/201285545554', 'https://faskhansta.com/downloadApp'];
     public const FIELDS = ['NAME', 'PHONE', 'ADDRESS', 'ITEMS', 'QUANTITY', 'QUANTITY_MODE',
         'FULFILLMENT', 'BRANCH', 'LOCATION'];
     public const KINDS = ['MISSING', 'QUANTITY_ASSOCIATION', 'PRODUCT_CHOICE', 'OPTION_CHOICE',

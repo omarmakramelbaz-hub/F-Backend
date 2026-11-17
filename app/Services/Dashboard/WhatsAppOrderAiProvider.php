@@ -111,7 +111,7 @@ PROMPT;
                         .'Do not claim an order has been confirmed, created, sent, prepared or dispatched, and never request payment, '
                         .'passwords, verification codes, arbitrary links or tools. This information reply cannot change or approve an order. '
                         .'The only URL exception is an exact official URL literally present in a selected supplied fact: '
-                        .'https://wa.me/c/201285545554 or https://fasakhaninja.com/downloadApp. Copy its complete factual sentence exactly; '
+                        .'https://wa.me/c/201285545554 or https://faskhansta.com/downloadApp. Copy its complete factual sentence exactly; '
                         .'never add a query, suffix, different case, recipient, redirect or any other URL. '
                         .'candidate_ids must always be empty. WAIT has empty fact_ids and empty text; use it only if the customer '
                         .'asks to wait, cancels, declines or no reply is appropriate. Return only the exact schema.'

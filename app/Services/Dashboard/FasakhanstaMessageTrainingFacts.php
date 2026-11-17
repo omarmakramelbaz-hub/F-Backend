@@ -142,7 +142,7 @@ final class FasakhanstaMessageTrainingFacts
         }
         if ($has('/(?:تطبيق|ابليكيشن|ابلكيشن|تنزيل|تحميل)|\b(?:app|application|download)\b/iu')) {
             $url = $reference['official_links']['application'] ?? null;
-            if ($url === 'https://fasakhaninja.com/downloadApp') $add('APP', 'تطبيق فسخانستا الرسمي', 'رابط تطبيق فسخانستا الرسمي: '.$url);
+            if ($url === 'https://faskhansta.com/downloadApp') $add('APP', 'تطبيق فسخانستا الرسمي', 'رابط تطبيق فسخانستا الرسمي: '.$url);
         }
         $onlineRegion=$has('/(?:التجمع|اكتوبر|المعادي|المهندسين|العبور|حلوان|مدينتي)/u');
         if ((!$onlineRegion||$selected!==[])&&$has('/(?:فرع|فروع|عناوين|عنوانكم|اماكن|مقر|تليفون|هاتف|ارقام)|\b(?:branch|branches|address|phone)\b/iu')) {
@@ -744,8 +744,8 @@ final class FasakhanstaMessageTrainingFacts
                 'The courier sets the delivery fee using your address and location. You can share your area, detailed address and location here so the fee can be checked.',
                 'El mandoob beye7added taklefet el tawseel 7asab el 3enwan wel location. Te2dar teb3at mante2tak wel 3enwan bel tafseel wel location hena 3ashan el taklefa tetrage3.'],
             'APP' => ['Official Fasakhansta app',
-                'The official Fasakhansta app link is https://fasakhaninja.com/downloadApp',
-                'Link app Fasakhansta el rasmi howa https://fasakhaninja.com/downloadApp'],
+                'The official Fasakhansta app link is https://faskhansta.com/downloadApp',
+                'Link app Fasakhansta el rasmi howa https://faskhansta.com/downloadApp'],
             'NEAREST_BRANCH' => ['Nearest branch to Tanta',
                 'The nearest branch to Tanta is El Mahalla El Kubra at El Bandar Square.',
                 'A2rab far3 le Tanta howa El Mahalla El Kubra fe El Bandar Square.'],

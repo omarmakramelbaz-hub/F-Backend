@@ -340,7 +340,7 @@ final class FasakhanstaAiKnowledge
         if (!is_array($reference) || ($reference['schema_version'] ?? null) !== 1
             || ($reference['reference_id'] ?? null) !== self::REFERENCE
             || ($reference['official_links']['catalog'] ?? null) !== 'https://wa.me/c/201285545554'
-            || ($reference['official_links']['application'] ?? null) !== 'https://fasakhaninja.com/downloadApp'
+            || ($reference['official_links']['application'] ?? null) !== 'https://faskhansta.com/downloadApp'
             || !is_array($reference['branches'] ?? null) || count($reference['branches']) !== 4
             || !is_array($reference['indicative_prices_egp'] ?? null) || count($reference['indicative_prices_egp']) !== 12
             || ($reference['promotions_reply'] ?? null) !== 'تابعونا، العروض بتنزل على الصفحة أول بأول 😉') return false;
