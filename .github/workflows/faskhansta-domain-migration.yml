@@ -1,0 +1,37 @@
+name: Faskhansta canonical domain checks
+on:
+  push:
+    branches: [codex/faskhansta-domain-migration-20261117]
+    paths:
+      - deployment/domain-migration-20261117/**
+      - .github/workflows/faskhansta-domain-migration.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-apache-and-php:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install isolated test prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y apache2 php-cli
+          sudo systemctl stop apache2 || true
+      - name: Fetch only test and migration source at this commit
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "${#SOURCE_SHA}" = 40
+          mkdir -p domain-tests
+          for name in audit.py test_audit.py migrate.py test_migrate.py; do
+            curl --fail --silent --show-error --location --max-time 60 "https://raw.githubusercontent.com/omarmakramelbaz-hub/F-Backend/$SOURCE_SHA/deployment/domain-migration-20261117/$name" -o "domain-tests/$name"
+          done
+      - name: Check Python, PHP behavior, Apache redirects and rollback
+        run: |
+          set -euo pipefail
+          command -v apache2
+          command -v php
+          python3 -m py_compile domain-tests/*.py
+          python3 -m unittest discover -s domain-tests -p 'test_*.py' -v
