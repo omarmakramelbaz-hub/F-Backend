@@ -26,7 +26,7 @@ const { ShiftsOffline } = require('./offline/shifts.cjs');
 const { ServiceOffline } = require('./offline/service.cjs');
 const { DeliveryOffline } = require('./offline/delivery.cjs');
 
-const SERVER = process.env.GOERP_SERVER || 'https://fasakhaninja.com';
+const SERVER = process.env.GOERP_SERVER || 'https://faskhansta.com';
 // Lets the automatic tests run the app on a separate data folder.
 if (process.env.GOERP_USER_DATA) app.setPath('userData', process.env.GOERP_USER_DATA);
 const RENDERER = path.join(__dirname, '..', '..', 'dist', 'renderer', 'index.html');
