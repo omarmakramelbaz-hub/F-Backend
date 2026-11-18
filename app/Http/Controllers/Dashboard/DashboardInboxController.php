@@ -81,7 +81,9 @@ class DashboardInboxController extends Controller
         try {
             return response()->json(['success' => true] + $action())->header('Cache-Control', 'no-store, private');
         } catch (\Throwable $error) {
-            Log::warning('Dashboard support unavailable', ['exception' => get_class($error)]);
+            // The support service's own reasons are fixed sentences (no data): they say what to repair.
+            $reason = str_starts_with($error->getMessage(), 'Support ') ? ['reason' => $error->getMessage()] : [];
+            Log::warning('Dashboard support unavailable', ['exception' => get_class($error)] + $reason);
             return response()->json(['success' => false, 'message' => trans('dashboard_inbox.unavailable')], 503)
                 ->header('Cache-Control', 'no-store, private');
         }

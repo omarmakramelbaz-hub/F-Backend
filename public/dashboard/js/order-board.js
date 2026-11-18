@@ -27,6 +27,29 @@
 
     function translated(key) { return copy[key] || key; }
 
+    function journalCommand(actionForm, data) {
+        var local = document.body.dataset.dashboardLocal === '1';
+        var website = /^website:/.test(actionForm.closest('[data-order-key]').dataset.orderKey || '');
+        var desktop = local || !!(window.FasakhanstaDesktop && document.body.dataset.dashboardRemoteAttempts === '1');
+        if (!website && !desktop) return;
+        var epoch = actionForm.dataset.desktopBoardGeneration;
+        var uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+        if (local ? !uuid.test(epoch || '') : epoch !== 'server') throw new Error(translated('error'));
+        var endpoint = new URL(actionForm.getAttribute('action'), window.location.href);
+        if (endpoint.origin !== window.location.origin || !/^\/admin\/order-board\/(?:legacy|store|service|partner_service|website)\/[1-9][0-9]{0,18}\/action$/.test(endpoint.pathname)) throw new Error(translated('error'));
+        var fields = Array.from(data.entries()).filter(function (field) { return !['_token', '_desktop_command', 'idempotency_key'].includes(field[0]); });
+        if (fields.some(function (field) { return typeof field[1] !== 'string'; })) throw new Error(translated('error'));
+        fields.sort(function (a, b) { return a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]); });
+        var key = 'fasakhansta.board.command.' + JSON.stringify([document.body.dataset.dashboardActor, epoch, endpoint.pathname, fields]);
+        // Keep this intent across a lost response, polling replacement and reload.
+        // A different account, snapshot, state or selected action gets another UUID.
+        var command = sessionStorage.getItem(key);
+        if (!command) { command = crypto.randomUUID(); sessionStorage.setItem(key, command); }
+        if (!uuid.test(command)) throw new Error(translated('error'));
+        if (desktop) data.set('_desktop_command', command);
+        data.set('idempotency_key', command);
+    }
+
     function setLive(state) {
         live.classList.toggle('is-updating', state === 'updating');
         live.classList.toggle('is-offline', state === 'offline');
@@ -70,6 +93,14 @@
         return !!document.querySelector('.modal.show, dialog[open]');
     }
 
+    function syncOrderAlerts(source) {
+        var alerts = window.DashboardOrderAlerts;
+        if (!alerts) return;
+        // Only an explicitly resolved card acknowledges a live event. Missing cards
+        // may simply have moved outside the selected branch, search or page.
+        alerts.observeApp(source);
+    }
+
     function syncCards(nextHtml) {
         // Reconcile each column by order key. Existing cards and their scroll positions
         // remain in place when a polling response contains no changes.
@@ -96,6 +127,20 @@
                 var key = incoming.dataset.orderKey;
                 var existing = key ? known.get(key) : existingList.querySelector('.ob-empty');
                 var node = existing && existing.outerHTML === incoming.outerHTML ? existing : incoming;
+                // Polling must not erase a cashier's unfinished company/cash choice.
+                if (existing && node !== existing && /^website:/.test(key || '')) {
+                    var beforeRevision = existing.querySelector('[name="expected_revision"]');
+                    var afterRevision = incoming.querySelector('[name="expected_revision"]');
+                    if (beforeRevision && afterRevision && beforeRevision.value === afterRevision.value) {
+                        ['company_id', 'cash_received', 'payment_confirmed'].forEach(function (field) {
+                            var before = existing.querySelector('[name="' + field + '"]');
+                            var after = incoming.querySelector('[name="' + field + '"]');
+                            if (!before || !after) return;
+                            if (after.type === 'checkbox') after.checked = before.checked;
+                            else after.value = before.value;
+                        });
+                    }
+                }
                 if (node !== cursor) existingList.insertBefore(node, cursor);
                 keep.add(node);
                 cursor = node.nextElementSibling;
@@ -199,10 +244,10 @@
         return payload.message || translated('error');
     }
 
-    async function readJson(response) {
+    async function readJson(response, readBody) {
         var payload;
         var parsed = false;
-        try { payload = await response.json(); parsed = true; } catch (_) { payload = {}; }
+        try { payload = await (readBody ? readBody(response) : response.json()); parsed = true; } catch (_) { payload = {}; }
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) { payload = {}; parsed = false; }
         if (response.ok && !parsed) throw new Error(translated('error'));
         if (!response.ok || payload.success === false || payload.status === 'Error') {
@@ -213,9 +258,46 @@
         return payload;
     }
 
+    async function readFeed(endpoint, controller) {
+        var reader = null, timer, expired = false, cancel;
+        var stopped = new Promise(function (_resolve, reject) {
+            cancel = function () {
+                reject(expired ? new Error(translated('loading_failed')) : new DOMException('The read was cancelled', 'AbortError'));
+                if (reader) reader.cancel().catch(function () {});
+            };
+            controller.signal.addEventListener('abort', cancel, { once: true });
+            timer = setTimeout(function () { expired = true; controller.abort(); }, 15000);
+        });
+        var reading = (async function () {
+            if (controller.signal.aborted) throw new DOMException('The read was cancelled', 'AbortError');
+            var response = await fetch(endpoint, { method: 'GET', credentials: 'same-origin', cache: 'no-store',
+                signal: controller.signal, headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (controller.signal.aborted) {
+                if (response.body) response.body.cancel().catch(function () {});
+                throw new DOMException('The read was cancelled', 'AbortError');
+            }
+            return readJson(response, async function (value) {
+                if (!value.body || typeof value.body.getReader !== 'function') return value.json();
+                reader = value.body.getReader();
+                var decoder = new TextDecoder(), text = '';
+                try {
+                    while (true) {
+                        var part = await reader.read();
+                        if (controller.signal.aborted) throw new DOMException('The read was cancelled', 'AbortError');
+                        if (part.done) break;
+                        text += decoder.decode(part.value, { stream: true });
+                    }
+                    return JSON.parse(text + decoder.decode());
+                } finally { reader.releaseLock(); reader = null; }
+            });
+        })();
+        try { return await Promise.race([reading, stopped]); }
+        finally { clearTimeout(timer); controller.signal.removeEventListener('abort', cancel); }
+    }
+
     async function refresh(force) {
         if (disposed) return;
-        if (pendingAction || (!force && (document.hidden || modalIsOpen()))) {
+        if (pendingAction) {
             needsRefresh = true;
             if (pendingAction && force) reconcileUrgent = true;
             return;
@@ -227,23 +309,20 @@
         var controller = new AbortController();
         activeFeed = controller;
         var currentGeneration = ++generation;
+        var alertCheckpoint = window.DashboardOrderAlerts ? window.DashboardOrderAlerts.checkpoint() : 0;
         var query = filters().toString();
         var endpoint = new URL(board.dataset.feedUrl, window.location.href);
         endpoint.search = query;
         setLive('updating');
         try {
-            var response = await fetch(endpoint.toString(), {
-                credentials: 'same-origin',
-                cache: 'no-store',
-                signal: controller.signal,
-                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            var payload = await readJson(response);
+            var payload = await readFeed(endpoint.toString(), controller);
             if (disposed || currentGeneration !== generation || query !== filters().toString() || pendingAction) return;
-            // A dialog may have opened while the request was in flight; defer DOM changes.
-            if (modalIsOpen()) { needsRefresh = true; return; }
             var html = payload.html !== undefined ? payload.html : payload.view;
             if (typeof html !== 'string') throw new Error(translated('loading_failed'));
+            if (window.DashboardOrderAlerts && Array.isArray(payload.pending_alert_keys)) window.DashboardOrderAlerts.reconcileApp(payload.pending_alert_keys, alertCheckpoint);
+            else syncOrderAlerts(html);
+            // Keep detecting new orders while a dialog is open, but defer DOM changes.
+            if (modalIsOpen()) { needsRefresh = true; return; }
             syncCards(html);
             syncCounts(payload.counts);
             setLive('updated');
@@ -266,7 +345,7 @@
         event.preventDefault();
         // The shared footer replaces all submit-button labels; this AJAX form owns its UI.
         event.stopImmediatePropagation();
-        clearTimeout(searchTimer);
+        clearTimeout(searchTimer); searchTimer = null;
         resetPages();
         rememberFilters();
         refresh(true);
@@ -287,7 +366,7 @@
     }
     form.querySelector('[name="search"]').addEventListener('input', function () {
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(function () { resetPages(); rememberFilters(); refresh(true); }, 450);
+        searchTimer = setTimeout(function () { searchTimer = null; resetPages(); rememberFilters(); refresh(true); }, 450);
     });
     board.querySelector('[data-board-reset]').addEventListener('click', function (event) {
         event.preventDefault();
@@ -302,10 +381,26 @@
     board.querySelector('[data-board-retry]').addEventListener('click', function () { refresh(true); });
 
     columns.addEventListener('click', function (event) {
+        // «طباعة الأوردر» (with the courier): prints once; the button locks at once and the server keeps it locked.
+        var printButton = event.target.closest('[data-board-print]');
+        if (printButton) {
+            event.preventDefault();
+            if (printButton.disabled) return;
+            var address = printButton.getAttribute('data-board-print');
+            printButton.disabled = true;
+            printButton.classList.add('is-printed');
+            printButton.removeAttribute('data-board-print');
+            var done = document.createElement('i');
+            done.className = 'fas fa-check'; done.setAttribute('aria-hidden', 'true');
+            printButton.replaceChildren(done, document.createTextNode(document.documentElement.dir === 'rtl' ? 'تمت الطباعة' : 'Printed'));
+            printOrder(address);
+            setTimeout(function () { if (!disposed) refresh(false); }, 1500);
+            return;
+        }
         var printLink = event.target.closest('a[href]');
         if (printLink && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) {
             var printUrl = new URL(printLink.href, window.location.href);
-            if (printUrl.origin === window.location.origin && /^\/admin\/order-board\/(legacy|store|service|partner_service)\/\d+\/print\/?$/.test(printUrl.pathname)) {
+            if (printUrl.origin === window.location.origin && /^\/admin\/order-board\/(legacy|store|service|partner_service|website)\/\d+\/print\/?$/.test(printUrl.pathname)) {
                 event.preventDefault();
                 if (!window.DashboardPrint) { notify(translated('error'), false, false); return; }
                 printLink.setAttribute('aria-busy', 'true');
@@ -329,6 +424,29 @@
         var button = event.target.closest('button[name="action"]');
         if (button) lastSubmitter = button;
     });
+    async function sendToBranchPrinter(url) {
+        try {
+            var csrf = document.querySelector('meta[name="csrf-token"]');
+            var response = await fetch(url.toString(), { method: 'POST', credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ? csrf.content : '' } });
+            var payload = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(payload.message || translated('print_failed'));
+            notify(payload.message || translated('saved'), true, false);
+        } catch (error) { notify((error && error.message) || translated('print_failed'), false, false); }
+    }
+    function printOrder(address) {
+        var url;
+        try { url = new URL(address, window.location.href); } catch (_) { return; }
+        if (url.origin !== window.location.origin) return;
+        // A store's order prints on Shubra's device: send it there instead of printing here.
+        if (/^\/admin\/order-board\/legacy\/[1-9][0-9]{0,18}\/print-remote\/?$/.test(url.pathname)) { sendToBranchPrinter(url); return; }
+        if (!/^\/admin\/order-board\/legacy\/[1-9][0-9]{0,18}\/print\/?$/.test(url.pathname)) return;
+        if (!window.DashboardPrint) { window.open(url.toString(), '_blank', 'noopener'); return; }
+        window.DashboardPrint.print(url.toString()).catch(function (error) {
+            notify((error && error.message) || translated('print_failed'), false, false);
+        });
+    }
+
     columns.addEventListener('submit', async function (event) {
         var actionForm = event.target.closest('[data-order-action]');
         if (!actionForm) return;
@@ -341,9 +459,24 @@
         var submitter = event.submitter || lastSubmitter;
         if (!submitter || submitter.form !== actionForm) return;
         var action = submitter.value;
+        var company = actionForm.querySelector('[data-website-company]');
+        var cash = actionForm.querySelector('[data-website-cash]');
+        var payment = actionForm.querySelector('[data-website-payment]');
+        if (action === 'dispatch' && company && !company.value) {
+            company.setCustomValidity(document.documentElement.dir === 'rtl' ? 'اختر شركة التوصيل أولًا.' : 'Choose a delivery company.');
+            company.reportValidity(); company.setCustomValidity(''); return;
+        }
+        if (action === 'complete' && cash && (!cash.value.trim() || !payment.checked)) {
+            notify(document.documentElement.dir === 'rtl' ? 'أدخل الكاش المستلم وأكد تحصيل قيمة الطلب فعليًا.' : 'Enter the cash received and confirm actual collection.', false, false);
+            return;
+        }
         if ((action === 'reject' || action === 'cancel') && !window.confirm(translated('confirm_' + action))) return;
         var data = new FormData(actionForm);
         data.set('action', action);
+        // Printing is the card's own «طباعة الأوردر» once the order is with the courier (no print on sending it out).
+        var printAfter = actionForm.dataset.printAfter === action ? actionForm.dataset.printUrl : '';
+        try { journalCommand(actionForm, data); }
+        catch (error) { notify(error.message || translated('error'), false, false); return; }
         var query = filters().toString();
         pendingKeys.add(key); pendingAction++;
         clearTimeout(reconcileTimer); reconcileTimer = null;
@@ -371,14 +504,17 @@
             });
             var payload = await readJson(response);
             if (disposed) return;
-            notify(payload.message || translated('saved'), true, false);
+            if (action === 'reject') {
+                clearTimeout(messageTimer); message.hidden = true;
+            } else notify(payload.message || translated('saved'), true, false);
             reconcileNeeded = true;
             if (applyConfirmedCard(payload.card, card, query)) setLive('updated');
             else reconcileUrgent = true;
+            if (printAfter) printOrder(printAfter);
             // Shared notification audio can be unavailable while external SDKs initialize.
             // A sound failure must never report a successfully committed order as failed.
-            if (typeof window.stopSound === 'function') {
-                try { window.stopSound(); } catch (_) { /* The order has already been saved. */ }
+            if (window.DashboardOrderAlerts) {
+                try { window.DashboardOrderAlerts.acknowledge(key); } catch (_) { /* The order has already been saved. */ }
             }
         } catch (error) {
             if (disposed) return;
@@ -403,6 +539,7 @@
         wrapper.style.setProperty('--ob-top', Math.max(0, wrapper.getBoundingClientRect().top) + 'px');
         wrapper.style.setProperty('--ob-footer', (footer ? footer.getBoundingClientRect().height : 0) + 'px');
     }
+    syncOrderAlerts(columns);
     sizeBoard();
     window.addEventListener('load', sizeBoard);
     window.addEventListener('resize', sizeBoard);
@@ -417,6 +554,45 @@
     window.addEventListener('online', function () { refresh(false); });
     interval = setInterval(function () { refresh(false); }, 10000);
     window.addEventListener('pagehide', function () { clearInterval(interval); if (activeFeed) activeFeed.abort(); });
+    if (window.DashboardSPA && window.DashboardSPA.onIdle) window.DashboardSPA.onIdle(function () {
+        if (disposed || pendingAction || pendingKeys.size || activeFeed || searchTimer || reconcileTimer
+            || reconcileNeeded || reconcileUrgent || modalIsOpen()) return false;
+        try {
+            var target = new URL(form.getAttribute('action'), window.location.href);
+            if (form.id !== 'ob-filters' || String(form.method).toUpperCase() !== 'GET'
+                || target.origin !== window.location.origin || target.pathname !== '/admin/applies-orders'
+                || target.search || target.hash) return false;
+            var entries = function (value) {
+                var params = new URLSearchParams(value);
+                Array.from(params.entries()).forEach(function (entry) {
+                    if (!entry[1] || (/^page_/.test(entry[0]) && entry[1] === '1')) params.delete(entry[0]);
+                });
+                return JSON.stringify(Array.from(params.entries()).sort());
+            };
+            var current = filters(), query = new URLSearchParams(window.location.search);
+            var names = Array.from(new Set(Array.from(current.keys())));
+            for (var index = 0; index < names.length; index++) {
+                var name = names[index];
+                if (query.has(name)) continue;
+                var fields = Array.from(form.elements || []).filter(function (field) { return field.name === name; });
+                if (fields.length !== 1 || current.getAll(name).length !== 1) return false;
+                var field = fields[0], original;
+                if (field.tagName === 'SELECT') {
+                    if (field.multiple) return false;
+                    var defaults = Array.from(field.options).filter(function (option) { return option.defaultSelected; });
+                    var option = defaults[defaults.length - 1];
+                    if (!option && !(Number(field.size) > 1)) option = Array.from(field.options).find(function (candidate) {
+                        var group = candidate.parentElement;
+                        return !candidate.disabled && !(group && group.tagName === 'OPTGROUP' && group.disabled);
+                    });
+                    original = option ? option.value : '';
+                } else original = field.defaultValue;
+                if (typeof original !== 'string' || current.get(name) !== original) return false;
+                current.delete(name);
+            }
+            return entries(current) === entries(query);
+        } catch (_) { return false; }
+    });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () {
         disposed = true; generation++;
         clearInterval(interval); clearTimeout(searchTimer); clearTimeout(messageTimer); clearTimeout(reconcileTimer);

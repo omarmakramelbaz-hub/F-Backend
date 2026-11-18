@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
-/** The same Firestore project used by the customer app and dashboard SDK. */
+/** The support chat's Firestore project (services.support_chat), which may differ from the push notifications' one. */
 class SupportFirestore
 {
     protected function token(): string
@@ -29,7 +29,7 @@ class SupportFirestore
 
     public function project(): string
     {
-        $project = (string) config('services.fcm.project_id');
+        $project = (string) config('services.support_chat.project_id');
         if (!preg_match('/^[a-z][a-z0-9-]{3,62}$/D', $project)) throw new RuntimeException('Support project unavailable.');
         return $project;
     }
@@ -44,7 +44,12 @@ class SupportFirestore
         $request = Http::withToken($this->token())->acceptJson()->withOptions(['connect_timeout' => 4])->timeout(12);
         $response = $method === 'GET' ? $request->get($this->base().$path, $data)
             : $request->send($method, $this->base().$path, ['json' => $data]);
-        if (!$response->successful()) throw new RuntimeException('Support service unavailable.');
+        if (!$response->successful()) {
+            // Google's own status word (PERMISSION_DENIED, NOT_FOUND ...) says what to repair; nothing else of the answer.
+            $status = $response->json('error.status') ?? $response->json('0.error.status');
+            $status = is_string($status) && preg_match('/^[A-Z_]{3,40}$/D', $status) ? ' '.$status : '';
+            throw new RuntimeException('Support service unavailable (HTTP '.$response->status().$status.').');
+        }
         $result = $response->json();
         if (!is_array($result)) throw new RuntimeException('Support response unavailable.');
         return $result;

@@ -7,7 +7,35 @@
         class="form-control @error('name') is-invalid @enderror" id="name" placeholder="@lang('main.Enter') @lang('main.wheel name')">
 </div>
 
+@if(\App\Services\Draws\ProductDraw::ready())
+@php($drawPolicy = old('policy', $coupon_wheel->policy ?? 'order_total'))
 <div class="form-group col-sm-6">
+    <label for="policy">سياسة دخول السحب</label>
+    <select name="policy" id="policy" class="form-select @error('policy') is-invalid @enderror" data-draw-policy>
+        <option value="order_total" @if($drawPolicy !== 'product') selected @endif>أوردر بقيمة معينة من فرع مشارك</option>
+        <option value="product" @if($drawPolicy === 'product') selected @endif>شراء أصناف معينة (كل قطعة = فرصة)</option>
+    </select>
+</div>
+@php($drawItems = array_map(fn ($name) => \App\Services\Draws\ProductDraw::key($name), (array) old('item_names', $coupon_wheel->id ? \App\Services\Draws\ProductDraw::items((int) $coupon_wheel->id) : [])))
+@php($drawMenu = \App\Services\Draws\ProductDraw::menuItems())
+@php(usort($drawMenu, fn ($a, $b) => [!in_array(\App\Services\Draws\ProductDraw::key($a), $drawItems, true), $a] <=> [!in_array(\App\Services\Draws\ProductDraw::key($b), $drawItems, true), $b]))
+<div class="form-group col-sm-6" data-draw-product @if($drawPolicy !== 'product') hidden @endif>
+    <label for="draw-item-search">الأصناف <small class="text-muted" data-draw-count></small></label>
+    <input type="search" id="draw-item-search" class="form-control mb-2" placeholder="ابحث عن صنف" autocomplete="off" data-draw-search>
+    <div class="@error('item_names') is-invalid @enderror" data-draw-items style="max-height:230px;overflow:auto;border:1px solid #dee2e6;border-radius:8px;padding:6px 10px">
+        @foreach($drawMenu as $drawItem)
+            <label data-draw-item="{{ \App\Services\Draws\ProductDraw::key($drawItem) }}" style="display:flex;align-items:center;gap:8px;margin:0;padding:4px 0;font-weight:400;cursor:pointer">
+                <input type="checkbox" name="item_names[]" value="{{ $drawItem }}" @if(in_array(\App\Services\Draws\ProductDraw::key($drawItem), $drawItems, true)) checked @endif>
+                <span>{{ $drawItem }}</span>
+            </label>
+        @endforeach
+        <p class="text-muted mb-0" data-draw-none hidden>مفيش صنف بالاسم ده.</p>
+    </div>
+    <small class="text-muted">علّم على الأصناف اللي عايزها (تقدر تختار أكتر من صنف). كل صنف منهم هيظهر عليه في كل فرع فيه نفس الاسم، في التطبيق والموقع، «يؤهلك للدخول في السحب بقيمة» الجائزة. وكل قطعة منه في أوردر اتسلّم بتدّي العميل كود دخول بيوصله إشعار.</small>
+</div>
+@endif
+
+<div class="form-group col-sm-6" data-draw-price @if(($drawPolicy ?? 'order_total') === 'product') hidden @endif>
     <label for="price"> @lang('main.wheel price')</label>
     <input type="number" min="1" step="0.01" name="price" value="{{ old('price', $coupon_wheel->price) }}"
         class="form-control @error('price') is-invalid @enderror" id="price" placeholder="@lang('main.Enter') @lang('main.wheel price')">
@@ -30,7 +58,7 @@
     <input type="date" name="end_date" value="{{ old('end_date', $coupon_wheel->end_date) }}"
         class="form-control @error('end_date') is-invalid @enderror" id="end_date" placeholder="@lang('main.Enter') @lang('main.wheel end_date')">
 </div>
-<div class="form-group col-sm-6">
+<div class="form-group col-sm-6" data-draw-branches @if(($drawPolicy ?? 'order_total') === 'product') hidden @endif>
     <label for="name_en"> @lang('main.resturant')</label>
         <select name="restraunt_id[]" multiple class="form-control @error('restraunt_id') is-invalid @enderror">
             <option value="">@lang('main.choose') @lang('main.resturant')</option>
@@ -86,3 +114,41 @@
 <div class="form-group col-sm-10">
     <button type="submit" class="btn btn-success from-prevent-multiple-submits">@lang('main.save')</button>
 </div>
+
+@if(\App\Services\Draws\ProductDraw::ready())
+<script>
+(function () {
+    var policy = document.querySelector('[data-draw-policy]');
+    if (!policy) return;
+    function show() {
+        var product = policy.value === 'product';
+        document.querySelector('[data-draw-product]').hidden = !product;
+        document.querySelector('[data-draw-price]').hidden = product;
+        document.querySelector('[data-draw-branches]').hidden = product;
+    }
+    policy.addEventListener('change', show);
+    // The items list: search by name (ة/ه, ى/ي, أ/ا alike) and the count of the chosen ones.
+    var search = document.querySelector('[data-draw-search]'), list = document.querySelector('[data-draw-items]');
+    var count = document.querySelector('[data-draw-count]'), none = document.querySelector('[data-draw-none]');
+    function key(text) {
+        return String(text || '').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه')
+            .replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+    function chosen() {
+        var n = list ? list.querySelectorAll('input[type=checkbox]:checked').length : 0;
+        if (count) count.textContent = n ? '(' + n + ' مختار)' : '';
+    }
+    if (search && list) search.addEventListener('input', function () {
+        var wanted = key(search.value), shown = 0;
+        list.querySelectorAll('[data-draw-item]').forEach(function (item) {
+            var match = !wanted || item.getAttribute('data-draw-item').indexOf(wanted) !== -1;
+            item.style.display = match ? 'flex' : 'none';
+            if (match) shown++;
+        });
+        if (none) none.hidden = shown > 0;
+    });
+    if (list) list.addEventListener('change', chosen);
+    chosen();
+})();
+</script>
+@endif

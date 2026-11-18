@@ -5,6 +5,7 @@
             display: none;
         }
         .trans{
+            color: #243446;
             border: 1px solid #e9ecef;
             border-radius: 8px;
             margin-bottom: .5rem;
@@ -15,6 +16,7 @@
             justify-content: space-between;
         }
         .wallet{
+            color: #243446;
             display: flex;
             -webkit-box-pack: justify; /* wkhtmltopdf uses this one */
             -webkit-justify-content: space-between;

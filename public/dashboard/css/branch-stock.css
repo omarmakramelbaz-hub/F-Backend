@@ -8,3 +8,275 @@
 #branch-stock[data-inventory-tab=recipes] [data-stock-message],#branch-stock[data-inventory-tab=recipes] [data-stock-retry]{display:none!important}
 
 #branch-stock .bs-pair{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#branch-stock .bs-pair>label{min-width:0}@media(max-width:600px){#branch-stock .bs-recipe-layout .bs-pair{grid-template-columns:1fr}}
+
+/* Keep receiving controls visible while stock tables scroll independently. */
+#branch-stock, #branch-stock * { box-sizing: border-box; }
+#branch-stock { padding: 12px; }
+#branch-stock .bs-heading { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(170px,210px); gap: 16px; margin: 0 0 8px; align-items: center; }
+#branch-stock .bs-heading h1 { font-size: 22px; margin: 0 0 4px; }
+#branch-stock .bs-heading p { font-size: 11px; margin: 0; }
+#branch-stock .bs-heading > label { min-width: 0; margin: 0; font-size: 11px; }
+#branch-stock .bs-heading > label select { margin: 4px 0 0; min-height: 36px; padding: 6px 10px; }
+#branch-stock .bs-tabs { border: 0; padding: 0; margin: 0; }
+#branch-stock .bs-tabs button { padding: 9px 12px; font-size: 12px; white-space: nowrap; }
+#branch-stock .bs-guidance { margin: 0 0 8px !important; padding: 8px 12px; font-size: 11px; line-height: 1.6; max-height: 52px; overflow: auto; }
+#branch-stock .bs-layout { grid-template-columns: minmax(340px,390px) minmax(0,1fr); gap: 12px; }
+#branch-stock .bs-panel > header { padding: 12px 14px; }
+#branch-stock .bs-panel h2 { font-size: 15px; }
+#branch-stock .bs-panel > header > span { font-size: 10px; padding: 4px 8px; }
+#branch-stock [data-stock-form] { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px 12px; padding: 14px; }
+#branch-stock [data-stock-form] > label { margin: 0; min-width: 0; font-size: 12px; }
+#branch-stock [data-stock-form] input, #branch-stock [data-stock-form] select, #branch-stock [data-stock-form] textarea { margin: 5px 0 0; padding: 8px 10px; min-height: 36px; font-size: 12px; }
+#branch-stock .bs-search-field, #branch-stock .bs-product-field, #branch-stock .bs-current, #branch-stock [data-stock-form] > .bs-pair, #branch-stock .bs-entry-help, #branch-stock [data-stock-save] { grid-column: 1 / -1; }
+#branch-stock [data-stock-form] .bs-pair { gap: 12px; }
+#branch-stock [data-stock-form] .bs-pair > label { font-size: 12px; margin: 0; }
+#branch-stock .bs-current { padding: 9px 10px; margin: 0; min-width: 0; }
+#branch-stock .bs-current strong { font-size: 16px; overflow-wrap: anywhere; }
+#branch-stock .bs-current span { font-size: 11px; }
+#branch-stock [data-stock-form] textarea { height: 56px; min-height: 56px; resize: vertical; }
+#branch-stock .bs-entry-help { font-size: 10px; line-height: 1.6; margin: 0; }
+#branch-stock [data-stock-save] { min-height: 40px; padding: 9px; font-size: 13px; }
+#branch-stock .bs-overview { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+#branch-stock .bs-balances { min-width: 0; }
+#branch-stock .bs-balances > .bs-note { margin: 0; padding: 8px 12px; font-size: 10px; line-height: 1.6; border-top: 1px solid #edf1f5; }
+#branch-stock .bs-pagination { gap: 10px; padding: 8px 12px; }
+#branch-stock .bs-pagination .bs-button { padding: 6px 10px; }
+#branch-stock th { position: sticky; top: 0; z-index: 1; padding: 10px 12px; }
+#branch-stock td { padding: 9px 12px; font-size: 12px; }
+#branch-stock .bs-history, #branch-stock .bs-legacy { margin: 0; flex-shrink: 0; }
+#branch-stock .bs-history summary, #branch-stock .bs-legacy summary { padding: 11px 14px; cursor: pointer; font-size: 12px; font-weight: 700; }
+#branch-stock .bs-history summary small { float: left; color: #718096; font-size: 11px; font-weight: 400; }
+#branch-stock .bs-history .bs-table-wrap, #branch-stock .bs-legacy .bs-table-wrap { max-height: 220px; }
+#branch-stock .bs-history table { min-width: 760px; }
+#branch-stock .bs-message { padding: 8px 12px; margin-bottom: 8px; font-size: 12px; line-height: 1.6; max-height: 70px; overflow: auto; }
+#branch-stock [data-stock-unmapped] { flex-shrink: 0; margin: 0; }
+#branch-stock .bs-overview > .bs-message, #branch-stock .bs-overview > [data-stock-retry] { flex-shrink: 0; margin: 0; }
+#branch-stock .bs-table-wrap { scrollbar-width: thin; overscroll-behavior: contain; }
+#branch-stock .bs-table-wrap:focus-visible, #branch-stock summary:focus-visible { outline: 2px solid #f58220; outline-offset: -2px; }
+
+@media (min-width: 1100px) and (min-height: 650px) {
+    body.dashboard-theme .content-wrapper.branch-stock-wrapper { height: calc(100dvh - 109px); min-height: 0 !important; padding: 0; overflow: hidden; }
+    #branch-stock { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+    #branch-stock > .bs-heading, #branch-stock > .bs-guidance, #branch-stock > .bs-message, #branch-stock > [data-stock-retry] { flex-shrink: 0; }
+    #branch-stock > [data-inventory-panel] { flex: 1; min-height: 0; }
+    #branch-stock .bs-layout { height: 100%; min-height: 0; align-items: start; }
+    #branch-stock .bs-entry { max-height: 100%; overflow: auto; }
+    #branch-stock .bs-overview { height: 100%; min-height: 0; overflow: auto; scrollbar-width: thin; }
+    #branch-stock .bs-balances { display: flex; flex-direction: column; min-height: 190px; flex: 1 0 190px; }
+    #branch-stock .bs-balances > header, #branch-stock .bs-balances > footer, #branch-stock .bs-balances > .bs-note { flex-shrink: 0; }
+    #branch-stock .bs-balances > .bs-table-wrap { flex: 1; min-height: 0; }
+    #branch-stock [data-stock-form] textarea { resize: none; }
+    #branch-stock [data-inventory-panel="recipes"] { overflow: auto; scrollbar-width: thin; }
+}
+
+@media (min-width: 1100px) and (min-height: 650px) and (max-height: 800px) {
+    #branch-stock [data-stock-form] { gap: 7px 10px; padding: 10px 12px; }
+    #branch-stock .bs-panel > header { padding: 10px 12px; }
+    #branch-stock .bs-search-field, #branch-stock .bs-product-field { grid-column: auto; }
+    #branch-stock [data-stock-form] textarea { height: 46px; min-height: 46px; }
+    #branch-stock .bs-current { padding: 7px 10px; }
+}
+
+@media (max-width: 1099px) {
+    #branch-stock .bs-heading { grid-template-columns: minmax(0,1fr) minmax(160px,210px); gap: 10px; }
+    #branch-stock .bs-heading > .bs-tabs { grid-column: 1 / -1; grid-row: 2; }
+    #branch-stock .bs-layout { grid-template-columns: 1fr; }
+    #branch-stock .bs-balances > .bs-table-wrap { max-height: 400px; }
+    #branch-stock .bs-entry { max-width: none; }
+}
+
+@media (max-width: 600px) {
+    #branch-stock { padding: 10px; }
+    #branch-stock .bs-heading { grid-template-columns: minmax(0,1fr) 135px; }
+    #branch-stock .bs-heading h1 { font-size: 20px; }
+    #branch-stock .bs-heading p { font-size: 10px; line-height: 1.6; }
+    #branch-stock .bs-tabs { flex-wrap: wrap; }
+    #branch-stock .bs-tabs button { padding: 9px 11px; }
+    #branch-stock [data-stock-form] { padding: 12px; gap: 10px; }
+    #branch-stock .bs-supplier-field, #branch-stock .bs-notes-field { grid-column: 1 / -1; }
+    #branch-stock .bs-balances table { min-width: 480px; }
+}
+
+/* The basic recipe review stays within the recipes tab at narrow widths. */
+#branch-stock .bs-recipe-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+#branch-stock .bs-basic-button{background:#f58220;color:#fff;border-color:#f58220;font-weight:700;white-space:normal}
+#branch-stock .bs-basic-button:hover{background:#df7012}
+#branch-stock .bs-basic-dialog{color:#17304a;background:#fff;border:1px solid #dde5ef;border-radius:14px;padding:22px;max-width:620px;width:calc(100% - 32px);max-height:85vh;overflow:auto;box-sizing:border-box;box-shadow:0 16px 60px #0b1a3440;direction:rtl;text-align:right}
+#branch-stock .bs-basic-dialog::backdrop{background:#07142299}
+#branch-stock .bs-basic-dialog h2{font-size:21px;margin:0 0 12px}
+#branch-stock .bs-basic-dialog p{font-size:14px;line-height:1.8}
+#branch-stock [data-basic-skipped],#branch-stock [data-basic-result-skipped]{max-height:230px;overflow:auto;font-size:13px;line-height:1.8;padding-inline-start:24px}
+#branch-stock .bs-basic-actions{display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin-top:18px}
+#branch-stock [data-basic-result-summary]{margin:0}
+
+/* Minimums belong to the branch shown on each row, including all-branch views. */
+#branch-stock .bs-low-stock { background: #fff1f2; }
+#branch-stock .bs-low-stock td, #branch-stock .bs-low-stock .bs-item,
+#branch-stock .is-low-stock { color: #b4232e !important; }
+#branch-stock .bs-low-stock td { border-bottom-color: #f3ced3; }
+#branch-stock .bs-item:disabled { opacity: 1; cursor: default; }
+#branch-stock .bs-low-badge { display: inline-block; margin-inline-start: 7px; border: 1px solid #efb9c0; border-radius: 5px; padding: 1px 5px; color: #a01e29; background: #ffe1e5; font-size: 10px; font-weight: 700; white-space: nowrap; }
+#branch-stock .bs-minimum-cell { min-width: 95px; font-variant-numeric: tabular-nums; }
+#branch-stock .bs-minimum-toggle { padding: 4px 9px; min-width: 55px; font-size: 12px; }
+#branch-stock .bs-low-stock .bs-minimum-toggle { color: #a01e29; border-color: #efb9c0; }
+#branch-stock .bs-minimum-editor { display: grid; grid-template-columns: minmax(75px,100px) auto; align-items: center; gap: 5px; min-width: 175px; margin: 0; }
+#branch-stock .bs-minimum-editor input { min-height: 31px; margin: 0; padding: 5px 7px; font-size: 12px; direction: ltr; text-align: right; }
+#branch-stock .bs-minimum-actions { display: flex; gap: 4px; }
+#branch-stock .bs-minimum-actions button { padding: 5px 7px; font-size: 11px; }
+#branch-stock .bs-minimum-save { background: #17304a; color: #fff; border-color: #17304a; }
+#branch-stock .bs-minimum-save:hover { background: #234e72; }
+#branch-stock .bs-minimum-editor small { grid-column: 1 / -1; color: #687c91; font-size: 10px; line-height: 1.6; }
+@media (max-width: 600px) { #branch-stock .bs-balances table { min-width: 580px; } }
+
+/* stock-page-20261110: a cleaner «إضافة بضاعة» page */
+#branch-stock{--bs2-ink:#10274a;--bs2-line:#e6ebf2;--bs2-soft:#f6f8fb;--bs2-orange:#f57800}
+#branch-stock .bs-heading{align-items:center;gap:16px;padding:14px 18px;margin-bottom:12px;background:#fff;border:1px solid var(--bs2-line);border-radius:14px;box-shadow:0 2px 10px #10274a0a}
+#branch-stock .bs-heading h1{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;color:var(--bs2-ink)}
+#branch-stock .bs-heading h1 i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:#fff1e1;color:var(--bs2-orange);font-size:18px}
+#branch-stock .bs-heading p{color:#6c7a91;font-size:12px;margin-top:4px}
+#branch-stock .bs-tabs{display:inline-flex;gap:4px;padding:4px;background:var(--bs2-soft);border:1px solid var(--bs2-line);border-radius:12px}
+#branch-stock .bs-tabs button{border:0!important;border-radius:9px!important;padding:9px 18px!important;background:transparent!important;color:#4a5b72!important;font-weight:700;box-shadow:none!important}
+#branch-stock .bs-tabs button[aria-pressed=true]{background:var(--bs2-ink)!important;color:#fff!important;box-shadow:0 4px 12px #10274a33!important}
+#branch-stock .bs-heading>label{font-weight:700;color:#4a5b72;font-size:12px}
+#branch-stock .bs-heading>label select{margin-top:6px;min-height:40px;border-radius:10px;border:1.5px solid #d6dee9;font-weight:700;color:var(--bs2-ink)}
+#branch-stock .bs-guidance{border-radius:12px;padding:10px 14px;background:#f1f6ff;border:1px solid #d6e4fb;color:#2559a8}
+#branch-stock .bs-panel{border:1px solid var(--bs2-line)!important;border-radius:14px!important;box-shadow:0 2px 10px #10274a0a;overflow:hidden}
+#branch-stock .bs-panel>header{padding:14px 18px!important;border-bottom:1px solid var(--bs2-line)!important;background:linear-gradient(180deg,#fff,#fafbfd)}
+#branch-stock .bs-panel>header h2{font-size:17px;font-weight:800;color:var(--bs2-ink);display:flex;align-items:center;gap:8px}
+#branch-stock .bs-panel>header h2::before{content:'';width:4px;height:18px;border-radius:2px;background:var(--bs2-orange)}
+#branch-stock .bs-panel>header p{color:#6c7a91;font-size:12px}
+#branch-stock .bs-entry>header>span{padding:4px 12px;border-radius:999px;background:#fff1e1;color:#b85a00;font-weight:700;font-size:11px}
+#branch-stock .bs-entry form{gap:12px}
+#branch-stock .bs-entry label{font-weight:700;color:#34465b;font-size:12px}
+#branch-stock .bs-entry input,#branch-stock .bs-entry select,#branch-stock .bs-entry textarea{min-height:42px;border:1.5px solid #d6dee9!important;border-radius:10px!important;background:#fff!important;transition:border-color .15s,box-shadow .15s}
+#branch-stock .bs-entry input:focus,#branch-stock .bs-entry select:focus,#branch-stock .bs-entry textarea:focus{border-color:var(--bs2-orange)!important;box-shadow:0 0 0 4px #f5780022!important;outline:none}
+#branch-stock .bs-entry input[name=quantity]{font-size:18px;font-weight:800;direction:ltr;text-align:center;color:var(--bs2-ink)}
+#branch-stock .bs-current{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px!important;border-radius:12px!important;background:linear-gradient(135deg,#10274a,#1d3f6e)!important;color:#c9d6ea!important;border:0!important}
+#branch-stock .bs-current span{font-size:12px;color:#c9d6ea}
+#branch-stock .bs-current strong{font-size:20px;font-weight:800;color:#fff!important}
+#branch-stock .bs-entry-help{border-radius:10px;padding:9px 12px;background:#fff9ed;border:1px solid #f3e1b8;color:#8a5d00;font-size:11.5px;line-height:1.8}
+#branch-stock .bs-primary{min-height:48px;border:0!important;border-radius:12px!important;background:linear-gradient(135deg,#f78a1e,#e86a00)!important;color:#fff!important;font-size:15px;font-weight:800;box-shadow:0 8px 18px #f5780038;transition:transform .12s,box-shadow .12s,opacity .12s}
+#branch-stock .bs-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 10px 22px #f5780050}
+#branch-stock .bs-primary:disabled{opacity:.45;box-shadow:none;transform:none}
+#branch-stock .bs-button{border-radius:10px!important;border:1px solid #d6dee9!important;background:#fff!important;color:var(--bs2-ink)!important;font-weight:700}
+#branch-stock .bs-button:hover:not(:disabled){background:#f1f6ff!important;border-color:#bcd0f0!important}
+#branch-stock .bs-table-wrap{border:0!important}
+#branch-stock .bs-table-wrap table{border-collapse:separate;border-spacing:0;width:100%}
+#branch-stock .bs-table-wrap th{position:sticky;top:0;z-index:1;background:#f4f6fa!important;color:#4a5b72!important;font-size:12px;font-weight:700;padding:11px 14px!important;border-bottom:1px solid var(--bs2-line)!important;white-space:nowrap}
+#branch-stock .bs-table-wrap td{padding:10px 14px!important;border-bottom:1px solid #eef1f5!important;vertical-align:middle}
+#branch-stock .bs-table-wrap tbody tr:nth-child(even) td{background:#fafbfd}
+#branch-stock .bs-table-wrap tbody tr:hover td{background:#fff7ee}
+#branch-stock .bs-item{font-weight:800!important;color:var(--bs2-ink)!important;font-size:13px}
+#branch-stock .bs-item:hover:not(:disabled){color:var(--bs2-orange)!important}
+#branch-stock .bs-balances td.bs-quantity,#branch-stock .bs-balances td.is-negative{font-size:14px;font-weight:800;direction:ltr;text-align:right;font-variant-numeric:tabular-nums}
+#branch-stock .bs-balances td.bs-quantity{color:#0f6b3a}
+#branch-stock .bs-balances td.is-negative{color:#c42636}
+#branch-stock .bs-balances td:nth-child(2){color:#6c7a91;font-weight:600}
+#branch-stock .bs-balances td:nth-child(5){white-space:nowrap}
+#branch-stock .bs-balances tbody td:nth-child(5){color:#2559a8;font-size:11.5px;font-weight:700}
+#branch-stock .bs-minimum-toggle{min-width:64px;padding:5px 12px!important;font-variant-numeric:tabular-nums}
+#branch-stock tr.bs-low-stock td{background:#fff4f5!important}
+#branch-stock tr.bs-low-stock td:first-child{box-shadow:inset -3px 0 0 #e5484d}
+#branch-stock .bs-low-badge{display:inline-block;margin-inline-start:8px;padding:2px 9px;border-radius:999px;background:#ffe3e6;color:#c42636;font-size:10.5px;font-weight:800;border:0}
+#branch-stock .bs-pagination{gap:10px}
+#branch-stock .bs-pagination button{border-radius:9px!important}
+#branch-stock .bs-history>summary{padding:14px 18px;font-weight:800;color:var(--bs2-ink);cursor:pointer}
+#branch-stock .bs-history>summary small{padding:2px 10px;border-radius:999px;background:var(--bs2-soft);color:#6c7a91;font-weight:700}
+#branch-stock [data-stock-unmapped]{max-height:110px;overflow:auto;border-radius:12px!important;padding:12px 14px!important;background:#fff9ed!important;border:1px solid #f3e1b8!important;color:#7a5200!important;font-size:12px;line-height:1.9}
+/* stock-room-20261110: give the balances table most of the screen */
+#branch-stock .bs-heading{padding:10px 16px;margin-bottom:8px}
+#branch-stock .bs-heading h1{font-size:19px;margin:0}
+#branch-stock .bs-heading h1 i{width:34px;height:34px;font-size:15px;border-radius:10px}
+#branch-stock .bs-heading p{margin:2px 0 0;font-size:11px}
+#branch-stock .bs-heading>label{display:flex;align-items:center;gap:8px;margin:0}
+#branch-stock .bs-heading>label select{margin:0;min-height:36px;min-width:190px}
+#branch-stock .bs-tabs{margin:0;padding:3px;border-bottom:1px solid var(--bs2-line)}
+#branch-stock .bs-tabs button{padding:7px 16px!important}
+#branch-stock .bs-guidance{margin:0 0 8px;padding:6px 12px;font-size:11px;line-height:1.6}
+#branch-stock .bs-balances>header{padding:9px 14px!important;align-items:center}
+#branch-stock .bs-balances>header h2{font-size:15px;margin:0}
+#branch-stock .bs-balances>header p{margin:2px 0 0;font-size:11px}
+#branch-stock .bs-balances>header .bs-button{padding:6px 12px!important;min-height:0}
+#branch-stock .bs-balances .bs-table-wrap th{padding:8px 14px!important}
+#branch-stock .bs-balances .bs-table-wrap td{padding:5px 14px!important;height:40px}
+#branch-stock .bs-balances .bs-minimum-toggle{padding:3px 12px!important;min-height:0}
+#branch-stock .bs-balances .bs-pagination{padding:6px 10px;margin:0}
+#branch-stock .bs-balances .bs-pagination button{padding:5px 12px;min-height:0}
+#branch-stock .bs-balances>.bs-note{padding:5px 12px!important;font-size:10px!important;line-height:1.5!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#branch-stock .bs-balances>.bs-note:hover{white-space:normal}
+#branch-stock .bs-history>summary{padding:9px 14px}
+#branch-stock [data-stock-unmapped]{max-height:48px;padding:6px 12px!important;font-size:11px;line-height:1.7}
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock{padding:12px 16px}
+    #branch-stock .bs-overview{gap:8px}
+    #branch-stock .bs-balances{flex:1 1 auto;min-height:340px}
+    #branch-stock .bs-history,#branch-stock [data-stock-unmapped]{flex-shrink:0}
+    #branch-stock .bs-history[open] .bs-table-wrap{max-height:180px}
+}
+/* stock-columns-20261110: heading, tabs and branch move above the entry card; the balances table runs the full height beside them */
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])){display:grid;grid-template-columns:minmax(340px,390px) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-auto-flow:row dense;column-gap:12px;row-gap:8px;align-content:stretch}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > [data-inventory-panel="goods"],
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-layout{display:contents}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading{grid-column:1;grid-row:1;margin:0;display:flex!important;grid-template-columns:none!important;flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading>div:first-child{display:flex;align-items:center;gap:8px}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading p{display:none}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading .bs-tabs{display:flex;width:100%}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading .bs-tabs button{flex:1}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading>label{width:100%}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-heading>label select{flex:1;min-width:0}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-guidance{grid-column:1;grid-row:2;margin:0}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-entry{grid-column:1;grid-row:3;min-height:0;max-height:none;overflow:auto;align-self:stretch}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-overview{grid-column:2;grid-row:1 / -1;height:auto;min-height:0;align-self:stretch}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-message,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > [data-stock-retry]{grid-column:1}
+}
+/* stock-entry-fit-20261110: no note under the branch, and the entry card fits without a scroll */
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])){grid-template-rows:auto minmax(0,1fr)}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) > .bs-guidance{display:none!important}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-entry{grid-row:2;overflow:visible;align-self:start}
+    #branch-stock .bs-entry>header{padding:10px 14px!important}
+    #branch-stock .bs-entry>header h2{font-size:16px;margin:0}
+    #branch-stock .bs-entry form{gap:8px 10px!important;padding:10px 14px!important}
+    #branch-stock .bs-entry label{font-size:11.5px;margin:0}
+    #branch-stock .bs-entry input,#branch-stock .bs-entry select{min-height:36px!important;height:36px;padding-block:4px!important;margin-top:4px}
+    #branch-stock .bs-entry textarea{min-height:36px!important;height:36px!important;padding-block:6px!important;margin-top:4px}
+    #branch-stock .bs-entry input[name=quantity]{font-size:16px}
+    #branch-stock .bs-current{padding:9px 14px!important;border-radius:10px!important}
+    #branch-stock .bs-current span{font-size:11px;white-space:nowrap}
+    #branch-stock .bs-current strong{font-size:15px;line-height:1.4;text-align:end}
+    #branch-stock .bs-entry-help{padding:6px 10px;font-size:10.5px;line-height:1.6;margin:0!important}
+    #branch-stock .bs-entry .bs-primary{min-height:42px;font-size:14px}
+}
+/* stock-balances-full-20261110: nothing under the balances table; it runs to the bottom */
+@media (min-width: 1100px) and (min-height: 650px) {
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-balances>.bs-note,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-history,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-legacy,
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) [data-stock-unmapped]{display:none!important}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-overview{overflow:hidden}
+    #branch-stock:has(> [data-inventory-panel="goods"]:not([hidden])) .bs-balances{flex:1 1 auto;min-height:0;height:100%}
+}
+/* stock-adjust-20261110: the owner's balance adjustment */
+#branch-stock .bs-adjust-open{margin-inline-start:8px;width:26px;height:26px;padding:0;border:1px solid #d6e4fb;border-radius:7px;background:#f1f6ff;color:#175abb;font-size:13px;line-height:1;cursor:pointer;vertical-align:middle}
+#branch-stock .bs-adjust-open:hover:not(:disabled){background:#175abb;color:#fff}
+.bs-adjust{direction:rtl;width:min(420px,94vw);padding:0;border:0;border-radius:14px;box-shadow:0 24px 60px #0b142355;font-family:inherit;color:#17304a}
+.bs-adjust::backdrop{background:#0b142380}
+.bs-adjust header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#10274a;color:#fff}
+.bs-adjust header h2{margin:0;font-size:16px;font-weight:800;color:#fff}
+.bs-adjust header button{border:0;background:transparent;color:#fff;font-size:24px;line-height:1;cursor:pointer}
+.bs-adjust-body{display:flex;flex-direction:column;gap:12px;padding:16px 18px}
+.bs-adjust-info{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:#f6f8fb;border:1px solid #e6ebf2}
+.bs-adjust-info strong{font-size:14px;font-weight:800;color:#10274a}
+.bs-adjust-info span{font-size:12px;color:#6c7a91}
+.bs-adjust label{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:12px;color:#34465b}
+.bs-adjust input{min-height:40px;border:1.5px solid #d6dee9;border-radius:10px;padding:6px 12px;font:inherit;font-size:14px}
+.bs-adjust input:focus{outline:none;border-color:#f57800;box-shadow:0 0 0 4px #f5780022}
+.bs-adjust label:first-of-type input{font-size:18px;font-weight:800;text-align:center;direction:ltr}
+.bs-adjust-error{margin:0;padding:8px 10px;border-radius:8px;background:#fff1f3;color:#c42636;font-size:12px}
+.bs-adjust-note{margin:0;font-size:11px;color:#7a8799}
+.bs-adjust footer{display:flex;gap:8px;padding:12px 18px;border-top:1px solid #eef1f5;background:#fafbfd}
+.bs-adjust footer .bs-primary{flex:1;min-height:42px;border:0;border-radius:10px;background:linear-gradient(135deg,#f78a1e,#e86a00);color:#fff;font-weight:800;cursor:pointer}
+.bs-adjust footer .bs-primary:disabled{opacity:.5}
+.bs-adjust footer .bs-button{min-height:42px;padding:0 18px;border:1px solid #d6dee9;border-radius:10px;background:#fff;font-weight:700;cursor:pointer}

@@ -20,6 +20,7 @@
     var timer;
     var items = new Map();
     var canToggle = false;
+    var desktopGeneration = '';
     var writing = false;
     var queuedPage = null;
     var disposed = false;
@@ -120,6 +121,7 @@
             if (disposed || current !== generation || branch !== requestedBranch) return;
             if (!Array.isArray(payload.items) || !payload.branch || !payload.pagination) throw new Error(text('menu_error'));
             canToggle = !!payload.can_toggle;
+            desktopGeneration = payload.desktop_generation || '';
             items.clear();
             list.replaceChildren();
             payload.items.forEach(function (item) {
@@ -173,21 +175,45 @@
         list.setAttribute('aria-busy', 'false');
         list.querySelectorAll('[data-menu-availability]').forEach(function (control) { control.disabled = true; });
         notify(text('saving'));
+        var operationKey, encodedOperation;
+        function releaseOperation() {
+            // A disposed SPA instance can reply after a newer instance has begun
+            // another operation in this same slot. Release only our frozen body.
+            if (operationKey && sessionStorage.getItem(operationKey) === encodedOperation) sessionStorage.removeItem(operationKey);
+        }
         try {
+            if (document.body.dataset.dashboardLocal === '1'
+                ? !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(desktopGeneration)
+                : desktopGeneration !== 'server') throw new Error(text('menu_save_error'));
+            operationKey = 'fasakhansta.menu-availability.' + document.body.dataset.dashboardActor + '.' + desktopGeneration + '.' + endpoint;
+            var encoded = sessionStorage.getItem(operationKey), operation;
+            if (encoded) {
+                encodedOperation = encoded;
+                operation = JSON.parse(encoded);
+                if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(operation.idempotency_key || '')
+                    || typeof operation.available !== 'boolean' || typeof operation.expected_available !== 'boolean'
+                    || !(operation.expected_revision === null || Number.isSafeInteger(operation.expected_revision))) throw new Error(text('menu_save_error'));
+            } else {
+                operation = { available: !item.available, expected_available: !!item.available, expected_revision: item.revision, idempotency_key: crypto.randomUUID() };
+                encodedOperation = JSON.stringify(operation);
+                sessionStorage.setItem(operationKey, encodedOperation);
+            }
             var response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
-                body: JSON.stringify({ available: !item.available, expected_available: !!item.available, expected_revision: item.revision }) });
+                body: JSON.stringify(operation) });
             var payload = await read(response, 'menu_save_error');
-            if (disposed || branch !== requestedBranch) return;
             if (!payload.item || payload.item.id !== item.id) throw new Error(text('menu_save_error'));
+            releaseOperation();
+            if (disposed || branch !== requestedBranch) return;
             // A newer menu fetch may have replaced this card while the write was pending.
             var currentCard = list.querySelector('[data-menu-product="' + item.id + '"]');
             if (currentCard) currentCard.replaceWith(itemNode(payload.item));
             items.set(String(item.id), payload.item);
             notify(text('menu_saved'), true);
         } catch (error) {
+            if (error.status === 409 || error.status === 422) releaseOperation();
             if (disposed || branch !== requestedBranch) return;
             if (error.status === 409) {
                 queuedPage = page;

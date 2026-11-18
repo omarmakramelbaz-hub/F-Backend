@@ -47,6 +47,7 @@ class HomeController extends Controller
     
     
     public function adminWallet(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['wallet-list']);
         $wallets = Wallet::whereNull('from_user')->orWhereNull('to_user')->orderBy('id','DESC')->paginate(30);
 
         return view('admin.admin_wallet', compact('wallets'));
@@ -72,76 +73,82 @@ class HomeController extends Controller
     {
         $boot=['initial'=>$overview->data($request->query(),auth('admin')->user()),
             'url'=>route('dashboard.overview'),'locale'=>app()->getLocale(),'labels'=>__('home_overview')];
+        if(isset($boot['initial']['owner_drawer']))$boot['drawer_url']=route('dashboard.overview',['section'=>'drawers']);
+        // The GO control room plays its start-up sequence once per sign-in (sign-out clears the session).
+        $boot['intro']=!$request->session()->has('go_hud_intro');$request->session()->put('go_hud_intro',true);
+        $boot['hud_links']=\App\Services\Dashboard\HomeHudLinks::for(auth('admin')->user());
+        $boot['initial']['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user(),$boot['hud_links']);
+        // A refresh, section change or idle return must never replay the voice.
+        $boot['greeting']=$request->session()->pull('go_hologram_login');
+        if(is_array($boot['greeting']))$boot['greeting']['audio']=app(\App\Services\Dashboard\HomeHologramVoice::class)->forActor(auth('admin')->user());
         return response()->view($boot['initial']['branch_home']?'admin.home_branch':'admin.home',compact('boot'))->header('Cache-Control','private, no-store');
     }
 
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
-        return response()->json($overview->data($request->query(),auth('admin')->user()))->header('Cache-Control','private, no-store');
+        if($request->query('section')==='hologram')return response()->json([
+            'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user()),
+            'shell'=>\App\Support\DashboardShell::version(),
+        ])->header('Cache-Control','private, no-store');
+        $data=$request->query('section')==='drawers'
+            ?$overview->drawers($request->query(),auth('admin')->user())
+            :$overview->data($request->query(),auth('admin')->user());
+        if($request->query('section')!=='drawers')$data['hologram']=app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user());
+        return response()->json($data)->header('Cache-Control','private, no-store');
     }
 
     public function loginPage(GeneralSettings $settings){
-        return view('admin.login', compact('settings'));
+        return response()->view('admin.login', compact('settings'))
+            ->header('Cache-Control', 'private, no-store, max-age=0');
     }
 
     public function signin(Request $request){
-        // dd(($request->account_type));
         $request->validate([
-            'email' => 'required',
-            'password' => 'required',
+            'email' => 'required|string|max:255',
+            'password' => 'required|string',
+            'remember' => 'nullable|boolean',
         ]);
-   
-   
-        $email         = $request->email;
-         // Remove the first 0 from the mobile number if it exists
-    if (substr($email, 0, 1) === '0') {
-        $email = substr($email, 1);
-    }
-    
-        $password     = $request->password;
-    // Find user by email
-    // $user = User::where('email', $email)->whereIn('account_type',['admin', 'vendor','resturant_owner'])->first();
-    // $attempt='email';
-    // if(!$user){
-    //   $user = User::where('mobile', $email)->whereIn('account_type',['admin', 'vendor','resturant_owner'])->first();
-    // $attempt='mobile';  
-    // }
-     $user=User::where(function ($query) use ($email) {
-        $query->where('mobile', $email)
-              ->orWhere('email', $email);
-    })
-    ->whereIn('account_type', ['admin', 'vendor','resturant_owner'])
-    ->first();
-    // dd($user);
-    // Check if user exists and account type is valid
-    if ($user && in_array($user->account_type, ['admin', 'vendor','resturant_owner'])) {
-        // dd($user->mobile,$password,Hash::check($password, $user->password));
-        if (Auth::guard('admin')->attempt(['mobile' => $user->mobile ,'password'=> $password, 'account_type' => $user->account_type])) {
-            session()->forget('id_user');
+        $identity = trim($request->input('email'));
+        $mobiles = \App\Services\Dashboard\DashboardLoginIdentity::mobileVariants($identity);
+        $candidates = User::where(function ($query) use ($identity, $mobiles) {
+            $query->where('email', $identity)->orWhere('mobile', $identity);
+            if ($mobiles !== []) { $query->orWhereIn('mobile', $mobiles); }
+        })->whereIn('account_type', \App\Services\Dashboard\DashboardLoginIdentity::ACCOUNT_TYPES)->orderBy('id')->limit(10)->get()
+            ->sortBy(fn ($candidate) => strcasecmp((string) $candidate->email, $identity) === 0 ? 0 : 1)->values();
 
-            // dd(auth('admin')->user()->id);
-            session()->put('id_user', auth('admin')->user()->id);
-           if($user->account_type=='admin'){
-            return redirect('admin/dashboard');
-           }elseif($user->account_type=='vendor'){
-                           session()->put('id_user', auth('admin')->user()->id);
-
-               return redirect('admin/applies-orders');
-           }
-           elseif($user->account_type=='resturant_owner'){
-                           session()->put('id_user', auth('admin')->user()->id);
-
-               return redirect('admin/resturants');
-           }
+        // Several dashboard accounts can share an email or a mobile. Taking whichever row came first signed a correct
+        // password in against the wrong account now and then; sign in the one whose password matches (email first).
+        $user = null;
+        foreach ($candidates as $candidate) {
+            if (Auth::guard('admin')->attempt([
+                'id' => $candidate->getAuthIdentifier(),
+                'account_type' => $candidate->account_type,
+                'password' => $request->input('password'),
+            ], $request->boolean('remember'))) { $user = $candidate; break; }
         }
-    }
-        
-        return redirect()->back()->with('error',trans('main.invalid data'));
+        if ($user) {
+            $request->session()->regenerate();
+            session()->forget('id_user');
+            session()->put('id_user', auth('admin')->id());
+            $request->session()->forget('go_hud_intro');
+            $request->session()->put('go_hologram_login',[
+                'nonce'=>(string)\Illuminate\Support\Str::uuid(),'name'=>(string)$user->name,
+            ]);
+            return redirect('admin/dashboard');
+        }
+        return redirect()->back()->withInput($request->only('email', 'remember'))
+            ->with('error', trans('main.invalid data'));
     }
 
     public function adminLogout()
     {
-        Auth::guard('admin')->logout();
+        $guard=Auth::guard('admin');
+        if(config('desktop_dashboard.local')===true&&getenv('DESKTOP_DASHBOARD_WORKSPACE_LOCAL')==='true'){
+            // Revoke this device's remembered login even if the cached member was retired.
+            $provider=$guard->getProvider();
+            if(method_exists($provider,'forgetRemembered'))$provider->forgetRemembered($guard->user());
+            $guard->logoutCurrentDevice();
+        }else $guard->logout();
              // Invalidate the session for this guard
         request()->session()->invalidate();
 
@@ -160,8 +167,8 @@ class HomeController extends Controller
   }  
     public function notifications(){
         $data = Auth::guard('admin')->user()->notifications()->select('type','id','data','created_at','read_at')->orderBy('created_at','DESC')->get();
-
-        return view('admin.notifications', compact('data'));
+        $desktopNotificationGeneration = app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(Auth::guard('admin')->user());
+        return view('admin.notifications', compact('data','desktopNotificationGeneration'));
     }
 
 
@@ -197,9 +204,7 @@ class HomeController extends Controller
 
     public function read($id){
         $data =auth('admin')->user()->notifications()->where('id',$id)->firstOrFail();
-        $data->update([
-            'read_at' => now(),
-        ]);
+        if(!request()->attributes->has('_desktop_notification_ids')||$data->read_at===null)$data->update(['read_at'=>now()]);
         
     //   if(isset($data->data['data']['order_id'])){
     //       return redirect()->route('orders.show',$data->data['data']['order_id']);
@@ -208,7 +213,9 @@ class HomeController extends Controller
     }
     
     public function mark_all_as_read(){
-       auth('admin')->user()->unreadNotifications()->update(['read_at' => now(), 'updated_at' => now()]);
+       $query=auth('admin')->user()->unreadNotifications();
+       if(request()->attributes->has('_desktop_notification_ids'))$query->whereIn('id',request()->attributes->get('_desktop_notification_ids'));
+       $query->update(['read_at' => now(), 'updated_at' => now()]);
         return redirect()->back();
     }
 

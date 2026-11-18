@@ -40,10 +40,8 @@ class SendDailyDelegateReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("delegate daily report !");
 
         $delegates = User::where('account_type','delegate')->where('status','accepted')->get();
-                \Log::info($delegates);
         foreach ($delegates as $delegate) {
                 // Generate daily report here
                 $to_email = $delegate->email;
@@ -55,9 +53,9 @@ class SendDailyDelegateReportCommand extends Command
                              $message->to($to_email);
                              $message->subject("today's report");
                         });
-                    } catch (\Exception $e) {
-    
-                        return $e->getMessage();
+                    } catch (\Throwable $e) {
+                        // One failed email never stops the other reports.
+                        \Log::warning('GO_DAILY_REPORT_EMAIL_FAILED', ['error' => class_basename($e)]);
                     }
                     }
                 }

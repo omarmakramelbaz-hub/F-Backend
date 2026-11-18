@@ -31,7 +31,7 @@ class ComessionOrderDelegateRequest extends FormRequest
     {
         return [
             'order_id'           => 'required|exists:orders,id',
-            'commission'                     => 'required|numeric',
+            'commission'                     => 'required|numeric|gt:0|max:100000', // never negative: a tip only ever leaves the customer's wallet
 
         ];
     }

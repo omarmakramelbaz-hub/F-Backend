@@ -92,14 +92,14 @@
                                                         href="{{ route('slidears.edit', $slidear->id) }}">@lang('main.edit')</a>
                                                 @endcan
                                                 @can('slidear-delete')
-                                                    {!! Form::open([
+                                                    {!! \App\Support\NativeDeleteForm::open([
                                                         'method' => 'DELETE',
                                                         'route' => ['slidears.destroy', $slidear->id],
                                                         'style' => 'display:inline',
                                                     ]) !!}
                                                     <button type="submit"
                                                         class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                    {!! Form::close() !!}
+                                                    {!! \App\Support\NativeDeleteForm::close() !!}
                                                 @endcan
 
                                             </td>

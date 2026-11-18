@@ -11,6 +11,26 @@
         var messages = panel.querySelector('#support-messages'), scroll = panel.querySelector('[data-support-scroll]');
         var status = panel.querySelector('[data-support-status]'), form = panel.querySelector('[data-support-send]');
         var input = panel.querySelector('#support-message-input'), older = panel.querySelector('[data-support-older]');
+        if (document.body.dataset.dashboardLocal === '1') {
+            // Support lives in Firestore; the local dashboard has no reviewed provider outbox.
+            function unavailableSupport(event) {
+                if (event) event.preventDefault();
+                status.textContent = panel.dataset.localUnavailable || panel.dataset.error;
+            }
+            unavailableSupport();
+            form.hidden = false; input.disabled = true; form.querySelector('button').disabled = true;
+            older.hidden = true; older.disabled = true;
+            form.addEventListener('submit', unavailableSupport);
+            var localSession = {panel: panel, destroy: function () {
+                document.body.classList.remove('dashboard-support-open');
+                form.removeEventListener('submit', unavailableSupport);
+            }};
+            active = localSession;
+            if (window.DashboardSPA && window.DashboardSPA.onCleanup) window.DashboardSPA.onCleanup(function () {
+                if (active === localSession) destroy(); else localSession.destroy();
+            });
+            return;
+        }
         var chosen = 0, inbox = Number(panel.dataset.inboxId), nextPage = '', generation = 0;
         var getController = null, unsubscribe = null, interval = null, readTimer = null, readBusy = false, sending = false, readRetryAt = 0;
         var map = new Map(), visible = new Set(), pendingIds = new Set(), closed = false, sendDraft = null;
@@ -103,7 +123,7 @@
             }).finally(function () { if (!closed && current === generation) older.disabled = false; });
         }
         function subscribe(room, current, partner, scope) {
-            if (unsubscribe || !window.firebase || !firebase.firestore) return;
+            if (document.body.dataset.dashboardLocal === '1' || unsubscribe || !window.firebase || !firebase.firestore) return;
             try {
                 unsubscribe = firebase.firestore().collection('DashboardChat').doc(room).collection('messages')
                     .orderBy('timestamp', 'desc').limit(100).onSnapshot(function (snapshot) {

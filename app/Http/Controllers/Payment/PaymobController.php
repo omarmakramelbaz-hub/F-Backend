@@ -30,116 +30,127 @@ class PaymobController extends Controller
   
     public function checkingOut($payment_method, $integration_id, $order_id, $iframe_id_or_wallet_number)
     {
-        // step 1: login to paymob
-        $response = Http::withHeaders([
-            'content-type' => 'application/json'
-        ])->post('https://accept.paymob.com/api/auth/tokens',[
-            "api_key"=> env('PAYMOB_API_KEY')
-        ]);
-        $json=$response->json();       
-$token = $json['token'];
-        $order = Order::findOrFail($order_id);
-        // $grand_total = $order->total+$order->delivery_price??0;
-             $order_data=$order->user_tax;
-        \Log::info($order_data);
-        // step 2: send order data
-        $response_final=Http::withHeaders([
-            'content-type' => 'application/json'
-        ])->post('https://accept.paymob.com/api/ecommerce/orders',[
-            "auth_token"=>$json['token'],
-            "delivery_needed"=>"false",
-            "amount_cents"=>ceil($order->grand_total*100),
-            "merchant_order_id" => $order->id
-        ]);
-
-        $json_final=$response_final->json();
-        $json['token'] = 'Token egy_sk_live_71b7c9d07765512751d560dd95ae32c68b5324fca323bdeace5098ffee2bd0a3';
-         if (isset($json_final['message']) && $json_final['message'] === 'duplicate') {
-            //  dd($json_final);
-            // Fetch existing order details from Paymob
-            $existing_order = Http::withHeaders([
-                'content-type' => 'application/json',
-                'Authorization' => $json['token'] // Add token in the header
-            ])->get('https://accept.paymob.com/api/ecommerce/orders', [
-                "merchant_order_id" => $order->id
-            ])->json();
-            $existing_order = Http::withHeaders([
-                'content-type' => 'application/json',
-                'Authorization' => 'Bearer ' . $token // Add token in the header
-
-            ])->get('https://accept.paymob.com/api/ecommerce/orders', [
-                "merchant_order_id" => $order->id
-            ])->json();
-
-// dd($existing_order);
-            $paymob_order_id = $existing_order['results'][0]['id'];
-                        $amount_cents = ceil($order->grand_total*100);
-            // $amount_cents = $existing_order['results'][0]['amount_cents'];
-        }else{
-            $paymob_order_id = $json_final['id'];
-            $amount_cents = $json_final['amount_cents'];
-        }
-        // dd($json_final,$order->grand_total*100,$order->id);
-        \Log::info(ceil($order->grand_total*100));
-        $user = Auth::user();
-        $name = $user->name;
-        if ((count(explode(" ",$name)) == 1)) {
-            $first_name = $name;$last_name=$name;
-        } else {
-            $first_name = explode(" ",$name)[0];
-            $last_name = explode(" ",$name)[1];
-        }
-        // dd($amount_cents);
-        //  step 3: send customer data
-        $response_final_final=Http::withHeaders([
-            'content-type' => 'application/json',
-            "Authorization"=>$json['token'],
-        ])->post('https://accept.paymob.com/v1/intention',[
-            "expiration"=> 36000,
-            "amount"=>$amount_cents,
-            "payment_methods" =>[(int)$integration_id],
-            "metadata"=>[
-                "merchant_order_id"=> $order->id,  // Your custom order ID
-            ],
-            "billing_data"=>[
-                "first_name"            => $first_name ?: "NA",
-                "last_name"             => $last_name ?: "NA",
-                "phone_number"          => $user->mobile ?: "NA",
-                "email"                 => $user->email ?: "NA",
-                "apartment"             => "NA",
-                "floor"                 => "NA",
-                "street"                => "NA",
-                "building"              => "NA",
-                "shipping_method"       => "NA",
-                "postal_code"           => "NA",
-                "city"                  => "NA",
-                "state"                 => "NA",
-                "country"               => "NA",
-            ],
-            "currency"=>"EGP",
-            "integration_id"=>$integration_id
-        ]);
-
-        $response_final_final_json=$response_final_final->json();
-        // dd($response_final_final_json);
-        $client_secret=$response_final_final_json['client_secret'];
-        $intention_order_id = $response_final_final_json['intention_order_id'];
-        if($client_secret){
-            $pay = Payment::create([
-                'order_id' => $order->id,
-                'user_id' => $order->user_id,
-                'intention_order_id' => $intention_order_id,
-                // Bind future signed failure evidence to the amount actually
-                // sent to Paymob, independent of later menu/order edits.
-                'total_price' => \App\Services\GoServices\Money::decimal((int) $amount_cents),
-            ]);
-            if(auth('api')->check()){
-            return $this->successResponse(['order_id' => $order->id ,'link' => 'https://accept.paymob.com/unifiedcheckout/?publicKey=egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX&clientSecret='.$client_secret],__('api.wallet charge successfully'));
+        // Creation only. Signed callbacks/inquiry remain the payment authority.
+        $failure = static function (string $code, int $status, bool $uncertain = false) {
+            $arabic = app()->getLocale() === 'ar';
+            $message = $uncertain
+                ? ($arabic ? 'تعذّر تأكيد تجهيز صفحة الدفع. لم يتم تأكيد أي دفع؛ راجع المحفظة قبل المحاولة مجددًا.'
+                    : 'Checkout preparation could not be confirmed. No payment is confirmed; check your wallet before trying again.')
+                : ($arabic ? 'تعذّر تجهيز صفحة الدفع. راجع بيانات حسابك ووسيلة الدفع ثم حاول مجددًا.'
+                    : 'Could not prepare checkout. Check your account details and payment method before trying again.');
+            if (auth('api')->check()) {
+                return response()->json([
+                    'status' => 'Error', 'message' => $message, 'data' => null,
+                    'checkout_error' => $code, 'checkout_outcome_uncertain' => $uncertain,
+                ], $status);
             }
-            return redirect('https://accept.paymob.com/unifiedcheckout/?publicKey=egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX&clientSecret='.$client_secret);
-                
+            return redirect()->back()->with(['error' => $message]);
+        };
+
+        $order = Order::findOrFail($order_id);
+        $user = Auth::user();
+        if (!$user) return $failure('authentication_required', 401);
+        if (!preg_match('/\A[1-9][0-9]{0,14}\z/', (string) $integration_id)) {
+            return $failure('invalid_payment_method', 422);
         }
-       
+        // Parse the server-owned decimal directly: ten whole digits, at most
+        // two decimal places, and integer arithmetic only. Do not depend on a
+        // shared utility that may differ between deployed server revisions.
+        $amount = $order->grand_total;
+        if (!(is_string($amount) || is_int($amount) || is_float($amount))
+            || !preg_match('/\A(-?)([0-9]{1,10})(?:\.([0-9]{1,2}))?\z/', trim((string) $amount), $amountParts)) {
+            return $failure('invalid_amount', 422);
+        }
+        $amountCents = ((int) $amountParts[2]) * 100
+            + (int) str_pad($amountParts[3] ?? '', 2, '0', STR_PAD_RIGHT);
+        if ($amountParts[1] === '-') $amountCents = -$amountCents;
+        if ($amountCents <= 0) return $failure('invalid_amount', 422);
+        $amountDecimal = intdiv($amountCents, 100) . '.'
+            . str_pad((string) ($amountCents % 100), 2, '0', STR_PAD_LEFT);
+
+        // These placeholders are filled privately from the exact guarded live
+        // baseline, never from package contents, output, or request parameters.
+        $paymobAuthorization = 'Token egy_sk_live_71b7c9d07765512751d560dd95ae32c68b5324fca323bdeace5098ffee2bd0a3';
+        $paymobPublicKey = 'egy_pk_live_dJsMt2Cx3qwi11KgJlNmXpoQnouGYyyX';
+        $names = preg_split('/\s+/', trim((string) $user->name), 2);
+        $firstName = $names[0] ?? 'NA';
+        $lastName = $names[1] ?? $firstName;
+        $payload = [
+            'expiration' => 36000,
+            'amount' => $amountCents,
+            'currency' => 'EGP',
+            'payment_methods' => [(int) $integration_id],
+            // Preserve the existing merchant correlation and callback consumers.
+            'metadata' => ['merchant_order_id' => $order->id],
+            'billing_data' => [
+                'first_name' => $firstName ?: 'NA', 'last_name' => $lastName ?: 'NA',
+                'phone_number' => $user->mobile ?: 'NA', 'email' => $user->email ?: 'NA',
+                'apartment' => 'NA', 'floor' => 'NA', 'street' => 'NA', 'building' => 'NA',
+                'shipping_method' => 'NA', 'postal_code' => 'NA', 'city' => 'NA',
+                'state' => 'NA', 'country' => 'NA',
+            ],
+        ];
+        $base = rtrim((string) config('app.url'), '/');
+        if ($order->type === 'wallet') {
+            $payload['notification_url'] = $base . '/api/wallet-topup/paymob/notify';
+            $payload['redirection_url'] = url('/api/wallet-topup/paymob/return'); // back to the domain the app called
+        } elseif ($order->type === 'current') {
+            $payload['notification_url'] = $base . '/api/order-payments/paymob/notify';
+            $payload['redirection_url'] = url('/api/order-payments/paymob/return'); // back to the domain the app called
+        }
+
+        try {
+            // Intention already creates its Paymob order. Never replay this POST
+            // automatically: a lost response does not prove creation failed.
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json', 'Accept' => 'application/json',
+                'Authorization' => $paymobAuthorization,
+            ])->withOptions([
+                'connect_timeout' => 3, 'timeout' => 15, 'allow_redirects' => false,
+            ])->post('https://accept.paymob.com/v1/intention/', $payload);
+        } catch (\Illuminate\Http\Client\ConnectionException $error) {
+            return $failure('gateway_timeout', 504, true);
+        } catch (\Throwable $error) {
+            return $failure('gateway_unavailable', 502, true);
+        }
+        if (!$response->successful()) {
+            return $failure('gateway_rejected', 502, $response->status() >= 500);
+        }
+        try {
+            $result = $response->json();
+        } catch (\Throwable $error) {
+            return $failure('invalid_gateway_response', 502, true);
+        }
+        $clientSecret = is_array($result) ? ($result['client_secret'] ?? null) : null;
+        $gatewayOrder = is_array($result) ? ($result['intention_order_id'] ?? null) : null;
+        $detail = is_array($result) ? ($result['intention_detail'] ?? null) : null;
+        $gatewayAmount = is_array($detail) ? ($detail['amount'] ?? null) : null;
+        // JSON permits integral numbers encoded as floats. Compare only against
+        // the bounded exact integer cents; never round or convert gateway money.
+        $amountMatches = in_array($gatewayAmount, [$amountCents, (string) $amountCents], true)
+            || (is_float($gatewayAmount) && is_finite($gatewayAmount) && $gatewayAmount == $amountCents);
+        if (!is_string($clientSecret) || !preg_match('/\A[A-Za-z0-9_-]{10,512}\z/', $clientSecret)
+            || !(is_int($gatewayOrder) || is_string($gatewayOrder))
+            || !preg_match('/\A[1-9][0-9]{0,29}\z/', (string) $gatewayOrder)
+            || !is_array($detail) || ($detail['currency'] ?? null) !== 'EGP'
+            || !$amountMatches) {
+            return $failure('invalid_gateway_response', 502, true);
+        }
+        try {
+            Payment::create([
+                'order_id' => $order->id, 'user_id' => $order->user_id,
+                'intention_order_id' => $gatewayOrder,
+                'total_price' => $amountDecimal,
+            ]);
+        } catch (\Throwable $error) {
+            return $failure('checkout_record_unavailable', 503, true);
+        }
+        $link = 'https://accept.paymob.com/unifiedcheckout/?publicKey='
+            . rawurlencode($paymobPublicKey) . '&clientSecret=' . rawurlencode($clientSecret);
+        if (auth('api')->check()) {
+            return $this->successResponse(['order_id' => $order->id, 'link' => $link], __('api.wallet charge successfully'));
+        }
+        return redirect($link);
     }
     
     // public function checkingOut($payment_method, $integration_id, $order_id, $iframe_id_or_wallet_number)

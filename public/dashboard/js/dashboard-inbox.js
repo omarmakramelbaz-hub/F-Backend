@@ -5,6 +5,7 @@
     if (!shell) return;
     var pendingRead = false, noteBusy = false, supportBusy = false, supportCount = 0;
     var roomUnsubscribe = [], refreshTimer = null, fallbackTimer = null, noteGeneration = 0;
+    function localDashboard() { return document.body.dataset.dashboardLocal === '1'; }
     function request(url, data) {
         var options = {credentials: 'same-origin', headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}};
         if (data) {
@@ -13,8 +14,8 @@
             options.headers['X-CSRF-TOKEN'] = csrf ? csrf.content : '';
             options.body = JSON.stringify(data);
         }
-        return fetch(url, options).then(function (response) {
-            if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/json')) throw new Error('Inbox unavailable');
+        return (window.GoPulse ? window.GoPulse.fetch : fetch)(url, options).then(function (response) {
+            if (!response.ok || !(response.headers.get('Content-Type') || '').includes('application/json')) { var failure = new Error('Inbox unavailable'); failure.status = response.status; throw failure; }
             return response.json();
         }).then(function (result) { if (!result.success) throw new Error('Inbox unavailable'); return result; });
     }
@@ -59,7 +60,19 @@
         noteGeneration++;
         var error = shell.querySelector('[data-inbox-read-error]');
         if (error) error.hidden = true;
-        request(shell.dataset.notificationsReadUrl, {ids: ids}).then(function (result) {
+        var data = {ids: ids}, operationKey = null;
+        if (window.FasakhanstaDesktop || document.body.dataset.dashboardLocal === '1') {
+            operationKey = 'fasakhansta.notifications.' + document.body.dataset.dashboardActor + '.' + ids.slice().sort().join(',');
+            try {
+                data.idempotency_key = sessionStorage.getItem(operationKey) || crypto.randomUUID();
+                sessionStorage.setItem(operationKey, data.idempotency_key);
+            } catch (failure) {
+                if (error) { error.textContent = shell.dataset.inboxReadFailed; error.hidden = false; }
+                pendingRead = false; return;
+            }
+        }
+        request(shell.dataset.notificationsReadUrl, data).then(function (result) {
+            if (operationKey) sessionStorage.removeItem(operationKey);
             var read = new Set(ids);
             shell.querySelectorAll('[data-notification-id]').forEach(function (item) { if (read.has(item.dataset.notificationId)) item.remove(); });
             notificationCount(result.count);
@@ -68,19 +81,27 @@
             if (error) { error.textContent = shell.dataset.inboxReadFailed; error.hidden = false; }
         }).finally(function () { pendingRead = false; refreshNotifications(); });
     }
+    // Server load: when the support service is down (503), this device asks again only after half an hour.
+    var SUPPORT_PAUSE_KEY = 'go-dashboard-support-paused-until';
+    function supportPaused() { try { return Number(localStorage.getItem(SUPPORT_PAUSE_KEY) || 0) > Date.now(); } catch (_) { return false; } }
     function refreshSupport(fresh) {
-        if (!shell.dataset.supportUrl || supportBusy || document.hidden) return Promise.resolve();
+        if (localDashboard() || !shell.dataset.supportUrl || supportBusy || document.hidden || (!fresh && supportPaused())) return Promise.resolve();
         supportBusy = true;
-        return request(shell.dataset.supportUrl + (fresh ? '?fresh=1' : '')).then(supportBadges).catch(function () {})
-            .finally(function () { supportBusy = false; });
+        return request(shell.dataset.supportUrl + (fresh ? '?fresh=1' : '')).then(function (data) {
+            try { localStorage.removeItem(SUPPORT_PAUSE_KEY); } catch (_) {}
+            return supportBadges(data);
+        }).catch(function (error) {
+            if (error && error.status === 503) { try { localStorage.setItem(SUPPORT_PAUSE_KEY, String(Date.now() + 30 * 60 * 1000)); } catch (_) {} }
+        }).finally(function () { supportBusy = false; });
     }
     function queueSupport() {
+        if (localDashboard()) return;
         clearTimeout(refreshTimer); refreshTimer = setTimeout(function () { refreshSupport(true); }, 600);
     }
     // The existing app updates each room's lastMessageTimestamp for every message.
     // Listen only to this account's inbox, then ask the authenticated server for its actual unread count.
     function subscribeSupport() {
-        if (!shell.dataset.supportUrl || !window.firebase || !firebase.firestore || roomUnsubscribe.length) return;
+        if (localDashboard() || !shell.dataset.supportUrl || !window.firebase || !firebase.firestore || roomUnsubscribe.length) return;
         try {
             String(shell.dataset.inboxIds || '').split(',').filter(Boolean).forEach(function (id) {
                 roomUnsubscribe.push(firebase.firestore().collection('DashboardChat')
@@ -100,7 +121,13 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshNotifications(); refreshSupport(); } });
     window.DashboardInbox = {refreshNotifications: refreshNotifications, refreshSupport: refreshSupport, request: request};
     refreshNotifications(); refreshSupport(); subscribeSupport();
-    fallbackTimer = setInterval(function () { refreshNotifications(); refreshSupport(); subscribeSupport(); }, 15000);
+    var lastFallback = Date.now();
+    fallbackTimer = setInterval(function () {
+        // Server load: once a minute; every five minutes on a device untouched for half an hour.
+        var idle = window.GODashboardIdle; if (idle && idle.quiet && idle.quiet() && Date.now() - lastFallback < 290000) return;
+        lastFallback = Date.now(); refreshNotifications(); refreshSupport(); subscribeSupport();
+    }, 60000);
+    window.addEventListener('go:dashboard-awake', function () { lastFallback = Date.now(); refreshNotifications(); refreshSupport(); });
     window.addEventListener('pagehide', function () {
         clearInterval(fallbackTimer); clearTimeout(refreshTimer);
         roomUnsubscribe.forEach(function (off) { off(); });

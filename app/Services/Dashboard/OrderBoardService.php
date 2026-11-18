@@ -17,6 +17,8 @@ class OrderBoardService
     private $columns = [];
     private $related = [];
     private $storeActions;
+    private $itemsEditor;
+    private $printingPolicy;
 
     public function canAccess($actor): bool
     {
@@ -50,7 +52,17 @@ class OrderBoardService
         } else {
             $query->where('user_id', $actor->id);
         }
-        return $query->pluck('id')->all();
+        $ids = $query->pluck('id')->all();
+        // Shubra prepares every store's orders and its stock pays for them: an account that covers Shubra sees,
+        // hears and handles the stores' orders too (the same stores whose stock Shubra gives).
+        $shubra = FasakhanstaStoreFulfillment::RESTAURANT_ID;
+        if ($this->has('resturants', 'parent_id') && in_array($shubra, array_map('intval', $ids), true)) {
+            $stores = \App\Support\RequestFacts::remember('fasakhansta.shubra-stores', fn () => FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch($shubra));
+            foreach ($stores as $id) {
+                if (!in_array((int) $id, array_map('intval', $ids), true)) $ids[] = (int) $id;
+            }
+        }
+        return $ids;
     }
 
     public function data(Request $request, $actor): array
@@ -61,14 +73,24 @@ class OrderBoardService
         $counts = array_fill_keys(self::GROUPS, 0);
         $limit = max(10, min(100, (int) $request->input('limit', 50)));
         $bases = [];
-        foreach (['legacy', 'store', 'service', 'partner_service'] as $source) {
+        foreach (['legacy', 'store', 'service', 'partner_service', 'website'] as $source) {
             $base = $this->query($source, $actor, $filters);
             if ($base) $bases[$source] = $base;
+        }
+        // The ended orders: the working day's, all on one page (scrolled), unless a day is chosen in the filters.
+        $todayBases = [];
+        if (empty($filters['date'])) {
+            foreach (array_keys($bases) as $source) {
+                $base = $this->query($source, $actor, ['date'=>OperatingDay::date()] + $filters);
+                if ($base) $todayBases[$source] = $base;
+            }
         }
         $pages = [];
         foreach (self::GROUPS as $group) {
             $union = null;
-            foreach ($bases as $source => $base) {
+            $groupBases = $group === 'completed' && empty($filters['date']) ? $todayBases : $bases;
+            $groupLimit = $group === 'completed' && empty($filters['date']) ? 300 : $limit;
+            foreach ($groupBases as $source => $base) {
                 $query = clone $base;
                 $this->forGroup($query, $source, $group);
                 $counts[$group] += (clone $query)->count();
@@ -76,15 +98,15 @@ class OrderBoardService
                 if ($union === null) $union = $query;
                 else $union->unionAll($query);
             }
-            $lastPage = max(1, (int) ceil($counts[$group] / $limit));
+            $lastPage = max(1, (int) ceil($counts[$group] / $groupLimit));
             $page = max(1, min($lastPage, (int) $request->input('page_'.$group, 1)));
-            $offset = ($page - 1) * $limit;
+            $offset = ($page - 1) * $groupLimit;
             if ($union !== null) {
                 $selected = DB::query()->fromSub($union, 'board_records')->orderByDesc('created_at')->orderByDesc('id')
-                    ->orderBy('source')->offset($offset)->limit($limit)->get();
+                    ->orderBy('source')->offset($offset)->limit($groupLimit)->get();
                 $cardsByKey = [];
                 foreach ($selected->groupBy('source') as $source => $records) {
-                    $rows = (clone $bases[$source])->whereIn('id', $records->pluck('id'))->get();
+                    $rows = (clone $groupBases[$source])->whereIn('id', $records->pluck('id'))->get();
                     $this->loadRelated($source, $rows);
                     foreach ($rows as $row) $cardsByKey[$source.':'.$row->id] = $this->normalize($source, $row, $actor);
                 }
@@ -100,6 +122,59 @@ class OrderBoardService
             'branches'=>$this->branches($actor), 'isAdmin'=>$this->isAdmin($actor),
             'limit'=>$limit, 'pages'=>$pages, 'updated_at'=>now()->toIso8601String(),
             'count'=>array_sum($counts)];
+    }
+
+    /** Complete, actor-scoped new-order keys; UI filters and pagination never silence alerts. */
+    public function pendingAlertKeys($actor): array
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $keys = [];
+        foreach (['legacy', 'store', 'service', 'partner_service', 'website'] as $source) {
+            $query = $this->query($source, $actor, []);
+            if (!$query) continue;
+            $this->forGroup($query, $source, 'new');
+            if ($source === 'legacy') $query->whereNotNull('status');
+            if ($source === 'store') $query->where('status', '!=', 'awaiting_payment');
+            foreach ($query->orderBy('id')->pluck('id') as $id) $keys[] = $source.':'.$id;
+        }
+        return $keys;
+    }
+
+    /** Read-only opening counters use the board's exact membership and payment rules. */
+    public function hologramCounts($actor, array $restaurantIds, ?string $day = null): array
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $counts = ['available'=>false, 'open'=>0, 'completed'=>0];
+        // Shubra's orders include its stores' (it prepares them), as on its board.
+        $shubra = FasakhanstaStoreFulfillment::RESTAURANT_ID;
+        if ($this->has('resturants', 'parent_id') && in_array($shubra, array_map('intval', $restaurantIds), true)) {
+            $stores = \App\Support\RequestFacts::remember('fasakhansta.shubra-stores', fn () => FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch($shubra));
+            $restaurantIds = array_values(array_unique(array_merge(array_map('intval', $restaurantIds), array_map('intval', $stores))));
+        }
+        $keys = array_map(fn ($id) => 'f:'.(int)$id, $restaurantIds);
+        foreach (['legacy', 'website'] as $source) {
+            if ($source === 'legacy' && (!$this->has('orders', 'resturant_id') || !$this->has('orders', 'type') || !$this->has('orders', 'id'))) continue;
+            // A day: the orders made in that operating day only (as the board's date filter reads them).
+            $base = $this->query($source, $actor, ['app'=>'fasakhansta'] + ($day !== null ? ['date'=>$day] : []));
+            if (!$base) continue;
+            // Never let an unrestricted board administrator escape the grants
+            // of a desktop workspace or an independently owned branch tree.
+            if ($source === 'legacy') $base->whereIn('resturant_id', $restaurantIds)->where('type', 'current');
+            else $base->whereIn('branch', $keys);
+            $counts['available'] = true;
+            foreach (['new', 'preparing', 'courier'] as $group) {
+                $query = clone $base;
+                $this->forGroup($query, $source, $group);
+                $counts['open'] += $query->count();
+            }
+            // Match the board's actual ended tab, including cancellations,
+            // rather than silently changing the meaning to successful sales.
+            $completed = clone $base;
+            $this->forGroup($completed, $source, 'completed');
+            $counts['completed'] += $completed->count();
+        }
+        if (!$counts['available']) $counts['open'] = $counts['completed'] = null;
+        return $counts;
     }
 
     /** Authorize a transition without hydrating receipt lines, payments or customer display data. */
@@ -118,6 +193,8 @@ class OrderBoardService
                 $restaurantExists = $this->has('resturants', 'id') && DB::table('resturants')->where('id', $row->resturant_id ?? 0)->exists();
                 $actions = $this->legacyActions($row, $restaurantExists);
             }
+        } elseif ($source === 'website') {
+            $actions = app(WebsiteOrderBoardActions::class)->available($row, $actor);
         } elseif ($source === 'store') {
             // Share readiness checks with the controller's existing transition service.
             $this->storeActions = $stores;
@@ -139,7 +216,51 @@ class OrderBoardService
         $row = $query->where('id', $id)->first();
         abort_unless($row, 404);
         $this->loadRelated($source, collect([$row]));
-        return $this->normalize($source, $row, $actor);
+        return $this->invoiceQuantities($source, $row, $this->normalize($source, $row, $actor));
+    }
+
+    /** Display actual kilograms without changing saved native portion quantities or their prices. */
+    private function invoiceQuantities(string $source, object $row, array $card): array
+    {
+        if ($source === 'legacy') {
+            $saved = $this->related['carts'][$row->id] ?? [];
+            $stocks = app(BranchStock::class)->balances('f:'.(int) ($row->resturant_id ?? 0),
+                array_map(fn ($line) => (int) $line->resturant_product_id, $saved));
+            $byId = [];
+            foreach ($saved as $line) $byId[(int) $line->id] = $line;
+            foreach ($card['items'] as &$item) {
+                $line = $byId[$item['line_id']] ?? null;
+                if (!$line || ($stocks[(int) $line->resturant_product_id]['unit'] ?? '') !== 'kg') continue;
+                $feature = $this->related['product_features'][$line->product_feature ?? null]->name ?? '';
+                $factor = ['half'=>0.5, 'quarter'=>0.25][$feature] ?? 1;
+                $item['display_quantity'] = number_format((float) $item['quantity'] * $factor, 3, '.', '');
+                $item['quantity_unit'] = 'كجم';
+            }
+            unset($item);
+        } elseif ($source === 'store') {
+            $snapshot = json_decode($row->snapshot ?? '{}', true) ?: [];
+            $saved = array_values($snapshot['items'] ?? []);
+            foreach ($card['items'] as &$item) {
+                $unit = mb_strtolower(trim((string) ($saved[$item['line_id']]['unit'] ?? '')));
+                if (!in_array($unit, ['kg', 'kilogram', 'كيلو', 'كجم', 'كغ'], true)) continue;
+                $item['display_quantity'] = number_format((float) $item['quantity'], 3, '.', '');
+                $item['quantity_unit'] = 'كجم';
+            }
+            unset($item);
+        }
+        return $card;
+    }
+
+    /** Shared row scope for item editing; the caller owns the transaction when locking. */
+    public function scopedRow(string $source, int $id, $actor, bool $lock = false): object
+    {
+        abort_unless($this->canAccess($actor), 403);
+        $query = $this->query($source, $actor, []);
+        abort_unless($query, 404);
+        if ($lock) $query->lockForUpdate();
+        $row = $query->where('id', $id)->first();
+        abort_unless($row, 404);
+        return $row;
     }
 
     public function scopedLegacy(int $id, $actor, bool $lock = false): Order
@@ -172,13 +293,36 @@ class OrderBoardService
 
     private function query(string $source, $actor, array $filters)
     {
-        $table = ['legacy'=>'orders', 'store'=>'go_store_orders', 'service'=>'go_service_jobs', 'partner_service'=>'partner_service_requests'][$source] ?? null;
+        $table = ['legacy'=>'orders', 'store'=>'go_store_orders', 'service'=>'go_service_jobs', 'partner_service'=>'partner_service_requests', 'website'=>'pos_service_tickets'][$source] ?? null;
         if (!$table || !$this->has($table, 'status') || !$this->has($table, 'created_at')) return null;
-        if ($source !== 'legacy' && $actor->account_type === 'admin' && !empty($actor->owner_resturant_id)) return null;
-        if ($source !== 'legacy' && ($filters['app'] ?? '') === 'fasakhansta') return null;
+        if (!in_array($source, ['legacy', 'website'], true) && $actor->account_type === 'admin' && !empty($actor->owner_resturant_id)) return null;
+        if (!in_array($source, ['legacy', 'website'], true) && ($filters['app'] ?? '') === 'fasakhansta') return null;
         if (in_array($source, ['service', 'partner_service'], true) && !$this->isAdmin($actor)) return null;
+        if ($source === 'website') {
+            if (($filters['app'] ?? '') === 'go') return null;
+            foreach (['web_storefront_orders'=>['ticket_id', 'branch_id', 'created_at'],
+                $table=>['id', 'branch', 'channel', 'payment_status', 'revision', 'customer_name', 'customer_phone',
+                    'address', 'area', 'notes', 'quote_snapshot', 'last_kitchen_id', 'bill_issued_at', 'bill_issued_revision']] as $requiredTable => $requiredColumns) {
+                foreach ($requiredColumns as $column) if (!$this->has($requiredTable, $column)) return null;
+            }
+        }
         $query = DB::table($table);
-        if ($source === 'legacy') {
+        if ($source === 'website') {
+            // Membership is the persisted checkout receipt, never a user-editable note.
+            // Also bind its branch to the canonical ticket to reject inconsistent mappings.
+            $branchExpression = DB::connection()->getDriverName() === 'sqlite'
+                ? "('f:' || storefront_receipt.branch_id)" : "CONCAT('f:', storefront_receipt.branch_id)";
+            $query->where('channel', 'phone')->whereExists(function ($receipt) use ($branchExpression) {
+                $receipt->selectRaw('1')->from('web_storefront_orders as storefront_receipt')
+                    ->whereColumn('storefront_receipt.ticket_id', 'pos_service_tickets.id')
+                    // A stale receipt must not attach to an id reused after a data reset.
+                    ->whereColumn('storefront_receipt.created_at', '>=', 'pos_service_tickets.created_at')
+                    ->whereRaw('pos_service_tickets.branch = '.$branchExpression);
+            });
+            if (!$this->isAdmin($actor)) {
+                $query->whereIn('branch', array_map(fn ($id) => 'f:'.$id, $this->restaurantIds($actor)));
+            }
+        } elseif ($source === 'legacy') {
             if ($this->has($table, 'type')) $query->whereIn('type', ['current', 'schedule', 'shipping']);
             if (!$this->isAdmin($actor)) {
                 if (!$this->has($table, 'resturant_id')) return null;
@@ -191,12 +335,14 @@ class OrderBoardService
         }
         if (!empty($filters['branch'])) {
             [$kind, $id] = explode(':', $filters['branch']);
-            if ($source === 'legacy' && $kind === 'f') $query->where('resturant_id', (int) $id);
+            if ($source === 'website' && $kind === 'f') $query->where('branch', 'f:'.(int) $id);
+            elseif ($source === 'legacy' && $kind === 'f') $query->where('resturant_id', (int) $id);
             elseif ($source === 'store' && $kind === 'gs') $query->where('store_id', (int) $id);
             else return null;
         }
         if (!empty($filters['date'])) {
-            $zone=config('app.timezone','Africa/Cairo');
+            // POS timestamps are UTC; legacy tables retain their established storage zone.
+            $zone=$source === 'website' ? 'UTC' : config('app.timezone','Africa/Cairo');
             $query->where('created_at','>=',OperatingDay::start($filters['date'])->setTimezone($zone)->toDateTimeString())
                 ->where('created_at','<',OperatingDay::end($filters['date'])->setTimezone($zone)->toDateTimeString());
         }
@@ -204,10 +350,13 @@ class OrderBoardService
             $search = $filters['search'];
             $query->where(function ($q) use ($source, $table, $search) {
                 $q->where('id', (int) preg_replace('/\D/', '', $search));
+                if ($source === 'website') {
+                    $q->orWhere('customer_name', 'like', '%'.$search.'%')->orWhere('customer_phone', 'like', '%'.$search.'%');
+                }
                 if ($source === 'legacy' && $this->has($table, 'order_no')) $q->orWhere('order_no', 'like', '%'.$search.'%');
                 if ($source === 'store') $q->orWhere('snapshot', 'like', '%'.$search.'%');
                 $customer = $source === 'legacy' || $source === 'partner_service' ? 'user_id' : 'customer_id';
-                if ($this->has($table, $customer) && $this->has('users', 'name')) {
+                if ($source !== 'website' && $this->has($table, $customer) && $this->has('users', 'name')) {
                     $q->orWhereIn($customer, DB::table('users')->select('id')->where(function ($users) use ($search) {
                         $users->where('name', 'like', '%'.$search.'%');
                         if ($this->has('users', 'mobile')) $users->orWhere('mobile', 'like', '%'.$search.'%');
@@ -234,6 +383,68 @@ class OrderBoardService
 
     private function forGroup($query, string $source, string $group): void
     {
+        if ($source === 'website') {
+            if ($group === 'completed') {
+                $query->where(function ($ended) { $ended->where('payment_status', 'paid')->orWhere('status', 'cancelled'); });
+            } else {
+                $statuses = ['new'=>['new'], 'preparing'=>['preparing'], 'courier'=>['out_for_delivery', 'finished']];
+                $query->where('payment_status', 'unpaid')->whereIn('status', $statuses[$group]);
+            }
+            return;
+        }
+        if ($source === 'legacy' && $this->failedCheckoutSchema()) {
+            // Failed online payments never became orders; keep them off the board.
+            if ($group === 'completed') { $this->normalGroup($query, 'legacy', 'completed'); return; }
+            $this->normalGroup($query, $source, $group);
+            if ($group === 'new') $query->whereNotExists(function ($failed) { $this->failedCheckoutReceipt($failed); });
+            return;
+        }
+        $this->normalGroup($query, $source, $group);
+    }
+
+    private function failedCheckoutSchema(): bool
+    {
+        foreach (['id', 'order_id', 'user_id', 'status', 'transaction_id'] as $column) if (!$this->has('payments', $column)) return false;
+        return true;
+    }
+
+    private function failedCheckoutReceipt($query): void
+    {
+        $query->selectRaw('1')->from('payments as board_failed')
+            ->whereColumn('board_failed.order_id', 'orders.id')->whereColumn('board_failed.user_id', 'orders.user_id')->whereNull('orders.status')
+            ->where('orders.type', 'current')->whereIn('orders.payment_type', ['online', 'v_cash'])
+            ->where(function ($failed) {
+                $failed->whereRaw("LOWER(TRIM(COALESCE(board_failed.status, ''))) = ?", ['failed'])
+                    ->orWhere(function ($legacy) {
+                        $legacy->whereRaw("LOWER(TRIM(COALESCE(board_failed.status, ''))) IN (?, ?)", ['0', 'false'])
+                            ->whereNotNull('board_failed.transaction_id')->where('board_failed.transaction_id', '!=', '');
+                    });
+            })->whereNotExists(function ($newer) {
+                $newer->selectRaw('1')->from('payments as board_newer')->whereColumn('board_newer.order_id', 'board_failed.order_id')
+                    ->whereColumn('board_newer.id', '>', 'board_failed.id');
+            })->whereNotExists(function ($paid) {
+                $paid->selectRaw('1')->from('payments as board_paid')->whereColumn('board_paid.order_id', 'board_failed.order_id')
+                    ->whereRaw("LOWER(TRIM(COALESCE(board_paid.status, ''))) IN (?, ?, ?, ?, ?)", ['1','true','paid','succeeded','success']);
+            });
+        if ($this->has('orders', 'accepted_notify')) $query->where(function ($notAccepted) {
+            $notAccepted->whereNull('orders.accepted_notify')->orWhere('orders.accepted_notify', '!=', 'yes');
+        });
+        foreach (['delegate_id', 'delegate_from_out', 'transfer_price_by'] as $column) if ($this->has('orders', $column)) {
+            $query->where(function ($empty) use ($column) {
+                $empty->whereNull('orders.'.$column)->orWhere('orders.'.$column, '');
+                if ($column === 'delegate_id') $empty->orWhere('orders.'.$column, 0);
+            });
+        }
+    }
+
+    private function failedCheckout(object $row): bool
+    {
+        if (!$this->awaitingLegacyPayment($row) || !$this->failedCheckoutSchema()) return false;
+        return DB::table('orders')->where('orders.id', $row->id)->whereExists(function ($failed) { $this->failedCheckoutReceipt($failed); })->exists();
+    }
+
+    private function normalGroup($query, string $source, string $group): void
+    {
         $statuses = [
             'legacy'=>['new'=>['pending','another_delegate','new_order'], 'preparing'=>['accepted'], 'courier'=>['shipped'], 'completed'=>['completed','cancelled','declined']],
             'store'=>['new'=>['pending','awaiting_payment'], 'preparing'=>['preparing','ready'], 'courier'=>['out_for_delivery'], 'completed'=>['completed','cancelled','rejected']],
@@ -256,7 +467,21 @@ class OrderBoardService
                 if ($group === 'new') $q->where(function ($pending) { $pending->whereNull('accepted_notify')->orWhere('accepted_notify', '!=', 'yes'); });
                 if ($group === 'preparing') $q->orWhere(function ($accepted) { $accepted->whereIn('status', ['pending','another_delegate','new_order'])->where('accepted_notify', 'yes'); });
             }
-            if ($source === 'legacy' && $group === 'completed') $q->orWhereNull('status');
+            // Online checkouts reach the board only after the payment is confirmed.
+            if ($source === 'legacy' && $group === 'new' && $this->failedCheckoutSchema()) $q->orWhere(function ($checkout) {
+                $checkout->whereNull('status')->where('type', 'current')->whereIn('payment_type', ['online', 'v_cash'])
+                    ->whereExists(function ($paid) {
+                        $paid->selectRaw('1')->from('payments as board_confirmed')
+                            ->whereColumn('board_confirmed.order_id', 'orders.id')->whereColumn('board_confirmed.user_id', 'orders.user_id')
+                            ->whereRaw("LOWER(TRIM(COALESCE(board_confirmed.status, ''))) IN (?, ?, ?, ?, ?)", ['1','true','paid','succeeded','success']);
+                    });
+            });
+            if ($source === 'legacy' && $group === 'completed') $q->orWhere(function ($unknown) {
+                $unknown->whereNull('status')->where(function ($other) {
+                    $other->whereNull('type')->orWhere('type', '!=', 'current')
+                        ->orWhereNull('payment_type')->orWhereNotIn('payment_type', ['online', 'v_cash']);
+                });
+            });
         });
     }
 
@@ -278,6 +503,11 @@ class OrderBoardService
 
     private function loadRelated(string $source, $rows): void
     {
+        if ($source === 'website') {
+            $ids = $rows->map(fn ($row) => (int) substr((string) $row->branch, 2))->unique()->all();
+            $this->cacheRows('resturants', 'id', $ids);
+            return;
+        }
         $ids = $rows->pluck('id')->all();
         $userIds = $rows->pluck($source === 'legacy' || $source === 'partner_service' ? 'user_id' : 'customer_id')
             ->merge($rows->pluck($source === 'legacy' ? 'delegate_id' : 'partner_id'))->filter()->unique()->all();
@@ -300,6 +530,14 @@ class OrderBoardService
             foreach ($carts as $cart) $this->related['carts'][$cart->order_id][] = $cart;
             $this->cacheRows('resturant_products', 'id', $carts->pluck('resturant_product_id')->filter()->all());
             $this->cacheRows('product_features', 'id', $carts->pluck('product_feature')->filter()->all());
+            $productIds = $carts->map(function ($cart) {
+                return $this->related['resturant_products'][$cart->resturant_product_id ?? null]->product_id ?? null;
+            })->filter()->unique()->all();
+            if ($productIds && $this->has('products', 'id') && $this->has('products', 'has_clean')) {
+                foreach (DB::table('products')->whereIn('id', $productIds)->get(['id', 'has_clean']) as $definition) {
+                    $this->related['products'][$definition->id] = $definition;
+                }
+            }
         }
         if ($this->has('shippings', 'order_id')) {
             foreach (DB::table('shippings')->whereIn('order_id', $ids)->get() as $shipping) $this->related['shippings'][$shipping->order_id] = $shipping;
@@ -312,25 +550,105 @@ class OrderBoardService
         foreach (DB::table($table)->whereIn($key, array_unique($ids))->get() as $row) $this->related[$table][$row->$key] = $row;
     }
 
+    private function legacyOptionLabel(object $line, ?object $product): string
+    {
+        // Persisted selections describe the order even if today's menu no longer offers them.
+        $label = trim((string) ($line->option_label ?? ''));
+        $feature = $this->related['product_features'][$line->product_feature ?? null] ?? null;
+        if ($label === '' && $feature && $product && !empty($product->product_id)
+            && (int) ($feature->product_id ?? 0) === (int) $product->product_id && trim((string) ($feature->name ?? '')) !== '') {
+            $name = trim((string) $feature->name);
+            $translated = __('main.'.$name);
+            $label = $translated === 'main.'.$name ? $name : trim($translated);
+        }
+        $clean = trim((string) ($line->product_clean ?? ''));
+        $cleanLabel = ['extra_clear'=>'مخلي', 'extra_clean'=>'تنظيف', 'extra_vacuim'=>'فاكيوم',
+            'extra_combo'=>'كومبو', 'extra_large'=>'كبير', 'extra_medium'=>'وسط'][$clean] ?? '';
+        if ($clean === '') {
+            $definition = $this->related['products'][$product->product_id ?? null] ?? null;
+            // The customer app represents the whole/base preparation as a null clean choice.
+            // Ordinary products have no preparation choice and should receive no invented label.
+            if ((int) ($definition->has_clean ?? $product->has_clean ?? 0) === 1) $cleanLabel = 'كامل';
+        }
+        if ($cleanLabel !== '' && !str_contains($label, $cleanLabel)) $label .= ($label !== '' ? ' / ' : '').$cleanLabel;
+        return $label;
+    }
+
     private function normalize(string $source, object $row, $actor): array
     {
         $customerId = $row->user_id ?? $row->customer_id ?? null;
         $customer = $this->related['users'][$customerId] ?? null;
         $app = $source === 'legacy' ? $this->origin($row, $customer) : 'go';
         $status = $row->status ?? '';
-        $created = Carbon::parse($row->created_at, config('app.timezone', 'Africa/Cairo'));
+        $created = Carbon::parse($row->created_at, $source === 'website' ? 'UTC' : config('app.timezone', 'Africa/Cairo'))
+            ->setTimezone(config('app.timezone', 'Africa/Cairo'));
         $card = ['id'=>(int) $row->id, 'source'=>$source, 'key'=>$source.':'.$row->id,
             'app'=>$app, 'app_label'=>$app === 'go' ? 'جو' : 'فسخانستا',
             'number'=>$row->order_no ?? ($source === 'store' ? 'GS-' : ($source === 'legacy' ? '#' : 'GO-')).$row->id,
             'status'=>$status, 'status_label'=>$this->statusLabel($status), 'group'=>$this->group($source, $row),
             'created_at'=>$created->toIso8601String(), 'created_label'=>$created->format('d/m/Y H:i'),
+            'late'=>AppOrderLateness::late($source, $this->group($source, $row), $row, $created),
             'elapsed'=>$created->locale('ar')->diffForHumans(), 'customer'=>$customer->name ?? 'عميل',
-            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'total'=>null,
+            'phone'=>$customer->mobile ?? '', 'store'=>'', 'address'=>'', 'payment_label'=>'', 'payment_failed'=>false, 'payment_paid'=>false, 'total'=>null,
             'items'=>[], 'totals'=>[], 'notes'=>$row->notes ?? $row->description ?? '', 'actions'=>[], 'action_labels'=>[],
             'accepted_notify'=>$row->accepted_notify ?? '', 'revision'=>(int) ($row->revision ?? 0),
             'action_note'=>'', 'urls'=>['details'=>route('order-board.details', [$source, $row->id]),
-                'print'=>route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
-        if ($source === 'legacy') {
+                // A store's order prints on Shubra's device, whoever sends it to print.
+                'print'=>$source === 'legacy' && AppOrderBranchPrinting::remoteBranch($row) ? route('order-board.print-remote', [$source, $row->id])
+                    : route('order-board.print', [$source, $row->id]), 'action'=>route('order-board.action', [$source, $row->id])]];
+        if ($source === 'website') {
+            $quote = json_decode((string) ($row->quote_snapshot ?? '{}'), true) ?: [];
+            $restaurant = $this->related['resturants'][(int) substr((string) $row->branch, 2)] ?? null;
+            $card['app'] = 'fasakhansta';
+            $card['app_label'] = 'الموقع الإلكتروني';
+            $card['number'] = 'WEB-'.$row->id;
+            $card['customer'] = $row->customer_name ?? 'عميل';
+            $card['phone'] = $row->customer_phone ?? '';
+            $card['store'] = $restaurant->name ?? ($quote['branch']['label'] ?? $row->branch);
+            $card['address'] = implode('، ', array_filter([$row->address ?? '', $row->area ?? '']));
+            $card['payment_label'] = ($row->payment_status ?? '') === 'paid' ? 'كاش · تم التحصيل' : 'كاش عند الاستلام';
+            $card['status_label'] = ['new'=>'طلب جديد', 'preparing'=>'قيد التجهيز', 'out_for_delivery'=>'مع المندوب',
+                'finished'=>'مع المندوب', 'cancelled'=>'ملغي'][$status] ?? 'منتهي';
+            if (($row->payment_status ?? '') === 'paid') $card['status_label'] = 'تم التسليم والتحصيل';
+            foreach (array_values($quote['items'] ?? []) as $index => $line) {
+                $quantity = $line['quantity'] ?? (isset($line['quantity_millis']) ? rtrim(rtrim(number_format($line['quantity_millis'] / 1000, 3, '.', ''), '0'), '.') : 1);
+                $item = ['line_id'=>$index, 'name'=>$line['name'] ?? 'صنف', 'quantity'=>$quantity,
+                    'option_label'=>$line['option_label'] ?? '', 'line_total'=>$line['total'] ?? (isset($line['total_cents']) ? Money::decimal((int) $line['total_cents']) : null)];
+                if (($line['quantity_mode'] ?? '') === 'weight') $item += ['display_quantity'=>$quantity, 'quantity_unit'=>'كجم'];
+                $card['items'][] = $item;
+            }
+            foreach (['subtotal'=>'قيمة الأصناف', 'discount'=>'الخصم', 'delivery'=>'التوصيل', 'service'=>'رسوم الخدمة', 'tax'=>'الضريبة'] as $field => $label) {
+                if (isset($quote[$field]) && ($field === 'subtotal' || (float) $quote[$field] !== 0.0)) {
+                    $card['totals'][] = ['label'=>$label, 'amount'=>$field === 'discount' ? '-'.$quote[$field] : $quote[$field]];
+                }
+            }
+            $card['total'] = $quote['total'] ?? null;
+            $actions = app(WebsiteOrderBoardActions::class);
+            $card['actions'] = $actions->available($row, $actor);
+            $card['action_labels'] = ['accept'=>'قبول وإرسال للمطبخ', 'reject'=>'رفض الطلب',
+                'dispatch'=>'اختيار شركة التوصيل', 'complete'=>'إنهاء وتحصيل'];
+            $companies = [];
+            if (in_array('dispatch', $card['actions'], true)) {
+                $companyKey = 'website_companies:'.$row->branch;
+                if (!array_key_exists($companyKey, $this->related)) $this->related[$companyKey] = $actions->companies($row, $actor);
+                $companies = $this->related[$companyKey];
+            }
+            $card['website'] = ['ticket_id'=>(int) $row->id, 'branch'=>$row->branch,
+                'revision'=>(int) ($row->revision ?? 0), 'quote_hash'=>$quote['quote_hash'] ?? '',
+                'payment_status'=>$row->payment_status ?? '', 'kitchen_sent'=>!empty($row->last_kitchen_id),
+                'bill_locked'=>!empty($row->bill_issued_at) || !empty($row->bill_issued_revision) || $status === 'awaiting_bill',
+                'companies'=>$companies];
+        } elseif ($source === 'legacy') {
+            $card['payment_paid'] = $this->legacyPaymentPaid($row);
+            if ($this->awaitingLegacyPayment($row)) {
+                $card['status'] = 'awaiting_payment';
+                $card['status_label'] = $card['payment_paid'] ? 'طلب جديد' : 'بانتظار تأكيد الدفع';
+                $card['action_note'] = $card['payment_paid'] ? 'تم الدفع؛ بانتظار قبول الطلب.' : 'لم يكتمل الدفع؛ يمكنك إلغاء الطلب أو انتظار إتمام الدفع.';
+            }
+            if ($this->failedCheckout($row)) {
+                $card['status'] = 'payment_failed'; $card['status_label'] = 'فشل الدفع';
+                $card['action_note'] = 'فشلت عملية الدفع؛ لم يتم قبول الطلب أو تنفيذه.';
+            }
             if ($status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') $card['status_label'] = 'مع المندوب';
             elseif (in_array($status, ['pending','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') $card['status_label'] = 'قيد التجهيز';
             $restaurant = $this->related['resturants'][$row->resturant_id ?? null] ?? null;
@@ -342,11 +660,10 @@ class OrderBoardService
             $subtotal = 0;
             foreach ($this->related['carts'][$row->id] ?? [] as $line) {
                 $product = $this->related['resturant_products'][$line->resturant_product_id ?? null] ?? null;
-                $feature = $this->related['product_features'][$line->product_feature ?? null] ?? null;
-                $lineTotal = !empty($line->updated_total) ? (float) $line->updated_total : (float) ($line->price ?? 0) * (float) ($line->qty ?? 0);
+                $lineTotal = isset($line->updated_total) ? (float) $line->updated_total : (float) ($line->price ?? 0) * (float) ($line->qty ?? 0);
                 $subtotal += $lineTotal;
-                $card['items'][] = ['name'=>$product->product_name ?? $product->name_ar ?? $line->name ?? 'صنف',
-                    'quantity'=>$line->qty ?? 1, 'option_label'=>$feature ? __('main.'.$feature->name) : '',
+                $card['items'][] = ['line_id'=>(int) $line->id, 'name'=>$product->product_name ?? $product->name_ar ?? $line->name ?? 'صنف',
+                    'quantity'=>$line->qty ?? 1, 'option_label'=>$this->legacyOptionLabel($line, $product),
                     'line_total'=>number_format($lineTotal, 2, '.', '')];
             }
             if (($row->type ?? '') === 'shipping') {
@@ -369,6 +686,9 @@ class OrderBoardService
                 $card['total'] = number_format($subtotal + $delivery + $tax + $serviceFee, 2, '.', '');
                 $card['actions'] = $this->legacyActions($row, $restaurant !== null);
                 $card['action_labels'] = ['prepare'=>'مندوب الفرع', 'dispatch'=>'طلب مندوب'];
+                // With the courier, the branch's last step is handing it over: the order is then finished.
+                if ($card['group'] === 'courier') $card['action_labels']['complete'] = 'تم التسليم للمندوب';
+                if ($this->awaitingLegacyPayment($row)) $card['action_labels']['cancel'] = 'إلغاء طلب غير مدفوع';
             }
             $card['payment_label'] = $this->payment($row->payment_type ?? '');
             $card['payment_failed'] = $this->paymentFailed($source, $row);
@@ -381,8 +701,8 @@ class OrderBoardService
             $card['phone'] = $snapshot['customer_mobile'] ?? $card['phone'];
             $card['address'] = $this->address((object) ($snapshot['address'] ?? []));
             if (($row->fulfillment ?? '') === 'pickup') $card['address'] = 'استلام من المتجر';
-            $card['items'] = array_map(function ($line) { return ['name'=>$line['name'] ?? 'صنف', 'quantity'=>$line['quantity'] ?? 1,
-                'option_label'=>$line['option_label'] ?? '', 'line_total'=>$line['line_total'] ?? null]; }, $snapshot['items'] ?? []);
+            $card['items'] = array_map(function ($line, $key) { return ['line_id'=>$key, 'name'=>$line['name'] ?? 'صنف', 'quantity'=>$line['quantity'] ?? 1,
+                'option_label'=>$line['option_label'] ?? '', 'line_total'=>$line['line_total'] ?? null]; }, array_values($snapshot['items'] ?? []), array_keys(array_values($snapshot['items'] ?? [])));
             $card['notes'] = $snapshot['notes'] ?? '';
             $card['total'] = isset($row->total_cents) ? Money::decimal((int) $row->total_cents) : ($snapshot['total'] ?? null);
             $card['payment_label'] = $this->payment($row->payment_method ?? '');
@@ -408,18 +728,33 @@ class OrderBoardService
                 elseif ($status === 'accepted') $card['actions'] = ['complete'];
             }
         }
+        if ($this->printingPolicy === null) $this->printingPolicy = app(OrderBoardPrinting::class);
+        $card['can_print'] = $this->printingPolicy->allowed($source, $row, $actor);
+        // An app order prints once it is with the courier, not while it is still being prepared.
+        if (in_array($source, OrderBoardPrinting::COURIER_STAGE_SOURCES, true) && $card['group'] !== 'courier') $card['can_print'] = false;
+        if (!$card['can_print']) $card['urls']['print'] = null;
+        // The card's print button locks once the order is printed (the owner may still reprint from its details).
+        $card['printed'] = $card['group'] === 'courier' && in_array($source, OrderBoardPrinting::COURIER_STAGE_SOURCES, true)
+            && $this->printingPolicy->ready() && $this->printingPolicy->printed($source, $row);
+        if ($this->itemsEditor === null) $this->itemsEditor = app(OrderBoardItems::class);
+        if ($this->itemsEditor->available($source, $row, $actor)) {
+            $card['urls']['items'] = route('order-board.items', [$source, $row->id]);
+        }
         return $card;
     }
 
     public function legacyActions(object $row, bool $hasRestaurant = true): array
     {
         if (!$hasRestaurant || ($row->type ?? '') !== 'current') return [];
+        if ($this->failedCheckout($row)) return [];
+        if ($this->awaitingLegacyPayment($row)) return app(UnpaidOrderCancellation::class)->available($row) ? ['cancel'] : [];
         $status = $row->status ?? '';
         if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') !== 'yes') return ['accept','reject'];
-        if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') return ['prepare','dispatch'];
+        $cancel = app(LegacyOrderCancellation::class)->available($row) ? ['cancel'] : [];
+        if (in_array($status, ['pending','another_delegate','new_order'], true) && ($row->accepted_notify ?? '') === 'yes') return array_merge(['prepare','dispatch'], $cancel);
         if ($status === 'accepted') {
             if (($row->delegate_from_out ?? '') === 'in_resturant') return ['complete'];
-            if (empty($row->delegate_id)) return ['prepare','dispatch'];
+            return array_merge(empty($row->delegate_id) ? ['prepare','dispatch'] : [], $cancel);
         }
         return $status === 'shipped' ? ['complete'] : [];
     }
@@ -431,15 +766,36 @@ class OrderBoardService
         return in_array($origin, ['go','go_customer','go_partner','go_drive'], true) ? 'go' : 'fasakhansta';
     }
 
+    /** The board column an order is in: new, preparing, courier or completed. */
+    public function stage(string $source, object $row): string
+    {
+        return $this->group($source, $row);
+    }
+
     private function group(string $source, object $row): string
     {
+        if ($source === 'legacy' && $this->failedCheckout($row)) return 'completed';
+        if ($source === 'legacy' && $this->awaitingLegacyPayment($row)) return 'new';
         $status = $row->status ?? '';
+        if ($source === 'website') {
+            if (($row->payment_status ?? '') === 'paid' || $status === 'cancelled') return 'completed';
+            if (in_array($status, ['out_for_delivery', 'finished'], true)) return 'courier';
+            return $status === 'preparing' ? 'preparing' : 'new';
+        }
         if (in_array($status, ['completed','cancelled','declined','rejected','expired',''], true)) return 'completed';
         if (in_array($status, ['shipped','out_for_delivery','in_progress','awaiting_confirmation'], true)) return 'courier';
         if ($source === 'legacy' && $status === 'accepted' && ($row->delegate_from_out ?? '') === 'in_resturant') return 'courier';
         if (in_array($status, ['accepted','preparing','ready','booked','disputed'], true)
             || ($source === 'legacy' && ($row->accepted_notify ?? '') === 'yes')) return 'preparing';
         return 'new';
+    }
+
+    private function awaitingLegacyPayment(object $row): bool
+    {
+        // Checkout creates a null status until the payment callback activates it.
+        // Payment completion is separate from staff acceptance and delivery.
+        return ($row->status ?? null) === null && ($row->type ?? '') === 'current'
+            && in_array($row->payment_type ?? '', ['online', 'v_cash'], true);
     }
 
     private function statusLabel(string $status): string
@@ -456,6 +812,20 @@ class OrderBoardService
         return ['cash'=>'كاش','wallet'=>'محفظة التطبيق','card'=>'بطاقة بنكية','credit_card'=>'بطاقة بنكية',
             'mobile_wallet'=>'محفظة إلكترونية','v_cash'=>'فودافون كاش','paymob'=>'دفع إلكتروني','online'=>'بطاقة بنكية',
             'paymob_card_payment'=>'بطاقة بنكية','paymob_mobile_wallet_payment'=>'محفظة إلكترونية'][$method] ?? ($method ?: 'غير محدد');
+    }
+
+    private function legacyPaymentPaid(object $row): bool
+    {
+        if (($row->type ?? '') !== 'current' || !in_array($row->payment_type ?? '', ['online', 'v_cash'], true)
+            || in_array($row->status ?? '', ['cancelled', 'declined', 'rejected'], true)) return false;
+        foreach ($this->related['payments'][$row->id] ?? [] as $payment) {
+            if ((int) ($payment->user_id ?? 0) !== (int) ($row->user_id ?? 0)
+                || !preg_match('/^[1-9][0-9]{0,29}$/D', (string) ($payment->transaction_id ?? ''))
+                || !in_array(strtolower(trim((string) ($payment->status ?? ''))), ['1', 'true', 'paid', 'succeeded', 'success'], true)) continue;
+            try { if (\App\Services\GoServices\Money::minor($payment->total_price ?? null) > 0) return true; }
+            catch (\InvalidArgumentException $error) { /* Unknown historical amounts are not paid evidence. */ }
+        }
+        return false;
     }
 
     private function paymentFailed(string $source, object $row): bool
@@ -494,11 +864,11 @@ class OrderBoardService
         return implode('، ', $parts);
     }
 
-    private function setting(string $name): int
+    private function setting(string $name): float
     {
         if (!array_key_exists('setting:'.$name, $this->related)) {
             $payload = $this->has('settings', 'name') ? DB::table('settings')->where('name', $name)->value('payload') : 0;
-            $this->related['setting:'.$name] = (int) filter_var($payload ?? 0, FILTER_SANITIZE_NUMBER_INT);
+            $this->related['setting:'.$name] = \App\Support\SettingPercent::parse($payload ?? 0);
         }
         return $this->related['setting:'.$name];
     }

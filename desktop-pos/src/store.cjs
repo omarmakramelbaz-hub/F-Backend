@@ -29,7 +29,7 @@ class Store {
       const o=this.order(id); if(['paid','cancelled'].includes(o.status))throw Error('الفاتورة منتهية.');
       const d=Domain.clean(input); Domain.quote(o.snapshot,d);
       if(o.revision>0&&d.channel!==o.data.channel)throw Error('لا يمكن تغيير نوع طلب محفوظ.');
-      if(o.status==='bill') {const a={...o.data},b={...d};delete a.cash_received;delete b.cash_received;if(JSON.stringify(a)!==JSON.stringify(b))throw Error('تمت طباعة الحساب؛ محتويات الفاتورة ثابتة.');}
+      if(o.status==='bill') {const a={...o.data},b={...d};for(const key of ['cash_received','customer_name','customer_phone','address']){delete a[key];delete b[key];}if(JSON.stringify(a)!==JSON.stringify(b))throw Error('تمت طباعة الحساب؛ محتويات الفاتورة ثابتة.');}
       this.db.prepare('UPDATE orders SET data=?,updated_at=? WHERE id=?').run(JSON.stringify(d),new Date().toISOString(),id);return this.order(id);
     });
   }

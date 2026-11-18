@@ -33,7 +33,8 @@ class OrderRequest extends FormRequest
             'user_address_id'           => 'required|exists:user_address,id',
             'schedule_date'             =>  request()->order_type!='default'?'nullable|date_format:Y-m-d H:i':'nullable|date_format:Y-m-d H:i|after:'.Carbon::now()->format('Y-m-d H:i'),
             'payment_type'              => 'nullable|in:online,cash,v_cash,wallet',
-            'delivery_price'            =>'required',
+            // The delivery the app worked out; never below zero (a negative one would lower what the customer pays).
+            'delivery_price'            =>'required|numeric|min:0',
             
 
         ];

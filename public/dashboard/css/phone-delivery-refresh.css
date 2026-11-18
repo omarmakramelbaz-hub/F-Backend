@@ -1,0 +1,218 @@
+/* Delivery queues and elapsed preparation time; the product workspace keeps its own layout. */
+#phone-orders {
+    --ph-delivery-ink: #172b45;
+    --ph-delivery-muted: #64748b;
+    --ph-delivery-line: #dce5ef;
+    --ph-delivery-amber: #b45309;
+    --ph-delivery-blue: #245fa8;
+    --ph-delivery-green: #166534;
+}
+#phone-orders .ph-header .ph-heading h1 { color: var(--ph-delivery-ink); font-weight: 800; }
+#phone-orders .ph-heading-icon { background: #fff2e4; color: #cf620e; border: 1px solid #ffe1c2; border-radius: 12px; }
+#phone-orders .ph-header .ph-branch { border-color: var(--ph-delivery-line); border-radius: 10px; background: #fff; }
+#phone-orders.ph-unified .ph-new-order { border-radius: 9px; background: #e9720c; border-color: #d86408; box-shadow: 0 2px 5px #a74b0c16; }
+#phone-orders.ph-unified .ph-new-order:hover:not(:disabled) { background: #ce5e08; }
+#phone-orders .ph-flow { border-color: var(--ph-delivery-line); border-radius: 10px; background: #fff; }
+#phone-orders .ph-steps .is-current b { background: #e9720c; box-shadow: 0 0 0 3px #fff0e2; }
+#phone-orders.ph-step-number .ph-customer { border-color: var(--ph-delivery-line); }
+#phone-orders.ph-step-number [data-phone-field=customer_phone] { border-color: #dce5ef; background: #f8fafc; }
+
+#phone-orders.ph-unified .ph-orders {
+    border: 1px solid var(--ph-delivery-line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 3px 12px #1d3b5e06;
+}
+#phone-orders.ph-unified .ph-orders > .ph-panel-heading { padding-block: 7px; }
+#phone-orders.ph-unified .ph-orders > .ph-panel-heading h2 { color: var(--ph-delivery-ink); font-weight: 800; }
+#phone-orders .ph-orders > .ph-panel-heading button {
+    border: 1px solid #dde5ef;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #45607c;
+}
+#phone-orders.ph-unified .ph-batch-bar { color: var(--ph-delivery-muted); padding-block: 6px; }
+#phone-orders.ph-unified .ph-batch-bar strong { font-weight: 600; }
+#phone-orders.ph-unified .ph-batch-finish { border-radius: 6px; background: #167449; border: 1px solid #12603c; }
+#phone-orders.ph-unified .ph-batch-finish:disabled { background: #edf5f0; color: #658872; border-color: #dce9e0; opacity: 1; }
+#phone-orders.ph-unified .ph-delivery-board { gap: 10px; padding: 0 8px 8px; }
+#phone-orders.ph-unified .ph-board-column { container-type: inline-size; container-name: phone-delivery-stage; border: 1px solid var(--ph-delivery-line); border-radius: 9px; background: #f5f8fc; }
+#phone-orders.ph-unified .ph-board-column > h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 32px;
+    padding: 4px 10px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 18px;
+    border-top-width: 3px;
+    border-radius: 8px 8px 0 0;
+}
+#phone-orders.ph-unified .ph-board-column > h3 bdi { min-width: 24px; padding: 1px 7px; border: 1px solid #ffffffb3; border-radius: 6px; background: #ffffffcc; font-size: 11px; text-align: center; }
+#phone-orders.ph-unified .ph-board-preparing > h3 { border-color: #ef8a29; background: #fff4e7; color: #96500f; }
+#phone-orders.ph-unified .ph-board-courier > h3 { border-color: #5a8ccb; background: #eef5ff; color: #24598f; }
+#phone-orders.ph-unified .ph-board-finished > h3 { border-color: #3c9b6b; background: #edf8f1; color: #226442; }
+#phone-orders.ph-unified .ph-board-cards { gap: 4px; padding: 5px; grid-auto-rows: max-content; scrollbar-color: #bdcad9 transparent; }
+#phone-orders .ph-ticket-compact {
+    position: relative;
+    min-height: 56px;
+    grid-template-rows: minmax(14px, auto) minmax(14px, auto) auto;
+    grid-auto-rows: auto;
+    gap: 1px 6px;
+    padding: 3px 6px;
+    border: 1px solid #dfe7f0;
+    border-inline-start: 3px solid #d6e0ed;
+    border-radius: 6px;
+    background: #fff;
+    box-shadow: 0 1px 2px #1d3b5e04;
+}
+#phone-orders .ph-board-preparing .ph-ticket-compact { border-inline-start-color: #efaf67; }
+#phone-orders .ph-board-courier .ph-ticket-compact { border-inline-start-color: #83a9d7; }
+#phone-orders .ph-board-finished .ph-ticket-compact { border-inline-start-color: #85bd9b; }
+#phone-orders .ph-ticket-compact:hover { border-color: #b6c8dc; box-shadow: 0 2px 6px #1d3b5e0b; }
+#phone-orders .ph-ticket-compact.is-selected { border-color: #5a8ccb; background: #f2f7ff; box-shadow: inset 0 0 0 1px #5a8ccb22; }
+#phone-orders .ph-ticket-compact .ph-ticket-heading { gap: 5px; min-width: 0; line-height: 14px; }
+#phone-orders .ph-ticket-compact .ph-ticket-number { color: #6c7d92; font-size: 9px; font-weight: 600; }
+#phone-orders .ph-ticket-compact .ph-ticket-name { min-width: 0; flex: 1 1 auto; color: var(--ph-delivery-ink); font-size: 11px; font-weight: 800; line-height: 14px; }
+#phone-orders .ph-ticket-compact .ph-ticket-amount { color: #9e530e; font-size: 11px; line-height: 14px; font-weight: 800; }
+#phone-orders .ph-ticket-meta { min-width: 0; color: #708199; line-height: 12px; }
+#phone-orders .ph-ticket-compact:has(> .ph-preparation-timer) .ph-ticket-meta { grid-column: 1; padding-inline-end: 0; }
+#phone-orders .ph-ticket-compact .ph-ticket-branch { background: #f0f4f9; color: #5a708b; font-size: 9px; line-height: 13px; }
+#phone-orders .ph-ticket-phone { color: #526983; font-size: 9px; line-height: 13px; }
+#phone-orders .ph-ticket-address { min-width: 0; color: #7b899b; font-size: 9px; }
+#phone-orders .ph-ticket-quick-actions { gap: 4px; max-width: 100%; align-items: stretch; }
+#phone-orders .ph-ticket-quick-actions button { height: auto; min-height: 18px; max-width: 100%; flex: 0 1 auto; padding: 0 6px; white-space: normal; overflow-wrap: anywhere; font-size: 9px; line-height: 16px; border-radius: 4px; color: #4a6380; border-color: #dce5ef; background: #f8fafc; }
+#phone-orders .ph-ticket-quick-actions button:first-child { color: #925110; border-color: #f2dbc1; background: #fff8ef; }
+#phone-orders .ph-board-preparing .ph-ticket-quick-actions button.is-orange:not(:first-child) { background: #ed790d; border-color: #dc6c09; color: #fff; font-weight: 700; }
+#phone-orders .ph-board-preparing .ph-ticket-quick-actions button.is-danger { background: #fff1f0; border-color: #efc8c5; color: #b42318; }
+#phone-orders .ph-board-courier .ph-ticket-quick-actions button:last-child:not(:first-child) { background: #eaf6ee; border-color: #bfdfca; color: #21643e; font-weight: 700; }
+#phone-orders .ph-ticket-quick-actions button:hover:not(:disabled) { filter: brightness(.97); box-shadow: 0 1px 3px #17324d16; }
+#phone-orders .ph-ticket-quick-actions button:focus-visible { outline: 2px solid #4186d0; outline-offset: 2px; }
+#phone-orders .ph-board-cards > .ph-empty { margin: 18px 8px; padding: 18px 10px; border: 1px dashed #dce5ef; border-radius: 8px; background: #ffffff80; color: #8a98aa; font-size: 11px; text-align: center; }
+#phone-orders.ph-unified .ph-board-column > .ph-pagination { padding: 3px; background: #f9fbfd; border-top: 1px solid #e4ebf3; }
+
+#phone-orders .ph-preparation-timer { position: static; grid-column: 2; grid-row: 2; justify-self: end; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; max-width: 100%; padding: 0 4px; min-height: 14px; border: 1px solid #bce7cd; border-radius: 4px; background: #edf9f1; color: #166534; white-space: nowrap; line-height: 12px; }
+#phone-orders .ph-preparation-timer > i { min-width: 9px; font-size: 9px; line-height: 12px; }
+#phone-orders .ph-preparation-timer-label { font-size: 8px; font-weight: 600; }
+#phone-orders .ph-preparation-timer-value { direction: ltr; unicode-bidi: isolate; font-family: Arial, sans-serif; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 800; line-height: 12px; }
+#phone-orders .ph-preparation-timer.is-overdue { border-color: #fecdd3; background: #fff1f2; color: #b42318; }
+
+/* Rows grow with wrapped actions instead of painting over the next order. */
+#phone-orders .ph-ticket-finished-at { grid-column: 1 / -1; grid-row: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; color: #64748b; font-size: 9px; line-height: 14px; }
+#phone-orders .ph-ticket-finished-at > i { flex: 0 0 auto; font-size: 9px; }
+#phone-orders .ph-ticket-finished-at time { min-width: 0; direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (min-width: 1000px) {
+    @container phone-delivery-stage (min-width: 311px) {
+        #phone-orders .ph-ticket-compact:has(> .ph-ticket-finished-at) .ph-ticket-quick-actions { grid-column: 1; grid-row: 3; min-width: 0; }
+        #phone-orders .ph-ticket-finished-at { grid-column: 2; grid-row: 3; }
+    }
+}
+@container phone-delivery-stage (max-width: 310px) {
+    #phone-orders .ph-ticket-quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #phone-orders .ph-ticket-quick-actions button { min-height: 24px; padding: 2px 5px; font-size: 10px; line-height: 16px; }
+    #phone-orders .ph-ticket-quick-actions button:nth-child(3):last-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 999px) {
+    #phone-orders.ph-unified .ph-orders { overflow: visible; }
+    #phone-orders.ph-unified .ph-delivery-board { grid-template-columns: minmax(0, 1fr); gap: 12px; overflow: visible; }
+    #phone-orders.ph-unified .ph-board-column > h3 { min-height: 38px; font-size: 13px; }
+    #phone-orders.ph-unified .ph-board-cards { gap: 6px; padding: 7px; grid-auto-rows: max-content; }
+    #phone-orders .ph-ticket-compact { min-height: 126px; grid-template-rows: minmax(20px, auto) minmax(18px, auto) auto; gap: 4px 6px; padding: 7px; }
+    #phone-orders .ph-ticket-compact .ph-ticket-name { font-size: 12px; line-height: 20px; }
+    #phone-orders .ph-ticket-compact .ph-ticket-number { font-size: 10px; }
+    #phone-orders .ph-ticket-compact .ph-ticket-amount { font-size: 12px; line-height: 20px; }
+    #phone-orders .ph-ticket-quick-actions button { min-height: 30px; height: auto; padding: 3px 7px; font-size: 11px; }
+    #phone-orders .ph-ticket-quick-actions button:last-child { grid-column: 1 / -1; }
+    #phone-orders .ph-preparation-timer { min-height: 18px; padding-inline: 4px; }
+    #phone-orders .ph-preparation-timer-label { font-size: 8px; }
+    #phone-orders .ph-preparation-timer-value { font-size: 12px; }
+}
+
+/* A late delivery order (15 minutes preparing, 35 minutes with the courier): the whole card turns red. */
+.ph-ticket.is-late{border-color:#d92d3a!important;background:#fff0f1!important;box-shadow:0 0 0 2px #d92d3a33}
+.ph-ticket.is-late .ph-preparation-timer,.ph-ticket.is-late .ph-ticket-number{color:#c21f2c!important;font-weight:700}
+.ph-ticket.is-late .ph-preparation-timer{background:#ffe1e4;border-color:#f2a3aa}
+/* The branches' rating window. */
+.ph-performance-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.ph-performance-bar label{display:flex;gap:6px;align-items:center;margin:0}
+.ph-performance-table{overflow-x:auto}
+.ph-performance-table table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+.ph-performance-table th,.ph-performance-table td{padding:8px;border-bottom:1px solid #e6e9ef;text-align:center}
+.ph-performance-table th{background:#f4f6fa}
+.ph-performance-table td:first-child,.ph-performance-table th:first-child{text-align:right}
+.ph-performance-table tr.is-grade-a td:last-child{color:#137743;font-weight:700}
+.ph-performance-table tr.is-grade-b td:last-child{color:#2b7a3d}
+.ph-performance-table tr.is-grade-c td:last-child{color:#a06a00}
+.ph-performance-table tr.is-grade-d td:last-child,.ph-performance-table tr.is-grade-e td:last-child{color:#c21f2c;font-weight:700}
+.ph-performance-table tr.is-empty td{color:#8a94a6}
+/* The branches' rating at the top of the delivery page: a progress bar per branch filled to its share on time, in its
+   grade's colour (ممتاز green, جيد blue, ضعيف yellow, ضعيف جدًا red). */
+.ph-rating{margin:0 0 8px;padding:6px 10px;border:1px solid #e3e7ee;border-radius:8px;background:#fff}
+.ph-rating header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;margin-bottom:6px}
+.ph-rating h2{margin:0;font-size:13px;font-weight:700}
+.ph-rating-periods{display:flex;gap:4px}
+.ph-rating-periods button{border:1px solid #d9dee7;background:#f6f7fa;border-radius:12px;padding:0 8px;font-size:11px;min-height:22px;line-height:20px}
+.ph-rating-periods button[aria-pressed="true"]{background:#10274a;border-color:#10274a;color:#fff}
+.ph-rating-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px 10px}
+.ph-rating-card{--rate:#1f9d55;--rate-soft:#e3f6ea;display:grid;gap:3px;padding:4px 6px;border-radius:6px;transition:background .2s}
+.ph-rating-card:hover{background:#f7f9fc}
+.ph-rating-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ph-rating-name{font-size:11px;color:#22324d}
+.ph-rating-grade{font-size:11px;font-weight:800;color:var(--rate)}
+.ph-rating-bar{position:relative;height:16px;border-radius:8px;background:var(--rate-soft);overflow:hidden;box-shadow:inset 0 1px 2px #0000001a}
+.ph-rating-fill{position:absolute;inset-block:0;inset-inline-start:0;width:0;border-radius:8px;background-color:var(--rate);
+    background-image:linear-gradient(45deg,#ffffff38 25%,transparent 25%,transparent 50%,#ffffff38 50%,#ffffff38 75%,transparent 75%);
+    background-size:14px 14px;transition:width 1.1s cubic-bezier(.2,.8,.2,1);animation:ph-rating-stripes 1s linear infinite}
+.ph-rating-percent{position:relative;display:block;text-align:center;font-size:11px;line-height:16px;font-weight:800;color:#10233f;text-shadow:0 0 3px #fff,0 0 2px #fff}
+.ph-rating-detail{font-size:10px;color:#6c7a91;white-space:nowrap}
+.ph-rating-card.is-excellent{--rate:#1f9d55;--rate-soft:#e3f6ea}
+.ph-rating-card.is-good{--rate:#2563eb;--rate-soft:#e4ecfd}
+.ph-rating-card.is-weak{--rate:#e0a800;--rate-soft:#fbf1d3}
+.ph-rating-card.is-very_weak{--rate:#d92d3a;--rate-soft:#fbe3e5}
+.ph-rating-empty{margin:0;font-size:11px;color:#6c7a91}
+@keyframes ph-rating-stripes{from{background-position:0 0}to{background-position:14px 0}}
+@media (prefers-reduced-motion:reduce){.ph-rating-fill{animation:none;transition:none}}
+/* A branch account's own branch among the others. */
+.ph-rating-card.is-own{background:transparent;box-shadow:none}
+.ph-rating-own{font-style:normal;font-size:10px;font-weight:700;margin-inline-start:6px;padding:0 6px;border-radius:8px;background:#10274a;color:#fff}
+/* customer-suggestions-20261110: a tidy list of saved customers under the number */
+#phone-orders .ph-lookup-result.ph-sug-list{max-height:330px;overflow:auto;padding:6px;border:1px solid #e1e7ef;border-radius:12px;background:#fff;box-shadow:0 14px 34px #10274a1f;font-size:12px;line-height:1.5}
+#phone-orders .ph-sug-head{position:sticky;top:-6px;z-index:1;display:flex;align-items:center;gap:8px;margin:-6px -6px 4px!important;padding:8px 12px;background:#f6f8fb;border-bottom:1px solid #e8edf3;border-radius:12px 12px 0 0;color:#6c7a91;font-size:11px}
+#phone-orders .ph-sug-head b{background:#10274a;color:#fff;border-radius:999px;padding:2px 9px;font-size:11px}
+#phone-orders .ph-lookup-result.ph-sug-list button{display:flex;flex-wrap:nowrap;align-items:center;gap:12px;width:100%;margin:0;padding:9px 12px;border:0;border-bottom:1px solid #eef1f5;border-radius:8px;background:#fff;color:#192e47;text-align:start;transition:background .12s}
+#phone-orders .ph-lookup-result.ph-sug-list button:last-child{border-bottom:0}
+#phone-orders .ph-lookup-result.ph-sug-list button:hover,#phone-orders .ph-lookup-result.ph-sug-list button.is-highlighted,#phone-orders .ph-lookup-result.ph-sug-list button:focus-visible{background:#fff4e8;border-color:transparent;box-shadow:inset 3px 0 0 #f57800}
+#phone-orders .ph-lookup-result.ph-sug-list button:disabled{opacity:.55;cursor:not-allowed}
+#phone-orders .ph-sug-avatar{flex:0 0 36px;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#eaf2ff;color:#2559a8;font-weight:800;font-size:15px}
+#phone-orders .ph-lookup-result.ph-sug-list button.is-highlighted .ph-sug-avatar,#phone-orders .ph-lookup-result.ph-sug-list button:hover .ph-sug-avatar{background:#f57800;color:#fff}
+#phone-orders .ph-sug-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+#phone-orders .ph-sug-line{display:flex;align-items:baseline;gap:10px;min-width:0}
+#phone-orders .ph-lookup-result.ph-sug-list .ph-sug-line strong{font-size:14px;font-weight:800;color:#10274a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone-orders .ph-lookup-result.ph-sug-list .ph-sug-line bdi{font-size:13px;font-weight:700;color:#4a5b72;direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+#phone-orders .ph-lookup-result.ph-sug-list small.ph-sug-address{width:auto;font-size:11.5px;color:#6c7a91;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#phone-orders .ph-lookup-result.ph-sug-list small.ph-sug-address::before{content:'\f3c5';font-family:'Font Awesome 5 Free';font-weight:900;margin-inline-end:6px;color:#f57800;font-size:10px}
+#phone-orders .ph-lookup-result.ph-sug-list small.ph-sug-branch{align-self:flex-start;width:auto;padding:1px 8px;border-radius:999px;background:#eef2f7;color:#4a5b72;font-size:10.5px}
+#phone-orders .ph-sug-pick{flex:0 0 auto;padding:4px 10px;border-radius:7px;border:1px solid #e1e6ee;color:#7a8799;font-size:11px;font-weight:700;opacity:0;transition:opacity .12s}
+#phone-orders .ph-lookup-result.ph-sug-list button:hover .ph-sug-pick,#phone-orders .ph-lookup-result.ph-sug-list button.is-highlighted .ph-sug-pick{opacity:1;border-color:#f57800;color:#f57800;background:#fff}
+/* number-row-20261110: one height and a cleaner look for the number, search, history and «تسجيل البيانات» */
+#phone-orders.ph-unified.ph-step-number .ph-lookup{align-items:stretch;gap:8px}
+#phone-orders.ph-unified.ph-step-number [data-phone-field=customer_phone]{height:44px;min-height:44px;border:1.5px solid #d6dee9;border-radius:10px;background:#fff;font-size:20px;font-weight:700;letter-spacing:.5px;padding:6px 14px;transition:border-color .15s,box-shadow .15s}
+#phone-orders.ph-unified.ph-step-number [data-phone-field=customer_phone]:focus{border-color:#f57800;box-shadow:0 0 0 4px #f5780022;outline:none}
+#phone-orders.ph-unified.ph-step-number .ph-lookup [data-phone-lookup]{flex:0 0 44px;height:44px;border:0;border-radius:10px;background:#10274a;color:#fff;font-size:15px;display:grid;place-items:center}
+#phone-orders.ph-unified.ph-step-number .ph-lookup [data-phone-lookup]:hover{background:#1d3f6e}
+#phone-orders.ph-unified.ph-step-number .ph-lookup .go-history-link{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 14px;border:1px solid #d6e4fb;border-radius:10px;background:#f1f6ff;color:#175abb;font-size:12.5px;font-weight:700;text-decoration:none;white-space:nowrap}
+#phone-orders.ph-unified.ph-step-number .ph-lookup .go-history-link::before{content:'\f1da';font-family:'Font Awesome 5 Free';font-weight:900;font-size:13px}
+#phone-orders.ph-unified.ph-step-number .ph-lookup .go-history-link:hover{background:#e3edff}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number]{align-self:flex-end;height:44px;min-height:44px;padding:0 20px;border-radius:10px;background:linear-gradient(135deg,#f78a1e,#e86a00);color:#fff;font-size:14px;font-weight:800;gap:10px;box-shadow:0 6px 16px #f5780038;transition:transform .12s,box-shadow .12s}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number]:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 20px #f5780050;background:linear-gradient(135deg,#f78a1e,#d86000)}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number] .ph-next-icon{order:2;font-size:13px}
+#phone-orders.ph-unified.ph-step-number [data-phone-next-number] kbd{display:inline-block;order:3;font:700 10px/1 inherit;padding:4px 6px;border-radius:5px;background:#ffffff2e;border:1px solid #ffffff59;color:#fff}
+/* details-no-scroll-20261110: the customer and delivery details show whole, without an inner scroll; the orders board takes the rest */
+#phone-orders.ph-unified.ph-step-details .ph-compose-panel{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:calc(100% - 210px);overflow:auto}
+#phone-orders.ph-unified.ph-step-details .ph-workspace,#phone-orders.ph-unified.ph-step-details .ph-customer{height:auto!important;max-height:none!important;overflow:visible!important}
+#phone-orders.ph-unified.ph-step-details .ph-customer-scroll{overflow:visible!important;max-height:none!important}
+#phone-orders.ph-unified.ph-step-details [data-phone-details-panel]{min-height:0!important}
+#phone-orders.ph-unified.ph-step-details .ph-orders{flex:1 1 auto!important;min-height:200px}

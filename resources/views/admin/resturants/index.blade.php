@@ -141,7 +141,7 @@
                                                 </td>
                                                 @endif
                                                 <td>
-                                                    {{$resturant->created_at->diffForHumans()}}
+                                                    {{$resturant->created_at?->diffForHumans() ?? '—'}}
                                                 </td>
                                                 
                                                 <td width="250px">
@@ -168,14 +168,14 @@
                                                     @endcan
                                                      @if($resturant->id != 1)
                                                     @can('resturant-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['resturants.destroy', $resturant->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     
                                                     @endcan
                                                     @endif

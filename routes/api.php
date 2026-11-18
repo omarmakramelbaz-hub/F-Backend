@@ -1,4 +1,13 @@
 <?php
+require __DIR__.'/desktop_workspace_api.php';
+\Illuminate\Support\Facades\Route::get('desktop-dashboard/update',[\App\Http\Controllers\Dashboard\DesktopDashboardUpdateController::class,'status'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::get('desktop-dashboard/update/installer/{sha}',[\App\Http\Controllers\Dashboard\DesktopDashboardUpdateController::class,'installer'])->where('sha','[a-f0-9]{64}')->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/print-outcomes',[\App\Http\Controllers\Api\DesktopDashboardController::class,'printOutcome'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::get('desktop-dashboard/bootstrap',[\App\Http\Controllers\Api\DesktopDashboardController::class,'bootstrap'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/delta',[\App\Http\Controllers\Api\DesktopDashboardController::class,'delta'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/commands',[\App\Http\Controllers\Api\DesktopDashboardController::class,'ingest'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::post('desktop-dashboard/remote-attempts',[\App\Http\Controllers\Api\DesktopDashboardController::class,'remoteAttempt'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-pos');
+\Illuminate\Support\Facades\Route::get('desktop-dashboard/media',[\App\Http\Controllers\Api\DesktopDashboardController::class,'media'])->withoutMiddleware('throttle:api')->middleware('throttle:desktop-dashboard-media');
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 
@@ -46,6 +55,13 @@ Route::prefix('desktop-pos')->withoutMiddleware('throttle:api')->group(function 
 });
 
     Route::get('/pament/callback', [PaymobController::class, 'callback']);
+    Route::post('/order-payments/paymob/notify', [\App\Http\Controllers\Payment\RestaurantPaymentController::class, 'notify'])->withoutMiddleware('throttle:api')->middleware('throttle:300,1')->name('order-payments.notify');
+    Route::get('/order-payments/paymob/return', [\App\Http\Controllers\Payment\RestaurantPaymentController::class, 'returnFromGateway'])->name('order-payments.return');
+
+    // Wallet callbacks verify payment through authenticated gateway inquiry.
+    Route::post('/wallet-topup/paymob/notify', [\App\Http\Controllers\Payment\WalletTopupController::class, 'notify'])->withoutMiddleware('throttle:api')->middleware('throttle:300,1')->name('wallet-topups.notify');
+    Route::get('/wallet-topup/paymob/return', [\App\Http\Controllers\Payment\WalletTopupController::class, 'returnFromGateway'])->name('wallet-topups.return');
+
 
 
 // Social Auth Routes
@@ -67,6 +83,8 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     Route::get('/slidears', [MainController::class, 'slidears']);
     Route::get('/advertising', [MainController::class, 'advertising']);
     Route::get('/coupon_wheels', [CouponWheelController::class, 'coupon_wheels']);
+    // The customer app's forced update: the lowest version allowed per platform and its store link.
+    Route::get('/app-version', [\App\Http\Controllers\Api\V1\Home\AppVersionController::class, 'show'])->middleware('throttle:60,1');
     Route::get('/daily-advertising', [MainController::class, 'dailyAdvertising']);
 
     // GO Partners public onboarding and discovery
@@ -128,15 +146,20 @@ Route::group(['namespace'  => 'Api',  'middleware' => ['CheckLang']], function (
     
 Route::post('/pusher/auth', function (Request $request) {
     if (Auth::check()) {
-        $pusher = new Pusher\Pusher(
-            env('PUSHER_APP_KEY'),
-            env('PUSHER_APP_SECRET'),
-            env('PUSHER_APP_ID'),
-            ['cluster' => env('PUSHER_APP_CLUSTER')]
-        );
+        // The keys come from the configuration: once it is cached, env() here returns nothing.
+        $settings = config('broadcasting.connections.pusher');
+        if (empty($settings['key']) || empty($settings['secret']) || empty($settings['app_id'])) {
+            return response()->json(['error' => 'Realtime is not configured'], 503);
+        }
+        $pusher = new Pusher\Pusher((string) $settings['key'], (string) $settings['secret'], (string) $settings['app_id'],
+            array_filter(['cluster' => $settings['options']['cluster'] ?? null]));
 
         $socketId = $request->input('socket_id');
         $channelName = $request->input('channel_name');
+        // Pusher refuses (with an exception) a connection number that is not its own: answered as a bad request.
+        if (! is_string($socketId) || ! preg_match('/\A\d+\.\d+\z/', $socketId)) {
+            return response()->json(['error' => 'Invalid socket id'], 422);
+        }
         if ($channelName === 'private-user.' . Auth::id()) {
             $auth = $pusher->socket_auth($channelName, $socketId);
             $response = json_decode($auth, true);
@@ -227,6 +250,8 @@ Route::post('/pusher/auth', function (Request $request) {
             Route::get('/conversation/{id}', [ConversationController::class,'conversation']);
             Route::post('send_message', [ConversationController::class,'send_message']);
             Route::get('new_conversation/{id}',[ConversationController::class,'new_conv']);
+            // A chat message's push, sent by the server (the app holds no Firebase key).
+            Route::post('chat_notify', [\App\Http\Controllers\Api\V1\User\ChatPushController::class, '__invoke'])->middleware('throttle:30,1');
             
             
             Route::get('address',[AddressController::class,'index']);
@@ -288,4 +313,18 @@ Route::post('/pusher/auth', function (Request $request) {
        
     });
     // Insert your Api Here End //
+});
+
+// WhatsApp webhook integration
+require __DIR__.'/whatsapp.php';
+
+require __DIR__.'/meta_messaging.php';
+
+require __DIR__.'/customer_crm_api.php';
+
+
+// Dedicated registration for the typed ActivityKit content-state client.
+\Illuminate\Support\Facades\Route::middleware(['CheckLang', 'auth:api', 'app.scope', 'custom.jwt', 'throttle:60,1'])->group(function () {
+    \Illuminate\Support\Facades\Route::post('user/order-activity-subscriptions', [\App\Http\Controllers\Api\V1\User\OrderActivitySubscriptionController::class, 'store']);
+    \Illuminate\Support\Facades\Route::post('user/order-activity-subscriptions/unregister', [\App\Http\Controllers\Api\V1\User\OrderActivitySubscriptionController::class, 'unregister']);
 });

@@ -1,4 +1,6 @@
+@unless(config('desktop_dashboard.local'))
 <!--<script src="https://js.pusher.com/7.2/pusher.min.js"></script>-->
+@endunless
 
 <script>
     // Pusher.logToConsole = true;
@@ -74,7 +76,7 @@
 <!-- Summernote -->
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap.bundle.min.js"></script>
 <script>if (window.DashboardSPA) window.DashboardSPA.attachJQuery();</script>
-<script src="//cdn.ckeditor.com/4.14.0/standard/ckeditor.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('//cdn.ckeditor.com/4.14.0/standard/ckeditor.js') }}"></script>
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap-tagsinput.js"></script>
 
 
@@ -184,30 +186,53 @@ $(document).ready(function() {
     </script>
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
+<script src="{{ asset('dashboard/js/dashboard-session-expiry.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-session-expiry.js')) }}" data-login="{{ url('admin/login') }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-pulse.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-pulse.js')) }}" data-pulse-url="{{ \Illuminate\Support\Facades\Route::has('dashboard.pulse') ? route('dashboard.pulse') : '' }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-order-alerts.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-order-alerts.js')) }}" data-sound-url="{{ asset('sounds/mixkit-correct-answer-reward-952.wav') }}" data-sound-actor="{{ auth('admin')->user()->id }}" data-sound-feed="{{ route('getOrders', ['alerts_only' => 1]) }}"></script>
+@php($goLateFeed = (function () { try { return \Illuminate\Support\Facades\Route::has('phone-orders.late') && app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()); } catch (\Throwable $error) { return false; } })())
+@if($goLateFeed)
+<script src="{{ asset('dashboard/js/dashboard-customer-history.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-customer-history.js')) }}" data-history-url="{{ route('customers.history') }}"></script>
+@endif
+{{-- Late delivery orders and late app orders: the same warning (AppOrderLateness for the app orders board's accounts). --}}
+@php($goBoardLate = !$goLateFeed && (function () { try { return \Illuminate\Support\Facades\Route::has('phone-orders.late') && app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()); } catch (\Throwable $error) { return false; } })())
+@if($goLateFeed || $goBoardLate)
+<script src="{{ asset('dashboard/js/dashboard-delivery-late.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-delivery-late.js')) }}" data-late-feed="{{ route('phone-orders.late') }}" data-late-page="{{ route('phone-orders.index', ['view' => 'orders']) }}" data-late-board="{{ \Illuminate\Support\Facades\Route::has('orders.applies') ? route('orders.applies') : '' }}" data-late-sound="{{ asset('sounds/go-delivery-late.wav') }}" data-actor="{{ auth('admin')->user()->id }}"></script>
+@endif
+{{-- Shared robot renderer and sidebar belong to the persistent shell, outside page scopes. --}}
+<script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>
+<script src="{{ asset('dashboard/js/go-hologram-shell.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram-shell.js')) }}"></script>
+{{-- The persistent shell's version. A window opened before a shell update reloads once on its next page. --}}
+<script>window.GoDashboardShell = '{{ \App\Support\DashboardShell::version() }}';</script>
 <div data-dashboard-page-scripts hidden>
+<script>(function () { var want = '{{ \App\Support\DashboardShell::version() }}'; if (window.GoDashboardShell === want) return; try { var key = 'go-shell-reload:' + want; if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (e) { return; } location.reload(); })();</script>
 <script src="{{ asset('dashboard/js/dashboard-invoice-details.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-invoice-details.js')) }}"></script>
 @stack('custom-js')
 </div>
-  <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+@unless(config('desktop_dashboard.local'))
+  <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://js.pusher.com/8.2.0/pusher.min.js') }}"></script>
+@endunless
 
 <!-- AdminLTE App -->
 <script src="{{ url('/dashboard') }}/dist/js/selectize.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/select2.min.js"></script>
 <script src="{{ url('/dashboard') }}/dist/js/flatpickr.min.js"></script>
-<script src="{{ url('/dashboard') }}/dist/js/adminlte.js"></script>
+<script src="{{ url('/dashboard') }}/dist/js/adminlte.js?v={{ filemtime(public_path('dashboard/dist/js/adminlte.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-navigation.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-navigation.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-idle.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-idle.js')) }}" data-home-url="{{ url('/admin/dashboard') }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-operating-day.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-operating-day.js')) }}"></script>
 <script src="{{ asset('dashboard/js/dashboard-expense-badge.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-expense-badge.js')) }}"></script>
+<script src="{{ asset('dashboard/js/dashboard-fit.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-fit.js')) }}"></script>
 <!-- AdminLTE dashboard demo (This is only for demo purposes) -->
-<script src="{{ url('/dashboard') }}/dist/js/pages/dashboard.js"></script>
+
 <!-- AdminLTE for demo purposes -->
 <script src="{{ url('/dashboard') }}/dist/js/demo.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js') }}"></script>
 <!-- Latest compiled and minified JavaScript -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js') }}"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js') }}"></script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js') }}"></script>
 
+@unless(config('desktop_dashboard.local'))
 <script>
 console.log('fgdfgdfdbfgdfgfgdfgdfgdfgdgdf',firebaseConfig)
 // // Ensure Service Worker is supported
@@ -234,19 +259,13 @@ if ('serviceWorker' in navigator) {
 // // Listen for messages from the service worker
 navigator.serviceWorker.addEventListener('message', (event) => {
 
-    if (event.data.type === 'PLAY_SOUND') {
-        playSound();
+    if (event.data && event.data.type === 'PLAY_SOUND') {
+        if (window.DashboardOrderAlerts) window.DashboardOrderAlerts.retry();
+        if (typeof window.reloadOrderSections === 'function') window.reloadOrderSections();
     }
 
-    if (event.data.type === 'STOP_SOUND') {
-        stopSound();
-
-        $('#alertBanner').remove();
-        $('#notifications').empty();
-
-        if ($('#all_orders').length) {
-            reloadOrderSections();
-        }
+    if (event.data && event.data.type === 'STOP_SOUND' && typeof window.reloadOrderSections === 'function') {
+        window.reloadOrderSections();
     }
 
 });
@@ -314,7 +333,7 @@ const messaging = firebase.messaging();
 
 // Request notification permission and get the token
 function requestNotificationPermission() {
-    Notification.requestPermission().then((permission) => {
+    (document.body.dataset.dashboardLocal === '1' ? Promise.resolve('denied') : Notification.requestPermission()).then((permission) => {
         if (permission === 'granted') {
             console.log('Notification permission granted.');
             // Get the token and send it to the server
@@ -407,6 +426,24 @@ function sendTokenToServer(token){
  }
 
 </script>
+@else
+<script>
+// A previous preview may retain its old FCM worker in this local profile.
+if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then(function (registrations) {
+        var localOrigin = new URL(window.location.href).origin;
+        registrations.forEach(function (registration) {
+            var messagingWorker = [registration.active, registration.waiting, registration.installing].some(function (worker) {
+                if (!worker) return false;
+                var source = new URL(worker.scriptURL, window.location.href);
+                return source.origin === localOrigin && source.pathname === '/firebase-messaging-sw.js';
+            });
+            if (messagingWorker) registration.unregister().catch(function () {});
+        });
+    }).catch(function () {});
+}
+</script>
+@endunless
 <!-- Page JS -->
 <script data-dashboard-page-init>
     $(document).ready(function() {
@@ -437,34 +474,7 @@ window.changeLanguage = function(lang) {
 });
 </script>
 
-<script src="https://unpkg.com/sweetalert/dist/sweetalert.min.js"></script>
-<script>
-    // Show SweetAlert "Enable notification sound" only once per browser using localStorage
-    document.addEventListener('DOMContentLoaded', function() {
-        var STORAGE_KEY = 'notificationSoundAlertShown';
-        try {
-            var alreadyShown = false;
-            try {
-                alreadyShown = localStorage.getItem(STORAGE_KEY) === 'true';
-            } catch (e) {
-                // localStorage may be unavailable (privacy mode). Proceed without persistence.
-            }
-
-            if (typeof swal === 'function' && !alreadyShown) {
-                swal({
-                    title: "تفعيل الصوت",
-                    text: "لتجربة أفضل قم بتفعيل صوت الاشعارات",
-                    icon: "info",
-                    button: "تم"
-                }).then(function() {
-                    try { localStorage.setItem(STORAGE_KEY, 'true'); } catch (e) {}
-                });
-            }
-        } catch (e) {
-            // silently ignore if SweetAlert is not available or any error occurs
-        }
-    });
-</script>
+<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://unpkg.com/sweetalert/dist/sweetalert.min.js') }}"></script>
 <script type="text/javascript" data-dashboard-page-init>
     $(function() {
     // Multiple images preview in browser
@@ -537,7 +547,7 @@ $(function() {
     $(window).on("load", function() {
         $('.card-body').css('opacity',1);
     });
-    $( "form" ).submit(function() {
+    $( "form" ).not("[data-wa-reply-form]").submit(function() {
         $(this).find("button[type='submit']").html('<i class="fa fa-spinner fa-spin"></i>@lang('main.under click')');
     });
 });
@@ -615,7 +625,8 @@ $(document).ready(function () {
                 if(check == true){  
 
 
-                    var join_selected_values = allVals.join(","); 
+                    var selectedIds = Object.freeze(allVals.slice());
+                    var join_selected_values = selectedIds.join(",");
 
 
                     $.ajax({
@@ -625,7 +636,9 @@ $(document).ready(function () {
                         data: 'ids='+join_selected_values,
                         success: function (data) {
                             if (data['success']) {
-                                $(".sub_chk:checked").each(function() {  
+                                $(".sub_chk").filter(function() {
+                                    return selectedIds.includes($(this).attr('data-id'));
+                                }).each(function() {
                                     $(this).parents("tr").remove();
                                 });
                                 alert(data['success']);
@@ -643,10 +656,12 @@ $(document).ready(function () {
                     });
 
 
-                  $.each(allVals, function( index, value ) {
+                  @unless(config('desktop_dashboard.local'))
+                  $.each(selectedIds, function( index, value ) {
                       $('table tr').filter("[data-row-id='" + value + "']").remove();
                       
                   });
+                  @endunless
                 //   $('tbody').html(' <tr><td colspan="4"><h4>@lang('main.no data to show')</h4><td></tr>');
                 }  
             }  
@@ -702,7 +717,7 @@ $(document).ready(function () {
       $('#jstree').jstree();
 </script>
 
-<!--<script src="//cdn.ckeditor.com/4.14.0/standard/ckeditor.js"></script>-->
+<!--<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('//cdn.ckeditor.com/4.14.0/standard/ckeditor.js') }}"></script>-->
 <!--</script>-->
   <!--<script-->
   <!--  type="text/javascript"-->
@@ -716,397 +731,68 @@ $(document).ready(function () {
   <!--    );-->
   <!--  }-->
   <!--</script>-->
- <script>
-    // Enable Pusher logging - disable in production
-    Pusher.logToConsole = true;
-
-    // Initialize Pusher
-    const pusher = new Pusher('0f818db2b7622218a22a', {
-        cluster: 'mt1',
-        authEndpoint: "{{url('/')}}/pusher/auth",
-        auth: {
-            headers: {
-                'X-CSRF-TOKEN': '{{ csrf_token() }}'
-            }
+<script>
+(function () {
+    var alerts = window.DashboardOrderAlerts;
+    var boardUrl = @json(url('admin/applies-orders'));
+    function refreshOrders() { if (typeof window.reloadOrderSections === 'function') window.reloadOrderSections(); }
+    function renderBanner() {
+        if (!alerts) return;
+        var keys = alerts.state().pending.filter(function (key) { return key.indexOf('phone:') !== 0; });
+        var container = document.getElementById('notifications');
+        if (!container) return;
+        if (!keys.length) { container.replaceChildren(); return; }
+        var banner = document.getElementById('alertBanner');
+        if (!banner) {
+            banner = document.createElement('a'); banner.id = 'alertBanner';
+            banner.className = 'bg-transparent skew-shake-y alert-notification border-0';
+            banner.href = boardUrl; container.replaceChildren(banner);
         }
-    });
-
-    // Subscribe to the private channel
-    const userId = "{{auth('admin')->user()->id}}";
-    const channel = pusher.subscribe('private-user.' + userId);
-
-    // Notification sound
-    const notificationSound = new Audio("{{url('/')}}/sounds/mixkit-correct-answer-reward-952.wav");
-    //notification_sound.mp3
-    let isSoundPlaying = false; // Track if sound is currently playing
-
-    // Request Notification Permission
-    if (Notification.permission !== 'granted') {
-        Notification.requestPermission().then((permission) => {
-            if (permission !== 'granted') {
-                console.warn('Notification permission denied');
-            }
+        banner.textContent = keys.length + ' طلبات جديدة · عرض الطلبات';
+        container.hidden = false; container.style.display = '';
+    }
+    document.addEventListener('dashboard:order-alert-state', renderBanner);
+    renderBanner();
+    // Audio works independently of external SDKs; polling remains available when Pusher fails.
+    if (document.body.dataset.dashboardLocal === '1' || typeof window.Pusher !== 'function' || window.DashboardOrderPusher) return;
+    var pusher;
+    try {
+        pusher = new window.Pusher('0f818db2b7622218a22a', {
+            cluster: 'mt1', authEndpoint: @json(url('/pusher/auth')),
+            auth: { headers: { 'X-CSRF-TOKEN': @json(csrf_token()) } }
         });
-    }
-
-    // Function to play notification sound
-    function playSound() {
-        if (!isSoundPlaying) {
-            if (document.getElementById('alertBanner')){
-                notificationSound.loop = true; // Enable looping for repeated sound
-                notificationSound.play().catch((error) => {
-                    console.error('Error playing sound:', error);
-                });
-            }
-            isSoundPlaying = true;
-        }
-    }
-
-    // Function to stop notification sound
-    function stopSound() {
-        notificationSound.pause();
-        notificationSound.currentTime = 0; // Reset sound to the beginning
-        isSoundPlaying = false;
-    }
-
-    // Function to show desktop notification
-    // function showNotification(title, body, url) {
-    //     if (Notification.permission === 'granted') {
-    //         const notification = new Notification(title, {
-    //             body: body,
-    //             icon: "{{url("/storage/".app(App\Models\GeneralSettings::class)->logo)}}" // Add your notification icon
-    //         });
-
-    //         notification.onclick = () => {
-    //             window.focus();
-    //             window.location.href = url; // Redirect on click
-    //             stopSound(); // Stop sound when notification is clicked
-    //         };
-    //     }
-    // }
-    function showNotification(title, body, url) {
-        if (Notification.permission === 'granted') {
-            const notification = new Notification(title, {
-                body: body,
-                icon: "{{url("/storage/".app(App\Models\GeneralSettings::class)->logo)}}" // Add your notification icon
-            });
-
-            notification.onclick = () => {
-                window.focus();
-                window.location.href = url; // Redirect on click
-                stopSound(); // Stop sound when notification is clicked
-            };
-        }
-    }
-
-    // Listen for events
+    } catch (_) { return; }
+    window.DashboardOrderPusher = pusher;
+    var channel = pusher.subscribe('private-user.' + @json((string)auth('admin')->user()->id));
     channel.bind('order.updated', function (data) {
-        console.log('vendor Notification received:', data);
-
-        if (data.action === "accepted" || data.action === "declined") {
-            console.log("Order Action:", data.action);
-            if (typeof stopSound === "function") stopSound();
-            $("#alertBanner").remove();
-            $("#notifications").empty();
-            if (typeof reloadOrderSections === "function") reloadOrderSections();
-            return;
+        if (!data || !data.order_id) { refreshOrders(); return; }
+        var key = 'legacy:' + data.order_id;
+        if (data.action === 'accepted' || data.action === 'declined') {
+            if (alerts) alerts.acknowledge(key);
+            refreshOrders(); return;
         }
-
-        const orderId = data.order_id || 'Unknown ID';
-        const orderCount = data.orderCount || 1;
-        const orderNo = data.order_no || 'Unknown ID';
-        const orderDate = data.order_date || 'Unknown ID';
-        const orderTime = data.order_time || 'Unknown ID';
-         const urll = `{{url('admin/applies-orders')}}`;
-       if (document.location.href === urll){
-            // Update UI with new notification
-            $('#notifications').html(`
-                <button class="openModalCart bg-transparent skew-shake-y alert-notification border-0" data-bs-toggle="modal" data-id="${orderId}"
-                  href="#product-details"
-                  role="button" 
-                  data-order-id="${orderId}" 
-                  id="alertBanner">
-                    <span>
-                        <i class="fa-regular fa-bell"></i>
-                        <span><span class="mx-2">${orderCount}</span> New Orders Received! </span>
-                    </span>
-                    <span> View </span>
-                </button>
-            `);
-       }else{
-           // Update UI with new notification
-        $('#notifications').html(`
-            <a  class=" bg-transparent skew-shake-y alert-notification border-0" data-id="${orderId}"
-              href="{{url('admin/applies-orders?modal=${orderId}')}}"
-              id="alertBanner">
-                <span>
-                    <i class="fa-regular fa-bell"></i>
-                    <span><span class="mx-2">${orderCount}</span> New Orders Received! </span>
-                </span>
-                <span> View </span>
-            </a>
-        `);
-       }
-        
-// Refresh the order board immediately when the live event arrives.
-if (typeof reloadOrderSections === 'function' && $('#all_orders').length) {
-    reloadOrderSections();
-}
-
-// Keep the original looping alert behavior until the order is acted on.
-if (typeof playSound === 'function') {
-    playSound();
-}
-
-// const newWindow = window.open(`{{url('admin/applies-orders?modal=order${orderId}')}}` , '_blank');
-openOrFocusWindow(orderId);
-       
-        
-        $('#new_orders').prepend(`<div class="card">
-    <div class="card-header border-0">
-        <button class="openModalCart link bg-transparent border-0" data-bs-toggle="modal" data-id="${orderId}"
-              href="#product-details"
-              role="button"></button>
-        <div class="d-flex align-items-center justify-content-between">
-            <div>
-                <p class="mb-0 fw-bold fs-4">#${orderNo}</p>
-                <p class="mb-1 fw-bold">${orderCount} @lang('main.item')</p>
-            </div>
-            <div>
-                <p class="mb-1"><i class="fas fa-calendar-day"></i> 
-                  ${orderDate}
-                </p>
-                <p class="mb-1"><i class="fas fa-clock"></i> 
-                ${orderTime}
-                </p>
-            </div>
-        </div>
-    </div>
-</div>`);
-      
-        showNotification('New Order Received!', `Order ID: ${orderId}`, `{{url('admin/applies-orders?modal=${orderId}')}}`);
-    });
-channel.bind('user.updated', function (data) {
-
-    console.log('User Updated:', data);
-
-    if (typeof stopSound === 'function') {
-        stopSound();
-    }
-
-    $('#alertBanner').remove();
-    $('#notifications').empty();
-
-    if (typeof reloadOrderSections === 'function') {
-        reloadOrderSections();
-    }
-
-});    
-    // Listen for events
-//     channel.bind('vendor.updated', function (data) {
-//         console.log('vendor Notification received:', data);
-
-
-//         const orderId = data.order_id.order_id || 'Unknown ID';
-//         const orderCount = data.order_id.orderCount || 1;
-//         const orderNo = data.order_id.order_no || 'Unknown ID';
-//         const orderDate = data.order_id.order_date || 'Unknown ID';
-//         const orderTime = data.order_id.order_time || 'Unknown ID';
-//          const urll = `{{url('admin/applies-orders')}}`;
-//       if (document.location.href === urll){
-//             // Update UI with new notification
-//             $('#notifications').html(`
-//                 <button class="openModalCart bg-transparent skew-shake-y alert-notification border-0" data-bs-toggle="modal" data-id="${orderId}"
-//                   href="#product-details"
-//                   role="button" 
-//                   data-order-id="${orderId}" 
-//                   id="alertBanner">
-//                     <span>
-//                         <i class="fa-regular fa-bell"></i>
-//                         <span><span class="mx-2">${orderCount}</span> New Orders Received! </span>
-//                     </span>
-//                     <span> View </span>
-//                 </button>
-//             `);
-//       }else{
-//           // Update UI with new notification
-//         $('#notifications').html(`
-//             <a  class=" bg-transparent skew-shake-y alert-notification border-0" data-id="${orderId}"
-//               href="{{url('admin/applies-orders?modal=${orderId}')}}"
-//               id="alertBanner">
-//                 <span>
-//                     <i class="fa-regular fa-bell"></i>
-//                     <span><span class="mx-2">${orderCount}</span> New Orders Received! </span>
-//                 </span>
-//                 <span> View </span>
-//             </a>
-//         `);
-//       }
-        
-// // const newWindow = window.open(`{{url('admin/applies-orders?modal=order${orderId}')}}` , '_blank');
-// openOrFocusWindow(orderId);
-       
-        
-//         $('#new_orders').prepend(`<div class="card">
-//     <div class="card-header border-0">
-//         <button class="openModalCart link bg-transparent border-0" data-bs-toggle="modal" data-id="${orderId}"
-//               href="#product-details"
-//               role="button"></button>
-//         <div class="d-flex align-items-center justify-content-between">
-//             <div>
-//                 <p class="mb-0 fw-bold fs-4">#${orderNo}</p>
-//                 <p class="mb-1 fw-bold">${orderCount} @lang('main.item')</p>
-//             </div>
-//             <div>
-//                 <p class="mb-1"><i class="fas fa-calendar-day"></i> 
-//                   ${orderDate}
-//                 </p>
-//                 <p class="mb-1"><i class="fas fa-clock"></i> 
-//                 ${orderTime}
-//                 </p>
-//             </div>
-//         </div>
-//     </div>
-// </div>`);
-      
-//         showNotification('New Order Received!', `Order ID: ${orderId}`, `{{url('admin/applies-orders?modal=${orderId}')}}`);
-//     });
-    
-    
-    $(document).on('click','.btn-close',function(){
-        const modal = document.getElementById('product-details');
-        if (modal) {
-            modal.classList.remove('show');
-            modal.style.display = 'none'; 
-            document.body.classList.remove('modal-open');
-            const backdrop = document.querySelector('.modal-backdrop');
-            if (backdrop) {
-                backdrop.remove(); 
-            }
-        }
-    })
-    
-    $(document).on('click',"#alertBanner",function(){
-       console.log('empty notifi')
-       $('#notifications').hide();
-       stopSound(); 
-        
-    })
-    
-    // Stop sound on user interaction with the notification
-    document.addEventListener('click', (event) => {
-        const target = event.target;
-
-        // Check if user clicked on the notification or surrounding UI
-        if (
-            target.id === 'alertBanner' || 
-            target.closest('#alertBanner') || 
-            target.classList.contains('alert-notification')
-        ) {
-            stopSound(); // Stop sound on interaction
+        if (data.action && data.action !== 'new') { refreshOrders(); return; }
+        if (alerts) alerts.notify(key);
+        refreshOrders();
+        if (typeof window.Notification === 'function' && Notification.permission === 'granted') {
+            try {
+                var notification = new Notification('طلب جديد', { body: 'طلب رقم ' + (data.order_no || data.order_id), icon: @json(url('/storage/'.app(App\Models\GeneralSettings::class)->logo)) });
+                notification.onclick = function () { window.focus(); window.location.href = boardUrl; notification.close(); };
+            } catch (_) {}
         }
     });
-
-    // Toggle sound on/off
-    const toggleSoundButton = document.getElementById('toggle-sound');
-    const soundIcon = document.getElementById('sound-icon');
-
-    toggleSoundButton.addEventListener('click', () => {
-        if (isSoundPlaying) {
-            stopSound();
-            localStorage.setItem('soundEnabled', 'false');
-            soundIcon.classList.replace('fa-volume-up', 'fa-volume-mute');
-        } else {
-            playSound();
-            localStorage.setItem('soundEnabled', 'true');
-            soundIcon.classList.replace('fa-volume-mute', 'fa-volume-up');
-        }
+    channel.bind('user.updated', function (data) {
+        // Other user/account events never acknowledge unrelated pending orders.
+        if (alerts && data && data.order_id && ['accepted', 'declined'].indexOf(data.action) !== -1) alerts.acknowledge('legacy:' + data.order_id);
+        refreshOrders();
     });
-
-    // Initialize sound state
-    // const savedSoundState = localStorage.getItem('soundEnabled');
-    // if (savedSoundState === 'true') {
-    //     soundIcon.classList.replace('fa-volume-mute', 'fa-volume-up');
-    // } else {
-    //     soundIcon.classList.replace('fa-volume-up', 'fa-volume-mute');
-    // }
-    
-//     if (newWindow) {
-//   // Wait for the new window to finish loading
-//   newWindow.onload = () => {
-//     // Create an audio element inside the new window
-//     const audioElement = newWindow.document.createElement('audio');
-//     audioElement.src = audioUrl; // Set the audio source
-//     audioElement.autoplay = true; // Enable autoplay
-//     audioElement.loop = true; // Enable looping (if needed)
-
-//     // Add the audio element to the new window's body
-//     newWindow.document.body.appendChild(audioElement);
-
-//     // Attempt to play the audio
-//     audioElement.play().catch((error) => {
-//       console.error('Audio playback failed:', error);
-//     });
-//   };
-// } else {
-//   console.error('Failed to open new window. It may be blocked by the browser.');
-// }
-let openedWindow; // Store the reference to the opened window
-
-function openOrFocusWindow(orderId) {
-    const url = `{{url('admin/applies-orders')}}`;
-    const now = Date.now();
- const url2 = `{{url('admin/applies-orders?modal=${orderId}')}}`;
-    // Prevent multiple tabs from opening the same window
-    const lastOpened = localStorage.getItem('openedWindow');
-    if (lastOpened && now - lastOpened < 2000) {
-        return; // Skip if another tab handled this recently
-    }
-    localStorage.setItem('openedWindow', now); // Set the timestamp
-
-    // Check if the current tab is in the background
-    if (!document.hidden) {
-        console.log('Current tab is active. No need to open a new tab.');
-        return; // Do nothing if the current tab is active
-    }
-
-    // Handle the opened window
-    if (openedWindow && !openedWindow.closed) {
-        if (openedWindow.location.href === url) {
-            openedWindow.focus(); // Focus if the URL matches
-        } else {
-            // Update the location and focus
-            openedWindow.location.href = url2;
-            openedWindow.focus();
-        }
-    } else {
-       
-
-        // Open a new window
-        openedWindow = window.open(url2, '_blank');
-        if (openedWindow) {
-            // Stop audio when the user interacts with the new window
-            openedWindow.onload = () => {
-                openedWindow.document.body.addEventListener('click', () => {
-                    notificationSound.pause(); // Pause the sound
-                    notificationSound.currentTime = 0; // Reset to the beginning
-                });
-            };
-        } else {
-            console.error('Failed to open new window.');
-        }
-    }
-     // Play sound and show desktop notification
-        notificationSound.loop = true; // Enable looping for repeated sound
-        notificationSound.play().catch((error) => {
-            console.error('Error playing sound:', error);
-        });
-        
-          
-}
-
-
-
+}());
+$(document).on('click', '.btn-close', function () {
+    var modal = document.getElementById('product-details');
+    if (!modal) return;
+    modal.classList.remove('show'); modal.style.display = 'none'; document.body.classList.remove('modal-open');
+    var backdrop = document.querySelector('.modal-backdrop'); if (backdrop) backdrop.remove();
+});
 </script>
 
 <script src="{{ asset('dashboard/js/dashboard-print.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-print.js')) }}"></script>

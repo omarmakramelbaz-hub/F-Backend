@@ -15,7 +15,9 @@ class BranchExpenses
     public const CATEGORIES=['purchases','electricity','water','gas','packaging','maintenance','transport','fuel','rent','salaries','other'];
     public const METHODS=['cash'];
     private TakeawayAccess $access;
+    private ?ExpenseStockPurchases $stockService=null;
     public function __construct(TakeawayAccess $access){$this->access=$access;}
+    private function stockPurchases(): ExpenseStockPurchases {return $this->stockService??=app(ExpenseStockPurchases::class);}
     public function permissions($actor): array
     {
         $actor=$this->access->actor($actor);$write=$this->access->permissions($actor)['can_checkout'];
@@ -30,8 +32,12 @@ class BranchExpenses
     }
     public function filters(array $values): array
     {
-        $v=Validator::make($values,['branch'=>['required','regex:/^(all|(?:f|gs):[1-9][0-9]{0,18})$/D'],'from'=>'nullable|date_format:Y-m-d','to'=>'nullable|date_format:Y-m-d|after_or_equal:from','category'=>['nullable',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'status'=>'nullable|in:pending,approved,rejected,voided','actor_id'=>'nullable|integer|min:1','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
+        $v=Validator::make($values,['branch'=>['required','regex:/^(all|(?:f|gs):[1-9][0-9]{0,18})$/D'],'from'=>'nullable|date_format:Y-m-d','to'=>'nullable|date_format:Y-m-d|after_or_equal:from','category'=>'nullable|string|max:60','categories'=>'nullable|string|max:2000','status'=>'nullable|in:pending,approved,rejected,voided','actor_id'=>'nullable|integer|min:1','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
         $v['from']=$v['from']??substr(OperatingDay::date(),0,7).'-01';$v['to']=$v['to']??OperatingDay::date();
+        // One item, or several chosen together (comma separated).
+        $keys=!empty($v['category'])?[$v['category']]:array_values(array_unique(array_filter(array_map('trim',explode(',',(string)($v['categories']??''))),'strlen')));
+        abort_if(count($keys)>30||array_filter($keys,fn($key)=>mb_strlen($key)>60),422,'اختر حتى 30 بند مصروف.');
+        $v['category_keys']=$keys;
         abort_if($v['to']<$v['from'],422,'راجع الفترة المطلوبة.');return $v;
     }
     private function scope(array $v,$actor): array
@@ -43,34 +49,56 @@ class BranchExpenses
         }else $branches=[$this->access->branch($v['branch'],$actor)];
         return [DB::table('branch_expenses')->whereIn('branch',array_column($branches,'value')),$branches];
     }
-    private function filtered($query,array $v)
+    private function filtered($query,array $v,array $categoryScopes=[])
     {
         $query->whereBetween('occurred_on',[$v['from'],$v['to']]);
-        foreach(['category','status','actor_id'] as $key)if(!empty($v[$key]))$query->where($key,$v[$key]);
+        if(!empty($v['category_keys']))$query->where(function($group)use($categoryScopes){
+            foreach($categoryScopes as $branch=>$keys)$group->orWhere(function($scope)use($branch,$keys){$scope->where('branch',$branch)->whereIn('category',$keys);});
+        });
+        foreach(['status','actor_id'] as $key)if(!empty($v[$key]))$query->where($key,$v[$key]);
         if(!empty($v['search'])){$search=trim($v['search']);$query->where(function($q)use($search){$q->where('description','like','%'.$search.'%')->orWhere('supplier','like','%'.$search.'%');if(preg_match('/(?:EXP-)?([0-9]+)$/i',$search,$m))$q->orWhere('id',(int)$m[1]);});}
         return $query;
     }
     public function listing(array $values,$actor,bool $export=false): array
     {
-        $v=$this->filters($values);[$base,$branches]=$this->scope($v,$actor);$query=$this->filtered(clone $base,$v);
-        $total=(clone $query)->count();abort_if($export&&$total>10000,422,'ضيّق الفترة لتصدير حتى ١٠ آلاف مصروف.');$perPage=$export?max(1,$total):30;$last=max(1,(int)ceil($total/$perPage));$page=min((int)($v['page']??1),$last);
+        $actor=$this->access->actor($actor);
+        if(!array_key_exists('branch',$values)&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id))$values['branch']='all';
+        $v=$this->filters($values);[$base,$branches]=$this->scope($v,$actor);
+        $permissions=$this->permissions($actor);$categoryService=app(ExpenseCategories::class);$branchCategories=[];$categoryCatalog=[];
+        foreach($this->access->branches($actor) as $available)$branchCategories[$available['value']]=$categoryService->choices($permissions['can_manage_categories'],$available['value']);
+        $choices=['categories'=>[],'active_categories'=>[],'stock_categories'=>[],'category_items'=>[],'category_scope'=>$v['branch']];$categoryScopes=[];
+        foreach($branches as $selected){
+            $scope=$selected['value'];$categoryCatalog+=$categoryService->catalog($scope);
+            foreach(['categories','active_categories','stock_categories'] as $field)$choices[$field]+=$branchCategories[$scope][$field];
+            foreach($v['category_keys'] as $key)if(isset($branchCategories[$scope]['categories'][$key]))$categoryScopes[$scope]=array_values(array_unique(array_merge($categoryScopes[$scope]??[],$categoryService->filterKeys($key,$scope))));
+        }
+        if($v['branch']!=='all')$choices=$branchCategories[$v['branch']];
+        foreach($v['category_keys'] as $key)if(!isset($choices['categories'][$key]))throw ValidationException::withMessages(['category'=>__('expenses.category_invalid')]);
+        $query=$this->filtered(clone $base,$v,$categoryScopes);
+        $total=(clone $query)->count();abort_if($export&&$total>10000,422,'ضيّق الفترة لتصدير حتى ١٠ آلاف مصروف.');$perPage=$export?max(1,$total):max(30,min(500,(int)(clone $query)->where('occurred_on',OperatingDay::date())->count()));/* the day's expenses all on the first page */$last=max(1,(int)ceil($total/$perPage));$page=min((int)($v['page']??1),$last);
         $rows=(clone $query)->orderByDesc('occurred_on')->orderByDesc('id')->offset($export?0:($page-1)*$perPage)->limit($perPage)->get();
         $approved=(clone $base)->where('status','approved');$today=OperatingDay::date();$month=substr(OperatingDay::date(),0,7).'-01';
-        $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']))+1;
-        $top=(clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderByDesc('amount')->first();
+        $approvedPeriod=(clone $query)->where('status','approved');$sum=(int)(clone $approvedPeriod)->sum('amount_cents');$days=(int)\Carbon\Carbon::parse($v['from'])->diffInDays(\Carbon\Carbon::parse($v['to']),true)+1;
+        $categoryTotals=[];
+        foreach((clone $approvedPeriod)->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->get() as $group){
+            $key=$categoryCatalog[$group->category]['canonical_key']??$group->category;
+            $categoryTotals[$key]=($categoryTotals[$key]??0)+(int)$group->amount;
+        }
+        arsort($categoryTotals);$topCategory=array_key_first($categoryTotals);$topAmount=$topCategory===null?0:$categoryTotals[$topCategory];
         $names=DB::table('users')->whereIn('id',$rows->pluck('actor_id')->merge($rows->pluck('reviewer_id'))->filter()->unique())->pluck('name','id');
-        $namesByBranch=array_column($branches,'name','value');$permissions=$this->permissions($actor);$categories=app(ExpenseCategories::class)->options();
-        $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve'],$categories))->all();
+        $namesByBranch=array_column($branches,'name','value');
+        $this->stockPurchases()->prime($rows->pluck('id')->all());
+        $items=$rows->map(fn($row)=>$this->present($row,$actor,$names[$row->actor_id]??'', $names[$row->reviewer_id]??'', $namesByBranch[$row->branch]??'',$permissions['can_approve'],$branchCategories[$row->branch]['categories']??[]))->all();
         $actors=DB::table('users')->whereIn('id',(clone $base)->select('actor_id'))->orderBy('name')->get(['id','name']);
-        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,
+        return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,'branch_categories'=>$branchCategories,'category_scope'=>$v['branch'],
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
-            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$top->category??null,'top_amount'=>Money::decimal((int)($top->amount??0))]]+app(ExpenseCategories::class)->choices($permissions['can_manage_categories']);
+            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$topCategory,'top_amount'=>Money::decimal($topAmount)]]+$choices;
     }
     public function show(int $id,$actor): array
     {
         $this->ready();$row=DB::table('branch_expenses')->where('id',$id)->first();abort_unless($row,404);$branch=$this->access->branch($row->branch,$actor);
         $names=DB::table('users')->whereIn('id',array_filter([$row->actor_id,$row->reviewer_id]))->pluck('name','id');
-        $item=$this->present($row,$actor,$names[$row->actor_id]??'',$names[$row->reviewer_id]??'',$branch['name'],$this->permissions($actor)['can_approve'],app(ExpenseCategories::class)->options());
+        $item=$this->present($row,$actor,$names[$row->actor_id]??'',$names[$row->reviewer_id]??'',$branch['name'],$this->permissions($actor)['can_approve'],app(ExpenseCategories::class)->options(true,$row->branch));
         $item['history']=DB::table('branch_expense_commands')->where('expense_id',$id)->orderBy('id')->get(['kind','actor_id','revision','snapshot','created_at'])->map(function($r){$r->snapshot=json_decode($r->snapshot,true);unset($r->snapshot['attachment_path'],$r->snapshot['attachment_hash'],$r->snapshot['attachment_mime']);return $r;})->all();
         return ['success'=>true,'expense'=>$item];
     }
@@ -82,35 +110,62 @@ class BranchExpenses
     private function commandRules(): array {return ['branch'=>['required','regex:/^(f|gs):[1-9][0-9]{0,18}$/D'],'idempotency_key'=>'required|uuid','expected_revision'=>'nullable|integer|min:1'];}
     public function save(array $values,$actor,?UploadedFile $file=null): array
     {
-        $v=Validator::make($values,$this->commandRules()+['expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>['required',Rule::in(array_keys(app(ExpenseCategories::class)->options()))],'description'=>'required|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','approve'=>'nullable|boolean'])->validate();
+        $v=Validator::make($values,$this->commandRules()+['employee_id'=>'nullable|integer|min:1','expense_id'=>'nullable|integer|min:1','occurred_on'=>'required|date_format:Y-m-d|before_or_equal:today','category'=>'required|string|max:60','description'=>'nullable|string|max:500','amount'=>'required|string|max:14','payment_method'=>['required',Rule::in(self::METHODS)],'payment_reference'=>'nullable|string|max:150','supplier'=>'nullable|string|max:150','cost_center'=>'nullable|string|max:150','notes'=>'nullable|string|max:1000','quantity_kg'=>'nullable','approve'=>'nullable|boolean'])->validate();
         abort_if($v['occurred_on']>OperatingDay::date(),422,'لا يمكن تسجيل مصروف ليوم تشغيل مستقبلي.');
         abort_if(!empty($v['expense_id']),403,'تعديل المصروفات المسجلة غير متاح.');
         foreach(['description','payment_reference','supplier','cost_center','notes'] as $field)$v[$field]=trim($v[$field]??'');
-        if($v['description']==='')throw ValidationException::withMessages(['description'=>'اكتب بيان المصروف.']);
         try{$amount=Money::minor($v['amount']);}catch(\InvalidArgumentException $e){throw ValidationException::withMessages(['amount'=>'القيمة غير صالحة.']);}
         if($amount<=0||$amount>100000000)throw ValidationException::withMessages(['amount'=>'القيمة أكبر من صفر وبحد أقصى مليون جنيه.']);
         $this->ready();$actor=$this->access->actor($actor);$this->access->branch($v['branch'],$actor);$permissions=$this->permissions($actor);abort_unless($permissions['can_create'],403);abort_if(($v['approve']??false)&&!$permissions['can_approve'],403);
+        $categoryService=app(ExpenseCategories::class);$scopedCatalog=$categoryService->catalog($v['branch']);
+        if(!isset($scopedCatalog[$v['category']]))throw ValidationException::withMessages(['category'=>__('expenses.category_invalid')]);
+        // An employee's advance from the drawer (an item named «سلف…»): who took it, recorded on the expense (its cost
+        // centre) and, once approved, on the employee as an advance taken from his salary.
+        if(self::isAdvance($scopedCatalog[$v['category']]['name']??'')){
+            // An employee's own advance item («سلفة - name») names him; a general one asks who took it.
+            if($named=app(BranchPayroll::class)->advanceItemEmployee($v['branch'],$scopedCatalog[$v['category']]['name']))$v['employee_id']=$named;
+            if(empty($v['employee_id']))throw ValidationException::withMessages(['employee_id'=>'اختر الموظف اللي أخد السلفة.']);
+            $taker=collect(app(BranchPayroll::class)->advanceEmployees($v['branch']))->firstWhere('id',(int)$v['employee_id']);
+            if(!$taker)throw ValidationException::withMessages(['employee_id'=>'الموظف مش من موظفين الفرع الحاليين.']);
+            $v['cost_center']='employee:'.$taker['id'];if(trim($v['supplier']??'')==='')$v['supplier']=$taker['name'];
+        }else unset($v['employee_id']);
+        $oldCommand=DB::table('branch_expense_commands')->where('branch',$v['branch'])->where('actor_id',$actor->id)->where('request_key',$v['idempotency_key'])->first(['snapshot']);
+        $legacyReplay=$oldCommand&&empty((json_decode($oldCommand->snapshot,true)??[])['stock_category']);
+        if($legacyReplay)unset($v['quantity_kg']);
+        else{
+            $stock=$this->stockPurchases();$stockCategory=$categoryService->stockCategories($scopedCatalog)[$v['category']]??null;
+            // A single-material purchase must use its linked choice. Mixed
+            // invoices cannot tell us how much of each material was received.
+            if(str_starts_with($v['branch'],'f:')&&!$stockCategory&&in_array($v['category'],['purchases','other'],true)&&($material=$stock->categoryProduct($v['description'])))throw ValidationException::withMessages(['category'=>'اختر بند مشتريات '.ExpenseStockPurchases::CATEGORIES[$material].' وأدخل الكمية '.($stock->unit($material)==='piece'?'بالعدد':'بالكيلو').' لإضافتها إلى البضاعة.']);
+            $v=$stock->normalizeQuantity($v,$stockCategory);
+            if($stockCategory)$v['stock_category']=$stockCategory;
+            else unset($v['quantity_kg'],$v['stock_category']); // Preserve existing non-stock fingerprints.
+        }
         $path=null;$keepUpload=false;$attachment=[];
+        // A journal/reconciliation transaction can fail after this nested service returns.
+        // Immutable private bytes must survive that rollback so the same UUID can retry.
+        $enclosed=DB::transactionLevel()>0;
         if($file){Validator::make(['attachment'=>$file],['attachment'=>'required|file|mimes:jpg,jpeg,png,pdf|max:5120'])->validate();$attachment=['attachment_hash'=>hash_file('sha256',$file->getRealPath()),'attachment_name'=>mb_substr(preg_replace('/[\x00-\x1F\x7F\\\\\/]/u','_', $file->getClientOriginalName()),0,200),'attachment_mime'=>$file->getMimeType()];}
         $v['amount']=Money::decimal($amount);$hash=PosServiceTicket::fingerprint(['save',$v,$attachment]);
         try{
-            if($file){$path=$file->store('branch-expenses','local');abort_unless($path,503,'تعذّر حفظ المرفق.');$attachment['attachment_path']=$path;}
+            if($file){$path=$enclosed?app(DesktopDashboardExpenseAttachments::class)->store($file,$v,(int)$actor->id):$file->store('branch-expenses','local');abort_unless($path,503,'تعذّر حفظ المرفق.');$attachment['attachment_path']=$path;}
             $result=DB::transaction(function()use($v,$actor,$amount,$hash,$attachment,$permissions){
                 if(Schema::hasTable('branch_expense_category_settings'))DB::table('users')->where('id',1)->sharedLock()->first();
                 $this->access->branch($v['branch'],$actor,true);if($old=$this->replay($v,$actor,$hash))return $old;
                 $row=!empty($v['expense_id'])?DB::table('branch_expenses')->where('branch',$v['branch'])->where('id',$v['expense_id'])->lockForUpdate()->first():null;
                 if(!empty($v['expense_id'])){abort_unless($row,404);abort_unless($row->status==='pending',409,'يمكن تعديل المصروف المعلّق فقط.');abort_unless((int)$row->actor_id===(int)$actor->id||$permissions['can_approve'],403);abort_unless((int)($v['expected_revision']??0)===(int)$row->revision,409,'المصروف تغير؛ حدّث الصفحة.');}
-                if(!isset(app(ExpenseCategories::class)->options(false)[$v['category']])&&(!$row||$row->category!==$v['category']))throw ValidationException::withMessages(['category'=>__('expenses.category_deleted')]);
+                if(!isset(app(ExpenseCategories::class)->options(false,$v['branch'])[$v['category']])&&(!$row||$row->category!==$v['category']))throw ValidationException::withMessages(['category'=>__('expenses.category_deleted')]);
                 $data=array_intersect_key($v,array_flip(['branch','occurred_on','category','description','payment_method','payment_reference','supplier','cost_center','notes']));$data+=['amount_cents'=>$amount,'revision'=>$row?(int)$row->revision+1:1,'updated_at'=>now('UTC')];$data=array_merge($data,$attachment);
                 if($row){$id=(int)$row->id;DB::table('branch_expenses')->where('id',$id)->update($data);}else $id=DB::table('branch_expenses')->insertGetId($data+['actor_id'=>$actor->id,'status'=>'pending','created_at'=>now('UTC')]);
-                if($v['approve']??false){$fresh=DB::table('branch_expenses')->where('id',$id)->first();$this->postCash($fresh,$actor,-1);DB::table('branch_expenses')->where('id',$id)->update(['status'=>'approved','reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC')]);}
+                $this->stockPurchases()->receive($id,$v,$actor);
+                if($v['approve']??false){$fresh=DB::table('branch_expenses')->where('id',$id)->first();$this->postCash($fresh,$actor,-1);$this->advance($fresh,$actor);DB::table('branch_expenses')->where('id',$id)->update(['status'=>'approved','reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC')]);}
                 $this->record($v,$actor,$id,$hash,$row?'edit':'create');return $this->show($id,$actor)+['replayed'=>false];
             },3);
             $keepUpload=$path&&!$result['replayed'];return $result;
         }finally{
             // Keep only uploads actually referenced by a committed expense. Old
             // replaced files remain private for the immutable audit snapshots.
-            if($path&&!$keepUpload)Storage::disk('local')->delete($path);
+            if($path&&!$keepUpload&&!$enclosed)Storage::disk('local')->delete($path);
         }
     }
     public function review(int $id,array $values,$actor): array
@@ -123,10 +178,24 @@ class BranchExpenses
             $row=DB::table('branch_expenses')->where('branch',$v['branch'])->where('id',$id)->lockForUpdate()->first();abort_unless($row,404);
             abort_unless((int)($v['expected_revision']??0)===(int)$row->revision&&$row->status===($v['action']==='void'?'approved':'pending'),409,'حالة المصروف تغيرت؛ حدّث الصفحة.');
             if($v['action']==='approve')abort_unless($row->payment_method==='cash',422,'لا يمكن اعتماد مصروف خارج خزنة الدرج.');
-            if($v['action']==='approve')$this->postCash($row,$actor,-1);elseif($v['action']==='void')$this->postCash($row,$actor,1);
+            if($v['action']==='approve'){$this->postCash($row,$actor,-1);$this->advance($row,$actor);}
+            elseif($v['action']==='void'){$this->postCash($row,$actor,1);if(preg_match('/^employee:[1-9][0-9]*$/D',(string)($row->cost_center??'')))app(BranchPayroll::class)->voidAdvanceFromExpense($row,(int)$actor->id,$v['reason']);}
+            if($v['action']!=='approve')$this->stockPurchases()->reverse($row,$actor);
             DB::table('branch_expenses')->where('id',$id)->update(['status'=>['approve'=>'approved','reject'=>'rejected','void'=>'voided'][$v['action']],'revision'=>(int)$row->revision+1,'reviewer_id'=>$actor->id,'reviewed_at'=>now('UTC'),'review_reason'=>$v['reason'],'updated_at'=>now('UTC')]);
             $this->record($v,$actor,$id,$hash,$v['action']);return $this->show($id,$actor)+['replayed'=>false];
         },3);
+    }
+    /** An expense item for employees' advances: its name speaks of an advance («سلفة», «سلف موظفين»…). */
+    public static function isAdvance(string $name): bool
+    {
+        return (bool)preg_match('/سلف/u',$name);
+    }
+    /** An approved advance expense becomes the employee's advance (see BranchPayroll::advanceFromExpense). */
+    private function advance(object $expense,$actor): void
+    {
+        if(!preg_match('/^employee:([1-9][0-9]*)$/D',(string)($expense->cost_center??''),$m))return;
+        $name=app(ExpenseCategories::class)->catalog($expense->branch)[$expense->category]['name']??'';
+        if(self::isAdvance($name))app(BranchPayroll::class)->advanceFromExpense($expense,(int)$m[1],(int)$actor->id);
     }
     private function postCash(object $expense,$actor,int $sign): void
     {
@@ -148,15 +217,20 @@ class BranchExpenses
     private function record(array $v,$actor,int $id,string $hash,string $kind): void
     {
         $row=DB::table('branch_expenses')->where('id',$id)->first();
-        DB::table('branch_expense_commands')->insert(['branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'expense_id'=>$id,'kind'=>$kind,'revision'=>$row->revision,'snapshot'=>json_encode($row,JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        DB::table('branch_expense_commands')->insert(['branch'=>$v['branch'],'actor_id'=>$actor->id,'request_key'=>$v['idempotency_key'],'request_hash'=>$hash,'expense_id'=>$id,'kind'=>$kind,'revision'=>$row->revision,'snapshot'=>json_encode((array)$row+$this->stockPurchases()->present($row),JSON_UNESCAPED_UNICODE),'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
     }
     private function present(object $row,$actor,string $name,string $reviewer,string $branchName,bool $canApprove,array $categories): array
     {
         $result=(array)$row;unset($result['attachment_path'],$result['attachment_hash'],$result['attachment_mime']);$result['id']=(int)$row->id;$result['revision']=(int)$row->revision;$result['actor_id']=(int)$row->actor_id;
         $result['number']='EXP-'.str_pad((string)$row->id,6,'0',STR_PAD_LEFT);$result['amount']=Money::decimal((int)$row->amount_cents);$result['actor_name']=$name;$result['reviewer_name']=$reviewer;$result['branch_name']=$branchName;
-        $result['category_name']=$categories[$row->category]??$row->category;
+        $result['category_base_name']=$categories[$row->category]??$row->category;
+        // When it was recorded, in Cairo time, beside its date.
+        $result['recorded_time']=!empty($row->created_at)?\Carbon\Carbon::parse($row->created_at,'UTC')->setTimezone('Africa/Cairo')->format('g:i').' '.(\Carbon\Carbon::parse($row->created_at,'UTC')->setTimezone('Africa/Cairo')->format('A')==='AM'?'ص':'م'):null;
+        $branchLabel=trim($branchName)?:$row->branch;
+        if(str_starts_with($row->branch,'f:')&&!preg_match('/^فرع(?:\s|$)/u',$branchLabel))$branchLabel='فرع '.$branchLabel;
+        $result['category_name']=$result['category_base_name'].' — '.$branchLabel;
         $result['can_edit']=false;
         $result['attachment_url']=$row->attachment_path?route('branch-expenses.attachment',['id'=>$row->id]):null;
-        $result['print_url']=null;return $result;
+        $result['print_url']=null;return $result+$this->stockPurchases()->present($row);
     }
 }

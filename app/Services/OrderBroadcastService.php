@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\User;
 use App\Events\OrderUpdated;
 use App\Events\UserUpdated;
+use App\Events\OrderFinishedUpdated;
 use App\Services\Dashboard\OrderProviderDelivery;
 
 class OrderBroadcastService
@@ -65,6 +66,7 @@ class OrderBroadcastService
 
     public static function outForDelivery(Order $order)
     {
+        app(OrderProviderDelivery::class)->event(new UserUpdated($order, 1, $order->user_id), (int) $order->id);
         $vendor = self::vendor($order);
 
         if ($vendor) {
@@ -85,6 +87,8 @@ class OrderBroadcastService
 
     public static function complete(Order $order)
     {
+        app(OrderProviderDelivery::class)->event(new UserUpdated($order, 1, $order->user_id), (int) $order->id);
+        app(OrderProviderDelivery::class)->event(new OrderFinishedUpdated($order, 1, $order->user_id), (int) $order->id);
         $vendor = self::vendor($order);
 
         if ($vendor) {

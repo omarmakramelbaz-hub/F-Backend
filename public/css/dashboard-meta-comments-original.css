@@ -1,0 +1,10 @@
+/* Original platform content opens only for the selected post. */
+#meta-comments .mc-original-post { padding:14px 16px; border-bottom:1px solid var(--mc-line); background:var(--mc-canvas); }
+#meta-comments .mc-original-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; max-width:500px; margin:0 auto 10px; font-size:13px; }
+#meta-comments .mc-original-heading a { color:#b85508; font-size:12px; text-decoration:underline; }
+#meta-comments .mc-original-frame { display:block; width:min(100%,500px); height:800px; margin:0 auto; border:1px solid #e5e9ef; border-radius:8px; background:#fff; }
+#meta-comments .mc-original-post.is-tall .mc-original-frame { height:1250px; }
+#meta-comments .mc-original-status { max-width:500px; margin:6px auto 10px; color:var(--mc-muted); font-size:12px; line-height:1.7; }
+#meta-comments .mc-original-expand { display:flex; margin:10px auto 0; min-height:34px; font-size:12px; }
+#meta-comments .mc-post-expanded > .mc-post-button .mc-post-caption { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+@media(max-width:600px) { #meta-comments .mc-original-post { padding:12px 8px; } #meta-comments .mc-original-frame { height:720px; } }

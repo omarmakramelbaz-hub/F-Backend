@@ -61,7 +61,7 @@ return [
     ],
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS', 'info@fasakhaninja.com'),
+        'address' => env('MAIL_FROM_ADDRESS', 'info@faskhansta.com'),
         'name' => env('MAIL_FROM_NAME', 'Fasakha Ninja'),
     ],
 

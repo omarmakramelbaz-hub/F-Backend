@@ -10,16 +10,19 @@ class DesktopPosController extends Controller
 {
     public function index(Request $request, TakeawayAccess $access, DesktopPosInstaller $uploads)
     {
-        $actor=auth('admin')->user(); abort_unless($access->canAccess($actor),403);
+        $actor=$access->actor(auth('admin')->user()); abort_unless($access->canAccess($actor),403);
         $branches=array_values(array_filter($access->branches($actor),fn($b)=>$b['kind']==='f')); $values=array_column($branches,'value');
-        $selected=$request->query('branch',$values[0]??''); abort_unless(in_array($selected,$values,true),403);
+        $allowAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);
+        $selected=$request->query('branch',$allowAll?'all':($values[0]??''));
+        abort_unless(($allowAll&&$selected==='all')||in_array($selected,$values,true),403);
+        $scope=$selected==='all'?$values:[$selected];$branchNames=array_column($branches,'name','value');
         $ready=config('desktop_pos.enabled')&&Schema::hasTable('desktop_pos_operations');
-        $devices=$ready?DB::table('desktop_pos_devices')->where('branch',$selected)->select('id','name','actor_id','enabled','last_seen_at')->get():collect();
+        $devices=$ready?DB::table('desktop_pos_devices')->whereIn('branch',$scope)->select('id','branch','name','actor_id','enabled','last_seen_at')->get():collect();
         // No pairing hashes or device credentials are rendered into the dashboard.
-        $operations=$ready?DB::table('desktop_pos_operations')->where('branch',$selected)->orderByDesc('id')->paginate(30):null;
+        $operations=$ready?DB::table('desktop_pos_operations')->whereIn('branch',$scope)->orderByDesc('id')->paginate(30):null;
         $installer=is_file(config('desktop_pos.installer'));
         $canUpload=$uploads->canUpload($actor,$access);
-        return view('admin.desktop_pos.index',compact('branches','selected','devices','operations','ready','installer','canUpload'));
+        return view('admin.desktop_pos.index',compact('branches','selected','devices','operations','ready','installer','canUpload','allowAll','branchNames'));
     }
     public function issue(Request $request,DesktopPos $pos)
     {

@@ -2,10 +2,10 @@
 <aside id="dashboard-sidebar" class="main-sidebar sidebar-dark-primary ">
     <!-- Brand Logo -->
     <!--<hr>-->
-    <a href="{{ url('/admin/dashboard') }}" class="brand-link dashboard-brand">
-        <img class="dashboard-brand-logo" src="{{ asset('dashboard/branding/fasakhansta-logo-transparent.png') }}" alt="فسخانستا" width="88" height="88">
+    <div class="brand-link dashboard-brand">
+        @include('admin.partials.go_hologram_sidebar')
         <span class="dashboard-brand-copy"><strong>فسخانستا</strong><small>GO · {{ __('order_board.dashboard') }}</small></span>
-    </a>
+    </div>
     <hr>
     <!-- Sidebar -->
     <div class="sidebar">
@@ -14,13 +14,13 @@
             <div class="d-flex align-items-center gap-2">
                 <div class="">
                     @if(auth('admin')->user()->id == 1)
-                        <a style="line-height: 45px;"
+                        <a
                             href="{{ url('/admin/users/' . Auth::guard('admin')->user()->id . '/edit?account_type=admin') }}"
-                            class="d-block welcome">@lang('main.hello') / {{ Auth::guard('admin')->user()->name }}</a>
+                            class="d-block welcome dashboard-account-name" title="{{ Auth::guard('admin')->user()->name }}"><bdi dir="auto">{{ Auth::guard('admin')->user()->name }}</bdi></a>
                     @else
-                        <a style="line-height: 45px;"
+                        <a
                             href="{{ url('/admin/users/' . Auth::guard('admin')->user()->id . '/edit/?account_type=' . auth('admin')->user()->account_type) }}"
-                            class="d-block welcome">@lang('main.hello') / {{ Auth::guard('admin')->user()->name }}</a>
+                            class="d-block welcome dashboard-account-name" title="{{ Auth::guard('admin')->user()->name }}"><bdi dir="auto">{{ Auth::guard('admin')->user()->name }}</bdi></a>
                     @endif
                 </div>
             </div>
@@ -40,6 +40,9 @@
                         </p>
                     </a>
                 </li>
+                @if((config('desktop_dashboard.enabled') || config('desktop_dashboard.local')) && app(\App\Services\Dashboard\TakeawayAccess::class)->canAccess(auth('admin')->user()))
+                <li class="nav-item"><a href="{{ route('desktop-dashboard.index') }}" data-spa-off class="nav-link {{ request()->is('admin/desktop-dashboard*') ? 'active' : '' }}"><i class="nav-icon fas fa-desktop" aria-hidden="true"></i><p>برنامج الكمبيوتر</p></a></li>
+                @endif
                 @if(app(\App\Services\Dashboard\OrderBoardService::class)->canAccess(auth('admin')->user()))
                     <li class="nav-item">
                         <a href="{{ route('orders.applies') }}" class="nav-link {{ request()->is('admin/applies-orders') ? 'active' : '' }}">
@@ -50,9 +53,6 @@
                 @endif
                 {{-- @if(session()->get('menu') == 'application') --}}
                 @if(app(\App\Services\Dashboard\TakeawayService::class)->canAccess(auth('admin')->user()))
-                    @if(config('desktop_pos.enabled'))
-                    <li class="nav-item"><a href="{{ route('desktop-pos.index') }}" class="nav-link {{ request()->is('admin/desktop-pos*')?'active':'' }}"><i class="nav-icon fas fa-desktop"></i><p>برنامج الكمبيوتر</p></a></li>
-                    @endif
                     <li class="nav-item">
                         <a href="{{ route('takeaway.index') }}" class="nav-link {{ request()->is('admin/takeaway*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-shopping-bag"></i>
@@ -99,13 +99,23 @@
                 @if(auth('admin')->user()->account_type === 'admin' && (auth('admin')->id() === 1 || auth('admin')->user()->can('resturant-list')))
                 <li class="nav-item"><a href="{{ route('go-stores.index') }}" class="nav-link {{ request()->is('admin/go-stores*') ? 'active' : '' }}"><i class="nav-icon fas fa-store"></i><p>متاجر GO</p></a></li>
                 @endif
-                <!-- الاعدادات -->
+                @include('admin.meta.sidebar')
+<!-- الاعدادات -->
                 @if(Auth::guard('admin')->user()->can('setting-list'))
                     <li class="nav-item">
                         <a href="{{ url('/admin/settings') }}"
                             class="nav-link {{ request()->is('admin/settings') ? 'active' : '' }}">
                             <i class="fas fa-cog nav-icon"></i>
                             <p>@lang('main.main setting')</p>
+                        </a>
+                    </li>
+                @endif
+                @if(Auth::guard('admin')->user()->can('setting-list'))
+                    <li class="nav-item">
+                        <a href="{{ url('/admin/app-update') }}"
+                            class="nav-link {{ request()->is('admin/app-update') ? 'active' : '' }}">
+                            <i class="fas fa-mobile-alt nav-icon"></i>
+                            <p>تحديث التطبيق الإجباري</p>
                         </a>
                     </li>
                 @endif

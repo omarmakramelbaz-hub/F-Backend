@@ -24,6 +24,21 @@ use Illuminate\Support\Facades\Storage;
 class ResturantProductController extends Controller {
 
   use ApiResponses;
+
+    /** What an item's form never decides: which item it is, whose and which branch's. */
+    private const ITEM_FIELDS_THE_SERVER_DECIDES = ['_token', 'id', 'resturant_id', 'added_by', 'created_at', 'updated_at', 'deleted_at'];
+
+    /**
+     * From the app, a branch's items are the business of that branch's own accounts (OrderBoardService::restaurantIds):
+     * never a customer's, a courier's or another branch's. The dashboard (no app token) keeps its own permissions.
+     */
+    private function assertOwnBranch($branchId): void
+    {
+        if (!auth('api')->check()) return;
+        $actor = auth('api')->user();
+        abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner', 'admin'], true)
+            && in_array((int) $branchId, array_map('intval', app(\App\Services\Dashboard\OrderBoardService::class)->restaurantIds($actor)), true), 403);
+    }
   use UploadImageTrait;
 
     private ResturantProductRepositoryInterface $ResturantProductRepository;
@@ -38,6 +53,7 @@ class ResturantProductController extends Controller {
   }
 
    public function store(Request $request) {
+    $this->assertOwnBranch($request->input('resturant_id'));
     $ResturantProduct = $this->ResturantProductRepository->createResturantProduct($request->except('_token')+['added_by' => auth('api')->user()->id]);
     $ResturantProductData = ResturantProductResource::make($ResturantProduct);
     return $this->successResponse('success',__('api.create new item'));
@@ -45,13 +61,15 @@ class ResturantProductController extends Controller {
   
   
    public function update(Request $request,ResturantProduct $menu) {
-    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except('_token')+['added_by' => auth('api')->user()->id]);
+    $this->assertOwnBranch($menu->resturant_id);
+    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except(self::ITEM_FIELDS_THE_SERVER_DECIDES)+['added_by' => auth('api')->user()->id]);
     $ResturantProductData = ResturantProductResource::make($menu->fresh());
     return $this->successResponse($ResturantProductData,__('api.update item'));
   }
 
 
   public function destroy(ResturantProduct $menu) {
+    $this->assertOwnBranch($menu->resturant_id);
     $ResturantProduct = $this->ResturantProductRepository->deleteResturantProduct($menu->id);
     return $this->successResponse($ResturantProduct,__('api.delete item'));
   }
@@ -65,42 +83,31 @@ class ResturantProductController extends Controller {
   }
   
  public function copy_menu(CopyMenuRequest $request){
+        $this->assertOwnBranch($request->resturant_id);
         $resturant=Resturant::find($request->resturant_id);
-          foreach($request->restraunt_product as $restraunt_product){
+          foreach(array_values($request->restraunt_product) as $selectionIndex => $restraunt_product){
             $mainproduct=ResturantProduct::find($restraunt_product);
             $resturant_productt=$resturant->resturant_products->where('product_id',$mainproduct->product_id)->first();
                 if(!$resturant_productt){
                     $product=$mainproduct->replicate();
                     $product->resturant_id = $request->resturant_id;
-                    $product->added_by=auth('api')->check()? auth('api')->user()->id : auth('admin')->user()->id;
+                    $product->added_by=$request->is('api/*') ? auth('api')->user()->id : auth('admin')->user()->id;
                     $product->save();
-                    
-
-// Step 2: Copy media associated with the main product
-$mediaUrl = $mainproduct->getFirstMediaUrl('product_image', 'thumb'); // Replace 'product_image' and 'thumb' with your collection and conversion names
-
-if ($mediaUrl) {
-    // Get the relative file path from the URL (without the base storage path)
-    $mediaPath = str_replace('/storage/', '', parse_url($mediaUrl, PHP_URL_PATH));
-
-    // Check if the file exists in the storage
-    if (Storage::disk('public')->exists($mediaPath)) {
-        // Download the file to a temporary location
-        $tempFile = tempnam(sys_get_temp_dir(), 'media');
-        file_put_contents($tempFile, Storage::disk('public')->get($mediaPath));
-
-        // Add the file to the new product
-        $product->addMedia($tempFile)
-            ->preservingOriginal()
-            ->toMediaCollection('product_image', 'products'); // Replace with your collection name
-
-        // Cleanup temporary file
-        unlink($tempFile);
-    } else {
-        throw new \Exception('Media file does not exist: ' . $mediaPath);
-    }
-}
-
+                    // Resolve the same first image through its original media disk.
+                    // A temporary basename loses the source name and image extension.
+                    $media = $mainproduct->getFirstMedia('product_image');
+                    if ($media) {
+                        app(\App\Services\Dashboard\DesktopDashboardProductImages::class)->withMenuCopy(
+                            $selectionIndex, $mainproduct, $product, function () use ($mainproduct, $product, $media) {
+                                $mediaPath = $mainproduct->getFirstMediaPath('product_image', 'thumb');
+                                return $product->addMedia($mediaPath)
+                                    ->preservingOriginal()
+                                    ->usingName($media->name)
+                                    ->usingFileName(basename($mediaPath))
+                                    ->toMediaCollection('product_image', 'products');
+                            }
+                        );
+                    }
                 }
                 else{
                    $resturant_productt->update([
@@ -117,7 +124,8 @@ if ($mediaUrl) {
   }
   
   public function update_item_status(UpdateStatusRequest $request,ResturantProduct $menu) {
-    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except('_token')+['added_by' => auth('api')->user()->id]);
+    $this->assertOwnBranch($menu->resturant_id);
+    $ResturantProduct = $this->ResturantProductRepository->updateResturantProduct($menu->id, $request->except(self::ITEM_FIELDS_THE_SERVER_DECIDES)+['added_by' => auth('api')->user()->id]);
     $ResturantProductData = ResturantProductResource::make($menu->fresh());
     return $this->successResponse($ResturantProductData,__('api.update item'));
   }

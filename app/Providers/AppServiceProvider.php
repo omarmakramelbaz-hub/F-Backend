@@ -57,6 +57,10 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register()
     {
+        // MySQL connections remember which tables and columns they have, instead of asking the database on every
+        // check (App\Database\SchemaMemory): those questions were 44% of the live database's statements.
+        \Illuminate\Database\Connection::resolverFor('mysql', fn ($connection, $database, $prefix, $config) =>
+            new \App\Database\CachedMySqlConnection($connection, $database, $prefix, $config));
         $this->app->bind(UserAuthRepositoryInterface::class, UserAuthRepository::class);
         $this->app->bind(AuthRepositoryInterface::class, AuthRepository::class);
 
@@ -77,8 +81,24 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot()
     {
+        // FASKHANSTA_CANONICAL_URL_V1: generate site, asset and payment links on the canonical origin.
+        if (config('app.url') === 'https://faskhansta.com') {
+            if (!in_array(strtolower((string) request()->getHost()), ['fasakhaninja.com', 'www.fasakhaninja.com'], true)) \Illuminate\Support\Facades\URL::forceRootUrl('https://faskhansta.com'); // the old domain keeps its own links (branch desktop program)
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+        }
+
+        \App\Models\Order::observe(\App\Observers\OrderLiveActivityObserver::class);
+        // A migration may change tables in ways the connection does not see (straight through PDO): forget after each.
+        \Illuminate\Support\Facades\Event::listen([\Illuminate\Database\Events\MigrationEnded::class, \Illuminate\Database\Events\SchemaLoaded::class],
+            fn () => \App\Database\SchemaMemory::forgetEverything());
+        // File sessions are saved whole or not at all (see AtomicFileSessionHandler).
+        \Illuminate\Support\Facades\Session::extend('file', fn ($app) => new \App\Session\AtomicFileSessionHandler(
+            $app['files'], $app['config']['session.files'], $app['config']['session.lifetime']));
         Paginator::useBootstrap();
         User::observe(UserObserver::class);
+        User::observe(\App\Observers\CustomerDirectoryUserObserver::class);
+        \App\Models\UserAddress::observe(\App\Observers\CustomerDirectoryAddressObserver::class);
+        Order::observe(\App\Observers\CustomerDirectoryOrderObserver::class);
         Order::observe(OrderCompetitionObserver::class);
         Order::observe(OrderMetaConversionObserver::class);
         Order::observe(OrderBoardClockObserver::class);

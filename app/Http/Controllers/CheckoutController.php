@@ -25,6 +25,38 @@ class CheckoutController extends Controller
     //redirects to this method after a successfull checkout
     public function checkout_done($order_id, $payment)
     {
+        $pay = Payment::where('intention_order_id', $order_id)->firstOrFail();
+        $order = Order::findOrFail($pay->order_id);
+        if ($order->type === 'wallet') {
+            // Legacy returns share the same verified, atomic settlement path.
+            try {
+                $details = json_decode($payment, true);
+                $transaction = is_array($details) ? ($details['id'] ?? null) : null;
+                $transaction = (is_string($transaction) || is_int($transaction))
+                    && preg_match('/\A[1-9][0-9]{0,19}\z/', (string) $transaction) ? (string) $transaction : null;
+                app(\App\Services\Payments\WalletTopupSettlement::class)->settle((int) $pay->id, $transaction);
+                return redirect()->route('paySuccess');
+            } catch (\Throwable $exception) {
+                return redirect()->route('payFailed');
+            }
+        }
+        if ($order->type === 'current') {
+            // Old intentions retain this return URL; use the same independent
+            // gateway verification as the server notification and new checkout.
+            try {
+                $details = json_decode($payment, true);
+                $result = app(\App\Http\Controllers\Payment\RestaurantPaymentController::class)
+                    ->confirm($pay->intention_order_id, is_array($details) ? ($details['id'] ?? null) : null);
+                return redirect()->route(in_array($result['state'], ['activated', 'unchanged'], true) ? 'paySuccess' : 'payFailed');
+            } catch (\Throwable $error) {
+                return redirect()->route('payFailed');
+            }
+        }
+        return $this->checkoutDoneRetained($order_id, $payment);
+    }
+
+    protected function checkoutDoneRetained($order_id, $payment)
+    {
          $pay = Payment::where('intention_order_id',$order_id)->first();
         $order = Order::findOrFail($pay->order_id);
         if($order->resturant_id){

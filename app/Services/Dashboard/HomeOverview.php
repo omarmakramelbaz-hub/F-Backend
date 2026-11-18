@@ -25,7 +25,7 @@ class HomeOverview
         if ($period === 'week') $start->subDays(6);
         elseif ($period === 'month') $start->startOfMonth();
         elseif ($period === 'custom') { $start = Carbon::parse($v['from'], 'Africa/Cairo'); $end = Carbon::parse($v['to'], 'Africa/Cairo'); }
-        abort_if($start->diffInDays($end) > 365 || $end->toDateString()>OperatingDay::date(), 422, __('home_overview.invalid_range'));
+        abort_if((int)$start->diffInDays($end,true) > 365 || $end->toDateString()>OperatingDay::date(), 422, __('home_overview.invalid_range'));
         return ['branch'=>$v['branch'] ?? '', 'period'=>$period, 'from'=>$start->toDateString(), 'to'=>$end->toDateString()];
     }
     private function emptySales(): array
@@ -33,22 +33,50 @@ class HomeOverview
         return ['count'=>0, 'gross_cents'=>0, 'delivery_cents'=>0, 'expenses_cents'=>0, 'net_cents'=>0,
             'channels'=>array_fill_keys(self::CHANNELS, ['count'=>0, 'gross_cents'=>0, 'delivery_cents'=>0])];
     }
-    public function data(array $values, $actor): array
+    /** The same validated restaurant scope is used by the overview and explicit drawer read. */
+    private function selection(array $values, $actor): array
     {
-        $actor = $this->access->actor($actor);
         $all = array_values(array_filter($this->access->branches($actor), fn($b)=>$b['kind'] === 'f'));
         foreach($all as &$entry)$entry['display_group']=$this->displayGroup($entry['name']);unset($entry);
         usort($all,fn($a,$b)=>[$a['display_group']==='store'?1:0,$a['id']]<=>[$b['display_group']==='store'?1:0,$b['id']]);
         $filters = $this->range($values); $selected = $all;
         if ($filters['branch'] !== '') { $branch = $this->access->branch($filters['branch'], $actor); abort_unless($branch['kind'] === 'f', 404); $branch['display_group']=$this->displayGroup($branch['name']); $selected = [$branch]; }
+        return [$all,$filters,$selected];
+    }
+    /** Automatic background balance reads keep the initial overview responsive. */
+    public function drawers(array $values, $actor): array
+    {
+        $actor=$this->access->actor($actor);
+        abort_unless((int)$actor->id===1&&$actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
+        [, $filters, $selected]=$this->selection($values,$actor);
+        $ready=$this->has('orders',['resturant_id','type','status','created_at','updated_at'])
+            &&$this->has('takeaway_orders',['branch','business_date','channel','total_cents','delivery_cents','created_at'])
+            &&$this->has('branch_expenses',['branch','occurred_on','status','amount_cents'])
+            &&$this->has('carts',['order_id','price','qty'])&&$this->has('settings',['name','payload'])
+            &&$this->has('branch_shift_closings',['snapshot','sequence','expected_cents'])
+            &&$this->has('branch_shift_sources',['source','source_id'])
+            &&$this->has('branch_expense_commands',['snapshot','branch'])&&$this->access->ready();
+        $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances(array_column($selected,'value'),$actor):[];
+        return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'filters'=>$filters,
+            'owner_drawer'=>['ready'=>$ready,'loaded'=>true,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts]];
+    }
+    public function data(array $values, $actor): array
+    {
+        $actor = $this->access->actor($actor);
+        [$all,$filters,$selected]=$this->selection($values,$actor);
         $centralAccount = $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
         $owner = (int)$actor->id === 1 && $centralAccount;
         // Order-management grants do not grant central admins access to sales amounts.
         $finance = $centralAccount ? $owner : $this->access->permissions($actor)['can_manage'];
         $central = $centralAccount && $filters['branch'] === '';
         $keys = array_column($selected, 'value'); $ids = array_column($selected, 'id');
+        // Sales belong to the fulfillment branch; order ownership and active-order
+        // access retain their original restaurant scope below.
+        $appSalesBranches=[];
+        foreach($selected as $b)foreach(FasakhanstaStoreFulfillment::sourceRestaurantIdsForBranch((int)$b['id']) as $source)$appSalesBranches[$source]=$b['value'];
+        $appSalesIds=array_keys($appSalesBranches);
         $from = OperatingDay::start($filters['from']); $until = OperatingDay::end($filters['to']);
-        $previousFrom = $from->copy()->subDays($from->diffInDays($until));
+        $previousFrom = $from->copy()->subDays((int)$from->diffInDays($until,true));
         $modules = ['app'=>$this->has('orders', ['resturant_id','type','status','created_at','updated_at']),
             'pos'=>$this->has('takeaway_orders', ['branch','business_date','channel','total_cents','delivery_cents','created_at']),
             'expenses'=>$this->has('branch_expenses', ['branch','occurred_on','status','amount_cents']),
@@ -76,13 +104,15 @@ class HomeOverview
         }
         $appFallback = 0;
         if ($modules['app']) {
-            $q = $this->appQuery($ids)->where('orders.status','completed');
+            $q = $this->appQuery($appSalesIds)->where('orders.status','completed');
             $clock = $this->has('order_board_clocks', ['source','order_id','closed_at']);
             $saleClock = $this->has('branch_recipe_sales', ['branch','source_type','source_id','created_at']);
             if ($clock) $q->leftJoin('order_board_clocks as clock', function($j){$j->on('clock.order_id','=','orders.id')->where('clock.source','legacy');});
             if ($saleClock) {
-                $branchExpression = DB::connection()->getDriverName() === 'sqlite' ? "'f:' || orders.resturant_id" : "CONCAT('f:', orders.resturant_id)";
-                $q->leftJoin('branch_recipe_sales as stock_sale', function($j) use($branchExpression){$j->on('stock_sale.source_id','=','orders.id')->where('stock_sale.source_type','app')->on('stock_sale.branch','=',DB::raw($branchExpression));});
+                // Keep the first recorded sale timestamp across the old store and
+                // physical-branch identities without multiplying a historical row.
+                $saleDates=DB::table('branch_recipe_sales')->whereIn('branch',array_map(fn($id)=>'f:'.$id,$appSalesIds))->where('source_type','app')->select('source_id')->selectRaw('MIN(created_at) AS created_at')->groupBy('source_id');
+                $q->leftJoinSub($saleDates,'stock_sale',fn($j)=>$j->on('stock_sale.source_id','=','orders.id'));
             }
             $clockExpr = $clock && $saleClock ? 'COALESCE(clock.closed_at, stock_sale.created_at)' : ($clock ? 'clock.closed_at' : ($saleClock ? 'stock_sale.created_at' : 'NULL'));
             $q->select('orders.*')->selectRaw($clockExpr.' AS completed_utc')->where(function($w) use($clockExpr,$previousFrom,$until) {
@@ -90,13 +120,13 @@ class HomeOverview
                     ->orWhere(function($old) use($clockExpr,$previousFrom,$until){$old->whereRaw($clockExpr.' IS NULL')->where('orders.updated_at','>=',$previousFrom->toDateTimeString())->where('orders.updated_at','<',$until->toDateTimeString());});
             });
             $bps = $this->serviceRate();
-            $q->orderBy('orders.id')->chunkById(500, function($rows) use(&$sales,&$previous,&$branches,&$trend,&$appFallback,$from,$bps) {
+            $q->orderBy('orders.id')->chunkById(500, function($rows) use(&$sales,&$previous,&$branches,&$trend,&$appFallback,$from,$bps,$appSalesBranches) {
                 $carts = $this->has('carts',['order_id','price','qty']) ? DB::table('carts')->whereIn('order_id',$rows->pluck('id'))->get()->groupBy('order_id') : collect();
                 foreach ($rows as $r) {
                     $when = Carbon::parse($r->completed_utc ?: $r->updated_at, $r->completed_utc ? 'UTC' : config('app.timezone'))->setTimezone('Africa/Cairo');
                     [$total,$delivery] = $this->appAmount($r,$carts[$r->id] ?? collect(),$bps);
                     if ($when->lt($from)) $this->add($previous,'app',$total,$delivery);
-                    else { if (!$r->completed_utc) $appFallback++; $this->add($sales,'app',$total,$delivery); $this->add($branches['f:'.$r->resturant_id]['sales'],'app',$total,$delivery); $this->point($trend,$when,$total); }
+                    else { if (!$r->completed_utc) $appFallback++; $this->add($sales,'app',$total,$delivery); $this->add($branches[$appSalesBranches[$r->resturant_id]]['sales'],'app',$total,$delivery); $this->point($trend,$when,$total); }
                 }
             }, 'orders.id', 'id');
         }
@@ -143,9 +173,9 @@ class HomeOverview
         foreach($trend['points'] as &$point)if(!$finance)unset($point['amount_cents']);unset($point);
         $drawer=$centralAccount?['owner_platform'=>$this->platformCounts(),'expenses_cents'=>$sales['expenses_cents']]:[];
         if($owner){
-            $ready=$modules['app']&&$modules['pos']&&$modules['expenses']&&$this->has('carts',['order_id','price','qty'])&&$this->has('settings',['name','payload'])&&$this->has('branch_shift_closings',['snapshot','sequence','expected_cents'])&&$this->has('branch_shift_sources',['source','source_id'])&&$this->has('branch_expense_commands',['snapshot','branch'])&&$this->access->ready();
-            $amounts=$ready?app(BranchShiftClosing::class)->ownerBalances($keys,$actor):[];
-            $drawer['owner_drawer']=['ready'=>$ready,'total_cents'=>$ready?array_sum(array_column($amounts,'expected_cents')):null,'branches'=>$amounts];
+            // Opening and periodically refreshing home never reconstructs every shift.
+            // Null means not requested; it must not be displayed as a zero balance.
+            $drawer['owner_drawer']=['ready'=>false,'loaded'=>false,'total_cents'=>null,'branches'=>[]];
         }
         return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'operating_day'=>OperatingDay::metadata(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
             'branch_home'=>!$centralAccount,'today_expenses'=>!$centralAccount?$this->todayExpenses($keys,$modules['expenses']):null,
@@ -196,7 +226,7 @@ class HomeOverview
     }
     private function trend(Carbon $from,Carbon $until): array
     {
-        $days=$from->diffInDays($until);$mode=$days===1?'hour':($days>62?'month':'day');$points=[];$at=$from->copy();
+        $days=(int)$from->diffInDays($until,true);$mode=$days===1?'hour':($days>62?'month':'day');$points=[];$at=$from->copy();
         while($at->lt($until)){$key=$at->format($mode==='hour'?'Y-m-d H':($mode==='month'?'Y-m':'Y-m-d'));$points[$key]=['key'=>$key,'label'=>$at->format($mode==='hour'?'H:00':($mode==='month'?'m/Y':'d/m')),'count'=>0,'amount_cents'=>0];if($mode==='hour')$at->addHour();elseif($mode==='month')$at->startOfMonth()->addMonth();else $at->addDay();}
         return ['mode'=>$mode,'points'=>$points];
     }
@@ -208,13 +238,30 @@ class HomeOverview
     {
         if(!$ready)return ['items'=>[],'attention'=>[],'tracked'=>0,'unconfigured_recipes'=>0];
         $stock=DB::table('branch_inventory')->whereIn('branch',$keys)->get()->groupBy('ingredient_id');$items=[];$attention=[];
-        foreach(DB::table('stock_ingredients')->orderBy('position')->get() as $i){$rows=$stock[$i->id]??collect();$units=(int)$rows->sum('quantity_units');$items[]=['id'=>(int)$i->id,'name'=>$i->name,'unit'=>$i->unit,'quantity'=>app(BranchInventory::class)->quantity($units),'quantity_units'=>$units,'tracked_branches'=>$rows->count(),'negative_branches'=>$rows->where('quantity_units','<',0)->count()];foreach($rows as $r)if($r->quantity_units<=0)$attention[]=['name'=>$i->name,'branch'=>$r->branch,'unit'=>$i->unit,'quantity'=>app(BranchInventory::class)->quantity((int)$r->quantity_units),'quantity_units'=>(int)$r->quantity_units];}
-        if($byBranch)foreach($items as &$item){
+        // Read minimums in one scoped batch. Viewing the dashboard must not
+        // reconcile stock episodes or dispatch any pending email.
+        $minimums=[];
+        if($this->has('branch_stock_minimums',['branch','stock_type','stock_item_id','unit','minimum_units'])){
+            foreach(DB::table('branch_stock_minimums')->whereIn('branch',$keys)->where('stock_type','ingredient')->whereNotNull('minimum_units')->get(['branch','stock_item_id','unit','minimum_units']) as $minimum)
+                $minimums[$minimum->branch][(int)$minimum->stock_item_id]=$minimum;
+        }
+        $inventory=app(BranchInventory::class);
+        foreach(DB::table('stock_ingredients')->orderBy('position')->get() as $i){
+            $rows=$stock[$i->id]??collect();$units=(int)$rows->sum('quantity_units');$low=false;
             // Null means no opening/receipt has been recorded, not zero stock.
-            $balances=array_fill_keys($keys,null);
-            foreach($stock[$item['id']]??collect() as $row)$balances[$row->branch]=['quantity'=>app(BranchInventory::class)->quantity((int)$row->quantity_units),'quantity_units'=>(int)$row->quantity_units];
-            $item['balances']=$balances;
-        }unset($item);
+            $balances=$byBranch?array_fill_keys($keys,null):[];
+            foreach($rows as $r){
+                $quantity=(int)$r->quantity_units;$minimum=$minimums[$r->branch][(int)$i->id]??null;
+                $isLow=$minimum && $minimum->unit===$i->unit && $quantity<=(int)$minimum->minimum_units;
+                // A healthy branch's balance must not hide another branch's shortage.
+                $low=$low||$isLow;
+                if($byBranch)$balances[$r->branch]=['quantity'=>$inventory->quantity($quantity),'quantity_units'=>$quantity,'is_low'=>$isLow];
+                if($quantity<=0)$attention[]=['name'=>$i->name,'branch'=>$r->branch,'unit'=>$i->unit,'quantity'=>$inventory->quantity($quantity),'quantity_units'=>$quantity];
+            }
+            $item=['id'=>(int)$i->id,'name'=>$i->name,'unit'=>$i->unit,'quantity'=>$inventory->quantity($units),'quantity_units'=>$units,'tracked_branches'=>$rows->count(),'negative_branches'=>$rows->where('quantity_units','<',0)->count(),'is_low'=>$low];
+            if($byBranch)$item['balances']=$balances;
+            $items[]=$item;
+        }
         usort($attention,fn($a,$b)=>$a['quantity_units']<=>$b['quantity_units']);$missing=0;
         if($this->has('branch_stock_recipes',['branch','product_id'])&&$this->has('resturant_products',['resturant_id','status'])){foreach($keys as $key){$id=(int)substr($key,2);$missing+=DB::table('resturant_products')->where('resturant_id',$id)->where('status','show')->whereNotIn('id',DB::table('branch_stock_recipes')->where('branch',$key)->select('product_id'))->count();}}
         return ['items'=>$items,'attention'=>$attention,'tracked'=>count(array_filter($items,fn($i)=>$i['tracked_branches']>0)),'unconfigured_recipes'=>$missing];
@@ -258,7 +305,7 @@ class HomeOverview
     {
         $out=[];
         if($modules['app'])foreach($this->appQuery($ids)->whereNotNull('status')->where('created_at','>=',$from->toDateTimeString())->where('created_at','<',$until->toDateTimeString())->orderByDesc('created_at')->orderByDesc('id')->limit(8)->get() as $r){$state=$r->status==='completed'?'completed':(in_array($r->status,['cancelled','declined','rejected'],true)?'cancelled':$this->appGroup($r));$out[]=['id'=>(int)$r->id,'number'=>$r->order_no??'#'.$r->id,'channel'=>'app','branch'=>'f:'.$r->resturant_id,'status'=>$state,'at'=>Carbon::parse($r->created_at,config('app.timezone'))->toIso8601String(),'url'=>route('order-board.details',['legacy',$r->id])];}
-        if($modules['pos'])foreach(DB::table('takeaway_orders')->whereIn('branch',$keys)->where('business_date','>=',$from->toDateString())->where('business_date','<',$until->toDateString())->orderByDesc('created_at')->orderByDesc('id')->limit(8)->get() as $r){$out[]=['id'=>(int)$r->id,'number'=>'POS-'.str_pad($r->id,6,'0',STR_PAD_LEFT),'channel'=>$r->channel,'branch'=>$r->branch,'status'=>'completed','at'=>Carbon::parse($r->created_at,'UTC')->toIso8601String(),'url'=>route('takeaway.details',['id'=>$r->id])];}
+        if($modules['pos'])foreach(DB::table('takeaway_orders')->whereIn('branch',$keys)->where('business_date','>=',$from->toDateString())->where('business_date','<',$until->toDateString())->orderByDesc('created_at')->orderByDesc('id')->limit(8)->get() as $r){$out[]=['id'=>(int)$r->id,'number'=>BranchOrderSequence::display($r,$r->branch,$r->channel,'POS-'.str_pad($r->id,6,'0',STR_PAD_LEFT)),'channel'=>$r->channel,'branch'=>$r->branch,'status'=>'completed','at'=>Carbon::parse($r->created_at,'UTC')->toIso8601String(),'url'=>route('takeaway.details',['id'=>$r->id])];}
         usort($out,fn($a,$b)=>strcmp(Carbon::parse($b['at'])->utc()->toDateTimeString(),Carbon::parse($a['at'])->utc()->toDateTimeString()));return array_slice($out,0,8);
     }
 }

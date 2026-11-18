@@ -7,7 +7,7 @@ return [
      * put them (manually) here.
      */
     'settings' => [
-        GeneralSettings::class
+        \App\Models\GeneralSettings::class
 
     ],
 
@@ -31,7 +31,10 @@ return [
      */
     'repositories' => [
         'database' => [
-            'type' => Spatie\LaravelSettings\SettingsRepositories\DatabaseSettingsRepository::class,
+            // Only the isolated bundled graph defines this compatibility class.
+            'type' => class_exists('FasakhanstaDesktopLegacySettingsRepository')
+                ? FasakhanstaDesktopLegacySettingsRepository::class
+                : Spatie\LaravelSettings\SettingsRepositories\DatabaseSettingsRepository::class,
             'model' => null,
             'table' => null,
             'connection' => null,
@@ -69,7 +72,10 @@ return [
      * The package will look for settings in these paths and automatically
      * register them.
      */
-    'auto_discover_settings' => [
+    // The bundled application has an explicit GeneralSettings binding above.
+    // Discovering every App class on each private PHP request needlessly loads
+    // unrelated controllers, provider clients and console commands on Windows.
+    'auto_discover_settings' => env('DESKTOP_DASHBOARD_LOCAL', false) ? [] : [
         app()->path(),
     ],
 

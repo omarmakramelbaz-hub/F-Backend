@@ -1,0 +1,563 @@
+/* Recent posts are the primary workspace. Existing comment and AI actions are unchanged. */
+@supports selector(body:has(#meta-comments)) {
+    html:has(.meta-comments-wrapper > #meta-comments) {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body:has(.meta-comments-wrapper > #meta-comments) {
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    body:has(.meta-comments-wrapper > #meta-comments) > .wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        min-height: 0 !important;
+        overflow: hidden;
+    }
+
+    body:has(.meta-comments-wrapper > #meta-comments) > .wrapper > .main-header,
+    body:has(.meta-comments-wrapper > #meta-comments) > .wrapper > .main-footer {
+        position: relative;
+        flex: 0 0 auto;
+        min-height: 0;
+        margin-block: 0;
+    }
+
+    body:has(.meta-comments-wrapper > #meta-comments) > .wrapper > .main-footer {
+        padding-block: 5px;
+        font-size: 11px;
+        line-height: 1.5;
+    }
+
+    /* #dashboard-page uses display:contents in the SPA shell. */
+    body:has(.meta-comments-wrapper > #meta-comments) > .wrapper .meta-comments-wrapper {
+        flex: 1 1 0;
+        height: auto;
+        min-height: 0 !important;
+        max-height: none;
+        padding: 0;
+        overflow: hidden;
+    }
+}
+
+#meta-comments.meta-comments {
+    --mc-panel: #fff;
+    --mc-canvas: #f7f9fc;
+    --mc-ink: #263040;
+    --mc-selected: #fff4e9;
+    --mc-selection-line: #ffbe85;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    padding: 8px 10px;
+    gap: 6px;
+    color: var(--mc-ink);
+    overflow: hidden;
+}
+
+#meta-comments .mc-heading {
+    min-height: 46px;
+    padding: 5px 10px;
+    border-radius: 9px;
+    background: var(--mc-panel);
+}
+
+#meta-comments .mc-brand,
+#meta-comments .mc-tools {
+    gap: 8px;
+}
+
+#meta-comments .mc-brand-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    font-size: 18px;
+}
+
+#meta-comments .mc-heading h1 {
+    margin-block-end: 1px;
+    font-size: 18px;
+}
+
+#meta-comments .mc-heading p {
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+#meta-comments .mc-heading .mc-button,
+#meta-comments .mc-filters .mc-filter {
+    min-height: 32px;
+    padding: 5px 10px;
+}
+
+#meta-comments .mc-ai {
+    position: relative;
+    z-index: 5;
+    padding: 6px 10px;
+    border-radius: 9px;
+    background: var(--mc-panel);
+    color: var(--mc-ink);
+}
+
+#meta-comments .mc-ai-heading,
+#meta-comments .mc-ai-copy,
+#meta-comments .mc-ai-actions {
+    gap: 7px;
+}
+
+#meta-comments .mc-ai-copy strong {
+    font-size: 12px;
+}
+
+#meta-comments .mc-ai button {
+    min-height: 31px;
+    padding: 5px 10px;
+}
+
+#meta-comments .mc-ai-policy,
+#meta-comments .mc-ai-worker {
+    margin-block-start: 3px;
+    line-height: 1.45;
+}
+
+/* The schedule remains toggled by its existing button and hidden attribute. */
+#meta-comments .mc-ai-form {
+    position: absolute;
+    inset-block-start: calc(100% + 5px);
+    inset-inline-end: 0;
+    z-index: 6;
+    width: min(800px, 100%);
+    max-height: min(48dvh, 380px);
+    margin: 0;
+    padding: 12px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--mc-line);
+    border-radius: 10px;
+    background: var(--mc-panel);
+    box-shadow: 0 10px 30px #26304026;
+}
+
+#meta-comments .mc-filters {
+    gap: 7px;
+    min-height: 44px;
+    padding: 5px 10px;
+    border-radius: 9px;
+    background: var(--mc-panel);
+}
+
+#meta-comments .mc-account-field {
+    gap: 7px;
+    min-width: 0;
+}
+
+#meta-comments .mc-account-field select {
+    min-height: 32px;
+    padding: 5px 9px;
+    max-width: 310px;
+}
+
+#meta-comments .mc-workspace {
+    flex: 1 1 0;
+    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+    min-height: 0;
+    min-width: 0;
+    border-radius: 10px;
+    background: var(--mc-panel);
+    box-shadow: 0 3px 14px #26304005;
+}
+
+#meta-comments .mc-posts-panel {
+    container-type: inline-size;
+    background: var(--mc-canvas);
+}
+
+#meta-comments .mc-posts-panel,
+#meta-comments .mc-comments-panel {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#meta-comments .mc-panel-heading {
+    min-height: 44px;
+    padding: 8px 12px;
+}
+
+#meta-comments .mc-post-heading {
+    min-height: 52px;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#meta-comments .mc-post-heading .mc-secondary {
+    min-height: 30px;
+    padding: 5px 8px;
+    font-size: 11px;
+}
+
+#meta-comments .mc-selected-post {
+    flex: 1 1 130px;
+}
+
+#meta-comments .mc-posts-scroll,
+#meta-comments .mc-comments-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+#meta-comments .mc-post-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+}
+
+#meta-comments .mc-post-list > li {
+    min-width: 0;
+}
+
+#meta-comments .mc-post-button {
+    height: 100%;
+    min-height: 150px;
+    gap: 9px;
+    margin: 0;
+    padding: 12px;
+    border-color: var(--mc-line);
+    border-radius: 9px;
+    background: var(--mc-panel);
+    color: var(--mc-ink);
+}
+
+#meta-comments .mc-post-button:hover {
+    border-color: #f0b782;
+    box-shadow: 0 2px 8px #2630400a;
+}
+
+#meta-comments .mc-post-button[aria-pressed="true"] {
+    border-color: var(--mc-selection-line);
+    background: var(--mc-selected);
+    box-shadow: inset 0 -3px var(--mc-orange);
+}
+
+#meta-comments .mc-post-caption {
+    font-size: 14px;
+    line-height: 1.7;
+    -webkit-line-clamp: 4;
+}
+
+#meta-comments .mc-post-meta {
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+#meta-comments .mc-post-foot {
+    margin-block-start: auto;
+    gap: 8px;
+    padding-block-start: 3px;
+}
+
+/* Cards stay at least about 300px wide, independent of sidebar width. */
+@container (min-width: 640px) {
+    #meta-comments .mc-post-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+#meta-comments .mc-panel-footer {
+    padding: 6px 10px;
+}
+
+#meta-comments .mc-panel-footer .mc-button {
+    padding: 6px 10px;
+}
+
+#meta-comments .mc-comments-scroll {
+    padding: 3px 12px 8px;
+}
+
+#meta-comments .mc-comment {
+    padding: 12px 0;
+}
+
+#meta-comments .mc-comment.is-selected {
+    margin-block: 6px;
+    padding: 10px;
+    background: var(--mc-selected);
+    border-color: var(--mc-selection-line);
+}
+
+#meta-comments .mc-comment-text {
+    margin-block: 6px 8px;
+    line-height: 1.65;
+}
+
+#meta-comments .mc-composer {
+    flex: 0 0 auto;
+    padding: 8px 10px 6px;
+    background: var(--mc-panel);
+}
+
+#meta-comments .mc-reply-heading {
+    flex-wrap: wrap;
+    gap: 3px 7px;
+    margin-block-end: 6px;
+}
+
+#meta-comments .mc-public {
+    max-width: none;
+}
+
+#meta-comments .mc-compose-row {
+    gap: 6px;
+}
+
+#meta-comments .mc-compose-row textarea {
+    min-height: 54px;
+    padding: 7px 9px;
+    color: var(--mc-ink);
+    background: var(--mc-panel);
+}
+
+#meta-comments .mc-compose-row .mc-send {
+    min-width: 85px;
+    padding: 6px 8px;
+}
+
+#meta-comments .mc-emoji-toggle {
+    min-width: 36px;
+    padding: 7px;
+    font-size: 19px;
+}
+
+#meta-comments .mc-compose-footer {
+    margin-block-start: 4px;
+}
+
+/* Keep the floating emoji picker above the composer inside its own panel. */
+#meta-comments .mc-emoji-picker {
+    max-height: min(30dvh, 220px);
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.dark-mode #meta-comments,
+[data-theme="dark"] #meta-comments {
+    --mc-line: #35465d;
+    --mc-muted: #afbed0;
+    --mc-panel: #1d293b;
+    --mc-canvas: #152133;
+    --mc-ink: #e6edf8;
+    --mc-selected: #423324;
+    --mc-selection-line: #b7753d;
+}
+
+.dark-mode #meta-comments .mc-ai,
+[data-theme="dark"] #meta-comments .mc-ai {
+    border-color: #725031;
+}
+
+.dark-mode #meta-comments .mc-account-field select,
+.dark-mode #meta-comments .mc-ai select,
+.dark-mode #meta-comments .mc-ai input[type="time"],
+.dark-mode #meta-comments .mc-filter,
+.dark-mode #meta-comments .mc-emoji-picker,
+.dark-mode #meta-comments .mc-emoji-tabs button,
+.dark-mode #meta-comments .mc-emoji-grid button,
+[data-theme="dark"] #meta-comments .mc-account-field select,
+[data-theme="dark"] #meta-comments .mc-ai select,
+[data-theme="dark"] #meta-comments .mc-ai input[type="time"],
+[data-theme="dark"] #meta-comments .mc-filter,
+[data-theme="dark"] #meta-comments .mc-emoji-picker,
+[data-theme="dark"] #meta-comments .mc-emoji-tabs button,
+[data-theme="dark"] #meta-comments .mc-emoji-grid button {
+    background: var(--mc-panel);
+    color: var(--mc-ink);
+    border-color: var(--mc-line);
+}
+
+.dark-mode #meta-comments .mc-filter[aria-pressed="true"],
+.dark-mode #meta-comments .mc-secondary,
+.dark-mode #meta-comments .mc-reply-preview,
+.dark-mode #meta-comments .mc-emoji-tabs button[aria-pressed="true"],
+.dark-mode #meta-comments .mc-emoji-grid button:hover,
+[data-theme="dark"] #meta-comments .mc-filter[aria-pressed="true"],
+[data-theme="dark"] #meta-comments .mc-secondary,
+[data-theme="dark"] #meta-comments .mc-reply-preview,
+[data-theme="dark"] #meta-comments .mc-emoji-tabs button[aria-pressed="true"],
+[data-theme="dark"] #meta-comments .mc-emoji-grid button:hover {
+    background: #423324;
+    color: #ffc28d;
+    border-color: #725031;
+}
+
+.dark-mode #meta-comments .mc-reply,
+[data-theme="dark"] #meta-comments .mc-reply {
+    background: var(--mc-canvas);
+    border-color: var(--mc-line);
+}
+
+.dark-mode #meta-comments .mc-ai-policy,
+.dark-mode #meta-comments .mc-ai-worker,
+.dark-mode #meta-comments .mc-ai-zone,
+[data-theme="dark"] #meta-comments .mc-ai-policy,
+[data-theme="dark"] #meta-comments .mc-ai-worker,
+[data-theme="dark"] #meta-comments .mc-ai-zone {
+    color: var(--mc-muted);
+}
+
+.dark-mode #meta-comments .mc-compose-row textarea:disabled,
+[data-theme="dark"] #meta-comments .mc-compose-row textarea:disabled {
+    background: var(--mc-canvas);
+}
+
+@media (max-width: 1000px) and (min-width: 721px) {
+    #meta-comments .mc-workspace {
+        grid-template-columns: minmax(0, 1.55fr) minmax(340px, 1fr);
+    }
+}
+
+@media (max-width: 720px) {
+    #meta-comments.meta-comments {
+        padding: 6px;
+        gap: 5px;
+    }
+
+    #meta-comments .mc-heading {
+        min-height: 42px;
+        align-items: center;
+        padding: 6px 8px;
+        gap: 7px;
+    }
+
+    #meta-comments .mc-heading h1 {
+        font-size: 16px;
+    }
+
+    #meta-comments .mc-heading p {
+        font-size: 10px;
+    }
+
+    #meta-comments .mc-ai {
+        padding: 6px 8px;
+    }
+
+    #meta-comments .mc-ai-heading {
+        align-items: flex-start;
+        gap: 5px;
+    }
+
+    #meta-comments .mc-ai-copy {
+        gap: 4px 7px;
+    }
+
+    #meta-comments .mc-ai-actions {
+        width: auto;
+        flex: 0 0 auto;
+        gap: 5px;
+    }
+
+    #meta-comments .mc-ai-actions button {
+        flex: 0 0 auto;
+        padding: 5px 8px;
+    }
+
+    #meta-comments .mc-filters {
+        padding: 6px 8px;
+        gap: 6px;
+    }
+
+    #meta-comments .mc-account-field select {
+        max-width: none;
+    }
+
+    #meta-comments .mc-post-list {
+        padding: 8px;
+        gap: 7px;
+    }
+
+    #meta-comments .mc-post-button {
+        min-height: 138px;
+        padding: 10px;
+    }
+
+    #meta-comments .mc-post-caption {
+        -webkit-line-clamp: 3;
+    }
+
+    #meta-comments .mc-post-heading {
+        padding: 7px 9px;
+    }
+
+    #meta-comments .mc-comments-scroll {
+        padding-inline: 10px;
+    }
+
+    #meta-comments .mc-composer {
+        padding: 7px 8px 5px;
+    }
+
+    #meta-comments .mc-compose-row .mc-send {
+        min-width: 78px;
+    }
+}
+
+/* Short and zoomed screens keep a usable panel and scroll the surrounding page. */
+@media (max-height: 620px), (max-width: 720px) and (max-height: 720px) {
+    @supports selector(body:has(#meta-comments)) {
+        html:has(.meta-comments-wrapper > #meta-comments),
+        body:has(.meta-comments-wrapper > #meta-comments) {
+            height: auto;
+            overflow: auto;
+        }
+
+        body:has(.meta-comments-wrapper > #meta-comments) > .wrapper {
+            height: auto;
+            min-height: 100dvh !important;
+            overflow: visible;
+        }
+
+        body:has(.meta-comments-wrapper > #meta-comments) > .wrapper .meta-comments-wrapper {
+            flex: 0 0 auto;
+            overflow: visible;
+        }
+    }
+
+    #meta-comments.meta-comments {
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+    }
+
+    #meta-comments .mc-workspace {
+        flex: 0 0 auto;
+        height: 420px;
+        min-height: 300px;
+    }
+
+    #meta-comments .mc-ai-form {
+        max-height: 120px;
+    }
+
+    #meta-comments .mc-emoji-picker {
+        max-height: 180px;
+    }
+}
+
+@supports not selector(body:has(#meta-comments)) {
+    #meta-comments.meta-comments {
+        height: calc(100dvh - 92px);
+        min-height: 340px;
+    }
+}

@@ -9,8 +9,8 @@
 <nav data-dashboard-inbox
      data-notifications-url="{{ route('dashboard-inbox.notifications') }}"
      data-notifications-read-url="{{ route('dashboard-inbox.notifications.read') }}"
-     data-support-url="{{ $inboxCanSupport ? route('dashboard-inbox.support') : '' }}"
-     data-inbox-ids="{{ $inboxCanSupport ? implode(',', $inboxService->inboxIds($inboxActor)) : '' }}"
+     data-support-url="{{ $inboxCanSupport && !config('desktop_dashboard.local') ? route('dashboard-inbox.support') : '' }}"
+     data-inbox-ids="{{ $inboxCanSupport && !config('desktop_dashboard.local') ? implode(',', $inboxService->inboxIds($inboxActor)) : '' }}"
      data-support-staff="{{ $inboxCanSupport && $inboxService->isStaff($inboxActor) ? '1' : '0' }}"
      data-inbox-read-failed="{{ trans('dashboard_inbox.read_failed') }}"
      class="main-header navbar navbar-expand navbar-white navbar-light justify-content-between" @if(\Request::route()->getName() == 'chooseType') style="margin-right:0px;" @endif>

@@ -24,6 +24,7 @@ use App\Http\Resources\Api\ShippingResource;
 use Notification;
 use Mail;
 use App\Events\DelegateUpdated;
+use App\Events\ShippingUpdated;
 use App\Models\DelegateNotification;
 use Illuminate\Support\Facades\DB;
 class ShippingController extends Controller {
@@ -49,41 +50,44 @@ class ShippingController extends Controller {
                 
             ]);
 
-            $cart= Shipping::create(array_merge([
+            // The request's own details, then what the server decides: the request never names another user or order.
+            $cart= Shipping::create(array_merge($request->except(['payment_type', 'id', 'user_id', 'order_id', 'created_at', 'updated_at']), [
              'user_id'=>auth('api')->user()->id,
              'order_id'=>$order->id,
-             ],$request->except('payment_type')));
+             ]));
              
 
                 if($request->payment_type == 'online'){
                 return (new PaymobController)->checkingOut(
                         'paymob_card_payment',
-                        env('PAYMOB_CARD_INTEGRATION_ID'),
+                        config('services.paymob.card_integration_id'),
                         $order->id,
-                        env('PAYMOB_CARD_IFRAME_ID'));
+                        config('services.paymob.card_iframe_id'));
              }else if ($request->payment_type == 'v_cash')
              {
                 return (new PaymobController)->checkingOut(
                         'paymob_mobile_wallet_payment',
-                        env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
+                        config('services.paymob.wallet_integration_id'),
                         $order->id,
                         $order->user_address?->mobile);
              }else if($request->payment_type == 'wallet'){
-                 if(auth('api')->user()->balance >= $order->grand_total){
+                 // Taken in one step, only while the balance covers it: two requests at once never spend the same money.
+                 $amount = $order->grand_total;
+                 if($amount > 0 && \Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
                      Wallet::create([
                          'from_user' => auth('api')->user()->id,
                          'to_user' => null,
                          'status' => 'completed',
                          'payment' => 'wallet',
                          'type' => 'transfer',
-                         'amount' => $order->grand_total,
+                         'amount' => $amount,
                          'order_id'=>$order->id
                          ]);
                     $order->update([
                         'status' => 'pending',
                         ]);
-                    $user=auth('api')->user();
-                    $user->update(['balance'=>$user->balance-$order->grand_total]);
+                    $customer = User::withoutGlobalScopes()->find(auth('api')->id());
+                    if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
                      $this->searchDelegates($order->id);
                     // (new \App\Http\Controllers\Dashboard\OrderController)->transferPrice($order->id);
                  }
@@ -119,39 +123,43 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
       
          if($order  && $order->grand_total > 0){
            
-             $updated = $order->update($request->input()+[ 'created_at' => now()]);
+             // Only what the customer chooses at payment: never the price agreed before, the parties or the order's state.
+             $updated = $order->update($request->except(array_merge(\App\Services\Orders\CustomerOrderFields::SERVER_DECIDES,
+                 \App\Services\Orders\CustomerOrderFields::SHIPPING_PAYMENT_DECIDES)) + ['created_at' => now()]);
              $order_data=new OrderResource($order);
               
                 
             if($request->payment_type == 'online'){
                 return (new PaymobController)->checkingOut(
                         'paymob_card_payment',
-                        env('PAYMOB_CARD_INTEGRATION_ID'),
+                        config('services.paymob.card_integration_id'),
                         $order->id,
-                        env('PAYMOB_CARD_IFRAME_ID'));
+                        config('services.paymob.card_iframe_id'));
              }else if ($request->payment_type == 'v_cash')
              {
                 return (new PaymobController)->checkingOut(
                         'paymob_mobile_wallet_payment',
-                        env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
+                        config('services.paymob.wallet_integration_id'),
                         $order->id,
                         $order->user_address?->mobile);
              }else if($request->payment_type == 'wallet'){
-                 if(auth('api')->user()->balance >= $order->grand_total){
+                 // Taken in one step, only while the balance covers it: two payments at once never spend the same money.
+                 $amount = $order->grand_total;
+                 if($amount > 0 && \Illuminate\Support\Facades\DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount)){
                      Wallet::create([
                          'from_user' => auth('api')->user()->id,
                          'to_user' => null,
                          'status' => 'completed',
                          'payment' => 'wallet',
                          'type' => 'transfer',
-                         'amount' => $order->grand_total,
+                         'amount' => $amount,
                          'order_id'=>$order->id
                          ]);
-                    $user=auth('api')->user();
                       $order->update([
                         'status' => 'pending',
                         ]);
-                    $user->update(['balance'=>$user->balance-$order->grand_total]);
+                    $customer = User::withoutGlobalScopes()->find(auth('api')->id());
+                    if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
                     return $this->searchDelegates($order->id);
                  }
                  else{
@@ -240,56 +248,41 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         }
     }
     public function updated_actual_price(UpdateActualPriceRequest $request,GeneralSettings $setting){
-        $order=auth('api')->user()->orders()->where('type','shipping')->where('id',$request->order_id)->first();
-       if($order){
-           if($order->status!='pending'){
-                 return $this->errorResponse(__('api.can not update price now'));
-           }
-           $shipping=$order->shipping;
-           $expected_price=$shipping->expected_price;
-           $new_price=$expected_price-($expected_price*($setting->shipping_min_price/100));
-           if( $request->new_price < $new_price){
-               return $this->errorResponse(__('api.price must be greater than or  equal ').$new_price);
-           }else{
-                    if($order->payment_type!='cash'){
-                            $user_price=$shipping->actual_price-$request->new_price;
-                            $user_order_owner=$order->user;
-                            if($user_price>0 && $user_order_owner){
-                                   
-                                    $user_order_owner->update(['balance' => $user_order_owner->balance+$user_price]); 
-                                     Wallet::create([
-                                    'to_user'=>$user_order_owner->id,
-                                    'amount'=>$user_price,
-                                    'payment'=>'wallet',
-                                    'type'=>'transfer',
-                                    'order_id' => $order->id,
-                                    'status' => 'completed',
-                                    ]);
-                                    Notification::send($user_order_owner,new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($order,$user_price));
-                           }elseif($user_price<0 && $user_order_owner){
-                                   $user_price=$request->new_price-$shipping->actual_price;
-                                    $user_order_owner->update(['balance' => $user_order_owner->balance-$user_price]); 
-                                     Wallet::create([
-                                    'from_user'=>$user_order_owner->id,
-                                    'amount'=>$user_price,
-                                    'payment'=>'wallet',
-                                    'type'=>'transfer',
-                                    'order_id' => $order->id,
-                                    'status' => 'completed',
-                                    ]);
-                           }
+        $customerId = (int) auth('api')->id();
+        $result = DB::transaction(function () use ($request, $setting, $customerId) {
+            $order = Order::withoutGlobalScopes()->where('user_id', $customerId)->where('type', 'shipping')->whereKey($request->order_id)->lockForUpdate()->first();
+            if (!$order) return $this->errorResponse(__('api.order not found'));
+            if ($order->status != 'pending') return $this->errorResponse(__('api.can not update price now'));
+            $shipping = $order->shipping;
+            $newPrice = round((float) $request->new_price, 2);
+            $expected = (float) $shipping->expected_price;
+            $lowest = $expected - ($expected * ((float) $setting->shipping_min_price / 100));
+            if ($newPrice <= 0 || $newPrice < $lowest) return $this->errorResponse(__('api.price must be greater than or  equal ').$lowest);
+            if ($order->payment_type != 'cash') {
+                // Paid ahead: the customer is refunded a lower price's difference, or pays a higher one's (only from his balance).
+                $difference = round((float) $shipping->actual_price - $newPrice, 2);
+                if ($difference > 0) {
+                    DB::table('users')->where('id', $customerId)->increment('balance', $difference);
+                    Wallet::create(['to_user' => $customerId, 'amount' => $difference, 'payment' => 'wallet', 'type' => 'transfer', 'order_id' => $order->id, 'status' => 'completed']);
+                    $refund = $difference;
+                } elseif ($difference < 0) {
+                    $extra = -$difference;
+                    if (!DB::table('users')->where('id', $customerId)->where('balance', '>=', $extra)->decrement('balance', $extra)) {
+                        return $this->errorResponse(__('api.charge your wallet first'));
                     }
-               $shipping->update(['actual_price'=>$request->new_price]);
-               $order->update(['delivery_price'=>$request->new_price]);
-               $this->searchDelegates($order->id);
-              $order_data=new OrderResource($order);
-              return $this->successResponse($order_data,__('api.order updated successfully'));
-           }
-       
-    }else{
-         return $this->errorResponse(__('api.order not found'));
-
-    }
+                    Wallet::create(['from_user' => $customerId, 'amount' => $extra, 'payment' => 'wallet', 'type' => 'transfer', 'order_id' => $order->id, 'status' => 'completed']);
+                }
+            }
+            $shipping->update(['actual_price' => $newPrice]);
+            $order->update(['delivery_price' => $newPrice]);
+            return ['order' => $order, 'refund' => $refund ?? 0];
+        });
+        if (!is_array($result)) return $result;
+        $customer = User::withoutGlobalScopes()->find($customerId);
+        if ($customer && $result['refund'] > 0) Notification::send($customer, new \App\Notifications\NotifyOrderPriceTransferToWalletNotification($result['order'], $result['refund']));
+        if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
+        $this->searchDelegates($result['order']->id);
+        return $this->successResponse(new OrderResource($result['order']), __('api.order updated successfully'));
     }
 
     public function get_orders(){
@@ -309,6 +302,10 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
 
     }
     public function accepted_delegates($order_id){
+        // A customer sees the couriers' offers on their own delivery request only.
+        if(!Order::where('id',$order_id)->where('user_id',auth('api')->id())->where('type','shipping')->exists()){
+            return $this->errorResponse(__('api.order not found'));
+        }
         $offers=DelegateNotification::where('order_id',$order_id)
             ->whereIn('status' , ['accepted','price_revision'])->get()->keyBy('delegate_id');
         $delegates=User::whereIn('id',$offers->keys())->get();
@@ -338,99 +335,83 @@ public function order_payment(ShippingPaymentRequest $request,GeneralSettings $s
         ],__('api.success data'));
     }
     
+    /**
+     * The customer accepts (or declines) a courier's offer on their own delivery request. Accepting charges the courier
+     * the app's commission once: the order, the offer and the courier are locked and checked again inside one
+     * transaction, so two taps (or two couriers at once) never charge twice nor leave a charged courier unassigned.
+     */
     public function accept_delegate(AcceptDelegateRequest $request){
-        $order=Order::find($request->order_id);
-       
-            if($request->status=='accepted'){
-                 if($order->status=='pending'){
-                        $offer = DelegateNotification::where('order_id',$order->id)
-                            ->where('delegate_id',$request->delegate_id)
-                            ->where('status','accepted')
-                            ->lockForUpdate()
-                            ->first();
-                        if(!$offer || $offer->offer_price === null){
-                            return $this->errorResponse(__('api.delegate not found'));
-                        }
-                        $delegate = User::where('account_type','delegate')
-                            ->where('id', $request->delegate_id)
-                            ->lockForUpdate()
-                            ->first();
-                        if(!$delegate){
-                            return $this->errorResponse(__('api.delegate not found'));
-                        }
+        $customerId = (int) auth('api')->id();
+        $order = Order::where('id', $request->order_id)->where('user_id', $customerId)->where('type', 'shipping')->first();
+        if(!$order){
+            return $this->errorResponse(__('api.order not found'));
+        }
 
-                        // The delegate's offer is stored on the shipping order before
-                        // customer confirmation. Commission is charged only here, after
-                        // both sides have agreed to the request.
-                        $setting = app(GeneralSettings::class);
-                        $finalPrice = (float) $offer->offer_price;
-                        $commissionRate = max(0, (float) $setting->shipping_min_price);
-                        $commission = round($finalPrice * ($commissionRate / 100), 2);
-
-                        if($commission > 0 && (float) $delegate->balance < $commission){
-                            return $this->errorResponse(__('api.charge your wallet first'));
-                        }
-
-                        DB::transaction(function () use ($order, $delegate, $offer, $commission, $finalPrice) {
-                            $order->update([
-                                'status'=>'accepted',
-                                'delegate_id'=>$delegate->id,
-                                'delivery_price'=>$finalPrice,
-                            ]);
-                            if($order->shipping){
-                                $order->shipping->update(['actual_price'=>$finalPrice]);
-                            }
-
-                            // Make the accepted driver exclusive; all other offers are closed.
-                            DelegateNotification::where('order_id',$order->id)
-                                ->where('delegate_id','!=',$delegate->id)
-                                ->delete();
-
-                            if($commission > 0){
-                                $delegate->decrement('balance', $commission);
-                                Wallet::create([
-                                    'from_user'=>$delegate->id,
-                                    'to_user'=>null,
-                                    'status'=>'completed',
-                                    'payment'=>'wallet',
-                                    'type'=>'transfer',
-                                    'amount'=>$commission,
-                                    'order_id'=>$order->id,
-                                ]);
-                            }
-                            // Persist exactly what was charged for this mutually
-                            // accepted final fare. Future revisions settle against
-                            // this amount, never against an unaccepted offer.
-                            $offer->update(['commission_amount'=>$commission]);
-                        });
-
-                        $order->refresh();
-                        $order_data=ShippingResource::make($order);
-                        Notification::send($delegate,new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
-                        broadcast(new DelegateUpdated($order,1,$delegate->id));
-                        broadcast(new ShippingUpdated($order,1,$order->user_id));
-                        return $this->successResponse($order_data,__('api.accept order successfully'));
-                 }else{
-                     return $this->errorResponse(__('api.already accepted delegate'));
-                 }
-            }else{
-              $delegate=DelegateNotification::where('order_id',$request->order_id)->where('delegate_id' , $request->delegate_id)->first();  
-              if($delegate){
-                  $delegate->delete();
-                  $value=User::find($request->delegate_id);
-                     broadcast(new DelegateUpdated($order,1,$value->id));
-
-                   Notification::send($value,new \App\Notifications\NotifyDelegatesShippingOrderStatusNotification($order,$request->status));
-                    $order_data=ShippingResource::make($order);
-                   return $this->successResponse($order_data,__('api.declined order successfully'));
-              }
-              return $this->errorResponse(__('api.delegate not found'));
+        if($request->status != 'accepted'){
+            $offer = DelegateNotification::where('order_id', $order->id)->where('delegate_id', $request->delegate_id)->first();
+            if(!$offer){
+                return $this->errorResponse(__('api.delegate not found'));
             }
-        
-         
+            // The courier already taken on this request is not dropped from here.
+            if((int) $order->delegate_id === (int) $request->delegate_id && $order->status !== 'pending'){
+                return $this->errorResponse(__('api.already accepted delegate'));
+            }
+            $offer->delete();
+            $value = User::find($request->delegate_id);
+            if($value){
+                broadcast(new DelegateUpdated($order, 1, $value->id));
+                Notification::send($value, new \App\Notifications\NotifyDelegatesShippingOrderStatusNotification($order, $request->status));
+            }
+            return $this->successResponse(ShippingResource::make($order), __('api.declined order successfully'));
+        }
+
+        $setting = app(GeneralSettings::class);
+        $result = DB::transaction(function () use ($order, $request, $setting) {
+            $locked = Order::where('id', $order->id)->lockForUpdate()->first();
+            if(!$locked || $locked->status !== 'pending'){
+                return __('api.already accepted delegate');
+            }
+            $offer = DelegateNotification::where('order_id', $locked->id)->where('delegate_id', $request->delegate_id)
+                ->where('status', 'accepted')->lockForUpdate()->first();
+            if(!$offer || $offer->offer_price === null){
+                return __('api.delegate not found');
+            }
+            $delegate = User::where('account_type', 'delegate')->where('id', $request->delegate_id)->lockForUpdate()->first();
+            if(!$delegate){
+                return __('api.delegate not found');
+            }
+            // The delegate's offer is stored on the shipping order before customer confirmation. Commission is charged
+            // only here, after both sides have agreed to the request.
+            $finalPrice = (float) $offer->offer_price;
+            $commission = round($finalPrice * (max(0, (float) $setting->shipping_min_price) / 100), 2);
+            if($commission > 0 && !DB::table('users')->where('id', $delegate->id)->where('balance', '>=', $commission)->decrement('balance', $commission)){
+                return __('api.charge your wallet first');
+            }
+            $locked->update(['status'=>'accepted', 'delegate_id'=>$delegate->id, 'delivery_price'=>$finalPrice]);
+            if($locked->shipping){
+                $locked->shipping->update(['actual_price'=>$finalPrice]);
+            }
+            // Make the accepted driver exclusive; all other offers are closed.
+            DelegateNotification::where('order_id', $locked->id)->where('delegate_id', '!=', $delegate->id)->delete();
+            if($commission > 0){
+                Wallet::create(['from_user'=>$delegate->id, 'to_user'=>null, 'status'=>'completed', 'payment'=>'wallet',
+                    'type'=>'transfer', 'amount'=>$commission, 'order_id'=>$locked->id]);
+                // The commission is the app's: its balance shows it, as an order's commission.
+                app(\App\Services\Dashboard\LegacyOrderCompletion::class)->incrementAppBalance(\App\Services\GoServices\Money::minor(number_format($commission, 2, '.', '')));
+            }
+            // Persist exactly what was charged for this mutually accepted final fare. Future revisions settle against
+            // this amount, never against an unaccepted offer.
+            $offer->update(['commission_amount'=>$commission]);
+            return $delegate;
+        });
+        if(is_string($result)){
+            return $this->errorResponse($result);
+        }
+
+        $order->refresh();
+        Notification::send($result, new \App\Notifications\NotifyDelegateAfterOrderAcceptedByUser($order));
+        broadcast(new DelegateUpdated($order, 1, $result->id));
+        broadcast(new ShippingUpdated($order, 1, $order->user_id));
+        return $this->successResponse(ShippingResource::make($order), __('api.accept order successfully'));
     }
-    
-    
-    
-  
 }

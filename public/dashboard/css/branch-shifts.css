@@ -1,3 +1,60 @@
-#branch-shifts{padding:26px;background:#f5f7fb;color:#15304e;min-height:85vh;font-size:14px}#branch-shifts *{box-sizing:border-box}#branch-shifts [hidden]{display:none!important}#branch-shifts h1{font-size:26px;font-weight:800;margin:5px 0}#branch-shifts h2{font-size:18px;font-weight:700;margin:0 0 18px}#branch-shifts button,#branch-shifts input,#branch-shifts select,#branch-shifts textarea{font:inherit;color:inherit;border:1px solid #dce3ed;background:white;border-radius:7px;padding:10px 12px;min-height:42px}#branch-shifts button{cursor:pointer;font-weight:700}#branch-shifts button:disabled{opacity:.5;cursor:wait}#branch-shifts label{display:grid;gap:8px;font-weight:700}#branch-shifts :focus-visible{outline:3px solid #ffc584;outline-offset:2px}.sh-heading{display:flex;gap:24px;align-items:center;justify-content:space-between;margin-bottom:24px}.sh-heading small{color:#d77919}.sh-heading p,.sh-hint{color:#63768e;line-height:1.9}.sh-heading label{min-width:230px;max-width:100%}.sh-heading .select2-container{width:100%!important}.sh-period{display:flex;justify-content:space-between;align-items:center;gap:14px;background:#fff;padding:14px 18px;border:1px solid #e1e7ee;border-radius:9px;margin-bottom:18px}.sh-layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);gap:20px}.sh-report,.sh-count,.sh-history{background:white;border:1px solid #e1e7ee;border-radius:12px;padding:22px;min-width:0}.sh-count{border-top:4px solid #f58116}.sh-count input{font-size:24px!important;font-weight:800;direction:ltr;width:100%}.sh-count label span{font-size:12px;color:#728199}.sh-count textarea{width:100%;resize:vertical}.sh-count .sh-close{width:100%;background:#ee7d15!important;color:white!important;border-color:#ee7d15!important;margin-top:18px}.sh-hint{font-size:12px;margin:12px 0}.sh-table-wrap{overflow:auto}#branch-shifts table{border-collapse:collapse;width:100%;min-width:470px;font-size:12px}#branch-shifts th,#branch-shifts td{padding:12px 8px;border-bottom:1px solid #edf1f6;text-align:right;font-variant-numeric:tabular-nums}#branch-shifts th{background:#f1f5fa;white-space:nowrap}.sh-report dl{margin:20px 0 0}.sh-report dl div{display:flex;justify-content:space-between;gap:16px;padding:12px;border-bottom:1px solid #edf1f6}.sh-report dd{margin:0;font-weight:800}.sh-report dl div:last-child{background:#edf7f1;color:#177744;border-radius:6px;font-size:16px}.sh-history{margin-top:22px}#branch-shifts [data-sh-message]{padding:12px 16px;background:#fff1d7;border:1px solid #edc888;border-radius:8px;line-height:1.8}#branch-shifts [data-sh-message].is-success{background:#edf9f0;border-color:#b9dfc7}#branch-shifts [data-sh-warnings]{color:#996112;font-size:12px;line-height:1.8}@media(max-width:1150px){.sh-layout{grid-template-columns:1fr}}@media(max-width:600px){#branch-shifts{padding:14px}.sh-heading{display:block}.sh-heading label{margin-top:14px}.sh-heading h1{font-size:23px!important}.sh-report,.sh-count,.sh-history{padding:16px}.sh-period{font-size:12px;align-items:start}.sh-period button{font-size:11px!important;white-space:nowrap}}
-
-.sh-blind{display:flex;flex-direction:column;justify-content:center;padding:36px}.sh-blind p,.sh-blind li{line-height:2;color:#607389}.sh-blind ol{padding-inline-start:20px}.sh-blind-icon{color:#ef7f16;font-size:36px;margin-bottom:16px}.sh-blind h2{font-size:22px!important}
+.content-wrapper.branch-shifts-wrapper{height:var(--sh-page-height,calc(100dvh - 110px));min-height:0!important;padding:0!important;overflow:hidden}
+#branch-shifts{height:100%;min-height:0;padding:14px 18px;display:flex;flex-direction:column;gap:10px;background:#f5f7fb;color:#15304e;font-size:13px;overflow:hidden}
+#branch-shifts *{box-sizing:border-box}
+#branch-shifts [hidden]{display:none!important}
+#branch-shifts h1{font-size:24px;font-weight:800;margin:2px 0;line-height:1.35}
+#branch-shifts h2{font-size:15px;font-weight:700;margin:0;line-height:1.5}
+#branch-shifts p{margin:0}
+#branch-shifts button,#branch-shifts input,#branch-shifts select,#branch-shifts textarea{font:inherit;color:inherit;border:1px solid #dce3ed;background:white;border-radius:7px;padding:7px 10px;min-height:36px}
+#branch-shifts button{cursor:pointer;font-weight:700}
+#branch-shifts button:disabled{opacity:.5;cursor:default}
+#branch-shifts label{display:grid;gap:4px;font-weight:700;min-width:0}
+#branch-shifts :focus-visible{outline:3px solid #ffc584;outline-offset:2px}
+#branch-shifts .sh-heading{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-shrink:0}
+#branch-shifts .sh-heading small{color:#c56a12;font-size:11px}
+#branch-shifts .sh-heading p,#branch-shifts .sh-hint{color:#63768e;font-size:11px;line-height:1.6}
+#branch-shifts .sh-heading label{width:220px;max-width:45%;font-size:12px}
+#branch-shifts .sh-heading .select2-container{width:100%!important}
+#branch-shifts .sh-period{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;padding:6px 12px;border:1px solid #e1e7ee;border-radius:9px;flex-shrink:0;font-size:12px}
+#branch-shifts .sh-period button{min-height:30px;padding:4px 10px;font-size:11px;white-space:nowrap}
+#branch-shifts .sh-layout{display:grid;grid-template-columns:minmax(220px,.85fr) minmax(0,1.45fr);gap:12px;flex:0 1 auto;min-height:0;max-height:48%;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain}
+#branch-shifts .sh-report,#branch-shifts .sh-count,#branch-shifts .sh-history{background:white;border:1px solid #e1e7ee;border-radius:10px;min-width:0}
+#branch-shifts .sh-report,#branch-shifts .sh-count{padding:12px 14px}
+#branch-shifts .sh-guidance h2 i{color:#ef7f16;margin-inline-end:5px}
+#branch-shifts .sh-guidance ol{padding-inline-start:20px;margin:7px 0;color:#607389;font-size:12px;line-height:1.85}
+#branch-shifts .sh-carry{padding:7px 9px;background:#f0f7f4;border-radius:6px;color:#327150;font-size:11px;line-height:1.7}
+#branch-shifts .sh-count{border-top:3px solid #f58116}
+#branch-shifts .sh-count h2{margin-bottom:8px}
+#branch-shifts [data-sh-form]{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;align-items:start}
+#branch-shifts .sh-count label span{font-size:10px;color:#728199;font-weight:400}
+#branch-shifts .sh-count input{font-size:21px;font-weight:800;direction:ltr;width:100%;height:46px}
+#branch-shifts .sh-count textarea{width:100%;height:46px;resize:none;font-size:12px}
+#branch-shifts .sh-count .sh-close{grid-column:1/-1;width:100%;background:#ee7d15;color:white;border-color:#ee7d15}
+#branch-shifts .sh-count .sh-hint{grid-column:1/-1;text-align:center}
+#branch-shifts .sh-history{display:flex;flex-direction:column;min-height:125px;flex:1;overflow:hidden}
+#branch-shifts .sh-history-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;flex-shrink:0}
+#branch-shifts [data-sh-selection]{display:block;color:#718096;font-size:10px;margin-top:2px}
+#branch-shifts [data-sh-preview]{background:#153e63;color:white;border-color:#153e63;white-space:nowrap;font-size:12px}
+#branch-shifts .sh-table-wrap{overflow:auto;min-height:0;scrollbar-width:thin;overscroll-behavior:contain}
+#branch-shifts .sh-history>.sh-table-wrap{flex:1;border-top:1px solid #edf1f6}
+#branch-shifts table{border-collapse:separate;border-spacing:0;width:100%;min-width:660px;font-size:11px}
+#branch-shifts th,#branch-shifts td{padding:7px 9px;border-bottom:1px solid #edf1f6;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#branch-shifts th{background:#f1f5fa;position:sticky;top:0;z-index:1;font-weight:700}
+#branch-shifts tbody tr.is-selected td{background:#fff5e8}
+#branch-shifts tbody tr[data-sh-closing]{cursor:pointer}
+#branch-shifts tbody tr[data-sh-closing]:hover td{background:#f7f9fc}
+#branch-shifts tbody tr.is-selected:hover td{background:#fff0d9}
+#branch-shifts td button{font-size:10px;padding:4px 8px;min-height:28px;white-space:nowrap}
+#branch-shifts .sh-select-col{width:36px}
+#branch-shifts input[type=radio]{width:16px;height:16px;min-height:0;padding:0;accent-color:#ee7d15;vertical-align:middle;cursor:pointer}
+#branch-shifts .sh-all{display:flex;flex-direction:column;max-height:37%;min-height:85px;overflow:hidden;flex:0 1 auto}
+#branch-shifts .sh-all header{margin-bottom:8px;flex-shrink:0}
+#branch-shifts .sh-all .sh-table-wrap{flex:1}
+#branch-shifts [data-sh-message]{padding:7px 12px;background:#fff1d7;border:1px solid #edc888;border-radius:8px;line-height:1.6;font-size:11px;max-height:58px;overflow:auto;flex-shrink:0}
+#branch-shifts [data-sh-message].is-success{background:#edf9f0;border-color:#b9dfc7}
+#branch-shifts [data-sh-retry]{flex-shrink:0;align-self:start;font-size:11px;min-height:30px}
+#branch-shifts [data-sh-warnings]{color:#996112;font-size:11px;line-height:1.6;margin-top:5px}
+#branch-shifts .sh-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+@media(max-height:750px){#branch-shifts{padding:10px 14px;gap:7px}#branch-shifts .sh-heading p{display:none}#branch-shifts .sh-report,#branch-shifts .sh-count{padding:9px 12px}#branch-shifts .sh-guidance ol{line-height:1.65;margin:5px 0}#branch-shifts .sh-carry{padding:5px 7px}#branch-shifts .sh-history-heading{padding:7px 12px}}
+@media(max-width:850px){#branch-shifts .sh-layout{grid-template-columns:1fr;max-height:48%}#branch-shifts .sh-guidance{display:none}#branch-shifts .sh-heading label{width:180px}#branch-shifts h1{font-size:21px}}
+@media(max-width:500px){#branch-shifts{padding:8px;gap:7px}#branch-shifts .sh-heading{gap:10px}#branch-shifts .sh-heading label{max-width:44%;width:150px}#branch-shifts .sh-heading p{display:none}#branch-shifts .sh-heading small{font-size:10px}#branch-shifts h1{font-size:19px}#branch-shifts .sh-history-heading{padding:8px;gap:6px}#branch-shifts .sh-history-heading h2{font-size:13px}#branch-shifts [data-sh-preview]{font-size:10px;padding:7px}#branch-shifts [data-sh-selection]{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#branch-shifts .sh-period{font-size:10px;padding:5px 8px}#branch-shifts .sh-count{padding:10px}#branch-shifts [data-sh-form]{gap:7px}#branch-shifts .sh-count label{font-size:11px}#branch-shifts .sh-count input{font-size:18px}}

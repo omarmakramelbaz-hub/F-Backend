@@ -1,6 +1,6 @@
 @extends('admin.index')
 @push('custom-css')
-    <link href="https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.css" rel="stylesheet">
+    <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.css') }}" rel="stylesheet">
 
 @endpush
 @section('content')
@@ -96,14 +96,14 @@
                                           
                                             <td width="250px">
                                                 @can('contact-delete')
-                                                    {!! Form::open([
+                                                    {!! \App\Support\NativeDeleteForm::open([
                                                         'method' => 'DELETE',
                                                         'route' => ['subscribers.destroy', $subscribe->id],
                                                         'style' => 'display:inline',
                                                     ]) !!}
                                                     <button type="submit"
                                                         class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                    {!! Form::close() !!}
+                                                    {!! \App\Support\NativeDeleteForm::close() !!}
                                                 @endcan
 
                                             </td>
@@ -124,7 +124,7 @@
     </div>
 @endsection
 @push('custom-js')
-    <script src="https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.js"></script>
+    <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.js') }}"></script>
 <script type="text/javascript">
 $(document).ready(function() {
    $('.summernote').summernote({

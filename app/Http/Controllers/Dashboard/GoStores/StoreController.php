@@ -48,7 +48,7 @@ class StoreController extends Controller
     public function index(Catalog $catalog)
     {
         $catalog->ready();
-        $stores = User::withoutGlobalScopes()->where('app_scope', 'go_partner')->where(function ($q) {
+        $stores = app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->stores(User::withoutGlobalScopes())->where('app_scope', 'go_partner')->where(function ($q) {
             $q->where('account_type', 'vendor')->orWhere(function ($q) {
                 $q->where('account_type', 'delegate')->whereHas('pending_vendor', fn ($p) => $p->where('profession_key', 'store_owner'));
             });

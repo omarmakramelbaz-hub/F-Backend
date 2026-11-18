@@ -1,0 +1,178 @@
+<?php
+namespace App\Services\Dashboard;
+
+use Illuminate\Support\Facades\{DB,Crypt};
+
+/** Translate only named business references, never every integer in a financial payload. */
+class DesktopDashboardReferences
+{
+    private const FIELDS=[
+        'employee_id'=>'employee','entry_id'=>'employee_entry','payroll_id'=>'payroll',
+        'customer_id'=>'customer','delivery_company_id'=>'company','company_id'=>'company',
+        'ticket_id'=>'ticket','table_id'=>'table','expense_id'=>'expense','previous_closing_id'=>'shift',
+    ];
+    private const RESULTS=[
+        'customers.save'=>['customer'=>'customer.id'],
+        'delivery-companies.save'=>['company'=>'company.id'],
+        'employees.save'=>['employee'=>'employee.id'],
+        'employees.entry'=>['employee_entry'=>'entry.id'],
+        'employees.close'=>['payroll'=>'statement.payroll_id'],
+        'dining.table-save'=>['table'=>'table.id'],
+        'dining.save'=>['ticket'=>'ticket.id'],'dining.action'=>['ticket'=>'ticket.id'],
+        'dining.settle'=>['ticket'=>'ticket.id','receipt'=>'receipt.id'],
+        'phone-orders.save'=>['ticket'=>'ticket.id'],'phone-orders.action'=>['ticket'=>'ticket.id'],
+        'phone-orders.settle'=>['ticket'=>'ticket.id','receipt'=>'receipt.id'],
+        'takeaway.checkout'=>['receipt'=>'receipt.id'],
+        'branch-expenses.save'=>['expense'=>'expense.id'],
+        'branch-shifts.close'=>['shift'=>'closing.id'],
+        'phone-orders.finish-batch'=>['delivery_batch'=>'batch.id'],
+    ];
+    public function outputs(string $route,array $result,array $values=[],int $actor=0,array $facts=[]): array
+    {
+        if(DesktopDashboardUserProfiles::handles($route))return isset($result['http'])?($result['references']??[]):[];
+        if(DesktopDashboardUserAccounts::handles($route))return isset($result['http'])?($result['references']??[]):[];
+        if(DesktopDashboardOrderBoard::handles($route))return isset($result['after'])?app(DesktopDashboardOrderBoard::class)->outputs($result):[];
+        if(DesktopDashboardSettings::handles($route))return [];
+        if(DesktopDashboardWalletCash::handles($route))return isset($result['wallet'])?app(DesktopDashboardWalletCash::class)->outputs($result):[];
+        if(DesktopDashboardCustomerDirectory::handles($route))return app(DesktopDashboardCustomerDirectory::class)->outputs($route,$result);
+        if(DesktopDashboardRestaurantManagement::handles($route))return app(DesktopDashboardRestaurantManagement::class)->outputs($result);
+        if(DesktopDashboardGoStoreCreation::handles($route))return app(DesktopDashboardGoStoreCreation::class)->outputs($result);
+        if(DesktopDashboardGoProducts::handles($route))return app(DesktopDashboardGoProducts::class)->outputs($result);
+        if(DesktopDashboardRestaurantControl::handles($route))return app(DesktopDashboardRestaurantControl::class)->outputs($result);
+        if(DesktopDashboardRestaurantFlags::handles($route))return app(DesktopDashboardRestaurantFlags::class)->outputs($result);
+        if(DesktopDashboardRestaurantProducts::handles($route))return app(DesktopDashboardRestaurantProducts::class)->outputs($result);
+        if(DesktopDashboardRestaurantProductCrud::handles($route))return app(DesktopDashboardRestaurantProductCrud::class)->outputs($result);
+        if(DesktopDashboardRestaurantMenuCopy::handles($route))return app(DesktopDashboardRestaurantMenuCopy::class)->outputs($result);
+        if(DesktopDashboardLegacy::handles($route))return isset($result['http'])?($result['references']??[]):[];
+        $outputs=[];
+        if($route==='branch-expenses.categorySave'&&preg_match('/^custom_([1-9][0-9]*)$/D',$result['category']['key']??'',$category))
+            $outputs['expense_category']=(int)$category[1];
+        foreach(self::RESULTS[$route]??[] as $entity=>$path){$id=data_get($result,$path);if(is_numeric($id)&&(int)$id>0)$outputs[$entity]=(int)$id;}
+        if($route==='phone-orders.finish-batch'){
+            $lines=collect($result['batch']['items']??[])->keyBy('ticket_id');
+            // Bind receipt slots to the submitted order, not database ID sorting: mapped IDs
+            // can reorder the same tickets on the server.
+            foreach($values['items']??[] as $index=>$item){
+                $id=$item['id']??null;if(is_array($id))$id=$id['$desktop_ref']['local_id']??null;
+                if(is_numeric($id)&&isset($lines[$id]['order_id']))$outputs['receipt.'.$index]=(int)$lines[$id]['order_id'];
+            }
+        }
+        if($route==='employees.attendance'&&isset($result['attendance'])){
+            $day=$result['attendance'];
+            foreach(DB::table('branch_employee_entries')->where('employee_id',$day['employee_id'])->where('day',$day['day'])->whereNotNull('source_key')->get() as $entry){
+                $kind=substr($entry->source_key,strlen('attendance.'));
+                if(in_array($kind,['late','early','absence','leave'],true))$outputs['employee_entry_'.$kind]=(int)$entry->id;
+            }
+        }
+        if(in_array($route,['branch-expenses.save','branch-expenses.review'],true) && $actor && isset($values['branch'],$values['idempotency_key'])) {
+            $id=DB::table('branch_expense_commands')->where('branch',$values['branch'])->where('actor_id',$actor)->where('request_key',$values['idempotency_key'])->value('id');
+            if($id)$outputs['expense_command']=(int)$id;
+        }
+        return $outputs+(DesktopDashboardCustomerFacts::handles($route)?app(DesktopDashboardCustomerFacts::class)->outputs(['values'=>$values,'facts'=>$facts]):[]);
+    }
+    public function capture(string $device,string $command,string $route,array $result,array $payload,int $actor): array
+    {
+        $outputs=DesktopDashboardMenuAvailability::handles($route)?(isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->outputs($result,$payload['parameters']):[]):$this->outputs($route,$result,$payload['values']??[],$actor,$payload['facts']??[]);
+        foreach($outputs as $entity=>$id)DB::table('desktop_dashboard_entities')->insertOrIgnore([
+            'device_id'=>$device,'entity'=>$entity,'local_id'=>$id,'command_id'=>$command,'created_at'=>now('UTC'),'updated_at'=>now('UTC'),
+        ]);
+        return $outputs;
+    }
+    public function prepare(string $device,string $route,array $payload,string $currentCommand=''): array
+    {
+        $dependencies=[];
+        $reference=function(string $entity,$id)use($device,$currentCommand,&$dependencies){
+            if(!is_numeric($id)||(int)$id<1)return $id;
+            $row=DB::table('desktop_dashboard_entities')->where('device_id',$device)
+                ->where(fn($q)=>$q->where('entity',$entity)->orWhere('entity','like',$entity.'.%'))
+                ->where('command_id','!=',$currentCommand)
+                ->where('local_id',(int)$id)->first();
+            if(!$row||$row->command_id===$currentCommand)return $id;
+            $dependencies[$row->command_id]=true;
+            return ['$desktop_ref'=>['entity'=>$row->entity,'command_id'=>$row->command_id,'local_id'=>(int)$id]];
+        };
+        if(DesktopDashboardCustomerFacts::handles($route))$payload=app(DesktopDashboardCustomerFacts::class)->inputs($payload,$reference);
+        if(DesktopDashboardUserProfiles::handles($route))return ['payload'=>app(DesktopDashboardUserProfiles::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardUserAccounts::handles($route))return ['payload'=>app(DesktopDashboardUserAccounts::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardOrderBoard::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardOrderBoard::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardSettings::handles($route))return ['payload'=>app(DesktopDashboardSettings::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardWalletCash::handles($route))return ['payload'=>app(DesktopDashboardWalletCash::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardCustomerDirectory::handles($route))return ['payload'=>app(DesktopDashboardCustomerDirectory::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantManagement::handles($route))return ['payload'=>app(DesktopDashboardRestaurantManagement::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardGoStoreCreation::handles($route))return ['payload'=>app(DesktopDashboardGoStoreCreation::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardGoProducts::handles($route))return ['payload'=>app(DesktopDashboardGoProducts::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantControl::handles($route))return ['payload'=>app(DesktopDashboardRestaurantControl::class)->inputs($payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantFlags::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantFlags::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantProducts::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProducts::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantProductCrud::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantProductCrud::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardRestaurantMenuCopy::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardRestaurantMenuCopy::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardReviewDeletion::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardReviewDeletion::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardWishlistDeletion::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardWishlistDeletion::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardLegacy::handles($route))return ['payload'=>app(DesktopDashboardLegacy::class)->inputs($route,$payload,$reference),'dependencies'=>array_keys($dependencies)];
+        if(DesktopDashboardMenuAvailability::handles($route))return ['payload'=>isset($payload['parameters'])?app(DesktopDashboardMenuAvailability::class)->inputs($payload,$reference):$payload,'dependencies'=>array_keys($dependencies)];
+        if($route==='phone-orders.finish-batch')foreach($payload['values']['items']??[] as $index=>$item){
+            if(isset($item['id'])&&!is_array($item['id']))$payload['values']['items'][$index]['id']=$reference('ticket',$item['id']);
+        }
+        foreach($payload['values']??[] as $field=>$value) {
+            $entity=self::FIELDS[$field]??null;
+            if($field==='entry_id'&&is_numeric($value)){
+                $source=DB::table('branch_employee_entries')->where('id',$value)->value('source_key');
+                if($source&&str_starts_with($source,'attendance.'))$entity='employee_entry_'.substr($source,strlen('attendance.'));
+            }
+            if($field==='stock_item_id'&&$route==='branch-stock.minimum-save'&&($payload['values']['stock_type']??null)==='product')$entity='menu_restaurant_product';
+            if($field==='id'&&$route==='dining.table-save')$entity='table';
+            if($field==='batch_id'&&$route==='phone-orders.finish-batch')$entity='delivery_batch';
+            if($entity && !is_array($value))$payload['values'][$field]=$reference($entity,$value);
+        }
+        $categoryField=$route==='branch-expenses.categorySave'?'key':($route==='branch-expenses.save'?'category':null);
+        if($categoryField&&is_string($payload['values'][$categoryField]??null)
+            &&preg_match('/^custom_([1-9][0-9]*)$/D',$payload['values'][$categoryField],$category)){
+            $mapped=$reference('expense_category',(int)$category[1]);
+            if(is_array($mapped))$payload['values'][$categoryField]=['$desktop_category_key'=>$mapped];
+        }
+        if(isset($payload['parameters']['id'])&&!is_array($payload['parameters']['id'])) {
+            $entity=str_starts_with($route,'branch-expenses.')?'expense':((str_starts_with($route,'dining.')||str_starts_with($route,'phone-orders.'))?'ticket':null);
+            if($entity)$payload['parameters']['id']=$reference($entity,$payload['parameters']['id']);
+        }
+        foreach($payload['facts']['shift']['sources']??[] as $i=>$source) {
+            $entity=['pos'=>'receipt','expense'=>'expense_command'][$source['source']]??null;
+            if($entity)$payload['facts']['shift']['sources'][$i]['source_id']=$reference($entity,$source['source_id']);
+        }
+        if(isset($payload['facts']['payroll']['employee_id']))$payload['facts']['payroll']['employee_id']=$reference('employee',$payload['facts']['payroll']['employee_id']);
+        foreach($payload['facts']['payroll']['entries']??[] as $i=>$entry){
+            $source=$entry['source_key']??null;$entity=$source&&str_starts_with($source,'attendance.')?'employee_entry_'.substr($source,strlen('attendance.')):'employee_entry';
+            if(isset($entry['id']))$payload['facts']['payroll']['entries'][$i]['id']=$reference($entity,$entry['id']);
+        }
+        if(isset($payload['facts']['shift']['previous_closing_id']))$payload['facts']['shift']['previous_closing_id']=$reference('shift',$payload['facts']['shift']['previous_closing_id']);
+        return ['payload'=>$payload,'dependencies'=>array_keys($dependencies)];
+    }
+    public function resolve(string $device,array $payload): array
+    {
+        $walk=function($value)use(&$walk,$device){
+            if(!is_array($value))return $value;
+            if(array_key_exists('$desktop_crm_evidence',$value)){
+                $evidence=$value['$desktop_crm_evidence'];$prefix=$evidence['prefix']??null;
+                abort_unless(count($value)===1&&is_array($evidence)&&count($evidence)===2
+                    &&in_array($prefix,['pos-checkout:','pos-ticket:phone:','pos-ticket:dine:'],true)
+                    &&($evidence['reference']['$desktop_ref']['entity']??null)===($prefix==='pos-checkout:'?'receipt':'ticket'),422,'مرجع دليل موافقة العميل غير صالح.');
+                $id=$walk($evidence['reference']);abort_unless(is_int($id)&&$id>0,422);return $prefix.$id;
+            }
+            if(array_key_exists('$desktop_category_key',$value)){
+                abort_unless(count($value)===1&&is_array($value['$desktop_category_key'])
+                    &&($value['$desktop_category_key']['$desktop_ref']['entity']??null)==='expense_category',422,'مرجع تصنيف المصروف غير صالح.');
+                $id=$walk($value['$desktop_category_key']);abort_unless(is_int($id)&&$id>0,422);
+                return 'custom_'.$id;
+            }
+            if(array_key_exists('$desktop_ref',$value)){
+                abort_unless(count($value)===1 && is_array($value['$desktop_ref']),422,'مرجع محلي غير صالح.');$ref=$value['$desktop_ref'];
+                $row=DB::table('desktop_dashboard_commands')->where('device_id',$device)->where('command_id',$ref['command_id']??'')->where('status','acknowledged')->first();
+                abort_unless($row,409,'العملية السابقة لم تؤكد على السيرفر.');
+                $receipt=json_decode(Crypt::decryptString($row->server_result_cipher),true,512,JSON_THROW_ON_ERROR);
+                foreach($receipt['references']??[] as $mapping)if(($mapping['entity']??'')===($ref['entity']??'') && (int)($mapping['local_id']??0)===(int)($ref['local_id']??0))return (int)$mapping['server_id'];
+                abort(409,'تعذر ربط رقم السجل المحلي برقم السيرفر.');
+            }
+            return array_map($walk,$value);
+        };
+        return $walk($payload);
+    }
+}

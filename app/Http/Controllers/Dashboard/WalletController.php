@@ -20,50 +20,41 @@ class WalletController extends Controller
 
     public function index(GeneralSettings $settings)
     {
+        $authority=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);$authority->central(['wallet-list']);
+        $walletUsers=$authority->selected()?User::withoutGlobalScopes()->where('account_type','!=','admin')->get():User::where('account_type','!=','admin')->get();
         $wallets = Wallet::whereNull('from_user')->where('type','transfer')->where('payment','wallet')->where('status','completed')->orderBy('created_at','desc')->paginate(30);
-        return view('admin.wallets.index',compact('wallets','settings'));
+        return view('admin.wallets.index',compact('wallets','settings','walletUsers'));
     }
     
     public function store(Request $request, GeneralSettings $settings)
     {
-        // if($settings->app_balance >= $request->amount){
-           $wallet= Wallet::create($request->except('_token')+['payment' => 'wallet', 'status' => 'completed']);
-            $user=User::findOrFail($request->to_user);
-            $user->update(['balance' => $user->balance+ $wallet->amount]);
-            if($user->balance > $user->min_wallet/2 && $user->status=='disabled'){
-                $user->update(['status' =>'accepted']);
-            }
-            Notification::send($user,new \App\Notifications\NotifyTransferWallet(auth('admin')->user(),$request->amount));
-            return redirect()->back()->with('success',trans('messages.transferDone'));
-        // }else{
-        //      return redirect()->back()->with('error',trans('messages.balance not enough'));
-        // }
+        $result=app(\App\Services\Dashboard\WalletCashOperations::class)->apply('wallets.transfer',
+            $request->except('_token','_desktop_command'),auth('admin')->user());
+        $request->attributes->set('desktop_wallet_result',$result);
+        return redirect()->back()->with('success',trans('messages.transferDone'));
         
     }
     
     public function wallet_transactions(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['wallet-list']);
         return view('admin.wallets.transactions');
     }
     
        public function withdraw(GeneralSettings $settings)
     {
+        $authority=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);$authority->central(['wallet-list']);
+        $walletUsers=$authority->selected()?User::withoutGlobalScopes()->where('account_type','!=','admin')->get():User::where('account_type','!=','admin')->get();
         $wallets = Wallet::whereNull('to_user')->where('type','withdraw')->where('payment','wallet')->where('status','completed')->paginate(30);
-        return view('admin.wallets.withdraw',compact('wallets','settings'));
+        return view('admin.wallets.withdraw',compact('wallets','settings','walletUsers'));
     }
     
     public function store_withdraw(Request $request, GeneralSettings $settings)
     {
         
-           $wallet= Wallet::create($request->except('_token')+['payment' => 'wallet', 'status' => 'completed']);
-            $user=User::findOrFail($request->from_user);
-            if($user->balance >= $wallet->amount){
-               
-                $user->update(['balance' => $user->balance- $wallet->amount]);
-                Notification::send($user,new \App\Notifications\NotifyWithdrawWallet(auth('admin')->user(),$request->amount));
-                return redirect()->back()->with('success',trans('messages.transferDone'));
-            }else{
-                 return redirect()->back()->with('error',trans("messages.User's wallet is not enough to withdraw the amount"));
-            }
+        $result=app(\App\Services\Dashboard\WalletCashOperations::class)->apply('wallets.withdraw.store',
+            $request->except('_token','_desktop_command'),auth('admin')->user());
+        $request->attributes->set('desktop_wallet_result',$result);
+        return redirect()->back()->with('success',trans('messages.transferDone'));
         
     }
 

@@ -1,8 +1,8 @@
 @extends('admin.index')
 @push('custom-css')
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css"/>
-    <link rel="stylesheet" type="text/css" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <link rel="stylesheet" type="text/css" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css') }}"/>
+    <link rel="stylesheet" type="text/css" href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css') }}"/>
 
 @endpush
 @section('content')
@@ -69,7 +69,7 @@
                                         <th>@lang('main.actions')</th>
     
                                     </thead>
-                                   <tbody id="tablecontents">
+                                   <tbody id="tablecontents" data-desktop-category-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}">
                                         @forelse ($categorys as $category)
                                             <tr class="row1" data-id="{{ $category->id }}">
                                                 <td><input type="checkbox" class="sub_chk" data-id="{{ $category->id }}">
@@ -93,14 +93,14 @@
                                                             href="{{ route('categorys.edit',[$category->id,'parent' => 'parent']) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('category-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['categorys.destroy', $category->id,'parent' => 'parent'],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan   
                                                     @else
                                                     @can('category-list')
@@ -112,14 +112,14 @@
                                                             href="{{ route('categorys.edit',[$category->id,'parent' => 'sub']) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('category-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['categorys.destroy', $category->id,'parent' => request('parent')],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan  
                                                     @endif
                                                 </td>
@@ -141,7 +141,7 @@
     </div>
 @endsection
 @push('custom-js')
-    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js"></script>
+    <script type="text/javascript" src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js') }}"></script>
     <script type="text/javascript">
       $(function () {
         $("#table").DataTable();

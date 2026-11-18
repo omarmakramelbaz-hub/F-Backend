@@ -21,7 +21,7 @@ class RolesController extends Controller
         $this->middleware('permission:role-list', ['only' => ['show']]);
         $this->middleware('permission:role-create', ['only' => ['create','store']]);
          $this->middleware('permission:role-edit', ['only' => ['edit','update']]);
-         $this->middleware('permission:role-delete', ['only' => ['destroy']]);
+         $this->middleware('permission:role-delete', ['only' => ['destroy','deleteAll']]);
     }
 
     /**
@@ -70,7 +70,8 @@ class RolesController extends Controller
         ]);
 // dd($request->all());
         $role = Role::create(['name' => $request->input('name')]);
-        $role->syncPermissions($request->input('permission'));
+        $role->syncPermissions($this->permissionSelections($request->input('permission'),$role));
+        $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
                         ->with('success',trans('messages.AddSuccessfully'));
@@ -126,7 +127,8 @@ class RolesController extends Controller
         $role->name = $request->input('name');
         $role->save();
 
-        $role->syncPermissions($request->input('permission'));
+        $role->syncPermissions($this->permissionSelections($request->input('permission'),$role));
+        $this->invalidateCommittedPermissions();
 
         return redirect()->route('roles.index')
                         ->with('success',trans('messages.UpdateSuccessfully'));
@@ -140,14 +142,37 @@ class RolesController extends Controller
     public function destroy($id)
     {
         DB::table("roles")->where('id',$id)->delete();
+        // This original query bypasses Role's automatic cache invalidation.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->invalidateCommittedPermissions();
         return redirect()->route('roles.index')
                         ->with('success',trans('messages.DeleteSuccessfully'));
     }
     
+    private function permissionSelections(array $permissions,Role $role): array
+    {
+        // The original checkboxes submit database IDs as strings. Spatie 6
+        // distinguishes names from integer IDs; retain the original ID meaning.
+        return array_map(function(string $permission)use($role){
+            if(preg_match('/^[1-9][0-9]{0,18}$/D',$permission)&&(string)(int)$permission===$permission)return (int)$permission;
+            return Permission::findByName($permission,$role->guard_name);
+        },$permissions);
+    }
+
+    private function invalidateCommittedPermissions(): void
+    {
+        // A concurrent request may cache the previous committed grants after the
+        // immediate Spatie flush but before an outer desktop transaction commits.
+        DB::afterCommit(fn()=>app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions());
+    }
+
      public function deleteAll(Request $request)
     {
         $ids = $request->ids;
         Role::whereIn('id',explode(",",$ids))->delete();
+        // Mass deletion bypasses Role's per-model permission cache hook.
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->invalidateCommittedPermissions();
         return response()->json(['success'=> trans('messages.RecordsDeleteSuccessfully')]);
     }
 

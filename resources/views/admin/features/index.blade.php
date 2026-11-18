@@ -89,14 +89,14 @@
                                                             href="{{ route('features.edit',[$feature->id]) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('feature-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['features.destroy', $feature->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan
                                                 </td>
                                             </tr>

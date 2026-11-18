@@ -1,0 +1,1244 @@
+{
+  "assets": {
+    "https://cdn.ckeditor.com/4.14.0/standard/CHANGES.md": {
+      "bytes": 256709,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/CHANGES.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "61d3a2552595d40c8a9be52ece72f3708ab6171524b06c539977547f51610126",
+      "source_sha256": "61d3a2552595d40c8a9be52ece72f3708ab6171524b06c539977547f51610126"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/LICENSE.md": {
+      "bytes": 76343,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/LICENSE.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "5236978780903345b588c22a573ba90f123228ab6486a5f671efdf601b6255ff",
+      "source_sha256": "5236978780903345b588c22a573ba90f123228ab6486a5f671efdf601b6255ff"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/README.md": {
+      "bytes": 1348,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/README.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "aa9d8e7ded7d69a2b12dc7f37b1ebcc1f8118be3d2fc71ba36d43187492cbfbe",
+      "source_sha256": "aa9d8e7ded7d69a2b12dc7f37b1ebcc1f8118be3d2fc71ba36d43187492cbfbe"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/build-config.js": {
+      "bytes": 3088,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/build-config.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "6c4d647f91fa5fcf73b11778554906a3839b3aac4357e3e7583a57cb02af5989",
+      "source_sha256": "6c4d647f91fa5fcf73b11778554906a3839b3aac4357e3e7583a57cb02af5989"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/ckeditor.js": {
+      "bytes": 657189,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/ckeditor.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "89dd8fe8cc568bf9fbe6e8ed1c7754843b78188584f7643371cc98cf09bc79a8",
+      "source_sha256": "89dd8fe8cc568bf9fbe6e8ed1c7754843b78188584f7643371cc98cf09bc79a8"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/config.js": {
+      "bytes": 1347,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/config.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "913e551a45970c085517150888ca4cb64688ba88caa32fb447350c76894a5e25",
+      "source_sha256": "913e551a45970c085517150888ca4cb64688ba88caa32fb447350c76894a5e25"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/contents.css": {
+      "bytes": 3094,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/contents.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "9bf5aa118214cb68aa1d7c2db85aca0805f0bb4e5bdf738418440fb26ebe6fe4",
+      "source_sha256": "9bf5aa118214cb68aa1d7c2db85aca0805f0bb4e5bdf738418440fb26ebe6fe4"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/lang/ar.js": {
+      "bytes": 16035,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/lang/ar.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bf0ee5c994dc50b1962d754d4c4d9a586ae16645c75f121c2191d8259346e866",
+      "source_sha256": "bf0ee5c994dc50b1962d754d4c4d9a586ae16645c75f121c2191d8259346e866"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/lang/en.js": {
+      "bytes": 12469,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/lang/en.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "1bb335271d2d2533fd91ef6075db20a6fcb3a9fda2541a9f3f3605b6c6b951d6",
+      "source_sha256": "1bb335271d2d2533fd91ef6075db20a6fcb3a9fda2541a9f3f3605b6c6b951d6"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/a11yhelp.js": {
+      "bytes": 2955,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/a11yhelp.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "2b5ec51fcac8b0021e398fbb70cec7fd12ae19da37db3a72a05ad3c52a182d6c",
+      "source_sha256": "2b5ec51fcac8b0021e398fbb70cec7fd12ae19da37db3a72a05ad3c52a182d6c"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/lang/ar.js": {
+      "bytes": 4142,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/lang/ar.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "d41723628db242afa90ce633caf6ca5d2db0098b9101f7b42196c590faa97412",
+      "source_sha256": "d41723628db242afa90ce633caf6ca5d2db0098b9101f7b42196c590faa97412"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/lang/en.js": {
+      "bytes": 3991,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/a11yhelp/dialogs/lang/en.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "1b25b0046ee566374e89d6218a213c58cd3eef15515bb2f62b113cb9579ac439",
+      "source_sha256": "1b25b0046ee566374e89d6218a213c58cd3eef15515bb2f62b113cb9579ac439"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/about.js": {
+      "bytes": 1831,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/about.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "eaa420069130558974e7f06c5a61b86bff23bbd5f572b7b5d3e9f963e562ccc6",
+      "source_sha256": "eaa420069130558974e7f06c5a61b86bff23bbd5f572b7b5d3e9f963e562ccc6"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/hidpi/logo_ckeditor.png": {
+      "bytes": 12236,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/hidpi/logo_ckeditor.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "00ce1010651df8731268ba4726ecd0c9d0c810d2a56e44fc6495bc4a5ddbc582",
+      "source_sha256": "00ce1010651df8731268ba4726ecd0c9d0c810d2a56e44fc6495bc4a5ddbc582"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/logo_ckeditor.png": {
+      "bytes": 5650,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/about/dialogs/logo_ckeditor.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "4236472d2a5bc37e31b1317f23867b80e7b274893476b54c690d34e9d57b0988",
+      "source_sha256": "4236472d2a5bc37e31b1317f23867b80e7b274893476b54c690d34e9d57b0988"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/clipboard/dialogs/paste.js": {
+      "bytes": 3811,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/clipboard/dialogs/paste.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "15f090e3e79db8f2ded2535d6cd0bce40330588a2524715f37000ac750b560ab",
+      "source_sha256": "15f090e3e79db8f2ded2535d6cd0bce40330588a2524715f37000ac750b560ab"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/dialog/dialogDefinition.js": {
+      "bytes": 168,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/dialog/dialogDefinition.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "d793242023fe875fd80a6fb270ad2208476a6e3d7aee89387a510827e889e472",
+      "source_sha256": "d793242023fe875fd80a6fb270ad2208476a6e3d7aee89387a510827e889e472"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/dialog/styles/dialog.css": {
+      "bytes": 249,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/dialog/styles/dialog.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "34597be03ec4a2bbb7e29790dfa2409302270396ca2a707d04fc456526a671a2",
+      "source_sha256": "34597be03ec4a2bbb7e29790dfa2409302270396ca2a707d04fc456526a671a2"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/icons.png": {
+      "bytes": 5881,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/icons.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "88779260914cca894bda32f92ec66fa516eed8f080109593b56d2b53bfe452ba",
+      "source_sha256": "88779260914cca894bda32f92ec66fa516eed8f080109593b56d2b53bfe452ba"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/icons_hidpi.png": {
+      "bytes": 20430,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/icons_hidpi.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bd0cf1caad03c29eda13f608e3d8470022d0a3797a93ff240a9f33d0a95b28a7",
+      "source_sha256": "bd0cf1caad03c29eda13f608e3d8470022d0a3797a93ff240a9f33d0a95b28a7"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/image/dialogs/image.js": {
+      "bytes": 21531,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/image/dialogs/image.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "2513deefda2e669d6acd9fd746b6fde086fac0a9bcfa681822feb3715ac133d5",
+      "source_sha256": "2513deefda2e669d6acd9fd746b6fde086fac0a9bcfa681822feb3715ac133d5"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/image/images/noimage.png": {
+      "bytes": 1610,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/image/images/noimage.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bd8c0e93d7bc89b0c36085672424fe2f698dac0e680a1b278f00a152579f2a93",
+      "source_sha256": "bd8c0e93d7bc89b0c36085672424fe2f698dac0e680a1b278f00a152579f2a93"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/link/dialogs/anchor.js": {
+      "bytes": 1776,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/link/dialogs/anchor.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "a1ae31e96c2536de261811a1c8aa13c3488308266afee7820991b253a5cdd075",
+      "source_sha256": "a1ae31e96c2536de261811a1c8aa13c3488308266afee7820991b253a5cdd075"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/link/dialogs/link.js": {
+      "bytes": 13236,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/link/dialogs/link.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "eb00dc85116b7ee673500ddf96e2f03fcc3b80d9f0c7d46c456ffbc450b4e5af",
+      "source_sha256": "eb00dc85116b7ee673500ddf96e2f03fcc3b80d9f0c7d46c456ffbc450b4e5af"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/link/images/anchor.png": {
+      "bytes": 752,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/link/images/anchor.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "cddc8927dfdd672d655b96b551ba1ad1599c5f13d13deb2b09a28b54c853a25c",
+      "source_sha256": "cddc8927dfdd672d655b96b551ba1ad1599c5f13d13deb2b09a28b54c853a25c"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/link/images/hidpi/anchor.png": {
+      "bytes": 1109,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/link/images/hidpi/anchor.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "b5b952c9dbf47ff88b4904b99cf673cf6ec94cd65f4c66b55eaea5dbb911f4db",
+      "source_sha256": "b5b952c9dbf47ff88b4904b99cf673cf6ec94cd65f4c66b55eaea5dbb911f4db"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/hidpi/icon-rtl.png": {
+      "bytes": 176,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/hidpi/icon-rtl.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "4046986f6904328c9d470b44c95f1f50ef82d9e470915ea471e1f4dcc0f06618",
+      "source_sha256": "4046986f6904328c9d470b44c95f1f50ef82d9e470915ea471e1f4dcc0f06618"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/hidpi/icon.png": {
+      "bytes": 199,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/hidpi/icon.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "92dfb414e7a31e632288097db347e272ecfd001f9825423a16c623dcaeb968b8",
+      "source_sha256": "92dfb414e7a31e632288097db347e272ecfd001f9825423a16c623dcaeb968b8"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/icon-rtl.png": {
+      "bytes": 138,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/icon-rtl.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "9510f6245b266712f0ec4159e5fc5a97e1ad5c667e65b7fb97c5d1f20cfd7ba5",
+      "source_sha256": "9510f6245b266712f0ec4159e5fc5a97e1ad5c667e65b7fb97c5d1f20cfd7ba5"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/icon.png": {
+      "bytes": 133,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/magicline/images/icon.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "db2f77571f3e9cb69096a5da21af65b0eacf5eaef08492bb831999504a3e115a",
+      "source_sha256": "db2f77571f3e9cb69096a5da21af65b0eacf5eaef08492bb831999504a3e115a"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/pastefromgdocs/filter/default.js": {
+      "bytes": 2211,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/pastefromgdocs/filter/default.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "32f04de8b6c200fb3d889ef7b1df99e7999f49f7e6c7a4bb479a6d45a1ff257f",
+      "source_sha256": "32f04de8b6c200fb3d889ef7b1df99e7999f49f7e6c7a4bb479a6d45a1ff257f"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/pastefromword/filter/default.js": {
+      "bytes": 20157,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/pastefromword/filter/default.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "f953b16b47aa13e4f84923218d716d358919ecc09057fa7e4698d0aa4690ef01",
+      "source_sha256": "f953b16b47aa13e4f84923218d716d358919ecc09057fa7e4698d0aa4690ef01"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/pastetools/filter/common.js": {
+      "bytes": 9463,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/pastetools/filter/common.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "7d5f93efb743072d982ad1cd3c0917f84fbe3a5ad96eef5321fe4a45850f411b",
+      "source_sha256": "7d5f93efb743072d982ad1cd3c0917f84fbe3a5ad96eef5321fe4a45850f411b"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/pastetools/filter/image.js": {
+      "bytes": 1136,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/pastetools/filter/image.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "e490f17fd231554def25e0ffc4328eeb652cd9cd585d8b3ed5de32d86906e577",
+      "source_sha256": "e490f17fd231554def25e0ffc4328eeb652cd9cd585d8b3ed5de32d86906e577"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/CHANGELOG.md": {
+      "bytes": 1451,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/CHANGELOG.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "db8fb1966dfb5227e611d8c310149a134d79a3f332f679077603ced4df31f57e",
+      "source_sha256": "db8fb1966dfb5227e611d8c310149a134d79a3f332f679077603ced4df31f57e"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/LICENSE.md": {
+      "bytes": 1476,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/LICENSE.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "ef34372534ee3d7cf9b4abb942cc6ea317be53b4c6c247c78ac18642c97d6dcf",
+      "source_sha256": "ef34372534ee3d7cf9b4abb942cc6ea317be53b4c6c247c78ac18642c97d6dcf"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/README.md": {
+      "bytes": 4565,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/README.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "63eb7df6ae04f06d8de5c2fa292034a40e3bcae7b2a3a0a8678cd6f0fe7e6e8a",
+      "source_sha256": "63eb7df6ae04f06d8de5c2fa292034a40e3bcae7b2a3a0a8678cd6f0fe7e6e8a"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/dialog.css": {
+      "bytes": 419,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/dialog.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "f733204c5ef69fb7ee5b692906df334c0da3c0d1f3eaa30121fe6f072cb2abc2",
+      "source_sha256": "f733204c5ef69fb7ee5b692906df334c0da3c0d1f3eaa30121fe6f072cb2abc2"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/options.js": {
+      "bytes": 16136,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/options.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "28d0de994fddd791d5d4fd2083e0f0da9387582f673126d508d0f97be71ee820",
+      "source_sha256": "28d0de994fddd791d5d4fd2083e0f0da9387582f673126d508d0f97be71ee820"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/toolbar.css": {
+      "bytes": 1302,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/dialogs/toolbar.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "72d4fc29f9371dee54146bc9e308de97bb6bc9b4473172db5a3703b39bad4b71",
+      "source_sha256": "72d4fc29f9371dee54146bc9e308de97bb6bc9b4473172db5a3703b39bad4b71"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/scayt/skins/moono-lisa/scayt.css": {
+      "bytes": 381,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/scayt/skins/moono-lisa/scayt.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bf60e5f2e58f5cb573a161d1e18fddab3f8f14d94f56e023602e361501b7d52a",
+      "source_sha256": "bf60e5f2e58f5cb573a161d1e18fddab3f8f14d94f56e023602e361501b7d52a"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/lang/ar.js": {
+      "bytes": 4798,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/lang/ar.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "e9d3c21e6992e1e4f5bb15761aa08e2e3846fc4c3df037fe49f6fc75c5c9e591",
+      "source_sha256": "e9d3c21e6992e1e4f5bb15761aa08e2e3846fc4c3df037fe49f6fc75c5c9e591"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/lang/en.js": {
+      "bytes": 4563,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/lang/en.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "3e6e032b287bc96fb3a7559b760377de3febe46a665a4f9360f69558909bec4f",
+      "source_sha256": "3e6e032b287bc96fb3a7559b760377de3febe46a665a4f9360f69558909bec4f"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/specialchar.js": {
+      "bytes": 5007,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/specialchar/dialogs/specialchar.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "fd463bb17b2f52b781e279e320abac6fe1fd903c98d0342dfd1787aab4ce72d7",
+      "source_sha256": "fd463bb17b2f52b781e279e320abac6fe1fd903c98d0342dfd1787aab4ce72d7"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/table/dialogs/table.js": {
+      "bytes": 8958,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/table/dialogs/table.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "10592a0afca711490d2908208c76d8f99c36e5ec15c2ad977558d18e226a2dca",
+      "source_sha256": "10592a0afca711490d2908208c76d8f99c36e5ec15c2ad977558d18e226a2dca"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/tableselection/styles/tableselection.css": {
+      "bytes": 1145,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/tableselection/styles/tableselection.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "4e9d6995e37ce82b7d76c8a250b91adcb8822bcce06a672d59eedbd4272ca347",
+      "source_sha256": "4e9d6995e37ce82b7d76c8a250b91adcb8822bcce06a672d59eedbd4272ca347"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/tabletools/dialogs/tableCell.js": {
+      "bytes": 6917,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/tabletools/dialogs/tableCell.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "80138007aeb469589ab696bcb035dbb8cf1c416aa6d2ce8a3293b0d78949b0df",
+      "source_sha256": "80138007aeb469589ab696bcb035dbb8cf1c416aa6d2ce8a3293b0d78949b0df"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/widget/images/handle.png": {
+      "bytes": 220,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/widget/images/handle.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "57b6e080394bd59f3da563e6f8eb847f032731699d07199bfa1dd609e42f2b3f",
+      "source_sha256": "57b6e080394bd59f3da563e6f8eb847f032731699d07199bfa1dd609e42f2b3f"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/LICENSE.md": {
+      "bytes": 1474,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/LICENSE.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "9e1fdf0d96f9abb6b3dbec0f7163134e01c845fa488638913f45ec52f600b277",
+      "source_sha256": "9e1fdf0d96f9abb6b3dbec0f7163134e01c845fa488638913f45ec52f600b277"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/README.md": {
+      "bytes": 4317,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/README.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "b7c39cf3141c281c6b3cd0f6e1593d0db1e9080b67d18059e5c84035ef8068fa",
+      "source_sha256": "b7c39cf3141c281c6b3cd0f6e1593d0db1e9080b67d18059e5c84035ef8068fa"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/ciframe.html": {
+      "bytes": 1690,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/ciframe.html",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "52a7adca1aaf7634e4bf2969f4c15b5baa9cfff8b73502ef1a9cda8c86c965c6",
+      "source_sha256": "52a7adca1aaf7634e4bf2969f4c15b5baa9cfff8b73502ef1a9cda8c86c965c6"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/tmpFrameset.html": {
+      "bytes": 1962,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/tmpFrameset.html",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "6a3fee8581a7c81c67a1b7245cfbc5d3e8cd91809c26d61a3f745e7cdede5199",
+      "source_sha256": "6a3fee8581a7c81c67a1b7245cfbc5d3e8cd91809c26d61a3f745e7cdede5199"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc.css": {
+      "bytes": 1232,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "655dcf78d6c556019ed776988dcc8b5b29f83f83638e0f7678e3e3253175e892",
+      "source_sha256": "655dcf78d6c556019ed776988dcc8b5b29f83f83638e0f7678e3e3253175e892"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc.js": {
+      "bytes": 47362,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "ae3eb1ace85a9d4123599e578a676b377d7da141b00fd2e48259479d99609205",
+      "source_sha256": "ae3eb1ace85a9d4123599e578a676b377d7da141b00fd2e48259479d99609205"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc_ie.js": {
+      "bytes": 3438,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/dialogs/wsc_ie.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bbbde1c3b0fd49c5f41b300c6e6753615ce3471d67926f1b1d2540355c0117ff",
+      "source_sha256": "bbbde1c3b0fd49c5f41b300c6e6753615ce3471d67926f1b1d2540355c0117ff"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/plugins/wsc/skins/moono-lisa/wsc.css": {
+      "bytes": 1306,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/plugins/wsc/skins/moono-lisa/wsc.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "48a790bfb941e6852c8b1b0552af231f0fc129a28f1b17f406f9fc487af9879e",
+      "source_sha256": "48a790bfb941e6852c8b1b0552af231f0fc129a28f1b17f406f9fc487af9879e"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog.css": {
+      "bytes": 13708,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "0fe84414dbe7272f788ec60dddd6304f6987161477bd982c99f4658c875d6f66",
+      "source_sha256": "0fe84414dbe7272f788ec60dddd6304f6987161477bd982c99f4658c875d6f66"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_ie.css": {
+      "bytes": 14731,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_ie.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "0bbb3d8e15148af6d9480a78c102ef4243e3296e23fb716b28ba9772950057b3",
+      "source_sha256": "0bbb3d8e15148af6d9480a78c102ef4243e3296e23fb716b28ba9772950057b3"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_ie8.css": {
+      "bytes": 15280,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_ie8.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "d6301ae22323dea51c3f49f291d1f4b4a9062ba99457693c172bd99e24cfedc8",
+      "source_sha256": "d6301ae22323dea51c3f49f291d1f4b4a9062ba99457693c172bd99e24cfedc8"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_iequirks.css": {
+      "bytes": 14760,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/dialog_iequirks.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "9fcf206cdd1cfea9d13e9ef362f56d65e12c2464515ba6f89a277eb6c79c1287",
+      "source_sha256": "9fcf206cdd1cfea9d13e9ef362f56d65e12c2464515ba6f89a277eb6c79c1287"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor.css": {
+      "bytes": 35582,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "8593276ee01d7347932eddeed151ff759affd8a1c4ecba7050066904b650d548",
+      "source_sha256": "8593276ee01d7347932eddeed151ff759affd8a1c4ecba7050066904b650d548"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_gecko.css": {
+      "bytes": 35663,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_gecko.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "a1935ef06ae8861f7d618074443768665748466c083a5b86796fb80f23744d42",
+      "source_sha256": "a1935ef06ae8861f7d618074443768665748466c083a5b86796fb80f23744d42"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_ie.css": {
+      "bytes": 36581,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_ie.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "9f47603fca027adae0ae2299da806db7fe1a4039b6bbfe1bafe76b76d05781fc",
+      "source_sha256": "9f47603fca027adae0ae2299da806db7fe1a4039b6bbfe1bafe76b76d05781fc"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_ie8.css": {
+      "bytes": 37387,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_ie8.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "65c83c4a97f7b366e0da829272d04f6e8bdcc4293218d52072348dd0e75f275e",
+      "source_sha256": "65c83c4a97f7b366e0da829272d04f6e8bdcc4293218d52072348dd0e75f275e"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_iequirks.css": {
+      "bytes": 37230,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/editor_iequirks.css",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "f55594daaaad2bfa028d27f89e1d59a63c3a94c19d31b03c7ce68a73bed2a391",
+      "source_sha256": "f55594daaaad2bfa028d27f89e1d59a63c3a94c19d31b03c7ce68a73bed2a391"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/icons.png": {
+      "bytes": 5881,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/icons.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "88779260914cca894bda32f92ec66fa516eed8f080109593b56d2b53bfe452ba",
+      "source_sha256": "88779260914cca894bda32f92ec66fa516eed8f080109593b56d2b53bfe452ba"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/icons_hidpi.png": {
+      "bytes": 20430,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/icons_hidpi.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bd0cf1caad03c29eda13f608e3d8470022d0a3797a93ff240a9f33d0a95b28a7",
+      "source_sha256": "bd0cf1caad03c29eda13f608e3d8470022d0a3797a93ff240a9f33d0a95b28a7"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/arrow.png": {
+      "bytes": 191,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/arrow.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "b2277bbb26fff842ebf687d4e0db0011c97ce2ad5150e20ebd63cd15a2c9550b",
+      "source_sha256": "b2277bbb26fff842ebf687d4e0db0011c97ce2ad5150e20ebd63cd15a2c9550b"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/close.png": {
+      "bytes": 615,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/close.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "0d5aab99d91cdf9451203c690d1b681efac0e247873137c2e4b254f5eaed0250",
+      "source_sha256": "0d5aab99d91cdf9451203c690d1b681efac0e247873137c2e4b254f5eaed0250"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/close.png": {
+      "bytes": 1238,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/close.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "31ca8328e53f548322e8d6cb9b889e1fe6d918e3f944910b905a3c3a9b97f616",
+      "source_sha256": "31ca8328e53f548322e8d6cb9b889e1fe6d918e3f944910b905a3c3a9b97f616"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/lock-open.png": {
+      "bytes": 1071,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/lock-open.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "0f89da48392084c2b92f1184b20cd15a82b00f76369619827f0c256e4d064a84",
+      "source_sha256": "0f89da48392084c2b92f1184b20cd15a82b00f76369619827f0c256e4d064a84"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/lock.png": {
+      "bytes": 1062,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/lock.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "590115a32954f2bf27bdad510aa986ab4790616b3838ed840d36707c37d2e549",
+      "source_sha256": "590115a32954f2bf27bdad510aa986ab4790616b3838ed840d36707c37d2e549"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/refresh.png": {
+      "bytes": 1623,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/hidpi/refresh.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "0afa815ccda8e98ab0c53b7f84405e7af5926a2f674f294ab7e0636eab8d59bc",
+      "source_sha256": "0afa815ccda8e98ab0c53b7f84405e7af5926a2f674f294ab7e0636eab8d59bc"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/lock-open.png": {
+      "bytes": 511,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/lock-open.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "76f7cea49f5c9c3a33ebe05a241e5278530887fe7669529a04accf237ef491ae",
+      "source_sha256": "76f7cea49f5c9c3a33ebe05a241e5278530887fe7669529a04accf237ef491ae"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/lock.png": {
+      "bytes": 506,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/lock.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "591538a3e1c27b0666fbea0e16e5fd35c37824711bf843bd42e692886cd34a87",
+      "source_sha256": "591538a3e1c27b0666fbea0e16e5fd35c37824711bf843bd42e692886cd34a87"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/refresh.png": {
+      "bytes": 757,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/refresh.png",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "908ab5420bc35b3dbb1408cba105349ba1f47334ca98be08d0607410353d033a",
+      "source_sha256": "908ab5420bc35b3dbb1408cba105349ba1f47334ca98be08d0607410353d033a"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/spinner.gif": {
+      "bytes": 2984,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/images/spinner.gif",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "fe605d83531314abeaec1f47b43c86a4a48c86e3f332ad01b5a9ed2558b8b41f",
+      "source_sha256": "fe605d83531314abeaec1f47b43c86a4a48c86e3f332ad01b5a9ed2558b8b41f"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/readme.md": {
+      "bytes": 2286,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/skins/moono-lisa/readme.md",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "bc13ce169f0cb1f81d2904f6fc315a78e1726117d7007dff713eee2bc14b7672",
+      "source_sha256": "bc13ce169f0cb1f81d2904f6fc315a78e1726117d7007dff713eee2bc14b7672"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/styles.js": {
+      "bytes": 5579,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/styles.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "1699ca4a59cae3236c9d806c2772f8422bf62ff740a4c8a25cd39459e0327945",
+      "source_sha256": "1699ca4a59cae3236c9d806c2772f8422bf62ff740a4c8a25cd39459e0327945"
+    },
+    "https://cdn.ckeditor.com/4.14.0/standard/vendor/promise.js": {
+      "bytes": 6297,
+      "mime": "application/octet-stream",
+      "path": "cdn.ckeditor.com/4.14.0/standard/vendor/promise.js",
+      "resolved_url": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip",
+      "sha256": "18f922e7f5841a510a5d0698f4ad4d3cc6e3c25e5892c1fe2dc7340af4074c99",
+      "source_sha256": "18f922e7f5841a510a5d0698f4ad4d3cc6e3c25e5892c1fe2dc7340af4074c99"
+    },
+    "https://cdn.datatables.net/DataTables-1.10.12/images/sort_asc.png": {
+      "bytes": 160,
+      "mime": "image/png",
+      "path": "cdn.datatables.net/DataTables-1.10.12/images/sort_asc.png",
+      "resolved_url": "https://cdn.datatables.net/DataTables-1.10.12/images/sort_asc.png",
+      "sha256": "595704c3f3cf4cb65c7d9c8508a99e7480e150095473faed31a07c21b13389b8",
+      "source_sha256": "595704c3f3cf4cb65c7d9c8508a99e7480e150095473faed31a07c21b13389b8"
+    },
+    "https://cdn.datatables.net/DataTables-1.10.12/images/sort_asc_disabled.png": {
+      "bytes": 148,
+      "mime": "image/png",
+      "path": "cdn.datatables.net/DataTables-1.10.12/images/sort_asc_disabled.png",
+      "resolved_url": "https://cdn.datatables.net/DataTables-1.10.12/images/sort_asc_disabled.png",
+      "sha256": "a65b8f4f84d6427a81c360282fc5394d51bf99dada5f159e6aa0fce3c396825c",
+      "source_sha256": "a65b8f4f84d6427a81c360282fc5394d51bf99dada5f159e6aa0fce3c396825c"
+    },
+    "https://cdn.datatables.net/DataTables-1.10.12/images/sort_both.png": {
+      "bytes": 201,
+      "mime": "image/png",
+      "path": "cdn.datatables.net/DataTables-1.10.12/images/sort_both.png",
+      "resolved_url": "https://cdn.datatables.net/DataTables-1.10.12/images/sort_both.png",
+      "sha256": "3e016c23ae51417382b640ae2d19eb48047532c37ad53894bd185586559ccffb",
+      "source_sha256": "3e016c23ae51417382b640ae2d19eb48047532c37ad53894bd185586559ccffb"
+    },
+    "https://cdn.datatables.net/DataTables-1.10.12/images/sort_desc.png": {
+      "bytes": 158,
+      "mime": "image/png",
+      "path": "cdn.datatables.net/DataTables-1.10.12/images/sort_desc.png",
+      "resolved_url": "https://cdn.datatables.net/DataTables-1.10.12/images/sort_desc.png",
+      "sha256": "d08ed0e21f187dd309030d465224da8085119a15a17d616ba0e477bb50c6f10d",
+      "source_sha256": "d08ed0e21f187dd309030d465224da8085119a15a17d616ba0e477bb50c6f10d"
+    },
+    "https://cdn.datatables.net/DataTables-1.10.12/images/sort_desc_disabled.png": {
+      "bytes": 146,
+      "mime": "image/png",
+      "path": "cdn.datatables.net/DataTables-1.10.12/images/sort_desc_disabled.png",
+      "resolved_url": "https://cdn.datatables.net/DataTables-1.10.12/images/sort_desc_disabled.png",
+      "sha256": "6c0f0c1b21ef6807057afc8ddc1a925d1dbd21cb11e9270ec84ff4ac40d9a3fa",
+      "source_sha256": "6c0f0c1b21ef6807057afc8ddc1a925d1dbd21cb11e9270ec84ff4ac40d9a3fa"
+    },
+    "https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css": {
+      "bytes": 13996,
+      "mime": "text/css",
+      "path": "cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css",
+      "resolved_url": "https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.css",
+      "sha256": "925214ad40e5a7b10b16144c2356b31b7150e71303851e40c3f191160dce8aab",
+      "source_sha256": "925214ad40e5a7b10b16144c2356b31b7150e71303851e40c3f191160dce8aab"
+    },
+    "https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js": {
+      "bytes": 82967,
+      "mime": "text/javascript",
+      "path": "cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js",
+      "resolved_url": "https://cdn.datatables.net/v/dt/dt-1.10.12/datatables.min.js",
+      "sha256": "2c805bc53444a0e4446ad84bf666167d5aee01ba1b400617a32fe5113f2a740c",
+      "source_sha256": "2c805bc53444a0e4446ad84bf666167d5aee01ba1b400617a32fe5113f2a740c"
+    },
+    "https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js": {
+      "bytes": 40997,
+      "mime": "application/javascript",
+      "path": "cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js",
+      "sha256": "3434b67595c68071824e142d077ce7e105d40ac40b15164896d11e54078d0213",
+      "source_sha256": "3434b67595c68071824e142d077ce7e105d40ac40b15164896d11e54078d0213"
+    },
+    "https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js": {
+      "bytes": 83376,
+      "mime": "application/javascript",
+      "path": "cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js",
+      "sha256": "19126b874a32753d42c12dfa6c17892bfd93820a5a5100ba1b34da4d07599b49",
+      "source_sha256": "19126b874a32753d42c12dfa6c17892bfd93820a5a5100ba1b34da4d07599b49"
+    },
+    "https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js": {
+      "bytes": 73163,
+      "mime": "application/javascript",
+      "path": "cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js",
+      "sha256": "f7244fff610595b944f76bf3080d74e3af42b5dd234f8f079e698cc39ac966b0",
+      "source_sha256": "f7244fff610595b944f76bf3080d74e3af42b5dd234f8f079e698cc39ac966b0"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.eot": {
+      "bytes": 12072,
+      "mime": "application/vnd.ms-fontobject",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.eot",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.eot",
+      "sha256": "e0e54acda6f6686e8bcae9d1c35be16aec516d38aac6c369b15d0ca81b9f067e",
+      "source_sha256": "e0e54acda6f6686e8bcae9d1c35be16aec516d38aac6c369b15d0ca81b9f067e"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.eot#iefix": {
+      "bytes": 12072,
+      "mime": "application/vnd.ms-fontobject",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.eot",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.eot#iefix",
+      "sha256": "e0e54acda6f6686e8bcae9d1c35be16aec516d38aac6c369b15d0ca81b9f067e",
+      "source_sha256": "e0e54acda6f6686e8bcae9d1c35be16aec516d38aac6c369b15d0ca81b9f067e"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.ttf": {
+      "bytes": 11896,
+      "mime": "font/ttf",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.ttf",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.ttf",
+      "sha256": "bc06998a0259b2a4be40fd043e21324ff9092011bae8ca0d963bb633edcd30e1",
+      "source_sha256": "bc06998a0259b2a4be40fd043e21324ff9092011bae8ca0d963bb633edcd30e1"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.woff": {
+      "bytes": 7428,
+      "mime": "font/woff",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.woff",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.woff",
+      "sha256": "ad20bd13f091371ecf28930028092ace4b62ec5a259b8c959b6d8f9d7d405d25",
+      "source_sha256": "ad20bd13f091371ecf28930028092ace4b62ec5a259b8c959b6d8f9d7d405d25"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.woff2": {
+      "bytes": 6156,
+      "mime": "font/woff2",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.woff2",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/font/summernote.woff2",
+      "sha256": "6ae62bbeee0313336393d901d055b0749978abde25234397942609fef4521c1f",
+      "source_sha256": "6ae62bbeee0313336393d901d055b0749978abde25234397942609fef4521c1f"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.css": {
+      "bytes": 30447,
+      "mime": "text/css",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.css",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.css",
+      "sha256": "a00e83ff2222d08f19c00c29e8799d8cdecea08389ffa93ed522129dcac40500",
+      "source_sha256": "a00e83ff2222d08f19c00c29e8799d8cdecea08389ffa93ed522129dcac40500"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.js": {
+      "bytes": 163197,
+      "mime": "application/javascript",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.js",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote-lite.min.js",
+      "sha256": "e4de051e54bb6d6c9bd8bc88ccef9343778736f6ffbdf1048dc7400dd22f5536",
+      "source_sha256": "e4de051e54bb6d6c9bd8bc88ccef9343778736f6ffbdf1048dc7400dd22f5536"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css": {
+      "bytes": 19266,
+      "mime": "text/css",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css",
+      "sha256": "9f760849875dad9986aab520be96b7c73c19c1cbefc9a65ca343dd3b250a035f",
+      "source_sha256": "9f760849875dad9986aab520be96b7c73c19c1cbefc9a65ca343dd3b250a035f"
+    },
+    "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js": {
+      "bytes": 151092,
+      "mime": "application/javascript",
+      "path": "cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js",
+      "resolved_url": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js",
+      "sha256": "a0e221bfa30fc6e21f967f0837b9b072dea7ad486cec6d73bc898a431c242f4f",
+      "source_sha256": "a0e221bfa30fc6e21f967f0837b9b072dea7ad486cec6d73bc898a431c242f4f"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.1/Chart.min.js": {
+      "bytes": 157843,
+      "mime": "application/javascript",
+      "path": "cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.1/Chart.min.js",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.1/Chart.min.js",
+      "sha256": "7349bcc735f9a0e05ac2c9cb5691e753689e2123afc62e7ce1a3449459765ba3",
+      "source_sha256": "7349bcc735f9a0e05ac2c9cb5691e753689e2123afc62e7ce1a3449459765ba3"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css": {
+      "bytes": 103009,
+      "mime": "text/css",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css",
+      "sha256": "5ceaaba22d75b58e04150311f596306562a3e595e27ed4b1dfa451b82dda9e50",
+      "source_sha256": "5ceaaba22d75b58e04150311f596306562a3e595e27ed4b1dfa451b82dda9e50"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.ttf": {
+      "bytes": 209128,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.ttf",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.ttf",
+      "sha256": "e28096fa75a96ac77020155ea3a6dd7312983e84115366d4cf49a0c312ec6d51",
+      "source_sha256": "e28096fa75a96ac77020155ea3a6dd7312983e84115366d4cf49a0c312ec6d51"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.woff2": {
+      "bytes": 117852,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.woff2",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.woff2",
+      "sha256": "232c6f6a7678304f9efaa26f30b1610debc2ba9f4cd636b5e6751c8d73761b92",
+      "source_sha256": "232c6f6a7678304f9efaa26f30b1610debc2ba9f4cd636b5e6751c8d73761b92"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.ttf": {
+      "bytes": 67860,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.ttf",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.ttf",
+      "sha256": "9174757efc83e072436e873c22be1663d3c103b0a16d7fb73569af4918d4d351",
+      "source_sha256": "9174757efc83e072436e873c22be1663d3c103b0a16d7fb73569af4918d4d351"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.woff2": {
+      "bytes": 25392,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.woff2",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.woff2",
+      "sha256": "c27da6f833431da5aa295c44540bfac0fd8270ba6a3c4346427006d8a7b34b76",
+      "source_sha256": "c27da6f833431da5aa295c44540bfac0fd8270ba6a3c4346427006d8a7b34b76"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.ttf": {
+      "bytes": 420332,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.ttf",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.ttf",
+      "sha256": "b4990d0d0c5f5d38d62e936eea120674e584c7eea8dcee38a975c0cf9a37539b",
+      "source_sha256": "b4990d0d0c5f5d38d62e936eea120674e584c7eea8dcee38a975c0cf9a37539b"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2": {
+      "bytes": 156400,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2",
+      "sha256": "ae17c16afbea216707b2203ea1cf9bdb45b9bfe47d0f4ae3258ddbc6294dd02f",
+      "source_sha256": "ae17c16afbea216707b2203ea1cf9bdb45b9bfe47d0f4ae3258ddbc6294dd02f"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-v4compatibility.ttf": {
+      "bytes": 10832,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-v4compatibility.ttf",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-v4compatibility.ttf",
+      "sha256": "ff8f525fb050c5d24519ccc8f5723d85b2e51edd3f9bc6548af55aebadd4f269",
+      "source_sha256": "ff8f525fb050c5d24519ccc8f5723d85b2e51edd3f9bc6548af55aebadd4f269"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-v4compatibility.woff2": {
+      "bytes": 4792,
+      "mime": "application/octet-stream",
+      "path": "cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-v4compatibility.woff2",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-v4compatibility.woff2",
+      "sha256": "c7a869faca299d15be10a01f19d0765a7c4d46d8922d9b9317235c1e4a6f0982",
+      "source_sha256": "c7a869faca299d15be10a01f19d0765a7c4d46d8922d9b9317235c1e4a6f0982"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js": {
+      "bytes": 126740,
+      "mime": "application/javascript",
+      "path": "cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js",
+      "sha256": "94af0ee52b5ccd2625e03c1e4f0d0a968a418182ad8b02d2aba05b4927bbeca9",
+      "source_sha256": "94af0ee52b5ccd2625e03c1e4f0d0a968a418182ad8b02d2aba05b4927bbeca9"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/32px.png": {
+      "bytes": 2988,
+      "mime": "image/png",
+      "path": "cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/32px.png",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/32px.png",
+      "sha256": "6c6d4c2900d0600f50224e8d58db45e9fc7cf561b138ac7737b291d881337e98",
+      "source_sha256": "6c6d4c2900d0600f50224e8d58db45e9fc7cf561b138ac7737b291d881337e98"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/40px.png": {
+      "bytes": 1615,
+      "mime": "image/png",
+      "path": "cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/40px.png",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/40px.png",
+      "sha256": "cb8fe397bbc7d37988b6c11e3256a024511dad6429ee42da72ae772216a40d1e",
+      "source_sha256": "cb8fe397bbc7d37988b6c11e3256a024511dad6429ee42da72ae772216a40d1e"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css": {
+      "bytes": 25994,
+      "mime": "text/css",
+      "path": "cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css",
+      "sha256": "b1b4d8e3fdcd53eaaab0922bc58b895e03938c5ef9b5f298395bbe0c4755f9c0",
+      "source_sha256": "b1b4d8e3fdcd53eaaab0922bc58b895e03938c5ef9b5f298395bbe0c4755f9c0"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/throbber.gif": {
+      "bytes": 1720,
+      "mime": "image/gif",
+      "path": "cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/throbber.gif",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/throbber.gif",
+      "sha256": "76ca7d5b1257abfe620b56fb3eef5e9f51284b03da86d64999f1e66e24e0d9fc",
+      "source_sha256": "76ca7d5b1257abfe620b56fb3eef5e9f51284b03da86d64999f1e66e24e0d9fc"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css": {
+      "bytes": 711,
+      "mime": "text/css",
+      "path": "cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.css",
+      "sha256": "33057241e272511d6e1b6ef7863d8aa93e86b2e2a1cb1c8071f7a598af710295",
+      "source_sha256": "33057241e272511d6e1b6ef7863d8aa93e86b2e2a1cb1c8071f7a598af710295"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js": {
+      "bytes": 9202,
+      "mime": "application/javascript",
+      "path": "cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js",
+      "sha256": "e8db019b981b38cf5593efcea25cb8eb973aaaf83250a6132a87ad86da5e538d",
+      "source_sha256": "e8db019b981b38cf5593efcea25cb8eb973aaaf83250a6132a87ad86da5e538d"
+    },
+    "https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js": {
+      "bytes": 13928,
+      "mime": "application/javascript",
+      "path": "cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js",
+      "resolved_url": "https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js",
+      "sha256": "c2c5c31c5863c386973d4202d5094af0255fafd61ab6cf70d5d41f0022dca141",
+      "source_sha256": "c2c5c31c5863c386973d4202d5094af0255fafd61ab6cf70d5d41f0022dca141"
+    },
+    "https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css": {
+      "bytes": 51284,
+      "mime": "text/css",
+      "path": "code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css",
+      "resolved_url": "https://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css",
+      "sha256": "92ac508220f5bb60ec94e07650528eb66625f82a4740ada068cde05365781286",
+      "source_sha256": "92ac508220f5bb60ec94e07650528eb66625f82a4740ada068cde05365781286"
+    },
+    "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.eot?v=2.0.1": {
+      "bytes": 120724,
+      "mime": "application/vnd.ms-fontobject",
+      "path": "code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.eot",
+      "resolved_url": "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.eot?v=2.0.1",
+      "sha256": "7e330dc533abbb86deb9abcf4f53a4263915f2887fa0ec026c5de36c7db1a36d",
+      "source_sha256": "7e330dc533abbb86deb9abcf4f53a4263915f2887fa0ec026c5de36c7db1a36d"
+    },
+    "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.eot?v=2.0.1#iefix": {
+      "bytes": 120724,
+      "mime": "application/vnd.ms-fontobject",
+      "path": "code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.eot",
+      "resolved_url": "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.eot?v=2.0.1#iefix",
+      "sha256": "7e330dc533abbb86deb9abcf4f53a4263915f2887fa0ec026c5de36c7db1a36d",
+      "source_sha256": "7e330dc533abbb86deb9abcf4f53a4263915f2887fa0ec026c5de36c7db1a36d"
+    },
+    "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.svg?v=2.0.1#Ionicons": {
+      "bytes": 333834,
+      "mime": "image/svg+xml",
+      "path": "code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.svg",
+      "resolved_url": "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.svg?v=2.0.1#Ionicons",
+      "sha256": "554bf0b1eb27004fcd2981a18c87d681b7107cda51d92aeaf965d0ace2b12d7f",
+      "source_sha256": "554bf0b1eb27004fcd2981a18c87d681b7107cda51d92aeaf965d0ace2b12d7f"
+    },
+    "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.ttf?v=2.0.1": {
+      "bytes": 188508,
+      "mime": "font/ttf",
+      "path": "code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.ttf",
+      "resolved_url": "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.ttf?v=2.0.1",
+      "sha256": "5e700835ec05293a3d0f9e354e7d038319d34521cd279e782198dff6d1dd58f2",
+      "source_sha256": "5e700835ec05293a3d0f9e354e7d038319d34521cd279e782198dff6d1dd58f2"
+    },
+    "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.woff?v=2.0.1": {
+      "bytes": 67904,
+      "mime": "font/woff",
+      "path": "code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.woff",
+      "resolved_url": "https://code.ionicframework.com/ionicons/2.0.1/fonts/ionicons.woff?v=2.0.1",
+      "sha256": "a75e381026eced44f4e8d6ea4dc40e28e6a64dd953e8c0b6c239d1ac844c4a2d",
+      "source_sha256": "a75e381026eced44f4e8d6ea4dc40e28e6a64dd953e8c0b6c239d1ac844c4a2d"
+    },
+    "https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700&display=swap": {
+      "bytes": 3820,
+      "mime": "text/css",
+      "path": "google-fonts/b20ab663aba7748ae6bc94af.css",
+      "resolved_url": "https://fonts.googleapis.com/css2?family=Almarai:wght@300;400;700&display=swap",
+      "sha256": "dac03d188bd2e50ab11f4be401420d01512681b2f37514c87081fb73389bf322",
+      "source_sha256": "5bb9f1c56e8b32ece8d1e525c7a693a1be019fe222a66e16d4b9954007fb7e1a"
+    },
+    "https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap": {
+      "bytes": 2544,
+      "mime": "text/css",
+      "path": "google-fonts/e9783bfbe451ff70b86b49eb.css",
+      "resolved_url": "https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap",
+      "sha256": "bd325704cdfd96660ae2d30890e27811ec4c41e870d4c4c8fb057dfbbe3427a8",
+      "source_sha256": "6c81dcf1055eec741d3bd782286062a8e98ad51a4a32fb8764c7e464b63502ee"
+    },
+    "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS-agtn-Wow.woff2": {
+      "bytes": 17392,
+      "mime": "font/woff2",
+      "path": "fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS-agtn-Wow.woff2",
+      "resolved_url": "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS-agtn-Wow.woff2",
+      "sha256": "53706a39de7c9d9b74032b0af6549cf9809e3f98b343ea5b054a25e10b1c2e7a",
+      "source_sha256": "53706a39de7c9d9b74032b0af6549cf9809e3f98b343ea5b054a25e10b1c2e7a"
+    },
+    "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS-agtnqWo572.woff2": {
+      "bytes": 32912,
+      "mime": "font/woff2",
+      "path": "fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS-agtnqWo572.woff2",
+      "resolved_url": "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS-agtnqWo572.woff2",
+      "sha256": "006fba6fe32a900c60f154cc9e2e142bf075078dc97a94715dd9f1f5d4e4421e",
+      "source_sha256": "006fba6fe32a900c60f154cc9e2e142bf075078dc97a94715dd9f1f5d4e4421e"
+    },
+    "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS_antn-Wow.woff2": {
+      "bytes": 18292,
+      "mime": "font/woff2",
+      "path": "fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS_antn-Wow.woff2",
+      "resolved_url": "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS_antn-Wow.woff2",
+      "sha256": "8c793a2860f2e5be6a37f13641e060bd9ee7d0322146b867c9ecc66675296cf5",
+      "source_sha256": "8c793a2860f2e5be6a37f13641e060bd9ee7d0322146b867c9ecc66675296cf5"
+    },
+    "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS_antnqWo572.woff2": {
+      "bytes": 29564,
+      "mime": "font/woff2",
+      "path": "fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS_antnqWo572.woff2",
+      "resolved_url": "https://fonts.gstatic.com/s/almarai/v19/tssoApxBaigK_hnnS_antnqWo572.woff2",
+      "sha256": "1b7794f88e09f36029717dd5ac89214c02a0bdfef74f5ca7ebdf0cf6a837794b",
+      "source_sha256": "1b7794f88e09f36029717dd5ac89214c02a0bdfef74f5ca7ebdf0cf6a837794b"
+    },
+    "https://fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ12Fow.woff2": {
+      "bytes": 17468,
+      "mime": "font/woff2",
+      "path": "fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ12Fow.woff2",
+      "resolved_url": "https://fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ12Fow.woff2",
+      "sha256": "6f289856f002502ea9cc6aa85c2fd509f8aa6c3a17b5adf08f2ccc148cfeea4f",
+      "source_sha256": "6f289856f002502ea9cc6aa85c2fd509f8aa6c3a17b5adf08f2ccc148cfeea4f"
+    },
+    "https://fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ1iFo0C3.woff2": {
+      "bytes": 31672,
+      "mime": "font/woff2",
+      "path": "fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ1iFo0C3.woff2",
+      "resolved_url": "https://fonts.gstatic.com/s/almarai/v19/tsstApxBaigK_hnnQ1iFo0C3.woff2",
+      "sha256": "530903c9168cfc13d3ef363b71c042d5c887476c4454a91223309465ae89c87f",
+      "source_sha256": "530903c9168cfc13d3ef363b71c042d5c887476c4454a91223309465ae89c87f"
+    },
+    "https://js.pusher.com/8.2.0/pusher.min.js": {
+      "bytes": 61809,
+      "mime": "text/javascript",
+      "path": "js.pusher.com/8.2.0/pusher.min.js",
+      "resolved_url": "https://js.pusher.com/8.2.0/pusher.min.js",
+      "sha256": "f9db3ff67d32874f9141c893b8e48159219863074df0bacd551f7747be849163",
+      "source_sha256": "f9db3ff67d32874f9141c893b8e48159219863074df0bacd551f7747be849163"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css": {
+      "bytes": 31000,
+      "mime": "text/css",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css",
+      "sha256": "799aeb25cc0373fdee0e1b1db7ad6c2f6a0e058dfadaa3379689f583213190bd",
+      "source_sha256": "799aeb25cc0373fdee0e1b1db7ad6c2f6a0e058dfadaa3379689f583213190bd"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.eot#iefix&v=4.7.0": {
+      "bytes": 165742,
+      "mime": "application/vnd.ms-fontobject",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.eot",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.eot#iefix&v=4.7.0",
+      "sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979",
+      "source_sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.eot?v=4.7.0": {
+      "bytes": 165742,
+      "mime": "application/vnd.ms-fontobject",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.eot",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.eot?v=4.7.0",
+      "sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979",
+      "source_sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.svg?v=4.7.0#fontawesomeregular": {
+      "bytes": 444379,
+      "mime": "image/svg+xml",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.svg",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.svg?v=4.7.0#fontawesomeregular",
+      "sha256": "ad6157926c1622ba4e1d03d478f1541368524bfc46f51e42fe0d945f7ef323e4",
+      "source_sha256": "ad6157926c1622ba4e1d03d478f1541368524bfc46f51e42fe0d945f7ef323e4"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.ttf?v=4.7.0": {
+      "bytes": 165548,
+      "mime": "font/ttf",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.ttf",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.ttf?v=4.7.0",
+      "sha256": "aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8",
+      "source_sha256": "aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.woff2?v=4.7.0": {
+      "bytes": 77160,
+      "mime": "font/woff2",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.woff2",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.woff2?v=4.7.0",
+      "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe",
+      "source_sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe"
+    },
+    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.woff?v=4.7.0": {
+      "bytes": 98024,
+      "mime": "font/woff",
+      "path": "stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.woff",
+      "resolved_url": "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/fonts/fontawesome-webfont.woff?v=4.7.0",
+      "sha256": "ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07",
+      "source_sha256": "ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07"
+    },
+    "https://unpkg.com/sweetalert/dist/sweetalert.min.js": {
+      "bytes": 40808,
+      "mime": "text/javascript",
+      "path": "unpkg.com/sweetalert/dist/sweetalert.min.js",
+      "resolved_url": "https://unpkg.com/sweetalert@2.1.2/dist/sweetalert.min.js",
+      "sha256": "2ac46ebee46d515be86deeba385b4e41f8cff160364b362c9a6e153df327c66b",
+      "source_sha256": "2ac46ebee46d515be86deeba385b4e41f8cff160364b362c9a6e153df327c66b"
+    },
+    "https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js": {
+      "bytes": 18453,
+      "mime": "text/javascript",
+      "path": "www.gstatic.com/firebasejs/7.9.1/firebase-app.js",
+      "resolved_url": "https://www.gstatic.com/firebasejs/7.9.1/firebase-app.js",
+      "sha256": "ac5608ded2bc43c1fe67311ccd27f6704cce17b3a83db8c7699648ae144d3b23",
+      "source_sha256": "ac5608ded2bc43c1fe67311ccd27f6704cce17b3a83db8c7699648ae144d3b23"
+    },
+    "https://www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js": {
+      "bytes": 318416,
+      "mime": "text/javascript",
+      "path": "www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js",
+      "resolved_url": "https://www.gstatic.com/firebasejs/7.9.1/firebase-firestore.js",
+      "sha256": "9067c9342fada10de93ce9aae6ac5a96dc57e95e5369191a9b1ae3be485aacc8",
+      "source_sha256": "9067c9342fada10de93ce9aae6ac5a96dc57e95e5369191a9b1ae3be485aacc8"
+    },
+    "https://www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js": {
+      "bytes": 39241,
+      "mime": "text/javascript",
+      "path": "www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js",
+      "resolved_url": "https://www.gstatic.com/firebasejs/7.9.1/firebase-messaging.js",
+      "sha256": "2195130d092a782ba6b7386b4234be4e5b1601c9c5bcb5f3788dd84df1a7c372",
+      "source_sha256": "2195130d092a782ba6b7386b4234be4e5b1601c9c5bcb5f3788dd84df1a7c372"
+    }
+  },
+  "complete": true,
+  "distributions": {
+    "ckeditor": {
+      "sha256": "8d89155c8d0c454899623321695d205052935b9236f905bee37a2d44769a1d7c",
+      "source": "https://download.cksource.com/CKEditor/CKEditor/CKEditor%204.14.0/ckeditor_4.14.0_standard.zip"
+    }
+  },
+  "format": 1,
+  "licenses": {
+    "almarai": {
+      "path": "licenses/almarai.txt",
+      "sha256": "142e053c374dd465a92bd7378116b517e344dbc662361308130fc2566db30c2a",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/almarai/OFL.txt"
+    },
+    "axios": {
+      "path": "licenses/axios.txt",
+      "sha256": "82761059eaedacb3356803aea8a170d8298609f91b14fc32ee1bfb40d690183c",
+      "source": "https://cdn.jsdelivr.net/npm/axios@1.6.7/LICENSE"
+    },
+    "bootstrap": {
+      "path": "licenses/bootstrap.txt",
+      "sha256": "53d2513c8df48a817d70537cc906b8e9c7bf2513328ff66847894773e615b37e",
+      "source": "https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/LICENSE"
+    },
+    "chartjs": {
+      "path": "licenses/chartjs.txt",
+      "sha256": "4cfd85460914bb9c300189e8b7953134cbc42e56c884d1e1116e51638acf8aaf",
+      "source": "https://cdn.jsdelivr.net/npm/chart.js@2.7.1/LICENSE.md"
+    },
+    "datatables": {
+      "path": "licenses/datatables.txt",
+      "sha256": "c6a873f21550ed804f76013c36e14225704c1aa551fdb870e0c626eb91c19247",
+      "source": "https://raw.githubusercontent.com/DataTables/DataTables/1.10.12/license.txt"
+    },
+    "firebase": {
+      "path": "licenses/firebase.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://raw.githubusercontent.com/firebase/firebase-js-sdk/363b08a3786c134aba0c47b437a49f36f5466706/LICENSE"
+    },
+    "font-awesome": {
+      "path": "licenses/font-awesome.txt",
+      "sha256": "9b914eae88817d63b576eab5aafde7068c7a1abae125d7cdfb034f1da43a9afc",
+      "source": "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/LICENSE.txt"
+    },
+    "font-awesome-4": {
+      "path": "licenses/font-awesome-4.txt",
+      "sha256": "610427fe917f2b51ef69b5bfa9a7bfe3fcba59b1ccaf86a500a47e5fa1da322b",
+      "source": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/v4.7.0/README.md"
+    },
+    "font-awesome-4-terms": {
+      "path": "licenses/font-awesome-4-terms.txt",
+      "sha256": "3af2343390bed2d87455215dd7988b0f47aa2a6ea9017aca818908f6543190bb",
+      "source": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/v4.7.0/README.md",
+      "terms_source": "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/LICENSE.txt"
+    },
+    "ionicons": {
+      "path": "licenses/ionicons.txt",
+      "sha256": "5407c91b6c8b7305f72aec4ee5ffb99b32ed9a5413c19cf3cd1b94354d2645e8",
+      "source": "https://cdn.jsdelivr.net/npm/ionicons@2.0.1/LICENSE"
+    },
+    "jstree": {
+      "path": "licenses/jstree.txt",
+      "sha256": "31211520f079a45fbe812303d02e864ce4465359715b7a10cb92852a6f8927a6",
+      "source": "https://cdn.jsdelivr.net/npm/jstree@3.2.1/LICENSE-MIT"
+    },
+    "pusher": {
+      "path": "licenses/pusher.txt",
+      "sha256": "e7170db862044802ed3db75d61113e48aed5061ba5c97ec9820ff9856c4dc0f5",
+      "source": "https://cdn.jsdelivr.net/npm/pusher-js@8.2.0/LICENCE"
+    },
+    "rateyo": {
+      "path": "licenses/rateyo.txt",
+      "sha256": "26c38727cec61acc4385c2ce1dd87bbb63593314489a56b21e18c66f71d6b1e3",
+      "source": "https://cdn.jsdelivr.net/npm/rateyo@2.3.2/LICENSE"
+    },
+    "select2": {
+      "path": "licenses/select2.txt",
+      "sha256": "4ee0cbc51370afde358652a0f977972053729ed578b6a42f5e2a037d114f0b39",
+      "source": "https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/LICENSE.md"
+    },
+    "summernote": {
+      "path": "licenses/summernote.txt",
+      "sha256": "946933b8728534096a3d272856c5c33c30ec2643a7400ac55c882775d16836eb",
+      "source": "https://cdn.jsdelivr.net/npm/summernote@0.8.18/LICENSE"
+    },
+    "sweetalert": {
+      "path": "licenses/sweetalert.txt",
+      "sha256": "62e5136d54014c9055bb8d9c031cad8e439b627b393c7a9d5069a9d7d9476d26",
+      "source": "https://cdn.jsdelivr.net/npm/sweetalert@2.1.2/LICENSE.md"
+    },
+    "toastr": {
+      "path": "licenses/toastr.txt",
+      "sha256": "d9b630916d3d2930e34a958701969e47438a940bd91b2fa8dc6956f41d15e010",
+      "source": "https://raw.githubusercontent.com/CodeSeven/toastr/50092cc604850a16c985520b63df184d3e0b4086/LICENSE"
+    }
+  }
+}

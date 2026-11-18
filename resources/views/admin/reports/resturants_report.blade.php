@@ -33,7 +33,7 @@
                                 <form method="get">
                                     <label>@lang('main.choose resturant')</label>
                                     <select name="resturant_id" onChange="this.form.submit()" class="form-select mb-5">
-                                        <option value="">@lang('main.choose')</option>
+                                        <option value="">{{ __(auth('admin')->user()->account_type==='admin' && empty(auth('admin')->user()->owner_resturant_id) ? 'home_overview.all_branches' : 'main.choose') }}</option>
                                         @foreach(\App\Models\Resturant::get() as $value)
                                         <option value="{{$value->id}}" @if($value->id == request('resturant_id')) selected @endif>{{$value->name}}</option>
                                         @endforeach

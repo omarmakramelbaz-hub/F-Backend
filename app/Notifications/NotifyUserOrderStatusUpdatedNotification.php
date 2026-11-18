@@ -8,6 +8,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use App\Models\Order;
 use App\Http\Traits\FcmFirebase;
+use App\Services\OrderTrackingState;
 
 class NotifyUserOrderStatusUpdatedNotification extends Notification
 {
@@ -20,6 +21,7 @@ class NotifyUserOrderStatusUpdatedNotification extends Notification
      * @return void
      */
     private $msg;
+    private array $body_data = [];
     public function __construct(Order $msg)
     {
         $this->msg=$msg;
@@ -45,16 +47,16 @@ class NotifyUserOrderStatusUpdatedNotification extends Notification
     {
         $tokens = [];
         $types  = [];
+        $state = OrderTrackingState::forOrder($this->msg);
         
         $this->body_data =[
                 'title'     =>  'لديك إشعار تحديث الطلب الخاص بكم',
                 'logo'     => $this->msg->resturant?->getFirstMediaUrl('logo','thumb'),
-                'text'      =>  'تم تحديث حالة الطلب رقم  '. $this->msg->order_no . ' إلي ' . __('main.'.$this->msg->status),
+                'text'      =>  'تم تحديث حالة الطلب رقم  '. $state['order_no'] . ' إلي ' . __('main.'.$this->msg->status),
                 'created_at' => $this->msg->updated_at,
-                'data'       =>  [
+                'data'       =>  $state + [
                     'notification_type' => 'live_activity',
                     'live_activity' => true,
-                    'activity_id' => 'order_'.$this->msg->id,
                     'order_status' => $this->msg->status,
                     'order_id'          => (int) $this->msg->id,
                     'resturant_id'      => $this->msg->resturant_id,
@@ -73,10 +75,8 @@ class NotifyUserOrderStatusUpdatedNotification extends Notification
         //      $tokens= $notifiable->fcm_id ; 
         //       $this->sendFcmNotification( $tokens ,$this->body_data) ;
         // }
-        if($notifiable->my_tokens){
-            $tokens= $notifiable->my_tokens ; 
-            app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this, $tokens, $this->body_data, (int) $this->msg->id);
-        }
+        $tokens = $notifiable->my_tokens ?: [];
+        app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this, $tokens, $this->body_data, (int) $this->msg->id);
         
       return $this->body_data;   
 

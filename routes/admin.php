@@ -17,7 +17,6 @@ use App\Http\Controllers\Dashboard\ContractController;
 use App\Http\Controllers\Dashboard\ContactController;
 use App\Http\Controllers\Dashboard\FeatureController;
 use App\Http\Controllers\Dashboard\BannerController;
-use App\Http\Controllers\Dashboard\BlogController;
 use App\Http\Controllers\Dashboard\SubscriberController;
 use App\Http\Controllers\Dashboard\ReportController;
 use App\Http\Controllers\Dashboard\QuestionAnswerController;
@@ -87,6 +86,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::post('charging/wallet',['App\Http\Controllers\Api\V1\User\WalletController','charging_wallet'])->name('vendor.charging_wallet');
             Route::get('get/charging/wallet',['App\Http\Controllers\Api\V1\User\WalletController','get_wallet'])->name('vendor.get_wallet');
         Route::post('update/phone',['App\Http\Controllers\Api\V1\Auth\AuthController','UpdatePhone'])->name('vendor.UpdatePhone');
+        Route::post('owner/mobile', [\App\Http\Controllers\Dashboard\OwnerMobileController::class, '__invoke'])->middleware('throttle:10,1')->name('owner.mobile.update');
             Route::post('update/orders/{order}/total/price', ['App\Http\Controllers\Api\V1\Vendor\OrderController','updateOrderTotalPrice'])->name('updateOrderTotalPrice');
 
         Route::get('/adminLogout', [HomeController::class, 'adminLogout']);
@@ -105,6 +105,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
 
         Route::get('/dashboard', [HomeController::class, 'index'])->name('admin_dash');
         Route::get('/dashboard/overview', [HomeController::class, 'overview'])->name('dashboard.overview');
+        Route::get('/dashboard/pulse', [\App\Http\Controllers\Dashboard\DashboardPulseController::class, 'index'])->middleware('throttle:120,1')->name('dashboard.pulse');
         Route::get('/notifications', [HomeController::class, 'notifications'])->name('notifications');
         Route::put('/read/{id}', [HomeController::class, 'read'])->name('read_notify');
         Route::get('/bulk-notifications', [HomeController::class, 'bulk_notifications'])->name('bulk-notifications');
@@ -114,6 +115,9 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/settings', [SettingsController::class, 'index']);
         Route::put('/settings/update', [SettingsController::class, 'update'])->name('updateSetting');
         Route::get('/env-setting', [SettingsController::class, 'enviroSetting']);
+        // The customer app's forced update (lowest version per platform, store links).
+        Route::get('/app-update', [\App\Http\Controllers\Dashboard\AppUpdateController::class, 'edit'])->name('app-update.edit');
+        Route::put('/app-update', [\App\Http\Controllers\Dashboard\AppUpdateController::class, 'update'])->name('app-update.update');
         Route::put('/settings/updateEnv', [SettingsController::class, 'updateEnv'])->name('updateEnv');
         Route::put('/settings/updatePaymentActivation', [SettingsController::class, 'updatePaymentActivation'])->name('updatePaymentActivation');
 
@@ -121,7 +125,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::put('/advertising/update', [SettingsController::class, 'update_advertising'])->name('updateAdvertising');
 
         Route::resource('/roles', RolesController::class);
-        Route::delete('rolesDeleteAll', [RolesController::class,'deleteAll']);
+        Route::delete('rolesDeleteAll', [RolesController::class,'deleteAll'])->name('roles.destroy-all');
 
         Route::resource('/admins', AdminsController::class);
         Route::delete('adminsDeleteAll', [AdminsController::class,'deleteAll']);
@@ -139,10 +143,10 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::delete('advertisings/del/image',[AdvertisingController::class,'delete_image']);
 
         Route::resource('/categorys', CategoryController::class);
-        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll']);
+        Route::delete('categorysDeleteAll', [CategoryController::class,'deleteAll'])->name('categorys.destroy-all');
         Route::get('categorys/{id}/services/prices',[CategoryController::class,'edit_services_prices'])->name('categorys.services.prices');
         Route::put('categorys/{id}/update/services/prices',[CategoryController::class,'update_services_prices'])->name('categorys.services.prices.update');
-        Route::post('post-sortable',[CategoryController::class,'updateColumns']);
+        Route::post('post-sortable',[CategoryController::class,'updateColumns'])->name('categorys.reorder');
 
         Route::resource('/contracts', ContractController::class);
         Route::get('pdfview-contract', [ContractController::class,'pdfviewContract']);
@@ -156,7 +160,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/fetch-product',[OrderController::class,'fetchProduct'])->name('fetch-product');
 
         Route::resource('/products', ProductController::class);
-        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll']);
+        Route::delete('productsDeleteAll', [ProductController::class,'deleteAll'])->name('products.destroy-all');
         Route::post('/fetch-subcategory', [ProductController::class, 'fetchSubcategory']);
         Route::post('/fetch-product', [ProductController::class, 'fetchProduct']);
         Route::post('/fetch-feature', [ProductController::class, 'fetchFeature']);
@@ -194,9 +198,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('users/{id}/go_drive_activation',[UserController::class,'go_drive_activation']);
 
         Route::resource('/features', FeatureController::class);
-        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll']);
-        Route::resource('/blogs', BlogController::class);
-        Route::delete('blogsDeleteAll', [BlogController::class,'deleteAll']);
+        Route::delete('featuresDeleteAll', [FeatureController::class,'deleteAll'])->name('features.destroy-all');
         Route::resource('/banners', BannerController::class);
         Route::delete('bannersDeleteAll', [BannerController::class,'deleteAll']);
 
@@ -209,7 +211,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         Route::get('/contacts', [ContactController::class,'index'])->name('contacts.index');
         Route::get('/contacts/{id}', [ContactController::class,'show'])->name('contacts.show');
         Route::delete('/contacts/{contact}', [ContactController::class,'destroy'])->name('contacts.destroy');
-        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll']);
+        Route::delete('contactsDeleteAll', [ContactController::class,'deleteAll'])->name('contacts.destroy-all');
 
 
         Route::resource('/subscribers', SubscriberController::class);
@@ -240,7 +242,7 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================areas=====================
         //=====================================================
         Route::resource('areas',AreaController::class);
-        Route::delete('areasDeleteAll',[AreaController::class,'delete_all']);
+        Route::delete('areasDeleteAll',[AreaController::class,'delete_all'])->name('areas.destroy-all');
         
         
          //====================================================
@@ -254,7 +256,15 @@ Route::post('send_chat_notification', [FcmNotificationsController::class, 'send_
         //===========================question_answers=====================
         //=====================================================
         Route::resource('question_answers',QuestionAnswerController::class);
-        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'delete_all']);
+        Route::delete('question_answersDeleteAll',[QuestionAnswerController::class,'deleteAll'])->name('question_answers.destroy-all');
 
     });
 });
+
+require __DIR__.'/whatsapp_inbox.php';
+
+require __DIR__.'/whatsapp_orders.php';
+
+require __DIR__.'/whatsapp_replies.php';
+
+require __DIR__.'/whatsapp_reads.php';

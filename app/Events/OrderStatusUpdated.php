@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\Order;
+use App\Services\OrderTrackingState;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -16,7 +17,7 @@ class OrderStatusUpdated implements ShouldBroadcastNow
 
     public function __construct(Order $order)
     {
-        $this->order = $order->load('resturant');
+        $this->order = $order->loadMissing('resturant');
     }
 
     public function broadcastOn()
@@ -32,20 +33,11 @@ class OrderStatusUpdated implements ShouldBroadcastNow
 
     public function broadcastWith()
     {
-        return [
-            'order_id' => $this->order->id,
-            'order_status' => $this->getStatus($this->order->status),
-            'restaurant_name' => $this->order->resturant->name,
+        $state = OrderTrackingState::forOrder($this->order);
+        return $state + [
+            // Keep the existing display-status contract for installed customer apps.
+            'order_status' => $state['live_activity_status'],
+            'restaurant_name' => $this->order->resturant?->name ?? '',
         ];
-    }
-    
-    private function getStatus($status)
-    {
-        $data = [
-            'pending' => 'Preparing',
-            'shipped' => 'On the Way',
-            'completed' => 'Delivered',
-        ];
-        return $data[$status] ?? 'Preparing';
     }
 }

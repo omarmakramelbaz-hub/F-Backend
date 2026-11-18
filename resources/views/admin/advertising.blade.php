@@ -72,6 +72,7 @@
                 <div class="form-group col-sm-10">
                   <label for="advertise_image">@lang('main.advertise_image')</label>
                   <input type="file" name="advertise_image"  class="form-control" id="advertise_image" >
+                  @if(config('desktop_dashboard.local'))<small class="text-muted">PNG، JPG، WEBP فقط؛ مجموع الصور حتى 5 ميجابايت، وأبعاد كل صورة حتى 4096 × 4096.</small>@endif
                   <img src="{{url('/storage/'.$settings->advertise_image)}}" width="120px">
                 </div>
                 

@@ -164,6 +164,8 @@ class DelegateOrderController extends Controller {
     }
     
     public function getSingleOrder(Request $request, Order $order){
+        // An order's details (the customer's name, address and mobile) are for couriers, never another customer.
+        abort_unless(!auth('api')->check() || auth('api')->user()->account_type === 'delegate', 403);
         $carts=OrderResource::make($order);
         return $this->successResponse($carts,__('api.success data'));
     }
@@ -240,47 +242,62 @@ class DelegateOrderController extends Controller {
             return $this->successResponse(OrderResource::make($order), __('api.declined order successfully'));
         }
 
-        $newPrice = (float) $offer->offer_price;
+        // Customer acceptance makes this proposal the new final fare and settles the commission to match it, once: the
+        // order, the proposal and the courier are locked and checked again inside the transaction (two taps never
+        // charge or refund twice), and the courier is charged only while the balance covers it.
         $setting = app(GeneralSettings::class);
-        $newCommission = round($newPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
-        $chargedCommission = (float) ($offer->commission_amount ?? 0);
-        $difference = round($newCommission - $chargedCommission, 2);
-        $delegate = User::where('id',$order->delegate_id)->lockForUpdate()->first();
-
-        if(!$delegate){
-            return $this->errorResponse(__('api.delegate not found'));
-        }
-        if($difference > 0 && (float)$delegate->balance < $difference){
-            return $this->errorResponse(__('api.charge your wallet first'));
-        }
-
-        // Customer acceptance makes this proposal the new final fare. Only now
-        // do we settle the commission to exactly match that accepted final fare.
-        DB::transaction(function() use($order,$offer,$delegate,$newPrice,$newCommission,$difference){
-            $order->shipping->update(['actual_price'=>$newPrice]);
-            $order->update(['delivery_price'=>$newPrice]);
-
+        $result = DB::transaction(function() use($order, $setting){
+            $locked = Order::where('id', $order->id)->lockForUpdate()->first();
+            if(!$locked || $locked->type != 'shipping' || $locked->status != 'accepted' || !$locked->delegate_id){
+                return __('api.order not found');
+            }
+            $offer = DelegateNotification::where('order_id', $locked->id)->where('delegate_id', $locked->delegate_id)
+                ->where('status', 'price_revision')->lockForUpdate()->first();
+            if(!$offer){
+                return __('api.order not found');
+            }
+            $delegate = User::where('id', $locked->delegate_id)->lockForUpdate()->first();
+            if(!$delegate){
+                return __('api.delegate not found');
+            }
+            $newPrice = (float) $offer->offer_price;
+            $newCommission = round($newPrice * (max(0,(float)$setting->shipping_min_price) / 100), 2);
+            $difference = round($newCommission - (float) ($offer->commission_amount ?? 0), 2);
             if($difference > 0){
-                $delegate->decrement('balance',$difference);
+                if(!DB::table('users')->where('id', $delegate->id)->where('balance', '>=', $difference)->decrement('balance', $difference)){
+                    return __('api.charge your wallet first');
+                }
                 Wallet::create([
                     'from_user'=>$delegate->id,'to_user'=>null,'status'=>'completed',
-                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$order->id
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$difference,'order_id'=>$locked->id
                 ]);
             } elseif($difference < 0){
                 $refund=abs($difference);
-                $delegate->increment('balance',$refund);
+                DB::table('users')->where('id', $delegate->id)->increment('balance', $refund);
                 Wallet::create([
                     'from_user'=>null,'to_user'=>$delegate->id,'status'=>'completed',
-                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$order->id
+                    'payment'=>'wallet','type'=>'transfer','amount'=>$refund,'order_id'=>$locked->id
                 ]);
             }
-
+            // Once the courier is charged (or refunded), the app's balance follows the commission: up when more is
+            // taken, down when some is given back.
+            if($difference != 0){
+                app(\App\Services\Dashboard\LegacyOrderCompletion::class)->changeAppBalance(\App\Services\GoServices\Money::minor(number_format($difference, 2, '.', '')));
+            }
+            if($locked->shipping){
+                $locked->shipping->update(['actual_price'=>$newPrice]);
+            }
+            $locked->update(['delivery_price'=>$newPrice]);
             $offer->update([
                 'status'=>'accepted',
                 'offer_price'=>$newPrice,
                 'commission_amount'=>$newCommission,
             ]);
+            return true;
         });
+        if(is_string($result)){
+            return $this->errorResponse($result);
+        }
 
         app(OrderProviderDelivery::class)->event(new ShippingUpdated($order->fresh(),1,$order->user_id), (int) $order->id);
         app(OrderProviderDelivery::class)->event(new DelegateUpdated($order->fresh(),1,$order->delegate_id), (int) $order->id);
@@ -288,7 +305,11 @@ class DelegateOrderController extends Controller {
     }
 
     public function acceptDeclineOrder(Request $request,Order $order){
-        if ($order->type !== 'current') return $this->acceptDeclineOrderLocked($request, $order);
+        if ($order->type !== 'current') {
+            // A shipping order: answered by a courier it was sent to, moved on by its own courier.
+            $this->assertApiDelegateParty($order, in_array($request->status, ['accept', 'declined'], true));
+            return $this->acceptDeclineOrderLocked($request, $order);
+        }
         return DB::transaction(function () use ($request, $order) {
             $locked = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $this->assertApiDelegateParty($locked, in_array($request->status, ['accept', 'declined'], true));
@@ -401,6 +422,8 @@ class DelegateOrderController extends Controller {
             }, 3);
             return $this->successResponse('success', __('api.order updated successfully'));
         }
+        // A shipping order is completed (and its money settled) by its own courier alone.
+        $this->assertApiDelegateParty($order);
         if($order->status!='completed'){
         $order->update(['status'=>'completed']);
                if($order->type=='shipping'){
@@ -646,7 +669,10 @@ class DelegateOrderController extends Controller {
     public function transfer_order_price($id){
         return DB::transaction(function () use ($id) {
             $locked = Order::whereKey($id)->lockForUpdate()->firstOrFail();
-            if ($locked->type === 'current') $this->assertApiDelegateParty($locked);
+            // Asked for through this address, any order is settled by its own courier only; the vendor's and the
+            // scheduler's own calls (shipping orders they complete) keep settling as before.
+            $direct = str_ends_with((string) request()->route()?->getActionName(), 'DelegateOrderController@transfer_order_price');
+            if ($locked->type === 'current' || $direct) $this->assertApiDelegateParty($locked);
             if ($locked->type === 'current') app(LegacyOrderCompletion::class)->lockParties($locked);
             $eligible = $locked->type === 'current' && $locked->grand_total > 0 && $locked->delegate_id
                 && $locked->reason === null && $locked->transfer_price_by === null && $locked->status === 'completed';
@@ -711,7 +737,8 @@ class DelegateOrderController extends Controller {
                     Notification::send($admin,new \App\Notifications\NotifyOrderPercentageNotification($order));
 
                     if($delegate->balance<0){
-                     $order->update(['expiration_date' => now()->addHours(2),'connected'=>'inactive']);   
+                     // The courier in debt is paused, not the order (orders have no such columns: the write failed).
+                     $delegate->update(['expiration_date' => now()->addHours(2),'connected'=>'inactive']);
                      Notification::send($delegate,new \App\Notifications\NotifyMinWalletBalanceNotification($delegate));
                     }
                     return $this->successResponse(OrderResource::make($order),__('api.successfully transfer')); 
@@ -729,7 +756,9 @@ class DelegateOrderController extends Controller {
 
     private function assertApiDelegateParty(Order $order, bool $allowInvitation = false): void
     {
-        if (auth('admin')->check() || !auth('api')->check()) return;
+        // The dashboard and the scheduler have no app token: they are not held to a courier's part. An app request is,
+        // told apart by its app token (auth('api')), never by the «admin» guard being empty.
+        if (!auth('api')->check()) return;
         $actor = auth('api')->user();
         abort_unless($actor->account_type === 'delegate' && $actor->status === 'accepted', 403);
         $assigned = (int) $order->delegate_id === (int) $actor->id;

@@ -30,6 +30,7 @@
 .ho-owner-column,.ho-owner-column:first-child,.ho-owner-trend,.ho-owner-ranking{--ho-accent:#245ea6;--ho-tint:#eaf2ff;border:1px solid #cedbec;border-top:3px solid var(--ho-accent);border-radius:8px;background:white;overflow:hidden}
 .ho-owner-stock{--ho-accent:#087d85;--ho-tint:#e5f5f4}
 .ho-owner-drawers{--ho-accent:#15805a;--ho-tint:#e7f5ee}
+.ho-drawer-actions{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:6px 10px;flex:none}.ho-drawer-actions .ho-button{padding:5px 7px;min-height:28px;font-size:10px;white-space:normal}.ho-drawer-actions [role=status]{font-size:10px;line-height:1.4;color:#52667f}
 .ho-owner-expenses{--ho-accent:#b95b14;--ho-tint:#fff0e1}
 .ho-owner-ranking{--ho-accent:#7952b3;--ho-tint:#f1ebfa}
 .ho-owner header{min-height:47px;padding:8px 10px;background:var(--ho-tint);border-bottom:1px solid #dbe4ed}
@@ -89,7 +90,7 @@
 #branch-home .bh-expense-total{display:flex;flex-direction:column;gap:5px;padding:24px 26px;background:#fff7ee}
 #branch-home .bh-expense-total strong{font-size:32px;color:#b85d06;font-variant-numeric:tabular-nums}
 #branch-home .bh-expense-total small{color:#7b664f}
-#branch-home .bh-negative{color:#b42318}
+#branch-home .bh-negative,#branch-home .bh-low-stock{color:#b42318}
 #branch-home [hidden]{display:none!important}
 @media(max-width:767px){#branch-home .bh-panels{grid-template-columns:1fr}#branch-home .ho-scroll{max-height:440px}#branch-home .ho-heading{flex-wrap:wrap}#branch-home h2{font-size:16px}}
 

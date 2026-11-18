@@ -82,10 +82,10 @@
                                                     @endcan
                                                     @if ($admin->id != 1)
                                                         @can('admin-delete')
-                                                            {!! Form::open(['method' => 'DELETE', 'route' => ['admins.destroy', $admin->id], 'style' => 'display:inline']) !!}
+                                                            {!! \App\Support\NativeDeleteForm::open(['method' => 'DELETE', 'route' => ['admins.destroy', $admin->id], 'style' => 'display:inline']) !!}
                                                             <button type="submit"
                                                                 class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                            {!! Form::close() !!}
+                                                            {!! \App\Support\NativeDeleteForm::close() !!}
                                                         @endcan
                                                     @endif
                                                 </td>

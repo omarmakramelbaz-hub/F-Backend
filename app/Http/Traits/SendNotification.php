@@ -5,13 +5,19 @@ use Illuminate\Support\Str;
 use Notification;
 trait SendNotification {
 
-    public function sendNotification($modelNotification =  [], $notifiable = [])
+    public function sendNotification(string $modelNotification, $notifiable = [])
     {
-        $admins = Admin::where('roles_name','["Super Admin"]')->get();
+        $notificationClass = 'App\\Notifications\\' . $modelNotification;
 
-        foreach ($admins as $key => $value) {   
-        
-            Notification::send($value,new \App\Notifications\$modelNotification($notifiable));
+        if (!is_subclass_of($notificationClass, \Illuminate\Notifications\Notification::class)) {
+            throw new \InvalidArgumentException('Unknown notification class.');
+        }
+
+        $admins = \App\Models\User::where('account_type', 'admin')
+            ->where('roles_name', '["Super Admin"]')->get();
+
+        foreach ($admins as $admin) {
+            \Illuminate\Support\Facades\Notification::send($admin, new $notificationClass($notifiable));
         }
     }
 }

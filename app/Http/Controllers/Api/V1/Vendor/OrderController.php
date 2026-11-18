@@ -415,7 +415,14 @@ if ($resturant_owner) {
     }
     public function reports()
     {
-        if (request()->wantsJson() || request()->is('api/*')) {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);$localRestaurant=null;
+        if($workspace->selected()){
+            $ids=$workspace->restaurantIds();abort_unless(count($ids),404);
+            $selected=request('resturant_id',$ids[0]);
+            $id=filter_var($selected,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);abort_unless($id,404);$workspace->restaurant($id);
+            $localRestaurant=Resturant::query()->findOrFail($id);$resturant_id=(int)$localRestaurant->id;
+        }
+        elseif (request()->wantsJson() || request()->is('api/*')) {
             $resturant_id = auth('api')->user()->base_resturant->id;
         } else {
             $resturant_id = auth('admin')->user()->base_resturant->id;
@@ -559,7 +566,8 @@ if ($resturant_owner) {
             $payed_total = $payed_total + $pay->app_percentage;
             $delivery_price = $delivery_price + $pay->delivery_price;
         }
-        if (request()->wantsJson() || request()->is('api/*')) {
+        if($localRestaurant!==null){$vendor_orders=$localRestaurant->orders;}
+        elseif (request()->wantsJson() || request()->is('api/*')) {
             $vendor_orders = auth('api')->user()->base_resturant->orders;
         } else {
 
@@ -742,7 +750,9 @@ if ($resturant_owner) {
 
     private function assertApiRestaurantParty(Order $order): void
     {
-        if (auth('admin')->check() || !auth('api')->check() || $order->type !== 'current') return;
+        // The dashboard has no app token. An app request, told apart by its app token (auth('api')) and never by the
+        // «admin» guard being empty, is held to its own branches.
+        if (!auth('api')->check() || $order->type !== 'current') return;
         $actor = auth('api')->user();
         abort_unless($actor->status === 'accepted' && in_array($actor->account_type, ['vendor', 'resturant_owner'], true)
             && in_array((int) $order->resturant_id, array_map('intval', app(\App\Services\Dashboard\OrderBoardService::class)->restaurantIds($actor)), true), 403);

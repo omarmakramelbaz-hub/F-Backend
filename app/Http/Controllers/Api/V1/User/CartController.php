@@ -46,13 +46,37 @@ class CartController extends Controller
 
     use ApiResponses;
 
+    /**
+     * What the server alone decides about a customer's order, whatever the app sends at checkout: which order, whose,
+     * which branch, its kind and state, its totals and taxes, its courier and payment records. The order takes every
+     * other field the app sends (the address, schedule, payment type, notes, delivery price) as before.
+     */
+    private const ORDER_FIELDS_THE_SERVER_DECIDES = \App\Services\Orders\CustomerOrderFields::SERVER_DECIDES;
+
     //  ===================================================================================
     //  =============================================cart==================================
     //  ===================================================================================
 
+    /**
+     * A cart quantity as the app sends it (Arabic digits and half a kilo too), only above zero and at most 1000 a line:
+     * the order's total is price × quantity, so a zero, negative or huge quantity is never kept. Null when refused.
+     */
+    public static function quantity($value, $default = 1): ?float
+    {
+        if ($value === null || $value === '') $value = $default;
+        if (is_array($value)) return null;
+        $text = \App\Support\Quantity::text($value);
+        if (!preg_match('/^\d{1,4}(\.\d{1,3})?$/D', $text)) return null;
+        $quantity = round((float) $text, 3);
+        return $quantity > 0 && $quantity <= 1000 ? $quantity : null;
+    }
+
     public function store(CartRequest $request)
     {
+        $qty = self::quantity($request->qty);
+        if ($qty === null) return $this->errorResponse('الكمية غير صحيحة.');
         $product = ResturantProduct::find($request->resturant_product_id);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         // $order=auth('api')->user()->orders()->whereNull('status')->where('type','current')->first();
 
 
@@ -79,12 +103,15 @@ class CartController extends Controller
                 'product_feature' => $request->product_feature,
             ])->first();
             if ($cart) {
-                $cart->update(['qty' => $cart->qty + $request->qty ?? 1]);
+                // The same item again with no quantity keeps the line's quantity, as the app has always had it.
+                $total = ($request->qty === null || $request->qty === '') ? (float) $cart->qty : self::quantity((float) $cart->qty + $qty);
+                if ($total === null) return $this->errorResponse('الكمية غير صحيحة.');
+                $cart->update(['qty' => $total]);
             } else {
                 $cart = Cart::create([
                     'user_id' => auth('api')->user()->id,
                     //  'order_id'=>$order->id,
-                    'qty' => $request->qty ?? 1,
+                    'qty' => $qty,
                     'price' => $product->calculate_price($request->product_feature, $request->product_clean),
                     'resturant_id' => $product->resturant_id,
                     'resturant_product_id' => $product->id,
@@ -102,12 +129,29 @@ class CartController extends Controller
             return $this->msgResponse(__('api.empty your cart first'));
         }
     }
+    /** A checkout that was refused: its order is removed and the customer's cart is back as it was, to pay again. */
+    private function undoCheckout(Order $order, array $cartIds): void
+    {
+        Cart::whereIn('id', $cartIds)->update(['order_id' => null, 'is_order' => false]);
+        Order::withoutGlobalScopes()->whereKey($order->id)->delete();
+    }
+
+    /** One of the signed-in customer's own cart items; another customer's item is as if it did not exist. */
+    private function ownCart($id): ?Cart
+    {
+        return Cart::query()->whereKey($id)->where('user_id', auth('api')->id())->first();
+    }
+
     public function update_cart_item($id, CartRequest $request)
     {
-        $cart = Cart::find($id);
+        $cart = $this->ownCart($id);
+        if (! $cart) return $this->errorResponse(__('api.empty'));
+        $qty = self::quantity($request->qty);
+        if ($qty === null) return $this->errorResponse('الكمية غير صحيحة.');
         $product = ResturantProduct::find($request->resturant_product_id);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         $cart->update([
-            'qty' => $request->qty ?? 1,
+            'qty' => $qty,
             'price' => $product->calculate_price($request->product_feature, $request->product_clean),
             'resturant_id' => $product->resturant_id,
             'resturant_product_id' => $product->id,
@@ -121,7 +165,8 @@ class CartController extends Controller
     }
     public function show($id)
     {
-        $cart = Cart::find($id);
+        $cart = $this->ownCart($id);
+        if (! $cart) return $this->errorResponse(__('api.empty'));
         $cart_data = new CartResource($cart);
         return $this->successResponse($cart_data, __('api.AddToCartSuccessfully'));
 
@@ -130,6 +175,7 @@ class CartController extends Controller
     {
         $cartItems = collect();
         $product = ResturantProduct::find($request->resturant_product_id[0]);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         // $order=auth('api')->user()->orders()->whereNull('status')->where('type','current')->first();
 
 
@@ -149,9 +195,11 @@ class CartController extends Controller
         }
         // if($order->resturant_id ==null || ($order->resturant_id !=null && $order->resturant_id == $product->resturant_id)){
 
-        foreach ($request->resturant_product_id as $i => $product_id) {
+        foreach ((array) $request->resturant_product_id as $i => $product_id) {
+            $qty = self::quantity(is_array($request->qty) ? ($request->qty[$i] ?? null) : null);
+            if ($qty === null) continue;
             $product = ResturantProduct::find($product_id);
-            if ($product) {
+            if ($product && !\App\Support\PosOnlyProducts::is($product)) {
                 $cart = Cart::where([
                     'user_id' => auth('api')->user()->id,
                     'is_order'=>false,
@@ -162,13 +210,14 @@ class CartController extends Controller
                     'product_feature' => $request->product_feature[$i] ?? null,
                 ])->first();
                 if ($cart) {
-                    $cart->update(['qty' => $cart->qty + $request->qty[$i] ?? 1]);
+                    $total = self::quantity((float) $cart->qty + $qty);
+                    if ($total !== null) $cart->update(['qty' => $total]);
                 } else {
                     $cart = Cart::create([
                         'user_id' => auth('api')->user()->id,
                         'is_order'=>false,
                         //  'order_id'=>$order->id,
-                        'qty' => $request->qty[$i] ?? 1,
+                        'qty' => $qty,
                         'price' => $product->calculate_price($request->product_feature[$i], $request->product_clean[$i]),
                         'resturant_id' => $product->resturant_id,
                         'resturant_product_id' => $product->id,
@@ -193,6 +242,7 @@ class CartController extends Controller
     public function product_calculate_price(CartRequest $request)
     {
         $product = ResturantProduct::find($request->resturant_product_id);
+        if (\App\Support\PosOnlyProducts::is($product)) return $this->msgResponse('هذا الصنف غير متاح في التطبيق.');
         $price = $product->calculate_price($request->product_feature, $request->product_clean);
 
         return $this->successResponse($price, __('api.AddToCartSuccessfully'));
@@ -214,7 +264,7 @@ class CartController extends Controller
             $cartProductIds = $cartItems->pluck('resturant_product_id');
 
             // Fetch products not in the cart, prioritizing highest_rated = 'yes'
-            $recommendedProducts = ResturantProduct::where('status', 'show')->whereNotIn('id', $cartProductIds)
+            $recommendedProducts = ResturantProduct::where('status', 'show')->whereNotIn('id', $cartProductIds)->whereNotIn('id', \App\Support\PosOnlyProducts::ids())
                 ->where('resturant_id', $cartItems->first()->resturant_id)
                 ->orderByRaw("FIELD(highest_rated, 'yes', 'no')") // 'yes' first, then 'no'
                 ->take(3) // Limit the number of recommendations
@@ -238,14 +288,16 @@ class CartController extends Controller
 
     public function update($id, Request $request)
     {
-        $cart = Cart::find($id);
+        $cart = $this->ownCart($id);
         if ($cart) {
-            if ($request->qty == 0) {
+            if ($request->has('qty') && !is_array($request->qty) && is_numeric(\App\Support\Quantity::text($request->qty)) && (float) \App\Support\Quantity::text($request->qty) == 0) {
                 $cart->delete();
 
             } else {
+                $qty = self::quantity($request->qty, $cart->qty);
+                if ($qty === null) return $this->errorResponse('الكمية غير صحيحة.');
                 $cart->update([
-                    'qty' => $request->qty ?? $cart->qty,
+                    'qty' => $qty,
                 ]);
             }
             $cartItems = Cart::isNotOrder()->get();
@@ -291,9 +343,10 @@ class CartController extends Controller
             // $user->otp_first_no= '1234';
             $user->save();
             $user_mobile = '20' . auth('api')->user()->mobile;
-            $username = 'fe082b557b6f5466588dc3f2a025207b784eeba854d78c78cb2f3d9562f88bfd';
-            $password = '2d5f17adaadabd5f2e025001f055a1cf155aa32f15fae09e6d19a83e05e23f84';
-            $senderId = '8b42c51d209b1e952e5e692135c282978f540200fe8c870332c0e594e89a0534';
+            $username = (string) config('services.sms_misr.username');
+            $password = (string) config('services.sms_misr.password');
+            $senderId = (string) config('services.sms_misr.sender');
+            if (!$username || !$password || !$senderId || config('desktop_dashboard.local')) return $this->errorResponse(__('api.error in sent '));
             $link =
                 \Http::post("https://smsmisr.com/api/SMS/?environment=1&username=$username&password=$password&language=2&sender=$senderId&mobile=$user_mobile&message=فسخانينجا.. من فضلك أدخل كود التحقق المرسل ($user->otp_first_no)");
             // return $link->status();
@@ -308,6 +361,10 @@ class CartController extends Controller
             $carts = Cart::isNotOrder()->get();
             if ($carts->count() == 0) {
                 return $this->errorResponse(__('api.empty'));
+            }
+            // A line saved before quantities were checked (zero, negative or huge) never lowers or swells an order.
+            if ($carts->contains(fn ($cart) => self::quantity($cart->qty) === null)) {
+                return $this->errorResponse('في صنف كميته غير صحيحة في السلة. عدّل الكمية أو امسح الصنف.');
             }
 
             $restaurant = $carts->first()->resturant;
@@ -347,6 +404,14 @@ class CartController extends Controller
                 ], 422);
             }
 
+            // The address must be the customer's own (its mobile goes to the branch and the courier).
+            $address = \App\Models\UserAddress::query()->whereKey($request->user_address_id)->where('user_id', auth('api')->id())->first();
+            if (! $address) {
+                return $this->errorResponse(__('validation.exists', ['attribute' => __('main.user_address_id')]));
+            }
+            // The branch's own delivery tariff, watched before checkouts are held to it (CustomerDeliveryCheck).
+            \App\Services\Dashboard\CustomerDeliveryCheck::watch($restaurant, $address, $request->delivery_price, (int) auth('api')->id());
+
             $order = Order::create([
                 'user_id' => auth('api')->user()->id,
                 // 'status'=>'pending',
@@ -355,7 +420,8 @@ class CartController extends Controller
                 'resturant_id' => $carts->first()->resturant_id,
             ]);
 
-            Cart::whereIn('id', $carts->pluck('id')->all())->update([
+            $cartIds = $carts->pluck('id')->all();
+            Cart::whereIn('id', $cartIds)->update([
                 'order_id' => $order->id,
                 'is_order' => true,
             ]);
@@ -364,7 +430,7 @@ class CartController extends Controller
             $orderCount = $order->resturant->orders()->where('status', 'pending')->whereDate('created_at', '=', now()->toDateString())->count();
 
             if ($order && $order->carts->count() > 0 && $order->grand_total >= $order->resturant->min_order_price) {
-                $updated = $order->update($request->input());
+                $updated = $order->update($request->except(self::ORDER_FIELDS_THE_SERVER_DECIDES));
 
                 //          $order->notes=$request->notes;
 
@@ -393,19 +459,22 @@ class CartController extends Controller
                 if ($request->payment_type == 'online') {
                     return (new PaymobController)->checkingOut(
                         'paymob_card_payment',
-                        env('PAYMOB_CARD_INTEGRATION_ID'),
+                        config('services.paymob.card_integration_id'),
                         $order->id,
-                        env('PAYMOB_CARD_IFRAME_ID')
+                        config('services.paymob.card_iframe_id')
                     );
                 } else if ($request->payment_type == 'v_cash') {
                     return (new PaymobController)->checkingOut(
                         'paymob_mobile_wallet_payment',
-                        env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
+                        config('services.paymob.wallet_integration_id'),
                         $order->id,
                         $order->user_address?->mobile
                     );
                 } else if ($request->payment_type == 'wallet') {
-                    if (auth('api')->user()->balance >= $order->grand_total) {
+                    // Taken in one step, only while the balance covers it: two checkouts at once never spend the same money.
+                    $amount = $order->grand_total;
+                    $paid = DB::table('users')->where('id', auth('api')->id())->where('balance', '>=', $amount)->decrement('balance', $amount);
+                    if ($paid) {
                         Wallet::create([
                             'from_user' => auth('api')->user()->id,
                             'to_user' => null,
@@ -416,10 +485,12 @@ class CartController extends Controller
                             'order_id' => $order->id
                         ]);
                         $order->update(['status' => 'pending']);
-                        $user = auth('api')->user();
-                        $user->update(['balance' => $user->balance - $order->grand_total]);
+                        // The app's balance shows the new amount at once, as the user observer does on any balance change.
+                        $customer = User::withoutGlobalScopes()->find(auth('api')->id());
+                        if ($customer) app(\App\Services\Dashboard\OrderProviderDelivery::class)->event(new \App\Events\BalanceUpdated($customer, $customer->id));
                         // (new \App\Http\Controllers\Dashboard\OrderController)->transferPrice($order->id);
                     } else {
+                        $this->undoCheckout($order, $cartIds);
                         return $this->errorResponse(__('api.charge your wallet first'));
                     }
                 } elseif ($request->payment_type == 'cash') {
@@ -465,6 +536,7 @@ class CartController extends Controller
                     );
                 }
             }
+            $this->undoCheckout($order, $cartIds);
             return $this->errorResponse(__('api.cannot create order'));
         }
     }
@@ -482,10 +554,7 @@ class CartController extends Controller
         $serviceFeeRaw = DB::table('settings')
             ->where('name', 'service_fees')
             ->value('payload');
-        $serviceFeeRate = (int) filter_var(
-            (string) $serviceFeeRaw,
-            FILTER_SANITIZE_NUMBER_INT
-        );
+        $serviceFeeRate = \App\Support\SettingPercent::parse($serviceFeeRaw);
 
         $orders = Order::query()
             ->select([
@@ -531,7 +600,7 @@ class CartController extends Controller
                     return (float) $cart->updated_total;
                 }
 
-                return (float) $cart->price * (int) $cart->qty;
+                return (float) $cart->price * (float) $cart->qty;
             });
 
             $serviceFees = ($updatedTotal * $serviceFeeRate) / 100;
@@ -688,7 +757,7 @@ class CartController extends Controller
             $q->where('status', 'completed');
         })
             ->groupBy('resturant_product_id')->pluck('resturant_product_id')->toArray();
-        $resturants = ResturantProductResource::collection(ResturantProduct::whereIn('id', $orders)->get());
+        $resturants = ResturantProductResource::collection(ResturantProduct::whereIn('id', $orders)->whereNotIn('id', \App\Support\PosOnlyProducts::ids())->get());
         return $this->successResponse($resturants, __('api.success data'));
 
     }
@@ -721,40 +790,25 @@ class CartController extends Controller
 
     public function Commission_order_delegate(ComessionOrderDelegateRequest $request)
     {
-        $order = Order::find($request->order_id);
         $user = auth('api')->user();
-        if ($order && $order->status == 'completed' && $order->delegate) {
-            if ($user->balance >= $request->commission) {
-                $commission = Commission::create([
-                    'user_id' => $user->id,
-                    'delegate_id' => $order->delegate_id,
-                    'order_id' => $request->order_id,
-                    'commission' => $request->commission,
-                ]);
-                Wallet::create([
-                    'order_id' => $order->id,
-                    'from_user' => $user->id,
-                    'to_user' => $order->delegate_id,
-                    'amount' => $request->commission,
-                    'type' => 'transfer',
-                    'payment' => 'wallet',
-                    'status' => 'completed',
-                ]);
-                $delegate = $order->delegate;
-                $delegate->balance = $delegate->balance + $request->commission;
-                $delegate->save();
-                $user->balance = $user->balance - $request->commission;
-                $user->save();
-                //send notification for delegate -> user sent commission
-                $delegate = User::where('id', $order->delegate_id)->first();
-                if ($delegate) {
-                    Notification::send($delegate, new \App\Notifications\NotifyDelegateCommissionSentNotification($commission));
-                }
-                return $this->successResponse($commission, __('api.Your commesion sent successfully'));
-            }
-            return $this->errorResponse(__('api.cannot add commesion charge your wallet first'));
+        $amount = round((float) $request->commission, 2);
+        // Only the order's own customer tips its courier, a positive amount (the request refuses any other).
+        $order = Order::withoutGlobalScopes()->whereKey($request->order_id)->where('user_id', $user->id)->first();
+        if (!$order || $order->status !== 'completed' || !$order->delegate_id || $amount <= 0) {
+            return $this->errorResponse(__('api.cannot add commesion now'));
         }
-        return $this->errorResponse(__('api.cannot add commesion now'));
+        $commission = DB::transaction(function () use ($order, $user, $amount) {
+            // Taken in one step, only while the balance covers it: two tips at once never spend the same money.
+            if (!DB::table('users')->where('id', $user->id)->where('balance', '>=', $amount)->decrement('balance', $amount)) return null;
+            DB::table('users')->where('id', $order->delegate_id)->increment('balance', $amount);
+            Wallet::create(['order_id' => $order->id, 'from_user' => $user->id, 'to_user' => $order->delegate_id, 'amount' => $amount,
+                'type' => 'transfer', 'payment' => 'wallet', 'status' => 'completed']);
+            return Commission::create(['user_id' => $user->id, 'delegate_id' => $order->delegate_id, 'order_id' => $order->id, 'commission' => $amount]);
+        });
+        if (!$commission) return $this->errorResponse(__('api.cannot add commesion charge your wallet first'));
+        $delegate = User::withoutGlobalScopes()->find($order->delegate_id);
+        if ($delegate) Notification::send($delegate, new \App\Notifications\NotifyDelegateCommissionSentNotification($commission));
+        return $this->successResponse($commission, __('api.Your commesion sent successfully'));
     }
 
 

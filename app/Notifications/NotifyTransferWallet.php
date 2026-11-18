@@ -72,9 +72,9 @@ class NotifyTransferWallet extends Notification
         // }
 
 
-        if($notifiable->my_tokens){
+        if(!config('desktop_dashboard.local')&&$notifiable->my_tokens){
             $tokens= $notifiable->my_tokens ; 
-            $this->sendFcmNotification( $tokens ,$this->body_data) ;
+            app(\App\Services\Dashboard\OrderProviderDelivery::class)->push($this,$tokens,$this->body_data);
         }
         
       return $this->body_data;   

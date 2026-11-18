@@ -1,0 +1,1 @@
+<?php require 'vendor/autoload.php'; $app=require 'bootstrap/app.php'; $kernel=$app->make(Illuminate\Contracts\Console\Kernel::class); $kernel->bootstrap(); try{ Mail::raw('WEB TEST',function($m){$m->to('omarmakramelbazz@gmail.com')->subject('WEB TEST');}); echo 'SUCCESS'; }catch(Throwable $e){ echo $e->getMessage(); }

@@ -52,10 +52,8 @@ class CancelledShippingOrderCommand extends Command
                 ->whereIn('payment_type', ['online', 'v_cash', 'wallet', 'cash'])
                 ->where('updated_at', '<=', $fiveMinutesAgo)
                 ->get();             
-            \Log::info('make cancelleddd'.$orders);
 
            foreach($orders as $order){
-                        \Log::info('make cancelled'.$order);
                 $order->update([
                     'status' => 'cancelled',
                     ]);

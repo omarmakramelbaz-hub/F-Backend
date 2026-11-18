@@ -17,6 +17,9 @@ class GuestAdmin
     public function handle($request, Closure $next, $guard = null) {
         if (Auth::guard('admin')->check()) {
             $user = Auth::guard('admin')->user();
+            // Rebuild branch context when a remembered login creates a fresh session.
+            session()->put('id_user', $user->id);
+            session()->put('guard', 'admin');
             if($user->account_type=='admin'){
             return redirect('admin/dashboard');
            }elseif($user->account_type=='vendor'){

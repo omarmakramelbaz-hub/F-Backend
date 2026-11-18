@@ -19,5 +19,6 @@ class TrustProxies extends Middleware
      *
      * @var int
      */
-    protected $headers = Request::HEADER_X_FORWARDED_ALL;
+    // The old Symfony constant was removed in 6.x; retain its exact 94 mask.
+    protected $headers = 94;
 }

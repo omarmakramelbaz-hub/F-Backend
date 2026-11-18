@@ -5,6 +5,7 @@ return [
     'own_inbox' => 'This account',
     'central_inbox' => 'Main support inbox',
     'unavailable' => 'Messages could not be loaded. Please try again.',
+    'desktop_unavailable' => 'Support messages are available in the online dashboard.',
     'read_failed' => 'Could not mark these messages as read. Please try again.',
     'support' => 'Support messages',
     'unread' => 'unread',

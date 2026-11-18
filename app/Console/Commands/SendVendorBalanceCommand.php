@@ -40,13 +40,11 @@ class SendVendorBalanceCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is SendVendorBalanceCommand!");
             $vendors=User::where('account_type','vendor')->whereNotNull('min_wallet')->whereRaw('balance <= min_wallet / 2')->whereHas('base_resturant',function($q){
                 $q->whereNotNull(['lat','lng'])->has('resturant_products');
                 
             })->get();
            foreach($vendors as $vendor){
-               \Log::info($vendor->id);
                 $fdate = now();
                 $tdate = $vendor->expiration_date;
                 $datetime1 = new \DateTime($fdate);
@@ -57,7 +55,6 @@ class SendVendorBalanceCommand extends Command
                     $up = $vendor->update(['expiration_date' => now()->addDays(3)]);
                     Notification::send($vendor,new \App\Notifications\NotifyVendorMinBalanceNotification($vendor));
                }elseif($diff <= 3 && $diff > 0 ){
-                            \Log::info($diff);
                     Notification::send($vendor,new \App\Notifications\NotifyVendorMinBalanceNotification($vendor));
                }
                elseif($tdate < now()){

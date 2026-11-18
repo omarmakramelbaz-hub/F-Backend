@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#091320">
+  <link rel="icon" type="image/png" href="/f-admin-dashboard-icon.png">
+  <link rel="apple-touch-icon" href="/f-admin-dashboard-icon.png">
+  <title>فسخانستا | لوحة التحكم</title>
+  <style>
+    :root { color-scheme: dark; font-family: Tahoma, Arial, sans-serif; color: #eff7ff; background: #091320; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body { overflow: hidden; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+    .app { width: 100%; height: 100vh; height: 100dvh; }
+    .viewport { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); background: #091320; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; background: #091320; }
+    .loading { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; overflow: auto; padding: 28px 22px; background: #091320; text-align: center; }
+    .loading[hidden], [hidden] { display: none !important; }
+    .loading-card { width: min(100%, 360px); background: #091320; }
+    h1 { margin: 0 0 12px; font-size: 21px; line-height: 1.6; font-weight: 700; }
+    .message { margin: 0; color: #b9c8d5; font-size: 16px; line-height: 1.8; }
+    .actions { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin-top: 24px; }
+    .retry, .fallback { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 11px 18px; border: 1px solid transparent; border-radius: 12px; text-decoration: none; font-size: 16px; line-height: 1.5; font-weight: 700; }
+    .retry { color: #071923; background: #55d2df; }
+    .retry:hover { background: #79e2eb; }
+    .fallback { border-color: #294353; color: #eaf6ff; background: #132332; }
+    .fallback:hover { background: #1b3042; }
+    .direct-link { position: fixed; top: -200px; inset-inline-start: 12px; z-index: 3; padding: 12px 16px; border-radius: 8px; color: #fff; background: #29323b; font-size: 16px; text-decoration: none; }
+    .direct-link:focus { top: calc(18px + env(safe-area-inset-top, 0px)); }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  </style>
+</head>
+<body data-release="f-admin-webview-direct-20261111">
+  <a class="direct-link" id="direct-link" href="/admin/login" target="_top">فتح لوحة التحكم مباشرة</a>
+  <main class="app" id="app" aria-label="لوحة تحكم فسخانستا">
+    <div class="viewport">
+      <iframe id="dashboard" src="/admin/login" title="Fasakhansta Dashboard" allow="camera 'self'; microphone 'self'; geolocation 'self'; clipboard-read 'self'; clipboard-write 'self'" aria-busy="true"></iframe>
+      <div class="loading" id="loading" hidden>
+        <div class="loading-card">
+          <h1 id="heading">لوحة تحكم فسخانستا</h1>
+          <p class="message" id="message">جارٍ فتح لوحة التحكم…</p>
+          <div class="actions" id="actions" hidden>
+            <button class="retry" id="retry" type="button">حاول مرة أخرى</button>
+            <a class="fallback" href="/admin/login" target="_top">فتح لوحة التحكم مباشرة</a>
+          </div>
+        </div>
+      </div>
+      <p id="status" class="sr-only" role="status" aria-live="polite">جارٍ فتح لوحة التحكم</p>
+    </div>
+  </main>
+  <noscript>
+    <style>.loading { display: none; }</style>
+  </noscript>
+  <script>
+    (() => {
+      'use strict';
+      const frame = document.getElementById('dashboard');
+      const overlay = document.getElementById('loading');
+      const message = document.getElementById('message');
+      const actions = document.getElementById('actions');
+      const status = document.getElementById('status');
+      let timer;
+      let readyMonitor;
+      let hasLoadedOnce = false;
+      let previousDocument = null;
+
+      function stopReadyMonitor() {
+        window.clearInterval(readyMonitor);
+        readyMonitor = undefined;
+      }
+
+      function loading() {
+        window.clearTimeout(timer);
+        stopReadyMonitor();
+        overlay.hidden = true;
+        actions.hidden = true;
+        message.textContent = 'جارٍ فتح لوحة التحكم…';
+        status.textContent = 'جارٍ فتح لوحة التحكم';
+        frame.setAttribute('aria-busy', 'true');
+        timer = window.setTimeout(() => failed(true), 20000);
+        readyMonitor = window.setInterval(ready, 250);
+      }
+
+      function failed(timedOut) {
+        window.clearTimeout(timer);
+        stopReadyMonitor();
+        overlay.hidden = false;
+        actions.hidden = false;
+        message.textContent = timedOut
+          ? 'التحميل استغرق وقتًا أطول. يمكنك المحاولة مرة أخرى أو فتح لوحة التحكم مباشرة.'
+          : 'تعذّر فتح لوحة التحكم. حاول مرة أخرى أو افتحها مباشرة.';
+        status.textContent = message.textContent;
+        frame.setAttribute('aria-busy', 'false');
+      }
+
+      function hideRootScrollbar() {
+        try {
+          const page = frame.contentDocument;
+          if (!page || new URL(page.URL).origin !== window.location.origin ||
+              !page.head || page.getElementById('f-admin-root-scrollbar')) return;
+          const style = page.createElement('style');
+          style.id = 'f-admin-root-scrollbar';
+          style.textContent = 'html, body { scrollbar-width: none !important; } ' +
+            'html::-webkit-scrollbar, body::-webkit-scrollbar { ' +
+            'width: 0 !important; height: 0 !important; display: none !important; }';
+          page.head.appendChild(style);
+        } catch (_) {
+          // Later external pages keep their own appearance and navigation.
+        }
+      }
+
+      function ready() {
+        if (!hasLoadedOnce) {
+          try {
+            const page = frame.contentDocument;
+            if (!page || page === previousDocument || page.URL === 'about:blank' ||
+                new URL(page.URL).origin !== window.location.origin ||
+                (page.readyState !== 'interactive' && page.readyState !== 'complete') ||
+                !page.body || page.body.childElementCount === 0) {
+              return false;
+            }
+          } catch (_) {
+            return false;
+          }
+          hasLoadedOnce = true;
+          previousDocument = null;
+        }
+        hideRootScrollbar();
+        window.clearTimeout(timer);
+        stopReadyMonitor();
+        overlay.hidden = true;
+        frame.setAttribute('aria-busy', 'false');
+        status.textContent = 'تم فتح لوحة التحكم';
+        return true;
+      }
+
+      frame.addEventListener('load', () => {
+        if (!ready()) failed(false);
+      });
+      frame.addEventListener('error', () => failed(false));
+      document.getElementById('retry').addEventListener('click', () => {
+        try {
+          previousDocument = frame.contentDocument;
+        } catch (_) {
+          previousDocument = null;
+        }
+        hasLoadedOnce = false;
+        loading();
+        frame.src = '/admin/login';
+        frame.focus();
+      });
+      loading();
+    })();
+  </script>
+</body>
+</html>

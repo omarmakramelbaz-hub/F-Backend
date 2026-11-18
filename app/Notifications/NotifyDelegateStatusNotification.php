@@ -44,8 +44,10 @@ class NotifyDelegateStatusNotification extends Notification
     {
         $tokens = [];
         $types  = [];
-        
-        if(auth('admin')->user()->account_type == 'admin'){
+        $title  = '';
+        // Worded for whoever receives it: an admin reads whose account it is. It is sent by the daily balance jobs and the
+        // wallet top-up, where nobody is signed in.
+        if($notifiable->account_type == 'admin'){
             if($this->msg->status=='accepted'){
                 $title="تم تفعيل حساب ". $this->msg->name ." الأن يمكنك إستقبال طلبات";
             }elseif($this->msg->status=='disabled'){

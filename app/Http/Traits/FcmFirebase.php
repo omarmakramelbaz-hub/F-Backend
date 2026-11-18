@@ -52,11 +52,11 @@ trait FcmFirebase {
         
         // Determine action URL
         if ($data['data']['notification_type'] == '1') {
-            $action = env('APP_URL')."/admin/applies-orders/?modal=order".$data['data']['order_id'];
+            $action = config('app.url')."/admin/applies-orders/?modal=order".$data['data']['order_id'];
         } elseif (isset($data['data']['click_action']) && $data['data']['click_action']) {
             $action = $data['data']['click_action'];
         } else {
-            $action = env('APP_URL')."/admin/dashboard";
+            $action = config('app.url')."/admin/dashboard";
         }
         
         // Prepare common data
@@ -178,11 +178,11 @@ trait FcmFirebase {
 
         // Build click action (as you had before)
         if (($data['data']['notification_type'] ?? null) == '1' && !empty($data['data']['order_id'])) {
-            $action = env('APP_URL')."/admin/applies-orders/?modal=order".$data['data']['order_id'];
+            $action = config('app.url')."/admin/applies-orders/?modal=order".$data['data']['order_id'];
         } elseif (!empty($data['data']['click_action'])) {
             $action = $data['data']['click_action'];
         } else {
-            $action = env('APP_URL')."/admin/dashboard";
+            $action = config('app.url')."/admin/dashboard";
         }
         
         $requiredData = [

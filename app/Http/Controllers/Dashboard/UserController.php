@@ -79,6 +79,7 @@ class UserController extends Controller
      */
     public function show(User $user)
     {   
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->user($user);
         return view('admin.users.show', compact('user'));
     }
 
@@ -90,6 +91,7 @@ class UserController extends Controller
      */
     public function edit(User $user)
     {   
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->user($user,'edit');
 
         if(auth('web')->check() && auth('web')->user()->id == $user->id || auth('admin')->check()){
                 $roles=Role::select('id','guard_name','name')->get();
@@ -147,6 +149,7 @@ class UserController extends Controller
     }
     
     public function resturantMap(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->permission(['resturant-list']);
         $vendors=Resturant::whereNotNull(['lat','lng'])->get();
         $arr= [];
         foreach($vendors as $vendor){
@@ -160,6 +163,7 @@ class UserController extends Controller
     
     
     public function delegateMap(){
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['delegate-list']);
         $vendors=User::where('account_type','delegate')->whereNotNull(['lat','lng'])->get();
         $arr= [];
         foreach($vendors as $vendor){

@@ -28,9 +28,23 @@ class CouponWheelResource extends JsonResource
             }), 2);
         }
 
+        $policy = $this->policy ?? null;
+        $isProduct = $policy === \App\Services\Draws\ProductDraw::PRODUCT;
+        $items = $isProduct ? \App\Services\Draws\ProductDraw::items((int) $this->id) : [];
+
         return [
             'id' => $this->id,
             'name' => $this->name,
+            // order_total: an order of at least «price» from a participating branch; product: each piece of «products».
+            'policy' => $isProduct ? 'product' : 'order_total',
+            // The chosen items, by name (the same item on every branch's menu).
+            'products' => array_map(fn ($name) => ['id' => null, 'name' => $name], $items),
+            'badge_label' => $isProduct ? \App\Services\Draws\ProductDraw::label($this->prize_amount === null ? null : (float) $this->prize_amount) : null,
+            'my_entries' => $isProduct && auth('api')->check() ? \App\Services\Draws\ProductDraw::entries((int) $this->id, (int) auth('api')->id()) : null,
+            // The customer's entry codes in this draw, and the winning code once drawn.
+            'my_codes' => auth('api')->check() ? \App\Models\CouponSubscripe::where('coupon_wheel_id', $this->id)->where('user_id', auth('api')->id())
+                ->orderBy('id')->limit(200)->pluck('user_coupon_code')->all() : [],
+            'winner_code' => \App\Models\CouponSubscripe::where('coupon_wheel_id', $this->id)->where('status', 'winner')->latest('updated_at')->value('user_coupon_code'),
             'price' => $this->price,
             'prize_amount' => $this->prize_amount,
             'start_date' => $this->start_date,

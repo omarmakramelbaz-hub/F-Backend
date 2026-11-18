@@ -12,6 +12,7 @@
              data-loading="{{ trans('dashboard_inbox.loading') }}"
              data-empty="{{ trans('dashboard_inbox.empty') }}"
              data-error="{{ trans('dashboard_inbox.unavailable') }}"
+             data-local-unavailable="{{ trans('dashboard_inbox.desktop_unavailable') }}"
              data-send-error="{{ trans('dashboard_inbox.send_failed') }}">
             <aside class="ds-users">
                 <label for="support-user-search" class="sr-only">{{ trans('dashboard_inbox.search') }}</label>

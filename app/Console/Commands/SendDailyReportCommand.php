@@ -40,7 +40,6 @@ class SendDailyReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is resturant is closed !");
 
         $resturants = Resturant::where('status','!=','disabled')->where('close_at', now()->format('H:i'))->get();
                 // \Log::info($resturants);
@@ -56,9 +55,9 @@ class SendDailyReportCommand extends Command
                              $message->to($to_email);
                              $message->subject("today's report");
                         });
-                    } catch (\Exception $e) {
-    
-                        return $e->getMessage();
+                    } catch (\Throwable $e) {
+                        // One failed email never stops the other reports.
+                        \Log::warning('GO_DAILY_REPORT_EMAIL_FAILED', ['error' => class_basename($e)]);
                     }
                     }
                 }

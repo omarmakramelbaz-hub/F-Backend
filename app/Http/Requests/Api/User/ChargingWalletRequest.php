@@ -30,7 +30,7 @@ class ChargingWalletRequest extends FormRequest
     public function rules()
     {
         return [
-            'amount'            =>'required|numeric',
+            'amount'            =>'required|numeric|gt:0|max:100000',
             'payment_method'   => 'sometimes|nullable',            
 
         ];

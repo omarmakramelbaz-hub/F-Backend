@@ -40,11 +40,8 @@ class DelegateNotificationCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron is DelegateNotification!");
 
         $orders = DelegateNotification::whereDate('created_at', '<', today())->get();
-        \Log::info(now()->addDay()->toDateString());
-                \Log::info($orders);
 
         foreach($orders as $order){
             $order->delete();

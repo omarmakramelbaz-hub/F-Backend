@@ -90,15 +90,20 @@ Route::group(['middleware' => 'lang'], function () {
 
 Route::post('/pusher/auth', function (Request $request) {
     if (Auth::check()) {
-        $pusher = new Pusher\Pusher(
-            env('PUSHER_APP_KEY'),
-            env('PUSHER_APP_SECRET'),
-            env('PUSHER_APP_ID'),
-            ['cluster' => env('PUSHER_APP_CLUSTER')]
-        );
+        // The keys come from the configuration: once it is cached, env() here returns nothing.
+        $settings = config('broadcasting.connections.pusher');
+        if (empty($settings['key']) || empty($settings['secret']) || empty($settings['app_id'])) {
+            return response()->json(['error' => 'Realtime is not configured'], 503);
+        }
+        $pusher = new Pusher\Pusher((string) $settings['key'], (string) $settings['secret'], (string) $settings['app_id'],
+            array_filter(['cluster' => $settings['options']['cluster'] ?? null]));
 
         $socketId = $request->input('socket_id');
         $channelName = $request->input('channel_name');
+        // Pusher refuses (with an exception) a connection number that is not its own: answered as a bad request.
+        if (! is_string($socketId) || ! preg_match('/\A\d+\.\d+\z/', $socketId)) {
+            return response()->json(['error' => 'Invalid socket id'], 422);
+        }
 
         if ($channelName === 'private-user.' . Auth::id()) {
             $auth = $pusher->socket_auth($channelName, $socketId);
@@ -110,7 +115,9 @@ Route::post('/pusher/auth', function (Request $request) {
 
     return response()->json(['error' => 'Unauthenticated'], 401);
 });
-Route::get('/',[HomeController::class,'home'])->name('home');
+Route::get('/',[\App\Http\Controllers\Site\StorefrontController::class,'index'])->name('home');
+require __DIR__.'/web_storefront.php';
+require __DIR__.'/web_storefront_seo.php';
 // Route::get('/',function(){
 //     return redirect('admin/dashboard');})->name('home');
 Route::get('/term-conditions',[HomeController::class,'terms'])->name('terms');
@@ -125,3 +132,11 @@ Route::get('/pay-thanks',[HomeController::class,'paySuccess'])->name('paySuccess
 Route::get('/pay-false',[HomeController::class,'payFailed'])->name('payFailed');
 
 });
+
+foreach (['meta_inbox', 'meta_orders', 'meta_reads', 'meta_replies'] as $metaRoutes) {
+    require __DIR__.'/'.$metaRoutes.'.php';
+}
+
+require __DIR__.'/meta_comments.php';
+
+require __DIR__.'/meta_comment_ai.php';

@@ -42,7 +42,16 @@ class Order extends Model
         // });
         static::creating(function ($model) {
             if (empty($model->order_no) && !empty($model->resturant_id)) {
-                $model->order_no = self::generateUniqueOrderNumber($model->resturant_id);
+                $numberBranch = 'f:'.$model->resturant_id;
+                if (class_exists(\App\Services\Dashboard\FasakhanstaStoreFulfillment::class)) {
+                    $numberBranch = \App\Services\Dashboard\FasakhanstaStoreFulfillment::branch($numberBranch);
+                }
+                $numbers = app(\App\Services\Dashboard\BranchOrderSequence::class)->next($numberBranch, 'app');
+                if ($numbers) {
+                    $model->shift_sequence = $numbers['shift_sequence'];
+                    $model->shift_order_number = $numbers['shift_order_number'];
+                    $model->order_no = \App\Services\Dashboard\BranchOrderSequence::display($model, $numberBranch, 'app', '');
+                } else $model->order_no = self::generateUniqueOrderNumber($model->resturant_id);
             }
         });
 
@@ -239,7 +248,7 @@ public static function generateUniqueOrderNumber($restaurantId)
         }else{
         $total=0;
         foreach($this->carts as $cart){
-            $cart_total=$cart->updated_total?$cart->updated_total:$cart->price*$cart->qty;
+            $cart_total=$cart->updated_total!==null?$cart->updated_total:$cart->price*$cart->qty;
             $total=$total+($cart_total);
         }}
         // dd($this->carts->count());
@@ -250,8 +259,7 @@ public static function generateUniqueOrderNumber($restaurantId)
     public function getServiceFeesAttribute(){
         if( $this->type!='shipping'){
         $setting = \DB::table('settings')->where('name','service_fees')->pluck('payload')->first();
-        $setting_service_fees =( filter_var($setting, FILTER_SANITIZE_NUMBER_INT));
-        $service_fees=($this->updated_total * (int)$setting_service_fees) / 100;
+        $service_fees=($this->updated_total * \App\Support\SettingPercent::parse($setting)) / 100;
         
         return round($service_fees,2);
         }else{
@@ -261,8 +269,7 @@ public static function generateUniqueOrderNumber($restaurantId)
     //الضريبه 14% زياده من المستخدم
     public function getTaxAttribute(){
         $setting = \DB::table('settings')->where('name','tax')->pluck('payload')->first();
-        $setting_tax =( filter_var($setting, FILTER_SANITIZE_NUMBER_INT));
-        $tax=($this->updated_total * (int)$setting_tax) / 100;
+        $tax=($this->updated_total * \App\Support\SettingPercent::parse($setting)) / 100;
         
         return round($tax,2);
     }
@@ -313,7 +320,7 @@ public static function generateUniqueOrderNumber($restaurantId)
         return round($app_percentage,2);
     }
     public function getGrandTotalAttribute(){
-        if($this->updated_total!=null){
+        if($this->updated_total!==null){
             $total=$this->updated_total;
         }else{
             $total=$this->total;

@@ -92,14 +92,14 @@
                                                             href="{{ route('banners.edit',[$banner->id]) }}">@lang('main.edit')</a>
                                                     @endcan
                                                     @can('banner-delete')
-                                                        {!! Form::open([
+                                                        {!! \App\Support\NativeDeleteForm::open([
                                                             'method' => 'DELETE',
                                                             'route' => ['banners.destroy', $banner->id],
                                                             'style' => 'display:inline',
                                                         ]) !!}
                                                         <button type="submit"
                                                             class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                        {!! Form::close() !!}
+                                                        {!! \App\Support\NativeDeleteForm::close() !!}
                                                     @endcan
                                                 </td>
                                             </tr>

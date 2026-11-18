@@ -74,7 +74,8 @@ class CategoryController extends Controller
     public function getProduct($id)
     {
         $product = ResturantProduct::find($id);
-        if ($product) {
+        // The staff-only items (\App\Support\PosOnlyProducts) are not offered in the app.
+        if ($product && !\App\Support\PosOnlyProducts::is($product)) {
             $productData = new ResturantProductResource($product);
             return $this->successResponse($productData, __('api.get single Product'));
         }
@@ -91,7 +92,9 @@ class CategoryController extends Controller
     }
     public function getResturantProduct(Request $request, Resturant $resturant)
     {
-        $resturantData = ProductCategoryResource::collection($resturant->resturant_category_products());
+        // The branch's menu by section, without the staff-only items (\App\Support\PosOnlyProducts); a section left empty goes too.
+        $sections = \App\Support\PosOnlyProducts::withoutInSections($resturant->resturant_category_products());
+        $resturantData = ProductCategoryResource::collection($sections);
         return $this->successResponse($resturantData, __('api.get single resturant'));
 
     }
@@ -458,7 +461,8 @@ class CategoryController extends Controller
     public function deleteSearch($id)
     {
         try {
-            $search = LastSearch::find($id);
+            // A user deletes their own searches only.
+            $search = LastSearch::where('id', $id)->where('user_id', auth('api')->id())->first();
             if ($search) {
                 $search->delete();
             }

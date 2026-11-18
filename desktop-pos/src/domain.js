@@ -7,12 +7,26 @@
     if(!Number.isSafeInteger(n)) throw Error('القيمة أكبر من الحد المسموح.'); return n;
   }
   function money(n) { return (n/100).toFixed(2); }
+  function normalizePhone(value) {
+    let phone=String(value??'').trim().replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[۰-۹]/g,c=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(c));
+    if(!/^[+0-9\s().-]+$/.test(phone)) return '';
+    phone=phone.replace(/[\s().-]/g,'');
+    if(phone.startsWith('00')) phone='+'+phone.slice(2);
+    if(/^01[0125][0-9]{8}$/.test(phone)) phone='+20'+phone.slice(1);
+    else if(/^1[0125][0-9]{8}$/.test(phone)) phone='+20'+phone;
+    else if(/^0[2-9][0-9]{7,8}$/.test(phone)) phone='+20'+phone.slice(1);
+    else if(/^[1-9][0-9]{7,14}$/.test(phone)) phone='+'+phone;
+    if(!/^\+[1-9][0-9]{7,14}$/.test(phone)) return '';
+    if(phone.startsWith('+20')&&!/^\+20(?:1[0125][0-9]{8}|[2-9][0-9]{7,8})$/.test(phone)) return '';
+    return phone;
+  }
   function round(numerator,denominator) { return Number((BigInt(numerator)+BigInt(denominator/2))/BigInt(denominator)); }
   function bounded(n,max=MAX) { if(!Number.isSafeInteger(n)||n<0||n>max) throw Error('قيمة غير صحيحة.'); return n; }
   function clean(data) {
     if(!['takeaway','dine','phone'].includes(data.channel)||!Array.isArray(data.items)||data.items.length>100) throw Error('بيانات الطلب غير صحيحة.');
     const out={channel:data.channel,items:data.items.map(i=>({product_id:bounded(Number(i.product_id),Number.MAX_SAFE_INTEGER),option_id:String(i.option_id||''),quantity_mode:i.quantity_mode,quantity:String(i.quantity)})),delivery_cents:bounded(Number(data.delivery_cents||0)),discount:money(decimal(data.discount)),discount_reason:String(data.discount_reason||''),cash_received:money(decimal(data.cash_received))};
     for(const [key,max] of Object.entries({customer_name:100,customer_phone:30,address:500,table_name:100,notes:500})) {out[key]=String(data[key]||'').trim(); if(out[key].length>max) throw Error('البيانات أطول من الحد المسموح.');}
+    out.customer_phone=normalizePhone(out.customer_phone)||out.customer_phone;
     if(out.discount_reason.length>500) throw Error('سبب الخصم طويل.'); return out;
   }
   function quote(snapshot,data) {
@@ -42,13 +56,13 @@
     const d=clean(data), q=quote(snapshot,d);
     if(!q.items.length) throw Error('أضف أصنافًا للفاتورة.');
     if(['paid','cancelled'].includes(status)) throw Error('الفاتورة منتهية.');
-    if(d.channel==='phone'&&(!d.customer_name||!(/^[+0-9 ()-]{6,30}$/).test(d.customer_phone)||!d.address)) throw Error('أكمل اسم العميل ورقمه وعنوانه.');
+    if(d.channel==='phone'&&(!d.customer_name||!d.address)) throw Error('أكمل اسم العميل وعنوانه.');
     if(d.channel==='dine'&&(!d.table_name||!d.customer_name)) throw Error('أدخل الطاولة واسم العميل.');
-    if(kind==='sale') {if(decimal(d.cash_received)<q.total_cents) throw Error('المبلغ المستلم أقل من إجمالي الفاتورة.');return 'paid';}
+    if(kind==='sale') {if(!normalizePhone(d.customer_phone)) throw Error('أدخل رقم هاتف صحيح للعميل قبل إنهاء الفاتورة.');if(decimal(d.cash_received)<q.total_cents) throw Error('المبلغ المستلم أقل من إجمالي الفاتورة.');return 'paid';}
     if(kind==='cancel') {if(status!=='draft'||!String(data.cancel_reason||'').trim()) throw Error('لا يمكن إلغاء طلب أرسل للمطبخ أو صدر حسابه.');return 'cancelled';}
     if(kind==='kitchen'||kind==='bill') {if(!['draft','kitchen'].includes(status)) throw Error('صدرت فاتورة الحساب؛ أكمل التحصيل.');return kind;}
     if(kind==='save'&&status!=='bill') return status;
     throw Error('العملية غير مسموحة.');
   }
-  return {decimal,money,quote,clean,validateAction};
+  return {decimal,money,normalizePhone,quote,clean,validateAction};
 });

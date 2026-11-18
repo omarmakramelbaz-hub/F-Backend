@@ -40,7 +40,6 @@ class SendYearlyDelegateReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron delegateyearlyreport !");
 
         $delegates = User::where('account_type','delegate')->where('status','accepted')->get();
 

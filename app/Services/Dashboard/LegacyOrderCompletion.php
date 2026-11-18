@@ -46,24 +46,39 @@ class LegacyOrderCompletion
                 $this->settleGross($order);
             }
             DB::afterCommit(function () use ($order, $refund) {
-                try {
-                    if ($refund > 0) Notification::send($order->user, new NotifyOrderPriceTransferToWalletNotification($order, (float) Money::decimal($refund)));
-                    Notification::send($order->user, new NotifyUserOrderStatusUpdatedNotification($order));
-                    if ($order->resturant->user) Notification::send($order->resturant->user, new NotifyUserOrderStatusUpdatedNotification($order));
+                // Register customer tracking before optional notices. A database/media
+                // notification failure must not leave a delivered order looking active.
+                $this->notice($order, 'tracking', function () use ($order) {
+                    app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
+                });
+                $this->notice($order, 'broadcast', fn () => OrderBroadcastService::complete($order));
+                if ($refund > 0) $this->notice($order, 'refund', fn () => Notification::send($order->user,
+                    new NotifyOrderPriceTransferToWalletNotification($order, (float) Money::decimal($refund))));
+                $this->notice($order, 'customer', fn () => Notification::send($order->user, new NotifyUserOrderStatusUpdatedNotification($order)));
+                if ($order->resturant->user) $this->notice($order, 'vendor', fn () => Notification::send($order->resturant->user,
+                    new NotifyUserOrderStatusUpdatedNotification($order)));
+                $this->notice($order, 'email', function () use ($order) {
                     $email = $order->user->email;
                     if ($email) app(BestEffortOrderMail::class)->send((int) $order->id, 'emails.send_order_email',
                         ['email'=>$email, 'cart'=>$order], function ($message) use ($email) {
                             $message->to($email);
                             $message->subject('Your order has been received!');
                         });
-                    OrderBroadcastService::complete($order);
-                    app(OrderProviderDelivery::class)->event(new OrderStatusUpdated($order), (int) $order->id);
-                } catch (\Throwable $error) {
-                    \Log::warning('Restaurant order completion notice unavailable', ['order_id'=>(int) $order->id]);
-                }
+                });
             });
             return true;
         }, 3);
+    }
+
+    private function notice(Order $order, string $kind, callable $work): void
+    {
+        try {
+            $work();
+        } catch (\Throwable $error) {
+            \Log::warning('Restaurant order completion notice unavailable', [
+                'order_id'=>(int) $order->id, 'kind'=>$kind, 'exception'=>get_class($error),
+            ]);
+        }
     }
 
     /** Also used by retained transfer helpers: always lock order before parties. */
@@ -133,6 +148,12 @@ class LegacyOrderCompletion
     public function incrementAppBalance(int $amount): void
     {
         abort_if($amount < 0, 409, 'قيمة العمولة غير صالحة.');
+        $this->changeAppBalance($amount);
+    }
+
+    /** The app's balance moved by this many piastres: up for a commission taken, down for one given back. */
+    public function changeAppBalance(int $amount): void
+    {
         if ($amount === 0) return;
         DB::transaction(function () use ($amount) {
             $row = DB::table('settings')->where('group', 'general')->where('name', 'app_balance')->lockForUpdate()->first();

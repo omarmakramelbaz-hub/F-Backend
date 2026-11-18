@@ -1,0 +1,39 @@
+/* Login-only presentation. Form semantics and authentication handlers stay in Blade. */
+.login-page.dashboard-login-hologram{display:grid;place-items:center;position:relative;isolation:isolate;min-height:100vh;min-height:100dvh;margin:0;padding:42px clamp(24px,5vw,108px) 68px;overflow-x:hidden;background:radial-gradient(ellipse at 36% 55%,#052534 0%,#02121d 43%,#010b13 82%);color:#e8f7ff}
+.dashboard-login-hologram .go-login-orbits{position:fixed;inset:0;width:100%;height:100%;color:#19889e;opacity:.18;pointer-events:none;z-index:-1}
+.dashboard-login-hologram .dashboard-login{direction:ltr;position:relative;display:grid;grid-template-columns:minmax(0,1.7fr) minmax(330px,.8fr);align-items:center;gap:clamp(26px,5vw,104px);width:min(1780px,100%);min-height:min(780px,calc(100dvh - 110px));padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.dashboard-login-hologram .dashboard-login-identity{position:relative;min-width:0;min-height:0;width:100%;align-self:stretch;justify-content:center;text-align:center}
+.dashboard-login-hologram .go-login-hologram{position:relative;width:100%;height:clamp(440px,78vh,840px);max-height:900px;overflow:visible;pointer-events:none}
+.dashboard-login-hologram .go-login-hologram>img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;animation:none;transform:none;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.dashboard-login-hologram .go-login-hologram>canvas{position:absolute;inset:0;display:block;width:100%;height:100%;pointer-events:none}
+.dashboard-login-hologram .go-login-hologram[data-portrait-gpu="true"]>img{opacity:0}
+.dashboard-login-hologram .go-login-hologram[data-artwork-failed="true"]>img{display:none}
+.dashboard-login-hologram .dashboard-login-form-panel{direction:rtl;position:relative;min-width:0;width:100%;padding:30px;border:1px solid #12b4d0b3;border-radius:15px;background:linear-gradient(150deg,#032333ba,#01121bd9);box-shadow:inset 0 1px 0 #b6f4ff06,0 20px 70px #00000012;text-align:right}
+html[dir="ltr"] .dashboard-login-hologram .dashboard-login-form-panel{direction:ltr;text-align:left}
+.dashboard-login-hologram .dashboard-login-eyebrow{color:#ffa722;margin-bottom:14px;font-size:12px}
+.dashboard-login-hologram .dashboard-login-form-panel h1{color:#e8f7ff;font-size:clamp(21px,1.55vw,29px);margin:0 0 14px;line-height:1.65}
+.dashboard-login-hologram .dashboard-login-description{color:#8eafbf;font-size:12px;margin-bottom:26px;line-height:1.8}
+.dashboard-login-hologram .dashboard-login-field{margin-bottom:22px}
+.dashboard-login-hologram .dashboard-login-field>label{color:#c6e7ef;font-size:12px;line-height:1.8}
+.dashboard-login-hologram .dashboard-login-input-wrap{min-height:52px;background:#01131eaa;border-color:#087b91;border-radius:11px}
+.dashboard-login-hologram .dashboard-login-input-wrap>i{color:#24def2}
+.dashboard-login-hologram .dashboard-login-input-wrap>input{height:50px;font-size:12px;color:#e5f8ff}
+.dashboard-login-hologram .dashboard-login-input-wrap>input::placeholder{color:#7295a8}
+.dashboard-login-hologram .dashboard-login-input-wrap:focus-within{border-color:#27dff5;box-shadow:0 0 0 3px #27dff513}
+.dashboard-login-hologram .dashboard-login-input-wrap>input:-webkit-autofill{box-shadow:inset 0 0 0 1000px #06202e}
+.dashboard-login-hologram .dashboard-login-remember{color:#c6e7ef;font-size:12px;margin:3px 0 22px}
+.dashboard-login-hologram .dashboard-login-remember input{accent-color:#22dff5}
+.dashboard-login-hologram .dashboard-login-submit{min-height:52px;border:1px solid #19d8f2;background:linear-gradient(#052539,#01131f);box-shadow:inset 0 1px 0 #c6f8ff0c,0 7px 24px #0002;border-radius:11px;font-size:14px;color:#edf9ff}
+.dashboard-login-hologram .dashboard-login-submit>i{color:#ffa51e}
+.dashboard-login-hologram .dashboard-login-submit:hover{background:#073347;border-color:#6cecff}
+.dashboard-login-hologram .dashboard-password-toggle{color:#88a7b9}
+.dashboard-login-hologram .dashboard-password-toggle:hover{color:#26def3;background:#093445}
+.dashboard-login-hologram .dashboard-login-input-wrap:has(input[aria-invalid="true"]){border-color:#e2787b}
+.dashboard-login-hologram .go-login-mark{position:absolute;left:3%;bottom:42px;width:58px;color:#bdf8ff;filter:drop-shadow(0 0 5px #14c8e96b)}
+.dashboard-login-hologram .go-login-mark svg{display:block;width:100%;height:auto}
+.dashboard-login-hologram .go-login-tagline{position:absolute;bottom:12px;left:15%;right:15%;margin:0;text-align:center;font-size:9px;line-height:1.8;letter-spacing:.06em;color:#6b98aa}
+@media(min-width:1600px){.dashboard-login-hologram .dashboard-login{grid-template-columns:minmax(0,1.8fr) minmax(390px,.8fr)}.dashboard-login-hologram .dashboard-login-form-panel{padding:32px}}
+@media(max-width:1100px) and (min-width:801px){.login-page.dashboard-login-hologram{padding-inline:24px}.dashboard-login-hologram .dashboard-login{grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:25px}.dashboard-login-hologram .dashboard-login-form-panel{padding:25px}.dashboard-login-hologram .go-login-hologram{height:70vh}}
+@media(max-width:800px){.login-page.dashboard-login-hologram{padding:22px 18px 28px;place-items:start center}.dashboard-login-hologram .dashboard-login{grid-template-columns:1fr;gap:12px;min-height:0;width:min(500px,100%);max-width:none}.dashboard-login-hologram .dashboard-login-identity{min-height:0}.dashboard-login-hologram .go-login-hologram{height:clamp(205px,34vh,330px)}.dashboard-login-hologram .dashboard-login-form-panel{padding:25px 24px;border-top:1px solid #12b4d0b3;border-inline-start:1px solid #12b4d0b3}.dashboard-login-hologram .dashboard-login-form-panel h1{font-size:23px}.dashboard-login-hologram .go-login-mark{position:static;width:43px;margin:25px auto 12px}.dashboard-login-hologram .go-login-tagline{position:static;max-width:420px;line-height:1.8;font-size:8px;padding-inline:14px}.dashboard-login-hologram .go-login-orbits{opacity:.14}}
+@media(max-width:370px){.login-page.dashboard-login-hologram{padding-inline:12px}.dashboard-login-hologram .dashboard-login-form-panel{padding:22px 17px}.dashboard-login-hologram .dashboard-login-form-panel h1{font-size:21px}.dashboard-login-hologram .go-login-hologram{height:220px}}
+@media(prefers-reduced-motion:reduce){.dashboard-login-hologram *{animation:none!important;transition:none!important}}

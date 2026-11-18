@@ -16,6 +16,19 @@ class UserRepository implements UserRepositoryInterface
 
     public function getAllUsers($request) 
     {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);
+        if($workspace->selected()){
+            $workspace->userType((string)$request->query('account_type'));
+            $users=$workspace->users(User::withoutGlobalScope(\App\Scopes\AdminScope::class))
+                ->where('account_type',$request->query('account_type'));
+            $search=trim((string)$request->query('search'));
+            if($search!=='')$users->where(function($query)use($search){
+                $query->where('name','like','%'.$search.'%')->orWhere('email','like','%'.$search.'%')->orWhere('mobile','like','%'.$search.'%');
+            });
+            if($request->filled('from_date'))$users->where('created_at','>=',$request->query('from_date'));
+            if($request->filled('to_date'))$users->where('created_at','<=',$request->query('to_date'));
+            return $users->orderByDesc('id')->paginate(30);
+        }
         
         $searchQuery = trim($request->query('search'));
         $users = User::query();
@@ -143,6 +156,16 @@ class UserRepository implements UserRepositoryInterface
 
     public function updateUser($userId, array $newDetails) 
     {
+        // The reviewed desktop public-profile context cannot enter role, credential,
+        // pending-application, media or financial mutations from this legacy form.
+        $profile=\App\Services\Dashboard\DesktopDashboardUserProfiles::repositoryUpdate((int)$userId,$newDetails);
+        if($profile!==null)return $profile;
+
+        // The owner's verified login phone is changed only by the current-password form.
+        // A profile page opened before that save must not write its old/empty phone back.
+        if ((int)$userId === 1) {
+            unset($newDetails['mobile'], $newDetails['country_code']);
+        }
 
         unset($newDetails['photo_profile']);
         unset($newDetails["national_id_image"],$newDetails["commercial_registration_no_image"],$newDetails["driving_license_image"],$newDetails["tax_no_image"]);
@@ -165,6 +188,13 @@ class UserRepository implements UserRepositoryInterface
             DB::table('model_has_roles')->where('model_id',$get_user->id)->delete();
             $get_user->assignRole($newDetails['roles_name']);
         }
+        // Role pivots are authoritative. Older schemas also retain the form's
+        // JSON display value; never pass its PHP array directly to PDO.
+        if(array_key_exists('roles_name',$newDetails)){
+            if(\Illuminate\Support\Facades\Schema::hasColumn($get_user->getTable(),'roles_name'))
+                $newDetails['roles_name']=json_encode($newDetails['roles_name'],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+            else unset($newDetails['roles_name']);
+        }
         
         
         // ===========pending_vendor=============
@@ -176,7 +206,7 @@ class UserRepository implements UserRepositoryInterface
         $pending_vendor->full_name=request()->name;
         $pending_vendor->type=request()->account_type;
         $pending_vendor->status='accepted';
-        $pending_vendor->mobile=request()->mobile;
+        $pending_vendor->mobile=(int)$get_user->id === 1 ? $get_user->mobile : request()->mobile;
         $pending_vendor->email=request()->email;
         $pending_vendor->national_id=request()->national_id;
         $pending_vendor->commercial_registration_no=request()->commercial_registration_no;

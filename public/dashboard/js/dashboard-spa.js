@@ -23,6 +23,7 @@
     var submitting = false;
     var loadedScripts = new Map();
     var pageStyles = [];
+    var pageStyleSources = new WeakMap();
     var historyKey = 0;
     var historyPosition = 0;
     var committedUrl = location.href;
@@ -31,6 +32,22 @@
     var status;
     var pendingHistory = null;
     var currentDialog = null;
+    var modalPhases = new WeakMap();
+    var navigationReadTimeoutMs = 25000;
+    ['show.bs.modal', 'shown.bs.modal', 'hide.bs.modal', 'hidden.bs.modal'].forEach(function (type, index) {
+        native.add.call(document, type, function (event) {
+            var element = event.target;
+            if (!element || !element.matches || !element.matches('.modal')) return;
+            modalPhases.set(element, { phase: ['showing', 'shown', 'hiding', 'hidden'][index],
+                previous: modalPhase(element), event: event, cancellable: index === 0 || index === 2 });
+        }, true);
+    });
+
+    function modalPhase(element) {
+        var state = modalPhases.get(element);
+        if (state) return state.cancellable && state.event.defaultPrevented ? state.previous : state.phase;
+        return element.classList.contains('show') ? 'shown' : 'hidden';
+    }
 
     function currentScope() {
         if (active) return active;
@@ -47,6 +64,7 @@
         this.cleanups = [];
         this.globals = new Map();
         this.leaveGuards = [];
+        this.idleGuards = [];
     }
     PageScope.prototype.run = function (callback, context, args) {
         if (this.closed) return;
@@ -86,7 +104,29 @@
         this.cleanups = [];
         this.globals.clear();
         this.leaveGuards = [];
+        this.idleGuards = [];
     };
+
+    function idlePage() {
+        var scope = page;
+        if (!started || !scope || scope.closed || navigation || submitting || pendingHistory || restoringHistory || currentDialog
+            || !scope.idleGuards.length || scope.idleGuards.length < scope.leaveGuards.length) return false;
+        try {
+            // A transition is busy even before its backdrop or dialog becomes visible.
+            if (Array.from(document.querySelectorAll('.modal')).some(function (element) { return modalPhase(element) !== 'hidden'; })) return false;
+            if (document.querySelector('dialog[open]')) return false;
+            if (Array.from(document.querySelectorAll('.modal-backdrop,.swal2-container,[role="dialog"][aria-modal="true"]')).some(function (element) {
+                return !element.hidden && !element.closest('[hidden]') && element.getClientRects().length > 0;
+            })) return false;
+            var guards = scope.idleGuards.slice();
+            for (var index = 0; index < guards.length; index++) {
+                // Navigation guards can ask to discard work. Idle probes cannot:
+                // they are synchronous observations and only literal true grants a cutover.
+                if (guards[index]() !== true) return false;
+            }
+            return scope === page && !scope.closed && !navigation && !submitting && !pendingHistory && !restoringHistory && !currentDialog;
+        } catch (_) { return false; }
+    }
 
     EventTarget.prototype.addEventListener = function (type, callback, options) {
         var scope = currentScope();
@@ -183,25 +223,56 @@
     window.fetch = function (input, options) {
         var scope = currentScope();
         if (!scope) return native.fetch(input, options);
+        if (scope.closed) return Promise.reject(new DOMException('The dashboard page has changed', 'AbortError'));
         var method = options && options.method || input && input.method || 'GET';
         var controller = new AbortController();
         var supplied = options && options.signal || input && input.signal;
         var abort = function () { controller.abort(); };
-        if (supplied) {
+        var combined = supplied && typeof AbortSignal.any === 'function';
+        if (supplied && !combined) {
             if (supplied.aborted) controller.abort();
             else native.add.call(supplied, 'abort', abort, { once: true });
         }
         var safeToAbort = /^(GET|HEAD)$/i.test(method);
         var cleanup = function () { if (safeToAbort) controller.abort(); };
         scope.cleanups.push(cleanup);
-        return native.fetch(input, Object.assign({}, options || {}, { signal: controller.signal })).then(function (response) {
+        var released = false;
+        var release = function () {
+            if (released) return; released = true;
+            if (supplied && !combined) native.remove.call(supplied, 'abort', abort);
+            if (!scope.closed) [cleanup, release].forEach(function (callback) {
+                var index = scope.cleanups.indexOf(callback);
+                if (index >= 0) scope.cleanups.splice(index, 1);
+            });
+        };
+        // A native dependent signal remains connected through response-body
+        // consumption. Header completion must not detach the caller's deadline.
+        var signal = combined ? AbortSignal.any([controller.signal, supplied]) : controller.signal;
+        return native.fetch(input, Object.assign({}, options || {}, { signal: signal })).then(function (response) {
             if (scope.closed) throw new DOMException('The dashboard page has changed', 'AbortError');
+            if (supplied && !combined && response.body) {
+                // Legacy signal forwarding stays alive until a body consumer
+                // finishes/cancels, or the owning page is disposed.
+                ['arrayBuffer', 'blob', 'formData', 'json', 'text'].forEach(function (name) {
+                    var consume = response[name];
+                    if (typeof consume === 'function') response[name] = function () {
+                        var args = arguments;
+                        return Promise.resolve().then(function () { return consume.apply(response, args); }).finally(release);
+                    };
+                });
+                var getReader = response.body.getReader;
+                if (typeof getReader === 'function') response.body.getReader = function () {
+                    var reader = getReader.apply(response.body, arguments), read = reader.read, cancel = reader.cancel;
+                    reader.read = function () { return read.apply(reader, arguments).then(function (value) { if (value.done) release(); return value; }, function (error) { release(); throw error; }); };
+                    reader.cancel = function () { return Promise.resolve(cancel.apply(reader, arguments)).finally(release); };
+                    return reader;
+                };
+                scope.cleanups.push(release);
+                return response;
+            }
+            release();
             return response;
-        }).finally(function () {
-            if (supplied) native.remove.call(supplied, 'abort', abort);
-            var index = scope.cleanups.indexOf(cleanup);
-            if (index >= 0) scope.cleanups.splice(index, 1);
-        });
+        }).catch(function (error) { release(); throw error; });
     };
 
     function attachJQuery() {
@@ -324,6 +395,25 @@
             && !/\/(?:logout|login|signin|signout|choose_type|download[^/]*|export[^/]*|print[^/]*|payment)(?:\/|$)/i.test(url.pathname)
             && !/\.(?:pdf|csv|xlsx?|zip|png|jpe?g|webp|svg)$/i.test(url.pathname);
     }
+    function readOnlyNavigation(value) {
+        var url;
+        try { url = new URL(value, location.href); } catch (_) { return false; }
+        if (!eligible(url.href) || url.username || url.password || url.searchParams.has('_desktop_command')
+            || url.searchParams.has('idempotency_key')) return false;
+        // Use the native GET policy's mutation/consuming-print exclusions. A
+        // transport deadline must never imply that a legacy mutation was lost.
+        var pathname = url.pathname.replace(/%([a-f0-9]{2})/gi, function (_, byte) { return String.fromCharCode(parseInt(byte, 16)); })
+            .replace(/\/{2,}/g, '/').replace(/\/+$/, '');
+        return ['/admin/clear-cache-admin', '/admin/test-notification', '/admin/resturantControl', '/admin/print-pdf', '/admin/download-pdf'].indexOf(pathname) < 0
+            && !/^\/admin\/(?:change-status\/[^/]+|users\/[^/]+\/go_drive_activation|cancel\/order\/[^/]+\/delegate)$/.test(pathname)
+            && !/^\/admin\/resturant_products\/[^/]+\/update\/(?:status|highest_rated)$/.test(pathname)
+            && !/^\/admin\/order-board\/(?:legacy|store|service|partner_service)\/[^/]+\/print$/.test(pathname)
+            && !/^\/admin\/takeaway\/receipts\/[^/]+\/print$/.test(pathname)
+            && !/^\/admin\/(?:dining|phone-orders)\/(?:tickets|kitchen)\/[^/]+\/print$/.test(pathname)
+            && !/^\/admin\/phone-orders\/batches\/[^/]+\/print$/.test(pathname)
+            && !/^\/admin\/branch-shifts\/[^/]+\/print$/.test(pathname)
+            && !/^\/admin\/branch-shift-print\/[^/]+\/receipt$/.test(pathname);
+    }
     function copyAttributes(source, target, names) {
         names.forEach(function (name) { if (source.hasAttribute(name)) target.setAttribute(name, source.getAttribute(name)); else target.removeAttribute(name); });
     }
@@ -397,30 +487,87 @@
         doc.querySelectorAll('[data-dashboard-page-scripts] link[rel="stylesheet"], [data-dashboard-page-scripts] style').forEach(function (node) { nodes.push(node); });
         return nodes;
     }
+    function pageStyleIdentity(node, href) {
+        if (node.tagName !== 'LINK' || !node.hasAttribute('href')) return null;
+        // Attribute order is immaterial; every actual attribute remains part of
+        // the identity, including CSP/SRI, media, type and request policy. Browsers
+        // conceal getAttribute('nonce'), so read its dedicated property instead.
+        return JSON.stringify(Array.from(node.attributes).filter(function (attribute) {
+            return attribute.name !== 'data-dashboard-page-style';
+        }).map(function (attribute) {
+            return [attribute.name, attribute.name === 'href' ? href
+                : attribute.name === 'nonce' ? node.nonce : attribute.value];
+        }).sort(function (left, right) { return left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0; }));
+    }
+    function rememberPageStyle(node, url) {
+        if (node.tagName !== 'LINK' || !node.hasAttribute('href')) return;
+        var href;
+        try { href = new URL(node.getAttribute('href'), url).href; } catch (_) { return; }
+        var source = { href: href, rawHref: node.getAttribute('href'), identity: pageStyleIdentity(node, href), loaded: !!node.sheet };
+        pageStyleSources.set(node, source);
+        if (!source.loaded) native.add.call(node, 'load', function () { source.loaded = !!node.sheet; }, { once: true });
+    }
+    function reusablePageStyle(node, identity) {
+        var source = pageStyleSources.get(node);
+        return node.parentNode === document.head && node.isConnected && !node.disabled && !!node.sheet
+            && source && source.loaded && node.getAttribute('href') === source.rawHref
+            && source.identity === identity && pageStyleIdentity(node, source.href) === identity;
+    }
     async function stageCss(doc, url) {
-        var incomingNodes = [];
-        var waits = pageCss(doc).map(function (node) {
-            var incoming = document.importNode(node, true);
-            incoming.setAttribute('data-dashboard-page-style', '');
-            incoming.dashboardOriginalMedia = incoming.getAttribute('media');
-            incoming.setAttribute('media', 'not all');
-            if (incoming.href) incoming.href = new URL(node.getAttribute('href'), url).href;
-            incomingNodes.push(incoming);
-            var wait = incoming.tagName === 'LINK' ? new Promise(function (resolve) {
-                native.add.call(incoming, 'load', resolve, { once: true });
-                native.add.call(incoming, 'error', resolve, { once: true });
-                native.timeout(resolve, 3000);
-            }) : Promise.resolve();
-            document.head.appendChild(incoming);
-            return wait;
-        });
-        await Promise.all(waits);
-        return incomingNodes;
+        var incomingNodes = [], entries = [], cursor = 0;
+        incomingNodes.reused = new Set();
+        var available = Array.from(document.head.children).filter(function (node) { return pageStyles.indexOf(node) >= 0; });
+        function discard() { incomingNodes.forEach(function (node) { if (!incomingNodes.reused.has(node)) node.remove(); }); }
+        try {
+            pageCss(doc).forEach(function (node) {
+                var href = node.tagName === 'LINK' && node.hasAttribute('href') ? new URL(node.getAttribute('href'), url).href : null;
+                var identity = pageStyleIdentity(node, href), reused = null;
+                if (identity) for (var index = cursor; index < available.length; index++) {
+                    if (reusablePageStyle(available[index], identity)) { reused = available[index]; cursor = index + 1; break; }
+                }
+                if (reused) {
+                    incomingNodes.push(reused); incomingNodes.reused.add(reused);
+                    entries.push({ node: reused, reused: true, identity: identity });
+                    return;
+                }
+                var incoming = document.importNode(node, true);
+                incoming.setAttribute('data-dashboard-page-style', '');
+                if (href !== null) incoming.href = href;
+                rememberPageStyle(incoming, url);
+                incoming.dashboardOriginalMedia = incoming.getAttribute('media');
+                incoming.setAttribute('media', 'not all');
+                incomingNodes.push(incoming); entries.push({ node: incoming, reused: false });
+            });
+            incomingNodes.valid = function () {
+                return entries.every(function (entry) { return !entry.reused || reusablePageStyle(entry.node, entry.identity); });
+            };
+            var waits = entries.map(function (entry, index) {
+                if (entry.reused) return Promise.resolve();
+                var incoming = entry.node;
+                var wait = incoming.tagName === 'LINK' ? new Promise(function (resolve) {
+                    var timer;
+                    function done() { native.clearTimeout(timer); resolve(); }
+                    native.add.call(incoming, 'load', done, { once: true });
+                    native.add.call(incoming, 'error', done, { once: true });
+                    timer = native.timeout(done, 3000);
+                }) : Promise.resolve();
+                // Reused links stay connected in their existing order; moving a
+                // link can reload it. Stage only new disabled nodes around those
+                // anchors, preserving the next page's exact CSS cascade order.
+                var next = entries.slice(index + 1).find(function (candidate) { return candidate.reused; });
+                document.head.insertBefore(incoming, next ? next.node : null);
+                return wait;
+            });
+            await Promise.all(waits);
+            if (!incomingNodes.valid()) throw new Error('Dashboard styles changed during navigation');
+            return incomingNodes;
+        } catch (error) { discard(); throw error; }
     }
     function commitCss(nodes) {
-        pageStyles.forEach(function (node) { node.remove(); });
+        pageStyles.forEach(function (node) { if (nodes.indexOf(node) < 0) node.remove(); });
         pageStyles = nodes;
         nodes.forEach(function (node) {
+            if (nodes.reused && nodes.reused.has(node)) return;
             if (node.dashboardOriginalMedia === null) node.removeAttribute('media');
             else node.setAttribute('media', node.dashboardOriginalMedia);
         });
@@ -488,6 +635,35 @@
         // named callbacks used by existing inline buttons and the Maps SDK.
         scope.run(new Function('scope', 'dashboardSourceText', source + '\n' + exports + '\n//# sourceURL=dashboard-page-inline.js'), window, [scope, source]);
     }
+    async function closeModals(region) {
+        var Modal = window.bootstrap && window.bootstrap.Modal;
+        if (!Modal || typeof Modal.getInstance !== 'function') return;
+        await Promise.all(Array.from(region.querySelectorAll('.modal')).map(function (element) {
+            var instance = Modal.getInstance(element), phase = modalPhase(element);
+            if (!instance || phase === 'hidden') return;
+            // Bootstrap keeps its element and backdrop alive until hidden. Page
+            // disposal must not cancel the timers/listeners that finish that hide.
+            return new Promise(function (resolve, reject) {
+                var timer;
+                function cleanup() {
+                    native.remove.call(element, 'hidden.bs.modal', hidden);
+                    native.remove.call(element, 'shown.bs.modal', shown);
+                    native.clearTimeout(timer);
+                }
+                function hidden() { cleanup(); resolve(); }
+                function shown() {
+                    try { instance.hide(); }
+                    catch (error) { cleanup(); reject(error); }
+                }
+                native.add.call(element, 'hidden.bs.modal', hidden);
+                native.add.call(element, 'shown.bs.modal', shown);
+                timer = native.timeout(function () {
+                    cleanup(); reject(new Error('Dashboard modal could not finish closing.'));
+                }, 2000);
+                if (phase === 'shown') shown();
+            });
+        }));
+    }
     function destroyWidgets(region) {
         var $ = window.jQuery;
         if ($) {
@@ -497,7 +673,7 @@
             if ($.fn.jstree) $(region).find('.jstree').each(function () { var tree = $(this).jstree(true); if (tree) tree.destroy(); });
             $(region).find('select.select2-hidden-accessible').each(function () { try { $(this).select2('destroy'); } catch (_) {} });
             $(region).find('select,input').each(function () { if (this.selectize) this.selectize.destroy(); if (this._flatpickr) this._flatpickr.destroy(); });
-            $(region).find('.modal').each(function () { try { $(this).modal('hide').modal('dispose'); } catch (_) {} });
+            $(region).find('.modal').each(function () { try { $(this).modal('dispose'); } catch (_) {} });
             $(region).find('.note-editor').each(function () { var textarea = $(this).prev(); try { textarea.summernote('destroy'); } catch (_) {} });
             $(region).find('*').addBack().off();
         }
@@ -545,7 +721,14 @@
         // Stage slow styles while the current page and its handlers stay alive.
         // A failed newer navigation must leave that page fully usable.
         var styles = await stageCss(doc, url);
-        if (current !== sequence) { styles.forEach(function (node) { node.remove(); }); return; }
+        if (current !== sequence) { styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); }); return; }
+        try { await closeModals(outgoing); }
+        catch (error) { styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); }); throw error; }
+        if (current !== sequence) { styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); }); return; }
+        if (styles.valid && !styles.valid()) {
+            styles.forEach(function (node) { if (!styles.reused || !styles.reused.has(node)) node.remove(); });
+            throw new Error('Dashboard styles changed during navigation');
+        }
         if (!options.pop) {
             historyKey++;
             if (!options.replace) historyPosition++;
@@ -605,6 +788,55 @@
         }
         return false;
     }
+    function readNavigation(url, controller) {
+        return new Promise(function (resolve, reject) {
+            var settled = false, timer;
+            function finish(error, value) {
+                if (settled) return; settled = true;
+                native.clearTimeout(timer); native.remove.call(controller.signal, 'abort', aborted);
+                error ? reject(error) : resolve(value);
+            }
+            function aborted() { finish(new DOMException('The dashboard page has changed', 'AbortError')); }
+            if (controller.signal.aborted) { aborted(); return; }
+            native.add.call(controller.signal, 'abort', aborted, { once: true });
+            if (readOnlyNavigation(url.href)) timer = native.timeout(function () {
+                finish(new Error('Dashboard read exceeded its deadline'));
+                controller.abort();
+            }, navigationReadTimeoutMs);
+            Promise.resolve().then(async function () {
+                var response = await native.fetch(url.href, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+                    headers: { Accept: 'text/html', 'X-Dashboard-SPA': '1' } });
+                if (settled || controller.signal.aborted) return null;
+                if (authRedirect(response)) return { redirected: true };
+                if (!/text\/html/i.test(response.headers.get('content-type') || '')) throw new Error('Dashboard response must be HTML');
+                return { response: response, html: await response.text() };
+            }).then(function (value) { finish(null, value); }, function (error) { finish(error); });
+        });
+    }
+    var shellAtStart = null;
+    function shellScripts(root, base) {
+        var found = [];
+        root.querySelectorAll('script[src]').forEach(function (script) {
+            if (script.closest('[data-dashboard-page], [data-dashboard-page-scripts]') || script.hasAttribute('data-dashboard-page-init')
+                || script.hasAttribute('data-dashboard-page-owned')) return;
+            var href;
+            try { href = new URL(script.getAttribute('src'), base).href; } catch (_) { return; }
+            if (/\/dashboard\/js\//.test(new URL(href).pathname)) found.push(href);
+        });
+        return found;
+    }
+    function shellOutdated(doc, destination) {
+        if (!shellAtStart) shellAtStart = new Set(shellScripts(document, location.href));
+        var missing = shellScripts(doc, destination).filter(function (href) { return !shellAtStart.has(href); });
+        if (!missing.length) return false;
+        var mark = missing.sort().join(' ');
+        try {
+            // One whole load per change: a copy that still differs afterwards keeps the in-page navigation.
+            if (sessionStorage.getItem('dashboard-shell-reload') === mark) return false;
+            sessionStorage.setItem('dashboard-shell-reload', mark);
+        } catch (_) { return false; }
+        return true;
+    }
     async function visit(value, options) {
         options = options || {};
         var url = new URL(value, location.href);
@@ -621,13 +853,14 @@
         if (!options.pop && !options.afterSubmit) recordScroll();
         busy(true);
         try {
-            var response = options.response || await native.fetch(url.href, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-                headers: { Accept: 'text/html', 'X-Dashboard-SPA': '1' } });
+            var received = options.response ? null : await readNavigation(url, controller);
+            if (received && received.redirected) return;
+            var response = options.response || received.response;
             if (current !== sequence) return;
             if (authRedirect(response)) return;
             var contentType = response.headers.get('content-type') || '';
             if (!/text\/html/i.test(contentType)) throw new Error('Dashboard response must be HTML');
-            var html = await response.text();
+            var html = received ? received.html : await response.text();
             if (current !== sequence) return;
             var doc = new DOMParser().parseFromString(html, 'text/html');
             if (!doc.querySelector('[data-dashboard-page]') || !doc.querySelector('.main-header')) throw new Error('Response is not an authenticated dashboard page');
@@ -635,6 +868,9 @@
             var destination = response.url || url.href;
             var actor = document.body.getAttribute('data-dashboard-actor');
             if (actor && doc.body.getAttribute('data-dashboard-actor') !== actor) { window.location.assign(destination); return; }
+            // Shell scripts (header/footer) load once. After a server update adds or changes one, open the
+            // page whole once, so a window left open all day gets the new features.
+            if (shellOutdated(doc, destination)) { window.location.assign(destination); return; }
             // render commits the URL together with its staged styles and DOM.
             await render(doc, destination, options, current);
         } catch (error) {
@@ -734,6 +970,7 @@
         });
         document.documentElement.setAttribute('data-dashboard-spa', 'ready');
         pageStyles = pageCss(document);
+        pageStyles.forEach(function (node) { rememberPageStyle(node, document.baseURI || location.href); });
         document.querySelectorAll('script[src]').forEach(function (script) {
             var key = assetKey(script.src);
             var mapsPending = script.src.indexOf('maps.googleapis.com/maps/api/js') >= 0 && (!window.google || !window.google.maps);
@@ -798,6 +1035,18 @@
             scope.cleanups.push(remove);
             return remove;
         },
+        onIdle: function (callback) {
+            var scope = currentScope() || page;
+            if (typeof callback !== 'function' || scope.closed) return function () {};
+            scope.idleGuards.push(callback);
+            var remove = function () {
+                var index = scope.idleGuards.indexOf(callback);
+                if (index !== -1) scope.idleGuards.splice(index, 1);
+            };
+            scope.cleanups.push(remove);
+            return remove;
+        },
+        isIdle: idlePage,
         ready: function () { return started; },
         isCurrentPage: function () { var scope = currentScope(); return !scope || scope === page && !scope.closed; }
     };

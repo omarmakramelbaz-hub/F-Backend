@@ -1,5 +1,5 @@
 'use strict';
-const DEFAULT_ORIGIN = 'https://fasakhaninja.com';
+const DEFAULT_ORIGIN = 'https://faskhansta.com';
 function sameOrigin(value, origin = DEFAULT_ORIGIN) {
   try { const u = new URL(value); return u.origin === origin && !u.username && !u.password; }
   catch { return false; }

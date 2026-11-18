@@ -1,0 +1,271 @@
+(function () {
+    'use strict';
+    if (window.DashboardOrderAlerts) return;
+    var script = document.currentScript, pending = new Map(), scopes = new Map(), arrivals = new Map(), acknowledgements = new Map(), sequence = 0;
+    var preference = 'soundEnabled', actor = script && script.dataset.soundActor || 'dashboard';
+    var leaseKey = 'dashboardOrderSound:' + actor, ackKey = leaseKey + ':ack', tab = Date.now() + ':' + Math.random();
+    var pendingKey = leaseKey + ':pending', feedUrl = script && script.dataset.soundFeed;
+    var feedKey = leaseKey + ':feed', sharedKey = leaseKey + ':orders', stamps = [], sharedId = '';
+    var enabled = read(preference) !== 'false', playing = false, starting = false, unlocked = false, blocked = false;
+    var generation = 0, testTimer = null, audio = null, stopped = false, feedTimer = null, feedController = null, signalController = null;
+    try { JSON.parse(sessionStorage.getItem(pendingKey) || '[]').forEach(function (key) { if (!isDelivery(key)) pending.set(String(key), new Set(['restored'])); }); } catch (_) {}
+    try { audio = new window.Audio(script && script.dataset.soundUrl || '/sounds/mixkit-correct-answer-reward-952.wav'); audio.preload = 'auto'; } catch (_) {}
+    // A delivery order sent to the branch by the owner, an admin or the call center (phone:<ticket>) needs nothing from
+    // the branch: it prints on the branch's printer by itself. It chimes once with its own tone, is shown for a moment
+    // and is then received by itself; every other order rings until it is handled, as before.
+    var deliveryUrl = script && script.dataset.deliverySoundUrl || '/sounds/go-delivery-order.wav', chimeKey = leaseKey + ':chimes', CHIME_SHOWN = 15000;
+    function isDelivery(key) { return /^phone:[1-9][0-9]*$/.test(String(key)); }
+    // The orders that ring until handled (a delivery order chimes once instead).
+    function rings() { return Array.from(pending.keys()).filter(function (key) { return !isDelivery(key); }); }
+    function read(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
+    function write(key, value) { try { localStorage.setItem(key, value); return true; } catch (_) { return false; } }
+    function lease() { try { return JSON.parse(read(leaseKey) || 'null'); } catch (_) { return null; } }
+    function ownsAudio(force) {
+        var owner = lease(), now = Date.now();
+        if (!force && owner && owner.tab !== tab && owner.until > now) return false;
+        write(leaseKey, JSON.stringify({ tab: tab, until: now + 6500 }));
+        return true;
+    }
+    function release() { var owner = lease(); if (owner && owner.tab === tab) write(leaseKey, 'null'); }
+    // One tab per user asks the server for pending orders; the other tabs apply its result.
+    function feedOwner() { try { return JSON.parse(read(feedKey) || 'null'); } catch (_) { return null; } }
+    function leadsFeed() {
+        var owner = feedOwner(), now = Date.now();
+        // A lease further ahead than one term comes from a changed clock and is not honoured.
+        if (owner && owner.tab !== tab && owner.until > now && owner.until <= now + 45000) return false;
+        write(feedKey, JSON.stringify({ tab: tab, until: now + 40000 }));
+        return true;
+    }
+    function releaseFeed() { var owner = feedOwner(); if (owner && owner.tab === tab) write(feedKey, 'null'); }
+    function mark() {
+        var now = Date.now(); stamps.push([++sequence, now]);
+        while (stamps[0][1] < now - 60000) stamps.shift();
+        return sequence;
+    }
+    // A shared result shows the server as it was when that request started; later changes in this tab still win.
+    function sequenceAt(time) {
+        for (var i = stamps.length - 1; i >= 0; i--) if (stamps[i][1] <= time) return stamps[i][0];
+        return stamps.length ? stamps[0][0] - 1 : sequence;
+    }
+    function applyShared(value) {
+        var result; try { result = JSON.parse(value || 'null'); } catch (_) { return; }
+        if (stopped || !result || result.tab === tab || !Array.isArray(result.keys) || typeof result.at !== 'number') return;
+        var id = result.tab + ':' + result.at;
+        if (id === sharedId || Math.abs(Date.now() - result.at) > 30000 || document.getElementById('order-board')) return;
+        sharedId = id; reconcileApp(result.keys, sequenceAt(result.at));
+    }
+    function pause() {
+        generation++; starting = false; playing = false; clearTimeout(testTimer); testTimer = null;
+        if (audio) { audio.pause(); try { audio.currentTime = 0; } catch (_) {} }
+        release();
+    }
+    function update() {
+        try { sessionStorage.setItem(pendingKey, JSON.stringify(Array.from(pending.keys()))); } catch (_) {}
+        var button = document.getElementById('toggle-sound'), icon = document.getElementById('sound-icon');
+        if (button) {
+            button.type = 'button';
+            button.title = !enabled ? 'تشغيل واختبار صوت الطلبات' : blocked || !unlocked ? 'اضغط لتفعيل واختبار صوت الطلبات' : 'إيقاف صوت الطلبات';
+            button.setAttribute('aria-label', button.title); button.setAttribute('aria-pressed', String(enabled && unlocked));
+            button.dataset.soundState = !enabled ? 'muted' : blocked ? 'blocked' : playing ? 'playing' : 'ready';
+        }
+        if (icon) { icon.classList.toggle('fa-volume-up', enabled); icon.classList.toggle('fa-volume-mute', !enabled); }
+        var prompt = document.querySelector('[data-order-sound-unlock]');
+        if (!prompt && enabled && blocked && rings().length) {
+            prompt = document.createElement('button'); prompt.type = 'button'; prompt.dataset.orderSoundUnlock = '';
+            prompt.textContent = 'اضغط لتشغيل صوت الطلبات';
+            prompt.style.cssText = 'position:fixed;bottom:85px;inset-inline-end:20px;z-index:1100;padding:10px 16px;border:0;border-radius:8px;background:#f57800;color:#fff;font-weight:bold';
+            prompt.addEventListener('click', function () { unlock(true); }); document.body.appendChild(prompt);
+        }
+        if (prompt) prompt.hidden = !(enabled && blocked && rings().length);
+        document.dispatchEvent(new CustomEvent('dashboard:order-alert-state', { detail: { pending: Array.from(pending.keys()) } }));
+    }
+    // Only a fulfilled play promise means sound is playing. A rejection remains retryable.
+    function play(test, gesture) {
+        if (stopped || !enabled || !audio || !rings().length && !test) { update(); return; }
+        if (!ownsAudio(!!gesture)) { update(); return; }
+        audio.loop = rings().length > 0;
+        if (playing || starting) { update(); return; }
+        var attempt = ++generation; starting = true;
+        var promise;
+        try { promise = audio.play(); } catch (error) { promise = Promise.reject(error); }
+        Promise.resolve(promise).then(function () {
+            if (attempt !== generation) return;
+            starting = false; playing = true; unlocked = true; blocked = false;
+            if (!rings().length) testTimer = setTimeout(function () { if (!rings().length) { pause(); update(); } }, 900);
+            update();
+        }, function () {
+            if (attempt !== generation) return;
+            starting = false; playing = false; unlocked = false; blocked = true; release(); update();
+        });
+    }
+    function reconcile() {
+        if (!enabled || !rings().length) { if (playing || starting) pause(); update(); return; }
+        var owner = lease();
+        if (owner && owner.tab !== tab && owner.until > Date.now()) { if (playing || starting) pause(); update(); return; }
+        if (!blocked) play(false, false);
+        update();
+    }
+    function unlock(test) {
+        enabled = true; write(preference, 'true'); blocked = false;
+        // Called directly in the click/key event, while browser user activation is available.
+        play(test, true); update();
+    }
+    function notify(key, scope) {
+        if (!key) return;
+        key = String(key); scope = scope || 'live';
+        if (/^(legacy|store|service|partner_service):[1-9][0-9]*$/.test(key) && feedUrl) {
+            arrivals.set(key, mark()); acknowledgements.delete(key);
+            confirmAppSignal(); return;
+        }
+        arrivals.set(key, mark()); acknowledgements.delete(key);
+        if (!pending.has(key)) pending.set(key, new Set()); pending.get(key).add(scope);
+        if (isDelivery(key)) { chime(key); update(); return; }
+        blocked = false; reconcile();
+    }
+    // Delivery orders already chimed for in this browser, with when (one tab chimes; a reload does not chime again).
+    var chimed = new Set();
+    function chimes() { try { var value = JSON.parse(read(chimeKey) || '{}'); return value && typeof value === 'object' ? value : {}; } catch (_) { return {}; } }
+    function chime(key) {
+        if (chimed.has(key)) return;
+        chimed.add(key);
+        setTimeout(function () { if (pending.has(key)) acknowledge(key); }, CHIME_SHOWN);
+        if (stopped || !enabled) return;
+        var now = Date.now(), recent = chimes();
+        if (recent[key] && now - recent[key] < 600000) return;
+        Object.keys(recent).forEach(function (other) { if (!(now - recent[other] < 600000)) delete recent[other]; });
+        recent[key] = now; write(chimeKey, JSON.stringify(recent));
+        var fellBack = false;
+        // A tone that cannot load still sounds: the usual order sound, once.
+        function fallback() {
+            if (fellBack) return; fellBack = true;
+            try { var other = new window.Audio(script && script.dataset.soundUrl || '/sounds/mixkit-correct-answer-reward-952.wav'); var again = other.play(); if (again && again.catch) again.catch(function () {}); } catch (_) {}
+        }
+        var tone;
+        try { tone = new window.Audio(deliveryUrl); } catch (_) { fallback(); return; }
+        if (tone.addEventListener) tone.addEventListener('error', fallback);
+        try {
+            var attempt = tone.play();
+            if (attempt && attempt.catch) attempt.catch(function (error) { if (!error || error.name !== 'NotAllowedError') fallback(); });
+        } catch (_) { fallback(); }
+    }
+    function acknowledge(key, remote) {
+        if (!key) return;
+        key = String(key);
+        acknowledgements.set(key, mark());
+        var existed = pending.delete(key); scopes.forEach(function (keys) { keys.delete(key); });
+        if (existed && !remote) write(ackKey, JSON.stringify({ key: key, tab: tab, at: Date.now() }));
+        reconcile();
+    }
+    function sync(scope, keys) {
+        // Filtered/paginated snapshots are not proof that an absent order was acted on.
+        var next = scopes.get(scope) || new Set(); keys.forEach(function (key) { next.add(String(key)); });
+        scopes.set(scope, next);
+        next.forEach(function (key) { if (!pending.has(key)) pending.set(key, new Set()); pending.get(key).add(scope); });
+        reconcile();
+    }
+    function observeApp(source) {
+        if (typeof source === 'string') {
+            var snapshot = document.createElement('template'); snapshot.innerHTML = source; source = snapshot.content;
+        }
+        var keys = Array.from(source.querySelectorAll('[data-column="new"] [data-order-key]:not([data-order-alert-eligible="0"])')).map(function (card) { return card.dataset.orderKey; });
+        source.querySelectorAll('[data-order-alert-eligible="0"], [data-column]:not([data-column="new"]) [data-order-key]').forEach(function (card) { acknowledge(card.dataset.orderKey); });
+        sync('app-board', keys);
+    }
+    function reconcileApp(keys, beforeRequest) {
+        var before = typeof beforeRequest === 'number' ? beforeRequest : sequence;
+        var valid = function (key) { return typeof key === 'string' && /^(legacy|store|service|partner_service|website):[1-9][0-9]*$/.test(key); };
+        var complete = new Set(keys.filter(valid));
+        Array.from(pending.keys()).forEach(function (key) {
+            if (valid(key) && !complete.has(key) && (arrivals.get(key) || 0) <= before) acknowledge(key);
+        });
+        // A response started before a confirmed local action must not resurrect that order.
+        sync('app-authoritative', Array.from(complete).filter(function (key) { return (acknowledgements.get(key) || 0) <= before; }));
+    }
+    async function confirmAppSignal() {
+        if (stopped || !feedUrl || typeof window.fetch !== 'function') return;
+        if (signalController) signalController.abort();
+        var controller = new AbortController(); signalController = controller;
+        var before = sequence, timeout = setTimeout(function () { controller.abort(); }, 15000);
+        try {
+            var response = await (window.GoPulse ? window.GoPulse.fetch : window.fetch)(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!response.ok) return;
+            var payload = await response.json();
+            if (!stopped && signalController === controller && Array.isArray(payload.pending_alert_keys)) reconcileApp(payload.pending_alert_keys, before);
+        } catch (_) { /* A push signal cannot prove an unpaid order is ready for staff. Polling will retry. */ }
+        finally { clearTimeout(timeout); if (signalController === controller) signalController = null; }
+    }
+    function goPace(normal, slow) { var idle = window.GODashboardIdle; return idle && typeof idle.every === 'function' ? idle.every(normal, slow) : normal; }
+    async function pollOrders() {
+        if (stopped || !feedUrl || typeof window.fetch !== 'function') return;
+        // The board owns its own polling while mounted. Other dashboard pages still ring.
+        if (document.getElementById('order-board')) releaseFeed();
+        else if (!leadsFeed()) applyShared(read(sharedKey));
+        else {
+            var controller = new AbortController(); feedController = controller;
+            var before = sequence, startedAt = Date.now();
+            var timeout = setTimeout(function () { controller.abort(); }, 15000);
+            try {
+                var response = await (window.GoPulse ? window.GoPulse.fetch : window.fetch)(feedUrl, { credentials: 'same-origin', cache: 'no-store', signal: controller.signal, headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!response.ok) throw new Error('Order feed unavailable');
+                var payload = await response.json(), html = payload.html !== undefined ? payload.html : payload.view;
+                if (!stopped && Array.isArray(payload.pending_alert_keys)) {
+                    reconcileApp(payload.pending_alert_keys, before);
+                    if (leadsFeed()) write(sharedKey, JSON.stringify({ tab: tab, at: startedAt, keys: payload.pending_alert_keys }));
+                }
+                else if (!stopped && typeof html === 'string') observeApp(html);
+            } catch (_) { /* Keep existing alerts while the network or session recovers. */ }
+            finally { clearTimeout(timeout); if (feedController === controller) feedController = null; }
+        }
+        if (!stopped) feedTimer = setTimeout(pollOrders, goPace(15000, 30000)); // server load: 15 s, 30 s on an untouched device
+    }
+    window.DashboardOrderAlerts = {
+        notify: notify, acknowledge: acknowledge, sync: sync, observeApp: observeApp, reconcileApp: reconcileApp, checkpoint: function () { return sequence; }, unlock: unlock,
+        isReady: function () { return enabled && unlocked && !blocked; },
+        retry: function () { blocked = false; reconcile(); },
+        state: function () { return { enabled: enabled, playing: playing, blocked: blocked, pending: Array.from(pending.keys()) }; }
+    };
+    // Compatibility for old push handlers: a signal alone never acknowledges pending orders.
+    window.playSound = function () { window.DashboardOrderAlerts.retry(); };
+    window.stopSound = function (key) { if (key) acknowledge(key); else reconcile(); };
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest && event.target.closest('#toggle-sound');
+        if (!button) return;
+        if (!enabled || blocked || !unlocked) unlock(true);
+        else { enabled = false; write(preference, 'false'); pause(); update(); }
+    });
+    function userGesture(event) {
+        if (!enabled || !pending.size || !(blocked || !unlocked)) return;
+        if (event.target.closest && event.target.closest('#toggle-sound, [data-order-sound-unlock]')) return;
+        unlock(false);
+    }
+    document.addEventListener('pointerdown', userGesture);
+    document.addEventListener('keydown', userGesture);
+    window.addEventListener('storage', function (event) {
+        if (event.key === preference) { enabled = read(preference) !== 'false'; reconcile(); }
+        if (event.key === leaseKey) reconcile();
+        if (event.key === sharedKey) applyShared(event.newValue);
+        if (event.key === ackKey) {
+            try { var ack = JSON.parse(event.newValue); if (ack && ack.tab !== tab) acknowledge(ack.key, true); } catch (_) {}
+        }
+    });
+    function tick() {
+        if (playing || starting) {
+            var owner = lease();
+            if (owner && owner.tab !== tab && owner.until > Date.now()) pause();
+            else ownsAudio(false);
+        }
+        reconcile();
+    }
+    var heartbeat = setInterval(tick, 2000);
+    window.addEventListener('pagehide', function () {
+        stopped = true; pause(); releaseFeed(); clearInterval(heartbeat); clearTimeout(feedTimer);
+        if (feedController) feedController.abort();
+        if (signalController) signalController.abort();
+    });
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted && stopped) { stopped = false; heartbeat = setInterval(tick, 2000); reconcile(); pollOrders(); }
+    });
+    window.addEventListener('go:dashboard-awake', function () { if (!stopped) { clearTimeout(feedTimer); feedTimer = setTimeout(pollOrders, 300); } });
+    update(); reconcile(); feedTimer = setTimeout(pollOrders, 750);
+}());

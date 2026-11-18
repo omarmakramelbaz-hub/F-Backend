@@ -74,6 +74,7 @@ class ReportController extends Controller
 
     public function getCustomers()
     {
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['report-list']);
         $pending_users=User::where('account_type','user')->where('status','pending')->count();
         $accepted_users=User::where('account_type','user')->where('status','accepted')->count();
         $no_wishlits_users=Wishlist::count();
@@ -104,6 +105,7 @@ class ReportController extends Controller
     
     public function getDelegates()
     {
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['report-list']);
         $pending_delegates=User::where('account_type','delegate')->where('status','pending')->count();
         $accepted_delegates=User::where('account_type','delegate')->where('status','accepted')->count();
         $no_commissions_delegates=Commission::count();
@@ -203,6 +205,7 @@ class ReportController extends Controller
     
     public function getVendors()
     {
+        app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class)->central(['report-list']);
         $pending_vendors=User::where('account_type','vendor')->where('status','pending')->count();
         $accepted_vendors=User::where('account_type','vendor')->where('status','accepted')->count();
         $no_wishlits_vendors=Wishlist::distinct('resturant_id')->count();

@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'sms_misr' => [
+        'username' => env('SMS_MISR_USERNAME'),
+        'password' => env('SMS_MISR_PASSWORD'),
+        'sender' => env('SMS_MISR_SENDER'),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -31,6 +36,21 @@ return [
     ],
     'fcm' => [
         'project_id' => env('FCM_PROJECT_ID', 'fasakhaninjatest'),
+    ],
+
+    // The app's support chat (Firestore, DashboardChat): in the owner's own Firebase project, apart from the project the
+    // apps' push notifications go through (fcm above).
+    'support_chat' => [
+        'project_id' => env('SUPPORT_CHAT_PROJECT_ID', 'fasakha-16ecd'),
+    ],
+
+    // Paymob's card and wallet checkout. Read through config(): once the configuration is cached, env() outside the
+    // config files returns nothing.
+    'paymob' => [
+        'api_key' => env('PAYMOB_API_KEY'),
+        'card_integration_id' => env('PAYMOB_CARD_INTEGRATION_ID'),
+        'card_iframe_id' => env('PAYMOB_CARD_IFRAME_ID'),
+        'wallet_integration_id' => env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
     ],
 
     'maps' => [

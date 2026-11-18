@@ -40,7 +40,6 @@ class SendYearlyReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron SendYearlyReportCommand !");
 
         $resturants = Resturant::where('status', '!=', 'disabled')->get();
 

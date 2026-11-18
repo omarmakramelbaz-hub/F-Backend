@@ -6,6 +6,12 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 
 class Kernel extends HttpKernel
 {
+    public function __construct(\Illuminate\Contracts\Foundation\Application $app,\Illuminate\Routing\Router $router)
+    {
+        parent::__construct($app,$router);
+        $index=array_search(\Illuminate\Routing\Middleware\SubstituteBindings::class,$this->middlewarePriority,true);
+        if($index!==false){array_splice($this->middlewarePriority,$index,0,[\App\Http\Middleware\DesktopDashboardWorkspaceConnectedContext::class,\App\Http\Middleware\DesktopDashboardWorkspaceContext::class,\App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class,\App\Http\Middleware\DesktopDashboardJournal::class]);$this->syncMiddlewareToRouter();}
+    }
     /**
      * The application's global HTTP middleware stack.
      *
@@ -21,6 +27,7 @@ class Kernel extends HttpKernel
         \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
         \App\Http\Middleware\TrimStrings::class,
         \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
+        \App\Http\Middleware\RememberRequestFacts::class,
     ];
 
     /**
@@ -31,15 +38,22 @@ class Kernel extends HttpKernel
     protected $middlewareGroups = [
         'web' => [
             \App\Http\Middleware\EncryptCookies::class,
+            \App\Http\Middleware\DashboardSessionCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
             // \Illuminate\Session\Middleware\AuthenticateSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
+            \App\Http\Middleware\DesktopDashboardWorkspaceConnectedContext::class,
+            \App\Http\Middleware\DesktopDashboardWorkspaceContext::class,
+            \App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class,
+            \App\Http\Middleware\DesktopDashboardJournal::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
 
         'api' => [
+            \App\Http\Middleware\DesktopDashboardWorkspaceReadGate::class,
+            \App\Http\Middleware\DesktopDashboardJournal::class,
             \App\Http\Middleware\EnsureGoSchema::class,
             'throttle:api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,

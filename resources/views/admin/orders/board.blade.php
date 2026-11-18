@@ -1,6 +1,8 @@
 @extends('admin.index')
 
 @push('custom-css')
+    <link rel="stylesheet" href="{{ asset('dashboard/css/takeaway-pos.css') }}?v={{ filemtime(public_path('dashboard/css/takeaway-pos.css')) }}">
+    <link rel="stylesheet" href="{{ asset('dashboard/css/order-board-items.css') }}?v={{ filemtime(public_path('dashboard/css/order-board-items.css')) }}">
     <link rel="stylesheet" href="{{ asset('dashboard/css/order-board.css') }}?v={{ filemtime(public_path('dashboard/css/order-board.css')) }}">
     <link rel="stylesheet" href="{{ asset('dashboard/css/order-board-menu.css') }}?v={{ filemtime(public_path('dashboard/css/order-board-menu.css')) }}">
 @endpush
@@ -77,6 +79,7 @@
             @include('admin.orders.board_columns', ['board' => $board])
         </div>
     </main>
+    @include('admin.orders.board_items')
     @include('admin.orders.board_menu')
     </div>
 </div>
@@ -85,5 +88,6 @@
 @push('custom-js')
     <script type="application/json" id="ob-translations">@json(trans('order_board'))</script>
     <script src="{{ asset('dashboard/js/order-board.js') }}?v={{ filemtime(public_path('dashboard/js/order-board.js')) }}"></script>
+    <script src="{{ asset('dashboard/js/order-board-items.js') }}?v={{ filemtime(public_path('dashboard/js/order-board-items.js')) }}"></script>
     <script src="{{ asset('dashboard/js/order-board-menu.js') }}?v={{ filemtime(public_path('dashboard/js/order-board-menu.js')) }}"></script>
 @endpush

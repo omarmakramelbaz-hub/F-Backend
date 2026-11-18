@@ -33,9 +33,9 @@ class WalletController extends Controller {
             else{
                 $user = auth('admin')->user();
             }
-            if($user->email==null ){
+            if(!filter_var(trim((string) $user->email), FILTER_VALIDATE_EMAIL)){
                 if($request->wantsJson() || $request->is('api/*')){
-                    return $this->successResponse($user->balance,__('api.please update your info and enter email first'));
+                    return $this->errorResponse(__('api.please update your info and enter email first'), 422);
                 }else{
                     return redirect()->back()->with(['error'=>__('api.please update your info and enter email first')]);
                 }
@@ -60,16 +60,16 @@ class WalletController extends Controller {
                 $wallet->save();
                 return (new PaymobController)->checkingOut(
                         'paymob_card_payment',
-                        env('PAYMOB_CARD_INTEGRATION_ID'),
+                        config('services.paymob.card_integration_id'),
                         $order->id,
-                        env('PAYMOB_CARD_IFRAME_ID'));
+                        config('services.paymob.card_iframe_id'));
              }else if (request()->payment_method == 'v_cash')
              {
                 $wallet->payment = 'v_cash';
                 $wallet->save();
                 return (new PaymobController)->checkingOut(
                         'paymob_mobile_wallet_payment',
-                        env('PAYMOB_MOBILE_WALLET_INTEGRATION_ID'),
+                        config('services.paymob.wallet_integration_id'),
                         $order->id,
                         '0'.$order->pending_vendor?->mobile);
              }
@@ -87,7 +87,10 @@ class WalletController extends Controller {
     }
     
     public function get_wallet(){
-        if (request()->wantsJson() || request()->is('api/*')) {
+        $workspace=app(\App\Services\Dashboard\DesktopDashboardWorkspaceReadAuthority::class);
+        $localScope=$workspace->selected()?$workspace->scope():null;
+        if($localScope!==null){$user=$localScope->actor();}
+        elseif (request()->wantsJson() || request()->is('api/*')) {
         $user=auth('api')->user();
         }
         else{
@@ -97,7 +100,8 @@ class WalletController extends Controller {
             $data=[
             'wallet'=>WalletResource::collection($wallet),
             'balance'=>(double) $user->balance,
-            'profile'=>UserResource::make($user)->getToken(JWTAuth::fromUser($user)),
+            'profile'=>$localScope!==null?['id'=>(int)$user->id,'name'=>$user->name,'account_type'=>$user->account_type]
+                :UserResource::make($user)->getToken(JWTAuth::fromUser($user)),
             
             ];
             if (request()->wantsJson() || request()->is('api/*')) {

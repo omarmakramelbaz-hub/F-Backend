@@ -66,7 +66,6 @@
 
 
 
-      </div>
     <div class="modal-footer">
         <button data-bs-dismiss="modal" class="btn btn-default ml-2 close-btn" type="button">@lang('main.close')</button>
            <button class="btn btn-success" type="submit">@lang('main.Save changes')</button>

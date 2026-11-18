@@ -26,7 +26,7 @@
         <div class="container-fluid">
             <div class="row justify-content-between align-items-center gy-2 mb-2">
                 <div class="col-auto">
-                    <h1 class="m-0 text-dark">@lang('main.show') {{__('main.'.request('account_type'))}}</h1>
+                        <h1 class="m-0 text-dark">@lang('main.show') {{ \App\Services\Dashboard\DashboardAccountRole::label($user) }}</h1>
                 </div><!-- /.col -->
                 <div class="col-auto">
                     <ol class="breadcrumb float-sm-left">
@@ -219,14 +219,14 @@
                                                         {{$wishlist->created_at->diffForHumans()}}
                                                     </td>
                                                     <td width="250px">
-                                                            {!! Form::open([
+                                                            {!! \App\Support\NativeDeleteForm::open([
                                                                 'method' => 'DELETE',
                                                                 'route' => ['userwishlists.destroy', $wishlist->id],
                                                                 'style' => 'display:inline',
                                                             ]) !!}
                                                             <button type="submit"
                                                                 class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                            {!! Form::close() !!}
+                                                            {!! \App\Support\NativeDeleteForm::close() !!}
                                                     </td>
                                                 </tr>
                                             @empty
@@ -269,14 +269,14 @@
                                                         {{$address->created_at->diffForHumans()}}
                                                     </td>
                                                     <td width="250px">
-                                                            {!! Form::open([
+                                                            {!! \App\Support\NativeDeleteForm::open([
                                                                 'method' => 'DELETE',
                                                                 'route' => ['useraddresses.destroy', $address->id],
                                                                 'style' => 'display:inline',
                                                             ]) !!}
                                                             <button type="submit"
                                                                 class="btn btn-danger show_confirm">@lang('main.delete')</button>
-                                                            {!! Form::close() !!}
+                                                            {!! \App\Support\NativeDeleteForm::close() !!}
                                                     </td>
                                                 </tr>
                                             @empty

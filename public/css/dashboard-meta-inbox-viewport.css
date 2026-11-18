@@ -1,0 +1,203 @@
+/*
+ * Conversation viewport supplement. Load after the existing inbox styles.
+ * Scoped to the inbox DOM so cached dashboard assets do not affect other pages.
+ * The account/platform reply guards remain in their existing sender modules.
+ */
+@supports selector(body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox)) {
+    html:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox) {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox) {
+        height: 100dvh;
+        min-height: 0;
+        margin: 0;
+        overflow: hidden;
+    }
+
+    body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox) > .wrapper {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        min-height: 0 !important;
+        overflow: hidden;
+    }
+
+    body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox) > .wrapper > .main-header,
+    body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox) > .wrapper > .main-footer {
+        position: relative;
+        flex: 0 0 auto;
+        min-height: 0;
+        margin-block: 0;
+    }
+
+    body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox) > .wrapper > .content-wrapper.wa-inbox-wrapper {
+        flex: 1 1 0;
+        height: auto;
+        min-height: 0 !important;
+        max-height: none;
+        margin-block: 0;
+        overflow: hidden;
+    }
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox).wa-inbox {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    gap: 8px;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-heading,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-alert,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .meta-inbox-channels,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .meta-ai-controls {
+    flex: 0 0 auto;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-workspace {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-threads {
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat-heading,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-panel-heading,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-selection-toolbar,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat > .wa-replies,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat-footer {
+    flex: 0 0 auto;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-message-area {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Support both the wrapped WhatsApp history and the direct Meta history. */
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-message-area > .wa-inbox-message-scroll {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat > .wa-inbox-message-scroll,
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-thread-scroll {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+}
+
+/* The legacy Meta list is itself the scroll container. */
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-threads > .wa-inbox-thread-list {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat > .wa-replies {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    min-width: 0;
+}
+
+/* Settings open over the workspace instead of moving the composer off screen. */
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) #meta-ai-controls {
+    position: relative;
+    z-index: 5;
+    margin-block: 0;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) #meta-ai-controls .meta-ai-settings[open] > form {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline-start: 0;
+    z-index: 1;
+    width: min(780px, 100%);
+    max-height: min(52dvh, 500px);
+    margin: 6px 0 0;
+    padding: 12px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid #d9e1ea;
+    border-radius: 10px;
+    background: #fff;
+    color: #243b53;
+    box-shadow: 0 8px 28px #142c4229;
+}
+
+.dark-mode :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) #meta-ai-controls .meta-ai-settings[open] > form,
+[data-theme="dark"] :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) #meta-ai-controls .meta-ai-settings[open] > form {
+    border-color: #405467;
+    background: #1b2c3e;
+    color: #e3edf6;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-order-drawer {
+    flex: 0 0 auto;
+    max-height: 42dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+:is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-order-drawer .wa-inbox-order-content {
+    max-height: 33dvh;
+}
+
+@media (max-width: 720px) {
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-workspace {
+        min-height: 0;
+        height: auto;
+    }
+
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-threads,
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) .wa-inbox-chat {
+        height: 100%;
+    }
+
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-heading {
+        gap: 6px;
+    }
+
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) #meta-ai-controls .meta-ai-settings[open] > form {
+        max-height: 48dvh;
+        padding: 9px;
+    }
+}
+
+/* Retain a bounded conversation for browsers without parent selectors. */
+@supports not selector(body:has(.content-wrapper.wa-inbox-wrapper > .wa-inbox)) {
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox).wa-inbox {
+        height: auto;
+        overflow: visible;
+    }
+
+    :is(#meta-message-hub, #whatsapp-inbox, #meta-social-inbox) > .wa-inbox-workspace {
+        flex: 0 0 auto;
+        height: max(400px, calc(100dvh - 300px));
+    }
+}

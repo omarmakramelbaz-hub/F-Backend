@@ -6,7 +6,7 @@
     $items = $card['items'] ?? [];
     $remainingItems = max(0, count($items) - 2);
 @endphp
-<article class="ob-order" data-order-key="{{ $card['key'] }}" data-order-status="{{ $card['status'] }}" aria-label="#{{ ltrim((string)$card['number'], '#') }}">
+<article class="ob-order{{ !empty($card['late']) ? ' is-late' : '' }}" data-order-key="{{ $card['key'] }}" data-order-status="{{ $card['status'] }}" data-order-alert-eligible="{{ $card['status'] === 'awaiting_payment' ? '0' : '1' }}" aria-label="#{{ ltrim((string)$card['number'], '#') }}">
     <div class="ob-order-top">
         <div class="ob-order-identity"><strong class="ob-order-number" title="#{{ ltrim((string)$card['number'], '#') }}"><bdi>#{{ ltrim((string)$card['number'], '#') }}</bdi></strong><span class="ob-app-badge ob-app-{{ $app }}">{{ $card['app_label'] ?? $app }}</span></div>
         <span class="ob-elapsed" title="{{ $card['elapsed'] ?? '' }}">{{ $card['elapsed'] ?? '' }}</span>
@@ -31,7 +31,7 @@
     @if(!empty($items))
         <ul class="ob-items" aria-label="{{ __('order_board.items') }}">
             @foreach(array_slice($items, 0, 2) as $item)
-                <li @unless(isset($item['line_total'])) class="ob-item-no-price" @endunless><span class="ob-item-name" title="{{ $item['name'] }}{{ !empty($item['option_label']) ? ' · '.$item['option_label'] : '' }}">{{ $item['name'] }}@if(!empty($item['option_label']))<small class="ob-item-option"> · {{ $item['option_label'] }}</small>@endif</span><bdi class="ob-quantity">× {{ $item['quantity'] }}</bdi>@if(isset($item['line_total']))<bdi class="ob-line-amount">{{ rtrim(rtrim(number_format((float)$item['line_total'], 2, '.', ','), '0'), '.') }}</bdi>@endif</li>
+                <li @unless(isset($item['line_total'])) class="ob-item-no-price" @endunless><span class="ob-item-name" title="{{ $item['name'] }}{{ !empty($item['option_label']) ? ' · '.$item['option_label'] : '' }}"><span class="ob-item-title">{{ $item['name'] }}</span>@if(!empty($item['option_label']))<small class="ob-item-option">{{ $item['option_label'] }}</small>@endif</span><bdi class="ob-quantity">× {{ $item['quantity'] }}</bdi>@if(isset($item['line_total']))<bdi class="ob-line-amount">{{ rtrim(rtrim(number_format((float)$item['line_total'], 2, '.', ','), '0'), '.') }}</bdi>@endif</li>
             @endforeach
         </ul>
         @if($remainingItems > 0)
@@ -49,23 +49,50 @@
         <div class="ob-notes" title="{{ __('order_board.notes') }}: {{ $card['notes'] }}"><strong>{{ __('order_board.notes') }}:</strong> {{ $card['notes'] }}</div>
     @endif
     <div class="ob-total">
-        @if(!empty($card['payment_label']))<span class="ob-payment @if(!empty($card['payment_failed'])) ob-payment-with-failure @endif" title="{{ __('order_board.payment') }}: {{ $card['payment_label'] }}"><span class="ob-payment-method"><i class="far fa-credit-card" aria-hidden="true"></i><span class="ob-sr-only">{{ __('order_board.payment') }}: </span>{{ $card['payment_label'] }}</span>@if(!empty($card['payment_failed']))<strong class="ob-payment-failed">{{ __('order_board.payment_failed') }}</strong>@endif</span>@endif
+        @if(!empty($card['payment_label']))<span class="ob-payment @if(!empty($card['payment_failed']) || !empty($card['payment_paid'])) ob-payment-with-failure @endif" title="{{ __('order_board.payment') }}: {{ $card['payment_label'] }}"><span class="ob-payment-method"><i class="far fa-credit-card" aria-hidden="true"></i><span class="ob-sr-only">{{ __('order_board.payment') }}: </span>{{ $card['payment_label'] }}</span>@if(!empty($card['payment_paid']))<strong class="ob-payment-paid">{{ __('order_board.payment_paid') }}</strong>@elseif(!empty($card['payment_failed']))<strong class="ob-payment-failed">{{ __('order_board.payment_failed') }}</strong>@endif</span>@endif
         <span class="ob-total-amount"><span>{{ __('order_board.total') }}</span>@if($total !== null)<strong><bdi>{{ $total }}</bdi> <small>{{ __('order_board.currency') }}</small></strong>@else<span class="ob-price-pending">{{ __('order_board.price_pending') }}</span>@endif</span>
     </div>
     <div class="ob-order-tools">
+        @if(!empty($card['urls']['items']))
+            <button type="button" class="ob-edit-items" data-edit-items="{{ $card['urls']['items'] }}"><i class="fas fa-pencil-alt" aria-hidden="true"></i>{{ __('order_board.edit_items') }}</button>
+        @endif
         @if(!empty($card['urls']['details']))
             <a href="{{ $card['urls']['details'] }}" target="_blank" rel="noopener"><i class="far fa-file-alt" aria-hidden="true"></i>{{ __('order_board.details') }}</a>
         @endif
-        @if(!empty($card['urls']['print']))
-            <a href="{{ $card['urls']['print'] }}" target="_blank" rel="noopener"><i class="fas fa-print" aria-hidden="true"></i>{{ __('order_board.print') }}</a>
+        {{-- An app order prints from here once it is with the courier; the button locks once it is printed. --}}
+        @if(($card['group'] ?? '') === 'courier' && in_array($card['source'] ?? '', \App\Services\Dashboard\OrderBoardPrinting::COURIER_STAGE_SOURCES, true))
+            @if(!empty($card['printed']))
+                <button type="button" class="ob-print-order is-printed" disabled><i class="fas fa-check" aria-hidden="true"></i>{{ app()->getLocale() === 'ar' ? 'تمت الطباعة' : 'Printed' }}</button>
+            @elseif(!empty($card['urls']['print']))
+                <button type="button" class="ob-print-order" data-board-print="{{ $card['urls']['print'] }}"><i class="fas fa-print" aria-hidden="true"></i>{{ app()->getLocale() === 'ar' ? 'طباعة الأوردر' : 'Print order' }}</button>
+            @endif
         @endif
     </div>
     @if(!empty($actions) && !empty($card['urls']['action']))
-        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action>
+        <form class="ob-order-actions" action="{{ $card['urls']['action'] }}" method="post" data-order-action data-desktop-board-generation="{{ app(\App\Services\Dashboard\DesktopDashboardNotificationReads::class)->generation(auth('admin')->user()) }}">
             @csrf
             <input type="hidden" name="expected_status" value="{{ $card['status'] }}">
             <input type="hidden" name="expected_accepted_notify" value="{{ $card['accepted_notify'] ?? '' }}">
             <input type="hidden" name="expected_revision" value="{{ $card['revision'] ?? '' }}">
+            @if(($card['source'] ?? '') === 'website')
+                <input type="hidden" name="quote_hash" value="{{ $card['website']['quote_hash'] ?? '' }}">
+                @if(in_array('dispatch', $actions, true))
+                    <label style="flex-basis:100%;margin:0">{{ app()->getLocale() === 'ar' ? 'شركة التوصيل' : 'Delivery company' }}
+                        <select name="company_id" data-website-company class="form-control form-control-sm">
+                            <option value="">{{ app()->getLocale() === 'ar' ? 'اختر شركة التوصيل' : 'Choose a delivery company' }}</option>
+                            @foreach($card['website']['companies'] ?? [] as $company)
+                                <option value="{{ $company['id'] }}">{{ $company['name'] }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                @endif
+                @if(in_array('complete', $actions, true))
+                    <label style="flex-basis:100%;margin:0">{{ app()->getLocale() === 'ar' ? 'الكاش المستلم' : 'Cash received' }}
+                        <input type="text" inputmode="decimal" name="cash_received" data-website-cash class="form-control form-control-sm" autocomplete="off">
+                    </label>
+                    <label style="flex-basis:100%;margin:0"><input type="checkbox" name="payment_confirmed" value="1" data-website-payment> {{ app()->getLocale() === 'ar' ? 'تم تحصيل قيمة الطلب فعليًا' : 'Payment has actually been collected' }}</label>
+                @endif
+            @endif
             @foreach($actions as $action)
                 @if(in_array($action, ['accept', 'reject', 'dispatch', 'complete', 'cancel', 'prepare', 'ready'], true))
                     <button type="submit" name="action" value="{{ $action }}" class="ob-action ob-action-{{ $action }}"><i class="fas {{ in_array($action, ['reject', 'cancel'], true) ? 'fa-times' : (in_array($action, ['dispatch', 'prepare'], true) ? 'fa-motorcycle' : 'fa-check') }}" aria-hidden="true"></i><span>{{ $card['action_labels'][$action] ?? __('order_board.'.$action) }}</span></button>

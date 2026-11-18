@@ -251,6 +251,6 @@
     $(this).closest('form').submit();
 });
 </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.1/Chart.min.js" charset="utf-8"></script>
+  <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.1/Chart.min.js') }}" charset="utf-8"></script>
          {!! $registrationsChart->script() !!}
 @endpush

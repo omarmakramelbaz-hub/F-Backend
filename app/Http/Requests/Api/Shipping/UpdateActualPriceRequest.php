@@ -30,7 +30,7 @@ class UpdateActualPriceRequest extends FormRequest
     public function rules()
     {
         return [
-            'new_price'=>'required',
+            'new_price'=>'required|numeric|gt:0|max:100000',
             'order_id'=>'required|exists:orders,id',
             
 

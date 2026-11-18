@@ -40,7 +40,6 @@ class SendMonthlyReportCommand extends Command
      */
     public function handle()
     {
-         \Log::info("Cron SendMonthlyReportCommand !");
 
         $resturants = Resturant::where('status', '!=', 'disabled')->get();
 
