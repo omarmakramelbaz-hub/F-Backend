@@ -651,6 +651,11 @@ html:has(.app-order-board-page) {
     html[dir="rtl"] .dashboard-theme.sidebar-open .main-sidebar { display: block; transform: translateX(0); }
     .dashboard-theme.sidebar-open #sidebar-overlay { display: block; }
 }
+/* Phones: no navy copyright bar under the page, so the dashboard fills the screen (the footer's notices stay). */
+@media (max-width: 767.98px) {
+    .dashboard-theme .main-footer { background: transparent; border: 0; padding: 0; min-height: 0; }
+    .dashboard-theme .main-footer > strong { display: none; }
+}
 @media (max-width: 576px) {
     .dashboard-theme .content-wrapper:not(.order-board-wrapper) .content-header { padding: 18px 6px 10px; }
     .dashboard-theme .content-wrapper:not(.order-board-wrapper) > .content { padding-inline: 6px; }
@@ -665,7 +670,6 @@ html:has(.app-order-board-page) {
     .dashboard-theme .owner .info-box .info-box-number { font-size: 12px; }
     .dashboard-theme .content-header .breadcrumb { margin-top: 5px; }
     .dashboard-theme .table th, .dashboard-theme .table td { padding: 9px 10px !important; }
-    .dashboard-theme .main-footer { padding-inline: 14px; font-size: 10px; }
     .dashboard-home-page #searchTypeToggle label { font-size: 11px; }
     .dashboard-home-page .content > .container-fluid > .row.align-items-center > .col-6:first-child { flex: 0 0 100%; max-width: 100%; }
 }
