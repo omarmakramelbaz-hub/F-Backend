@@ -230,6 +230,15 @@ async function logout() {
   view.value = 'pos';
 }
 
+// F9 on the app's own window (the main process catches it on the dashboard and on real key presses here).
+function barKey(event) {
+  if (event.key !== 'F9' || event.repeat) return;
+  event.preventDefault();
+  barPinned.value = !barPinned.value;
+}
+window.addEventListener('keydown', barKey);
+stops.push(() => window.removeEventListener('keydown', barKey));
+
 onMounted(async () => {
   await refresh();
   stops.push(onSyncStatus((status) => {
