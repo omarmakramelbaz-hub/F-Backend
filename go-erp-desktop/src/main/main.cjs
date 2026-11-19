@@ -321,12 +321,20 @@ const handlers = {
     hideDashboard();
     return true;
   },
+
+  // The dashboard fills the window; the status bar takes its strip only while the internet is off or a message waits.
+  'dashboard:bar': (values) => {
+    barShown = values.visible === true;
+    layoutDashboard();
+    return barShown;
+  },
 };
 
 // The dashboard's «برنامج الكمبيوتر» page: inside the app it also shows this device's part (setup, orders, printers).
 const PROGRAM_PAGE = '/admin/desktop-dashboard';
 const DASHBOARD_PAGES = { home: '/admin/dashboard', shifts: '/admin/branch-shifts', expenses: '/admin/branch-expenses', program: PROGRAM_PAGE };
-const BAR_HEIGHT = 34; // the app's status bar stays visible under the dashboard
+const BAR_HEIGHT = 34; // the app's status bar, under the dashboard only while it has something to say
+let barShown = false;
 const EMBED = process.env.GOERP_DASHBOARD_VIEW !== 'off';
 let dashboardView = null;
 let dashboardShown = false;
@@ -346,7 +354,7 @@ function sameServer(url) {
 function layoutDashboard() {
   if (!dashboardView || !mainWindow || mainWindow.isDestroyed()) return;
   const [width, height] = mainWindow.getContentSize();
-  dashboardView.setBounds({ x: 0, y: 0, width, height: Math.max(0, height - BAR_HEIGHT) });
+  dashboardView.setBounds({ x: 0, y: 0, width, height: Math.max(0, height - (barShown ? BAR_HEIGHT : 0)) });
 }
 
 /**
@@ -881,13 +889,17 @@ function registerHandlers() {
   }
 }
 
-/** F11 switches full screen on and off wherever the keyboard is (the dashboard or the app's own screens). */
+/**
+ * F11 switches full screen on and off wherever the keyboard is (the dashboard or the app's own screens); F9 shows or
+ * hides the status bar under the dashboard (its settings and sign-out buttons).
+ */
 function fullScreenKey(contents) {
   contents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || input.key !== 'F11') return;
+    if (input.type !== 'keyDown' || (input.key !== 'F11' && input.key !== 'F9')) return;
     event.preventDefault();
     if (input.isAutoRepeat || !mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    if (input.key === 'F9') notifyDashboard({ type: 'toggle-bar' });
+    else mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
 }
 

@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const CHANNELS = ['app:info', 'app:autostart', 'app:network', 'customers:lookup', 'setup:enroll', 'setup:reset', 'setup:release', 'setup:open-orders', 'setup:cancel-order', 'auth:remembered', 'auth:login', 'auth:logout', 'auth:branch', 'catalog:get', 'tickets:open', 'tickets:save',
   'tickets:delete', 'tickets:quote', 'tickets:pay', 'tickets:bill', 'tickets:kitchen', 'receipts:list', 'receipts:print', 'cash:summary', 'cash:expense', 'cash:till', 'attendance:board', 'attendance:punch', 'reports:sales', 'reports:print', 'print:printers',
-  'print:settings', 'print:test', 'sync:status', 'sync:now', 'dashboard:open', 'dashboard:hide'];
+  'print:settings', 'print:test', 'sync:status', 'sync:now', 'dashboard:open', 'dashboard:hide', 'dashboard:bar'];
 
 contextBridge.exposeInMainWorld('goerp', {
   async call(channel, values) {

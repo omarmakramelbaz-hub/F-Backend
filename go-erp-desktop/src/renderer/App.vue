@@ -3,8 +3,9 @@
   <SetupView v-else-if="!info.device" :server="info.server" @done="refresh" />
   <LoginView v-else-if="!info.session" :info="info" :sync="sync" @signed-in="afterSignIn" @sync-now="syncNow" @reset="refresh" />
 
-  <!-- Under the live dashboard (same pages and permissions as the server): a status bar -->
-  <footer v-else-if="dashboardShown" class="status-bar">
+  <!-- Under the live dashboard (same pages and permissions as the server): a status bar, only while the internet is
+       off or a message waits; otherwise the dashboard fills the screen. -->
+  <footer v-else-if="dashboardShown" v-show="barNeeded" class="status-bar">
     <span class="status-brand">GO ERP</span>
     <SyncBadge :status="sync" @sync-now="syncNow" />
     <span v-if="offlineMode" class="status-offline" role="status" title="النت مقطوع: صفحات الداشبورد المحفوظة والكاشير شغالين من الجهاز، وكل حاجة هتتزامن لما النت يرجع."><i class="fas fa-plug" aria-hidden="true"></i> بدون إنترنت — شغال من الجهاز</span>
@@ -84,7 +85,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { call, onSyncStatus, onDashboardEvent } from './api.js';
 import SetupView from './views/SetupView.vue';
 import LoginView from './views/LoginView.vue';
@@ -110,6 +111,12 @@ const banner = ref(null);
 const printProblem = ref('');
 const offlineMode = ref(false);
 const statusNotice = ref('');
+const barPinned = ref(false); // F9
+const barNeeded = computed(() => barPinned.value || offlineMode.value || !!printProblem.value || !!statusNotice.value
+  || !!(sync.value && sync.value.last_error));
+watch([barNeeded, dashboardShown], ([visible, shown]) => {
+  if (shown) call('dashboard:bar', { visible }).catch(() => {});
+}, { immediate: true });
 let printTimer = null;
 let noticeTimer = null;
 const stops = [];
@@ -247,6 +254,7 @@ onMounted(async () => {
       signingOut.value = false;
     }
     else if (event.type === 'hidden') dashboardShown.value = false;
+    else if (event.type === 'toggle-bar') barPinned.value = !barPinned.value;
     else if (event.type === 'connection') {
       offlineMode.value = !event.online;
       if (event.online && dashboardShown.value) notice('النت رجع — الداشبورد بيتحدث، والعمليات اللي اتعملت من غير نت بتتبعت.');
