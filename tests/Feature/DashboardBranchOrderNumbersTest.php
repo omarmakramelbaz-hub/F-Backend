@@ -22,6 +22,11 @@ class DashboardBranchOrderNumbersTest extends TestCase
         DB::table('resturants')->insert([['id'=>100,'name'=>'Main'],['id'=>101,'name'=>'Other']]);
     }
 
+    public function test_a_branch_that_never_closed_a_shift_keeps_its_old_numbers(): void
+    {
+        $this->assertSame([],app(BranchOrderSequence::class)->next('f:100','takeaway'));
+    }
+
     private function close(string $branch='f:100'): void
     {
         $last=(int)DB::table('branch_shift_closings')->where('branch',$branch)->max('sequence');
@@ -41,6 +46,7 @@ class DashboardBranchOrderNumbersTest extends TestCase
     public function test_each_section_counts_on_its_own_and_continues_across_shift_closings(): void
     {
         $this->close(); // Shift 2 is open.
+        $this->close('f:101'); // Numbering starts at a branch's first close.
         $this->assertSame([1,2,3],[$this->number('takeaway'),$this->number('takeaway'),$this->number('takeaway')]);
         $this->assertSame([1,2],[$this->number('dine'),$this->number('dine')]);
         $this->assertSame(1,$this->number('phone'));
