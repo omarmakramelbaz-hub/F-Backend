@@ -67,6 +67,7 @@ on:
       - 'public/dashboard/css/branch-shifts.css'
       - 'app/Http/Controllers/Dashboard/BranchShiftClosingController.php'
       - 'tests/Feature/DashboardBranchShiftTest.php'
+      - 'tests/Feature/DashboardBranchOrderNumbersTest.php'
       - 'database/migrations/*branch_operations*'
       - 'resources/views/admin/branch_operations/**'
       - 'resources/views/admin/maps/**'
@@ -168,7 +169,7 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify application orders and branch isolation
-        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview'
+        run: vendor/bin/phpunit --filter 'OrderBoard|GoStoreBoard|DashboardOrderIsolation|DashboardOrderMenu|DashboardOrderPayment|DashboardInbox|DashboardTakeaway|DashboardPosService|OrderProvider|DashboardManualNotification|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchOrderNumbers|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview'
       - name: Verify compiled templates and JavaScript
         run: |
           php artisan view:cache
@@ -240,5 +241,5 @@ jobs:
           cp .env.example .env
           php artisan key:generate
       - name: Verify POS tickets, receipts and cash ledger on MySQL
-        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'
+        run: vendor/bin/phpunit --filter 'DashboardTakeaway|DashboardPosService|DashboardBranchExpenses|DashboardBranchShift|DashboardBranchOrderNumbers|DashboardBranchStock|DashboardBranchRecipe|DashboardHomeOverview|DashboardManualNotification'
 
