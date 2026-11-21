@@ -19,3 +19,10 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# GO ERP app page: phones revalidate it on every open, so changes show at once.
+<IfModule mod_headers.c>
+<Files "f-admin-webview.html">
+Header set Cache-Control "no-cache"
+</Files>
+</IfModule>
