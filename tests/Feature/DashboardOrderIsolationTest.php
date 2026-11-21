@@ -180,11 +180,12 @@ class DashboardOrderIsolationTest extends TestCase
     public function test_unified_board_endpoints_require_dashboard_login(): void
     {
         auth('admin')->logout();
-        $this->get('/admin/order-board/legacy/1001')->assertRedirect('/admin/login');
-        $this->get('/admin/order-board/legacy/1001/print')->assertRedirect('/admin/login');
+        // These requests send Accept: application/json (setUp), so a guest gets the short 401 "session expired" answer.
+        $this->get('/admin/order-board/legacy/1001')->assertUnauthorized()->assertHeader('X-GO-Session', 'expired');
+        $this->get('/admin/order-board/legacy/1001/print')->assertUnauthorized()->assertHeader('X-GO-Session', 'expired');
         $this->post('/admin/order-board/legacy/1001/action', [
             'action' => 'accept', 'expected_status' => 'pending',
-        ])->assertRedirect('/admin/login');
+        ])->assertUnauthorized()->assertHeader('X-GO-Session', 'expired');
         $this->assertNull(DB::table('orders')->where('id', 1001)->value('accepted_notify'));
     }
 

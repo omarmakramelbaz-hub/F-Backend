@@ -24,7 +24,9 @@ class DashboardInboxTest extends TestCase
     {
         parent::setUp();
         config(['app.key' => 'base64:'.base64_encode(str_repeat('i', 32)), 'database.default' => 'sqlite',
-            'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array', 'services.fcm.project_id' => 'fasakhaninjatest']);
+            'database.connections.sqlite.database' => ':memory:', 'cache.default' => 'array', 'services.fcm.project_id' => 'fasakhaninjatest',
+            // The support chat has its own Firestore project setting; the fixtures use this project name.
+            'services.support_chat.project_id' => 'fasakhaninjatest']);
         DB::purge('sqlite'); Schema::clearResolvedInstance('db.schema');
         Carbon::setTestNow(Carbon::parse('2026-10-03 10:00:00', 'Africa/Cairo'));
         Schema::create('users', function (Blueprint $t) {
@@ -67,10 +69,10 @@ class DashboardInboxTest extends TestCase
     public function test_guest_cannot_read_notifications_or_support(): void
     {
         $this->note('mine', 1);
-        $this->getJson('/admin/dashboard-inbox/notifications')->assertRedirect('/admin/login');
-        $this->postJson('/admin/dashboard-inbox/notifications/read', ['ids' => ['mine']])->assertRedirect('/admin/login');
-        $this->getJson('/admin/dashboard-inbox/support')->assertRedirect('/admin/login');
-        $this->postJson('/admin/send_chat_notification', ['user2' => 20, 'message' => 'Forged'])->assertRedirect('/admin/login');
+        $this->getJson('/admin/dashboard-inbox/notifications')->assertUnauthorized()->assertHeader('X-GO-Session','expired');
+        $this->postJson('/admin/dashboard-inbox/notifications/read', ['ids' => ['mine']])->assertUnauthorized()->assertHeader('X-GO-Session','expired');
+        $this->getJson('/admin/dashboard-inbox/support')->assertUnauthorized()->assertHeader('X-GO-Session','expired');
+        $this->postJson('/admin/send_chat_notification', ['user2' => 20, 'message' => 'Forged'])->assertUnauthorized()->assertHeader('X-GO-Session','expired');
         $this->assertNull(DB::table('notifications')->where('id', 'mine')->value('read_at'));
     }
 
