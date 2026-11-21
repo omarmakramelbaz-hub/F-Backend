@@ -153,7 +153,9 @@ class DashboardTakeawayTest extends TestCase
     {
         $quote = $this->service()->quote($cart,$this->actor($actor));
         return $cart + ['idempotency_key'=>$this->key($id),'quote_hash'=>$quote['quote_hash'],'payment_method'=>$method,
-            'cash_received'=>'100.00','payment_confirmed'=>true,'payment_reference'=>'Receipt 100','notes'=>'ملاحظة الفاتورة'];
+            'cash_received'=>'100.00','payment_confirmed'=>true,'payment_reference'=>'Receipt 100','notes'=>'ملاحظة الفاتورة',
+            // Current POS rule: every takeaway/dine collection records the customer's phone and service consent.
+            'customer_phone'=>'01012345678','service_consent'=>true];
     }
     private function denied(callable $call, int $status): void
     {
@@ -311,13 +313,15 @@ class DashboardTakeawayTest extends TestCase
     {
         $payload=$this->payment($this->cart(),40);$saved=$this->service()->checkout($payload,$this->actor());$id=$saved['receipt']['id'];
         $payload['payment_method']='card';$payload['payment_confirmed']=true;
+        // A historical card receipt predates customer capture, so its retry carries no customer details.
+        $phone=$payload['customer_phone'];unset($payload['customer_phone'],$payload['service_consent']);
         $canonical=$this->service()->canonicalCart($payload);
         $hash=hash('sha256',json_encode([$canonical,$payload['quote_hash'],'card',0,trim($payload['payment_reference']??''),trim($payload['notes']??'')],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
         DB::table('takeaway_orders')->where('id',$id)->update(['payment_method'=>'card','cash_received_cents'=>0,'change_cents'=>0,'request_hash'=>$hash]);
         $before=DB::table('takeaway_tills')->value('balance_cents');
         $replayed=$this->service()->checkout($payload,$this->actor());$this->assertTrue($replayed['replayed']);$this->assertSame('card',$replayed['receipt']['payment_method']);
         $this->assertSame($before,DB::table('takeaway_tills')->value('balance_cents'));$this->assertSame(1,DB::table('takeaway_orders')->count());
-        $payload['idempotency_key']=$this->key(41);$this->denied(fn()=>$this->service()->checkout($payload,$this->actor()),422);
+        $payload['idempotency_key']=$this->key(41);$payload['customer_phone']=$phone;$this->denied(fn()=>$this->service()->checkout($payload,$this->actor()),422);
     }
 
     public function test_pos_tax_is_independent_configured_audited_and_quote_change_is_detected(): void
@@ -482,9 +486,10 @@ class DashboardTakeawayTest extends TestCase
 
     public function test_print_endpoint_uses_scoped_immutable_receipt_and_embedded_print_marker(): void
     {
-        $payload = $this->payment($this->cart()); $payload['notes']='<script>alert(1)</script>';
-        $sale = $this->service()->checkout($payload,$this->actor());
-        $this->actingAs($this->actor(),'admin');
+        // Reprinting is for the branch owner and the central admin; the cashier gets a one-time first print instead.
+        $payload = $this->payment($this->cart(),1,'cash',12); $payload['notes']='<script>alert(1)</script>';
+        $sale = $this->service()->checkout($payload,$this->actor(12));
+        $this->actingAs($this->actor(12),'admin');
         $embedded = $this->get($sale['receipt_url'].'?dashboard_print=1')->assertOk();
         $embedded->assertSee('data-dashboard-receipt="takeaway"',false)->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;',false);
         $embedded->assertDontSee("window.addEventListener('load'",false)->assertDontSee('<script>alert(1)</script>',false);
