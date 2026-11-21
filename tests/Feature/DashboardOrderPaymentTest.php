@@ -304,7 +304,8 @@ class DashboardOrderPaymentTest extends TestCase
             $print = view('admin.orders.board_detail', ['card' => $card, 'printing' => true])->render();
             foreach ([$board, $detail, $print] as $html) {
                 $this->assertStringContainsString($label, $html);
-                $this->assertStringContainsString('payment-failed', $html);
+                // The print uses the shared receipt template: it shows the label, not the screen badge class.
+                if ($html !== $print) $this->assertStringContainsString('payment-failed', $html);
                 $this->assertStringContainsString('125.00', $html === $board ? $card['total'] : $html);
             }
             $this->assertStringContainsString('fasakhansta-logo-transparent.png', $print);
@@ -315,6 +316,8 @@ class DashboardOrderPaymentTest extends TestCase
     {
         Schema::drop('payments');
         Schema::drop('go_service_payments');
+        // A real completed order; an unfinished online checkout (no status) stays off the board without payment records.
+        $this->order(['status' => 'completed']);
         $data = (new OrderBoardService())->data(Request::create('/admin/order-review'), $this->actor());
         $this->assertSame(1, $data['counts']['completed']);
         $this->assertFalse($data['groups']['completed'][0]['payment_failed']);

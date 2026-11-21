@@ -30,7 +30,8 @@ class DashboardHomeOverviewTest extends TestCase
         Schema::create('settings',function(Blueprint $t){$t->id();$t->string('name');$t->text('payload');});
         Schema::create('pending_vendors',function(Blueprint $t){$t->id();$t->string('status');$t->string('type')->default('delegate');$t->string('profession_key')->nullable();});
         Schema::create('go_stores',function(Blueprint $t){$t->id();$t->unsignedBigInteger('user_id')->unique();$t->string('name')->default('GO store');});
-        foreach(['2026_10_03_060000_create_order_board_clocks.php'=>'CreateOrderBoardClocks','2026_10_03_140000_create_takeaway_pos.php'=>'CreateTakeawayPos','2026_10_03_150000_create_pos_service_tickets.php'=>'CreatePosServiceTickets','2026_10_04_030000_create_branch_expenses.php'=>'CreateBranchExpenses','2026_10_04_100000_create_branch_shift_closings.php'=>'CreateBranchShiftClosings','2026_10_04_210000_create_branch_inventory_recipes.php'=>'CreateBranchInventoryRecipes','2026_10_04_000001_create_pos_branch_print_jobs.php'=>'CreatePosBranchPrintJobs'] as $file=>$class){require_once database_path('migrations/'.$file);(new $class)->up();}
+        // Dashboard pages now read account roles and permissions.
+        foreach(['2022_08_05_174522_create_permission_tables.php'=>'CreatePermissionTables','2026_10_03_060000_create_order_board_clocks.php'=>'CreateOrderBoardClocks','2026_10_03_140000_create_takeaway_pos.php'=>'CreateTakeawayPos','2026_10_03_150000_create_pos_service_tickets.php'=>'CreatePosServiceTickets','2026_10_04_030000_create_branch_expenses.php'=>'CreateBranchExpenses','2026_10_04_100000_create_branch_shift_closings.php'=>'CreateBranchShiftClosings','2026_10_04_210000_create_branch_inventory_recipes.php'=>'CreateBranchInventoryRecipes','2026_10_04_000001_create_pos_branch_print_jobs.php'=>'CreatePosBranchPrintJobs'] as $file=>$class){require_once database_path('migrations/'.$file);(new $class)->up();}
         foreach([[1,'admin',null],[4,'admin',100],[10,'vendor',null],[11,'vendor',null],[12,'resturant_owner',100],[20,'user',null],[21,'user',null],[22,'user',null],[30,'admin',null]] as [$id,$type,$parent])DB::table('users')->insert(['id'=>$id,'name'=>'Actor '.$id,'account_type'=>$type,'owner_resturant_id'=>$parent,'app_scope'=>$id===22?'go_customer':'fasakhansta','created_at'=>'2026-10-05 09:00:00']);
         DB::table('resturants')->insert([['id'=>100,'user_id'=>10,'name'=>'Main','parent_id'=>null],['id'=>101,'user_id'=>11,'name'=>'Foreign','parent_id'=>null],['id'=>102,'user_id'=>11,'name'=>'Child','parent_id'=>100]]);
         DB::table('resturant_products')->insert([['id'=>1,'resturant_id'=>100],['id'=>2,'resturant_id'=>101]]);
@@ -44,6 +45,7 @@ class DashboardHomeOverviewTest extends TestCase
     }
     private function actor(int $id=1): User {return User::withoutGlobalScopes()->findOrFail($id);}
     private function overview(array $filters=[],int $actor=1): array {return app(HomeOverview::class)->data($filters,$this->actor($actor));}
+    private function drawers(array $filters=[],int $actor=1): array {return app(HomeOverview::class)->drawers($filters,$this->actor($actor));}
     private function denied(callable $fn,int $code): void {try{$fn();$this->fail('Expected denial');}catch(HttpException $e){$this->assertSame($code,$e->getStatusCode());}}
     private function sale(int $id,string $branch='f:100',string $channel='takeaway',int $gross=10000,int $delivery=0,string $day='2026-10-05'): void
     {
@@ -69,7 +71,9 @@ class DashboardHomeOverviewTest extends TestCase
         $factory=\Mockery::mock(\Illuminate\Contracts\Routing\ResponseFactory::class);
         $factory->shouldReceive('view')->once()->with('admin.home_branch',\Mockery::on(fn($data)=>$data['boot']['initial']['branch_home']&&$data['boot']['initial']['today_expenses']['total_cents']===1500))->andReturn(new \Illuminate\Http\Response(''));
         $this->app->instance(\Illuminate\Contracts\Routing\ResponseFactory::class,$factory);
-        app(\App\Http\Controllers\Dashboard\HomeController::class)->index(\Illuminate\Http\Request::create('/admin'),app(HomeOverview::class));
+        // The home page reads the request's session, as every dashboard request has one.
+        $request=\Illuminate\Http\Request::create('/admin');$request->setLaravelSession(app('session')->driver());
+        app(\App\Http\Controllers\Dashboard\HomeController::class)->index($request,app(HomeOverview::class));
         $template=file_get_contents(resource_path('views/admin/home_branch.blade.php'));
         $this->assertSame(2,substr_count($template,'data-bh-panel='));
         $this->assertStringNotContainsString('data-ho-kpis',$template);$this->assertStringNotContainsString('data-ho-chart',$template);
@@ -123,7 +127,7 @@ class DashboardHomeOverviewTest extends TestCase
     }
     public function test_central_admin_gets_owner_layout_data_without_sales_or_drawer_even_with_order_management_grants(): void
     {
-        require_once database_path('migrations/2022_08_05_174522_create_permission_tables.php'); (new \CreatePermissionTables)->up();
+        // The permission tables are already part of setUp.
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         foreach(['order-list','order-create','order-edit'] as $name){
             $permission=\Spatie\Permission\Models\Permission::create(['name'=>$name,'guard_name'=>'admin']);
@@ -158,9 +162,9 @@ class DashboardHomeOverviewTest extends TestCase
     public function test_only_primary_owner_sees_live_cash_using_the_existing_shift_formula(): void
     {
         $this->sale(1);DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>123450]);DB::table('takeaway_tills')->insert(['branch'=>'f:101','balance_cents'=>76500,'tax_bps'=>0,'revision'=>1]);
-        $owner=$this->overview();$this->assertTrue($owner['owner_drawer']['ready']);$this->assertSame(199950,$owner['owner_drawer']['total_cents']);$this->assertSame(123450,$owner['owner_drawer']['branches']['f:100']['expected_cents']);
-        $this->assertSame(123450,$this->overview(['branch'=>'f:100'])['owner_drawer']['total_cents']);
-        foreach([4,10,12] as $id){$this->assertArrayNotHasKey('owner_platform',$this->overview([],$id));$this->assertArrayNotHasKey('owner_drawer',$this->overview([],$id));$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$this->actor($id)),403);}
+        $this->assertFalse($this->overview()['owner_drawer']['loaded']);$owner=$this->drawers();$this->assertTrue($owner['owner_drawer']['ready']);$this->assertSame(199950,$owner['owner_drawer']['total_cents']);$this->assertSame(123450,$owner['owner_drawer']['branches']['f:100']['expected_cents']);
+        $this->assertSame(123450,$this->drawers(['branch'=>'f:100'])['owner_drawer']['total_cents']);
+        foreach([4,10,12] as $id){$this->assertArrayNotHasKey('owner_platform',$this->overview([],$id));$this->assertArrayNotHasKey('owner_drawer',$this->overview([],$id));$this->denied(fn()=>$this->drawers([],$id),403);$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$this->actor($id)),403);}
         $spoof=$this->actor(10);$spoof->id=10;$spoof->account_type='admin';$this->denied(fn()=>app(BranchShiftClosing::class)->ownerBalances(['f:100'],$spoof),403);
     }
     public function test_owner_drawer_excludes_cash_delivery_and_includes_vendor_collected_app_cash(): void
@@ -171,7 +175,7 @@ class DashboardHomeOverviewTest extends TestCase
         DB::table('takeaway_tills')->where('id',$till->id)->update(['balance_cents'=>148450]);
         DB::table('takeaway_till_entries')->insert(['till_id'=>$till->id,'branch'=>'f:100','actor_id'=>10,'order_id'=>1,'request_key'=>'00000000-0000-4000-8000-000000000001','request_hash'=>str_repeat('a',64),'kind'=>'sale','amount_cents'=>25000,'balance_cents'=>148450,'business_date'=>'2026-10-05','note'=>'Cash sale','created_at'=>'2026-10-05 05:00:00']);
         $this->order(1,['transfer_price_by'=>'vendor']);
-        $r=$this->overview(['branch'=>'f:100']);
+        $r=$this->drawers(['branch'=>'f:100']); // drawer cash loads from its own background request
         $this->assertSame(154950,$r['owner_drawer']['total_cents']);
         $this->assertSame(148450,(int)DB::table('takeaway_tills')->value('balance_cents'));
     }
@@ -244,7 +248,7 @@ class DashboardHomeOverviewTest extends TestCase
     {
         DB::table('resturants')->where('id',100)->update(['name'=>'المنصورة ستور']);DB::table('resturants')->where('id',101)->update(['name'=>'فرع شبرا']);DB::table('resturants')->where('id',102)->update(['name'=>'Cairo Store']);
         $this->sale(90,'f:100','takeaway',50000);$this->sale(91,'f:101','takeaway',10000);$this->sale(92,'f:102','takeaway',30000);
-        $r=$this->overview();$this->assertSame(['f:101','f:100','f:102'],array_column($r['branches'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_column($r['branch_cards'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_keys($r['owner_drawer']['branches']));
+        $r=$this->overview();$this->assertSame(['f:101','f:100','f:102'],array_column($r['branches'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_column($r['branch_cards'],'value'));$this->assertSame(['f:101','f:100','f:102'],array_keys($this->drawers()['owner_drawer']['branches']));
         $this->assertSame(['f:101','f:100','f:102'],array_column($r['ranking'],'branch'));$this->assertSame([3,1,2],array_column($r['ranking'],'sales_rank'));$this->assertSame('store',$r['branch_cards'][1]['display_group']);
         $this->assertSame(['f:100'],array_column($this->overview(['branch'=>'f:100'])['branch_cards'],'value'));
     }
