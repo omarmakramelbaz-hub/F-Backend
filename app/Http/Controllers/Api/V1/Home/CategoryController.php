@@ -86,6 +86,12 @@ class CategoryController extends Controller
 
     public function getResturant(Request $request, Resturant $resturant)
     {
+        // Load the menu's details together rather than item by item (see ResturantProduct::RESOURCE_RELATIONS).
+        $relations = ResturantProduct::RESOURCE_RELATIONS;
+        $resturant->load([
+            'resturant_products' => fn ($query) => $query->with($relations),
+            'resturant_highest_rated_products' => fn ($query) => $query->with($relations),
+        ]);
         $resturantData = ResturantSingleResource::make($resturant);
         return $this->successResponse($resturantData, __('api.get single resturant'));
 

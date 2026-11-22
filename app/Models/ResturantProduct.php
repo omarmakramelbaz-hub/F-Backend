@@ -14,6 +14,12 @@ class ResturantProduct extends Model implements HasMedia
     use InteractsWithMedia;
     use HasFactory;
 
+    /**
+     * What ResturantProductResource reads from each item. A menu loads them together (a few queries for the whole
+     * menu) instead of the resource reading them item by item (about ten queries per item).
+     */
+    public const RESOURCE_RELATIONS = ['vendor', 'resturant', 'category', 'product.product_features', 'product.subcategory', 'media'];
+
     protected $guarded = [];
     //  protected static function booted()
     // {

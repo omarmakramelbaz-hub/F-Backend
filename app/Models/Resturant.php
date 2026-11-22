@@ -138,7 +138,7 @@ class Resturant extends Model implements HasMedia
                     });
                 })
                 // ->where('status','show')
-                ->with('product')
+                ->with(ResturantProduct::RESOURCE_RELATIONS)
                 ->get()
                 ->groupBy('category_id');
     }
