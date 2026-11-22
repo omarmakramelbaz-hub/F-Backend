@@ -1,3 +1,16 @@
+# BEGIN Faskhansta canonical domain v3
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# Every page of the old domain (and www.faskhansta.com) opens the same path on faskhansta.com, e.g. the printed
+# QR cards' /links.html. Payment callbacks, /api and certificate checks stay where they are.
+RewriteCond %{HTTP_HOST} ^(?:(?:www\.)?fasakhaninja\.com|www\.faskhansta\.com)(?::[0-9]+)?$ [NC]
+RewriteCond %{REQUEST_METHOD} ^(?:GET|HEAD)$
+RewriteCond %{REQUEST_URI} !^/(?:public/)?(?:api|\.well-known|payment|payments|paymob|pament|wallet|auth|oauth|pusher)(?:/|$) [NC]
+RewriteCond %{QUERY_STRING} !(^|&)(signature|hmac|code|state)= [NC]
+RewriteCond %{THE_REQUEST} \s(/[^\s?]*)(?:\?[^\s]*)?\s
+RewriteRule ^ https://faskhansta.com%1 [R=301,L,NE]
+</IfModule>
+# END Faskhansta canonical domain v3
     <IfModule mod_rewrite.c>
        RewriteEngine On
        RewriteRule ^(.*)$ public/$1 [L]
