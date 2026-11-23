@@ -54,7 +54,8 @@ class CouponWheelResource extends JsonResource
             'eligible_orders_count' => $eligibleOrdersCount,
             'eligible_orders_total' => $eligibleOrdersTotal,
             'resturants' => CouponWheelResturant::collection(
-                $this->resturants()->with('resturant.resturant_areas')->get()->filter(function ($item) use ($latitude, $longitude) {
+                // Each branch's details load together, and its products are counted, not all loaded.
+                $this->resturants()->with(['resturant' => fn ($q) => $q->with(['resturant_areas', 'user', 'area', 'media'])->withCount('resturant_products')])->get()->filter(function ($item) use ($latitude, $longitude) {
                     if (empty($latitude) || empty($longitude)) {
                         return true;
                     }
