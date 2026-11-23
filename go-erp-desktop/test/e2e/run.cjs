@@ -972,7 +972,7 @@ async function shiftOffline() {
   await page.evaluate(() => window.goerp.call('tickets:save', { channel: 'takeaway', label: 'طلب معلق', data: { items: [] } }));
   await page.getByRole('button', { name: 'إعدادات البرنامج' }).click();
   const part = (code) => inDashboard(app, `(() => { const root = document.querySelector('[data-go-erp-device-part]'); if (!root) return false; ${code} })()`);
-  await until(async () => await part("return /فرع المعادي، فرع مدينة نصر/.test(root.innerText)").catch(() => false), 'the program page shows this device', 30000);
+  await until(async () => await part("return /فرع المعادي، فرع مدينة نصر/.test(root.innerText)").catch(() => false), 'the program page shows this device', 90000); // the dashboard signs in again at most once a minute
   const revoked = () => serverRows('SELECT COUNT(*) AS c FROM desktop_sync_devices WHERE revoked_at IS NOT NULL')[0].c;
   const before = revoked();
   await part("root.querySelector('[data-go-erp-device-reset]').click(); const input = root.querySelector('[data-go-erp-device-password]');"
