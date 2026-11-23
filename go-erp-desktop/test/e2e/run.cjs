@@ -143,6 +143,12 @@ async function signIn(page, login, password, landing = '.pos') {
   await page.locator(landing).waitFor({ state: landing === '.status-bar' ? 'attached' : 'visible' });
 }
 
+/** The sync badge: under the dashboard it sits in the status bar, hidden until F9 shows it. */
+async function clickSync(page) {
+  if (await page.locator(".status-bar").count() && !(await page.locator(".status-bar").isVisible())) await showBar(page);
+  await page.locator(".sync-badge").first().click();
+}
+
 /** F9 shows the status bar under the dashboard (hidden while it has nothing to say). */
 async function showBar(page) {
   if (await page.locator('.status-bar').isVisible()) return;
@@ -194,7 +200,7 @@ async function cashierDevice() {
 
   // The internet goes down: a dine-in sale is kept on the device. 0.5 x 650 + 2 x 95.50 = 516.00.
   await stopServer();
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await page.locator('.sync-badge.offline').first().waitFor({ timeout: 30000 });
   await page.getByRole('button', { name: 'الكاشير' }).click();
   await page.getByRole('button', { name: 'صالة' }).click();
@@ -235,7 +241,7 @@ async function cashierDevice() {
 
   // The internet is back: the waiting sale is sent without being duplicated.
   await startServer();
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await until(() => orderCount() === 2, 'offline sale reaches the dashboard', 40000);
   await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_expenses')[0].c === 1, 'offline expense reaches the dashboard', 40000);
   await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_employee_days')[0].c === 1, 'offline punch reaches the dashboard', 40000);
@@ -334,7 +340,7 @@ async function cashierDevice() {
   await page.locator('.line', { hasText: 'بلطي مقلي' }).waitFor();
 
   await startServer();
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM desktop_sync_operations WHERE status = 'applied'")[0].c === 8, 'every operation reaches the dashboard', 40000);
   assert.deepEqual({ ...serverRows('SELECT total_cents, actor_id FROM takeaway_orders ORDER BY id DESC LIMIT 1')[0] }, { total_cents: 25000, actor_id: 1 });
   const deliveryContext = JSON.parse(serverRows('SELECT context_snapshot FROM takeaway_orders ORDER BY id DESC LIMIT 1')[0].context_snapshot);
@@ -523,7 +529,7 @@ async function dashboardOffline() {
   })()`));
   assert.equal(seated.total, '80.00');
   // The device keeps the branch's tables and open orders (refreshed by every sync).
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await until(() => {
     const copy = deviceRows(userData, 'goerp.sqlite', "SELECT service FROM branches WHERE value = 'f:100'")[0];
     return !!(copy && copy.service && JSON.parse(copy.service).tickets.some((ticket) => ticket.id === seated.id));
@@ -553,7 +559,7 @@ async function dashboardOffline() {
   // The internet goes down.
   const offlineAt = new Date().toISOString();
   await stopServer();
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await page.locator('.status-offline').waitFor({ timeout: 40000 });
   await inDashboard(app, 'location.reload()');
   await until(async () => (await products()) >= 3, 'the cashier page opens from the device without the internet', 30000);
@@ -878,7 +884,7 @@ async function dashboardOffline() {
   // The internet is back: the sale reaches the dashboard under the page's own operation number.
   const before = orderCount();
   await startServer();
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await until(() => serverRows(`SELECT COUNT(*) AS c FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].c === 1, 'the offline sale reaches the dashboard', 40000);
   assert.equal(serverRows(`SELECT total_cents FROM takeaway_orders WHERE request_key = '${sale[0].id}'`)[0].total_cents, 20500);
   await until(() => serverRows("SELECT COUNT(*) AS c FROM branch_expenses WHERE amount_cents = 8825 AND category = 'electricity'")[0].c === 1,
@@ -943,7 +949,7 @@ async function shiftOffline() {
   // Online: the shift page once (saved on the device), and a sync that brings the branch's shift.
   await inDashboard(app, "location.href = '/admin/branch-shifts?branch=f:100'");
   await until(async () => await shifts(period).catch(() => false), 'the shift page opens online', 30000);
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await until(() => deviceRows(userData, 'goerp.sqlite', "SELECT COUNT(*) AS c FROM branches WHERE value = 'f:100' AND json_extract(service, '$.shift.previous_closing_id') = 0")[0].c === 1,
     'the device has the branch\'s shift', 30000);
   // The internet goes down: the same page, closed from the device.
@@ -969,7 +975,7 @@ async function shiftOffline() {
   await signIn(page, 'u1@example.test', 'root-pass', '.status-bar');
   // Back online: the closing reaches the dashboard once, dated when it was closed here.
   await startServer();
-  await page.locator('.sync-badge').first().click();
+  await clickSync(page);
   await until(() => serverRows('SELECT COUNT(*) AS c FROM branch_shift_closings')[0].c === 1, 'the shift closed offline reaches the dashboard', 40000);
   const closing = serverRows('SELECT id, counted_cents, closed_at FROM branch_shift_closings')[0];
   const recorded = deviceRows(userData, 'goerp.sqlite', "SELECT created_at FROM journal WHERE kind = 'shift'")[0].created_at;
