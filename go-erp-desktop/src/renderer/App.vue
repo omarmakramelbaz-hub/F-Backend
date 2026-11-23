@@ -8,7 +8,7 @@
     <span class="status-brand">GO ERP</span>
     <SyncBadge :status="sync" @sync-now="syncNow" />
     <span v-if="offlineMode" class="status-offline" role="status" title="النت مقطوع: صفحات الداشبورد المحفوظة والكاشير شغالين من الجهاز، وكل حاجة هتتزامن لما النت يرجع."><i class="fas fa-plug" aria-hidden="true"></i> بدون إنترنت — شغال من الجهاز</span>
-    <span class="status-who">{{ currentBranch.name }} · {{ info.session.user.name }}</span>
+    <span class="status-who">{{ statusScope }} · {{ info.session.user.name }}</span>
     <span v-if="statusNotice" class="status-notice" role="status" :title="statusNotice">{{ statusNotice }}</span>
     <span v-if="printProblem" class="status-error" role="alert" :title="printProblem">{{ printProblem }}</span>
     <span class="spacer"></span>
@@ -33,7 +33,7 @@
     <header class="app-settings-head">
       <h1><i class="fas fa-cog" aria-hidden="true"></i> إعدادات البرنامج</h1>
       <span class="spacer"></span>
-      <span class="status-who">{{ currentBranch.name }} · {{ info.session.user.name }}</span>
+      <span class="status-who">{{ statusScope }} · {{ info.session.user.name }}</span>
       <button type="button" class="primary" @click="backToDashboard"><i class="fas fa-arrow-right" aria-hidden="true"></i> رجوع للداشبورد</button>
     </header>
     <main class="content">
@@ -125,6 +125,8 @@ const tabs = computed(() => [
 ]);
 const userBranches = computed(() => info.value.branches.filter((branch) => info.value.session.user.branches.includes(branch.value)));
 const currentBranch = computed(() => info.value.branches.find((branch) => branch.value === info.value.session.branch) || { name: '' });
+// Accounts with every branch on this device (the owner, the office) see all of them on the dashboard, not one branch.
+const statusScope = computed(() => (userBranches.value.length > 1 && userBranches.value.length === info.value.branches.length ? 'جميع الفروع' : currentBranch.value.name));
 
 async function refresh() {
   info.value = await call('app:info');
