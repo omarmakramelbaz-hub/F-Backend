@@ -13,6 +13,7 @@ class BranchCustomers
     {
         $key=PosServicePhone::key($phone);
         $key=preg_replace('/^(?:\+20|0020|20)(1[0125][0-9]*)$/','0$1',$key);
+        $key=preg_replace('/^(?:\+20|0020)([2-9][0-9]{7,8})$/D','0$1',$key); // landlines too, as CustomerDirectory::phoneKey does
         if(preg_match('/^1[0125][0-9]{8}$/D',$key))$key='0'.$key;
         return $key;
     }
