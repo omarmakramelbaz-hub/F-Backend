@@ -194,6 +194,7 @@ jobs:
           exit "$code"
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true # a full artifact quota must not stop a release
         with:
           name: end-to-end-screenshots
           path: ${{ runner.temp }}/goerp-e2e/shots
@@ -224,6 +225,7 @@ jobs:
       - name: List the installer files
         run: ls -la release
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: GO-ERP-Desktop-Setup
           path: |
