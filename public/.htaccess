@@ -21,9 +21,10 @@
 </IfModule>
 
 # Uploaded photos (products, restaurants, ads): a new upload gets a new file name, so browsers
+# (the URI is matched unanchored: the root .htaccess rewrites it to /public/storage/...)
 # and the app keep them for 30 days instead of asking the server again on every view.
 <IfModule mod_headers.c>
-<If "%{REQUEST_URI} =~ m#^/storage/.+\.(?:jpe?g|png|webp|gif)$#i">
+<If "%{REQUEST_URI} =~ m#/storage/.+\.(?:jpe?g|png|webp|gif)$#i">
 Header set Cache-Control "public, max-age=2592000"
 </If>
 </IfModule>
