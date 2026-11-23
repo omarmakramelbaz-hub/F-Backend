@@ -11,6 +11,7 @@
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
+ini_set('memory_limit', '1536M'); // a 6000px phone photo needs ~150 MB once decoded
 if (!function_exists('imagecreatefromjpeg')) { fwrite(STDERR, "PHP GD is required\n"); exit(1); }
 
 $args = array_slice($argv, 1);
