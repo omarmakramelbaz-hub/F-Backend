@@ -35,3 +35,8 @@ Header set Cache-Control "public, max-age=2592000"
 Header set Cache-Control "no-cache"
 </Files>
 </IfModule>
+
+# API and pages travel compressed (JSON shrinks ~5x), which matters most on mobile data.
+<IfModule mod_deflate.c>
+AddOutputFilterByType DEFLATE application/json text/html text/plain text/css application/javascript text/javascript image/svg+xml
+</IfModule>
