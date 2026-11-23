@@ -20,9 +20,23 @@
     RewriteRule ^ index.php [L]
 </IfModule>
 
+# Uploaded photos (products, restaurants, ads): a new upload gets a new file name, so browsers
+# (the URI is matched unanchored: the root .htaccess rewrites it to /public/storage/...)
+# and the app keep them for 30 days instead of asking the server again on every view.
+<IfModule mod_headers.c>
+<If "%{REQUEST_URI} =~ m#/storage/.+\.(?:jpe?g|png|webp|gif)$#i">
+Header set Cache-Control "public, max-age=2592000"
+</If>
+</IfModule>
+
 # GO ERP app page: phones revalidate it on every open, so changes show at once.
 <IfModule mod_headers.c>
 <Files "f-admin-webview.html">
 Header set Cache-Control "no-cache"
 </Files>
+</IfModule>
+
+# API and pages travel compressed (JSON shrinks ~5x), which matters most on mobile data.
+<IfModule mod_deflate.c>
+AddOutputFilterByType DEFLATE application/json text/html text/plain text/css application/javascript text/javascript image/svg+xml
 </IfModule>
