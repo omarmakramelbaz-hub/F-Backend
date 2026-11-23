@@ -79,7 +79,7 @@ class HomeController extends Controller {
             $data = $request->except("_token", "_method");
             $user_store = Contact::create($data);
             if($user_store){
-                $admins = User::get();
+                $admins = User::where("account_type","!=","user")->get(); // staff only: customers never hold dashboard permissions
 
                 foreach ($admins as $key => $value) {   
                     if($value->hasPermissionTo('contact-list')){
@@ -105,7 +105,7 @@ class HomeController extends Controller {
             $data = $request->except("_token", "_method");
             $user_store = Subscriber::create($data);
             if($user_store){
-                $admins = User::get();
+                $admins = User::where("account_type","!=","user")->get(); // staff only: customers never hold dashboard permissions
 
                 foreach ($admins as $key => $value) {   
                     if($value->hasPermissionTo('contact-list')){

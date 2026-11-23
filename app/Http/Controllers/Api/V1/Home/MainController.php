@@ -48,7 +48,7 @@ class MainController extends Controller {
   public function storeContact(ContactRequest $request) {
         
     $contact = Contact::create($request->validated());
-        $admins = User::get();
+        $admins = User::where("account_type","!=","user")->get(); // staff only: customers never hold dashboard permissions
                 foreach ($admins as $key => $value) {   
                     if($value->hasPermissionTo('contact-list')){
                         Notification::send($value,new \App\Notifications\NotifyContactUsNotification($contact));
