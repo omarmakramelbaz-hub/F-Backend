@@ -13,9 +13,17 @@ class CartResource extends JsonResource
      * @param  \Illuminate\Http\Request  $request
      * @return array|\Illuminate\Contracts\Support\Arrayable|\JsonSerializable
      */
+    /** Read once per request, not once per cart line. */
+    private static ?string $minOrderPrice = null;
+    private static array $featureNames = [];
+
     public function toArray($request)
     {
-                $min_order_price = DB::table('settings')->where('name','min_order_price')->first()->payload;
+        $min_order_price = self::$minOrderPrice ??= DB::table('settings')->where('name','min_order_price')->first()->payload;
+        $featureId = $this->product_feature;
+        if ($featureId !== null && !array_key_exists($featureId, self::$featureNames)) {
+            self::$featureNames[$featureId] = \App\Models\ProductFeature::where('id',$featureId)->first()?->name;
+        }
 
         return [
             'id'                    => $this->id,
@@ -32,7 +40,7 @@ class CartResource extends JsonResource
             'price'                 => (double) $this->price,
             'qty'                   => (float)$this->qty,
             'product_feature'       => $this->product_feature,
-            'product_feature_name'  => \App\Models\ProductFeature::where('id',$this->product_feature)->first()?->name,
+            'product_feature_name'  => $featureId === null ? null : self::$featureNames[$featureId],
             'product_clean'         => $this->product_clean,
             'created_at'            => $this->created_at,
             'min_order_price'       => (int) preg_replace('#[^\w()/.%\-&]#',"",$min_order_price),

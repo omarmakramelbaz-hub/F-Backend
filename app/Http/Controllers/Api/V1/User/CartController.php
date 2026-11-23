@@ -250,7 +250,11 @@ class CartController extends Controller
 
     public function index(GeneralSettings $setting)
     {
-        $cartItems = Cart::isNotOrder()->get();
+        // Everything the cart lines show is loaded up front, not a few queries per line.
+        $cartItems = Cart::isNotOrder()->with([
+            'resturant',
+            'resturant_product' => fn ($query) => $query->with(ResturantProduct::RESOURCE_RELATIONS),
+        ])->get();
         if ($cartItems->count() > 0) {
             $resturant = $cartItems->first()->resturant;
             $total = 0;
@@ -268,6 +272,7 @@ class CartController extends Controller
                 ->where('resturant_id', $cartItems->first()->resturant_id)
                 ->orderByRaw("FIELD(highest_rated, 'yes', 'no')") // 'yes' first, then 'no'
                 ->take(3) // Limit the number of recommendations
+                ->with(ResturantProduct::RESOURCE_RELATIONS)
                 ->get();
             return $this->successResponse(['resturant' => $resturant, 'total_cart' => $total, 'user_tax' => $user_tax, 'carts' => $carts, 'recommendedProducts' => ResturantProductResource::collection($recommendedProducts)], __('api.success data'));
         }
