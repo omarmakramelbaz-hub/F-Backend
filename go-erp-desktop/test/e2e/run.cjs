@@ -139,7 +139,15 @@ async function signIn(page, login, password, landing = '.pos') {
   await page.getByLabel('البريد الإلكتروني أو رقم الموبايل').fill(login);
   await page.getByLabel('كلمة المرور', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'تسجيل دخول' }).click();
-  await page.locator(landing).waitFor();
+  // The status bar under the dashboard is attached but hidden while there is nothing to say.
+  await page.locator(landing).waitFor({ state: landing === '.status-bar' ? 'attached' : 'visible' });
+}
+
+/** F9 shows the status bar under the dashboard (hidden while it has nothing to say). */
+async function showBar(page) {
+  if (await page.locator('.status-bar').isVisible()) return;
+  await page.keyboard.press('F9');
+  await page.locator('.status-bar').waitFor();
 }
 
 async function pay(page) {
@@ -403,6 +411,7 @@ async function ownerDevice() {
     throw error;
   }
   // «إعدادات البرنامج» opens the dashboard's own «برنامج الكمبيوتر» page, where the app adds this device's part.
+  await showBar(page);
   await page.getByRole('button', { name: 'إعدادات البرنامج' }).click();
   await until(async () => /الفروع المتجهزة للعمل بدون إنترنت\s*فرع المعادي، فرع مدينة نصر/.test(String(await inDashboard(app,
     "(document.querySelector('[data-go-erp-device-part]') || {}).innerText || ''").catch(() => ''))), 'the program page shows this device', 30000);
@@ -467,7 +476,7 @@ async function ownerDevice() {
   await shot(page, '12-owner-two-branches');
   // And back to the dashboard from the side menu.
   await page.getByRole('button', { name: 'الداشبورد' }).click();
-  await page.locator('.status-bar').waitFor();
+  await page.locator('.status-bar').waitFor({ state: 'attached' });
   await app.close();
 }
 
@@ -970,6 +979,7 @@ async function shiftOffline() {
   // The dashboard's «برنامج الكمبيوتر» page: this device's part, an order left open on it cancelled there, and the
   // device set up again with another account from the page itself.
   await page.evaluate(() => window.goerp.call('tickets:save', { channel: 'takeaway', label: 'طلب معلق', data: { items: [] } }));
+  await showBar(page);
   await page.getByRole('button', { name: 'إعدادات البرنامج' }).click();
   const part = (code) => inDashboard(app, `(() => { const root = document.querySelector('[data-go-erp-device-part]'); if (!root) return false; ${code} })()`);
   await until(async () => await part("return /فرع المعادي، فرع مدينة نصر/.test(root.innerText)").catch(() => false), 'the program page shows this device', 90000); // the dashboard signs in again at most once a minute
