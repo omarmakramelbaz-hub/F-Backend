@@ -6,9 +6,31 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class ResturantProductResource extends JsonResource
 {
+    /**
+     * Loads everything a list of menu items shows in a few queries instead of
+     * several per item: their relations, images and the signed-in customer's
+     * latest cart line for each (what toArray would otherwise ask per item).
+     */
+    public static function preload($products): void
+    {
+        $products = new \Illuminate\Database\Eloquent\Collection(collect($products)->values()->all());
+        if ($products->isEmpty()) return;
+        $products->loadMissing(['vendor', 'resturant', 'category', 'media',
+            'product.product_features', 'product.subcategory', 'product.category']);
+        $user = auth('api')->user();
+        $latest = $user === null ? collect() : $user->carts()
+            ->whereIn('resturant_product_id', $products->pluck('id')->unique()->all())
+            ->latest()->orderByDesc('id')->get()->unique('resturant_product_id')->keyBy('resturant_product_id');
+        foreach ($products as $product) {
+            $product->setRelation('latestUserCart', $latest->get($product->id));
+        }
+    }
+
     public function toArray($request)
-    {  
-        $cart=auth('api')->user()?->carts()->where('resturant_product_id',$this->id)->latest()->first();
+    {
+        $cart = $this->resource->relationLoaded('latestUserCart')
+            ? $this->resource->getRelation('latestUserCart')
+            : auth('api')->user()?->carts()->where('resturant_product_id',$this->id)->latest()->first();
         return [
             'id'                        => $this->id,
             'vendor_id'                 => (int) $this->added_by,
