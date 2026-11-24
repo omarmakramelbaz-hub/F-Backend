@@ -28,7 +28,9 @@
         options = options || {};
         var dead = false, listening = false, recognition = null, micTimer = 0, speechTimer = 0, voiceWaitTimer = 0, voiceWaitHandler = null, utterance = null, epoch = 0, speechEpoch = 0;
         var actor = document.body.dataset.dashboardActor || '', remove = [], observer = null, lastReadCard = null;
-        var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        // Electron has no speech service behind webkitSpeechRecognition, and GO ERP Desktop blocks the microphone: type there.
+        var desktop = /\bElectron\//.test(navigator.userAgent);
+        var Recognition = desktop ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);
         var uid = 'go-command-panel-' + (++serial), panel = node('section', '', 'hud-command-panel');
         var toggle = node('button', 'تحدّث مع GO', 'hud-command-toggle'); toggle.type = 'button';
         toggle.setAttribute('aria-controls', uid); toggle.setAttribute('aria-expanded', 'false'); toggle.dataset.hudCommandsToggle = '';
@@ -40,9 +42,13 @@
         var stopButton = node('button', 'إيقاف الصوت', 'hud-command-stop'); stopButton.type = 'button';
         var controls = node('div', '', 'hud-command-controls'); controls.append(mic, stopButton);
         var status = node('p', 'أقدر أفتح الأقسام وأقرأ الملخص الظاهر لحسابك.', 'hud-command-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.dataset.hudCommandStatus = '';
-        var note = node('p', Recognition ? 'قد يستخدم المتصفح خدمة إنترنت للتعرّف على كلامك. الميكروفون يعمل عند الضغط فقط.' : 'التعرّف الصوتي غير متاح في المتصفح ده. افتح GO من متصفح يدعم الأوامر الصوتية.', 'hud-command-note');
+        var note = node('p', Recognition ? 'قد يستخدم المتصفح خدمة إنترنت للتعرّف على كلامك. الميكروفون يعمل عند الضغط فقط.' : (desktop ? 'في البرنامج اكتب الأمر واضغط Enter. الأوامر بالصوت شغالة لما تفتح GO من Chrome.' : 'التعرّف الصوتي غير متاح في المتصفح ده. اكتب الأمر، أو افتح GO من Chrome.'), 'hud-command-note');
         if (!Recognition) { mic.disabled = true; mic.textContent = 'الصوت غير متاح'; }
-        panel.append(header, hint, controls, status, note); root.append(toggle, panel);
+        var form = node('form', '', 'hud-command-form'), input = node('input', '', 'hud-command-input'), send = node('button', 'نفّذ', 'hud-command-send');
+        input.type = 'text'; input.maxLength = 160; input.autocomplete = 'off'; input.placeholder = 'اكتب الأمر هنا…'; input.setAttribute('aria-label', 'اكتب أمر لـ GO'); send.type = 'submit';
+        form.append(input, send);
+        if (!Recognition) mic.hidden = true;
+        panel.append(header, hint, controls, form, status, note); root.append(toggle, panel);
         function on(target, event, fn) { target.addEventListener(event, fn); remove.push(function () { target.removeEventListener(event, fn); }); }
         function active() { return !dead && root.isConnected && !root.hidden && !document.hidden && (document.body.dataset.dashboardActor || '') === actor; }
         function robotSpeaking(value) { if (typeof options.setSpeaking === 'function') options.setSpeaking(value); }
@@ -203,9 +209,10 @@
         }
         function setOpen(open) {
             if (dead) return; panel.hidden = !open; toggle.setAttribute('aria-expanded', String(open));
-            if (open) (mic.disabled ? close : mic).focus({preventScroll: true}); else { stop(); if (active()) toggle.focus({preventScroll: true}); }
+            if (open) (Recognition ? mic : input).focus({preventScroll: true}); else { stop(); if (active()) toggle.focus({preventScroll: true}); }
         }
         on(toggle, 'click', function () { var open = panel.hidden; setOpen(open); if (open) startMic(); }); on(close, 'click', function () { setOpen(false); });
+        on(form, 'submit', function (event) { event.preventDefault(); var text = input.value.trim(); if (!text) return; input.value = ''; execute(text); });
         on(mic, 'click', startMic); on(stopButton, 'click', function () { duck(); stop(); reply('تم إيقاف الصوت والميكروفون.', false); });
         on(panel, 'keydown', function (event) { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); } });
         on(document, 'visibilitychange', function () { if (document.hidden) stop(); });
