@@ -44,7 +44,11 @@ class OpenCloseResturantCommand extends Command
 
         $currentTime = now()->format('H:i'); 
 
-        $open_resturants = Resturant::where('open_at', $currentTime)->get();
+        // A branch hidden from the customer app stays hidden until someone changes its status by hand:
+        // the daily opening and closing times never touch it.
+        $notHidden = fn ($q) => $q->whereNull('status')->orWhere('status', '!=', 'hide');
+
+        $open_resturants = Resturant::where('open_at', $currentTime)->where($notHidden)->get();
         foreach($open_resturants as $value){
             // The branch opens at its time whatever happens to the reminder emails below.
             $value->update(['status' => 'opened']);
@@ -66,7 +70,7 @@ class OpenCloseResturantCommand extends Command
         }
         // $open_resturants->update(['status' => 'opened']);
             
-        $closed_resturants = Resturant::where('close_at',$currentTime)->update(['status' => 'closed']);
+        $closed_resturants = Resturant::where('close_at',$currentTime)->where($notHidden)->update(['status' => 'closed']);
 
             
     }
