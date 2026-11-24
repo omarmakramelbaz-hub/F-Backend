@@ -940,6 +940,30 @@
     listen(window, 'beforeunload', function (event) { if (locked() || dirty) { event.preventDefault(); event.returnValue = ''; } });
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) window.DashboardSPA.onBeforeLeave(mayLeave);
     else listen(document, 'click', function (event) { var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
+    // GO voice (go-voice.js) fills this cart from spoken commands; the employee still saves the order by hand.
+    var voiceOrders = window.GoVoice && window.GoVoice.registerOrders({
+        title: 'دليفري',
+        key: function () { return branch; },
+        blocked: function () { return disposed ? 'الصفحة اتقفلت.' : !branch ? 'اختار الفرع الأول.' : step !== 'products' ? 'كمّل رقم العميل وادخل على اختيار الأصناف الأول.' : locked() || !modal.hidden ? 'الشاشة مشغولة دلوقتي، استنى ثانية.' : !canWrite() ? 'حسابك مش مسموح له يسجّل طلبات هنا.' : closedEditing() ? 'الطلب ده مقفول للتعديل.' : ''; },
+        catalog: async function () {
+            var all = [], page = 1, last = 1;
+            do {
+                var result = await read(await get(urls.catalog, { branch: branch, page: page, per_page: 100 }), text('load_error'));
+                all = all.concat(result.items || result.products || []); last = Number(result.pagination && result.pagination.last_page || 1); page++;
+            } while (page <= last && page <= 5);
+            return all;
+        },
+        choices: productChoices,
+        add: function (product, option, amount) {
+            var previous = quantityInput.value; quantityInput.value = amount;
+            var before = JSON.stringify(cart.map(function (line) { return line.quantity; })) + cart.length;
+            addProduct(product, option && (option.id || Array.isArray(product.preparation_options)) ? option : null);
+            if (JSON.stringify(cart.map(function (line) { return line.quantity; })) + cart.length === before) quantityInput.value = previous;
+        },
+        lines: function () { return cart.map(function (line) { return { name: line.product.name, option: line.option && line.option.label || '', quantity: line.quantity, mode: line.mode }; }); },
+        remove: function (index) { var control = root.querySelector('[data-phone-remove="' + index + '"]'); if (control) control.click(); }
+    });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { if (voiceOrders) voiceOrders.unregister(); });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true;clearInterval(preparationTimer);clearTimeout(ratingTimer);if(ratingController)ratingController.abort();if(addressSearch)addressSearch.destroy();locationGeneration++;contextGeneration++;clearTimeout(locationPreviewTimer);if(locationPicker)locationPicker.destroy();clearTimeout(customerTimer); clearTimeout(receiverTimer); catalogGeneration++; quoteGeneration++; orderGeneration++; customerGeneration++; modalGeneration++; editGeneration++; Object.keys(controllers).forEach(abort); clearTimeout(searchTimer); clearTimeout(quoteTimer); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.phoneOrders'); });
     root.querySelector('.ph-customer').appendChild(root.querySelector('[data-phone-next-details]'));
     if(window.ResizeObserver){
