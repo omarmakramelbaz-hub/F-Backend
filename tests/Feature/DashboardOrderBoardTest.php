@@ -167,6 +167,12 @@ class DashboardOrderBoardTest extends TestCase
             $t->string('name');
             $t->text('payload');
         });
+        // Printing an invoice records it here (App\Services\Dashboard\OrderBoardPrinting).
+        Schema::create('branch_operation_commands', function (Blueprint $t) {
+            $t->id(); $t->string('branch', 30); $t->unsignedBigInteger('actor_id'); $t->uuid('request_key');
+            $t->string('request_hash', 64); $t->string('kind', 40); $t->longText('result'); $t->timestamps();
+            $t->unique(['branch', 'actor_id', 'request_key'], 'branch_operation_request_unique');
+        });
 
         foreach ([
             [1, 'Administrative account', 'admin', 'fasakhansta', null, 0],
@@ -424,7 +430,8 @@ class DashboardOrderBoardTest extends TestCase
             $t->decimal('user_tax', 14, 2)->default(0);
         });
         DB::table('settings')->insert(['group'=>'general', 'name'=>'service_fees', 'payload'=>'2']);
-        $this->legacy(1, ['delivery_price'=>'43.12', 'user_tax'=>'150.00']);
+        // App orders print once they are with the courier (OrderBoardPrinting::COURIER_STAGE_SOURCES).
+        $this->legacy(1, ['delivery_price'=>'43.12', 'user_tax'=>'150.00', 'status'=>'shipped']);
         DB::table('resturant_products')->insert([
             'id'=>501, 'resturant_id'=>100, 'product_name'=>'برميل فسيخ نبروه ال 4 سمكات كيلو', 'price'=>'17500.00',
         ]);
@@ -487,7 +494,8 @@ class DashboardOrderBoardTest extends TestCase
 
     public function test_http_details_and_print_endpoints_use_scoped_checkout_data(): void
     {
-        $this->store();
+        // App orders print once they are with the courier (OrderBoardPrinting::COURIER_STAGE_SOURCES).
+        $this->store(200, ['status' => 'out_for_delivery']);
         $this->store(201, ['store_id' => 31]);
         $this->actingAs($this->actor(30), 'admin');
         $this->get(route('order-board.details', ['store', 200]))->assertOk()
@@ -615,9 +623,10 @@ class DashboardOrderBoardTest extends TestCase
         $this->assertPreparationCommittedWithoutWalletChanges();
         $this->assertStringNotContainsString($sensitive, $response->getContent());
         $this->assertStringNotContainsString('535', $response->getContent());
-        Log::shouldHaveReceived('warning')->once()->with('Order status email unavailable', [
+        // Other warnings may be logged too (e.g. the live activity broadcast); this one is logged exactly once.
+        Log::shouldHaveReceived('warning')->with('Order status email unavailable', [
             'order_id' => 1, 'exception' => \Swift_TransportException::class,
-        ]);
+        ])->once();
     }
 
     public function test_smtp_authentication_failure_does_not_rollback_details_prepare_html_action(): void
