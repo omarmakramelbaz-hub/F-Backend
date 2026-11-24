@@ -18,8 +18,8 @@ class ResturantResource extends JsonResource
             'status'                    => $this->effective_status,
             'avg_rate'                  => (double) $this->avg_rate,
             'address'                   => $this->address,
-            'logo'                      => $this->getFirstMediaUrl('logo','thumb'),
-            'bg_image'                  => $this->getFirstMediaUrl('bg_image','thumb'),
+            'logo'                      => \App\Support\MediaThumb::first($this->resource,'logo'),
+            'bg_image'                  => \App\Support\MediaThumb::first($this->resource,'bg_image'),
             'delivery_time'             => $this->delivery_time,
 
             'resturant_phone'             => $this->resturant_phone,

@@ -24,7 +24,7 @@ class ResturantCartResource extends JsonResource
             'resturant_id'      => (int) $this->resturant_id,
             'resturant_name'    => $this->resturant?->name,
             'resturant_status'    => $this->resturant?->effective_status,
-            'resturant_logo'    => $this->resturant?->getFirstMediaUrl('logo','thumb'),
+            'resturant_logo'    => \App\Support\MediaThumb::first($this->resturant,'logo'),
             'resturant_zone'              =>$zone && $zone->type=='kilo'?true:false,
             'zone_day'          =>$zone?->expected_delivery,
             'zone_type'          =>$zone?->type,

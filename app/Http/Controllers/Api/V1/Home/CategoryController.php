@@ -76,8 +76,13 @@ class CategoryController extends Controller
         $product = ResturantProduct::find($id);
         // The staff-only items (\App\Support\PosOnlyProducts) are not offered in the app.
         if ($product && !\App\Support\PosOnlyProducts::is($product)) {
-            $productData = new ResturantProductResource($product);
-            return $this->successResponse($productData, __('api.get single Product'));
+            // The product's own page shows its photo full width: the full photo, not the lists' small copy.
+            ResturantProductResource::$fullImage = true;
+            try {
+                return $this->successResponse(new ResturantProductResource($product), __('api.get single Product'));
+            } finally {
+                ResturantProductResource::$fullImage = false;
+            }
         }
         return $this->errorResponse(__('api.this product not found'));
     }

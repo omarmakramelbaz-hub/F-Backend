@@ -6,6 +6,12 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class ResturantProductResource extends JsonResource
 {
+    /**
+     * Lists, menus and the cart show the photo small (App\Support\MediaThumb); one product's own page shows it full
+     * width, so its endpoint turns this on while it answers.
+     */
+    public static bool $fullImage = false;
+
     public function toArray($request)
     {  
         $cart=auth('api')->user()?->carts()->where('resturant_product_id',$this->id)->latest()->first();
@@ -38,7 +44,7 @@ class ResturantProductResource extends JsonResource
             // «مسابقة السحب» by this product: the badge and its prize (null when none runs in this branch).
             'draw'                      =>\App\Services\Draws\ProductDraw::badge($this->product_name),
 
-            'product_image'             => $this->getFirstMediaUrl('product_image','thumb'),
+            'product_image'             => static::$fullImage ? $this->getFirstMediaUrl('product_image','thumb') : \App\Support\MediaThumb::first($this->resource,'product_image'),
             'created_at'                => $this->created_at,
             
             'latest_order_id'=>$cart?->order_id === null ? null : (int) $cart->order_id,
