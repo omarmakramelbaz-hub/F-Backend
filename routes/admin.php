@@ -28,16 +28,6 @@ use App\Http\Controllers\Dashboard\WalletController;
 use App\Http\Controllers\Dashboard\CouponWheelController;
 use App\Http\Traits\FcmFirebase;
 
-Route::get('/clear-cache-admin', function() {
-    $exitCode0 = Artisan::call('route:clear');
-    $exitCode1 = Artisan::call('view:clear');
-    // $exitCode3 = Artisan::call('config:cache');
-    $exitCode4 = Artisan::call('cache:clear');
-    $exitCode2 = Artisan::call('config:clear');
-    $exitCode = Artisan::call('clear-compiled');
-    
-    return 'done';
-});
 Route::get('test-notification' , [FcmNotificationsController::class , 'testNotification']);
 Route::get('/change-language/{lang}', [HomeController::class,'changeLang'])->middleware('lang');
 Route::get('/generate-qr/{ticket}', [HomeController::class, 'generatQr'])->name('generate-qr');

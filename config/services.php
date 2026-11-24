@@ -7,6 +7,11 @@ return [
         'sender' => env('SMS_MISR_SENDER'),
     ],
 
+    // Read through config() so it still works once the configuration is cached.
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
