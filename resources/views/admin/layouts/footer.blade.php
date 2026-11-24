@@ -178,6 +178,7 @@ $(document).ready(function() {
 {{-- Shared robot renderer and sidebar belong to the persistent shell, outside page scopes. --}}
 <script src="{{ asset('dashboard/js/go-hologram.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram.js')) }}"></script>
 <script src="{{ asset('dashboard/js/go-hologram-shell.js') }}?v={{ filemtime(public_path('dashboard/js/go-hologram-shell.js')) }}"></script>
+<script src="{{ asset('dashboard/js/go-voice.js') }}?v={{ filemtime(public_path('dashboard/js/go-voice.js')) }}"></script>
 {{-- The persistent shell's version. A window opened before a shell update reloads once on its next page. --}}
 <script>window.GoDashboardShell = '{{ \App\Support\DashboardShell::version() }}';</script>
 <div data-dashboard-page-scripts hidden>

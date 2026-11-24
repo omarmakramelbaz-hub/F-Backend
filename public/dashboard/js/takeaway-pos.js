@@ -857,6 +857,30 @@
     if (window.DashboardSPA && window.DashboardSPA.onBeforeLeave) { window.DashboardSPA.onBeforeLeave(mayLeave); navigationGuardRegistered = true; }
     if (window.DashboardSPA && window.DashboardSPA.onIdle) window.DashboardSPA.onIdle(refreshIdle);
     listen(document, 'click', function (event) { if (navigationGuardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && link.href.indexOf('#') < 0 && !mayLeave()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
+    // GO voice (go-voice.js) fills this cart from spoken commands; the employee still checks out by hand.
+    var voiceOrders = window.GoVoice && window.GoVoice.registerOrders({
+        title: 'تيك أواي',
+        key: function () { return branch; },
+        blocked: function () { return disposed ? 'الصفحة اتقفلت.' : !branch ? 'اختار الفرع الأول.' : isLocked() ? 'الشاشة مشغولة دلوقتي، استنى ثانية.' : !permissions.can_checkout ? 'حسابك مش مسموح له يعمل فواتير هنا.' : ''; },
+        catalog: async function () {
+            var all = [], page = 1, last = 1;
+            do {
+                var result = await read(await fetch(endpoint(urls.catalog, { branch: branch, page: page, per_page: 100, catalog_only: 1 }), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }), 'load_error');
+                all = all.concat(result.items || result.products || []); last = Number(result.pagination && result.pagination.last_page || 1); page++;
+            } while (page <= last && page <= 5);
+            return all;
+        },
+        choices: productChoices,
+        add: function (product, option, amount) {
+            var previous = quantityInput; quantityInput = amount;
+            var before = JSON.stringify(cart.map(function (line) { return line.quantity; })) + cart.length;
+            addProduct(product, option && (option.id || Array.isArray(product.preparation_options)) ? option : null);
+            if (JSON.stringify(cart.map(function (line) { return line.quantity; })) + cart.length === before) { quantityInput = previous; showQuantity(); }
+        },
+        lines: function () { return cart.map(function (line) { return { name: line.product.name, option: line.option && line.option.label || '', quantity: line.quantity, mode: line.mode }; }); },
+        remove: function (index) { var button = root.querySelector('[data-pos-remove="' + index + '"]'); if (button) button.click(); }
+    });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { if (voiceOrders) voiceOrders.unregister(); });
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { disposed = true; catalogGeneration++; quoteGeneration++; cancelCatalogNavigation(); clearTimeout(quoteTimer); if (catalogController) catalogController.abort(); if (quoteController) quoteController.abort(); if (modalController) modalController.abort(); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.takeawayPos'); });
     var restored = restoreInvoices(); storageReady = true; showConsent();
     if (restored) switchInvoice(activeInvoice, true);

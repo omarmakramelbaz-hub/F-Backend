@@ -1,0 +1,25 @@
+/* GO voice assistant (go-voice.js): a floating button and panel on every dashboard page. */
+.go-voice-toggle{position:fixed;left:18px;bottom:18px;z-index:1060;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:10px 16px;border:1px solid #228399;border-radius:999px;background:#031b28f2;color:#d9faff;font:inherit;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px #0006}
+.go-voice-toggle:hover,.go-voice-toggle[aria-expanded=true]{border-color:#46dff4;background:#073447}
+.go-voice-toggle i{color:#46dff4}
+.go-voice-toggle[hidden]{display:none}
+.go-voice-panel{position:fixed;left:18px;bottom:72px;z-index:1061;width:min(360px,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;padding:14px;border:1px solid #228399;border-radius:16px;background:#031b28f7;color:#d9faff;font-size:13px;line-height:1.7;box-shadow:0 18px 48px #0008}
+.go-voice-panel[hidden]{display:none}
+.go-voice-panel.listening{border-color:#ff9b22}
+.go-voice-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.go-voice-head strong{font-size:15px}
+.go-voice-mode{flex:1;color:#7fd8e6;font-size:12px}
+.go-voice-close{width:32px;height:32px;border:1px solid #1d5f70;border-radius:10px;background:transparent;color:#d9faff;font-size:18px;line-height:1;cursor:pointer}
+.go-voice-controls,.go-voice-form{display:flex;gap:8px;margin-bottom:8px}
+.go-voice-mic,.go-voice-stop,.go-voice-send{min-height:40px;padding:8px 14px;border:1px solid #1d5f70;border-radius:10px;background:#062a38;color:#d9faff;font:inherit;font-weight:700;cursor:pointer}
+.go-voice-mic{flex:1;background:#073945;color:#a9f5ff}
+.go-voice-mic[aria-pressed=true]{border-color:#ff9b22;color:#ffc675;background:#4c2a14}
+.go-voice-mic:disabled{opacity:.55;cursor:not-allowed}
+.go-voice-input{flex:1;min-width:0;min-height:40px;padding:8px 12px;border:1px solid #1d5f70;border-radius:10px;background:#021219;color:#e8fcff;font:inherit}
+.go-voice-input::placeholder{color:#6fa9b6}
+.go-voice-toggle:focus-visible,.go-voice-close:focus-visible,.go-voice-mic:focus-visible,.go-voice-stop:focus-visible,.go-voice-send:focus-visible,.go-voice-input:focus-visible{outline:2px solid #ff9b22;outline-offset:2px}
+.go-voice-heard{margin:0 0 4px;color:#7fd8e6;font-size:12px}
+.go-voice-heard:empty{display:none}
+.go-voice-status{margin:0 0 8px;font-size:14px;color:#f2fdff}
+.go-voice-note{margin:0;color:#6fa9b6;font-size:11px}
+@media print{.go-voice-toggle,.go-voice-panel{display:none!important}}

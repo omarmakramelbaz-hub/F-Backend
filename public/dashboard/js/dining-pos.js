@@ -416,6 +416,30 @@
     listen(document, 'click', function (event) { if (guardRegistered || disposed) return; var link = event.target.closest('a[href]'); if (link && !root.contains(link) && link.target !== '_blank' && !mayDiscard()) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
     function cleanup() { disposed = true; catalogGeneration++; tableGeneration++; ticketGeneration++; quoteGeneration++; modalGeneration++; clearTimeout(quoteTimer); cancelCatalogNavigation(); clearInterval(tableTimer); [catalogController, tableController, ticketController, quoteController, modalController].forEach(function (controller) { if (controller) controller.abort(); }); listeners.forEach(function (remove) { remove(); }); if (window.jQuery) window.jQuery(branchSelect).off('.diningPos'); }
     if (window.DashboardSPA) window.DashboardSPA.onCleanup(cleanup);
+    // GO voice (go-voice.js) fills this table's cart from spoken commands; the employee still sends it by hand.
+    var voiceOrders = window.GoVoice && window.GoVoice.registerOrders({
+        title: 'الصالة',
+        key: function () { return branch; },
+        blocked: function () { return disposed ? 'الصفحة اتقفلت.' : !branch ? 'اختار الفرع الأول.' : !selectedTable ? 'اختار الترابيزة الأول.' : locked() || !modal.hidden ? 'الشاشة مشغولة دلوقتي، استنى ثانية.' : !permissions.can_operate ? 'حسابك مش مسموح له يسجّل طلبات صالة.' : !!ticket && (!openTicket() || billLocked()) ? 'الفاتورة دي مقفولة للتعديل.' : ''; },
+        catalog: async function () {
+            var all = [], page = 1, last = 1;
+            do {
+                var result = await read(await get(urls.catalog, { branch: branch, page: page, per_page: 100, catalog_only: 1 }), 'load_error');
+                all = all.concat(result.items || result.products || []); last = Number(result.pagination && result.pagination.last_page || 1); page++;
+            } while (page <= last && page <= 5);
+            return all;
+        },
+        choices: productChoices,
+        add: function (product, option, amount) {
+            var previous = quantityInput; quantityInput = amount;
+            var before = JSON.stringify(cart.map(function (line) { return line.quantity; })) + cart.length;
+            addProduct(product, option && (option.id || Array.isArray(product.preparation_options)) ? option : null);
+            if (JSON.stringify(cart.map(function (line) { return line.quantity; })) + cart.length === before) { quantityInput = previous; showQuantity(); }
+        },
+        lines: function () { return cart.map(function (line) { return { name: line.product.name, option: line.option && line.option.label || '', quantity: line.quantity, mode: line.mode }; }); },
+        remove: function (index) { var button = root.querySelector('[data-dining-remove="' + index + '"]'); if (button) button.click(); }
+    });
+    if (window.DashboardSPA) window.DashboardSPA.onCleanup(function () { if (voiceOrders) voiceOrders.unregister(); });
     customerConsent.checked = false; updateRegister(boot.register); renderPayments(); renderLines(); renderTotals(); showQuantity(); lock(); if (branch) loadCatalog(1); if (branch || boot.can_view_all_branches) loadTables(); tableTimer = setInterval(function () { if (!document.hidden && !disposed) { loadTables(); renderDetail(); } }, 15000);
 }());
 

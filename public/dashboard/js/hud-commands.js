@@ -152,6 +152,8 @@
             // A redundant question suffix is accepted, but compound requests are not.
             term = term.replace(/ (?:كام|كم|قد ايه)$/, '');
             var matches = targetCards(term);
+            // Sections without a home card open from the sidebar menu (go-voice.js).
+            if (intent === 'open' && matches.length !== 1 && window.GoVoice && window.GoVoice.openSection(term)) { reply('تمام، بفتح القسم.', false); return true; }
             if (matches.length !== 1) { reply(matches.length ? 'الأمر يحتمل أكثر من قسم. قول اسم القسم كما يظهر على الكارت.' : 'القسم أو الأمر ده مش متاح ضمن الأقسام الظاهرة لحسابك.'); return false; }
             var card = matches[0], label = clean((card.querySelector('.hud-card-label') || {}).textContent);
             if (intent === 'open') {

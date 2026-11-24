@@ -70,6 +70,7 @@
         <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v={{ filemtime(public_path('dashboard/branding/dashboard-brand.css')) }}">
         <link rel="stylesheet" href="{{ asset('dashboard/css/dashboard-fit.css') }}?v={{ filemtime(public_path('dashboard/css/dashboard-fit.css')) }}">
         <link rel="stylesheet" href="{{ asset('dashboard/css/go-hologram.css') }}?v={{ filemtime(public_path('dashboard/css/go-hologram.css')) }}">
+        <link rel="stylesheet" href="{{ asset('dashboard/css/go-voice.css') }}?v={{ filemtime(public_path('dashboard/css/go-voice.css')) }}">
         
     <style>
     .cke_notification_warning{
