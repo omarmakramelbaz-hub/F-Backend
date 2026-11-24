@@ -8,7 +8,9 @@
     'use strict';
     if (window.GoVoice) return;
 
-    var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    // Electron has no speech service behind webkitSpeechRecognition, and GO ERP Desktop blocks the microphone: type there.
+    var desktop = /\bElectron\//.test(navigator.userAgent);
+    var Recognition = desktop ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);
     var NUMBERS = {'واحد': 1, 'واحده': 1, 'اتنين': 2, 'اثنين': 2, 'اتنان': 2, 'اثنان': 2, 'تلاته': 3, 'ثلاثه': 3, 'تلات': 3, 'ثلاث': 3,
         'اربعه': 4, 'اربع': 4, 'خمسه': 5, 'خمس': 5, 'سته': 6, 'ست': 6, 'سبعه': 7, 'سبع': 7, 'تمانيه': 8, 'ثمانيه': 8, 'تمن': 8,
         'تسعه': 9, 'تسع': 9, 'عشره': 10, 'عشر': 10};
@@ -297,12 +299,12 @@
         var head = el('div', 'go-voice-head'), title = el('strong', '', 'GO معاك'), mode = el('span', 'go-voice-mode'), close = el('button', 'go-voice-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'إغلاق');
         head.append(title, mode, close);
         var heard = el('p', 'go-voice-heard'), status = el('p', 'go-voice-status', ''); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-        var mic = el('button', 'go-voice-mic', Recognition ? 'اتكلم' : 'الصوت غير متاح'); mic.type = 'button'; mic.setAttribute('aria-pressed', 'false'); mic.disabled = !Recognition;
+        var mic = el('button', 'go-voice-mic', Recognition ? 'اتكلم' : 'الصوت غير متاح'); mic.type = 'button'; mic.setAttribute('aria-pressed', 'false'); mic.disabled = !Recognition; mic.hidden = !Recognition;
         var stop = el('button', 'go-voice-stop', 'اسكت'); stop.type = 'button';
         var form = el('form', 'go-voice-form'), input = el('input', 'go-voice-input'); input.type = 'text'; input.maxLength = 160; input.placeholder = 'أو اكتب الأمر هنا…'; input.setAttribute('aria-label', 'اكتب أمر لـ GO'); input.autocomplete = 'off';
         var send = el('button', 'go-voice-send', 'نفّذ'); send.type = 'submit'; form.append(input, send);
         var controls = el('div', 'go-voice-controls'); controls.append(mic, stop);
-        var note = el('p', 'go-voice-note', Recognition ? 'الميكروفون بيشتغل لما تضغط بس، والمتصفح ممكن يستخدم خدمة إنترنت علشان يفهم الكلام.' : 'المتصفح ده مش بيدعم التعرّف على الصوت، بس تقدر تكتب الأمر.');
+        var note = el('p', 'go-voice-note', Recognition ? 'الميكروفون بيشتغل لما تضغط بس، والمتصفح ممكن يستخدم خدمة إنترنت علشان يفهم الكلام.' : (desktop ? 'في البرنامج اكتب الأمر واضغط Enter. الأوامر بالصوت شغالة لما تفتح الداشبورد من Chrome.' : 'المتصفح ده مش بيدعم التعرّف على الصوت، بس تقدر تكتب الأمر.'));
         panel.append(head, controls, form, heard, status, note);
         document.body.append(toggle, panel);
         ui = {toggle: toggle, panel: panel, mode: mode, heard: heard, status: status, mic: mic, input: input, note: note};

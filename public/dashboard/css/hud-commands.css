@@ -13,6 +13,11 @@
 #go-hud .hud-command-controls .hud-command-mic[aria-pressed=true]{border-color:#ff9b22;color:#ffc675;background:#4c2a14}
 #go-hud .hud-command-controls .hud-command-stop{background:transparent;color:#9ebac5;border-color:#294a59}
 #go-hud .hud-command-controls button:disabled{cursor:default;opacity:.55}
+#go-hud .hud-command-form{display:flex;gap:8px;margin-top:10px}
+#go-hud .hud-command-input{flex:1;min-width:0;min-height:44px;padding:10px 12px;border:1px solid #297d8e;border-radius:10px;background:#021219;color:#e8fcff;font:inherit;font-size:13px}
+#go-hud .hud-command-input::placeholder{color:#6fa9b6}
+#go-hud .hud-command-send{min-height:44px;padding:10px 16px;border:1px solid #297d8e;border-radius:10px;background:#073945;color:#a9f5ff;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+#go-hud .hud-command-input:focus-visible,#go-hud .hud-command-send:focus-visible{outline:2px solid #ff9b22;outline-offset:3px}
 #go-hud .hud-command-status{min-height:36px;margin:14px 0 0;color:#dfedf3;font-size:12px;line-height:1.85;overflow-wrap:anywhere}
 #go-hud .hud-command-note{margin:10px 0 0;color:#7896a4;font-size:10px;line-height:1.7}
 @media(max-width:700px){#go-hud .hud-command-toggle{position:relative;left:auto;bottom:auto;display:block;margin:12px auto 0;min-height:44px}#go-hud .hud-command-panel{position:relative;left:auto;bottom:auto;width:100%;max-width:400px;margin:12px auto 0;padding:14px}}
