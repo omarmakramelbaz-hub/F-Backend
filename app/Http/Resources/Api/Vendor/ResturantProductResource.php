@@ -44,7 +44,7 @@ class ResturantProductResource extends JsonResource
             // «مسابقة السحب» by this product: the badge and its prize (null when none runs in this branch).
             'draw'                      =>\App\Services\Draws\ProductDraw::badge($this->product_name),
 
-            'product_image'             => static::$fullImage ? $this->getFirstMediaUrl('product_image','thumb') : \App\Support\MediaThumb::first($this->resource,'product_image'),
+            'product_image'             => static::$fullImage ? \App\Support\MediaThumb::detail($this->resource,'product_image') : \App\Support\MediaThumb::first($this->resource,'product_image'),
             'created_at'                => $this->created_at,
             
             'latest_order_id'=>$cart?->order_id === null ? null : (int) $cart->order_id,
