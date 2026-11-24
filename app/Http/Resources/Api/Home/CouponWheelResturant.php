@@ -17,8 +17,8 @@ class CouponWheelResturant extends JsonResource
             'status'                    =>  ($this->resturant->resturant_products_count ?? $this->resturant->resturant_products()->count())==0?'closed':$this->resturant->status,
             'avg_rate'                  => (double) $this->resturant->avg_rate,
             'address'                   => $this->resturant->address,
-            'logo'                      => $this->resturant->getFirstMediaUrl('logo','thumb'),
-            'bg_image'                  => $this->resturant->getFirstMediaUrl('bg_image','thumb'),
+            'logo'                      => \App\Support\MediaThumb::first($this->resturant,'logo'),
+            'bg_image'                  => \App\Support\MediaThumb::first($this->resturant,'bg_image'),
             'delivery_time'             => $this->resturant->delivery_time,
 
             'resturant_phone'             => $this->resturant->resturant_phone,

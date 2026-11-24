@@ -31,7 +31,7 @@ class OrderResource extends JsonResource
             'resturant_name'            => $this->resturant?->name,
             'resturant_areas'           => $this->resturant?->resturant_areas,
             'resturant_phone'           =>$this->resturant?->resturant_phone,
-            'resturant_logo'            => $this->resturant?->getFirstMediaUrl('logo','thumb'),
+            'resturant_logo'            => \App\Support\MediaThumb::first($this->resturant,'logo'),
             'resturant_location'        => $this->resturant?->address,
             'resturant_lat'             => $this->resturant?->lat,
             'resturant_lng'             => $this->resturant?->lng,

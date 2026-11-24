@@ -622,7 +622,7 @@ class CartController extends Controller
                 'order_no' => $order->order_no,
                 'resturant_id' => (int) $order->resturant_id,
                 'resturant_name' => $order->resturant?->name,
-                'resturant_logo' => $order->resturant?->getFirstMediaUrl('logo', 'thumb'),
+                'resturant_logo' => \App\Support\MediaThumb::first($order->resturant,'logo'),
                 'status' => $order->status,
                 'type' => $order->type,
                 'schedule_date' => $order->schedule_date,

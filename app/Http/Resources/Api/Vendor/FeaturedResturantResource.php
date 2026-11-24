@@ -15,7 +15,7 @@ class FeaturedResturantResource extends JsonResource
             'name'                      => $this->name,
             'is_featured'               => $this->is_featured,
             'status'                    => $this->resturant_products->count()==0?'closed':$this->effective_status,
-            'logo'                      => $this->getFirstMediaUrl('logo','thumb'),
+            'logo'                      => \App\Support\MediaThumb::first($this->resource,'logo'),
             
         ];
     }
