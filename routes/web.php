@@ -30,21 +30,8 @@ Route::get('test-test', function () {
     // return 1;
 });
 
-Route::get('/clear-cache', function() {
-    $exitCode0 = Artisan::call('route:clear');
-    $exitCode1 = Artisan::call('view:clear');
-    $exitCode3 = Artisan::call('config:cache');
-    $exitCode4 = Artisan::call('cache:clear');
-    $exitCode2 = Artisan::call('config:clear');
-    $exitCode = Artisan::call('clear-compiled');
-
-    return 'done';
-});
-
-Route::get('/clear-compiled', function() {
-    $exitCode = Artisan::call('clear-compiled');
-    // return what you want
-});
+// The configuration and routes are cached on the server (php artisan optimize after each deploy); no public
+// address clears them.
 
 Route::get('/linkstoragse', function () {
 /*    $targetFolder = base_path().'/storage/app/public';

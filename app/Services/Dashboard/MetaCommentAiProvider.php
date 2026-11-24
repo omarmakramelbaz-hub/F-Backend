@@ -142,7 +142,7 @@ PROMPT;
             // Claude settings come only from ANTHROPIC_API_KEY; the old OpenAI fallback is removed.
             $configuration = [
                 'model' => 'claude-haiku-5-5',
-                'api_key' => function_exists('env') ? env('ANTHROPIC_API_KEY') : getenv('ANTHROPIC_API_KEY'),
+                'api_key' => config('services.anthropic.key'),
             ];
         }
         $model = $configuration['model'] ?? null; $key = $configuration['api_key'] ?? null;
