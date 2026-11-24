@@ -94,6 +94,7 @@ class CategoryController extends Controller
     {
         // The branch's menu by section, without the staff-only items (\App\Support\PosOnlyProducts); a section left empty goes too.
         $sections = \App\Support\PosOnlyProducts::withoutInSections($resturant->resturant_category_products());
+        ResturantProductResource::preload($sections->flatten(1));
         $resturantData = ProductCategoryResource::collection($sections);
         return $this->successResponse($resturantData, __('api.get single resturant'));
 
