@@ -192,6 +192,7 @@
         var phrase = parsed.rest.join(' ');
         if (!phrase) { reply('قول اسم الصنف، مثلًا: زود 2 كيلو فسيخ.'); return; }
         if (!(amount > 0) || amount > 999) { reply('الكمية دي مش مقبولة.'); return; }
+        var blocked = orders.blocked(); if (blocked) { reply(blocked); return; }
         reply('بدوّر على ' + phrase + '…', false);
         var mine = orders;
         catalog().then(function (list) {
