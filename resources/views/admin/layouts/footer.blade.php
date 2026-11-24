@@ -76,7 +76,7 @@
 <!-- Summernote -->
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap.bundle.min.js"></script>
 <script>if (window.DashboardSPA) window.DashboardSPA.attachJQuery();</script>
-<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('//cdn.ckeditor.com/4.14.0/standard/ckeditor.js') }}"></script>
+{{-- CKEditor loads only on pages with an editor: admin/partials/ckeditor.blade.php --}}
 <script src="{{ url('/dashboard') }}/dist/js/bootstrap-tagsinput.js"></script>
 
 
@@ -161,29 +161,6 @@ $(document).ready(function() {
 
 </script>
 
-<script type="text/javascript" data-dashboard-page-init>
-
-
-
-
-  
-    $(document).ready(function() {
-    CKEDITOR.replace( 'ckeditor',{
-        height: 1000 // Set height in pixels
-    });
-    
-            // Wait for the CKEditor script to initialize
-        setTimeout(function() {
-            $('.cke_notification_warning').addClass('d-none');
-            // Hide the CKEditor alert message
-            $('div.cke-editor__top').each(function() {
-                if ($(this).text().includes('This CKEditor 4.14.0 version is not secure. Consider upgrading to the latest one, 4.24.0-lts')) {
-                    $(this).hide();
-                }
-            });
-        }, 1000); // Adjust the delay if necessary
-});
-    </script>
 <!-- overlayScrollbars -->
 <script src="{{ url('/dashboard') }}/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
 <script src="{{ asset('dashboard/js/dashboard-session-expiry.js') }}?v={{ filemtime(public_path('dashboard/js/dashboard-session-expiry.js')) }}" data-login="{{ url('admin/login') }}"></script>
@@ -229,12 +206,10 @@ $(document).ready(function() {
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/toastr.js/2.1.0/js/toastr.js') }}"></script>
 <!-- Latest compiled and minified JavaScript -->
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/rateYo/2.3.2/jquery.rateyo.min.js') }}"></script>
-<script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js') }}"></script>
 <script src="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js') }}"></script>
 
 @unless(config('desktop_dashboard.local'))
 <script>
-console.log('fgdfgdfdbfgdfgfgdfgdfgdfgdgdf',firebaseConfig)
 // // Ensure Service Worker is supported
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('{{url("firebase-messaging-sw.js")}}')

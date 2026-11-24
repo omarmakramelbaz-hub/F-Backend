@@ -3,7 +3,7 @@
     <canvas class="hud-background" data-hud-background aria-hidden="true"></canvas>
     <div class="hud-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M3 23v-3a9 9 0 0 1 18 0v3Z"/></svg><strong data-hud-who>{{ auth('admin')->user()->name }}</strong></div>
     <div class="hud-figure" aria-hidden="true">
-        <div class="hud-artwork"><img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.png') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high"></div>
+        <div class="hud-artwork"><img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.webp') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high"></div>
         <canvas data-hud-robot></canvas>
     </div>
     <nav class="hud-columns" aria-label="أقسام الداشبورد"><div class="hud-column hud-column-right" data-hud-right></div><div class="hud-column hud-column-left" data-hud-left></div></nav>
