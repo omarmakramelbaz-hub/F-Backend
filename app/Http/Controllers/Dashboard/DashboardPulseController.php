@@ -53,6 +53,8 @@ class DashboardPulseController extends Controller
         $sub = Request::create($path, 'GET', $query, $this->rawCookies($outer), [], $server);
         $sub->headers->set('Accept', is_string($check['a'] ?? null) && $check['a'] !== '' ? substr($check['a'], 0, 200) : '*/*');
         if (($check['x'] ?? null) === '1') $sub->headers->set('X-Requested-With', 'XMLHttpRequest');
+        // A page's periodic check, not a person's action: the home numbers may answer it from a few seconds ago.
+        $sub->attributes->set('go_pulse', true);
         try {
             $route = app('router')->getRoutes()->match($sub);
         } catch (HttpExceptionInterface $error) {
