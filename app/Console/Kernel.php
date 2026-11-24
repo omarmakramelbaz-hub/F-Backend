@@ -53,12 +53,9 @@ class Kernel extends ConsoleKernel
         $schedule->command('go-stores:prune-signup-uploads')->hourly()->withoutOverlapping();
         $schedule->command('branch-stock:notify-minimum')->everyFiveMinutes()->withoutOverlapping(20);
 
-        // One-time approved menu release through the existing application scheduler (applied in September 2026).
-        // The migration receipt prevents overwriting later dashboard price edits. Checked daily now: every minute it
-        // only started PHP to find it done, on a server whose processor is limited.
-        $schedule->command('menu:align-stores-to-zayed-20260923')->daily()->withoutOverlapping();
-        $schedule->command('delivery:apply-store-rates-20260923')->daily()->withoutOverlapping();
-        $schedule->command('menu:apply-approved-20260923')->daily()->withoutOverlapping();
+        // The September 2026 menu, store-price and delivery-rate releases are applied on the live server, so their
+        // one-time commands (menu:align-stores-to-zayed-20260923, delivery:apply-store-rates-20260923,
+        // menu:apply-approved-20260923) are no longer scheduled. They stay available to run by hand.
         // Check every minute so the home screen can switch to the winner state
         // as soon as an ended competition becomes eligible for the draw.
         $schedule->command('notify:coupon')->everyFiveMinutes(); // expired coupons by date
