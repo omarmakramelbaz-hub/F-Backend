@@ -14,7 +14,7 @@ class MediaThumbController extends Controller
     public function show(string $box, string $disk, string $id, string $name)
     {
         $box = (int) $box;
-        abort_unless(in_array($box, MediaThumb::BOXES, true) && in_array($disk, MediaThumb::DISKS, true) && ctype_digit($id), 404);
+        abort_unless(in_array($box, MediaThumb::sizes(), true) && in_array($disk, MediaThumb::DISKS, true) && ctype_digit($id), 404);
         $media = Media::query()->where('id', (int) $id)->where('disk', $disk)->first();
         abort_unless($media && pathinfo((string) $media->file_name, PATHINFO_FILENAME) === $name && MediaThumb::url($media, $box) !== null, 404);
         $source = $media->getPath();
