@@ -115,7 +115,8 @@
     }
     function drainSyncedRefresh(){
         if(disposed||!syncQueued||document.hidden||editing||controller||drawerController)return;
-        syncQueued=false;refresh(false,true);
+        // After the program sent its sales: read the numbers fresh, not the pulse's shared copy from a few seconds ago.
+        syncQueued=false;refresh(false);
     }
     async function loadDrawers(){
         if(disposed||drawerController||controller||editing||!data.owner_drawer||!boot.drawer_url)return;

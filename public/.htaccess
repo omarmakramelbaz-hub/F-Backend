@@ -29,6 +29,13 @@ Header set Cache-Control "public, max-age=2592000"
 </If>
 </IfModule>
 
+# Dashboard and GO ERP pictures and fonts (logos, the robot, ~1.5 MB each): kept 7 days instead of asked for again.
+<IfModule mod_headers.c>
+<If "%{REQUEST_URI} =~ m#/dashboard/.+\.(?:jpe?g|png|webp|gif|svg|woff2?|ttf)$#i">
+Header set Cache-Control "public, max-age=604800"
+</If>
+</IfModule>
+
 # GO ERP app page: phones revalidate it on every open, so changes show at once.
 <IfModule mod_headers.c>
 <Files "f-admin-webview.html">

@@ -202,39 +202,69 @@ class DesktopSyncState
      * device shows them and collects their payment while offline, with the delivery board's finished column (its first
      * page, as the board shows it). Sent only when they changed since the device's copy.
      */
-    public function service(object $device, array $known, array $users): array
+    public function service(object $device, array $known, array $users, bool $fresh = false): array
     {
         if (! Schema::hasTable('pos_service_tickets') || ! app(PosServiceTable::class)->ready()) return [];
         $result = [];
         foreach ($device->branch_values as $value) {
             $actor = $this->catalogActor($device, $value, $users);
             if (! $actor) continue;
-            try {
-                $tables = app(PosServiceTable::class)->listing($value, $actor);
-                $rows = [];
-                foreach (['dine', 'phone'] as $channel) {
-                    array_push($rows, ...DB::table('pos_service_tickets')->where('branch', $value)->where('channel', $channel)
-                        ->where('payment_status', 'unpaid')->where('status', '!=', 'cancelled')->orderByDesc('id')->limit(self::OPEN_PER_CHANNEL)->get()->all());
-                }
-                usort($rows, fn ($a, $b) => (int) $a->id <=> (int) $b->id);
-                $tickets = app(PosServiceTicket::class)->presentMany($rows, true, $actor);
-                // The delivery board shows the company each order was handed to (PhoneDeliveryBoard::listing).
-                $handoffs = Schema::hasTable('phone_delivery_dispatches') ? DB::table('phone_delivery_dispatches')
-                    ->whereIn('ticket_id', array_column($rows, 'id'))->orderBy('id')->pluck('company_snapshot', 'ticket_id')->all() : [];
-                foreach ($rows as $index => $row) {
-                    if ($row->channel === 'phone') $tickets[$index]['courier_company'] = json_decode($handoffs[$row->id] ?? $row->delivery_company_snapshot ?? 'null', true);
-                }
-            } catch (HttpException $error) {
-                continue;
-            }
-            $payload = ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets, 'delivery' => $this->delivery($value, $actor),
-                'shift' => $this->shift($value), 'finished' => $this->finished($value, $actor)];
-            $hash = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            $entry = ['value' => $value, 'hash' => $hash];
-            if (($known[$value] ?? null) !== $hash) $entry += $payload;
+            $built = $this->shared('service', $value, $actor, self::SERVICE_SECONDS, $fresh, fn () => $this->servicePayload($value, $actor));
+            if (! $built) continue;
+            $entry = ['value' => $value, 'hash' => $built['hash']];
+            if (($known[$value] ?? null) !== $built['hash']) $entry += $built['payload'];
             $result[] = $entry;
         }
         return $result;
+    }
+
+    /**
+     * How long devices of the same account share one branch's tables and open orders (or its shift figures) before
+     * the server builds them again. Several devices sync every 30 seconds each, and owner and office devices carry
+     * every branch: without sharing, each of them rebuilt all 33 branches on every sync. A device that sends
+     * operations always gets them built fresh, after its own operations.
+     */
+    public const SERVICE_SECONDS = 20;
+    public const RUNNING_SECONDS = 45;
+
+    /** One branch's payload and its hash, shared by the devices of the same account for a few seconds. */
+    private function shared(string $part, string $value, User $actor, int $seconds, bool $fresh, \Closure $build): ?array
+    {
+        $key = 'desktop-sync-'.$part.':'.$value.':'.$actor->id;
+        if (! $fresh) {
+            $cached = Cache::get($key);
+            if (is_array($cached) && isset($cached['hash'], $cached['payload'])) return $cached;
+        }
+        $payload = $build();
+        if ($payload === null) return null;
+        $built = ['hash' => hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)), 'payload' => $payload];
+        Cache::put($key, $built, $seconds);
+        return $built;
+    }
+
+    /** One branch's tables, open orders, delivery settings, shift and finished deliveries; null when the actor cannot see them. */
+    private function servicePayload(string $value, User $actor): ?array
+    {
+        try {
+            $tables = app(PosServiceTable::class)->listing($value, $actor);
+            $rows = [];
+            foreach (['dine', 'phone'] as $channel) {
+                array_push($rows, ...DB::table('pos_service_tickets')->where('branch', $value)->where('channel', $channel)
+                    ->where('payment_status', 'unpaid')->where('status', '!=', 'cancelled')->orderByDesc('id')->limit(self::OPEN_PER_CHANNEL)->get()->all());
+            }
+            usort($rows, fn ($a, $b) => (int) $a->id <=> (int) $b->id);
+            $tickets = app(PosServiceTicket::class)->presentMany($rows, true, $actor);
+            // The delivery board shows the company each order was handed to (PhoneDeliveryBoard::listing).
+            $handoffs = Schema::hasTable('phone_delivery_dispatches') ? DB::table('phone_delivery_dispatches')
+                ->whereIn('ticket_id', array_column($rows, 'id'))->orderBy('id')->pluck('company_snapshot', 'ticket_id')->all() : [];
+            foreach ($rows as $index => $row) {
+                if ($row->channel === 'phone') $tickets[$index]['courier_company'] = json_decode($handoffs[$row->id] ?? $row->delivery_company_snapshot ?? 'null', true);
+            }
+        } catch (HttpException $error) {
+            return null;
+        }
+        return ['tables' => $tables['tables'], 'policy' => $tables['policy'], 'tickets' => $tickets, 'delivery' => $this->delivery($value, $actor),
+            'shift' => $this->shift($value), 'finished' => $this->finished($value, $actor)];
     }
 
     /**
@@ -243,7 +273,7 @@ class DesktopSyncState
      * report, with the device's own records added. Sent when the device asks, and only when it changed since its copy.
      * The figures of a closing stay for the closing's report: the shift page itself never shows them.
      */
-    public function running(object $device, array $known, array $users): array
+    public function running(object $device, array $known, array $users, bool $fresh = false): array
     {
         if (! Schema::hasTable('branch_shift_closings')) return [];
         $keys = ['started_at', 'channels', 'sales_total', 'delivery_total', 'expenses_total', 'net_sales', 'opening_cash', 'cash_sales', 'noncash_sales',
@@ -253,17 +283,19 @@ class DesktopSyncState
             if (! str_starts_with($value, 'f:')) continue;
             $actor = $this->catalogActor($device, $value, $users);
             if (! $actor) continue;
-            try {
-                $review = app(BranchShiftClosing::class)->desktopReview(['branch' => $value], $actor);
-            } catch (\Throwable $error) {
-                // The sync goes on without it: the device's report then counts its own records only.
-                if (! $error instanceof HttpException) report($error);
-                continue;
-            }
-            $figures = ['previous_closing_id' => (int) $review['previous_closing_id']] + array_intersect_key($review['snapshot'], array_flip($keys));
-            $hash = hash('sha256', json_encode($figures, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            $entry = ['value' => $value, 'hash' => $hash];
-            if (($known[$value] ?? null) !== $hash) $entry['report'] = $figures;
+            $built = $this->shared('running', $value, $actor, self::RUNNING_SECONDS, $fresh, function () use ($value, $actor, $keys) {
+                try {
+                    $review = app(BranchShiftClosing::class)->desktopReview(['branch' => $value], $actor);
+                } catch (\Throwable $error) {
+                    // The sync goes on without it: the device's report then counts its own records only.
+                    if (! $error instanceof HttpException) report($error);
+                    return null;
+                }
+                return ['previous_closing_id' => (int) $review['previous_closing_id']] + array_intersect_key($review['snapshot'], array_flip($keys));
+            });
+            if (! $built) continue;
+            $entry = ['value' => $value, 'hash' => $built['hash']];
+            if (($known[$value] ?? null) !== $built['hash']) $entry['report'] = $built['payload'];
             $result[] = $entry;
         }
         return $result;
@@ -350,7 +382,8 @@ class DesktopSyncState
     {
         $ids = array_merge([(int) $device->enrolled_by], array_column($users, 'id'));
         foreach (array_unique($ids) as $id) {
-            $user = User::query()->find($id);
+            // One sync asks for the same account once per branch (and again per part): read it once.
+            $user = array_key_exists($id, $this->accounts) ? $this->accounts[$id] : ($this->accounts[$id] = User::query()->find($id));
             if (! $user) continue;
             try {
                 $this->access->branch($branch, $user);
@@ -361,6 +394,9 @@ class DesktopSyncState
         }
         return null;
     }
+
+    /** Accounts read during this request, by id (null: no such account). */
+    private array $accounts = [];
 
     /** Same priced variants and stock recipes the server checks every offline sale against. */
     public function catalog(string $value, User $actor): array

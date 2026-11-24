@@ -86,6 +86,22 @@ class HomeController extends Controller
 
     public function overview(Request $request, \App\Services\Dashboard\HomeOverview $overview)
     {
+        // The page's own periodic refresh (it rides with the dashboard's pulse): every open window and device of the same
+        // account shares one answer for a few seconds. A person's refresh, or a change of filters, always reads fresh.
+        if($request->attributes->get('go_pulse')===true){
+            $user=auth('admin')->user();$query=$request->query();ksort($query);
+            $key='home-overview:'.($user?$user->id:0).':'.sha1(json_encode($query));
+            $cached=\Illuminate\Support\Facades\Cache::get($key);
+            if(is_string($cached))return response($cached,200,['Content-Type'=>'application/json','Cache-Control'=>'private, no-store']);
+            $response=$this->overviewResponse($request,$overview);
+            if($response->isOk())\Illuminate\Support\Facades\Cache::put($key,$response->getContent(),20);
+            return $response;
+        }
+        return $this->overviewResponse($request,$overview);
+    }
+
+    private function overviewResponse(Request $request, \App\Services\Dashboard\HomeOverview $overview)
+    {
         if($request->query('section')==='hologram')return response()->json([
             'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user()),
             'shell'=>\App\Support\DashboardShell::version(),

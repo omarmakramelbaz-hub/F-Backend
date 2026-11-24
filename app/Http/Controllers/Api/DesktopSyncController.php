@@ -57,9 +57,11 @@ class DesktopSyncController extends Controller
             if ($values['want_catalogs'] ?? false) $response['branches'] = $state->catalogs($device, $values['catalog_hashes'] ?? [], $users);
         }
         // Open dine-in and delivery orders and the tables, every sync: what the device collects payment for offline.
-        if ($values['want_service'] ?? false) $response['service'] = $state->service($device, $values['service_hashes'] ?? [], $users ?? []);
+        // A device that just sent operations gets them built after its own operations, never a copy shared from before.
+        $fresh = ! empty($values['operations']);
+        if ($values['want_service'] ?? false) $response['service'] = $state->service($device, $values['service_hashes'] ?? [], $users ?? [], $fresh);
         // The open shift's figures as its closing would report them: a closing made offline prints the same report.
-        if ($values['want_running'] ?? false) $response['running'] = $state->running($device, $values['running_hashes'] ?? [], $users ?? []);
+        if ($values['want_running'] ?? false) $response['running'] = $state->running($device, $values['running_hashes'] ?? [], $users ?? [], $fresh);
         // Saved delivery customers changed since the device's copy: new delivery orders offline find returning customers.
         if ($values['want_customers'] ?? false) $response['customers'] = $state->customers($device, $values['customers_cursor'] ?? null);
         return response()->json($response)->header('Cache-Control', 'no-store');
