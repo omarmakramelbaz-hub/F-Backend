@@ -1,3 +1,4 @@
+@include('admin.partials.ckeditor')
 <input type="number" name="added_by" value="{{ Auth::guard('admin')->user()->id }}" class="form-control" hidden>
 <div class="row">
     @php($contractType = $contract->exists ? $contract->type : old('type', 'vendor'))
@@ -14,7 +15,7 @@
 
 <div class="form-group col-sm-12">
     <label for="template"> @lang('main.template')</label>
-    <textarea type="text" name="template" class="form-control ckeditor @error('template') is-invalid @enderror" id="template" placeholder="@lang('main.entertemplate')">{{ old('template', $contract->template) }}</textarea>
+    <textarea type="text" name="template" class="form-control js-ckeditor @error('template') is-invalid @enderror" id="template" placeholder="@lang('main.entertemplate')">{{ old('template', $contract->template) }}</textarea>
 </div>
 <div class="form-group col-sm-12">
     <label>@lang('main.use this words')</label>

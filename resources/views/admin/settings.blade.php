@@ -24,6 +24,7 @@
 </style>
 @endpush
 @section('content')
+@include('admin.partials.ckeditor')
 <!-- Content Wrapper. Contains page content -->
 <div class="content-wrapper">
   <!-- Content Header (Page header) -->
@@ -298,11 +299,11 @@
                  <div class="row">
                     <div class="form-group col-sm-6">
                       <label for="terms_ar">@lang('main.terms_ar')</label>
-                      <textarea rows="5" name="terms_ar" class="form-control ckeditor" id="terms_ar" placeholder="@lang('main.terms_ar')">{{$settings->terms_ar}}</textarea>
+                      <textarea rows="5" name="terms_ar" class="form-control js-ckeditor" id="terms_ar" placeholder="@lang('main.terms_ar')">{{$settings->terms_ar}}</textarea>
                     </div>
                     <div class="form-group col-sm-6">
                       <label for="terms_en">@lang('main.terms_en')</label>
-                      <textarea rows="5" name="terms_en" class="form-control ckeditor" id="terms_en" placeholder="@lang('main.terms_en')">{{$settings->terms_en}}</textarea>
+                      <textarea rows="5" name="terms_en" class="form-control js-ckeditor" id="terms_en" placeholder="@lang('main.terms_en')">{{$settings->terms_en}}</textarea>
                     </div>
                  </div>
              </div>
@@ -330,11 +331,11 @@
                  <div class="row">
                     <div class="form-group col-sm-6">
                       <label for="privacy_ar">@lang('main.privacy_ar')</label>
-                      <textarea rows="5" name="policy_ar" class="form-control ckeditor" id="privacy_ar" placeholder="@lang('main.privacy_ar')">{{$settings->policy_ar}}</textarea>
+                      <textarea rows="5" name="policy_ar" class="form-control js-ckeditor" id="privacy_ar" placeholder="@lang('main.privacy_ar')">{{$settings->policy_ar}}</textarea>
                     </div>
                     <div class="form-group col-sm-6">
                       <label for="privacy_en">@lang('main.privacy_en')</label>
-                      <textarea rows="5" name="policy_en" class="form-control ckeditor" id="privacy_en" placeholder="@lang('main.privacy_en')">{{$settings->policy_en}}</textarea>
+                      <textarea rows="5" name="policy_en" class="form-control js-ckeditor" id="privacy_en" placeholder="@lang('main.privacy_en')">{{$settings->policy_en}}</textarea>
                     </div>
                  </div>
                 
@@ -361,11 +362,11 @@
                     
                     <div class="form-group col-sm-6">
                       <label for="about_ar">@lang('main.about_ar')</label>
-                      <textarea rows="5" name="about_ar" class="form-control ckeditor" id="about_ar" placeholder="@lang('main.about_ar')">{{$settings->about_ar}}</textarea>
+                      <textarea rows="5" name="about_ar" class="form-control js-ckeditor" id="about_ar" placeholder="@lang('main.about_ar')">{{$settings->about_ar}}</textarea>
                     </div>
                     <div class="form-group col-sm-6">
                       <label for="about_en">@lang('main.about_en')</label>
-                      <textarea rows="5" name="about_en" class="form-control ckeditor" id="about_en" placeholder="@lang('main.about_en')">{{$settings->about_en}}</textarea>
+                      <textarea rows="5" name="about_en" class="form-control js-ckeditor" id="about_en" placeholder="@lang('main.about_en')">{{$settings->about_en}}</textarea>
                     </div>
                  </div>
                 

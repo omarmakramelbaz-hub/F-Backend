@@ -25,7 +25,7 @@
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
         <section class="dashboard-login-identity" aria-label="{{ $isArabic ? 'هولوجرام GO' : 'GO hologram' }}">
             <div class="go-login-hologram" data-go-login-hologram aria-hidden="true">
-                <img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.png') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high">
+                <img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.webp') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high">
                 <canvas data-go-login-canvas></canvas>
             </div>
         </section>
