@@ -111,11 +111,11 @@ class DashboardBranchRecipeTest extends TestCase
         $cart=$this->cart();$v=$cart+['idempotency_key'=>$this->key($key),'notes'=>'Note'];
         if($channel==='dine')$v+=['table_id'=>$this->table()['id'],'waiter_name'=>'Waiter','guest_count'=>2];
         else $v+=['customer_name'=>'Customer','customer_phone'=>'010 1234 5678','address'=>'Street 1','area'=>'Area','delivery_notes'=>'Door 2','delivery_fee'=>'20.00'];
-        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6371),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
+        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1000/\App\Services\Dashboard\BranchDeliveryTariff::EARTH_RADIUS),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];return $v;
     }
     private function saved(string $channel='dine'): array{return $this->tickets()->save($channel,$this->savePayload($channel),$this->actor())['ticket'];}
-    private function settlePayload(array $ticket,int $key=10,string $method='cash'): array{return ['branch'=>$ticket['branch']['value'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($key),'quote_hash'=>$ticket['quote_hash'],'payment_method'=>$method,'cash_received'=>'500.00','payment_confirmed'=>true];}
+    private function settlePayload(array $ticket,int $key=10,string $method='cash'): array{return ['branch'=>$ticket['branch']['value'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($key),'quote_hash'=>$ticket['quote_hash'],'payment_method'=>$method,'cash_received'=>'500.00','payment_confirmed'=>true,'customer_phone'=>'01012345678','service_consent'=>true];} // dine-in collection needs the customer's phone and consent
     private function denied(callable $call,int $status=409): void{try{$call();$this->fail('Expected '.$status);}catch(HttpException $e){$this->assertSame($status,$e->getStatusCode());}}
     private function invalid(callable $call): void{try{$call();$this->fail('Expected invalid payload');}catch(ValidationException $e){$this->assertNotEmpty($e->errors());}}
 
@@ -133,7 +133,7 @@ class DashboardBranchRecipeTest extends TestCase
     private function ingredientBalance(int $id): int{return (int)DB::table('branch_inventory')->where('branch','f:100')->where('ingredient_id',$id)->value('quantity_units');}
     private function pay(array $cart,int $key=100): array
     {
-        $s=app(TakeawayService::class);$q=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key($key),'payment_method'=>'cash','cash_received'=>'1000.00'];return [$s->checkout($v,$this->actor()),$v];
+        $s=app(TakeawayService::class);$q=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key($key),'payment_method'=>'cash','cash_received'=>'1000.00','customer_phone'=>'01012345678','service_consent'=>true];return [$s->checkout($v,$this->actor()),$v]; // takeaway needs the customer's phone and consent
     }
     private function directStock(int $product,int $units,string $unit='piece',string $branch='f:100'): void
     {
@@ -312,7 +312,7 @@ class DashboardBranchRecipeTest extends TestCase
         $cart=$this->cart();$this->denied(fn()=>app(TakeawayService::class)->quote($cart,$this->actor()),422);
         $cart['items'][0]['quantity_mode']='weight';$cart['items'][0]['quantity']='0.125';$sale=app(TakeawayService::class);$old=$sale->quote($cart,$this->actor());
         $v['expected_revision']=1;$v['idempotency_key']=$this->key(91);$v['components'][0]['quantity']='900';$s->saveRecipe($v,$this->actor(1));
-        $this->denied(fn()=>$sale->checkout($cart+['quote_hash'=>$old['quote_hash'],'idempotency_key'=>$this->key(101),'payment_method'=>'cash','cash_received'=>'100.00'],$this->actor()),409);
+        $this->denied(fn()=>$sale->checkout($cart+['quote_hash'=>$old['quote_hash'],'idempotency_key'=>$this->key(101),'payment_method'=>'cash','cash_received'=>'100.00','customer_phone'=>'01012345678','service_consent'=>true],$this->actor()),409);
         $this->assertSame(3000000,$this->ingredientBalance(1));$this->pay($cart);$this->assertSame(2887500,$this->ingredientBalance(1));
     }
     public function test_failed_sale_rolls_back_all_ingredients_and_unconfigured_sales_are_explicitly_audited(): void

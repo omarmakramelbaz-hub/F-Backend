@@ -58,11 +58,11 @@ class DashboardBranchStockTest extends TestCase
         $cart=$this->cart();$v=$cart+['idempotency_key'=>$this->key($key),'notes'=>'Note'];
         if($channel==='dine')$v+=['table_id'=>$this->table()['id'],'waiter_name'=>'Waiter','guest_count'=>2];
         else $v+=['customer_name'=>'Customer','customer_phone'=>'010 1234 5678','address'=>'Street 1','area'=>'Area','delivery_notes'=>'Door 2','delivery_fee'=>'20.00'];
-        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1/6371),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
+        if($channel==='phone'){$v+=['latitude'=>30+rad2deg(1000/\App\Services\Dashboard\BranchDeliveryTariff::EARTH_RADIUS),'longitude'=>31,'location_confirmed'=>true];$v['delivery_quote_hash']=app(\App\Services\Dashboard\PhoneDelivery::class)->quote($v,$this->actor())['delivery']['delivery_quote_hash'];}
         $v['quote_hash']=$this->tickets()->quote($channel,$v,$this->actor())['quote_hash'];return $v;
     }
     private function saved(string $channel='dine'): array{return $this->tickets()->save($channel,$this->savePayload($channel),$this->actor())['ticket'];}
-    private function settlePayload(array $ticket,int $key=10,string $method='cash'): array{return ['branch'=>$ticket['branch']['value'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($key),'quote_hash'=>$ticket['quote_hash'],'payment_method'=>$method,'cash_received'=>'500.00','payment_confirmed'=>true];}
+    private function settlePayload(array $ticket,int $key=10,string $method='cash'): array{return ['branch'=>$ticket['branch']['value'],'expected_revision'=>$ticket['revision'],'idempotency_key'=>$this->key($key),'quote_hash'=>$ticket['quote_hash'],'payment_method'=>$method,'cash_received'=>'500.00','payment_confirmed'=>true,'customer_phone'=>'01012345678','service_consent'=>true];} // dine-in collection needs the customer's phone and consent
     private function denied(callable $call,int $status=409): void{try{$call();$this->fail('Expected '.$status);}catch(HttpException $e){$this->assertSame($status,$e->getStatusCode());}}
     private function invalid(callable $call): void{try{$call();$this->fail('Expected invalid payload');}catch(ValidationException $e){$this->assertNotEmpty($e->errors());}}
 
@@ -96,7 +96,7 @@ class DashboardBranchStockTest extends TestCase
     public function test_paid_takeaway_deducts_exactly_once_and_updates_both_menu_apis(): void
     {
         $this->stock()->receive($this->supply(),$this->actor());$cart=$this->cart();$cart['items'][0]['quantity']='1.125';$cart['items'][0]['quantity_mode']='weight';
-        $s=app(TakeawayService::class);$quote=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$quote['quote_hash'],'idempotency_key'=>$this->key(90),'payment_method'=>'cash','cash_received'=>'200.00'];
+        $s=app(TakeawayService::class);$quote=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$quote['quote_hash'],'idempotency_key'=>$this->key(90),'payment_method'=>'cash','cash_received'=>'200.00','customer_phone'=>'01012345678','service_consent'=>true];
         $this->assertSame('10.125',$this->balance());$first=$s->checkout($v,$this->actor());$this->assertSame('9',$this->balance());$this->assertTrue($s->checkout($v,$this->actor())['replayed']);$this->assertSame('9',$this->balance());
         $menu=app(\App\Services\Dashboard\TakeawayCatalog::class)->listing(['branch'=>'f:100'],$this->actor());$this->assertSame('9',$menu['items'][0]['stock']['quantity']);$this->assertSame('weight',$menu['items'][0]['quantity_mode']);
         $request=\Illuminate\Http\Request::create('/admin/applies-orders/menu','GET',['branch'=>'f:100']);$menu=app(\App\Services\Dashboard\OrderBoardMenu::class)->listing($request,$this->actor());$this->assertSame('9',$menu['items'][0]['stock']['quantity']);
@@ -123,12 +123,12 @@ class DashboardBranchStockTest extends TestCase
         Schema::create('product_features',function(Blueprint $t){$t->id();$t->unsignedBigInteger('product_id');$t->string('name');});
         DB::table('resturant_products')->where('id',1)->update(['product_id'=>99]);DB::table('product_features')->insert([['id'=>1,'product_id'=>99,'name'=>'half'],['id'=>2,'product_id'=>99,'name'=>'quarter']]);
         $cart=$this->cart();$cart['items']=[['product_id'=>1,'quantity'=>'0.003','quantity_mode'=>'weight','option_id'=>'f:1:base'],['product_id'=>1,'quantity'=>'0.001','quantity_mode'=>'weight','option_id'=>'f:2:base']];
-        $s=app(TakeawayService::class);$q=$s->quote($cart,$this->actor());$s->checkout($cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key(90),'payment_method'=>'cash','cash_received'=>'1.00'],$this->actor());
+        $s=app(TakeawayService::class);$q=$s->quote($cart,$this->actor());$s->checkout($cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key(90),'payment_method'=>'cash','cash_received'=>'1.00','customer_phone'=>'01012345678','service_consent'=>true],$this->actor());
         $this->assertSame('-0.00075',$this->balance());$this->assertTrue($this->stock()->balances('f:100',[1])[1]['negative']);$this->assertSame(2,DB::table('branch_stock_movements')->count());
     }
     public function test_tracking_begins_at_first_supply_and_failed_sale_rolls_back_stock(): void
     {
-        $s=app(TakeawayService::class);$cart=$this->cart();$q=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key(90),'payment_method'=>'cash','cash_received'=>'100.00'];$s->checkout($v,$this->actor());
+        $s=app(TakeawayService::class);$cart=$this->cart();$q=$s->quote($cart,$this->actor());$v=$cart+['quote_hash'=>$q['quote_hash'],'idempotency_key'=>$this->key(90),'payment_method'=>'cash','cash_received'=>'100.00','customer_phone'=>'01012345678','service_consent'=>true];$s->checkout($v,$this->actor());
         $this->assertSame(0,DB::table('branch_stock_movements')->count());$this->stock()->receive($this->supply('1','piece'),$this->actor());$s->checkout($v,$this->actor());$this->assertSame('1',$this->balance());
         DB::table('takeaway_tills')->where('branch','f:100')->update(['balance_cents'=>100000000000]);$v['idempotency_key']=$this->key(91);
         $this->denied(fn()=>$s->checkout($v,$this->actor()),422);$this->assertSame('1',$this->balance());$this->assertSame(1,DB::table('branch_stock_movements')->count());$this->assertSame(1,DB::table('takeaway_orders')->count());

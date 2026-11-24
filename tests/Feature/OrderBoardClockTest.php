@@ -166,6 +166,8 @@ class OrderBoardClockTest extends TestCase
 
     private function clock(): OrderBoardClock {return app(OrderBoardClock::class);}
     private function timeAt(string $time): void {Carbon::setTestNow(Carbon::parse('2026-10-03 '.$time, 'UTC'));}
+    /** Current timer: the courier step runs 45 minutes after acceptance (06:45) and completion is due 90 minutes after that step (08:15). */
+    private function completionWindow(): void {$this->timeAt('06:45:00');$this->clock()->run();$this->timeAt('08:15:00');}
     private function balance(int $id): float {return (float) DB::table('users')->where('id',$id)->value('balance');}
     private function appBalance(): float {return (float) json_decode(DB::table('settings')->where('name','app_balance')->value('payload'), true);}
     private function store(array $changes = []): int
@@ -178,13 +180,13 @@ class OrderBoardClockTest extends TestCase
     public function test_cash_exact_boundaries_are_15_and_90_minutes_from_first_acceptance(): void
     {
         $order = $this->legacy(); $this->accept($order);
-        $this->timeAt('06:14:59'); $this->assertSame(0, $this->clock()->run()['courier']);
+        $this->timeAt('06:44:59'); $this->assertSame(0, $this->clock()->run()['courier']);
         $this->assertSame('pending',$order->fresh()->status);
-        $this->timeAt('06:15:00'); $this->assertSame(1, $this->clock()->run()['courier']);
+        $this->timeAt('06:45:00'); $this->assertSame(1, $this->clock()->run()['courier']);
         $this->assertSame('accepted',$order->fresh()->status); $this->assertSame('in_resturant',$order->fresh()->delegate_from_out);
         $this->assertSame(500.0,$this->balance(10)); $this->assertSame(0,DB::table('wallets')->count());
-        $this->timeAt('07:29:59'); $this->assertSame(0,$this->clock()->run()['completed']);
-        $this->timeAt('07:30:00'); $this->assertSame(1,$this->clock()->run()['completed']);
+        $this->timeAt('08:14:59'); $this->assertSame(0,$this->clock()->run()['completed']);
+        $this->completionWindow(); $this->assertSame(1,$this->clock()->run()['completed']);
         $this->assertSame('completed',$order->fresh()->status); $this->assertSame('vendor',$order->fresh()->transfer_price_by);
         $this->assertSame(490.0,$this->balance(10)); $this->assertSame(1010.0,$this->appBalance());
         $this->assertSame(1,DB::table('wallets')->count());
@@ -195,7 +197,7 @@ class OrderBoardClockTest extends TestCase
     public function test_90_minute_catchup_settles_actual_assigned_cash_courier_once(): void
     {
         $order = $this->legacy(['delegate_id'=>30,'delegate_from_out'=>'out_resturant']); $this->accept($order);
-        $this->timeAt('07:30:00'); $this->assertSame(1,$this->clock()->run()['completed']);
+        $this->completionWindow(); $this->assertSame(1,$this->clock()->run()['completed']);
         $this->assertSame(30,(int)$order->fresh()->delegate_id); $this->assertSame('out_resturant',$order->fresh()->delegate_from_out);
         $this->assertSame(590.0,$this->balance(10)); $this->assertSame(394.0,$this->balance(30));
         $this->assertSame(1016.0,$this->appBalance()); $this->assertSame('delegate',$order->fresh()->transfer_price_by);
@@ -205,7 +207,7 @@ class OrderBoardClockTest extends TestCase
     public function test_timer_preserves_external_delivery_selection_without_fabricating_a_courier(): void
     {
         $order = $this->legacy(['delegate_from_out'=>'out_resturant']); $this->accept($order);
-        $this->timeAt('06:15:00'); $this->clock()->run();
+        $this->timeAt('06:45:00'); $this->clock()->run();
         $this->assertSame('shipped',$order->fresh()->status); $this->assertSame('out_resturant',$order->fresh()->delegate_from_out);
         $this->assertNull($order->fresh()->delegate_id);
     }
@@ -216,7 +218,7 @@ class OrderBoardClockTest extends TestCase
         $this->timeAt('06:05:00'); $order->update(['status'=>'accepted','delegate_from_out'=>'in_resturant']);
         $this->assertSame('2026-10-03 06:00:00',DB::table('order_board_clocks')->value('accepted_at'));
         $this->timeAt('06:20:00'); $this->assertTrue(app(LegacyOrderCompletion::class)->complete($order));
-        $this->timeAt('07:30:00'); $this->clock()->run();
+        $this->completionWindow(); $this->clock()->run();
         $this->assertSame(1,DB::table('wallets')->count()); $this->assertSame(490.0,$this->balance(10));
         $this->assertNotNull(DB::table('order_board_clocks')->value('closed_at'));
     }
@@ -234,7 +236,7 @@ class OrderBoardClockTest extends TestCase
         $order = $this->legacy(); $order->update(['status'=>'accepted']);
         $this->assertSame(1,DB::table('order_board_clocks')->count());
         DB::table('orders')->where('id',$order->id)->update(['status'=>'cancelled']);
-        $this->timeAt('07:30:00'); $this->clock()->run();
+        $this->completionWindow(); $this->clock()->run();
         $this->assertSame('cancelled',$order->fresh()->status); $this->assertSame(0,DB::table('wallets')->count());
     }
 
@@ -243,7 +245,7 @@ class OrderBoardClockTest extends TestCase
     {
         $order = $this->legacy(['payment_type'=>$method]);
         DB::table('payments')->insert(['order_id'=>$order->id,'user_id'=>20,'status'=>'1','transaction_id'=>'9001']);
-        $this->accept($order); $this->timeAt('07:30:00');
+        $this->accept($order); $this->completionWindow();
         $this->assertSame(1,$this->clock()->run()['completed']);
         $this->assertSame('admin',$order->fresh()->transfer_price_by); $this->assertSame(620.0,$this->balance(10));
         app(DashboardOrders::class)->transferPrice($order->id);
@@ -257,7 +259,7 @@ class OrderBoardClockTest extends TestCase
     {
         $order = $this->legacy(['payment_type'=>'online']);
         if ($status !== null) DB::table('payments')->insert(['order_id'=>$order->id,'user_id'=>20,'status'=>$status]);
-        $this->accept($order); $this->timeAt('07:30:00'); $counts = $this->clock()->run();
+        $this->accept($order); $this->completionWindow(); $counts = $this->clock()->run();
         $this->assertSame(0,$counts['completed']); $this->assertSame(0,$counts['courier']);
         $this->assertSame('pending',$order->fresh()->status); $this->assertSame(0,DB::table('wallets')->count());
         $this->assertSame(500.0,$this->balance(10));
@@ -268,10 +270,12 @@ class OrderBoardClockTest extends TestCase
     public function test_wallet_completion_requires_actual_checkout_debit_and_refunds_changed_price_once(): void
     {
         $order = $this->legacy(['payment_type'=>'wallet'],80); $this->accept($order);
-        $this->timeAt('07:30:00'); $this->assertSame(0,$this->clock()->run()['completed']);
+        $this->completionWindow(); $this->assertSame(0,$this->clock()->run()['completed']);
         DB::table('wallets')->insert(['order_id'=>$order->id,'from_user'=>20,'to_user'=>null,'amount'=>'130.00',
             'status'=>'completed','payment'=>'wallet','type'=>'transfer']);
-        $this->assertSame(1,$this->clock()->run()['completed']);
+        // An unpaid order is dispatched only once its payment is confirmed, then completes 90 minutes after that.
+        $this->timeAt('08:20:00'); $this->assertSame(1,$this->clock()->run()['courier']);
+        $this->timeAt('09:50:00'); $this->assertSame(1,$this->clock()->run()['completed']);
         $this->assertSame(580.0,$this->balance(10)); $this->assertSame(220.0,$this->balance(20));
         $this->clock()->run(); $this->assertSame(3,DB::table('wallets')->count());
     }
@@ -280,9 +284,10 @@ class OrderBoardClockTest extends TestCase
     {
         $order = $this->legacy(); $this->accept($order);
         DB::table('settings')->where('name','app_balance')->delete();
-        $this->timeAt('07:30:00'); $this->assertSame(1,$this->clock()->run()['errors']);
-        $this->assertSame('pending',$order->fresh()->status); $this->assertSame(500.0,$this->balance(10));
-        $this->assertSame(0,DB::table('wallets')->count()); $this->assertNull(DB::table('order_board_clocks')->value('courier_at'));
+        $this->completionWindow(); $this->assertSame(1,$this->clock()->run()['errors']);
+        // The courier step taken at 45 minutes stays; only the completion and its money roll back.
+        $this->assertSame('accepted',$order->fresh()->status); $this->assertSame(500.0,$this->balance(10));
+        $this->assertSame(0,DB::table('wallets')->count()); $this->assertNotNull(DB::table('order_board_clocks')->value('courier_at')); $this->assertNull(DB::table('order_board_clocks')->value('closed_at'));
     }
 
     /** @dataProvider storePayments */
@@ -293,10 +298,10 @@ class OrderBoardClockTest extends TestCase
         if ($method === 'card') DB::table('users')->where('id',40)->update(['balance'=>'350.00']);
         $actions->transition($id,40,'accept',1);
         $this->assertSame(1,DB::table('order_board_clocks')->where('source','store')->count());
-        $this->timeAt('06:14:59'); $this->clock()->run(); $this->assertSame('preparing',DB::table('go_store_orders')->value('status'));
-        $this->timeAt('06:15:00'); $this->clock()->run(); $this->assertSame('out_for_delivery',DB::table('go_store_orders')->value('status'));
-        $this->timeAt('07:29:59'); $this->clock()->run(); $this->assertSame('out_for_delivery',DB::table('go_store_orders')->value('status'));
-        $this->timeAt('07:30:00'); $this->clock()->run(); $this->assertSame('completed',DB::table('go_store_orders')->value('status'));
+        $this->timeAt('06:44:59'); $this->clock()->run(); $this->assertSame('preparing',DB::table('go_store_orders')->value('status'));
+        $this->timeAt('06:45:00'); $this->clock()->run(); $this->assertSame('out_for_delivery',DB::table('go_store_orders')->value('status'));
+        $this->timeAt('08:14:59'); $this->clock()->run(); $this->assertSame('out_for_delivery',DB::table('go_store_orders')->value('status'));
+        $this->completionWindow(); $this->clock()->run(); $this->assertSame('completed',DB::table('go_store_orders')->value('status'));
         $this->assertSame($expectedBalance,$this->balance(40));
         $this->assertSame($method === 'cash' ? 'cash_collected' : 'paid',DB::table('go_store_orders')->value('payment_status'));
         $walletCount = DB::table('wallets')->count(); $this->clock()->run();
@@ -311,7 +316,7 @@ class OrderBoardClockTest extends TestCase
         $id = $this->store(); app(GoStoreBoardActions::class)->transition($id,40,'accept',1);
         DB::table('go_store_orders')->where('id',$id)->update(['payment_method'=>'card','payment_status'=>'failed']);
         $pickup = $this->store(['fulfillment'=>'pickup']); app(GoStoreBoardActions::class)->transition($pickup,40,'accept',1);
-        $this->timeAt('07:30:00'); $this->clock()->run();
+        $this->completionWindow(); $this->clock()->run();
         $this->assertSame('preparing',DB::table('go_store_orders')->where('id',$id)->value('status'));
         $this->assertSame('preparing',DB::table('go_store_orders')->where('id',$pickup)->value('status'));
         $this->assertSame(1,DB::table('order_board_clocks')->count());
@@ -331,7 +336,7 @@ class OrderBoardClockTest extends TestCase
     public function test_stale_mobile_accept_or_delivery_choice_cannot_reopen_a_timer_completed_order(): void
     {
         $order = $this->legacy(); $this->accept($order); $stale = $order->fresh();
-        $this->timeAt('07:30:00'); $this->clock()->run();
+        $this->completionWindow(); $this->clock()->run();
         $requests = [fn () => app(VendorOrders::class)->acceptOrder(Request::create('/api/vendor/accept','POST'),$stale),
             fn () => app(VendorOrders::class)->updateOrder(Request::create('/api/vendor/update','POST',['type'=>'in_resturant']),$stale)];
         foreach ($requests as $attempt) {
@@ -356,19 +361,21 @@ class OrderBoardClockTest extends TestCase
         date_default_timezone_set('Africa/Cairo'); config(['app.timezone'=>'Asia/Dubai']);
         $order = $this->legacy(); $this->accept($order);
         $this->assertSame('2026-10-03 06:00:00',DB::table('order_board_clocks')->value('accepted_at'));
-        $this->timeAt('06:15:00'); $this->assertSame(1,$this->clock()->run()['courier']);
-        $this->timeAt('07:30:00'); $this->assertSame(1,$this->clock()->run()['completed']);
+        $this->timeAt('06:45:00'); $this->assertSame(1,$this->clock()->run()['courier']);
+        $this->completionWindow(); $this->assertSame(1,$this->clock()->run()['completed']);
     }
 
     public function test_notices_wait_for_outer_commit_and_provider_failure_cannot_undo_completion(): void
     {
-        $order = $this->legacy(); $this->accept($order); $this->timeAt('07:30:00');
+        $order = $this->legacy(); $this->accept($order); $this->completionWindow();
+        Notification::fake(); // the courier step sends its own notices; only completion notices are checked below
         DB::transaction(function () {
             $this->assertSame(1,$this->clock()->run()['completed']);
             Notification::assertNothingSent();
         });
         Notification::assertSentTo(User::withoutGlobalScopes()->find(20),NotifyUserOrderStatusUpdatedNotification::class);
-        $second = $this->legacy(); $this->accept($second); $this->timeAt('09:00:00');
+        // Accepted at 08:15: the courier step is due at 09:00 and completion 90 minutes later.
+        $second = $this->legacy(); $this->accept($second); $this->timeAt('09:00:00'); $this->clock()->run(); $this->timeAt('10:30:00');
         Notification::shouldReceive('send')->andThrow(new \RuntimeException('Provider unavailable'));
         $this->assertSame(1,$this->clock()->run()['completed']);
         $this->assertSame('completed',$second->fresh()->status); $this->assertSame(480.0,$this->balance(10));
@@ -377,7 +384,7 @@ class OrderBoardClockTest extends TestCase
 
     public function test_reentrant_worker_retry_after_commit_does_not_settle_twice(): void
     {
-        $order = $this->legacy(); $this->accept($order); $this->timeAt('07:30:00');
+        $order = $this->legacy(); $this->accept($order); $this->completionWindow();
         $retried = false;
         Notification::shouldReceive('send')->andReturnUsing(function () use (&$retried) {
             if (!$retried) {$retried = true; $this->clock()->run();}
@@ -416,14 +423,14 @@ class OrderBoardClockTest extends TestCase
         $this->actingAs(User::withoutGlobalScopes()->findOrFail(20),'api');
         $order->update(['accepted_notify'=>'yes','status'=>'accepted']); // Retained customer mass assignment must not start a timer.
         $this->assertSame(0,DB::table('order_board_clocks')->count());
-        $this->timeAt('07:30:00'); $this->clock()->run(); $this->assertSame('accepted',$order->fresh()->status);
+        $this->completionWindow(); $this->clock()->run(); $this->assertSame('accepted',$order->fresh()->status);
     }
 
     public function test_invited_delegate_can_accept_without_erasing_already_started_courier_phase(): void
     {
         $order = $this->legacy(['delegate_from_out'=>'out_resturant']); $this->accept($order);
         DB::table('delegate_notifications')->insert(['order_id'=>$order->id,'delegate_id'=>30]);
-        $this->timeAt('06:15:00'); $this->clock()->run();
+        $this->timeAt('06:45:00'); $this->clock()->run();
         $this->actingAs(User::withoutGlobalScopes()->findOrFail(30),'api');
         app(DelegateOrders::class)->acceptDeclineOrder(Request::create('/api/delegate/accept','POST',['status'=>'accept']),$order->fresh());
         $this->assertSame(30,(int)$order->fresh()->delegate_id); $this->assertSame('shipped',$order->fresh()->status);
@@ -451,7 +458,7 @@ class OrderBoardClockTest extends TestCase
         };
         $first = $this->legacy(['status'=>'completed','accepted_notify'=>'yes','delegate_from_out'=>'in_resturant']);
         $vendor->transfer_order_price($first->id);
-        $timed = $this->legacy(); $this->accept($timed); $this->timeAt('07:30:00'); $this->clock()->run();
+        $timed = $this->legacy(); $this->accept($timed); $this->completionWindow(); $this->clock()->run();
         app()->instance(GeneralSettings::class,$stale);
         $last = $this->legacy(['status'=>'completed','accepted_notify'=>'yes','delegate_from_out'=>'in_resturant']);
         $vendor->transfer_order_price($last->id);
@@ -463,12 +470,14 @@ class OrderBoardClockTest extends TestCase
     {
         $order = $this->legacy(['payment_type'=>'online'],200);
         DB::table('payments')->insert(['order_id'=>$order->id,'user_id'=>20,'status'=>'1','transaction_id'=>'9001','total_price'=>'130.00']);
-        $this->accept($order); $this->timeAt('07:30:00');
+        $this->accept($order); $this->completionWindow();
         $this->assertSame(0,$this->clock()->run()['completed']);
         $this->assertSame('pending',$order->fresh()->status); $this->assertSame(500.0,$this->balance(10));
         $this->assertSame(0,DB::table('wallets')->count());
         DB::table('payments')->insert(['order_id'=>$order->id,'user_id'=>20,'status'=>'1','transaction_id'=>'9002','total_price'=>'230.00']);
-        $this->assertSame(1,$this->clock()->run()['completed']);
+        // An unpaid order is dispatched only once its payment is confirmed, then completes 90 minutes after that.
+        $this->timeAt('08:20:00'); $this->assertSame(1,$this->clock()->run()['courier']);
+        $this->timeAt('09:50:00'); $this->assertSame(1,$this->clock()->run()['completed']);
         $this->assertSame('completed',$order->fresh()->status); $this->assertSame(720.0,$this->balance(10));
     }
 }
