@@ -281,3 +281,5 @@ body>.select2-container--open,body>.select2-container--open .select2-dropdown{z-
 .hv3-branch-list .select2-results__option[aria-selected=true],.hv3-branch-list .select2-results__option--selected{background:rgba(31,180,222,.22)!important;box-shadow:inset 0 0 0 1px rgba(63,224,255,.45)}
 .hv3-branch-list .select2-results__option--highlighted[aria-selected],.hv3-branch-list .select2-results__option.select2-results__option--highlighted{background:linear-gradient(90deg,#c46f10,#7a3e06)!important;color:#fff!important;box-shadow:0 0 12px rgba(255,155,34,.45)}
 .hv3-branch-list .select2-results__message{color:#9cc8d8!important}
+
+#go-hud.hud-v2 .hv2-kpi small .hv2-month{display:block;margin-top:2px;color:#cfe6ff;font-weight:700}#go-hud.hud-v2 .hv2-kpi small .hv2-month.down{color:#ff8a8a}

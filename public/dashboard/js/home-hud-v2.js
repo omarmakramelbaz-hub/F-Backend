@@ -7,7 +7,7 @@
     var root = document.getElementById('go-hud'), source = document.getElementById('home-overview-bootstrap');
     if (!root || !root.classList.contains('hud-v2') || !source) return;
     var boot; try { boot = JSON.parse(source.textContent); } catch (_) { return; }
-    var disposed = false, timers = [], removers = [], today = null, week = null, loading = false, branch = '', epoch = 0;
+    var disposed = false, timers = [], removers = [], today = null, week = null, month = null, loading = false, branch = '', epoch = 0;
     var drawers = null, summary = null, alertTotal = 0;
     var number = new Intl.NumberFormat('en-GB', {maximumFractionDigits: 0});
     var $ = function (s) { return root.querySelector(s); };
@@ -46,16 +46,23 @@
         kpi('expenses', pounds(s.expenses_cents), yesterday(prev.expenses_cents));
         if (profit && profit.total) {
             var net = profit.total.net_cents;
-            var note = s.gross_cents > 0 ? el('span', Math.round(net / s.gross_cents * 100) + '% من المبيعات', net >= 0 ? 'up' : 'down') : '';
+            var note = [s.gross_cents > 0 ? el('span', Math.round(net / s.gross_cents * 100) + '% من المبيعات', net >= 0 ? 'up' : 'down') : ''];
+            var mp = monthProfit(); if (mp) note.push(el('span', 'من أول الشهر ' + pounds(mp.net) + (mp.pct === null ? '' : ' · ' + mp.pct + '%'), 'hv2-month' + (mp.net < 0 ? ' down' : '')));
             kpi('profit', pounds(net), note, net < 0 ? 'negative' : '');
         } else kpi('profit', '—', branch ? 'لكل الفروع بس' : 'محتاج تحديث السيرفر');
         renderBranches(); renderAlerts(); renderStock(); renderSummary(); renderDrawers();
     }
 
+    // Month to date, from the first of the month through today, on the same sales and costs as today's figure.
+    function monthProfit() {
+        if (!month || !month.profit || !month.profit.total || !month.sales) return null;
+        var net = month.profit.total.net_cents, gross = month.sales.gross_cents;
+        return {net: net, pct: gross > 0 ? Math.round(net / gross * 100) : null};
+    }
     function renderSummary() {
         var list = $('[data-hv3-summary]'); if (!list || !today || !today.sales) return;
         var s = today.sales, rows = [[number.format(s.count) + ' طلبًا حتى الآن'], ['مبيعات ' + pounds(s.gross_cents)]];
-        if (today.profit && today.profit.total) rows.push(['صافي الربح ' + pounds(today.profit.total.net_cents)]);
+        if (today.profit && today.profit.total) { var mp = monthProfit(); rows.push(['صافي الربح ' + pounds(today.profit.total.net_cents) + (mp ? ' · من أول الشهر ' + pounds(mp.net) : '')]); }
         else rows.push(['مصروفات ' + pounds(s.expenses_cents)]);
         var cash = cashCents(); if (cash !== null) rows.push(['رصيد النقدية ' + pounds(cash)]);
         rows.push(alertTotal ? [alertTotal + (alertTotal > 10 ? ' تنبيه' : alertTotal > 2 ? ' تنبيهات' : ' تنبيه') + ' تحتاج مراجعة', 'is-warn'] : ['مفيش تنبيهات محتاجة مراجعة']);
@@ -253,9 +260,11 @@
     async function refresh(withWeek) {
         if (disposed || loading || root.hidden || document.hidden) return; loading = true; var mine = epoch;
         try {
-            var jobs = [get({period: 'today', branch: branch})]; if (withWeek || !week) jobs.push(get({period: 'week', branch: branch}));
+            var wantWeek = withWeek || !week, wantMonth = withWeek || !month;
+            var jobs = [get({period: 'today', branch: branch}), wantWeek ? get({period: 'week', branch: branch}) : null, wantMonth ? get({period: 'month', branch: branch}).catch(function () { return null; }) : null];
             var results = await Promise.all(jobs); if (disposed || mine !== epoch) return;
             if (results[1]) { week = results[1]; renderChart(); }
+            if (results[2]) month = results[2];
             renderToday(results[0]);
         } catch (_) { /* The tiles show the freshness state; keep the last figures. */ }
         finally { loading = false; }
@@ -289,7 +298,7 @@
     on(document, 'visibilitychange', function () { if (!document.hidden) { refresh(false); loadDrawers(); } });
     on(document, 'go:home-data', function (e) { var d = e.detail; if (!branch && d && d.filters && d.filters.period === 'today' && !d.filters.branch) renderToday(d); });
     var select = $('[data-hv3-branch]');
-    function pickBranch() { if (select.value === branch) return; branch = select.value; epoch++; week = null; loading = false; renderDrawers(); refresh(true); }
+    function pickBranch() { if (select.value === branch) return; branch = select.value; epoch++; week = null; month = null; loading = false; renderDrawers(); refresh(true); }
     if (select) {
         on(select, 'change', pickBranch);
         // The dashboard wraps selects in select2, whose choice reaches jQuery handlers only.
