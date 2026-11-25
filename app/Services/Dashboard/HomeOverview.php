@@ -131,7 +131,9 @@ class HomeOverview
             }, 'orders.id', 'id');
         }
         if ($modules['expenses']) {
-            foreach (DB::table('branch_expenses')->whereIn('branch',$keys)->where('status','approved')->where('occurred_on','>=',$previousFrom->toDateString())->where('occurred_on','<',$until->toDateString())->select('branch','occurred_on')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch','occurred_on')->get() as $r) {
+            // Cash collected and paid orders are sales on their way to the owner, not expenses.
+            $transfers=app(OwnerProfit::class)->salesTransferKeys();
+            foreach (DB::table('branch_expenses')->whereIn('branch',$keys)->where('status','approved')->whereNotIn('category',$transfers)->where('occurred_on','>=',$previousFrom->toDateString())->where('occurred_on','<',$until->toDateString())->select('branch','occurred_on')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch','occurred_on')->get() as $r) {
                 if ($r->occurred_on < $filters['from']) $previous['expenses_cents'] += (int)$r->amount;
                 else { $sales['expenses_cents'] += (int)$r->amount; $branches[$r->branch]['sales']['expenses_cents'] += (int)$r->amount; }
             }
@@ -281,7 +283,7 @@ class HomeOverview
         $today=OperatingDay::date();$items=[];$total=0;
         if($ready){
             $names=app(ExpenseCategories::class)->options();
-            foreach(DB::table('branch_expenses')->whereIn('branch',$keys)->where('occurred_on',$today)->where('status','approved')->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderBy('category')->get() as $row){
+            foreach(DB::table('branch_expenses')->whereIn('branch',$keys)->where('occurred_on',$today)->where('status','approved')->whereNotIn('category',app(OwnerProfit::class)->salesTransferKeys())->select('category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('category')->orderBy('category')->get() as $row){
                 $amount=(int)$row->amount;$total+=$amount;$items[]=['name'=>$names[$row->category]??$row->category,'amount_cents'=>$amount];
             }
         }

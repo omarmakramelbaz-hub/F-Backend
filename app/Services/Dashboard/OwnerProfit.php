@@ -46,8 +46,22 @@ class OwnerProfit
      * and packaging (fixed amounts), and money the branch only passed on (a paid delivery-app order, cash collected). */
     public static function excludedByDefault(string $key, string $name): bool
     {
+        if (self::salesTransfer($name)) return true;
         if (in_array($key, ['salaries', 'rent', 'packaging'], true)) return true;
         return (bool) preg_match('/سل[فه]|^\s*سل\s|رواتب|مرتب|ايجار|إيجار|تغليف|تحصيل|مدفوع\s*تطبيق/u', $name);
+    }
+
+    /** Sales money recorded as an expense on its way to the owner: cash collected, and orders paid by InstaPay, Vodafone Cash
+     * or a delivery app. It is never an expense, so it counts neither against profit nor in the expenses total. */
+    public static function salesTransfer(string $name): bool
+    {
+        return (bool) preg_match('/تحصيل|مدفوع|[اإأ]نستا\s*باي|insta\s*pay|فودافون|vodafone/iu', $name);
+    }
+
+    /** Expense categories that are sales transfers. */
+    public function salesTransferKeys(): array
+    {
+        return array_keys(array_filter($this->names(), fn ($name) => self::salesTransfer((string) $name)));
     }
 
     private function names(): array
@@ -68,9 +82,9 @@ class OwnerProfit
             ->groupBy('category')->get();
         $items = [];
         foreach ($totals as $row) {
-            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name);
+            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name);
             $items[] = ['key'=>$key, 'name'=>$name, 'month'=>Money::decimal((int) $row->month_cents), 'month_cents'=>(int) $row->month_cents,
-                'default_included'=>$default, 'included'=>array_key_exists($key, $rules) ? (bool) $rules[$key] : $default];
+                'default_included'=>$default, 'sales_transfer'=>$transfer, 'included'=>!$transfer && (array_key_exists($key, $rules) ? (bool) $rules[$key] : $default)];
         }
         usort($items, fn ($a, $b) => $b['month_cents'] <=> $a['month_cents']);
         return $items;
@@ -191,7 +205,7 @@ class OwnerProfit
             ->whereBetween('occurred_on', [$fromDate, $toDate])->select('branch', 'category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch', 'category')->get();
         foreach ($expenses as $x) {
             $key = (string) $x->category;
-            $counts = array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? '');
+            $counts = !self::salesTransfer($names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
             if ($counts) $rows[$x->branch]['expenses_cents'] += (int) $x->amount;
         }
         $total = $empty;
