@@ -41,10 +41,14 @@
     function renderToday(data) {
         if (!data || !data.sales) return;
         today = data; var s = data.sales, profit = data.profit, prev = data.previous || {};
-        // Today, yesterday and the day before; the week's daily points end with today.
+        // Today, yesterday and the three days before; the week's daily points end with today.
         var ordersNote = [el('span', yesterday(prev.count, true), 'hv2-today')];
-        var days = week && Array.isArray(week.trend) ? week.trend : [], before = days.length >= 3 ? days[days.length - 3] : null;
-        if (before && typeof before.count === 'number') ordersNote.push(el('span', 'قبل أمس: ' + number.format(before.count), 'hv2-today'));
+        var days = week && Array.isArray(week.trend) ? week.trend : [];
+        for (var back = 3; back <= 5; back++) {
+            var day = days[days.length - back]; if (!day || typeof day.count !== 'number') break;
+            var name = back === 3 ? 'قبل أمس' : weekdayName(day.key);
+            if (name) ordersNote.push(el('span', name + ': ' + number.format(day.count), 'hv2-today'));
+        }
         kpi('orders', number.format(s.count), ordersNote);
         // Today in the big figure, yesterday under it, then the month so far on its own row.
         var salesNote = [el('span', yesterday(prev.gross_cents), 'hv2-today')];
@@ -63,6 +67,8 @@
     }
 
     // Month to date, from the first of the month through today, on the same sales and costs as today's figure.
+    var weekdayFormat = new Intl.DateTimeFormat('ar-EG', {weekday: 'long', timeZone: 'UTC'});
+    function weekdayName(key) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || ''); return m ? weekdayFormat.format(new Date(Date.UTC(+m[1], m[2] - 1, +m[3]))) : ''; }
     function monthRow(cents, pct, down) {
         var row = el('span', undefined, 'hv2-month' + (down ? ' is-down' : ''));
         row.append(el('em', 'الشهر'), el('strong', pounds(cents)));
@@ -80,9 +86,7 @@
         if (today.profit && today.profit.total) {
             var dayNet = today.profit.total.net_cents, mp = monthProfit();
             rows.push(['صافي ربح النهارده ' + pounds(dayNet) + (s.gross_cents > 0 ? ' (' + Math.round(dayNet / s.gross_cents * 100) + '%)' : '')]);
-            if (mp) rows.push(['صافي ربح الشهر لحد النهارده ' + pounds(mp.net) + (mp.pct === null ? '' : ' (' + mp.pct + '%)')]);
-            var cover = today.profit.goods_coverage;
-            if (cover != null && cover < 95) rows.push(['تكلفة البضاعة متسجلة لـ ' + Math.round(cover) + '% بس من المبيع', 'is-warn']);
+            if (mp) rows.push(['صافي ربح الشهر ' + pounds(mp.net) + (mp.pct === null ? '' : ' (' + mp.pct + '%)')]);
         }
         else rows.push(['مصروفات ' + pounds(s.expenses_cents)]);
         var cash = cashCents(); if (cash !== null) rows.push(['رصيد النقدية ' + pounds(cash)]);
