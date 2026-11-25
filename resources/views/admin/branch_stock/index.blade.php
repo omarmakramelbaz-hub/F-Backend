@@ -46,7 +46,7 @@
 <label class="bs-profit-packaging">تكلفة التغليف لكل أوردر (جنيه)<input name="packaging" type="text" inputmode="decimal" maxlength="12" placeholder="مثلاً 5" autocomplete="off" data-profit-packaging></label>
 <p class="bs-note">التغليف = عدد الأوردرات × القيمة دي، لكل الفروع.</p></section>
 <section class="bs-panel"><header><h2>الإيجار والرواتب لكل فرع</h2></header>
-<div class="bs-table-wrap"><table><thead><tr><th>الفرع</th><th>الإيجار الشهري (جنيه)</th><th>رواتب الشهر</th></tr></thead><tbody data-profit-branches></tbody></table></div>
+<div class="bs-table-wrap"><table><thead><tr><th>الفرع</th><th>الإيجار الشهري (جنيه)</th><th>رواتب الشهر لحد النهارده</th></tr></thead><tbody data-profit-branches></tbody></table></div>
 <p class="bs-note">الرواتب بتتحسب لوحدها من مرتبات الموظفين في صفحة الموظفين. الإيجار والرواتب بيتوزعوا على أيام الشهر.</p></section>
 <section class="bs-panel bs-profit-expenses"><header><h2>بنود المصروفات</h2><span>آخر 30 يوم</span></header>
 <div class="bs-table-wrap"><table><thead><tr><th>يدخل في الربح</th><th>البند</th><th>آخر 30 يوم (جنيه)</th></tr></thead><tbody data-profit-expenses></tbody></table></div>

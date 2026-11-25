@@ -100,7 +100,7 @@ class OwnerProfit
         abort_unless($this->canManage($actor), 403);
         abort_unless($this->ready(), 503, 'حساب صافي الربح يحتاج تحديث قاعدة البيانات.');
         $rents = DB::table('branch_fixed_costs')->pluck('rent_monthly_cents', 'branch');
-        $salaries = $this->monthlySalaries(array_column($this->branches($actor), 'value'));
+        $salaries = $this->payrollCosts(array_column($this->branches($actor), 'value'), substr(OperatingDay::date(), 0, 7).'-01', OperatingDay::date());
         $branches = array_map(fn ($b) => ['value'=>$b['value'], 'name'=>$b['name'],
             'rent'=>isset($rents[$b['value']]) && (int) $rents[$b['value']] > 0 ? Money::decimal((int) $rents[$b['value']]) : '',
             'salaries'=>Money::decimal($salaries[$b['value']] ?? 0)], $this->branches($actor));
@@ -108,18 +108,6 @@ class OwnerProfit
         return ['success'=>true, 'branches'=>$branches,
             'packaging'=>$packaging === null ? '' : Money::decimal((int) $packaging),
             'expenses'=>$this->expenseItems((array) $this->setting(self::EXPENSE_RULES, []))];
-    }
-
-    /** This month's pay of each branch's current employees, as the employees page sets it. */
-    private function monthlySalaries(array $keys): array
-    {
-        if (!Schema::hasTable('branch_employees') || !Schema::hasTable('branch_employee_salaries')) return [];
-        $month = substr(OperatingDay::date(), 0, 7); $out = [];
-        $employees = DB::table('branch_employees')->whereIn('branch', $keys)->where('active', true)->get(['id', 'branch']);
-        $pay = DB::table('branch_employee_salaries')->whereIn('employee_id', $employees->pluck('id'))->where('effective_month', '<=', $month)
-            ->orderBy('effective_month')->get()->groupBy('employee_id');
-        foreach ($employees as $e) { $last = ($pay[$e->id] ?? collect())->last(); $out[$e->branch] = ($out[$e->branch] ?? 0) + (int) ($last->amount_cents ?? 0); }
-        return $out;
     }
 
     private function amount($value, string $field): ?int
@@ -177,25 +165,15 @@ class OwnerProfit
         $rows = [];
         foreach ($sales as $key => $s) $rows[$key] = ['gross_cents'=>(int) $s['gross_cents'], 'delivery_cents'=>(int) $s['delivery_cents'], 'orders'=>(int) $s['count']] + $empty;
 
-        // Salaries and rent: each month's amount spread over its days.
+        // Rent: each month's amount spread over its days.
         $months = [];
         for ($day = Carbon::parse($fromDate, 'Africa/Cairo'); $day->toDateString() <= $toDate; $day->addDay()) $months[$day->format('Y-m')][] = $day->toDateString();
         $rents = DB::table('branch_fixed_costs')->whereIn('branch', $keys)->pluck('rent_monthly_cents', 'branch');
-        $employees = Schema::hasTable('branch_employees') ? DB::table('branch_employees')->whereIn('branch', $keys)->get(['id', 'branch', 'hired_on', 'left_on', 'active']) : collect();
-        $salaries = Schema::hasTable('branch_employee_salaries') && $employees->count()
-            ? DB::table('branch_employee_salaries')->whereIn('employee_id', $employees->pluck('id'))->orderBy('effective_month')->get()->groupBy('employee_id') : collect();
         foreach ($months as $month => $days) {
-            $length = Carbon::parse($month.'-01', 'Africa/Cairo')->daysInMonth; $count = count($days);
-            foreach ($keys as $key) $rows[$key]['rent_cents'] += intdiv((int) ($rents[$key] ?? 0) * $count, $length);
-            foreach ($employees as $e) {
-                if (!$e->active && !$e->left_on) continue;
-                $worked = count(array_filter($days, fn ($d) => $d >= $e->hired_on && (!$e->left_on || $d <= $e->left_on)));
-                if (!$worked) continue;
-                $salary = 0;
-                foreach ($salaries[$e->id] ?? [] as $s) if ($s->effective_month <= $month) $salary = (int) $s->amount_cents;
-                $rows[$e->branch]['salaries_cents'] += intdiv($salary * $worked, $length);
-            }
+            $length = Carbon::parse($month.'-01', 'Africa/Cairo')->daysInMonth;
+            foreach ($keys as $key) $rows[$key]['rent_cents'] += intdiv((int) ($rents[$key] ?? 0) * count($days), $length);
         }
+        foreach ($this->payrollCosts($keys, $fromDate, $toDate) as $key => $cents) $rows[$key]['salaries_cents'] += $cents;
 
         // Packaging per order, and the expense items that count.
         $packaging = (int) $this->setting(self::PACKAGING, 0);
@@ -217,6 +195,51 @@ class OwnerProfit
         unset($r);
         return ['ready'=>true, 'total'=>$total, 'branches'=>$rows, 'packaging_set'=>$packaging > 0,
             'rent_set'=>$rents->filter(fn ($v) => (int) $v > 0)->count() > 0];
+    }
+
+    /**
+     * What each branch's employees earned on these days, exactly as the payroll sheet accrues it: each day worked is the
+     * month's salary over the month's days (part-time contracts at their share of the full day, leave days at the full
+     * rate since their deduction is recorded separately), plus that day's bonuses and minus its deductions. Advances are
+     * part of the salary already paid out, so they cost nothing more. Days after the current operating day accrue nothing.
+     */
+    private function payrollCosts(array $keys, string $fromDate, string $toDate): array
+    {
+        if (!$keys || !Schema::hasTable('branch_employees') || !Schema::hasTable('branch_employee_salaries')) return [];
+        $toDate = min($toDate, OperatingDay::date());
+        if ($toDate < $fromDate) return [];
+        $employees = DB::table('branch_employees')->whereIn('branch', $keys)->get(['id', 'branch', 'hired_on', 'left_on', 'active'])->keyBy('id');
+        if (!$employees->count()) return [];
+        $ids = $employees->keys()->all();
+        $salaries = DB::table('branch_employee_salaries')->whereIn('employee_id', $ids)->orderBy('effective_month')->get()->groupBy('employee_id');
+        $hours = Schema::hasTable('branch_employee_pay_hours')
+            ? DB::table('branch_employee_pay_hours')->whereIn('employee_id', $ids)->orderBy('effective_month')->get()->groupBy('employee_id') : collect();
+        $entries = Schema::hasTable('branch_employee_entries')
+            ? DB::table('branch_employee_entries')->whereIn('employee_id', $ids)->whereBetween('day', [$fromDate, $toDate])->whereNull('voided_at')
+                ->whereIn('kind', ['bonus', 'deduction'])->get(['employee_id', 'day', 'kind', 'amount_cents', 'source_key']) : collect();
+        $leave = [];
+        foreach ($entries as $x) if ($x->kind === 'deduction' && $x->source_key === 'attendance.leave') $leave[$x->employee_id][$x->day] = true;
+        $out = []; $full = [];
+        for ($day = Carbon::parse($fromDate, 'Africa/Cairo'); $day->toDateString() <= $toDate; $day->addDay()) {
+            $date = $day->toDateString(); $month = $day->format('Y-m'); $length = $day->daysInMonth;
+            foreach ($employees as $e) {
+                if (!$e->active && !$e->left_on) continue;
+                if ($date < $e->hired_on || ($e->left_on && $date > $e->left_on)) continue;
+                $salary = 0;
+                foreach ($salaries[$e->id] ?? [] as $row) if ($row->effective_month <= $month) $salary = (int) $row->amount_cents;
+                if (!$salary) continue;
+                $fullMinutes = $full[$e->branch][$month] ??= EmployeePayHours::branch($e->branch, $month)['full_time_minutes'];
+                $scheduled = null;
+                foreach ($hours[$e->id] ?? [] as $row) if ($row->effective_month <= $month) $scheduled = $row->scheduled_minutes === null ? null : (int) $row->scheduled_minutes;
+                $minutes = isset($leave[$e->id][$date]) || $scheduled === null ? $fullMinutes : min($fullMinutes, $scheduled);
+                $out[$e->branch] = ($out[$e->branch] ?? 0) + intdiv($salary * $minutes + intdiv($length * $fullMinutes, 2), $length * $fullMinutes);
+            }
+        }
+        foreach ($entries as $x) {
+            $branch = $employees[$x->employee_id]->branch;
+            $out[$branch] = ($out[$branch] ?? 0) + ($x->kind === 'bonus' ? 1 : -1) * (int) $x->amount_cents;
+        }
+        return $out;
     }
 
     /**
