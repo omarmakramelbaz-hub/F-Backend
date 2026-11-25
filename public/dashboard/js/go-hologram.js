@@ -435,7 +435,7 @@
     // Face landmarks in texture space (0..1). The default fits the original GO portrait; another portrait
     // passes its own as JSON in data-hologram-face on its <img data-hologram-artwork>.
     var DEFAULT_FACE = {eyes: [[.503, .315, .050, .029], [.620, .324, .038, .025]], lip: [.562, .467, .057, .025], cavity: [.043, .008],
-        jaw: [.105, .455, .50, .54, .59], head: [.50, .68, .30, .39, .69, .75], pivot: [.56, .58], depth: [.545, .30, .17, .32], emitter: [.56, .78], motion: 1, holo: 0, fire: 0};
+        jaw: [.105, .455, .50, .54, .59], head: [.50, .68, .30, .39, .69, .75], pivot: [.56, .58], depth: [.545, .30, .17, .32], emitter: [.56, .78], motion: 1, holo: 0, fire: 0, orbits: 0, orbit: [.56, .55]};
     function faceOf(image) {
         var face = DEFAULT_FACE, raw = image && image.getAttribute ? image.getAttribute('data-hologram-face') : null;
         if (raw) { try { var given = JSON.parse(raw); face = {}; Object.keys(DEFAULT_FACE).forEach(function (k) { face[k] = given && given[k] !== undefined ? given[k] : DEFAULT_FACE[k]; }); } catch (_) { face = DEFAULT_FACE; } }
@@ -490,6 +490,34 @@
     }
     function seedVertex(f) { return 'attribute vec2 aQuad;uniform vec4 uRect;uniform vec2 uViewport;uniform float uDpr;void main(){vec2 p=uRect.xy+' + vec2(f.emitter[0], f.emitter[1]) + '*uRect.zw;gl_Position=vec4(p.x/uViewport.x*2.-1.,1.-p.y/uViewport.y*2.,0.,1.);gl_PointSize=48.*uDpr;}'; }
     var SEED_FRAGMENT = 'precision mediump float;uniform float uTime;void main(){float r=length(gl_PointCoord-.5)*2.;float core=exp(-r*r*70.),halo=exp(-r*r*6.);float a=(core+halo*.55)*(1.-smoothstep(1.2,4.0,uTime));gl_FragColor=vec4(vec3(1.,.55,.12)*a,a);}';
+    // orbits: blue electrons, fiery neon and sun flares on their own tilted paths around the body.
+    // Each particle has its own orbit (radius, tilt, speed, direction) and a short fading trail;
+    // the half behind the body is drawn before the portrait, the half in front after it.
+    function orbitVertex(f) {
+        // 180 orbit lanes x 14 riders x 8 trail steps; each lane is a tilted ellipse around the body.
+        return [
+        'precision highp float;attribute float aIndex;uniform vec4 uRect;uniform vec2 uViewport;uniform float uTime,uDpr,uSide;',
+        'varying vec3 vColor;varying float vAlpha,vSun;',
+        'float h(float n){return fract(sin(n*12.9898+4.1414)*43758.5453);}',
+        'void main(){float id=floor(aIndex/8.),tr=mod(aIndex,8.),lane=floor(id/14.);',
+        'float s1=h(lane),s2=h(lane+17.3),s3=h(lane+31.7),s4=h(lane+47.1),s5=h(lane+59.9),s6=h(lane+73.3),p1=h(id+91.7),p2=h(id+7.9);',
+        'float kind=s5<.56?0.:(s5<.86?1.:2.);float r=.30+s1*.30;',
+        'float inc=.10+s2*.30,tilt=(s3-.5)*1.1;float dir=s6<.75?1.:-1.;',
+        'float speed=(.30+s4*.60)*dir*(kind==0.?1.3:1.)*.40/r;',
+        'float a=p1*6.28318+uTime*speed-tr*.032*dir;',
+        'vec3 q=vec3(cos(a)*r,0.,sin(a)*r);float y=-q.z*sin(inc),z=q.z*cos(inc);',
+        'vec2 o=vec2(q.x*cos(tilt)-y*sin(tilt),q.x*sin(tilt)+y*cos(tilt));o.y*=uRect.z/uRect.w;',
+        'vec2 uv=' + vec2(f.orbit[0], f.orbit[1]) + '+o;vec2 p=uRect.xy+uv*uRect.zw;',
+        'gl_Position=vec4(p.x/uViewport.x*2.-1.,1.-p.y/uViewport.y*2.,0.,1.);',
+        'float side=z>=0.?1.:-1.,trail=1.-tr/8.,tw=.6+.4*sin(uTime*(2.+p2*6.)+p1*40.),depth=.45+.55*(z/r*.5+.5);',
+        'float face=length((uv-' + vec2(f.eyes[0][0] + .06, f.eyes[0][1] + .03) + ')/vec2(.19,.20));',
+        'vAlpha=(side==uSide?1.:0.)*trail*trail*tw*depth*smoothstep(4.6,6.6,uTime)*(side>0.?smoothstep(.75,1.15,face)*.85+.15:1.)*(kind==0.?.9:(kind==1.?.95:.8));',
+        'vColor=kind==0.?mix(vec3(.25,.65,1.),vec3(.6,1.,1.),p2)*1.35:(kind==1.?mix(vec3(1.,.28,.04),vec3(1.,.62,.12),p2):vec3(1.,.9,.55));',
+        'vSun=kind==2.&&tr<.5?1.:0.;',
+        'gl_PointSize=vAlpha<.003?0.:(kind==2.&&tr<.5?6.+p2*4.:(kind==1.?2.4+p2*1.4:1.8+p2*1.2))*uDpr*mix(.5,1.,trail)*(.75+.25*depth);}'
+        ].join('\n');
+    }
+    var ORBIT_FRAGMENT = 'precision mediump float;varying vec3 vColor;varying float vAlpha,vSun;void main(){vec2 c=gl_PointCoord-.5;float d=length(c)*2.;float core=exp(-d*d*14.),glow=exp(-d*d*3.2);float ray=vSun*(exp(-abs(c.x)*40.)+exp(-abs(c.y)*40.))*exp(-d*d*2.)*.6;float a=(core+glow*.5+ray)*vAlpha*(1.-smoothstep(.85,1.,d));if(a<.002)discard;gl_FragColor=vec4(vColor*a,a);}';
     function portraitGrid(columns, rows, points) {
         var uv=[], indices=[], rng=randomGenerator(91723);
         for(var y=0;y<=rows;y++)for(var x=0;x<=columns;x++)uv.push(clamp((x+(points?rng()*.8:0))/columns,0,1),clamp((y+(points?rng()*.8:0))/rows,0,1));
@@ -571,6 +599,7 @@
                 this.portraitDots=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitDots);gl.bufferData(gl.ARRAY_BUFFER,dots.uv,gl.STATIC_DRAW);this.portraitParticles=dots.count;
                 this.seedProgram=makeProgram(gl,seedVertex(face),SEED_FRAGMENT);this.seedAttribute=gl.getAttribLocation(this.seedProgram,'aQuad');this.seedUniforms={};
                 ['uRect','uViewport','uDpr','uTime'].forEach(function(n){this.seedUniforms[n]=gl.getUniformLocation(this.seedProgram,n);},this);
+                if(face.orbits>0){var count=(this.compact?40:180)*14*8,ids=new Float32Array(count);for(var k=0;k<count;k++)ids[k]=k;this.orbitProgram=makeProgram(gl,orbitVertex(face),ORBIT_FRAGMENT);this.orbitIndex=gl.getAttribLocation(this.orbitProgram,'aIndex');this.orbitUniforms={};['uRect','uViewport','uTime','uDpr','uSide'].forEach(function(n){this.orbitUniforms[n]=gl.getUniformLocation(this.orbitProgram,n);},this);this.orbitBuffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.orbitBuffer);gl.bufferData(gl.ARRAY_BUFFER,ids,gl.STATIC_DRAW);this.orbitCount=count;}
                 this.portraitTexture=gl.createTexture();
             }
             gl.bindTexture(gl.TEXTURE_2D,this.portraitTexture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
@@ -588,9 +617,17 @@
     };
     Hologram.prototype.releasePortrait = function () {
         var gl=this.gl;
-        if(!this.lost){[this.portraitMesh,this.portraitIndex,this.portraitDots].forEach(function(b){if(b)gl.deleteBuffer(b);});if(this.portraitProgram)gl.deleteProgram(this.portraitProgram);if(this.seedProgram)gl.deleteProgram(this.seedProgram);if(this.portraitTexture)gl.deleteTexture(this.portraitTexture);}
-        this.portraitProgram=null;this.seedProgram=null;this.portraitTexture=null;this.portraitReady=false;
+        if(!this.lost){[this.portraitMesh,this.portraitIndex,this.portraitDots].forEach(function(b){if(b)gl.deleteBuffer(b);});if(this.portraitProgram)gl.deleteProgram(this.portraitProgram);if(this.seedProgram)gl.deleteProgram(this.seedProgram);if(this.orbitProgram)gl.deleteProgram(this.orbitProgram);if(this.orbitBuffer)gl.deleteBuffer(this.orbitBuffer);if(this.portraitTexture)gl.deleteTexture(this.portraitTexture);}
+        this.portraitProgram=null;this.seedProgram=null;this.orbitProgram=null;this.orbitBuffer=null;this.portraitTexture=null;this.portraitReady=false;
         if(this.canvas.parentElement)delete this.canvas.parentElement.dataset.portraitGpu;
+    };
+    Hologram.prototype.renderOrbits = function(time, side) {
+        if(!this.orbitProgram||!this.portraitReady||!this.portraitRect)return;
+        var gl=this.gl,u=this.orbitUniforms,r=this.portraitRect,t=this.compact||this.reduced?7:Math.max(0,time);if(t<4.6)return;
+        gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);
+        gl.useProgram(this.orbitProgram);gl.uniform4f(u.uRect,r[0],r[1],r[2],r[3]);gl.uniform2f(u.uViewport,this.width,this.height);gl.uniform1f(u.uTime,t);gl.uniform1f(u.uDpr,this.ratio);gl.uniform1f(u.uSide,side);
+        gl.bindBuffer(gl.ARRAY_BUFFER,this.orbitBuffer);gl.enableVertexAttribArray(this.orbitIndex);gl.vertexAttribPointer(this.orbitIndex,1,gl.FLOAT,false,0,0);
+        gl.drawArrays(gl.POINTS,0,this.orbitCount);gl.disableVertexAttribArray(this.orbitIndex);
     };
     Hologram.prototype.renderPortrait = function(time) {
         if(!this.portraitReady || !this.portraitRect)return;
@@ -773,7 +810,7 @@
         if (this.artwork) {
             gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, this.canvas.width, this.canvas.height);
             gl.colorMask(true, true, true, true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.renderPortrait(time);
+            this.renderOrbits(time, -1); this.renderPortrait(time); this.renderOrbits(time, 1);
             // A body-only cut-out portrait gets no particle cloud around it.
             if (!this.bodyOnly) this.renderSwarm(time); this.renderProjectionRing(time);
             gl.depthMask(true); gl.disable(gl.BLEND); return;

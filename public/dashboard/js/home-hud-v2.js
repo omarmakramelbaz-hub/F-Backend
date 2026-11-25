@@ -45,11 +45,8 @@
         kpi('sales', pounds(s.gross_cents), yesterday(prev.gross_cents));
         kpi('expenses', pounds(s.expenses_cents), yesterday(prev.expenses_cents));
         if (profit && profit.total) {
-            var missing = [];
-            if (!profit.rent_set) missing.push('الإيجار'); if (!profit.packaging_set) missing.push('التغليف');
             var net = profit.total.net_cents;
-            var note = missing.length ? el('span', 'ناقص ' + missing.join(' و'), 'warn')
-                : s.gross_cents > 0 ? el('span', Math.round(net / s.gross_cents * 100) + '% من المبيعات', net >= 0 ? 'up' : 'down') : '';
+            var note = s.gross_cents > 0 ? el('span', Math.round(net / s.gross_cents * 100) + '% من المبيعات', net >= 0 ? 'up' : 'down') : '';
             kpi('profit', pounds(net), note, net < 0 ? 'negative' : '');
         } else kpi('profit', '—', branch ? 'لكل الفروع بس' : 'محتاج تحديث السيرفر');
         renderBranches(); renderAlerts(); renderStock(); renderSummary(); renderDrawers();
