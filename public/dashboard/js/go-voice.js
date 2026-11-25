@@ -85,16 +85,23 @@
     var SECTION_ALIASES = {
         'تيك اواي': ['تيك اوي', 'التيك اواي', 'التيك اوي', 'الكاشير'], 'الصاله': ['صاله', 'الطاولات', 'الترابيزات'],
         'الدليفري': ['دليفري', 'التوصيل', 'طلبات التليفون', 'طلبات الدليفري'], 'المصروفات': ['المصاريف', 'مصروفات'],
-        'الموظفون والرواتب': ['الموظفين', 'المرتبات', 'الرواتب'], 'الرئيسيه': ['الصفحه الرئيسيه', 'الهوم']
+        'الموظفون والرواتب': ['الموظفين', 'المرتبات', 'الرواتب'], 'الرئيسيه': ['الصفحه الرئيسيه', 'الهوم'],
+        'القائمه': ['المنتجات', 'منتجات', 'الاصناف', 'اصناف', 'المنيو', 'منيو'], 'الفروع والطلبات': ['الفروع', 'فروع'],
+        'اضافه بضاعه': ['المخزن', 'مخزن', 'المخزون', 'البضاعه', 'بضاعه'], 'رسائل ميتا': ['الواتساب', 'واتساب', 'الرسائل', 'الرسايل', 'ماسنجر'],
+        'قائمه العملاء': ['العملاء', 'عملاء']
     };
     function findSections(term) {
         term = normalize(term).replace(/^(صفحه|قسم|شاشه) /, '');
-        var links = menuLinks().map(function (link) { return {link: link, label: linkLabel(link), name: normalize(linkLabel(link))}; });
+        // A menu group such as «الطلبات» links nowhere; its «عرض كل الطلبات» item answers to the group's name.
+        var links = menuLinks().map(function (link) { var label = linkLabel(link).replace(/^عرض كل /, ''); return {link: link, label: label, name: normalize(label)}; });
         Object.keys(SECTION_ALIASES).forEach(function (key) { if (SECTION_ALIASES[key].indexOf(term) !== -1) term = key; });
         var exact = links.filter(function (item) { return item.name === term || item.name === 'ال' + term || 'ال' + item.name === term; });
         if (exact.length) return exact;
         var words = term.split(' ');
-        return links.filter(function (item) { var have = item.name.split(' '); return words.every(function (w) { return have.some(function (h) { return h === w || h === 'ال' + w || 'ال' + h === w || (w.length > 3 && h.indexOf(w) === 0); }); }); });
+        var found = links.filter(function (item) { var have = item.name.split(' '); return words.every(function (w) { return have.some(function (h) { return h === w || h === 'ال' + w || 'ال' + h === w || (w.length > 3 && h.indexOf(w) === 0); }); }); });
+        // «افتح الطلبات» means the list, not «إضافة …» or «إرسال …» forms, unless those words were said.
+        var lists = found.filter(function (item) { return !/^(اضافه|ارسال) /.test(item.name); });
+        return lists.length && !/^(اضافه|ارسال) /.test(term) ? lists : found;
     }
     function openSection(term, quiet) {
         if (/^(الرئيسيه|الصفحه الرئيسيه|الهوم)$/.test(normalize(term))) {
@@ -102,7 +109,8 @@
         }
         var found = findSections(term), unique = [];
         found.forEach(function (item) { if (!unique.some(function (u) { return u.link.href === item.link.href; })) unique.push(item); });
-        if (unique.length === 1) { reply('تمام، بفتح ' + unique[0].label + '.', false); unique[0].link.click(); return true; }
+        // Returns the opened section's name (truthy) so the home panel can say it.
+        if (unique.length === 1) { reply('تمام، بفتح ' + unique[0].label + '.', false); unique[0].link.click(); return unique[0].label; }
         if (quiet) return false;
         if (unique.length > 1) reply('لقيت أكتر من قسم: ' + unique.slice(0, 4).map(function (u) { return u.label; }).join('، ') + '. قول الاسم كامل.');
         else reply('مش لاقي قسم بالاسم ده في القائمة بتاعتك.');
@@ -302,7 +310,9 @@
         var mic = el('button', 'go-voice-mic', Recognition ? 'اتكلم' : 'الصوت غير متاح'); mic.type = 'button'; mic.setAttribute('aria-pressed', 'false'); mic.disabled = !Recognition; mic.hidden = !Recognition;
         var stop = el('button', 'go-voice-stop', 'اسكت'); stop.type = 'button';
         var form = el('form', 'go-voice-form'), input = el('input', 'go-voice-input'); input.type = 'text'; input.maxLength = 160; input.placeholder = 'أو اكتب الأمر هنا…'; input.setAttribute('aria-label', 'اكتب أمر لـ GO'); input.autocomplete = 'off';
-        var send = el('button', 'go-voice-send', 'نفّذ'); send.type = 'submit'; form.append(input, send);
+        var send = el('button', 'go-voice-send', 'نفّذ'); send.type = 'button'; form.append(input, send);
+        // Not a submit button: the footer's jQuery turns every form's submit button into a spinner that never resets.
+        send.addEventListener('click', function () { form.requestSubmit(); });
         var controls = el('div', 'go-voice-controls'); controls.append(mic, stop);
         var note = el('p', 'go-voice-note', Recognition ? 'الميكروفون بيشتغل لما تضغط بس، والمتصفح ممكن يستخدم خدمة إنترنت علشان يفهم الكلام.' : (desktop ? 'في البرنامج اكتب الأمر واضغط Enter. الأوامر بالصوت شغالة لما تفتح الداشبورد من Chrome.' : 'المتصفح ده مش بيدعم التعرّف على الصوت، بس تقدر تكتب الأمر.'));
         panel.append(head, controls, form, heard, status, note);
