@@ -439,14 +439,9 @@
     }
     function periodButtons(){root.querySelectorAll('[data-ho-period]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.hoPeriod===period));});$('dates').hidden=period!=='custom';}
     function params(){var p={branch:form.elements.branch.value,period:period};if(period==='custom'){p.from=form.elements.from.value;p.to=form.elements.to.value;}return p;}
-<<<<<<< HEAD
     // auto: the page's own periodic refresh, which may ride with the dashboard's pulse; a person's refresh never waits.
     async function refresh(changed,auto){
-        if(disposed)return;if(controller)controller.abort();controller=new AbortController();var current=++sequence,query=params(),at=controller,version=syncVersion,updated=false;
-=======
-    async function refresh(changed){
         if(disposed)return;if(ownerSummaryController){ownerSummaryEpoch++;ownerSummaryController.abort();ownerSummaryController=null;}if(controller)controller.abort();controller=new AbortController();var current=++sequence,query=params(),at=controller,version=syncVersion,updated=false;
->>>>>>> 6f36293d (Refresh owner insight panels when branch or date filters change)
         var previous={drawer:data.owner_drawer,filters:Object.assign({},data.filters),branches:branchKeys(data),at:drawerUpdated};
         editing=false;syncQueued=false;if(changed)resetDrawers();else {cancelDrawers(false);renderOwnerDrawers();}
         if(changed){$('content').hidden=true;note(text.loading);}root.setAttribute('aria-busy','true');$('refresh').disabled=true;
