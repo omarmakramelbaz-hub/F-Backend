@@ -1,7 +1,7 @@
 <?php
 return [
     'top_products_unavailable'=>'No inventory-linked sales snapshots are available for this period.',
-    'no_top_products'=>'No sales were recorded in this period.',
+    'no_top_products'=>'No inventory-linked sales invoices are available for this period.',
     'sales_tickets'=>'invoices',
     'top_products_note'=>'Ranked by the number of sales invoices containing each item.',
     'attendance_unavailable'=>'Daily attendance records are unavailable for the selected branches.',
