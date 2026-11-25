@@ -301,3 +301,8 @@
 #branch-stock .bs-stock-value{margin:4px 0 0;font-weight:800;color:#13804a}
 .bs-price-dialog .bs-price-preview{margin:4px 0 0;padding:8px 10px;border-radius:8px;background:#effaf3;color:#13804a;font-weight:700;font-size:13px}
 .bs-price-dialog .bs-price-preview.is-loss{background:#fdeeee;color:#c0262f}
+/* A table that does not scroll by itself hands the mouse wheel to its page (net profit, menu recipes). */
+#branch-stock [data-inventory-panel="profit"] .bs-table-wrap,#branch-stock [data-inventory-panel="recipes"] .bs-table-wrap{overscroll-behavior:auto}
+#branch-stock .bs-menu-costs .bs-table-wrap{max-height:420px;overflow:auto}
+#branch-stock .bs-menu-costs .bs-note{margin:0;padding:8px 14px;font-size:12px;color:#5b6f86}
+#branch-stock .bs-menu-available{font-size:12px;color:#5b6f86}

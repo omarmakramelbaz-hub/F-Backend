@@ -154,13 +154,42 @@
             busyPrice = true; save.disabled = true; save.textContent = 'جارٍ الحفظ…';
             try {
                 await post(boot.urls.price_save, { ingredient_id: Number(item.id), cost: c === '' ? null : c, price: p === '' ? null : p, expected_revision: Number(prices.revision || 0) });
-                busyPrice = false; done(); notice('تم حفظ أسعار ' + item.name + '.'); if (!disposed) load(current.pagination.page);
+                busyPrice = false; done(); notice('تم حفظ أسعار ' + item.name + '.'); menuCostsBranch = null; if (!disposed) load(current.pagination.page);
             } catch (failure) {
                 busyPrice = false; save.disabled = false; save.textContent = 'حفظ';
                 error.textContent = failure.message; error.hidden = false;
             }
         });
         dialog.showModal(); cost.focus(); cost.select();
+    }
+    // Owner only: menu items made from their recipe, costed from the goods cost prices.
+    var menuCostsBranch = null, menuCostsGeneration = 0;
+    function menuCostRow(item) {
+        var row = el('tr'), unit = item.unit === 'kg' ? ' / كجم' : '';
+        row.appendChild(el('td', item.name)); row.appendChild(el('td', item.size || '—'));
+        row.appendChild(el('td', item.price == null ? '—' : item.price + unit, 'bs-quantity'));
+        if (!item.recipe) row.appendChild(el('td', 'الوصفة مش متسجلة', 'bs-untracked'));
+        else if (item.cost == null) row.appendChild(el('td', item.missing && item.missing.length ? 'ناقص سعر تكلفة: ' + item.missing.join('، ') : '—', 'bs-untracked'));
+        else row.appendChild(el('td', item.cost + unit, 'bs-quantity'));
+        row.appendChild(marginCell(item.margin));
+        row.appendChild(el('td', item.available || '—', 'bs-menu-available'));
+        return row;
+    }
+    async function loadMenuCosts(force) {
+        var box = root.querySelector('[data-menu-costs]'); if (!box) return;
+        if (!canManagePrices() || !boot.urls.menu_costs) { box.hidden = true; return; }
+        box.hidden = false;
+        var rows = root.querySelector('[data-menu-costs-rows]'), count = root.querySelector('[data-menu-costs-count]');
+        if (current.all_branches) { menuCostsBranch = 'all'; var hint = el('tr'), cell = el('td', 'اختار فرع عشان تشوف تكلفة أصناف المينيو بتاعته.'); cell.colSpan = 6; hint.appendChild(cell); rows.replaceChildren(hint); count.textContent = ''; return; }
+        var target = current.branch.value; if (!force && menuCostsBranch === target) return;
+        menuCostsBranch = target; var mine = ++menuCostsGeneration;
+        try {
+            var data = await request(address(boot.urls.menu_costs, { branch: target }));
+            if (mine !== menuCostsGeneration || disposed) return;
+            rows.replaceChildren.apply(rows, data.items.map(menuCostRow));
+            if (!data.items.length) { var empty = el('tr'), td = el('td', 'مفيش أصناف معروضة في مينيو الفرع ده.'); td.colSpan = 6; empty.appendChild(td); rows.appendChild(empty); }
+            count.textContent = data.priced + ' من ' + data.items.length + ' متحسوب' + (data.missing_recipes ? ' · ' + data.missing_recipes + ' من غير وصفة' : '');
+        } catch (failure) { if (mine === menuCostsGeneration) { menuCostsBranch = null; count.textContent = failure.message; } }
     }
     async function changeUnit(item, select) {
         var before = item.unit;
@@ -198,6 +227,7 @@
         if (!data.items.length) { var empty = el('tr'), cell = el('td', 'لا توجد بضاعة مطابقة للبحث.'); cell.colSpan = canManagePrices() ? 8 : 5; empty.appendChild(cell); body.appendChild(empty); }
         product.value = items.has(chosen) ? chosen : '';
         root.querySelectorAll('[data-price-col]').forEach(function (th) { th.hidden = !canManagePrices(); });
+        loadMenuCosts(false);
         var worth = root.querySelector('[data-stock-value]'); if (worth) { worth.hidden = !canManagePrices(); worth.textContent = canManagePrices() ? 'قيمة المخزون بسعر التكلفة' + (data.all_branches ? ' (كل الفروع)' : '') + ': ' + money(data.stock_value_cents) + ' جنيه' : ''; }
         root.querySelector('[data-stock-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total + ' صنف';
         var history = root.querySelector('[data-stock-history]'); history.replaceChildren();

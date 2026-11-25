@@ -92,6 +92,55 @@ class StockIngredientPrices
         }, 3);
     }
 
+    /** A menu price in pounds as cents; the menu keeps prices as decimal numbers. */
+    private function menuCents($value): ?int
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) return null;
+        return (int)round((float)$value * 100);
+    }
+
+    /** The menu's selling price of one size, as the app and the POS price it. */
+    private function sizePrice(array $item, ?string $feature): ?int
+    {
+        $base = $this->menuCents($item['price']);
+        if ($base === null) return null;
+        if ($feature === 'half') return intdiv($base, 2);
+        if ($feature === 'quarter') return intdiv($base, 4);
+        if (in_array($feature, ['combo', 'large', 'medium'], true)) return $base + (int)$this->menuCents($item['extras']['extra_'.$feature] ?? 0);
+        return $base;
+    }
+
+    /** Owner only: each menu item's cost from its recipe and the goods cost prices, against its menu price. */
+    public function menuCosts(array $values, $actor): array
+    {
+        abort_unless($this->ready(), 503, 'أسعار البضاعة تحتاج تحديث قاعدة البيانات.');
+        abort_unless($this->canManage($actor), 403, 'تكلفة أصناف المينيو متاحة للأونر فقط.');
+        $v = Validator::make($values, ['branch' => 'required|string|max:30'])->validate();
+        $menu = app(BranchInventory::class)->menuRecipes($v['branch'], $actor);
+        $ids = [];
+        foreach ($menu['items'] as $item) foreach ($item['sizes'] as $size) foreach ($size['components'] as $c) $ids[$c['ingredient_id']] = true;
+        $costs = $ids ? DB::table('stock_ingredient_prices')->whereIn('ingredient_id', array_keys($ids))->whereNotNull('cost_cents')->pluck('cost_cents', 'ingredient_id')->all() : [];
+        $rows = []; $priced = 0; $missingRecipe = 0;
+        foreach ($menu['items'] as $item) {
+            if (!$item['sizes']) { $missingRecipe++; $rows[] = ['id' => $item['id'], 'name' => $item['name'], 'size' => null, 'price' => $this->pounds($this->sizePrice($item, null)), 'cost' => null, 'margin' => null, 'missing' => [], 'recipe' => false, 'available' => $item['available']]; continue; }
+            foreach ($item['sizes'] as $size) {
+                $cost = 0; $missing = [];
+                foreach ($size['components'] as $c) {
+                    if (!isset($costs[$c['ingredient_id']])) { $missing[] = $c['name']; continue; }
+                    $cost += intdiv($c['quantity_units'] * (int)$costs[$c['ingredient_id']] + 500000, 1000000);
+                }
+                $price = $this->sizePrice($item, $size['feature']);
+                $known = !$missing && $size['components'];
+                if ($known) $priced++;
+                $rows[] = ['id' => $item['id'], 'name' => $item['name'], 'size' => $size['feature_id'] ? $size['label'] : null,
+                    'unit' => $item['unit'], 'price' => $this->pounds($price), 'cost' => $known ? $this->pounds($cost) : null,
+                    'margin' => $known && $price ? round(($price - $cost) * 100 / $price, 1) : null,
+                    'missing' => array_values(array_unique($missing)), 'recipe' => true, 'available' => $item['available']];
+            }
+        }
+        return ['success' => true, 'branch' => $menu['branch'], 'items' => $rows, 'priced' => $priced, 'missing_recipes' => $missingRecipe];
+    }
+
     /** Weight or pieces. Refused while a recipe, an expense purchase or a fractional balance depends on the current unit. */
     public function saveUnit(array $values, $actor): array
     {

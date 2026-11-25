@@ -12,7 +12,7 @@ class BranchStockController extends Controller
         $actor=auth('admin')->user();$branches=$s->branches($actor);abort_unless(count($branches),403);$canAll=$actor->account_type==='admin'&&empty($actor->owner_resturant_id);$branch=$r->input('branch',$canAll?'all':$branches[0]['value']);
         $boot=['actor_id'=>(int)$actor->id,'branches'=>$branches,'can_all'=>$canAll,'branch'=>$branch,'initial'=>$s->listing(['branch'=>$branch],$actor),'can_adjust'=>app(BranchInventory::class)->installed()&&app(BranchInventory::class)->canAdjust($actor),'urls'=>['data'=>route('branch-stock.data'),'adjust'=>route('branch-stock.adjust'),'receive'=>route('branch-stock.receive'),'recover'=>route('branch-operations.recover'),'recipes'=>route('branch-stock.recipes'),'recipe_save'=>route('branch-stock.recipe-save'),'basic_status'=>route('branch-stock.basic-status'),'basic_apply'=>route('branch-stock.basic-apply')]];
         if(app(OwnerProfit::class)->ready()&&app(OwnerProfit::class)->canManage($actor)){$boot['can_profit']=true;$boot['urls']['profit']=route('branch-stock.profit-costs');$boot['urls']['profit_save']=route('branch-stock.profit-costs-save');}
-        if(app(StockIngredientPrices::class)->canManage($actor)){$boot['urls']['unit_save']=route('branch-stock.unit-save');if(app(StockIngredientPrices::class)->ready())$boot['urls']['price_save']=route('branch-stock.price-save');}
+        if(app(StockIngredientPrices::class)->canManage($actor)){$boot['urls']['unit_save']=route('branch-stock.unit-save');if(app(StockIngredientPrices::class)->ready()){$boot['urls']['price_save']=route('branch-stock.price-save');$boot['urls']['menu_costs']=route('branch-stock.menu-costs');}}
         return view('admin.branch_stock.index',compact('boot'));
     }
     public function data(Request $r,BranchStock $s){return response()->json($s->listing($r->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
@@ -25,5 +25,6 @@ class BranchStockController extends Controller
     public function profitCosts(OwnerProfit $s){return response()->json($s->settings(auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function saveProfitCosts(Request $r,OwnerProfit $s){return response()->json($s->save($r->all(),auth('admin')->user()));}
     public function savePrice(Request $r,StockIngredientPrices $s){return response()->json($s->save($r->all(),auth('admin')->user()));}
+    public function menuCosts(Request $r,StockIngredientPrices $s){return response()->json($s->menuCosts($r->all(),auth('admin')->user()))->header('Cache-Control','private, no-store');}
     public function saveUnit(Request $r,StockIngredientPrices $s){return response()->json($s->saveUnit($r->all(),auth('admin')->user()));}
 }

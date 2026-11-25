@@ -249,6 +249,26 @@ class BranchInventory
         if($sku)$line['inventory']['stock_source']='direct';
         return $line;
     }
+    /** Every menu item on sale in a branch with its recipe per size (ingredients for one unit sold) and what the stock can make. */
+    public function menuRecipes(string $branch,$actor): array
+    {
+        $this->ready();$b=$this->branch($branch,$actor);
+        $products=DB::table('resturant_products')->where('resturant_id',$b['id'])->where('status','show')->orderBy('product_name')->orderBy('id')->get();
+        $ids=$products->pluck('id')->all();$recipes=$this->saleRecipes($b['value'],$ids);$balances=$this->menuBalances($b['value'],$ids);
+        $features=Schema::hasTable('product_features')?DB::table('product_features')->whereIn('product_id',$products->pluck('product_id')->filter())->pluck('name','id')->all():[];
+        $items=[];
+        foreach($products as $p){
+            $r=$recipes[$p->id]??null;$sizes=[];
+            foreach($r?json_decode($r->variants,true):[] as $feature=>$components){
+                $name=$feature==='0'||$feature===0?null:($features[(int)$feature]??null);
+                $sizes[]=['feature_id'=>(int)$feature,'feature'=>$name,'label'=>$name?(self::FEATURES[$name]??$name):'الصنف الأساسي',
+                    'components'=>array_map(fn($c)=>['ingredient_id'=>(int)$c['ingredient_id'],'name'=>$c['name']??'','quantity_units'=>(int)$c['quantity_units']],$components)];
+            }
+            $items[]=['id'=>(int)$p->id,'name'=>$p->product_name,'price'=>(string)$p->product_price,'extras'=>json_decode((string)($p->price??''),true)?:[],
+                'unit'=>$r->unit??null,'raw_stock'=>!empty($r->raw_stock),'sizes'=>$sizes,'available'=>$balances[$p->id]['label']??null];
+        }
+        return ['branch'=>$b,'items'=>$items];
+    }
     public function menuBalances(string $branch,array $ids): array
     {
         if(!str_starts_with($branch,'f:')||!$ids)return [];
