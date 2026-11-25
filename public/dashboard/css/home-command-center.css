@@ -402,3 +402,27 @@ body:has(.ho-compact) .main-header .dropdown-menu .dropdown-item:hover { backgro
 .ho-cc-alert.info { border-color:#176a87; background:#0a2c3f; color:#d8f5ff; }
 .ho-cc-alert.info>i { color:#39d8ef; }
 .ho-cc-alert.danger { border-color:#9f4b35; background:#351c1b; color:#ffe7dd; }
+
+
+/* Preview refinement: give the holographic assistant a real hero area without crowding the owner metrics. */
+@media (min-width:701px) {
+    .ho-cc-top {
+        grid-template-columns:minmax(280px,26%) minmax(0,1fr);
+        align-items:stretch;
+    }
+    .ho-cc-assistant {
+        min-height:320px;
+        height:100%;
+    }
+}
+@media (min-width:1600px) {
+    .ho-cc-top { grid-template-columns:minmax(340px,28%) minmax(0,1fr); }
+    .ho-cc-assistant { min-height:360px; }
+}
+@media (min-width:701px) and (max-width:1150px) {
+    .ho-cc-top { grid-template-columns:minmax(250px,28%) minmax(0,1fr); }
+    .ho-cc-assistant { min-height:280px; }
+}
+@media (max-width:700px) {
+    .ho-cc-assistant { min-height:280px; max-width:360px; }
+}
