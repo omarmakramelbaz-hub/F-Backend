@@ -294,6 +294,12 @@
         on(select, 'change', pickBranch);
         // The dashboard wraps selects in select2, whose choice reaches jQuery handlers only.
         if (window.jQuery) { window.jQuery(select).on('change.hv3', pickBranch); removers.push(function () { window.jQuery(select).off('change.hv3'); }); }
+        // select2 draws its list at the end of <body>; tag it so it takes the home's look.
+        if (window.jQuery) {
+            var tagList = function () { var s2 = window.jQuery(select).data('select2'); if (s2 && s2.$dropdown) s2.$dropdown.addClass('hv3-branch-list'); };
+            window.jQuery(select).on('select2:open.hv3', tagList); tagList();
+            removers.push(function () { window.jQuery(select).off('select2:open.hv3'); });
+        }
     }
     var voiceButton = $('[data-hv2-voice]'); if (voiceButton) on(voiceButton, 'click', voice);
     var bell = $('[data-hv2-bell]'), alertsPanel = $('#hv2-alerts');
