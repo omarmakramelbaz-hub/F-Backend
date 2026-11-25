@@ -3,6 +3,7 @@
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-overview.css') }}?v={{ filemtime(public_path('dashboard/css/home-overview.css')) }}">
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-hud.css') }}?v={{ filemtime(public_path('dashboard/css/home-hud.css')) }}">
 <link rel="stylesheet" href="{{ asset('dashboard/css/hud-commands.css') }}?v={{ filemtime(public_path('dashboard/css/hud-commands.css')) }}">
+@if(isset($boot['initial']['owner_drawer']))<link rel="stylesheet" href="{{ asset('dashboard/css/home-hud-v2.css') }}?v={{ filemtime(public_path('dashboard/css/home-hud-v2.css')) }}">@endif
 @endpush
 @section('content')
 <div class="content-wrapper ho-wrapper{{ isset($boot['initial']['owner_platform'])?' ho-compact':'' }}">
@@ -54,4 +55,5 @@
 <script src="{{ asset('dashboard/js/home-overview.js') }}?v={{ filemtime(public_path('dashboard/js/home-overview.js')) }}"></script>
 <script src="{{ asset('dashboard/js/hud-commands.js') }}?v={{ filemtime(public_path('dashboard/js/hud-commands.js')) }}"></script>
 <script src="{{ asset('dashboard/js/home-hud.js') }}?v={{ filemtime(public_path('dashboard/js/home-hud.js')) }}"></script>
+@if(isset($boot['initial']['owner_drawer']))<script src="{{ asset('dashboard/js/home-hud-v2.js') }}?v={{ filemtime(public_path('dashboard/js/home-hud-v2.js')) }}"></script>@endif
 @endpush

@@ -280,3 +280,11 @@
 .bs-adjust footer .bs-primary{flex:1;min-height:42px;border:0;border-radius:10px;background:linear-gradient(135deg,#f78a1e,#e86a00);color:#fff;font-weight:800;cursor:pointer}
 .bs-adjust footer .bs-primary:disabled{opacity:.5}
 .bs-adjust footer .bs-button{min-height:42px;padding:0 18px;border:1px solid #d6dee9;border-radius:10px;background:#fff;font-weight:700;cursor:pointer}
+/* «صافي الربح» tab (owner only) */
+#branch-stock .bs-profit-layout{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:1rem;align-items:start}
+#branch-stock .bs-profit-layout .bs-profit-expenses{grid-column:1/-1}
+#branch-stock .bs-profit-layout .bs-primary{grid-column:1/-1;justify-self:start;min-width:12rem}
+#branch-stock .bs-profit-packaging{display:grid;gap:.4rem;font-weight:700}
+#branch-stock .bs-profit-layout td input[type=text]{width:100%;max-width:10rem}
+#branch-stock .bs-profit-layout td input[type=checkbox]{width:1.2rem;height:1.2rem}
+#branch-stock .bs-profit-layout small{color:#64748b;font-weight:400}

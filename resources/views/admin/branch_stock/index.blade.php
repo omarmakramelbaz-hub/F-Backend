@@ -5,7 +5,7 @@
 @section('content')
 <div class="content-wrapper branch-stock-wrapper"><main id="branch-stock" dir="rtl" data-inventory-tab="goods">
 <header class="bs-heading"><div><h1><i class="fas fa-boxes" aria-hidden="true"></i> إضافة بضاعة</h1><p>توريد البضاعة وربط أصناف البيع بوصفات المكونات</p></div>
-<nav class="bs-tabs" aria-label="المخزون والوصفات"><button type="button" data-inventory-tab="goods" aria-pressed="true">البضاعة والأرصدة</button><button type="button" data-inventory-tab="recipes" aria-pressed="false">وصفات المينيو</button></nav>
+<nav class="bs-tabs" aria-label="المخزون والوصفات"><button type="button" data-inventory-tab="goods" aria-pressed="true">البضاعة والأرصدة</button><button type="button" data-inventory-tab="recipes" aria-pressed="false">وصفات المينيو</button>@if(!empty($boot['can_profit']))<button type="button" data-inventory-tab="profit" aria-pressed="false">صافي الربح</button>@endif</nav>
 <label>الفرع<select data-stock-branch @if(count($boot['branches'])===1 && empty($boot['can_all'])) disabled @endif>@if(!empty($boot['can_all']))<option value="all" @if($boot['branch']==='all') selected @endif>جميع الفروع</option>@endif
 @foreach($boot['branches'] as $b)<option value="{{ $b['value'] }}" @if($boot['branch']===$b['value']) selected @endif>{{ $b['name'] }}</option>@endforeach</select></label></header>
 <p class="bs-note bs-guidance" data-stock-guidance></p>
@@ -37,6 +37,24 @@
 <button class="bs-primary" type="submit" data-recipe-save>حفظ وصفة الصنف</button>
 </form><p class="bs-note" data-recipe-empty>اختر الصنف من القائمة. لن تُفترض مقادير لأي وصفة.</p></section></div>
 </section>
+@if(!empty($boot['can_profit']))
+<section data-inventory-panel="profit" data-profit-panel hidden>
+<header class="bs-recipe-heading"><div><h2>حساب صافي الربح</h2><p>صافي الربح = المبيعات (بعد خدمة التوصيل) − الرواتب − الإيجار − المصروفات − التغليف. الضرايب مش بتتخصم.</p></div></header>
+<div class="bs-message" data-profit-message role="status" hidden></div>
+<form data-profit-form class="bs-profit-layout">
+<section class="bs-panel"><header><h2>التغليف</h2></header>
+<label class="bs-profit-packaging">تكلفة التغليف لكل أوردر (جنيه)<input name="packaging" type="text" inputmode="decimal" maxlength="12" placeholder="مثلاً 5" autocomplete="off" data-profit-packaging></label>
+<p class="bs-note">التغليف = عدد الأوردرات × القيمة دي، لكل الفروع.</p></section>
+<section class="bs-panel"><header><h2>الإيجار والرواتب لكل فرع</h2></header>
+<div class="bs-table-wrap"><table><thead><tr><th>الفرع</th><th>الإيجار الشهري (جنيه)</th><th>رواتب الشهر</th></tr></thead><tbody data-profit-branches></tbody></table></div>
+<p class="bs-note">الرواتب بتتحسب لوحدها من مرتبات الموظفين في صفحة الموظفين. الإيجار والرواتب بيتوزعوا على أيام الشهر.</p></section>
+<section class="bs-panel bs-profit-expenses"><header><h2>بنود المصروفات</h2><span>آخر 30 يوم</span></header>
+<div class="bs-table-wrap"><table><thead><tr><th>يدخل في الربح</th><th>البند</th><th>آخر 30 يوم (جنيه)</th></tr></thead><tbody data-profit-expenses></tbody></table></div>
+<p class="bs-note">البنود اللي مش متعلّمة مش بتتخصم من الربح عشان ما تتحسبش مرتين: الرواتب والسلف (محسوبة من الرواتب)، الإيجار والتغليف (قيم ثابتة)، والفلوس اللي الفرع بيحصّلها بس زي أوردرات التطبيقات المدفوعة. تقدر تغيّر أي بند.</p></section>
+<button class="bs-primary" type="submit" data-profit-save>حفظ</button>
+</form>
+</section>
+@endif
 </main></div>
 @endsection
 @push('custom-js')
@@ -46,4 +64,5 @@
 <script type="application/json" id="branch-stock-bootstrap">@json($boot)</script>
 <script src="{{ asset('dashboard/js/branch-stock.js') }}?v={{ filemtime(public_path('dashboard/js/branch-stock.js')) }}"></script>
 <script src="{{ asset('dashboard/js/branch-recipes.js') }}?v={{ filemtime(public_path('dashboard/js/branch-recipes.js')) }}"></script>
+@if(!empty($boot['can_profit']))<script src="{{ asset('dashboard/js/branch-profit.js') }}?v={{ filemtime(public_path('dashboard/js/branch-profit.js')) }}"></script>@endif
 @endpush
