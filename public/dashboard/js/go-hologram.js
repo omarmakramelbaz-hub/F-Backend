@@ -563,7 +563,7 @@
         var gl=this.gl;
         try {
             if(!this.portraitProgram){
-                var face=faceOf(this.artworkImage);this.portraitProgram=makeProgram(gl,portraitVertex(face),portraitFragment(face));this.portraitUV=gl.getAttribLocation(this.portraitProgram,'aPortraitUV');this.portraitUniforms={};
+                var face=faceOf(this.artworkImage);this.bodyOnly=face.holo>0;this.portraitProgram=makeProgram(gl,portraitVertex(face),portraitFragment(face));this.portraitUV=gl.getAttribLocation(this.portraitProgram,'aPortraitUV');this.portraitUniforms={};
                 ['uRect','uViewport','uTime','uYaw','uPitch','uBlink','uVoice','uPoint','uDpr','uPortrait'].forEach(function(n){this.portraitUniforms[n]=gl.getUniformLocation(this.portraitProgram,n);},this);
                 var grid=portraitGrid(this.compact?64:160,this.compact?48:120,false),dots=portraitGrid(this.compact?63:255,this.compact?63:191,true);
                 this.portraitMesh=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitMesh);gl.bufferData(gl.ARRAY_BUFFER,grid.uv,gl.STATIC_DRAW);
@@ -774,7 +774,8 @@
             gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, this.canvas.width, this.canvas.height);
             gl.colorMask(true, true, true, true); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             this.renderPortrait(time);
-            this.renderSwarm(time); this.renderProjectionRing(time);
+            // A body-only cut-out portrait gets no particle cloud around it.
+            if (!this.bodyOnly) this.renderSwarm(time); this.renderProjectionRing(time);
             gl.depthMask(true); gl.disable(gl.BLEND); return;
         }
         gl.useProgram(this.program);
