@@ -253,27 +253,31 @@
     #go-hud.hud-v2 .hv2-action,#go-hud.hud-v2 .hv3-quick{flex:1 1 140px;font-size:15px;min-height:48px}
 }
 
-/* The branch filter when the dashboard wraps it in select2 */
+/* The branch filter when the dashboard wraps it in select2: the pill stays the home's own, no box inside it. */
 #go-hud.hud-v2 .hv3-branch .select2-container{flex:1;min-width:0;width:auto!important}
-#go-hud.hud-v2 .hv3-branch .select2-container .select2-selection--single{height:42px;border:0;background:transparent;display:flex;align-items:center}
+#go-hud.hud-v2 .hv3-branch .select2-container .select2-selection--single,
+#go-hud.hud-v2 .hv3-branch .select2-container--focus .select2-selection--single,
+#go-hud.hud-v2 .hv3-branch .select2-container--open .select2-selection--single{height:42px;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;outline:none!important;display:flex;align-items:center}
 #go-hud.hud-v2 .hv3-branch .select2-selection__rendered{color:#fff!important;font-size:15px;font-weight:700;line-height:42px!important;padding:0 4px 0 22px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow{height:42px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow b{border-color:#dff4ff transparent transparent!important}
+#go-hud.hud-v2 .hv3-branch .select2-container--open .select2-selection__arrow b{border-color:transparent transparent #ffa133!important}
+#go-hud.hud-v2 .hv3-branch:focus-within{border-color:#ffa133;box-shadow:0 0 16px rgba(255,155,34,.45)}
 /* select2 opens its list at the end of <body> at z-index 1051, under this home (1100): lift the open list above it. */
 body>.select2-container--open,body>.select2-container--open .select2-dropdown{z-index:1201}
-/* The open branch list, in the home's look (the list lives at the end of <body>, tagged by home-hud-v2.js). */
-.select2-dropdown.hv3-branch-list{margin-top:6px;border:1px solid #1fb4de!important;border-radius:14px!important;overflow:hidden;direction:rtl;font-family:inherit;
-    background:linear-gradient(165deg,rgba(12,58,90,.98),rgba(3,18,36,.99))!important;box-shadow:0 0 18px rgba(40,190,240,.45),0 14px 34px rgba(0,0,0,.55),inset 0 0 22px rgba(40,190,240,.12)}
-.select2-dropdown--above.hv3-branch-list{margin-top:0;margin-bottom:6px}
-.hv3-branch-list .select2-search--dropdown{padding:10px 10px 4px}
-.hv3-branch-list .select2-search__field{border:1px solid rgba(63,224,255,.45)!important;border-radius:10px;background:rgba(1,16,30,.85);color:#eef9ff;padding:8px 12px!important;font:inherit;font-size:14px;outline:none}
-.hv3-branch-list .select2-search__field:focus{border-color:#ffa133!important;box-shadow:0 0 0 2px rgba(255,161,51,.25)}
-.hv3-branch-list .select2-results>.select2-results__options{max-height:min(60vh,420px);padding:6px;scrollbar-width:thin;scrollbar-color:rgba(63,224,255,.55) transparent}
-.hv3-branch-list .select2-results__options::-webkit-scrollbar{width:8px}
-.hv3-branch-list .select2-results__options::-webkit-scrollbar-thumb{background:rgba(63,224,255,.45);border-radius:8px}
-.hv3-branch-list .select2-results__option{margin:2px 0;padding:9px 14px;border-radius:10px;color:#dff4ff;font-size:14.5px;font-weight:700;text-align:right;transition:background .12s,color .12s}
-.hv3-branch-list .select2-results__option:first-child{margin-bottom:6px;color:#ffc04d;box-shadow:0 1px 0 rgba(63,224,255,.18)}
-.hv3-branch-list .select2-results__option[aria-selected=true],.hv3-branch-list .select2-results__option--selected{background:rgba(31,180,222,.2);color:#3fe0ff;box-shadow:inset 0 0 0 1px rgba(63,224,255,.45)}
-.hv3-branch-list .select2-results__option--highlighted[aria-selected],.hv3-branch-list .select2-results__option.select2-results__option--highlighted{background:linear-gradient(90deg,#c46f10,#7a3e06)!important;color:#fff!important;box-shadow:0 0 12px rgba(255,155,34,.45)}
-.hv3-branch-list .select2-results__message{color:#9cc8d8}
+/* The open branch list (tagged by home-hud-v2.js): the page's own dark blue, branch names in white. */
+.hv3-branch-list .select2-dropdown,.select2-dropdown.hv3-branch-list{margin-top:6px;border:1px solid rgba(63,224,255,.55)!important;border-radius:14px!important;overflow:hidden;direction:rtl;font-family:inherit;
+    background:linear-gradient(180deg,#05203a 0%,#041631 100%)!important;box-shadow:0 0 18px rgba(40,190,240,.35),0 14px 34px rgba(0,0,0,.6)}
+.hv3-branch-list .select2-dropdown--above,.select2-dropdown--above.hv3-branch-list{margin-top:0;margin-bottom:6px}
+.hv3-branch-list .select2-search--dropdown{padding:10px 10px 4px;background:transparent!important}
+.hv3-branch-list .select2-search--dropdown .select2-search__field{border:1px solid rgba(63,224,255,.45)!important;border-radius:10px!important;background:#021226!important;color:#fff!important;padding:8px 12px!important;font:inherit;font-size:14px;outline:none}
+.hv3-branch-list .select2-search--dropdown .select2-search__field:focus{border-color:#ffa133!important;box-shadow:0 0 0 2px rgba(255,161,51,.25)}
 .hv3-branch-list .select2-results,.hv3-branch-list .select2-results__options{background:transparent!important}
+.hv3-branch-list .select2-results>.select2-results__options{max-height:min(60vh,420px)!important;padding:6px;scrollbar-width:thin;scrollbar-color:rgba(63,224,255,.55) transparent}
+.hv3-branch-list .select2-results__options::-webkit-scrollbar{width:8px}
+.hv3-branch-list .select2-results__options::-webkit-scrollbar-track{background:transparent}
+.hv3-branch-list .select2-results__options::-webkit-scrollbar-thumb{background:rgba(63,224,255,.45);border-radius:8px}
+.hv3-branch-list .select2-results__option{margin:2px 0;padding:9px 14px;border-radius:10px;background:transparent!important;color:#fff!important;font-size:14.5px;font-weight:700;text-align:right;transition:background .12s}
+.hv3-branch-list .select2-results__option[aria-selected=true],.hv3-branch-list .select2-results__option--selected{background:rgba(31,180,222,.22)!important;box-shadow:inset 0 0 0 1px rgba(63,224,255,.45)}
+.hv3-branch-list .select2-results__option--highlighted[aria-selected],.hv3-branch-list .select2-results__option.select2-results__option--highlighted{background:linear-gradient(90deg,#c46f10,#7a3e06)!important;color:#fff!important;box-shadow:0 0 12px rgba(255,155,34,.45)}
+.hv3-branch-list .select2-results__message{color:#9cc8d8!important}
