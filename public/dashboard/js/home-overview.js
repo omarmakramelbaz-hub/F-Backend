@@ -195,7 +195,7 @@
             target.appendChild(node);
         });
         if(!target.children.length)target.appendChild(el('p',text.metrics_unavailable,'ho-cc-empty'));
-        var updated=$('ops-updated');if(updated)updated.textContent=metrics&&metrics.updated_at?'آخر تحديث '+new Date(metrics.updated_at).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Cairo'}):'تتحدث تلقائيًا';
+        var updated=$('ops-updated');if(updated)updated.textContent=metrics&&metrics.updated_at?'آخر تحديث '+new Date(metrics.updated_at).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Cairo'}):'تتحدث تلقائيًا';renderOwnerStockHealth();
     }
     function renderOwnerAlerts(){
         var target=$('owner-alerts');if(!target)return;target.replaceChildren();
@@ -298,21 +298,22 @@
     }
     function renderOwnerStockHealth(){
         var target=$('owner-stock-health');if(!target)return;target.replaceChildren();
-        if(!data.modules.inventory||!data.inventory||!Array.isArray(data.inventory.items)){
+        var stock=ownerMetricsData&&Array.isArray(ownerMetricsData.cards)?ownerMetricsData.cards.find(function(item){return item&&item.key==='stock';}):null;
+        if(!stock||!stock.available||stock.count===null||stock.secondary_count===null||stock.secondary_count===undefined){
             target.appendChild(el('p',text.unavailable_inventory,'ho-cc-insight-unavailable'));return;
         }
-        var tracked=data.inventory.items.filter(function(item){return Number(item.tracked_branches)>0;});
-        if(!tracked.length){target.appendChild(el('p',text.no_stock,'ho-cc-insight-unavailable'));return;}
-        var negative=tracked.filter(function(item){return Number(item.negative_branches)>0;});
-        var low=tracked.filter(function(item){return item.is_low===true&&Number(item.negative_branches)===0;});
-        var safe=Math.max(0,tracked.length-low.length-negative.length),safePct=Math.round(safe*100/tracked.length),lowEnd=Math.round((safe+low.length)*100/tracked.length);
+        var total=Math.max(0,Number(stock.count)||0),low=Math.max(0,Number(stock.secondary_count)||0);
+        if(!total){target.appendChild(el('p',text.no_stock,'ho-cc-insight-unavailable'));return;}
+        low=Math.min(total,low);
+        var safe=Math.max(0,total-low),safePct=Math.round(safe*100/total),lowEnd=100;
         var ring=el('div',undefined,'ho-cc-stock-ring');ring.style.setProperty('--ho-stock-safe',safePct+'%');ring.style.setProperty('--ho-stock-low',lowEnd+'%');
         ring.append(el('strong',safePct+'%'),el('small',text.stock_health||'آمن'));
         var legend=el('div',undefined,'ho-cc-stock-legend');
         function stat(label,value,cls){var row=el('div',undefined,'ho-cc-stock-stat '+cls),name=el('span',undefined);name.append(el('i'),document.createTextNode(label));row.append(name,el('b',fmt(value)));legend.appendChild(row);}
-        stat(text.stock_safe||'أصناف آمنة',safe,'safe');stat(text.stock_low||'أصناف منخفضة',low.length,'low');stat(text.stock_negative||'أصناف برصيد سالب',negative.length,'missing');
+        stat(text.stock_safe||'أصناف آمنة',safe,'safe');stat(text.stock_low||'أصناف منخفضة',low,'low');
         target.append(ring,legend);
-        target.appendChild(el('p',text.stock_recipes_note?text.stock_recipes_note+' · '+fmt(data.inventory.unconfigured_recipes):'', 'ho-cc-insight-note'));
+        var recipes=data.inventory&&data.modules.inventory?Number(data.inventory.unconfigured_recipes)||0:null;
+        target.appendChild(el('p',recipes===null?'':(text.stock_recipes_note||'وصفات تحتاج ربط')+' · '+fmt(recipes),'ho-cc-insight-note'));
     }
     function renderOwnerSummary(summary){
         if(!data.owner_platform)return;ownerSummaryLast=summary||null;
