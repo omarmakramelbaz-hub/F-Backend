@@ -58,6 +58,15 @@ class OwnerProfit
         return (bool) preg_match('/تحصيل|مدفوع|[اإأ]نستا\s*باي|insta\s*pay|فودافون|vodafone/iu', $name);
     }
 
+    /**
+     * An entry described as «تحصيل …» is money leaving the drawer that is not an operating cost, whatever category it was
+     * filed under: cash handed to the owner, or a supplier paid for goods (charged already as cost of goods sold).
+     */
+    public static function withoutCollections($query)
+    {
+        return $query->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', '%تحصيل%'));
+    }
+
     /** Buying goods: charged when the goods are sold (cost of goods sold), never again as an expense. */
     public static function goodsPurchase(string $key, string $name): bool
     {
@@ -83,7 +92,7 @@ class OwnerProfit
     private function expenseItems(array $rules): array
     {
         $names = $this->names(); $today = Carbon::parse(OperatingDay::date(), 'Africa/Cairo');
-        $totals = DB::table('branch_expenses')->where('status', 'approved')->where('occurred_on', '>=', $today->copy()->subDays(89)->toDateString())
+        $totals = self::withoutCollections(DB::table('branch_expenses'))->where('status', 'approved')->where('occurred_on', '>=', $today->copy()->subDays(89)->toDateString())
             ->select('category')->selectRaw('SUM(CASE WHEN occurred_on >= ? THEN amount_cents ELSE 0 END) AS month_cents', [$today->copy()->subDays(29)->toDateString()])
             ->groupBy('category')->get();
         $items = [];
@@ -187,7 +196,7 @@ class OwnerProfit
         $packaging = (int) $this->setting(self::PACKAGING, 0);
         $rules = (array) $this->setting(self::EXPENSE_RULES, []);
         $names = $this->names();
-        $expenses = DB::table('branch_expenses')->whereIn('branch', $keys)->where('status', 'approved')
+        $expenses = self::withoutCollections(DB::table('branch_expenses'))->whereIn('branch', $keys)->where('status', 'approved')
             ->whereBetween('occurred_on', [$fromDate, $toDate])->select('branch', 'category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch', 'category')->get();
         foreach ($expenses as $x) {
             $key = (string) $x->category;
