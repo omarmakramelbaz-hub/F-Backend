@@ -233,7 +233,6 @@
         if(ownerRecognition){ownerRecognition.stop();return;}
         var recognition=new Recognition();ownerRecognition=recognition;recognition.lang=boot.locale==='ar'?'ar-EG':'en-US';recognition.continuous=false;recognition.interimResults=true;
         button.classList.add('is-listening','ho-cc-mic-listening');status.classList.remove('is-error');status.textContent=text.voice_listening;
-        if(ownerRobot)ownerRobot.setSpeaking(true);
         recognition.onresult=function(event){
             var transcript='';for(var i=event.resultIndex;i<event.results.length;i++)transcript+=event.results[i][0].transcript;
             if(transcript)input.value=transcript;
