@@ -49,7 +49,7 @@
         <button type="button" class="hv2-action is-voice" data-hv2-voice><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2 M4 14h3v6H4z M17 14h3v6h-3z M17 20a5 5 0 0 1-5 2"/></svg><span>تحدث مع GO</span></button>
         <span class="hv3-sep" aria-hidden="true"></span>
         <a class="hv2-action is-logout" href="{{ url('/admin/adminLogout') }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10 M18.4 6.6a9 9 0 1 1-12.8 0"/></svg><span>خروج</span></a>
-        <a class="hv2-action is-home" href="{{ url('/admin/dashboard') }}" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/></svg><span>الرئيسية</span></a>
+        <button type="button" class="hv2-action is-home" data-hud-enter><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/></svg><span>الرئيسية</span></button>
     </div>
 @else
     <button class="hud-enter" data-hud-enter type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/></svg><span>الدخول للرئيسية</span></button>

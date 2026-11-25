@@ -200,7 +200,7 @@
         removers.forEach(function (remove) { remove(); }); document.documentElement.classList.remove('go-hud-open');
     }
     document.documentElement.classList.add('go-hud-open');
-    on(enter, 'click', leave); on(root, 'click', drawersClick); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'dashboard:order-alert-state', alertState);
+    root.querySelectorAll('[data-hud-enter]').forEach(function (button) { on(button, 'click', leave); }); on(root, 'click', drawersClick); on(document, 'keydown', keydown); on(document, 'go:home-data', onData); on(document, 'dashboard:order-alert-state', alertState);
     on(document, 'visibilitychange', visibility); on(document, 'dashboard:before-unload', dispose); on(window, 'pagehide', dispose);
     on(root, 'pointermove', gaze, {passive: true}); on(root, 'pointerleave', restGaze);
     on(window, 'resize', wakeBackground); if (reduce && reduce.addEventListener) on(reduce, 'change', wakeBackground);
