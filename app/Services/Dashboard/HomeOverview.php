@@ -265,7 +265,10 @@ class HomeOverview
                         $productId=(int)($line['product_id']??0);
                         if($name===''||$productId<1)continue;
                         $unit=(string)($line['recipe']['unit']??'');
-                        $key=$productId.'|'.$name.'|'.$unit;
+                        // Each branch keeps its own copy of a menu item, so the same item has a product per branch:
+                        // count it once by its name across all branches.
+                        $name=preg_replace('/\s+/u',' ',$name);
+                        $key=mb_strtolower($name).'|'.$unit;
                         if(!isset($products[$key]))$products[$key]=['product_id'=>$productId,'name'=>$name,'unit'=>$unit,'sales'=>[]];
                         $products[$key]['sales'][$saleKey]=true;
                     }
