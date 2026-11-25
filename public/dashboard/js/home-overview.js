@@ -202,7 +202,8 @@
         var alerts=Array.isArray(data.alerts)?data.alerts:[];
         var count=$('owner-alert-count');if(count)count.textContent=fmt(alerts.length);
         alerts.forEach(function(a){
-            var row=el(a.url?'a':'article',undefined,'ho-cc-alert'+(a.tone==='amber'||a.tone==='warning'?' warn':a.tone==='green'||a.tone==='success'?' ok':''));
+            var tone=a.tone==='amber'||a.tone==='warning'?' warn':a.tone==='green'||a.tone==='success'?' ok':a.tone==='blue'?' info':' danger';
+            var row=el(a.url?'a':'article',undefined,'ho-cc-alert'+tone);
             if(a.url)row.href=safeLink(a.url);
             var kind=a.kind||'info';
             row.appendChild(icon(kind.includes('stock')?'boxes':kind==='print_pending'?'print':kind==='late_orders'?'clock':kind==='pending_expenses'?'file-invoice-dollar':'info-circle'));
