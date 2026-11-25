@@ -225,7 +225,8 @@
     #go-hud.hud-v2 .hv3-store-money{font-size:12px}
 }
 @media (max-width:1180px){
-    #go-hud.hud-v2{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:none;min-height:100vh;
+    /* Rows grow with their cards: a card min-height must never cap a row and let its lines spill over the next card. */
+    #go-hud.hud-v2{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(min-content,auto);min-height:100vh;
         grid-template-areas:"user user bell branch" "cmd cmd cmd cmd" "fig fig summary summary" "date date date date" "exp profit sales orders" "tiles tiles tiles tiles" "panels panels panels panels" "lower lower lower lower" "actions actions actions actions"}
     #go-hud.hud-v2 .hud-figure{min-height:240px}
     #go-hud.hud-v2 .hud-command-toggle{max-width:none}
