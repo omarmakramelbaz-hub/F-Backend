@@ -17,18 +17,12 @@
     @endif
     <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261017-go-solar-1">
-    <link rel="stylesheet" href="{{ asset('dashboard/css/go-login-hologram.css') }}?v=20261125-body-1">
+    <link rel="stylesheet" href="{{ asset('dashboard/css/go-login-hologram.css') }}?v=20261125-form-1">
 </head>
 @php $isArabic = app()->getLocale() === 'ar'; @endphp
 <body class="login-page dashboard-login-page dashboard-login-hologram">
     <svg class="go-login-orbits" viewBox="0 0 1600 1000" preserveAspectRatio="none" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width=".7"><path d="M-100 30C500 80 250 770 1700 940M-100 130C400 80 380 780 1700 840M-100 240C440 100 380 770 1700 730M-100 350C500 190 440 750 1700 620M-100 470C520 360 440 720 1700 510M-100 590C570 590 600 150 1700 120M-100 730C500 830 800 300 1700 240M-100 850C650 1000 850 390 1700 360M-100 940C760 1120 960 500 1700 470"/></g></svg>
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
-        <section class="dashboard-login-identity" aria-label="{{ $isArabic ? 'هولوجرام GO' : 'GO hologram' }}">
-            <div class="go-login-hologram" data-go-login-hologram aria-hidden="true">
-                <img class="is-body" data-hologram-artwork data-hologram-face='{"eyes":[[0.629,0.315,0.045,0.025],[0.768,0.335,0.040,0.024]],"lip":[0.680,0.462,0.052,0.022],"cavity":[0.038,0.007],"jaw":[0.10,0.45,0.50,0.53,0.58],"head":[0.52,0.66,0.42,0.50,0.88,0.95],"pivot":[0.68,0.58],"depth":[0.68,0.32,0.20,0.28],"emitter":[0.50,0.95],"motion":7,"holo":1,"fire":1,"orbits":1,"orbit":[0.55,0.56]}' src="{{ asset('dashboard/branding/go-assistant-holo-20261125b.webp') }}" alt="" width="342" height="400" decoding="async" fetchpriority="high">
-                <canvas data-go-login-canvas></canvas>
-            </div>
-        </section>
 
         <section class="dashboard-login-form-panel">
             <span class="dashboard-login-eyebrow">{{ $isArabic ? 'لوحة التحكم' : 'Dashboard' }}</span>
@@ -87,8 +81,6 @@
     </main>
     <div class="go-login-mark" aria-label="GO">@include('admin.partials.go_hud_mark')</div>
     <p class="go-login-tagline" lang="en" dir="ltr">THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR</p>
-    <script src="{{ asset('dashboard/js/go-hologram.js') }}?v=20261125-orbits-1"></script>
-    <script src="{{ asset('dashboard/js/go-login-hologram.js') }}?v=20261110-living-1"></script>
     <script>
         (function () {
             const form = document.querySelector('[data-dashboard-login]');
