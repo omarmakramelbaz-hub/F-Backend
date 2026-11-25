@@ -39,6 +39,7 @@
 </section>
 @if(!empty($boot['can_profit']))
 <section data-inventory-panel="profit" data-profit-panel hidden>
+<section class="bs-panel bs-branch-net" data-branch-net hidden><header><h2>صافي الربح لكل فرع</h2><small data-branch-net-day></small></header><div class="bs-branch-net-list" data-branch-net-list></div></section>
 <header class="bs-recipe-heading"><div><h2>حساب صافي الربح</h2><p>صافي الربح = المبيعات (بعد خدمة التوصيل) − تكلفة البضاعة المباعة − الرواتب − الإيجار − المصروفات − التغليف. تكلفة البضاعة = مقادير وصفة كل صنف اتباع × سعر تكلفة مكوناته، فبنود المشتريات مش بتتخصم تاني. الضرايب مش بتتخصم.</p></div></header>
 <div class="bs-message" data-profit-message role="status" hidden></div>
 <form data-profit-form data-own-busy class="bs-profit-layout">

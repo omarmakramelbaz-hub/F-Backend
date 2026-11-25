@@ -865,7 +865,9 @@
             var doc = new DOMParser().parseFromString(html, 'text/html');
             if (!doc.querySelector('[data-dashboard-page]') || !doc.querySelector('.main-header')) throw new Error('Response is not an authenticated dashboard page');
             if (!response.ok && !doc.querySelector('[data-dashboard-page]')) throw new Error('Dashboard request failed');
+            // fetch() never sends the #part, so the page it opens (…/branch-stock#profit) gets it back here.
             var destination = response.url || url.href;
+            if (url.hash && destination.indexOf('#') < 0) destination += url.hash;
             var actor = document.body.getAttribute('data-dashboard-actor');
             if (actor && doc.body.getAttribute('data-dashboard-actor') !== actor) { window.location.assign(destination); return; }
             // Shell scripts (header/footer) load once. After a server update adds or changes one, open the

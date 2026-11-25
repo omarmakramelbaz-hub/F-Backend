@@ -312,3 +312,20 @@
 #branch-stock .bs-table-wrap table.fit-stack>tbody>tr>:is(td,th)[data-label=""]{padding-inline-start:0!important}
 #branch-stock .bs-table-wrap table.fit-stack>tbody>tr>:is(td,th):last-child{border-bottom:0!important}
 #branch-stock .bs-table-wrap table.fit-stack td input[type=text]{margin:0;max-width:100%}
+
+/* Net profit tab: each branch's profit or loss today and this month, above the settings. */
+#branch-stock .bs-branch-net{margin-bottom:1rem}
+#branch-stock .bs-branch-net>header small{color:#64748b;font-size:12px}
+#branch-stock .bs-branch-net-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,13rem),1fr));gap:.75rem;padding:14px}
+#branch-stock .bs-branch-net-card{border:1px solid #e3eaf2;border-radius:12px;padding:10px 12px;background:#fbfdff}
+#branch-stock .bs-branch-net-card.is-total{background:linear-gradient(135deg,#10274a,#1d3f6e);border-color:#10274a;color:#fff}
+#branch-stock .bs-branch-net-card h3{margin:0 0 6px;font-size:15px;font-weight:800}
+#branch-stock .bs-branch-net-row{display:flex;align-items:baseline;gap:8px;margin:4px 0;font-size:13px}
+#branch-stock .bs-branch-net-row span{min-width:4.5em;color:#64748b}
+#branch-stock .bs-branch-net-card.is-total .bs-branch-net-row span{color:#b9cbe4}
+#branch-stock .bs-branch-net-row strong{font-size:15px;color:#13804b;font-variant-numeric:tabular-nums;white-space:nowrap}
+#branch-stock .bs-branch-net-row.is-loss strong{color:#c43139}
+#branch-stock .bs-branch-net-card.is-total .bs-branch-net-row strong{color:#7ef0b0}
+#branch-stock .bs-branch-net-card.is-total .bs-branch-net-row.is-loss strong{color:#ff9d93}
+#branch-stock .bs-branch-net-row em{font-style:normal;font-size:12px;color:#64748b;margin-inline-start:auto}
+#branch-stock .bs-branch-net-card.is-total .bs-branch-net-row em{color:#b9cbe4}

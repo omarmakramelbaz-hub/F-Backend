@@ -72,7 +72,43 @@
         finally { busy = false; save.disabled = false; }
     });
 
-    root.querySelectorAll('[data-inventory-tab="profit"]').forEach(function (b) { b.addEventListener('click', function () { if (!loaded) load(); }); });
+    // Top of the tab: each branch's net profit or loss today and since the first of the month, the same figures as the home.
+    var netBox = panel.querySelector('[data-branch-net]'), netList = panel.querySelector('[data-branch-net-list]'), netLoaded = false;
+    function pounds(cents) { return Math.round(Math.abs(cents) / 100).toLocaleString('ar-EG') + ' ج'; }
+    function netRow(label, cents, gross) {
+        var row = el('p', undefined, 'bs-branch-net-row' + (cents < 0 ? ' is-loss' : ''));
+        row.append(el('span', label), el('strong', (cents < 0 ? 'خسارة ' : 'ربح ') + pounds(cents)));
+        if (gross > 0) row.append(el('em', Math.round(cents / gross * 100) + '%'));
+        return row;
+    }
+    async function overview(period) {
+        var url = new URL(urls.overview, location.href); url.searchParams.set('period', period);
+        var response = await fetch(url.href, {credentials: 'same-origin', cache: 'no-store', headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest'}});
+        var data = await response.json(); if (!response.ok || !data.success || !data.profit || !data.profit.ready) throw Error('overview'); return data;
+    }
+    async function loadNet() {
+        if (!netBox || !urls.overview || netLoaded) return; netLoaded = true;
+        try {
+            var both = await Promise.all([overview('today'), overview('month')]), day = both[0], month = both[1];
+            var names = {}; (month.branches || []).concat(day.branches || []).forEach(function (b) { names[b.value] = b.name; });
+            var cards = [{key: '', name: 'كل الفروع', day: day.profit.total, month: month.profit.total}];
+            Object.keys(month.profit.branches || {}).forEach(function (key) {
+                var d = (day.profit.branches || {})[key] || {}, m = month.profit.branches[key];
+                if (!m.gross_cents && !m.net_cents && !d.gross_cents && !d.net_cents) return;
+                cards.push({key: key, name: names[key] || key, day: d, month: m});
+            });
+            netList.textContent = '';
+            cards.forEach(function (c) {
+                var card = el('article', undefined, 'bs-branch-net-card' + (c.key ? '' : ' is-total'));
+                card.append(el('h3', c.name), netRow('النهارده', c.day.net_cents || 0, c.day.gross_cents || 0), netRow('الشهر', c.month.net_cents || 0, c.month.gross_cents || 0));
+                netList.appendChild(card);
+            });
+            var stamp = panel.querySelector('[data-branch-net-day]'); if (stamp && month.filters) stamp.textContent = 'الشهر من ' + month.filters.from + ' لـ ' + month.filters.to;
+            netBox.hidden = false;
+        } catch (e) { netLoaded = false; }
+    }
+
+    root.querySelectorAll('[data-inventory-tab="profit"]').forEach(function (b) { b.addEventListener('click', function () { if (!loaded) load(); loadNet(); }); });
     // «حساب صافي الربح» on the home opens this tab directly (…/branch-stock#profit).
     if (location.hash === '#profit') { var tab = root.querySelector('[data-inventory-tab="profit"]'); if (tab) setTimeout(function () { tab.click(); }, 0); }
 })();
