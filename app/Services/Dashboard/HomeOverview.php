@@ -184,6 +184,90 @@ class HomeOverview
             'selected_branches'=>count($selected),'branch_cards'=>array_values($branches),'ranking'=>$ranked,'channels'=>$channels,'trend'=>array_values($trend['points']),
             'inventory'=>$inventory,'alerts'=>$alerts,'recent'=>$recent,'legacy_app_dates'=>$appFallback]+$drawer;
     }
+    /** Read-only companion data for the redesigned owner home. */
+    public function ownerSummary(array $values, $actor): array
+    {
+        $actor=$this->access->actor($actor);
+        [$all,$filters,$selected]=$this->selection($values,$actor);
+        $keys=array_column($selected,'value');
+        $from=OperatingDay::start($filters['from']);
+        $until=OperatingDay::end($filters['to']);
+        return [
+            'success'=>true,
+            'updated_at'=>now('Africa/Cairo')->toIso8601String(),
+            'attendance'=>$this->attendanceSummary($keys,OperatingDay::date()),
+            'top_products'=>$this->topProducts($keys,$from,$until),
+        ];
+    }
+
+    private function attendanceSummary(array $keys,string $day): array
+    {
+        if(!$keys||!$this->has('branch_employees',['id','branch','active'])||
+            !$this->has('branch_employee_days',['employee_id','day','status'])){
+            return ['available'=>false,'total'=>null,'present'=>null,'absent'=>null,'leave'=>null,'late'=>null,'unrecorded'=>null];
+        }
+        $employees=DB::table('branch_employees')->whereIn('branch',$keys)->where('active',true);
+        $total=(clone $employees)->count();
+        $rows=DB::table('branch_employee_days as days')
+            ->join('branch_employees as employees','employees.id','=','days.employee_id')
+            ->whereIn('employees.branch',$keys)->where('employees.active',true)
+            ->where('days.day',$day)
+            ->select('days.status')->selectRaw('COUNT(DISTINCT days.employee_id) AS total')
+            ->groupBy('days.status')->get()->keyBy('status');
+        $count=function(array $statuses)use($rows):int{
+            return array_sum(array_map(fn($status)=>(int)($rows[$status]->total??0),$statuses));
+        };
+        $present=$count(['morning','evening','part_time']);
+        $absent=$count(['absent','unauthorized_absence']);
+        $leave=$count(['paid_leave','unpaid_leave','preapproved_leave']);
+        $late=0;
+        if($this->has('branch_employee_entries',['employee_id','day','kind','source_key','voided_at'])){
+            $late=(int)DB::table('branch_employee_entries as entries')
+                ->join('branch_employees as employees','employees.id','=','entries.employee_id')
+                ->whereIn('employees.branch',$keys)->where('employees.active',true)
+                ->where('entries.day',$day)->where('entries.kind','deduction')
+                ->where('entries.source_key','attendance.late')->whereNull('entries.voided_at')
+                ->distinct()->count('entries.employee_id');
+        }
+        return ['available'=>true,'total'=>$total,'present'=>$present,'absent'=>$absent,'leave'=>$leave,
+            'late'=>$late,'unrecorded'=>max(0,$total-$present-$absent-$leave)];
+    }
+
+    /** Top items come only from transaction-bound stock sale snapshots; no guessed/demo quantities. */
+    private function topProducts(array $keys,\Carbon\Carbon $from,\Carbon\Carbon $until): array
+    {
+        if(!$keys||!$this->has('branch_recipe_sales',['id','branch','source_type','source_id','snapshot','created_at'])){
+            return ['available'=>false,'items'=>[]];
+        }
+        $products=[];
+        DB::table('branch_recipe_sales')->whereIn('branch',$keys)
+            ->where('created_at','>=',$from->copy()->utc()->toDateTimeString())
+            ->where('created_at','<',$until->copy()->utc()->toDateTimeString())
+            ->orderBy('id')->chunkById(300,function($rows)use(&$products){
+                foreach($rows as $sale){
+                    $snapshot=json_decode($sale->snapshot??'{}',true);
+                    $lines=is_array($snapshot)?($snapshot['lines']??[]):[];
+                    if(!is_array($lines))continue;
+                    $saleKey=(string)$sale->source_type.':'.(string)$sale->source_id;
+                    foreach($lines as $line){
+                        if(!is_array($line))continue;
+                        $name=trim((string)($line['name']??''));
+                        $productId=(int)($line['product_id']??0);
+                        if($name===''||$productId<1)continue;
+                        $unit=(string)($line['recipe']['unit']??'');
+                        $key=$productId.'|'.$name.'|'.$unit;
+                        if(!isset($products[$key]))$products[$key]=['product_id'=>$productId,'name'=>$name,'unit'=>$unit,'sales'=>[]];
+                        $products[$key]['sales'][$saleKey]=true;
+                    }
+                }
+            });
+        $items=array_values(array_map(function($item){
+            $item['sales_count']=count($item['sales']);unset($item['sales']);return $item;
+        },$products));
+        usort($items,fn($a,$b)=>[$b['sales_count'],$a['name']]<=>[$a['sales_count'],$b['name']]);
+        return ['available'=>true,'items'=>array_slice($items,0,5)];
+    }
+
     private function todayExpenses(array $keys,bool $ready): array
     {
         $today=OperatingDay::date();$items=[];$total=0;
