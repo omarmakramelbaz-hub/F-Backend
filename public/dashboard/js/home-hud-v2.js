@@ -47,6 +47,7 @@
         if (profit && profit.total) {
             var net = profit.total.net_cents;
             var note = [s.gross_cents > 0 ? el('span', Math.round(net / s.gross_cents * 100) + '% من المبيعات', net >= 0 ? 'up' : 'down') : ''];
+            if (profit.goods_coverage != null && profit.goods_coverage < 95) note.push(el('span', 'تكلفة البضاعة متسجلة لـ ' + Math.round(profit.goods_coverage) + '% بس من المبيع', 'hv2-month down'));
             var mp = monthProfit(); if (mp) note.push(el('span', 'من أول الشهر ' + pounds(mp.net) + (mp.pct === null ? '' : ' · ' + mp.pct + '%'), 'hv2-month' + (mp.net < 0 ? ' down' : '')));
             kpi('profit', pounds(net), note, net < 0 ? 'negative' : '');
         } else kpi('profit', '—', branch ? 'لكل الفروع بس' : 'محتاج تحديث السيرفر');

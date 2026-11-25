@@ -58,6 +58,12 @@ class OwnerProfit
         return (bool) preg_match('/تحصيل|مدفوع|[اإأ]نستا\s*باي|insta\s*pay|فودافون|vodafone/iu', $name);
     }
 
+    /** Buying goods: charged when the goods are sold (cost of goods sold), never again as an expense. */
+    public static function goodsPurchase(string $key, string $name): bool
+    {
+        return str_starts_with($key, 'purchase') || (bool) preg_match('/^\s*مشتريات/u', $name);
+    }
+
     /** Expense categories that are sales transfers. */
     public function salesTransferKeys(): array
     {
@@ -82,9 +88,9 @@ class OwnerProfit
             ->groupBy('category')->get();
         $items = [];
         foreach ($totals as $row) {
-            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name);
+            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name); $goods = !$transfer && self::goodsPurchase($key, $name);
             $items[] = ['key'=>$key, 'name'=>$name, 'month'=>Money::decimal((int) $row->month_cents), 'month_cents'=>(int) $row->month_cents,
-                'default_included'=>$default, 'sales_transfer'=>$transfer, 'included'=>!$transfer && (array_key_exists($key, $rules) ? (bool) $rules[$key] : $default)];
+                'default_included'=>$default, 'sales_transfer'=>$transfer, 'goods_purchase'=>$goods, 'included'=>!$transfer && !$goods && (array_key_exists($key, $rules) ? (bool) $rules[$key] : $default)];
         }
         usort($items, fn ($a, $b) => $b['month_cents'] <=> $a['month_cents']);
         return $items;
@@ -160,7 +166,7 @@ class OwnerProfit
     {
         if (!$this->ready()) return null;
         $keys = array_keys($sales);
-        $empty = ['gross_cents'=>0, 'delivery_cents'=>0, 'orders'=>0, 'salaries_cents'=>0, 'rent_cents'=>0,
+        $empty = ['gross_cents'=>0, 'delivery_cents'=>0, 'orders'=>0, 'goods_cents'=>0, 'salaries_cents'=>0, 'rent_cents'=>0,
             'packaging_cents'=>0, 'expenses_cents'=>0, 'net_cents'=>0];
         $rows = [];
         foreach ($sales as $key => $s) $rows[$key] = ['gross_cents'=>(int) $s['gross_cents'], 'delivery_cents'=>(int) $s['delivery_cents'], 'orders'=>(int) $s['count']] + $empty;
@@ -174,6 +180,8 @@ class OwnerProfit
             foreach ($keys as $key) $rows[$key]['rent_cents'] += intdiv((int) ($rents[$key] ?? 0) * count($days), $length);
         }
         foreach ($this->payrollCosts($keys, $fromDate, $toDate) as $key => $cents) $rows[$key]['salaries_cents'] += $cents;
+        $goods = $this->goodsSold($keys, $fromDate, $toDate);
+        foreach ($goods['branches'] as $key => $cents) $rows[$key]['goods_cents'] += $cents;
 
         // Packaging per order, and the expense items that count.
         $packaging = (int) $this->setting(self::PACKAGING, 0);
@@ -183,17 +191,18 @@ class OwnerProfit
             ->whereBetween('occurred_on', [$fromDate, $toDate])->select('branch', 'category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch', 'category')->get();
         foreach ($expenses as $x) {
             $key = (string) $x->category;
-            $counts = !self::salesTransfer($names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
+            $counts = !self::salesTransfer($names[$key] ?? '') && !self::goodsPurchase($key, $names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
             if ($counts) $rows[$x->branch]['expenses_cents'] += (int) $x->amount;
         }
         $total = $empty;
         foreach ($rows as &$r) {
             $r['packaging_cents'] = $r['orders'] * $packaging;
-            $r['net_cents'] = $r['gross_cents'] - $r['delivery_cents'] - $r['salaries_cents'] - $r['rent_cents'] - $r['packaging_cents'] - $r['expenses_cents'];
+            $r['net_cents'] = $r['gross_cents'] - $r['delivery_cents'] - $r['goods_cents'] - $r['salaries_cents'] - $r['rent_cents'] - $r['packaging_cents'] - $r['expenses_cents'];
             foreach ($empty as $field => $_) $total[$field] += $r[$field];
         }
         unset($r);
         return ['ready'=>true, 'total'=>$total, 'branches'=>$rows, 'packaging_set'=>$packaging > 0,
+            'goods_lines'=>$goods['lines'], 'goods_coverage'=>$goods['lines'] ? round($goods['covered'] * 100 / $goods['lines'], 1) : null,
             'rent_set'=>$rents->filter(fn ($v) => (int) $v > 0)->count() > 0];
     }
 
@@ -239,6 +248,42 @@ class OwnerProfit
             $branch = $employees[$x->employee_id]->branch;
             $out[$branch] = ($out[$branch] ?? 0) + ($x->kind === 'bonus' ? 1 : -1) * (int) $x->amount_cents;
         }
+        return $out;
+    }
+
+    /**
+     * Cost of the goods sold on these operating days: every completed invoice and app order keeps the recipe it was
+     * deducted by, so each line costs its ingredients at the owner's cost prices. A line is covered when it has a recipe
+     * and every ingredient in it has a cost price; the share of covered lines says how complete the figure is.
+     */
+    private function goodsSold(array $keys, string $fromDate, string $toDate): array
+    {
+        $out = ['branches'=>[], 'lines'=>0, 'covered'=>0];
+        if (!$keys || !Schema::hasTable('branch_recipe_sales') || !Schema::hasTable('stock_ingredient_prices')) return $out;
+        $costs = DB::table('stock_ingredient_prices')->whereNotNull('cost_cents')->pluck('cost_cents', 'ingredient_id')->map(fn ($v) => (int) $v)->all();
+        $from = OperatingDay::start($fromDate)->copy()->utc()->toDateTimeString();
+        $until = OperatingDay::end($toDate)->copy()->utc()->toDateTimeString();
+        DB::table('branch_recipe_sales')->whereIn('branch', $keys)->whereIn('source_type', ['pos', 'app'])
+            ->where('created_at', '>=', $from)->where('created_at', '<', $until)->select('id', 'branch', 'snapshot')
+            ->chunkById(500, function ($rows) use (&$out, $costs) {
+                foreach ($rows as $row) {
+                    $snapshot = json_decode((string) $row->snapshot, true);
+                    foreach ($snapshot['lines'] ?? [] as $line) {
+                        $out['lines']++;
+                        $components = $line['recipe']['components'] ?? [];
+                        $qty = (int) ($line['quantity_millis'] ?? 0);
+                        $known = (bool) $components; $cents = 0;
+                        foreach ($components as $c) {
+                            $cost = $costs[(int) ($c['ingredient_id'] ?? 0)] ?? null;
+                            if ($cost === null) { $known = false; continue; }
+                            // quantity_units are millionths of a kilo or piece per one unit sold; quantity_millis thousandths of units.
+                            $units = intdiv((int) $c['quantity_units'] * $qty + 500, 1000); $cents += intdiv($units * $cost + 500000, 1000000);
+                        }
+                        if ($known) $out['covered']++;
+                        $out['branches'][$row->branch] = ($out['branches'][$row->branch] ?? 0) + $cents;
+                    }
+                }
+            });
         return $out;
     }
 

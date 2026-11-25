@@ -32,10 +32,11 @@
         if (!(data.expenses || []).length) { var empty = el('tr'), td = el('td', 'مفيش مصروفات معتمدة في آخر 90 يوم.'); td.colSpan = 3; empty.appendChild(td); expenseRows.appendChild(empty); }
         (data.expenses || []).forEach(function (x) {
             var tr = el('tr'), box = el('input'), cell = el('td');
-            box.type = 'checkbox'; box.checked = !!x.included; box.disabled = x.sales_transfer === true; box.dataset.expense = x.key; box.setAttribute('aria-label', x.name);
+            box.type = 'checkbox'; box.checked = !!x.included; box.disabled = x.sales_transfer === true || x.goods_purchase === true; box.dataset.expense = x.key; box.setAttribute('aria-label', x.name);
             cell.appendChild(box);
             var name = el('td', x.name);
             if (x.sales_transfer === true) name.appendChild(el('small', ' (مبيعات فعلية، مش مصروف)'));
+            else if (x.goods_purchase === true) name.appendChild(el('small', ' (بتتحسب في تكلفة البضاعة المباعة)'));
             else if (x.included !== x.default_included) name.appendChild(el('small', x.default_included ? ' (متشال بإيدك)' : ' (مضاف بإيدك)'));
             tr.append(cell, name, el('td', money(x.month)));
             expenseRows.appendChild(tr);
