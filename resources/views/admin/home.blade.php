@@ -2,15 +2,18 @@
 @push('custom-css')
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-overview.css') }}?v={{ filemtime(public_path('dashboard/css/home-overview.css')) }}">
 <link rel="stylesheet" href="{{ asset('dashboard/css/home-hud.css') }}?v={{ filemtime(public_path('dashboard/css/home-hud.css')) }}">
+<link rel="stylesheet" href="{{ asset('dashboard/css/home-command-center.css') }}?v={{ filemtime(public_path('dashboard/css/home-command-center.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper ho-wrapper{{ isset($boot['initial']['owner_platform'])?' ho-compact':'' }}">
 @include('admin.home_hud')
 <section id="home-overview" dir="{{ app()->getLocale()==='ar'?'rtl':'ltr' }}" aria-labelledby="ho-title">
+    @if(!isset($boot['initial']['owner_platform']))
     <header class="ho-heading">
         <div><span class="ho-eyebrow">{{ __('home_overview.eyebrow') }}</span><h1 id="ho-title">{{ __('home_overview.title') }}</h1><p>{{ __('home_overview.subtitle') }}</p></div>
         <div class="ho-heading-tools"><span class="ho-updated"><i></i><span data-ho-updated></span></span><button type="button" class="ho-button" data-ho-refresh><i class="fas fa-sync-alt" aria-hidden="true"></i> {{ __('home_overview.refresh') }}</button></div>
     </header>
+    @endif
     <form class="ho-filters" data-ho-filters>
         <label class="ho-branch-label"><i class="fas fa-store" aria-hidden="true"></i><span class="sr-only">{{ __('home_overview.branch') }}</span><select name="branch" aria-label="{{ __('home_overview.branch') }}"><option value="">{{ __('home_overview.all_branches') }}</option>@foreach($boot['initial']['branches'] as $branch)<option value="{{ $branch['value'] }}">{{ $branch['name'] }}</option>@endforeach</select></label>
         <div class="ho-periods" role="group" aria-label="{{ __('home_overview.period') }}">@foreach(['today','week','month','custom'] as $period)<button type="button" data-ho-period="{{ $period }}" aria-pressed="false">{{ __('home_overview.'.$period) }}</button>@endforeach</div>
