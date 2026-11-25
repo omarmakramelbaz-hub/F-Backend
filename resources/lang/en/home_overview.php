@@ -36,11 +36,11 @@ return [
  'previous_branch'=>'Previous branch',
  'next_branch'=>'Next branch',
 
- 'drawer'=>'Expected drawer cash',
- 'load_drawers'=>'View drawer balances',
- 'refresh_drawers'=>'Refresh drawer balances',
+ 'drawer'=>'Expected cash balance',
+ 'load_drawers'=>'View cash balances',
+ 'refresh_drawers'=>'Refresh cash balances',
  'drawers_not_loaded'=>'Balances update automatically.',
- 'drawers_loading'=>'Calculating drawer balances…',
+ 'drawers_loading'=>'Calculating cash balances…',
  'drawers_failed'=>'Unable to refresh balances; retrying automatically.',
  'drawers_last_updated'=>'Last balance calculation',
  'owner_only'=>'Owner only · now',
@@ -55,7 +55,7 @@ return [
  'method_title'=>'How figures are calculated','method'=>'Sales include completed receipts and app orders only. Approved expenses use the expense date. The amount after delivery and expenses is before goods costs and taxes payable; it is not net profit. Inventory and open orders reflect the current position.','legacy_note'=>'Some older app orders use their last update as the completion date; app amounts follow the currently recorded items and fees.','cashier_note'=>'This account can monitor orders and inventory. Aggregate sales reports are available to authorized management accounts.','stale'=>'Refresh failed. Showing the last successful update.','failed'=>'Could not load the figures. Please refresh.','loading'=>'Updating figures…','invalid_range'=>'Choose a valid range of up to 366 days ending no later than today.','amount_error'=>'An order amount could not be read. Review the order and refresh.','unavailable'=>'Unavailable','current_balance'=>'Current balances do not change with the sales date filter','scope'=>'Authorized restaurant branches only','completed_note'=>'Collected receipts and completed app orders','registered'=>'All registered accounts','within_branches'=>'In the selected branches','stock_negative_note'=>'A branch has a negative balance','subtotal_period'=>'Period summary','manage_expenses'=>'Review expenses',
     'compact_sales'=>'Branch sales',
     'compact_stock'=>'Stock balances',
-    'compact_drawer'=>'Drawer cash',
+    'compact_drawer'=>'Cash balance',
     'compact_expenses'=>'Expenses',
 ];
 
