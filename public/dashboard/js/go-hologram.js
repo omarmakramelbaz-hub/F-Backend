@@ -432,37 +432,56 @@
     }
     // The approved portrait is mapped onto a deformable grid, with separate
     // image-coloured assembly particles. UV landmarks are in the original asset.
-    var PORTRAIT_VERTEX = [
+    // Face landmarks in texture space (0..1). The default fits the original GO portrait; another portrait
+    // passes its own as JSON in data-hologram-face on its <img data-hologram-artwork>.
+    var DEFAULT_FACE = {eyes: [[.503, .315, .050, .029], [.620, .324, .038, .025]], lip: [.562, .467, .057, .025], cavity: [.043, .008],
+        jaw: [.105, .455, .50, .54, .59], head: [.50, .68, .30, .39, .69, .75], pivot: [.56, .58], depth: [.545, .30, .17, .32], emitter: [.56, .78], motion: 1, holo: 0};
+    function faceOf(image) {
+        var face = DEFAULT_FACE, raw = image && image.getAttribute ? image.getAttribute('data-hologram-face') : null;
+        if (raw) { try { var given = JSON.parse(raw); face = {}; Object.keys(DEFAULT_FACE).forEach(function (k) { face[k] = given && given[k] !== undefined ? given[k] : DEFAULT_FACE[k]; }); } catch (_) { face = DEFAULT_FACE; } }
+        return face;
+    }
+    function glf(n) { n = Number(n); return (isFinite(n) ? n : 0).toFixed(4); }
+    function vec2(a, b) { return 'vec2(' + glf(a) + ',' + glf(b) + ')'; }
+    function portraitVertex(f) {
+        var e = f.eyes, l = f.lip, j = f.jaw, h = f.head;
+        return [
         'precision highp float; attribute vec2 aPortraitUV;',
         'uniform vec4 uRect; uniform vec2 uViewport; uniform float uTime,uYaw,uPitch,uBlink,uVoice,uPoint,uDpr;',
         'varying vec2 vPortraitUV; varying float vArrival;',
         'float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
         'vec2 eyelid(vec2 p,vec2 eye,vec2 size){vec2 q=(p-eye)/size; float w=exp(-dot(q,q)*1.7);p.y+=(eye.y-p.y)*uBlink*.97*w;return p;}',
-        'void main(){vec2 uv=aPortraitUV,p=uv;vPortraitUV=uv;',
-        'p=eyelid(p,vec2(.503,.315),vec2(.050,.029));p=eyelid(p,vec2(.620,.324),vec2(.038,.025));',
-        'vec2 lip=(p-vec2(.562,.467))/vec2(.057,.025);float lips=exp(-lip.x*lip.x*1.8-lip.y*lip.y*.8);',
+        'void main(){vec2 uv=aPortraitUV,p=uv;vPortraitUV=uv;float yaw=uYaw*' + glf(f.motion) + ',pitch=uPitch*' + glf(f.motion) + ';',
+        'p=eyelid(p,' + vec2(e[0][0], e[0][1]) + ',' + vec2(e[0][2], e[0][3]) + ');p=eyelid(p,' + vec2(e[1][0], e[1][1]) + ',' + vec2(e[1][2], e[1][3]) + ');',
+        'vec2 lip=(p-' + vec2(l[0], l[1]) + ')/' + vec2(l[2], l[3]) + ';float lips=exp(-lip.x*lip.x*1.8-lip.y*lip.y*.8);',
         'p.y+=uVoice*.009*(lip.y/(.33+abs(lip.y)))*lips;',
-        'float j=(p.x-.562)/.105;float jaw=exp(-j*j*j*j)*smoothstep(.455,.50,p.y)*(1.-smoothstep(.54,.59,p.y));p.y+=uVoice*.008*jaw;',
-        'float head=(1.-smoothstep(.50,.68,uv.y))*smoothstep(.30,.39,uv.x)*(1.-smoothstep(.69,.75,uv.x));',
-        'vec2 h=p-vec2(.56,.58),depthUV=(p-vec2(.545,.30))/vec2(.17,.32);float depth=sqrt(max(0.,1.-dot(depthUV,depthUV)))*.10;',
-        'p.x+=head*(sin(uYaw)*depth+h.y*uPitch*.35);p.y+=head*(-sin(uPitch)*depth+h.x*uYaw*.12);',
+        'float j=(p.x-' + glf(l[0]) + ')/' + glf(j[0]) + ';float jaw=exp(-j*j*j*j)*smoothstep(' + glf(j[1]) + ',' + glf(j[2]) + ',p.y)*(1.-smoothstep(' + glf(j[3]) + ',' + glf(j[4]) + ',p.y));p.y+=uVoice*.008*jaw;',
+        'float head=(1.-smoothstep(' + glf(h[0]) + ',' + glf(h[1]) + ',uv.y))*smoothstep(' + glf(h[2]) + ',' + glf(h[3]) + ',uv.x)*(1.-smoothstep(' + glf(h[4]) + ',' + glf(h[5]) + ',uv.x));',
+        'vec2 h=p-' + vec2(f.pivot[0], f.pivot[1]) + ',depthUV=(p-' + vec2(f.depth[0], f.depth[1]) + ')/' + vec2(f.depth[2], f.depth[3]) + ';float depth=sqrt(max(0.,1.-dot(depthUV,depthUV)))*.10;',
+        'p.x+=head*(sin(yaw)*depth+h.y*pitch*.35);p.y+=head*(-sin(pitch)*depth+h.x*yaw*.12);',
+        'p.y+=' + glf(f.holo) + '*(sin(uTime*1.15)*.006*(1.-uv.y*.6)+head*sin(uTime*.7)*.004);p.x+=' + glf(f.holo) + '*head*sin(uTime*.53)*.006;',
         'float seed=hash(uv),delay=.18+(1.-uv.y)*1.10+seed*.75;',
         'float travel=smoothstep(delay,delay+2.85,uTime);vArrival=smoothstep(delay-.09,delay+.18,uTime);',
-        'if(uPoint>.5){vec2 emitter=vec2(.56,.78),delta=p-emitter;float spiral=sin(travel*9.42478+seed*6.28318);',
+        'if(uPoint>.5){vec2 emitter=' + vec2(f.emitter[0], f.emitter[1]) + ',delta=p-emitter;float spiral=sin(travel*9.42478+seed*6.28318);',
         'p=mix(emitter,p,travel)+vec2(spiral,cos(seed*6.28318+travel*8.))*sin(travel*3.14159)*(.055+seed*.11)*(1.-travel*.65);}',
         'vec2 pixel=uRect.xy+p*uRect.zw;gl_Position=vec4(pixel.x/uViewport.x*2.-1.,1.-pixel.y/uViewport.y*2.,0.,1.);',
         'gl_PointSize=clamp((1.7+seed*1.3)*uDpr,1.,4.5);}'
-    ].join('\n');
-    var PORTRAIT_FRAGMENT = [
+        ].join('\n');
+    }
+    function portraitFragment(f) {
+        return [
         'precision highp float; uniform sampler2D uPortrait;uniform float uTime,uPoint,uVoice;',
         'varying vec2 vPortraitUV;varying float vArrival;',
         'void main(){vec4 c=texture2D(uPortrait,vPortraitUV);if(c.a<.025)discard;',
         'float reveal=smoothstep(4.35,5.6,uTime);float alpha=c.a;',
         'if(uPoint>.5){float r=length(gl_PointCoord-.5)*2.;alpha*=exp(-r*r*2.8)*vArrival*(1.-reveal);}',
-        'else{alpha*=reveal;vec2 m=(vPortraitUV-vec2(.562,.467))/vec2(.043,.008);float cavity=exp(-m.x*m.x*m.x*m.x-m.y*m.y*3.)*uVoice*.80;c.rgb=mix(c.rgb,vec3(.002,.015,.025),cavity);}',
+        'else{alpha*=reveal;vec2 m=(vPortraitUV-' + vec2(f.lip[0], f.lip[1]) + ')/' + vec2(f.cavity[0], f.cavity[1]) + ';float cavity=exp(-m.x*m.x*m.x*m.x-m.y*m.y*3.)*uVoice*.80;c.rgb=mix(c.rgb,vec3(.002,.015,.025),cavity);}',
+        'float holo=' + glf(f.holo) + ';if(holo>0.){float scan=.5+.5*sin(vPortraitUV.y*520.-uTime*7.);c.rgb*=1.-holo*.16*scan;',
+        'c.rgb+=holo*vec3(.0,.05,.08)*(.6+.4*sin(uTime*2.1));alpha*=1.-holo*(.05+.05*sin(uTime*31.)*step(.93,fract(uTime*.37)));}',
         'c.rgb*=1.+uVoice*.055;gl_FragColor=vec4(c.rgb*alpha,alpha);}'
-    ].join('\n');
-    var SEED_VERTEX = 'attribute vec2 aQuad;uniform vec4 uRect;uniform vec2 uViewport;uniform float uDpr;void main(){vec2 p=uRect.xy+vec2(.56,.78)*uRect.zw;gl_Position=vec4(p.x/uViewport.x*2.-1.,1.-p.y/uViewport.y*2.,0.,1.);gl_PointSize=48.*uDpr;}';
+        ].join('\n');
+    }
+    function seedVertex(f) { return 'attribute vec2 aQuad;uniform vec4 uRect;uniform vec2 uViewport;uniform float uDpr;void main(){vec2 p=uRect.xy+' + vec2(f.emitter[0], f.emitter[1]) + '*uRect.zw;gl_Position=vec4(p.x/uViewport.x*2.-1.,1.-p.y/uViewport.y*2.,0.,1.);gl_PointSize=48.*uDpr;}'; }
     var SEED_FRAGMENT = 'precision mediump float;uniform float uTime;void main(){float r=length(gl_PointCoord-.5)*2.;float core=exp(-r*r*70.),halo=exp(-r*r*6.);float a=(core+halo*.55)*(1.-smoothstep(1.2,4.0,uTime));gl_FragColor=vec4(vec3(1.,.55,.12)*a,a);}';
     function portraitGrid(columns, rows, points) {
         var uv=[], indices=[], rng=randomGenerator(91723);
@@ -537,13 +556,13 @@
         var gl=this.gl;
         try {
             if(!this.portraitProgram){
-                this.portraitProgram=makeProgram(gl,PORTRAIT_VERTEX,PORTRAIT_FRAGMENT);this.portraitUV=gl.getAttribLocation(this.portraitProgram,'aPortraitUV');this.portraitUniforms={};
+                var face=faceOf(this.artworkImage);this.portraitProgram=makeProgram(gl,portraitVertex(face),portraitFragment(face));this.portraitUV=gl.getAttribLocation(this.portraitProgram,'aPortraitUV');this.portraitUniforms={};
                 ['uRect','uViewport','uTime','uYaw','uPitch','uBlink','uVoice','uPoint','uDpr','uPortrait'].forEach(function(n){this.portraitUniforms[n]=gl.getUniformLocation(this.portraitProgram,n);},this);
                 var grid=portraitGrid(this.compact?64:160,this.compact?48:120,false),dots=portraitGrid(this.compact?63:255,this.compact?63:191,true);
                 this.portraitMesh=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitMesh);gl.bufferData(gl.ARRAY_BUFFER,grid.uv,gl.STATIC_DRAW);
                 this.portraitIndex=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.portraitIndex);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,grid.indices,gl.STATIC_DRAW);this.portraitIndexCount=grid.indices.length;
                 this.portraitDots=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.portraitDots);gl.bufferData(gl.ARRAY_BUFFER,dots.uv,gl.STATIC_DRAW);this.portraitParticles=dots.count;
-                this.seedProgram=makeProgram(gl,SEED_VERTEX,SEED_FRAGMENT);this.seedAttribute=gl.getAttribLocation(this.seedProgram,'aQuad');this.seedUniforms={};
+                this.seedProgram=makeProgram(gl,seedVertex(face),SEED_FRAGMENT);this.seedAttribute=gl.getAttribLocation(this.seedProgram,'aQuad');this.seedUniforms={};
                 ['uRect','uViewport','uDpr','uTime'].forEach(function(n){this.seedUniforms[n]=gl.getUniformLocation(this.seedProgram,n);},this);
                 this.portraitTexture=gl.createTexture();
             }

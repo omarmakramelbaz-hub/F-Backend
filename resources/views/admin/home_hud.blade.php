@@ -5,11 +5,21 @@
     <div class="hud-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M3 23v-3a9 9 0 0 1 18 0v3Z"/></svg><strong data-hud-who>{{ auth('admin')->user()->name }}</strong></div>
     <div class="hud-figure" aria-hidden="true">
         @if($goHome)
-        <div class="hud-artwork"><img src="{{ asset('dashboard/branding/go-assistant-20261125.webp') }}" alt="" width="342" height="400" decoding="async" fetchpriority="high"></div>
+        <div class="hud-artwork"><img data-hologram-artwork data-hologram-face='{"eyes":[[0.629,0.315,0.045,0.025],[0.768,0.335,0.040,0.024]],"lip":[0.680,0.462,0.052,0.022],"cavity":[0.038,0.007],"jaw":[0.10,0.45,0.50,0.53,0.58],"head":[0.52,0.66,0.42,0.50,0.88,0.95],"pivot":[0.68,0.58],"depth":[0.68,0.32,0.20,0.28],"emitter":[0.50,0.95],"motion":7,"holo":1}' src="{{ asset('dashboard/branding/go-assistant-holo-20261125.webp') }}" alt="" width="342" height="400" decoding="async" fetchpriority="high"></div>
         @else
         <div class="hud-artwork"><img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.webp') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high"></div>
         @endif
-        @unless($goHome)<canvas data-hud-robot></canvas>@endunless
+        <canvas data-hud-robot></canvas>
+        @if($goHome)
+        <svg class="hv3-orbits" viewBox="0 0 342 400" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+            <g class="hv3-orbit o1"><ellipse cx="205" cy="150" rx="150" ry="168"/></g>
+            <g class="hv3-orbit o2"><ellipse cx="205" cy="150" rx="132" ry="152"/></g>
+            <g class="hv3-orbit o3"><ellipse cx="205" cy="150" rx="168" ry="186"/></g>
+            <g class="hv3-orbit o4"><ellipse cx="205" cy="150" rx="118" ry="140"/></g>
+            <ellipse class="hv3-base b1" cx="171" cy="384" rx="150" ry="17"/>
+            <ellipse class="hv3-base b2" cx="171" cy="384" rx="104" ry="11"/>
+        </svg>
+        @endif
     </div>
 @if($goHome)
     {{-- The owner's home: the figures of the day, profit, the week's sales, the branches and what needs attention. --}}
@@ -46,7 +56,7 @@
         @if($go('reports.index'))<a class="hv2-action" href="{{ $go('reports.index') }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6z M14 2v6h6 M9 13h8 M9 17h8"/></svg><span>تقارير جاهزة</span></a>@endif
         @if(!empty($links['ch-app']))<a class="hv2-action" href="{{ $links['ch-app'] }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v17H4z M8 2v4 M16 2v4 M4 9h16 M8.5 15l2.5 2.5 4.5-5"/></svg><span>مهام اليوم</span></a>@endif
         @if(!empty($links['stock']))<a class="hv2-action is-forecast" href="{{ $links['stock'] }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 M12 7a5 5 0 1 0 5 5 M12 11a1 1 0 1 0 1 1 M12 12l7-7 M16 4h4v4"/></svg><span>توقعات ذكية</span></a>@endif
-        <button type="button" class="hv2-action is-voice" data-hv2-voice><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2 M4 14h3v6H4z M17 14h3v6h-3z M17 20a5 5 0 0 1-5 2"/></svg><span>تحدث مع عذاري</span></button>
+        <button type="button" class="hv2-action is-voice" data-hv2-voice><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2 M4 14h3v6H4z M17 14h3v6h-3z M17 20a5 5 0 0 1-5 2"/></svg><span>تحدث مع GO</span></button>
         <span class="hv3-sep" aria-hidden="true"></span>
         <a class="hv2-action is-logout" href="{{ url('/admin/adminLogout') }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10 M18.4 6.6a9 9 0 1 1-12.8 0"/></svg><span>خروج</span></a>
         <a class="hv2-action is-home" href="{{ url('/admin/dashboard') }}" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/></svg><span>الرئيسية</span></a>

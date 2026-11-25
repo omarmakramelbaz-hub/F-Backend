@@ -35,9 +35,11 @@
 
 /* Assistant */
 #go-hud.hud-v2 .hud-figure{grid-area:fig;position:relative;inset:auto;width:auto;height:auto;min-height:0;pointer-events:none;align-self:stretch}
-#go-hud.hud-v2 .hud-artwork{position:absolute;inset:-10px -18px -6px -6px;width:auto;transform:none;opacity:1!important;animation:none;clip-path:none}
-#go-hud.hud-v2 .hud-figure canvas{display:none}
-#go-hud.hud-v2 .hud-artwork img{height:100%;width:100%;object-fit:contain;object-position:center bottom;-webkit-mask:radial-gradient(ellipse 62% 60% at 50% 48%,#000 70%,transparent 100%);mask:radial-gradient(ellipse 62% 60% at 50% 48%,#000 70%,transparent 100%)}
+#go-hud.hud-v2 .hud-artwork{position:absolute;inset:-10px -18px -6px -6px;width:auto;transform:none;animation:none;clip-path:none}
+/* The 3D hologram (go-hologram.js) draws the portrait as a moving surface; the flat image stays only if WebGL is unavailable. */
+#go-hud.hud-v2 .hud-figure canvas{display:block;position:absolute;left:-30px;top:-14px;width:calc(100% + 60px);height:calc(100% + 30px);pointer-events:none}
+#go-hud.hud-v2 .hud-figure[data-portrait-gpu="true"] .hud-artwork{opacity:0}
+#go-hud.hud-v2 .hud-artwork img{height:100%;width:100%;max-width:none;object-fit:contain;object-position:center bottom}
 
 /* Shared card look */
 #go-hud.hud-v2 .hv2-date,#go-hud.hud-v2 .hv3-summary,#go-hud.hud-v2 .hv2-kpi,#go-hud.hud-v2 .hud-card,#go-hud.hud-v2 .hv2-panel{border:1.5px solid var(--v2-line);border-radius:18px;background:var(--v2-panel);box-shadow:var(--v2-shadow);color:var(--v2-text)}
@@ -253,3 +255,22 @@
 #go-hud.hud-v2 .hv3-branch .select2-selection__rendered{color:#fff!important;font-size:15px;font-weight:700;line-height:42px!important;padding:0 4px 0 22px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow{height:42px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow b{border-color:#dff4ff transparent transparent!important}
+
+/* Moving light lines around the hologram */
+#go-hud.hud-v2 .hv3-orbits{position:absolute;inset:-10px -18px -6px -6px;width:calc(100% + 24px);height:calc(100% + 16px);pointer-events:none;overflow:visible;mix-blend-mode:screen}
+#go-hud.hud-v2 .hv3-orbit{transform-box:view-box;transform-origin:205px 150px}
+#go-hud.hud-v2 .hv3-orbit ellipse{fill:none;stroke-linecap:round}
+#go-hud.hud-v2 .hv3-orbit.o1{animation:hv3-spin 13s linear infinite}
+#go-hud.hud-v2 .hv3-orbit.o1 ellipse{stroke:#3fe0ff;stroke-width:2;stroke-dasharray:110 230 40 600;filter:drop-shadow(0 0 4px #3fe0ff)}
+#go-hud.hud-v2 .hv3-orbit.o2{animation:hv3-spin 9s linear infinite reverse}
+#go-hud.hud-v2 .hv3-orbit.o2 ellipse{stroke:#ffa133;stroke-width:2.4;stroke-dasharray:80 330 30 700;filter:drop-shadow(0 0 5px #ff9b22)}
+#go-hud.hud-v2 .hv3-orbit.o3{animation:hv3-spin 21s linear infinite}
+#go-hud.hud-v2 .hv3-orbit.o3 ellipse{stroke:#8fe9ff;stroke-width:1.2;stroke-dasharray:60 160 18 220;opacity:.75;filter:drop-shadow(0 0 3px #3fe0ff)}
+#go-hud.hud-v2 .hv3-orbit.o4{animation:hv3-spin 7s linear infinite reverse}
+#go-hud.hud-v2 .hv3-orbit.o4 ellipse{stroke:#ffc04d;stroke-width:1.4;stroke-dasharray:40 520;opacity:.85;filter:drop-shadow(0 0 4px #ffb347)}
+#go-hud.hud-v2 .hv3-base{fill:none;stroke-linecap:round}
+#go-hud.hud-v2 .hv3-base.b1{stroke:#3fe0ff;stroke-width:2;stroke-dasharray:60 26 14 26;animation:hv3-flow 6s linear infinite;filter:drop-shadow(0 0 6px #3fe0ff)}
+#go-hud.hud-v2 .hv3-base.b2{stroke:#bff6ff;stroke-width:1.4;stroke-dasharray:30 40;animation:hv3-flow 4s linear infinite reverse;opacity:.8}
+@keyframes hv3-spin{to{transform:rotate(360deg)}}
+@keyframes hv3-flow{to{stroke-dashoffset:-460}}
+@media (prefers-reduced-motion:reduce){#go-hud.hud-v2 .hv3-orbit,#go-hud.hud-v2 .hv3-base{animation:none}}
