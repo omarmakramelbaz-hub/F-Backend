@@ -9,6 +9,7 @@
     var colors={app:'#508ef2',takeaway:'#f8b758',phone:'#67c4a1',dine:'#ad8ee6'},icons={app:'mobile-alt',takeaway:'shopping-bag',phone:'motorcycle',dine:'utensils'};
     var numbers=new Intl.NumberFormat(boot.locale==='ar'?'ar-EG-u-nu-latn':'en-GB',{maximumFractionDigits:2});
     var ownerRobot=null,ownerRecognition=null,ownerMetricsController=null,ownerMetricsTimer=0,ownerMetricsData=null;
+    var ownerClockTimer=0;
     function $(name){return root.querySelector('[data-ho-'+name+']');}
     function el(tag,value,css){var n=document.createElement(tag);if(value!==undefined)n.textContent=String(value);if(css)n.className=css;return n;}
     function icon(name,css){var n=el('i',undefined,'fas fa-'+name+(css?' '+css:''));n.setAttribute('aria-hidden','true');return n;}
@@ -144,6 +145,13 @@
             data.owner_drawer=drawer;drawerUpdated=result.updated_at;drawerMessage='';document.dispatchEvent(new CustomEvent('go:home-data',{detail:data}));
         }catch(_){if(!disposed&&current===drawerSequence&&overviewSequence===sequence)drawerMessage=text.drawers_failed;}
         finally{clearTimeout(timeout);if(!disposed&&current===drawerSequence){drawerController=null;renderOwnerDrawers();drainSyncedRefresh();}}
+    }
+    function updateOwnerClock(){
+        var dateNode=$('clock-date'),timeNode=$('clock-time');
+        if(!dateNode||!timeNode)return;
+        var locale=boot.locale==='ar'?'ar-EG-u-nu-latn':'en-GB',now=new Date();
+        dateNode.textContent=new Intl.DateTimeFormat(locale,{timeZone:'Africa/Cairo',weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(now);
+        timeNode.textContent=new Intl.DateTimeFormat(locale,{timeZone:'Africa/Cairo',hour:'2-digit',minute:'2-digit',hour12:true}).format(now);
     }
     function ownerKpi(label,value,noteValue,iconName){
         var node=el('article',undefined,'ho-cc-kpi'),glyph=el('span',undefined,'ho-cc-kpi-icon'),copy=el('span',undefined,'ho-cc-kpi-copy');
@@ -454,6 +462,7 @@
     on(form,'submit',function(event){event.preventDefault();if(form.reportValidity())refresh(true);});on(form.elements.branch,'change',function(){refresh(true);});on(form.elements.from,'input',editDates);on(form.elements.to,'input',editDates);on($('refresh'),'click',function(){if(form.reportValidity())refresh(false);});on($('stock-search'),'input',renderStock);on($('stock-branch'),'change',renderStock);
 
     if(data.owner_platform){
+        updateOwnerClock();ownerClockTimer=setInterval(updateOwnerClock,15000);
         mountOwnerHologram();
         if(boot.initial&&boot.initial.hologram)renderOwnerMetrics(boot.initial.hologram);
         on(document,'go:hologram-metrics',function(event){renderOwnerMetrics(event.detail);});
@@ -478,6 +487,6 @@
         if(typeof native.status==='function'){var initialEpoch=nativeEpoch;Promise.resolve().then(function(){return native.status();}).then(function(state){if(!disposed&&initialEpoch===nativeEpoch)syncedState(state,true);}).catch(function(){});}
     }
     if(data.owner_platform){on(window,'resize',queueOwnerSize);ownerObserver=new ResizeObserver(queueOwnerSize);root.querySelectorAll('.ho-owner-list,[data-ho-chart]').forEach(function(n){ownerObserver.observe(n);});}
-    if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){disposed=true;sequence++;drawerSequence++;if(controller)controller.abort();if(drawerController)drawerController.abort();clearInterval(timer);clearTimeout(drawerTimer);clearTimeout(syncTimer);clearTimeout(ownerMetricsTimer);clearTimeout(ownerSummaryTimer);if(ownerSummaryController)ownerSummaryController.abort();if(ownerMetricsController)ownerMetricsController.abort();if(ownerRecognition){try{ownerRecognition.stop();}catch(_){}}if(ownerRobot)ownerRobot.destroy();if(typeof nativeOff==='function')nativeOff();if(ownerObserver)ownerObserver.disconnect();cancelAnimationFrame(ownerFrame);listeners.forEach(function(off){off();});});
+    if(window.DashboardSPA)window.DashboardSPA.onCleanup(function(){disposed=true;sequence++;drawerSequence++;if(controller)controller.abort();if(drawerController)drawerController.abort();clearInterval(timer);clearTimeout(drawerTimer);clearTimeout(syncTimer);clearTimeout(ownerMetricsTimer);clearTimeout(ownerSummaryTimer);if(ownerSummaryController)ownerSummaryController.abort();clearInterval(ownerClockTimer);if(ownerMetricsController)ownerMetricsController.abort();if(ownerRecognition){try{ownerRecognition.stop();}catch(_){}}if(ownerRobot)ownerRobot.destroy();if(typeof nativeOff==='function')nativeOff();if(ownerObserver)ownerObserver.disconnect();cancelAnimationFrame(ownerFrame);listeners.forEach(function(off){off();});});
     periodButtons();render();queueDrawers();
 }());
