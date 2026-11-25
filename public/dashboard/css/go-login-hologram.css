@@ -5,7 +5,6 @@
 .dashboard-login-hologram .dashboard-login-identity{position:relative;min-width:0;min-height:0;width:100%;align-self:stretch;justify-content:center;text-align:center}
 .dashboard-login-hologram .go-login-hologram{position:relative;width:100%;height:clamp(440px,78vh,840px);max-height:900px;overflow:visible;pointer-events:none}
 .dashboard-login-hologram .go-login-hologram>img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;animation:none;transform:none;pointer-events:none;user-select:none;-webkit-user-drag:none}
-.dashboard-login-hologram .go-login-hologram>img.is-body{margin:auto;width:min(100%,520px);height:min(100%,610px)}
 .dashboard-login-hologram .go-login-hologram>canvas{position:absolute;inset:0;display:block;width:100%;height:100%;pointer-events:none}
 .dashboard-login-hologram .go-login-hologram[data-portrait-gpu="true"]>img{opacity:0}
 .dashboard-login-hologram .go-login-hologram[data-artwork-failed="true"]>img{display:none}
@@ -38,5 +37,3 @@ html[dir="ltr"] .dashboard-login-hologram .dashboard-login-form-panel{direction:
 @media(max-width:800px){.login-page.dashboard-login-hologram{padding:22px 18px 28px;place-items:start center}.dashboard-login-hologram .dashboard-login{grid-template-columns:1fr;gap:12px;min-height:0;width:min(500px,100%);max-width:none}.dashboard-login-hologram .dashboard-login-identity{min-height:0}.dashboard-login-hologram .go-login-hologram{height:clamp(205px,34vh,330px)}.dashboard-login-hologram .dashboard-login-form-panel{padding:25px 24px;border-top:1px solid #12b4d0b3;border-inline-start:1px solid #12b4d0b3}.dashboard-login-hologram .dashboard-login-form-panel h1{font-size:23px}.dashboard-login-hologram .go-login-mark{position:static;width:43px;margin:25px auto 12px}.dashboard-login-hologram .go-login-tagline{position:static;max-width:420px;line-height:1.8;font-size:8px;padding-inline:14px}.dashboard-login-hologram .go-login-orbits{opacity:.14}}
 @media(max-width:370px){.login-page.dashboard-login-hologram{padding-inline:12px}.dashboard-login-hologram .dashboard-login-form-panel{padding:22px 17px}.dashboard-login-hologram .dashboard-login-form-panel h1{font-size:21px}.dashboard-login-hologram .go-login-hologram{height:220px}}
 @media(prefers-reduced-motion:reduce){.dashboard-login-hologram *{animation:none!important;transition:none!important}}
-/* No hologram on the login page: the form keeps its place on the side. */
-@media(min-width:801px){.login-page.dashboard-login-hologram .dashboard-login-form-panel{grid-column:2}}

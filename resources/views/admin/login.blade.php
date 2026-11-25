@@ -17,12 +17,18 @@
     @endif
     <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261017-go-solar-1">
-    <link rel="stylesheet" href="{{ asset('dashboard/css/go-login-hologram.css') }}?v=20261125-form-2">
+    <link rel="stylesheet" href="{{ asset('dashboard/css/go-login-hologram.css') }}?v=20261110-living-1">
 </head>
 @php $isArabic = app()->getLocale() === 'ar'; @endphp
 <body class="login-page dashboard-login-page dashboard-login-hologram">
     <svg class="go-login-orbits" viewBox="0 0 1600 1000" preserveAspectRatio="none" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width=".7"><path d="M-100 30C500 80 250 770 1700 940M-100 130C400 80 380 780 1700 840M-100 240C440 100 380 770 1700 730M-100 350C500 190 440 750 1700 620M-100 470C520 360 440 720 1700 510M-100 590C570 590 600 150 1700 120M-100 730C500 830 800 300 1700 240M-100 850C650 1000 850 390 1700 360M-100 940C760 1120 960 500 1700 470"/></g></svg>
     <main class="dashboard-login" aria-labelledby="dashboard-login-title">
+        <section class="dashboard-login-identity" aria-label="{{ $isArabic ? 'هولوجرام GO' : 'GO hologram' }}">
+            <div class="go-login-hologram" data-go-login-hologram aria-hidden="true">
+                <img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.webp') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high">
+                <canvas data-go-login-canvas></canvas>
+            </div>
+        </section>
 
         <section class="dashboard-login-form-panel">
             <span class="dashboard-login-eyebrow">{{ $isArabic ? 'لوحة التحكم' : 'Dashboard' }}</span>
@@ -81,6 +87,8 @@
     </main>
     <div class="go-login-mark" aria-label="GO">@include('admin.partials.go_hud_mark')</div>
     <p class="go-login-tagline" lang="en" dir="ltr">THE INTELLIGENT SYSTEM FOR SALES, INVENTORY AND HR</p>
+    <script src="{{ asset('dashboard/js/go-hologram.js') }}?v=20261110-living-1"></script>
+    <script src="{{ asset('dashboard/js/go-login-hologram.js') }}?v=20261110-living-1"></script>
     <script>
         (function () {
             const form = document.querySelector('[data-dashboard-login]');
