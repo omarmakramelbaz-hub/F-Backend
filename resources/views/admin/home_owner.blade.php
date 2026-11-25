@@ -37,6 +37,11 @@
         </div>
     </section>
 
+    <section class="ho-cc-order-flow" aria-labelledby="ho-order-flow-title">
+        <header class="ho-cc-section-heading"><div><h2 id="ho-order-flow-title">حالة الطلبات المباشرة</h2><p>الطلبات الحالية والمكتملة خلال الفترة المختارة</p></div></header>
+        <div class="ho-cc-order-stages" data-ho-owner-order-flow></div>
+    </section>
+
     <section class="ho-cc-platform" aria-labelledby="ho-platform-title">
         <header class="ho-cc-section-heading">
             <div><h2 id="ho-platform-title">{{ __('home_overview.platform_title') }}</h2><p>{{ __('home_overview.platform_scope') }}</p></div>
@@ -75,6 +80,21 @@
         <section class="ho-panel ho-owner-column ho-owner-alerts" aria-labelledby="ho-alerts-title">
             <header><h2 id="ho-alerts-title"><i class="fas fa-bell" aria-hidden="true"></i> {{ __('home_overview.alerts') }}</h2><span class="ho-cc-alert-count" data-ho-owner-alert-count></span></header>
             <div class="ho-cc-alert-list" data-ho-owner-alerts></div>
+        </section>
+    </section>
+
+    <section class="ho-cc-insights" aria-label="ملخص الأصناف والمخزون والحضور">
+        <section class="ho-panel ho-cc-insight-card">
+            <header><div><h2>أكثر الأصناف تكرارًا في فواتير البيع</h2><p>حسب سجلات المبيعات المرتبطة بالمخزون</p></div><i class="fas fa-star" aria-hidden="true"></i></header>
+            <div class="ho-cc-top-products" data-ho-owner-top-products></div>
+        </section>
+        <section class="ho-panel ho-cc-insight-card">
+            <header><div><h2>حالة المخزون</h2><p>الأصناف المسجلة وحدود إعادة الطلب</p></div><i class="fas fa-cube" aria-hidden="true"></i></header>
+            <div class="ho-cc-stock-health" data-ho-owner-stock-health></div>
+        </section>
+        <section class="ho-panel ho-cc-insight-card">
+            <header><div><h2>الموظفون والحضور</h2><p>ملخص يوم التشغيل الحالي</p></div><i class="fas fa-users" aria-hidden="true"></i></header>
+            <div class="ho-cc-attendance" data-ho-owner-attendance></div>
         </section>
     </section>
 
