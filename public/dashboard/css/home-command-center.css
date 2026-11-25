@@ -398,3 +398,7 @@ body:has(.ho-compact) .main-header .dropdown-menu .dropdown-item:hover { backgro
     .ho-cc-user { margin-inline-end:0; }
     .ho-cc-toolbar { padding-top:38px; }
 }
+
+.ho-cc-alert.info { border-color:#176a87; background:#0a2c3f; color:#d8f5ff; }
+.ho-cc-alert.info>i { color:#39d8ef; }
+.ho-cc-alert.danger { border-color:#9f4b35; background:#351c1b; color:#ffe7dd; }
