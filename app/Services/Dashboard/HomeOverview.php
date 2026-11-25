@@ -176,6 +176,13 @@ class HomeOverview
             // Opening and periodically refreshing home never reconstructs every shift.
             // Null means not requested; it must not be displayed as a zero balance.
             $drawer['owner_drawer']=['ready'=>false,'loaded'=>false,'total_cents'=>null,'branches'=>[]];
+            // Net profit on the same sales the page shows, and the goods each branch is about to run out of.
+            $profit=app(OwnerProfit::class);
+            if($profit->ready()&&$modules['pos']){
+                $perBranch=[];foreach($branches as $key=>$b)$perBranch[$key]=$b['sales'];
+                $drawer['profit']=$profit->compute($perBranch,$filters['from'],$filters['to']);
+                $drawer['forecasts']=array_map(fn($f)=>$f+['branch_name'=>$branches[$f['branch']]['name']??''],$profit->forecasts($keys));
+            }
         }
         return ['success'=>true,'updated_at'=>now('Africa/Cairo')->toIso8601String(),'operating_day'=>OperatingDay::metadata(),'filters'=>$filters,'branches'=>$all,'can_view_financials'=>$finance,
             'branch_home'=>!$centralAccount,'today_expenses'=>!$centralAccount?$this->todayExpenses($keys,$modules['expenses']):null,

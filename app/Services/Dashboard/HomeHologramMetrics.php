@@ -42,13 +42,14 @@ class HomeHologramMetrics
             'ch-phone'=>['دليفري', 'في التجهيز اليوم'],
             'ch-dine'=>['صالة', 'في التجهيز اليوم'],
             'pending-expenses'=>['مصروفات منتظرة', 'بانتظار الاعتماد'],
-            'drawers'=>['رصيد أدراج الفروع', 'جنيه'],
+            'drawers'=>['رصيد النقدية', 'جنيه'],
         ];
         if (isset($links['expenses'])) $links['pending-expenses'] = $links['expenses'];
         // The primary owner: the branches' drawer balance in place of the pending expenses; it opens the balance of
         // each branch's drawer, on the home page itself.
+        // The card stays put even when a reading fails (it then shows the last balance read), so it never swaps places.
         $balance = $this->ownerDrawerBalance($actor);
-        if ($balance !== null && isset($links['pending-expenses'])) {
+        if ($this->isPrimaryOwner($actor) && isset($links['pending-expenses'])) {
             unset($links['pending-expenses']);
             $links['drawers'] = (\Illuminate\Support\Facades\Route::has('admin_dash') ? route('admin_dash') : url('admin/dashboard')).'#branch-drawers';
         }
@@ -159,16 +160,26 @@ class HomeHologramMetrics
      */
     private function ownerDrawerBalance($actor): ?int
     {
-        if ((int) $actor->id !== 1 || $actor->account_type !== 'admin' || !empty($actor->owner_resturant_id)) return null;
+        if (!$this->isPrimaryOwner($actor)) return null;
+        $last = 'home-hologram-owner-drawers-last:'.(int) $actor->id;
         try {
-            $cents = Cache::remember('home-hologram-owner-drawers:'.(int) $actor->id, 60, function () use ($actor) {
+            $cents = Cache::remember('home-hologram-owner-drawers:'.(int) $actor->id, 60, function () use ($actor, $last) {
                 $drawer = app(HomeOverview::class)->drawers([], $actor)['owner_drawer'] ?? null;
-                return is_array($drawer) && !empty($drawer['ready']) && is_numeric($drawer['total_cents'] ?? null) ? (int) $drawer['total_cents'] : 'none';
+                if (!is_array($drawer) || empty($drawer['ready']) || !is_numeric($drawer['total_cents'] ?? null)) return 'none';
+                Cache::put($last, (int) $drawer['total_cents'], now()->addDay());
+                return (int) $drawer['total_cents'];
             });
         } catch (\Throwable $error) {
-            return null;
+            $cents = 'none';
         }
-        return is_int($cents) ? (int) round($cents / 100) : null;
+        // Redis gives a cached number back as a string.
+        if (!is_numeric($cents)) $cents = Cache::get($last);
+        return is_numeric($cents) ? (int) round(((int) $cents) / 100) : null;
+    }
+
+    private function isPrimaryOwner($actor): bool
+    {
+        return (int) $actor->id === 1 && $actor->account_type === 'admin' && empty($actor->owner_resturant_id);
     }
 
     private function excludeWebsiteTickets($query): void
