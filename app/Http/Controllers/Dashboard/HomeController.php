@@ -106,6 +106,9 @@ class HomeController extends Controller
             'success'=>true,'hologram'=>app(\App\Services\Dashboard\HomeHologramMetrics::class)->data(auth('admin')->user()),
             'shell'=>\App\Support\DashboardShell::version(),
         ])->header('Cache-Control','private, no-store');
+        if($request->query('section')==='owner-summary')return response()->json(
+            $overview->ownerSummary($request->query(),auth('admin')->user())
+        )->header('Cache-Control','private, no-store');
         $data=$request->query('section')==='drawers'
             ?$overview->drawers($request->query(),auth('admin')->user())
             :$overview->data($request->query(),auth('admin')->user());
