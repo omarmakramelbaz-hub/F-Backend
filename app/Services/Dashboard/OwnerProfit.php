@@ -43,11 +43,12 @@ class OwnerProfit
     }
 
     /** Expense items already counted another way: salaries and advances (salaries come from the employees' pay), rent
-     * and packaging (fixed amounts), and money the branch only passed on (a paid delivery-app order, cash collected). */
+     * and packaging (fixed amounts), and money the branch only passed on (a paid delivery-app order, cash collected).
+     * Decided by the item's name as the expenses page shows it: the built-in items were renamed («أخرى» is «أوردر مدفوع
+     * إنستا باي», «إيجار» is «توصيل مرتجع»…), so their keys say nothing about what they hold. */
     public static function excludedByDefault(string $key, string $name): bool
     {
         if (self::salesTransfer($name)) return true;
-        if (in_array($key, ['salaries', 'rent', 'packaging'], true)) return true;
         return (bool) preg_match('/سل[فه]|^\s*سل\s|رواتب|مرتب|ايجار|إيجار|تغليف|تحصيل|مدفوع\s*تطبيق/u', $name);
     }
 
@@ -73,9 +74,15 @@ class OwnerProfit
     }
 
     /** Buying goods: charged when the goods are sold (cost of goods sold), never again as an expense. */
+    /** Rent paid from a drawer: each branch's rent is charged from its monthly rent setting, never again as an expense. */
+    public static function rentPaid(string $name): bool
+    {
+        return (bool) preg_match('/ايجار|إيجار/u', $name);
+    }
+
     public static function goodsPurchase(string $key, string $name): bool
     {
-        return str_starts_with($key, 'purchase') || (bool) preg_match('/^\s*مشتريات/u', $name);
+        return str_starts_with($key, 'purchase_') || (bool) preg_match('/^\s*مشتريات/u', $name);
     }
 
     /** Expense categories that are sales transfers. */
@@ -90,6 +97,9 @@ class OwnerProfit
         foreach (BranchExpenses::CATEGORIES as $key) $names[$key] = __('expenses.cat_'.$key);
         foreach (ExpenseStockPurchases::CATEGORIES as $key => $name) $names[$key] = 'مشتريات '.$name;
         if (Schema::hasTable('branch_expense_categories')) foreach (DB::table('branch_expense_categories')->get(['id', 'name']) as $row) $names['custom_'.$row->id] = $row->name;
+        // The names the expenses page shows, renamed built-in items included.
+        try { foreach (app(ExpenseCategories::class)->options() as $key => $name) if (is_string($name) && trim($name) !== '') $names[$key] = $name; }
+        catch (\Throwable $e) { /* the defaults above */ }
         return $names;
     }
 
@@ -102,9 +112,9 @@ class OwnerProfit
             ->groupBy('category')->get();
         $items = [];
         foreach ($totals as $row) {
-            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name); $goods = !$transfer && self::goodsPurchase($key, $name);
+            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name); $goods = !$transfer && self::goodsPurchase($key, $name); $rentPaid = !$transfer && !$goods && self::rentPaid($name);
             $items[] = ['key'=>$key, 'name'=>$name, 'month'=>Money::decimal((int) $row->month_cents), 'month_cents'=>(int) $row->month_cents,
-                'default_included'=>$default, 'sales_transfer'=>$transfer, 'goods_purchase'=>$goods, 'included'=>!$transfer && !$goods && (array_key_exists($key, $rules) ? (bool) $rules[$key] : $default)];
+                'default_included'=>$default, 'sales_transfer'=>$transfer, 'goods_purchase'=>$goods, 'rent_paid'=>$rentPaid, 'included'=>!$transfer && !$goods && !$rentPaid && (array_key_exists($key, $rules) ? (bool) $rules[$key] : $default)];
         }
         usort($items, fn ($a, $b) => $b['month_cents'] <=> $a['month_cents']);
         return $items;
@@ -205,7 +215,7 @@ class OwnerProfit
             ->whereBetween('occurred_on', [$fromDate, $toDate])->select('branch', 'category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch', 'category')->get();
         foreach ($expenses as $x) {
             $key = (string) $x->category;
-            $counts = !self::salesTransfer($names[$key] ?? '') && !self::goodsPurchase($key, $names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
+            $counts = !self::salesTransfer($names[$key] ?? '') && !self::goodsPurchase($key, $names[$key] ?? '') && !self::rentPaid($names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
             if ($counts) $rows[$x->branch]['expenses_cents'] += (int) $x->amount;
         }
         $total = $empty;
