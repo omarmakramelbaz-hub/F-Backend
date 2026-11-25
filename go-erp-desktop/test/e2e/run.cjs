@@ -420,7 +420,7 @@ async function ownerDevice() {
   await showBar(page);
   await page.getByRole('button', { name: 'إعدادات البرنامج' }).click();
   await until(async () => /الفروع المتجهزة للعمل بدون إنترنت\s*فرع المعادي، فرع مدينة نصر/.test(String(await inDashboard(app,
-    "(document.querySelector('[data-go-erp-device-part]') || {}).innerText || ''").catch(() => ''))), 'the program page shows this device', 30000);
+    "(document.querySelector('[data-go-erp-device-part]') || {}).innerText || ''").catch(() => ''))), 'the program page shows this device', 90000); // the dashboard signs in again at most once a minute
   assert.equal(await inDashboard(app, "document.querySelectorAll('[data-go-erp-device-part]').length"), 1);
   await dashboardShot(app, '11-program-page-device');
   // Signing out of the app closes the dashboard and its session.
