@@ -13,4 +13,6 @@ Route::middleware(['lang','IsAdmin'])->prefix('admin/branch-stock')->name('branc
     Route::post('adjust',[BranchStockController::class,'adjust'])->name('adjust');
     Route::get('profit-costs',[BranchStockController::class,'profitCosts'])->name('profit-costs');
     Route::post('profit-costs',[BranchStockController::class,'saveProfitCosts'])->name('profit-costs-save');
+    Route::post('prices',[BranchStockController::class,'savePrice'])->name('price-save');
+    Route::post('unit',[BranchStockController::class,'saveUnit'])->name('unit-save');
 });

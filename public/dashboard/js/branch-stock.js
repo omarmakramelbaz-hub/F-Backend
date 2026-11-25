@@ -120,6 +120,58 @@
         }
         if (refresh && !disposed) load(page);
     }
+    // Owner only: one cost and selling price per kilo or piece for every branch, and the profit share of the selling price.
+    function canManagePrices() { return current.can_manage_prices === true && !!boot.urls.price_save; }
+    function post(url, payload) { return request(address(url), { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) }); }
+    function money(cents) { return (Number(cents || 0) / 100).toLocaleString('ar-EG', { maximumFractionDigits: 2 }); }
+    function marginOf(cost, price) { var c = Number(cost), p = Number(price); return cost !== '' && cost != null && price !== '' && price != null && p > 0 && isFinite(c) ? Math.round((p - c) * 1000 / p) / 10 : null; }
+    function marginCell(margin) { var cell = el('td', margin == null ? '—' : margin + '%', margin == null ? 'bs-untracked' : 'bs-margin ' + (margin < 0 ? 'is-loss' : margin < 15 ? 'is-thin' : 'is-good')); return cell; }
+    function editPrices(item) {
+        if (locked() || !canManagePrices()) return;
+        var prices = item.prices || {}, piece = item.unit === 'piece', per = piece ? 'للقطعة' : 'للكيلو';
+        var dialog = el('dialog', undefined, 'bs-adjust bs-price-dialog'), formNode = el('form'), head = el('header'), close = el('button', '×'); close.type = 'button'; close.setAttribute('aria-label', 'إغلاق');
+        head.appendChild(el('h2', 'سعر التكلفة والبيع')); head.appendChild(close); formNode.appendChild(head);
+        var body = el('div', undefined, 'bs-adjust-body'), info = el('div', undefined, 'bs-adjust-info');
+        info.appendChild(el('strong', item.name)); info.appendChild(el('span', 'سعر واحد ' + per + ' في كل الفروع')); body.appendChild(info);
+        function field(label, value) { var wrap = el('label', label + ' (جنيه ' + per + ')'), input = el('input'); input.type = 'text'; input.inputMode = 'decimal'; input.maxLength = 12; input.autocomplete = 'off'; input.placeholder = 'غير محدد'; input.value = value == null ? '' : value; wrap.appendChild(input); body.appendChild(wrap); return input; }
+        var cost = field('سعر التكلفة', prices.cost), price = field('سعر البيع', prices.price), preview = el('p', '', 'bs-price-preview'); body.appendChild(preview);
+        var error = el('p', '', 'bs-adjust-error'); error.hidden = true; body.appendChild(error); formNode.appendChild(body);
+        function clean(input) { return amountText(input.value); }
+        function update() { var m = marginOf(clean(cost), clean(price)); preview.textContent = m == null ? 'نسبة الربح: تظهر لما تكتب السعرين' : 'نسبة الربح من سعر البيع: ' + m + '% · ربح ' + per + ': ' + (Number(clean(price)) - Number(clean(cost))).toLocaleString('ar-EG', { maximumFractionDigits: 2 }) + ' جنيه'; preview.className = 'bs-price-preview' + (m != null && m < 0 ? ' is-loss' : ''); }
+        cost.addEventListener('input', update); price.addEventListener('input', update); update();
+        var foot = el('footer'), save = el('button', 'حفظ', 'bs-primary'), cancel = el('button', 'إلغاء', 'bs-button'); save.type = 'submit'; cancel.type = 'button'; foot.appendChild(save); foot.appendChild(cancel); formNode.appendChild(foot);
+        dialog.appendChild(formNode); document.body.appendChild(dialog);
+        var busyPrice = false;
+        function done() { if (busyPrice) return; dialog.close(); dialog.remove(); }
+        close.addEventListener('click', done); cancel.addEventListener('click', done);
+        dialog.addEventListener('cancel', function (event) { event.preventDefault(); done(); });
+        dialog.addEventListener('keydown', function (event) { event.stopPropagation(); });
+        formNode.addEventListener('submit', async function (event) {
+            event.preventDefault(); if (busyPrice) return;
+            var c = clean(cost), p = clean(price); error.hidden = true;
+            var bad = [c, p].some(function (v) { return v !== '' && (!/^\d{1,7}(?:\.\d{1,2})?$/.test(v)); });
+            if (bad) { error.textContent = 'اكتب السعر بالجنيه، حتى رقمين بعد العلامة.'; error.hidden = false; return; }
+            busyPrice = true; save.disabled = true; save.textContent = 'جارٍ الحفظ…';
+            try {
+                await post(boot.urls.price_save, { ingredient_id: Number(item.id), cost: c === '' ? null : c, price: p === '' ? null : p, expected_revision: Number(prices.revision || 0) });
+                busyPrice = false; done(); notice('تم حفظ أسعار ' + item.name + '.'); if (!disposed) load(current.pagination.page);
+            } catch (failure) {
+                busyPrice = false; save.disabled = false; save.textContent = 'حفظ';
+                error.textContent = failure.message; error.hidden = false;
+            }
+        });
+        dialog.showModal(); cost.focus(); cost.select();
+    }
+    async function changeUnit(item, select) {
+        var before = item.unit;
+        if (select.value === before) return;
+        if (!confirm('تغيير «' + item.name + '» إلى ' + (select.value === 'kg' ? 'خامة بالوزن (كيلو)' : 'بضاعة بالقطعة') + '؟ الرصيد هيفضل نفس الرقم بالوحدة الجديدة، والحد الأدنى هيتشال.')) { select.value = before; return; }
+        busy = true; lock();
+        try { await post(boot.urls.unit_save, { ingredient_id: Number(item.id), unit: select.value }); notice('تم تغيير نوع ' + item.name + '.'); }
+        catch (failure) { select.value = before; notice(failure.message); }
+        finally { busy = false; lock(); }
+        if (!disposed) load(current.pagination.page);
+    }
     function render(data) {
         var chosen = product.value; current = data; items.clear(); product.replaceChildren(el('option', 'اختر صنف البضاعة')); product.firstChild.value = '';
         var body = root.querySelector('[data-stock-rows]'); body.replaceChildren();
@@ -134,10 +186,19 @@
             if (canManageMinimum()) { var minimumButton = el('button', minimumText === 'غير محدد' ? 'تحديد' : minimumText, 'bs-button bs-minimum-toggle'); minimumButton.type = 'button'; minimumButton.setAttribute('aria-label', 'تعديل الحد الأدنى: ' + (item.branch_name ? item.branch_name + ' · ' : '') + item.name); minimumButton.setAttribute('aria-expanded', 'false'); minimumButton.addEventListener('click', function () { editMinimum(minimum, minimumButton, item); }); minimum.appendChild(minimumButton); }
             else minimum.appendChild(el('span', minimumText, minimumText === 'غير محدد' ? 'bs-untracked' : 'bs-quantity'));
             row.appendChild(minimum);
-            row.appendChild(el('td', item.unit === 'kg' ? 'خامة بالوزن' : 'بضاعة بالقطعة')); body.appendChild(row);
+            if (boot.urls.unit_save && !data.all_branches) { var kindCell = el('td'), kind = el('select', undefined, 'bs-kind'); [['kg', 'خامة بالوزن'], ['piece', 'بضاعة بالقطعة']].forEach(function (o) { var opt = el('option', o[1]); opt.value = o[0]; kind.appendChild(opt); }); kind.value = item.unit; kind.setAttribute('aria-label', 'نوع الصنف: ' + item.name); kind.addEventListener('change', function () { changeUnit(item, kind); }); kindCell.appendChild(kind); row.appendChild(kindCell); }
+            else row.appendChild(el('td', item.unit === 'kg' ? 'خامة بالوزن' : 'بضاعة بالقطعة'));
+            if (canManagePrices()) {
+                var prices = item.prices || {}, per = item.unit === 'piece' ? ' / قطعة' : ' / كجم';
+                [prices.cost, prices.price].forEach(function (value, index) { var cell = el('td', undefined, 'bs-price-cell'), b = el('button', value == null ? 'تحديد' : value + per, 'bs-button bs-price-toggle' + (value == null ? ' is-empty' : '')); b.type = 'button'; b.setAttribute('aria-label', (index ? 'سعر البيع: ' : 'سعر التكلفة: ') + item.name); b.addEventListener('click', function () { editPrices(item); }); cell.appendChild(b); row.appendChild(cell); });
+                row.appendChild(marginCell(prices.margin));
+            }
+            body.appendChild(row);
         });
-        if (!data.items.length) { var empty = el('tr'), cell = el('td', 'لا توجد بضاعة مطابقة للبحث.'); cell.colSpan = 5; empty.appendChild(cell); body.appendChild(empty); }
+        if (!data.items.length) { var empty = el('tr'), cell = el('td', 'لا توجد بضاعة مطابقة للبحث.'); cell.colSpan = canManagePrices() ? 8 : 5; empty.appendChild(cell); body.appendChild(empty); }
         product.value = items.has(chosen) ? chosen : '';
+        root.querySelectorAll('[data-price-col]').forEach(function (th) { th.hidden = !canManagePrices(); });
+        var worth = root.querySelector('[data-stock-value]'); if (worth) { worth.hidden = !canManagePrices(); worth.textContent = canManagePrices() ? 'قيمة المخزون بسعر التكلفة' + (data.all_branches ? ' (كل الفروع)' : '') + ': ' + money(data.stock_value_cents) + ' جنيه' : ''; }
         root.querySelector('[data-stock-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total + ' صنف';
         var history = root.querySelector('[data-stock-history]'); history.replaceChildren();
         data.history.forEach(function (entry) { var row = el('tr'); [entry.created_at, (entry.branch_name ? entry.branch_name + ' · ' : '') + entry.name, entry.source_type === 'receipt' ? 'توريد بضاعة' : entry.source_type === 'expense' ? 'مشتريات مصروف #'+entry.source_id : entry.source_type === 'expense_reverse' ? 'عكس مشتريات مصروف #'+entry.source_id : entry.source_type === 'adjustment' ? 'تعديل رصيد (الأونر)' : entry.source_type === 'app' ? 'بيع تطبيق #' + entry.source_id : 'بيع فاتورة #' + entry.source_id, entry.quantity + ' ' + entry.unit_label, entry.balance + ' ' + entry.unit_label, entry.actor, [entry.supplier, entry.notes].filter(Boolean).join(' · ') || '—'].forEach(function (text, index) { row.appendChild(el('td', text, index === 3 || index === 4 ? 'bs-quantity' : '')); }); history.appendChild(row); });

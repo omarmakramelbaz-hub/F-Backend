@@ -56,7 +56,7 @@ class BranchStock
     public function listing(array $values,$actor): array
     {
         if(($values['branch']??null)==='all')return $this->allListing($values,$actor);
-        if(app(BranchInventory::class)->installed())return app(BranchInventory::class)->listing($values,$actor);
+        if(app(BranchInventory::class)->installed())return app(StockIngredientPrices::class)->decorate(app(BranchInventory::class)->listing($values,$actor),$actor);
         abort_unless($this->installed(),503,'صفحة إضافة البضاعة تحتاج تحديث قاعدة البيانات.');
         $v=Validator::make($values,['branch'=>'required|string|max:30','search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();$b=$this->branch($v['branch'],$actor);
         $q=DB::table('resturant_products')->where('resturant_id',$b['id']);$search=trim($v['search']??'');if($search!=='')$q->where('product_name','like','%'.$search.'%');
@@ -70,9 +70,10 @@ class BranchStock
     {
         $v=Validator::make($values,['search'=>'nullable|string|max:100','page'=>'nullable|integer|min:1'])->validate();
         $actor=$this->ops->access->actor($actor);abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
-        $branches=$this->branches($actor);abort_unless($branches,403);$items=[];$history=[];$legacy=[];$unmapped=[];$ingredients=[];$unconfigured=0;
+        $branches=$this->branches($actor);abort_unless($branches,403);$items=[];$history=[];$value=null;$legacy=[];$unmapped=[];$ingredients=[];$unconfigured=0;
         foreach($branches as $branch){
             $data=$this->listing(['branch'=>$branch['value'],'search'=>$v['search']??'','page'=>1],$actor);
+            if(isset($data['stock_value_cents']))$value=(int)$value+(int)$data['stock_value_cents'];
             $ingredients=$data['ingredients']??[];$unconfigured+=(int)($data['unconfigured_count']??0);
             $label=['branch'=>$branch['value'],'branch_name'=>$branch['name']];
             foreach($data['items'] as $item)$items[]=$item+$label;
@@ -86,7 +87,8 @@ class BranchStock
             foreach($data['unmapped_sales']??[] as $entry)$unmapped[]=$entry+$label;
         }
         usort($history,fn($a,$b)=>$b['id']<=>$a['id']);$total=count($items);$last=max(1,(int)ceil($total/100));$page=min($last,(int)($v['page']??1));
-        return app(BranchStockMinimums::class)->metadata($actor)+['success'=>true,'all_branches'=>true,'branch'=>['value'=>'all','name'=>'جميع الفروع'],'items'=>array_slice($items,($page-1)*100,100),'ingredients'=>$ingredients,'can_manage_recipes'=>false,'unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,'legacy'=>$legacy,'history'=>array_slice($history,0,30),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total]];
+        $prices=$value===null?[]:['can_manage_prices'=>true,'stock_value_cents'=>$value];
+        return $prices+app(BranchStockMinimums::class)->metadata($actor)+['success'=>true,'all_branches'=>true,'branch'=>['value'=>'all','name'=>'جميع الفروع'],'items'=>array_slice($items,($page-1)*100,100),'ingredients'=>$ingredients,'can_manage_recipes'=>false,'unconfigured_count'=>$unconfigured,'unmapped_sales'=>$unmapped,'legacy'=>$legacy,'history'=>array_slice($history,0,30),'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total]];
     }
     public function receive(array $values,$actor): array
     {

@@ -289,3 +289,15 @@
 #branch-stock .bs-profit-layout td input[type=text]{width:100%;max-width:10rem}
 #branch-stock .bs-profit-layout td input[type=checkbox]{width:1.2rem;height:1.2rem}
 #branch-stock .bs-profit-layout small{color:#64748b;font-weight:400}
+/* Owner prices: cost, selling price and profit share, one price per kilo or piece. */
+#branch-stock .bs-price-toggle{padding:3px 10px!important;min-height:0;font-variant-numeric:tabular-nums;white-space:nowrap}
+#branch-stock .bs-price-toggle.is-empty{color:#7a8aa0;border-style:dashed}
+#branch-stock .bs-margin{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;unicode-bidi:plaintext}
+#branch-stock .bs-margin.is-good,#branch-stock tr.bs-low-stock td.bs-margin.is-good{color:#13804a!important}
+#branch-stock .bs-margin.is-thin,#branch-stock tr.bs-low-stock td.bs-margin.is-thin{color:#b26a00!important}
+#branch-stock .bs-margin.is-loss{color:#c0262f}
+#branch-stock .bs-kind{min-width:128px;height:34px;padding:3px 8px;border:1px solid #d6e4fb;border-radius:8px;background:#f7faff;color:#17304a;font:inherit;font-size:12.5px;cursor:pointer}
+#branch-stock .bs-kind:disabled{cursor:default;opacity:.7}
+#branch-stock .bs-stock-value{margin:4px 0 0;font-weight:800;color:#13804a}
+.bs-price-dialog .bs-price-preview{margin:4px 0 0;padding:8px 10px;border-radius:8px;background:#effaf3;color:#13804a;font-weight:700;font-size:13px}
+.bs-price-dialog .bs-price-preview.is-loss{background:#fdeeee;color:#c0262f}
