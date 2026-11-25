@@ -155,9 +155,9 @@
             var previous=data.previous&&data.previous.gross_cents>0?((data.sales.gross_cents-data.previous.gross_cents)*100/data.previous.gross_cents):null;
             var comparison=previous===null?text.no_comparison:(previous>0?'+':'')+fmt(previous)+'% '+text.comparison;
             target.append(
-                ownerKpi('الطلبات المكتملة',ready?fmt(data.sales.count):'—',text.completed_note,'shopping-cart'),
+                ownerKpi(text.completed_invoices,ready?fmt(data.sales.count):'—',text.completed_note,'shopping-cart'),
                 ownerKpi(text.gross,ready?decimal(data.sales.gross_cents)+' '+text.currency:'—',comparison,'coins'),
-                ownerKpi(text.net,ready&&data.modules.expenses?decimal(data.sales.net_cents)+' '+text.currency:'—','قبل تكلفة البضاعة والضرائب','chart-line'),
+                ownerKpi(text.net,ready&&data.modules.expenses?decimal(data.sales.net_cents)+' '+text.currency:'—',text.net_note,'chart-line'),
                 ownerKpi(text.approved_expenses,data.modules.expenses?decimal(data.sales.expenses_cents)+' '+text.currency:'—',text.period,'file-invoice-dollar')
             );
         }else{
@@ -192,7 +192,7 @@
             node.setAttribute('aria-label',item.label+': '+(item.available?fmt(Number(item.count)):'—')+(item.secondary_count!==null&&item.secondary_count!==undefined?'، '+fmt(Number(item.secondary_count))+' '+(item.secondary_label||''):''));
             target.appendChild(node);
         });
-        if(!target.children.length)target.appendChild(el('p','مؤشرات التشغيل غير متاحة لهذا الحساب أو لم يتم تحميلها بعد.','ho-cc-empty'));
+        if(!target.children.length)target.appendChild(el('p',text.metrics_unavailable,'ho-cc-empty'));
         var updated=$('ops-updated');if(updated)updated.textContent=metrics&&metrics.updated_at?'آخر تحديث '+new Date(metrics.updated_at).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit',timeZone:'Africa/Cairo'}):'تتحدث تلقائيًا';
     }
     function renderOwnerAlerts(){
@@ -200,7 +200,7 @@
         var alerts=Array.isArray(data.alerts)?data.alerts:[];
         var count=$('owner-alert-count');if(count)count.textContent=fmt(alerts.length);
         alerts.forEach(function(a){
-            var row=el(a.url?'a':'article',undefined,'ho-cc-alert'+(a.tone==='warning'?' warn':a.tone==='success'?' ok':''));
+            var row=el(a.url?'a':'article',undefined,'ho-cc-alert'+(a.tone==='amber'||a.tone==='warning'?' warn':a.tone==='green'||a.tone==='success'?' ok':''));
             if(a.url)row.href=safeLink(a.url);
             var kind=a.kind||'info';
             row.appendChild(icon(kind.includes('stock')?'boxes':kind==='print_pending'?'print':kind==='late_orders'?'clock':kind==='pending_expenses'?'file-invoice-dollar':'info-circle'));
@@ -227,19 +227,19 @@
     }
     function startOwnerVoice(){
         var Recognition=window.SpeechRecognition||window.webkitSpeechRecognition,input=$('command-input'),button=$('voice'),status=$('command-status');
-        if(!Recognition){status.textContent='الإملاء الصوتي غير مدعوم في هذا المتصفح.';status.classList.add('is-error');return;}
+        if(!Recognition){status.textContent=text.voice_unsupported;status.classList.add('is-error');return;}
         if(ownerRecognition){ownerRecognition.stop();return;}
         var recognition=new Recognition();ownerRecognition=recognition;recognition.lang=boot.locale==='ar'?'ar-EG':'en-US';recognition.continuous=false;recognition.interimResults=true;
-        button.classList.add('is-listening','ho-cc-mic-listening');status.classList.remove('is-error');status.textContent='جاري الاستماع…';
+        button.classList.add('is-listening','ho-cc-mic-listening');status.classList.remove('is-error');status.textContent=text.voice_listening;
         if(ownerRobot)ownerRobot.setSpeaking(true);
         recognition.onresult=function(event){
             var transcript='';for(var i=event.resultIndex;i<event.results.length;i++)transcript+=event.results[i][0].transcript;
             if(transcript)input.value=transcript;
-            if(event.results.length&&event.results[event.results.length-1].isFinal)status.textContent='تم تحويل الصوت إلى نص؛ اضغط Enter لإرسال السؤال.';
+            if(event.results.length&&event.results[event.results.length-1].isFinal)status.textContent=text.voice_transcribed;
         };
         recognition.onerror=function(event){
             status.classList.add('is-error');
-            status.textContent=event.error==='not-allowed'?'اسمح للمتصفح باستخدام الميكروفون ثم حاول مرة أخرى.':'تعذر التقاط الصوت؛ حاول مرة أخرى.';
+            status.textContent=event.error==='not-allowed'?text.voice_mic_denied:text.voice_failed;
         };
         recognition.onend=function(){
             button.classList.remove('is-listening','ho-cc-mic-listening');if(ownerRobot)ownerRobot.setSpeaking(false);
@@ -247,7 +247,7 @@
         };
         try{recognition.start();}catch(_){
             button.classList.remove('is-listening','ho-cc-mic-listening');ownerRecognition=null;
-            if(ownerRobot)ownerRobot.setSpeaking(false);status.textContent='تعذر تشغيل الميكروفون؛ حاول مرة أخرى.';
+            if(ownerRobot)ownerRobot.setSpeaking(false);status.textContent=text.voice_start_failed;
         }
     }
     function submitOwnerQuestion(event){
@@ -255,7 +255,7 @@
         if(!question){input.focus();return;}
         var request=new CustomEvent('go:assistant-ask',{detail:{question:question,locale:boot.locale,source:'owner-home'},cancelable:true});
         document.dispatchEvent(request);status.classList.remove('is-error');
-        status.textContent=request.defaultPrevented?'تم إرسال السؤال إلى GO.':'تم التقاط السؤال، لكن خدمة الرد وتنفيذ الأوامر الذكية لم تُربط بهذه الواجهة بعد.';
+        status.textContent=request.defaultPrevented?text.question_sent:text.question_not_connected;
     }
     async function refreshOwnerMetrics(){
         if(disposed||!data.owner_platform||document.hidden)return;
