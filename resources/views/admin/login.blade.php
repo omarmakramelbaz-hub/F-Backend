@@ -17,7 +17,7 @@
     @endif
     <link href="{{ App\Services\Dashboard\DesktopDashboardAssets::url('https://fonts.googleapis.com/css2?family=Almarai:wght@400;700&display=swap') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('dashboard/branding/dashboard-brand.css') }}?v=20261017-go-solar-1">
-    <link rel="stylesheet" href="{{ asset('dashboard/css/go-login-hologram.css') }}?v=20261125-form-1">
+    <link rel="stylesheet" href="{{ asset('dashboard/css/go-login-hologram.css') }}?v=20261125-form-2">
 </head>
 @php $isArabic = app()->getLocale() === 'ar'; @endphp
 <body class="login-page dashboard-login-page dashboard-login-hologram">
