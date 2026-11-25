@@ -325,7 +325,7 @@ body:has(.ho-compact) .content-wrapper.ho-wrapper.ho-compact {
 .ho-cc-insight-note { margin:0!important; padding:8px 10px 10px; color:#7fa8b9; font-size:8px; line-height:1.5; }
 .ho-cc-stock-health { display:grid; grid-template-columns:112px minmax(0,1fr); align-items:center; gap:10px; padding:10px; }
 .ho-cc-stock-ring { --ho-stock-safe:0%; display:grid; place-items:center; width:94px; height:94px; margin:auto; border-radius:50%;
-    background:conic-gradient(#21c77a var(--ho-stock-safe),#ffad30 0 var(--ho-stock-low),#ed554f 0 100%); position:relative; }
+    background:conic-gradient(#21c77a 0 var(--ho-stock-safe),#ffad30 var(--ho-stock-safe) 100%); position:relative; }
 .ho-cc-stock-ring:before { content:""; position:absolute; inset:9px; border-radius:50%; background:#062033; border:1px solid #13506a; }
 .ho-cc-stock-ring strong,.ho-cc-stock-ring small { position:relative; z-index:1; grid-column:1; }
 .ho-cc-stock-ring strong { align-self:end; color:#effbff; font-size:19px; }
