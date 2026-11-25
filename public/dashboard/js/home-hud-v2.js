@@ -234,7 +234,9 @@
         var names = {}; ((today && today.branch_cards) || (boot.initial && boot.initial.branches) || []).forEach(function (b) { names[b.value] = b.name; });
         var rows = Object.keys(drawers.branches || {}).map(function (k) { return {name: names[k] || k, cents: (drawers.branches[k] || {}).expected_cents}; })
             .filter(function (r) { return typeof r.cents === 'number' && (!branch || r.name === names[branch]); }).sort(function (a, b) { return b.cents - a.cents; });
-        var list = rows.filter(function (r) { return r.cents !== 0; }).slice(0, rows.length > 4 ? 3 : 4);
+        // Every drawer that holds money is listed; empty ones are not. Past four, the rest are summed in one row.
+        var list = rows.filter(function (r) { return r.cents !== 0; });
+        if (list.length > 4) { var rest = list.slice(3).reduce(function (sum, r) { return sum + r.cents; }, 0); list = list.slice(0, 3).concat([{name: 'باقي الفروع', cents: rest}]); }
         box.replaceChildren();
         if (!list.length) { box.appendChild(el('dt', 'كل الأدراج فاضية.')); return; }
         list.forEach(function (r) { box.append(el('dt', r.name), el('dd', pounds(r.cents))); });

@@ -298,6 +298,7 @@ body>.select2-container--open,body>.select2-container--open .select2-dropdown{z-
 /* Wide screens: every card is kept compact so the whole home fits one screen. */
 @media (min-width:1181px){
     #go-hud.hud-v2 .hv2-panels .hv2-panel h2{font-size:17px}#go-hud.hud-v2 .hv2-panels .hv2-panel h2 svg{width:24px;height:24px}
+    #go-hud.hud-v2 .hv3-drawers-body dl{gap:3px 12px;font-size:13.5px;line-height:1.3}
     #go-hud.hud-v2 .hv3-att-row{font-size:13.5px;line-height:1.2}#go-hud.hud-v2 .hv3-att-row b{font-size:15px}#go-hud.hud-v2 .hv3-att-row i{width:18px;height:18px}
     #go-hud.hud-v2 .hv2-alert-list{gap:6px}
     #go-hud.hud-v2 .hv2-alert{min-height:42px;padding:5px 12px 5px 36px;font-size:14px;line-height:1.35}#go-hud.hud-v2 .hv2-alert svg{width:28px;height:28px}
