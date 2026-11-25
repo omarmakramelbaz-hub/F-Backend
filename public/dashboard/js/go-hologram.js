@@ -953,7 +953,7 @@
                 setSpeaking: function (value) { item.speaking = !!value; if (canvas.parentElement) canvas.parentElement.dataset.speaking = item.speaking ? 'true' : 'false'; if (!value) { item.voiceLevel = 0; item.explicitVoice = false; } wake(); },
                 setVoiceLevel: function (value) { item.voiceLevel = clamp(Number(value) || 0, 0, 1); item.explicitVoice = true; if (canvas.parentElement) canvas.parentElement.style.setProperty('--hologram-voice-level', String(item.voiceLevel)); wake(); },
                 setAlert: function (value) { item.alert = !!value; if (canvas.parentElement) canvas.parentElement.dataset.alert = item.alert ? 'true' : 'false'; wake(); },
-                setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); },
+                setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); wake(); },
                 setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 6 : item.elapsed); wake(); },
                 assembly: function (time) { return item.assembly(time); },
                 energy: function (time) { return item.internalFlow(time); },
