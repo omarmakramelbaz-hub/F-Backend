@@ -188,6 +188,7 @@ class HomeOverview
     public function ownerSummary(array $values, $actor): array
     {
         $actor=$this->access->actor($actor);
+        abort_unless($actor->account_type==='admin'&&empty($actor->owner_resturant_id),403);
         [$all,$filters,$selected]=$this->selection($values,$actor);
         $keys=array_column($selected,'value');
         $from=OperatingDay::start($filters['from']);
