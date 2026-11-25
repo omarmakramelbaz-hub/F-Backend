@@ -246,3 +246,10 @@
     #go-hud.hud-v2 .hv3-store-list{grid-template-columns:repeat(2,minmax(0,1fr))}
     #go-hud.hud-v2 .hv2-action,#go-hud.hud-v2 .hv3-quick{flex:1 1 140px;font-size:15px;min-height:48px}
 }
+
+/* The branch filter when the dashboard wraps it in select2 */
+#go-hud.hud-v2 .hv3-branch .select2-container{flex:1;min-width:0;width:auto!important}
+#go-hud.hud-v2 .hv3-branch .select2-container .select2-selection--single{height:42px;border:0;background:transparent;display:flex;align-items:center}
+#go-hud.hud-v2 .hv3-branch .select2-selection__rendered{color:#fff!important;font-size:15px;font-weight:700;line-height:42px!important;padding:0 4px 0 22px!important}
+#go-hud.hud-v2 .hv3-branch .select2-selection__arrow{height:42px!important}
+#go-hud.hud-v2 .hv3-branch .select2-selection__arrow b{border-color:#dff4ff transparent transparent!important}

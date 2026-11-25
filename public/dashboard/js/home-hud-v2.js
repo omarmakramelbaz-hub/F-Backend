@@ -280,7 +280,12 @@
     on(document, 'visibilitychange', function () { if (!document.hidden) { refresh(false); loadDrawers(); } });
     on(document, 'go:home-data', function (e) { var d = e.detail; if (!branch && d && d.filters && d.filters.period === 'today' && !d.filters.branch) renderToday(d); });
     var select = $('[data-hv3-branch]');
-    if (select) on(select, 'change', function () { branch = select.value; epoch++; week = null; loading = false; renderDrawers(); refresh(true); });
+    function pickBranch() { if (select.value === branch) return; branch = select.value; epoch++; week = null; loading = false; renderDrawers(); refresh(true); }
+    if (select) {
+        on(select, 'change', pickBranch);
+        // The dashboard wraps selects in select2, whose choice reaches jQuery handlers only.
+        if (window.jQuery) { window.jQuery(select).on('change.hv3', pickBranch); removers.push(function () { window.jQuery(select).off('change.hv3'); }); }
+    }
     var voiceButton = $('[data-hv2-voice]'); if (voiceButton) on(voiceButton, 'click', voice);
     var bell = $('[data-hv2-bell]'), alertsPanel = $('#hv2-alerts');
     if (bell && alertsPanel) on(bell, 'click', function () { alertsPanel.scrollIntoView({block: 'nearest', behavior: 'smooth'}); alertsPanel.focus({preventScroll: true}); alertsPanel.classList.remove('is-flash'); void alertsPanel.offsetWidth; alertsPanel.classList.add('is-flash'); });
