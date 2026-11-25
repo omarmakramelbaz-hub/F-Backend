@@ -259,3 +259,5 @@
 #go-hud.hud-v2 .hv3-branch .select2-selection__rendered{color:#fff!important;font-size:15px;font-weight:700;line-height:42px!important;padding:0 4px 0 22px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow{height:42px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow b{border-color:#dff4ff transparent transparent!important}
+/* select2 opens its list at the end of <body> at z-index 1051, under this home (1100): lift the open list above it. */
+body>.select2-container--open,body>.select2-container--open .select2-dropdown{z-index:1201}
