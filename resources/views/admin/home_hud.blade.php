@@ -5,21 +5,11 @@
     <div class="hud-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M3 23v-3a9 9 0 0 1 18 0v3Z"/></svg><strong data-hud-who>{{ auth('admin')->user()->name }}</strong></div>
     <div class="hud-figure" aria-hidden="true">
         @if($goHome)
-        <div class="hud-artwork"><img data-hologram-artwork data-hologram-face='{"eyes":[[0.629,0.315,0.045,0.025],[0.768,0.335,0.040,0.024]],"lip":[0.680,0.462,0.052,0.022],"cavity":[0.038,0.007],"jaw":[0.10,0.45,0.50,0.53,0.58],"head":[0.52,0.66,0.42,0.50,0.88,0.95],"pivot":[0.68,0.58],"depth":[0.68,0.32,0.20,0.28],"emitter":[0.50,0.95],"motion":7,"holo":1}' src="{{ asset('dashboard/branding/go-assistant-holo-20261125.webp') }}" alt="" width="342" height="400" decoding="async" fetchpriority="high"></div>
+        <div class="hud-artwork"><img data-hologram-artwork data-hologram-face='{"eyes":[[0.629,0.315,0.045,0.025],[0.768,0.335,0.040,0.024]],"lip":[0.680,0.462,0.052,0.022],"cavity":[0.038,0.007],"jaw":[0.10,0.45,0.50,0.53,0.58],"head":[0.52,0.66,0.42,0.50,0.88,0.95],"pivot":[0.68,0.58],"depth":[0.68,0.32,0.20,0.28],"emitter":[0.50,0.95],"motion":7,"holo":1,"fire":1}' src="{{ asset('dashboard/branding/go-assistant-holo-20261125.webp') }}" alt="" width="342" height="400" decoding="async" fetchpriority="high"></div>
         @else
         <div class="hud-artwork"><img data-hologram-artwork src="{{ asset('dashboard/branding/go-hologram-premium-20261110.webp') }}" alt="" width="1454" height="1082" decoding="async" fetchpriority="high"></div>
         @endif
         <canvas data-hud-robot></canvas>
-        @if($goHome)
-        <svg class="hv3-orbits" viewBox="0 0 342 400" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
-            <g class="hv3-orbit o1"><ellipse cx="205" cy="150" rx="150" ry="168"/></g>
-            <g class="hv3-orbit o2"><ellipse cx="205" cy="150" rx="132" ry="152"/></g>
-            <g class="hv3-orbit o3"><ellipse cx="205" cy="150" rx="168" ry="186"/></g>
-            <g class="hv3-orbit o4"><ellipse cx="205" cy="150" rx="118" ry="140"/></g>
-            <ellipse class="hv3-base b1" cx="171" cy="384" rx="150" ry="17"/>
-            <ellipse class="hv3-base b2" cx="171" cy="384" rx="104" ry="11"/>
-        </svg>
-        @endif
     </div>
 @if($goHome)
     {{-- The owner's home: the figures of the day, profit, the week's sales, the branches and what needs attention. --}}

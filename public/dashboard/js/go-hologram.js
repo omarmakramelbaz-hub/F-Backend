@@ -435,7 +435,7 @@
     // Face landmarks in texture space (0..1). The default fits the original GO portrait; another portrait
     // passes its own as JSON in data-hologram-face on its <img data-hologram-artwork>.
     var DEFAULT_FACE = {eyes: [[.503, .315, .050, .029], [.620, .324, .038, .025]], lip: [.562, .467, .057, .025], cavity: [.043, .008],
-        jaw: [.105, .455, .50, .54, .59], head: [.50, .68, .30, .39, .69, .75], pivot: [.56, .58], depth: [.545, .30, .17, .32], emitter: [.56, .78], motion: 1, holo: 0};
+        jaw: [.105, .455, .50, .54, .59], head: [.50, .68, .30, .39, .69, .75], pivot: [.56, .58], depth: [.545, .30, .17, .32], emitter: [.56, .78], motion: 1, holo: 0, fire: 0};
     function faceOf(image) {
         var face = DEFAULT_FACE, raw = image && image.getAttribute ? image.getAttribute('data-hologram-face') : null;
         if (raw) { try { var given = JSON.parse(raw); face = {}; Object.keys(DEFAULT_FACE).forEach(function (k) { face[k] = given && given[k] !== undefined ? given[k] : DEFAULT_FACE[k]; }); } catch (_) { face = DEFAULT_FACE; } }
@@ -469,15 +469,22 @@
         ].join('\n');
     }
     function portraitFragment(f) {
+        // fire: the portrait's own glowing streaks (warm orange and bright cyan, outside the face) shimmer and carry running light.
+        var fc = vec2(f.depth[0], f.depth[1]), fs = vec2(f.depth[2], f.depth[3]), fire = glf(f.fire);
         return [
         'precision highp float; uniform sampler2D uPortrait;uniform float uTime,uPoint,uVoice;',
         'varying vec2 vPortraitUV;varying float vArrival;',
-        'void main(){vec4 c=texture2D(uPortrait,vPortraitUV);if(c.a<.025)discard;',
+        'void main(){vec2 uv=vPortraitUV;vec4 c=texture2D(uPortrait,uv);float fire=0.;',
+        'if(' + fire + '>0.){float warm=smoothstep(.10,.32,c.r-c.b)*smoothstep(.45,.72,c.r);float cool=smoothstep(.12,.32,c.b-c.r)*smoothstep(.62,.9,c.g);',
+        'float face=1.-smoothstep(.72,1.,length((uv-' + fc + ')/' + fs + '));fire=max(warm,cool*.8)*(1.-face)*' + fire + ';',
+        'vec2 wob=vec2(sin(uv.y*38.+uTime*3.1),cos(uv.x*31.-uTime*2.7))*.005*fire;c=texture2D(uPortrait,uv+wob);}',
+        'if(c.a<.025)discard;',
         'float reveal=smoothstep(4.35,5.6,uTime);float alpha=c.a;',
         'if(uPoint>.5){float r=length(gl_PointCoord-.5)*2.;alpha*=exp(-r*r*2.8)*vArrival*(1.-reveal);}',
         'else{alpha*=reveal;vec2 m=(vPortraitUV-' + vec2(f.lip[0], f.lip[1]) + ')/' + vec2(f.cavity[0], f.cavity[1]) + ';float cavity=exp(-m.x*m.x*m.x*m.x-m.y*m.y*3.)*uVoice*.80;c.rgb=mix(c.rgb,vec3(.002,.015,.025),cavity);}',
         'float holo=' + glf(f.holo) + ';if(holo>0.){float scan=.5+.5*sin(vPortraitUV.y*520.-uTime*7.);c.rgb*=1.-holo*.16*scan;',
         'c.rgb+=holo*vec3(.0,.05,.08)*(.6+.4*sin(uTime*2.1));alpha*=1.-holo*(.05+.05*sin(uTime*31.)*step(.93,fract(uTime*.37)));}',
+        'if(fire>0.){vec2 d=uv-' + fc + ';float flow=pow(.5+.5*sin(length(d)*44.-uTime*4.4+atan(d.y,d.x)*2.),4.);c.rgb+=fire*c.rgb*(flow*1.25+.18*sin(uTime*5.3+uv.y*21.));}',
         'c.rgb*=1.+uVoice*.055;gl_FragColor=vec4(c.rgb*alpha,alpha);}'
         ].join('\n');
     }

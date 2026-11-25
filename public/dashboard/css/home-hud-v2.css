@@ -255,22 +255,3 @@
 #go-hud.hud-v2 .hv3-branch .select2-selection__rendered{color:#fff!important;font-size:15px;font-weight:700;line-height:42px!important;padding:0 4px 0 22px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow{height:42px!important}
 #go-hud.hud-v2 .hv3-branch .select2-selection__arrow b{border-color:#dff4ff transparent transparent!important}
-
-/* Moving light lines around the hologram */
-#go-hud.hud-v2 .hv3-orbits{position:absolute;inset:-10px -18px -6px -6px;width:calc(100% + 24px);height:calc(100% + 16px);pointer-events:none;overflow:visible;mix-blend-mode:screen}
-#go-hud.hud-v2 .hv3-orbit{transform-box:view-box;transform-origin:205px 150px}
-#go-hud.hud-v2 .hv3-orbit ellipse{fill:none;stroke-linecap:round}
-#go-hud.hud-v2 .hv3-orbit.o1{animation:hv3-spin 13s linear infinite}
-#go-hud.hud-v2 .hv3-orbit.o1 ellipse{stroke:#3fe0ff;stroke-width:2;stroke-dasharray:110 230 40 600;filter:drop-shadow(0 0 4px #3fe0ff)}
-#go-hud.hud-v2 .hv3-orbit.o2{animation:hv3-spin 9s linear infinite reverse}
-#go-hud.hud-v2 .hv3-orbit.o2 ellipse{stroke:#ffa133;stroke-width:2.4;stroke-dasharray:80 330 30 700;filter:drop-shadow(0 0 5px #ff9b22)}
-#go-hud.hud-v2 .hv3-orbit.o3{animation:hv3-spin 21s linear infinite}
-#go-hud.hud-v2 .hv3-orbit.o3 ellipse{stroke:#8fe9ff;stroke-width:1.2;stroke-dasharray:60 160 18 220;opacity:.75;filter:drop-shadow(0 0 3px #3fe0ff)}
-#go-hud.hud-v2 .hv3-orbit.o4{animation:hv3-spin 7s linear infinite reverse}
-#go-hud.hud-v2 .hv3-orbit.o4 ellipse{stroke:#ffc04d;stroke-width:1.4;stroke-dasharray:40 520;opacity:.85;filter:drop-shadow(0 0 4px #ffb347)}
-#go-hud.hud-v2 .hv3-base{fill:none;stroke-linecap:round}
-#go-hud.hud-v2 .hv3-base.b1{stroke:#3fe0ff;stroke-width:2;stroke-dasharray:60 26 14 26;animation:hv3-flow 6s linear infinite;filter:drop-shadow(0 0 6px #3fe0ff)}
-#go-hud.hud-v2 .hv3-base.b2{stroke:#bff6ff;stroke-width:1.4;stroke-dasharray:30 40;animation:hv3-flow 4s linear infinite reverse;opacity:.8}
-@keyframes hv3-spin{to{transform:rotate(360deg)}}
-@keyframes hv3-flow{to{stroke-dashoffset:-460}}
-@media (prefers-reduced-motion:reduce){#go-hud.hud-v2 .hv3-orbit,#go-hud.hud-v2 .hv3-base{animation:none}}
