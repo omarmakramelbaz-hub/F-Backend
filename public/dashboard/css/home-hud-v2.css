@@ -241,11 +241,14 @@
     #go-hud.hud-v2 .hv2-actions{flex-wrap:wrap}#go-hud.hud-v2 .hv2-action,#go-hud.hud-v2 .hv3-quick{flex:1 1 180px}#go-hud.hud-v2 .hv3-sep{display:none}
 }
 @media (max-width:700px){
-    #go-hud.hud-v2{grid-template-columns:1fr 1fr;padding:10px 10px 18px;column-gap:10px;
-        grid-template-areas:"user bell" "branch branch" "cmd cmd" "fig fig" "summary summary" "date date" "exp profit" "sales orders" "tiles tiles" "panels panels" "lower lower" "actions actions"}
+    #go-hud.hud-v2{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px 10px 18px;column-gap:10px;
+        grid-template-areas:"user bell" "panel panel" "branch branch" "fig fig" "summary summary" "date date" "exp profit" "sales orders" "tiles tiles" "panels panels" "lower lower" "actions actions"}
     #go-hud.hud-v2 .hv2-bell{justify-self:end;border:0;padding:0}
-    #go-hud.hud-v2 .hud-command-toggle{padding-left:20px;background:rgba(3,24,48,.88)}#go-hud.hud-v2 .hud-command-toggle::after{font-size:17px}
-    #go-hud.hud-v2 .hud-command-panel{position:relative;left:auto;top:auto;transform:none;grid-area:cmd;margin-top:60px}
+    /* «اسأل GO» is a small pill in the top row, beside the bell, instead of a bar above the assistant. */
+    #go-hud.hud-v2 .hud-command-toggle{grid-area:bell;justify-self:start;align-self:center;width:auto;max-width:calc(100% - 52px);min-height:38px;margin:0;padding:5px 12px;gap:6px;background:rgba(3,24,48,.88);box-shadow:0 0 12px rgba(40,195,240,.35)}
+    #go-hud.hud-v2 .hud-command-toggle::before{width:16px;height:16px}
+    #go-hud.hud-v2 .hud-command-toggle::after{content:"اسأل GO";flex:none;font-size:14px;white-space:nowrap}
+    #go-hud.hud-v2 .hud-command-panel{position:relative;left:auto;top:auto;transform:none;grid-area:panel;margin-top:0}
     #go-hud.hud-v2 .hud-figure{min-height:200px}
     #go-hud.hud-v2 .hv2-kpi{min-height:112px}#go-hud.hud-v2 .hv2-kpi b{font-size:21px}
     #go-hud.hud-v2 .hud-columns{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -324,4 +327,11 @@ body>.select2-container--open,body>.select2-container--open .select2-dropdown{z-
     #go-hud.hud-v2{height:100vh;min-height:0;grid-template-rows:auto auto auto minmax(0,1fr) auto auto;overflow:hidden}
     #go-hud.hud-v2 .hv2-panels{min-height:0}
     #go-hud.hud-v2 .hv2-panels > .hv2-panel{overflow:hidden}
+}
+/* Small phones: the «اسأل GO» pill shortens to «GO», and the card rows may wrap so nothing pushes past the screen. */
+@media (max-width:420px){
+    #go-hud.hud-v2 .hud-command-toggle{padding:5px 10px}#go-hud.hud-v2 .hud-command-toggle::after{content:"GO"}
+    #go-hud.hud-v2 .hv2-kpi small .hv2-month{flex-wrap:wrap;white-space:normal;row-gap:0;padding:4px 8px}#go-hud.hud-v2 .hv2-kpi small .hv2-month strong{font-size:15px}
+    #go-hud.hud-v2 .hv2-kpi small .hv2-today{white-space:normal}#go-hud.hud-v2 .hv2-kpi[data-hv2-kpi="orders"] small{grid-template-columns:1fr}
+    #go-hud.hud-v2 .hv3-user{min-width:0;overflow:hidden}#go-hud.hud-v2 .hv3-user b{font-size:14px}
 }
