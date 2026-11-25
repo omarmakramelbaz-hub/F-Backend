@@ -22,7 +22,10 @@
             input.type = 'text'; input.inputMode = 'decimal'; input.maxLength = 12; input.placeholder = '0'; input.autocomplete = 'off';
             input.value = b.rent || ''; input.dataset.branch = b.value; input.setAttribute('aria-label', 'إيجار ' + b.name);
             var rent = el('td'); rent.appendChild(input);
-            tr.append(el('th', b.name), rent, el('td', money(b.salaries)));
+            var daily = el('td', '', 'bs-daily-rent'), days = Number(data.month_days) || 30;
+            var showDaily = function () { var n = Number(String(input.value).replace(/[٠-٩]/g, function (d) { return '٠١٢٣٤٥٦٧٨٩'.indexOf(d); }).replace(/[,،]/g, '').replace('٫', '.')); daily.textContent = isFinite(n) && n > 0 ? money(Math.round(n / days * 100) / 100) : '—'; };
+            input.addEventListener('input', showDaily); showDaily();
+            tr.append(el('th', b.name), rent, daily, el('td', money(b.salaries)));
             branchRows.appendChild(tr);
         });
         expenseRows.textContent = '';

@@ -105,7 +105,7 @@ class OwnerProfit
             'rent'=>isset($rents[$b['value']]) && (int) $rents[$b['value']] > 0 ? Money::decimal((int) $rents[$b['value']]) : '',
             'salaries'=>Money::decimal($salaries[$b['value']] ?? 0)], $this->branches($actor));
         $packaging = $this->setting(self::PACKAGING, null);
-        return ['success'=>true, 'branches'=>$branches,
+        return ['success'=>true, 'branches'=>$branches, 'month_days'=>Carbon::parse(OperatingDay::date(), 'Africa/Cairo')->daysInMonth,
             'packaging'=>$packaging === null ? '' : Money::decimal((int) $packaging),
             'expenses'=>$this->expenseItems((array) $this->setting(self::EXPENSE_RULES, []))];
     }
