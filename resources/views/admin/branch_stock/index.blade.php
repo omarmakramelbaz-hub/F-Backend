@@ -10,7 +10,7 @@
 @foreach($boot['branches'] as $b)<option value="{{ $b['value'] }}" @if($boot['branch']===$b['value']) selected @endif>{{ $b['name'] }}</option>@endforeach</select></label></header>
 <p class="bs-note bs-guidance" data-stock-guidance></p>
 <div data-inventory-panel="goods"><div class="bs-layout"><section class="bs-panel bs-entry"><header><h2>تسجيل بضاعة واردة</h2><span>إضافة جديدة</span></header>
-<form data-stock-form><label class="bs-search-field">البحث عن صنف البضاعة<input data-stock-search type="search" maxlength="100" placeholder="اكتب اسم الصنف لتصفية القائمة"></label><label class="bs-product-field">الصنف<select name="ingredient_id" data-stock-product required><option value="">اختر صنف البضاعة</option></select></label>
+<form data-stock-form data-own-busy><label class="bs-search-field">البحث عن صنف البضاعة<input data-stock-search type="search" maxlength="100" placeholder="اكتب اسم الصنف لتصفية القائمة"></label><label class="bs-product-field">الصنف<select name="ingredient_id" data-stock-product required><option value="">اختر صنف البضاعة</option></select></label>
 <div class="bs-current"><span>الكمية الحالية في الفرع</span><strong data-stock-current>اختر الصنف</strong></div>
 <div class="bs-pair"><label>الكمية المضافة<input name="quantity" type="text" inputmode="decimal" maxlength="16" required placeholder="0.000" autocomplete="off"></label><label>الوحدة الأساسية<select name="unit"><option value="kg">كيلو</option><option value="piece">قطعة</option></select></label></div>
 <label class="bs-supplier-field">المورّد <small>اختياري</small><input name="supplier" maxlength="150" placeholder="اسم مورّد البضاعة"></label><label class="bs-notes-field">ملاحظات <small>اختياري</small><textarea name="notes" maxlength="500" rows="2" placeholder="رقم إذن التوريد أو ملاحظة الاستلام"></textarea></label>
@@ -28,7 +28,7 @@
 <div class="bs-message is-success" data-basic-result role="status" hidden><p data-basic-result-summary></p><ul data-basic-result-skipped></ul></div>
 <dialog class="bs-basic-dialog" data-basic-dialog aria-labelledby="bs-basic-title"><h2 id="bs-basic-title">استخدم الوصفة الأساسية</h2><p>تُستبدل وصفات الأصناف المتطابقة في الفرع المختار بالنسخة الأساسية المحفوظة من فرع المحلة. تبقى أرصدة البضاعة وأسعار البيع كما هي.</p><p data-basic-summary></p><ul data-basic-skipped></ul><div class="bs-basic-actions"><button type="button" class="bs-button bs-basic-button" data-basic-confirm>تطبيق على هذا الفرع</button><button type="button" class="bs-button" data-basic-cancel>رجوع</button></div></dialog>
 <div class="bs-recipe-layout"><section class="bs-panel"><header><h2>أصناف البيع</h2><button class="bs-button" type="button" data-recipe-refresh>تحديث</button></header><label class="bs-recipe-search">بحث في المينيو<input type="search" maxlength="100" data-recipe-search placeholder="وجبة، ساندوتش، سلطة أو صنف مباشر"></label><div class="bs-recipe-list" data-recipe-products></div><footer class="bs-pagination"><button type="button" class="bs-button" data-recipe-prev>السابق</button><span data-recipe-page></span><button type="button" class="bs-button" data-recipe-next>التالي</button></footer></section>
-<section class="bs-panel"><header><div><h2 data-recipe-title>اختر صنفًا لتسجيل وصفته</h2><p data-recipe-revision></p></div></header><form data-recipe-form hidden>
+<section class="bs-panel"><header><div><h2 data-recipe-title>اختر صنفًا لتسجيل وصفته</h2><p data-recipe-revision></p></div></header><form data-recipe-form data-own-busy hidden>
 <div class="bs-pair"><label>حجم الصنف<select name="feature_id" data-recipe-feature></select></label><label>المقادير لكل<select name="unit"><option value="piece">وحدة واحدة / طبق / وجبة / ساندوتش</option><option value="kg">كيلو واحد مباع</option></select></label></div>
 <p class="bs-note">اختر الخامة والكمية لكل مكوّن. الصنف المباشر مثل علبة أو مشروب يحتاج ربطه بالبضاعة المقابلة أيضًا. خيارات التنظيف والتغليف تستخدم وصفة نفس الحجم.</p>
 <div class="bs-component-head"><span>المكوّن</span><span>المقدار</span><span>الوحدة</span><span></span></div><div data-recipe-components></div>
@@ -41,7 +41,7 @@
 <section data-inventory-panel="profit" data-profit-panel hidden>
 <header class="bs-recipe-heading"><div><h2>حساب صافي الربح</h2><p>صافي الربح = المبيعات (بعد خدمة التوصيل) − الرواتب − الإيجار − المصروفات − التغليف. الضرايب مش بتتخصم.</p></div></header>
 <div class="bs-message" data-profit-message role="status" hidden></div>
-<form data-profit-form class="bs-profit-layout">
+<form data-profit-form data-own-busy class="bs-profit-layout">
 <section class="bs-panel"><header><h2>التغليف</h2></header>
 <label class="bs-profit-packaging">تكلفة التغليف لكل أوردر (جنيه)<input name="packaging" type="text" inputmode="decimal" maxlength="12" placeholder="مثلاً 5" autocomplete="off" data-profit-packaging></label>
 <p class="bs-note">التغليف = عدد الأوردرات × القيمة دي، لكل الفروع.</p></section>

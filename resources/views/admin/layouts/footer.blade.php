@@ -523,7 +523,8 @@ $(function() {
     $(window).on("load", function() {
         $('.card-body').css('opacity',1);
     });
-    $( "form" ).not("[data-wa-reply-form]").submit(function() {
+    // Forms that save through their own script (data-own-busy) show their own progress and never reload the page.
+    $( "form" ).not("[data-wa-reply-form],[data-own-busy]").submit(function() {
         $(this).find("button[type='submit']").html('<i class="fa fa-spinner fa-spin"></i>@lang('main.under click')');
     });
 });
