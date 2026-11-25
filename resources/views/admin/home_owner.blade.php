@@ -17,7 +17,7 @@
                 <div class="ho-cc-user">
                     <div><strong>{{ auth('admin')->user()->name }}</strong><small>{{ $financial ? __('home_overview.owner_role') : __('home_overview.admin_role') }}</small></div>
                     <span class="ho-cc-user-avatar"><i class="far fa-user" aria-hidden="true"></i></span>
-                    <div class="ho-cc-date"><strong>{{ now('Africa/Cairo')->translatedFormat('l d F Y') }}</strong><small>{{ now('Africa/Cairo')->format('h:i A') }}</small></div>
+                    <div class="ho-cc-date"><strong data-ho-clock-date>{{ now('Africa/Cairo')->translatedFormat('l d F Y') }}</strong><small data-ho-clock-time>{{ now('Africa/Cairo')->format('h:i A') }}</small></div>
                     <span class="ho-cc-live" data-ho-updated></span>
                     <button type="button" class="ho-cc-refresh" data-ho-refresh aria-label="{{ __('home_overview.refresh') }}" title="{{ __('home_overview.refresh') }}"><i class="fas fa-sync-alt" aria-hidden="true"></i></button>
                 </div>
