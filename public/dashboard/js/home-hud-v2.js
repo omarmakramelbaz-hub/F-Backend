@@ -230,6 +230,15 @@
     function renderDrawers() {
         var box = $('[data-hv3-drawers]'); if (!box) return;
         if (!drawers) return;
+        // The total card under the clock: every drawer, or the chosen branch's.
+        var card = root.querySelector('[data-hv3-drawer-total]'), value = root.querySelector('[data-hv3-drawer-total-value]');
+        if (card && value) {
+            card.hidden = !drawers.ready;
+            var shown = drawers.total_cents;
+            if (branch && drawers.branches && drawers.branches[branch]) shown = drawers.branches[branch].expected_cents;
+            value.textContent = pounds(shown);
+            card.querySelector('b').textContent = branch ? 'رصيد الدرج' : 'رصيد الأدراج';
+        }
         if (!drawers.ready) { box.replaceChildren(el('dt', 'الأدراج مش متاحة دلوقتي.')); return; }
         var names = {}; ((today && today.branch_cards) || (boot.initial && boot.initial.branches) || []).forEach(function (b) { names[b.value] = b.name; });
         var rows = Object.keys(drawers.branches || {}).map(function (k) { return {name: names[k] || k, cents: (drawers.branches[k] || {}).expected_cents}; })

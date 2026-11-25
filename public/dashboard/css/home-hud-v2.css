@@ -50,6 +50,14 @@
 #go-hud.hud-v2 .hv2-date span{display:grid;gap:2px;min-width:0}
 #go-hud.hud-v2 .hv2-date b{font-size:12.5px;color:#fff;font-weight:700;line-height:1.35}
 #go-hud.hud-v2 .hv2-date small{font-size:24px;font-weight:800;color:#fff;line-height:1.1}
+/* All branch drawers together, under the clock; opens the shift and drawer page. */
+#go-hud.hud-v2 .hv3-drawer-total{grid-area:date;align-self:end;display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid #ffa133;border-radius:18px;background:linear-gradient(165deg,rgba(130,70,10,.7),rgba(40,22,4,.92));box-shadow:0 0 16px rgba(255,155,34,.45),inset 0 0 18px rgba(255,155,34,.15);color:#fff;text-decoration:none;transition:transform .15s}
+#go-hud.hud-v2 .hv3-drawer-total[hidden]{display:none}
+#go-hud.hud-v2 a.hv3-drawer-total:hover{transform:translateY(-2px);color:#fff}
+#go-hud.hud-v2 .hv3-drawer-total svg{width:32px;height:32px;flex:none;fill:none;stroke:#ffd27a;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+#go-hud.hud-v2 .hv3-drawer-total span{display:grid;gap:2px;min-width:0}
+#go-hud.hud-v2 .hv3-drawer-total b{font-size:13px;font-weight:700;color:#ffe3b0}
+#go-hud.hud-v2 .hv3-drawer-total strong{font-size:22px;font-weight:800;line-height:1.1;white-space:nowrap;unicode-bidi:isolate}
 
 /* Four figures of the day */
 #go-hud.hud-v2 .hv2-kpis{display:contents}
@@ -227,10 +235,11 @@
 @media (max-width:1180px){
     /* Rows grow with their cards: a card min-height must never cap a row and let its lines spill over the next card. */
     #go-hud.hud-v2{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:minmax(min-content,auto);min-height:100vh;
-        grid-template-areas:"user user bell branch" "cmd cmd cmd cmd" "fig fig summary summary" "date date date date" "exp profit sales orders" "tiles tiles tiles tiles" "panels panels panels panels" "lower lower lower lower" "actions actions actions actions"}
+        grid-template-areas:"user user bell branch" "cmd cmd cmd cmd" "fig fig summary summary" "date date drw drw" "exp profit sales orders" "tiles tiles tiles tiles" "panels panels panels panels" "lower lower lower lower" "actions actions actions actions"}
     #go-hud.hud-v2 .hud-figure{min-height:240px}
     #go-hud.hud-v2 .hud-command-toggle{max-width:none}
     #go-hud.hud-v2 .hv2-date{align-self:stretch;justify-content:center}
+    #go-hud.hud-v2 .hv3-drawer-total{grid-area:drw;align-self:stretch;justify-content:center}
     #go-hud.hud-v2 .hud-columns{grid-template-columns:repeat(4,minmax(0,1fr))}
     #go-hud.hud-v2 .hv2-panels{grid-template-columns:1fr 1fr}#go-hud.hud-v2 .hv2-branches{grid-column:1/-1;order:-1}
     #go-hud.hud-v2 .hv3-lower{grid-template-columns:1fr 1fr}
@@ -242,7 +251,7 @@
 }
 @media (max-width:700px){
     #go-hud.hud-v2{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px 10px 18px;column-gap:10px;
-        grid-template-areas:"user bell" "panel panel" "branch branch" "fig fig" "summary summary" "date date" "exp profit" "sales orders" "tiles tiles" "panels panels" "lower lower" "actions actions"}
+        grid-template-areas:"user bell" "panel panel" "branch branch" "fig fig" "summary summary" "date drw" "exp profit" "sales orders" "tiles tiles" "panels panels" "lower lower" "actions actions"}
     #go-hud.hud-v2 .hv2-bell{justify-self:end;border:0;padding:0}
     /* «اسأل GO» is a small pill in the top row, beside the bell, instead of a bar above the assistant. */
     #go-hud.hud-v2 .hud-command-toggle{grid-area:bell;justify-self:start;align-self:center;width:auto;max-width:calc(100% - 52px);min-height:38px;margin:0;padding:5px 12px;gap:6px;background:rgba(3,24,48,.88);box-shadow:0 0 12px rgba(40,195,240,.35)}
