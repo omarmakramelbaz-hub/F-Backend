@@ -172,8 +172,9 @@ class HomeHologramMetrics
         } catch (\Throwable $error) {
             $cents = 'none';
         }
-        if (!is_int($cents)) $cents = Cache::get($last);
-        return is_int($cents) ? (int) round($cents / 100) : null;
+        // Redis gives a cached number back as a string.
+        if (!is_numeric($cents)) $cents = Cache::get($last);
+        return is_numeric($cents) ? (int) round(((int) $cents) / 100) : null;
     }
 
     private function isPrimaryOwner($actor): bool

@@ -68,4 +68,6 @@
     });
 
     root.querySelectorAll('[data-inventory-tab="profit"]').forEach(function (b) { b.addEventListener('click', function () { if (!loaded) load(); }); });
+    // «حساب صافي الربح» on the home opens this tab directly (…/branch-stock#profit).
+    if (location.hash === '#profit') { var tab = root.querySelector('[data-inventory-tab="profit"]'); if (tab) setTimeout(function () { tab.click(); }, 0); }
 })();

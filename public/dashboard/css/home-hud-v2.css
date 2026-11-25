@@ -26,7 +26,7 @@
 /* Bell */
 #go-hud.hud-v2 .hv2-bell{grid-area:bell;position:relative;align-self:center;justify-self:center;width:56px;height:56px;border-radius:50%;border:1.5px solid #1a6f8c;background:rgba(3,24,40,.7);display:grid;place-items:center;cursor:pointer;color:#e5f6ff}
 #go-hud.hud-v2 .hv2-bell svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-#go-hud.hud-v2 .hv2-bell b{position:absolute;top:-4px;left:-2px;min-width:22px;height:22px;padding:0 5px;border-radius:999px;background:#e5312b;color:#fff;font-size:12px;line-height:22px;box-shadow:0 0 10px rgba(229,49,43,.7)}
+#go-hud.hud-v2 .hv2-bell b{direction:ltr;position:absolute;top:-4px;left:-2px;min-width:22px;height:22px;padding:0 5px;border-radius:999px;background:#e5312b;color:#fff;font-size:12px;line-height:22px;box-shadow:0 0 10px rgba(229,49,43,.7)}
 #go-hud.hud-v2 .hv2-bell b[hidden]{display:none}
 #go-hud.hud-v2 .hv2-bell:hover{border-color:var(--v2-glow)}
 
