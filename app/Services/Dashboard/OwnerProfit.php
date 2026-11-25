@@ -61,10 +61,15 @@ class OwnerProfit
     /**
      * An entry described as «تحصيل …» is money leaving the drawer that is not an operating cost, whatever category it was
      * filed under: cash handed to the owner, or a supplier paid for goods (charged already as cost of goods sold).
+     * An entry whose description starts «اوردر طلبات …» is an app order paid by card, filed under the wrong category: a
+     * sales transfer, not a cost. «توصيل اوردر طلبات …» and the like stay counted, since only the start is matched.
      */
     public static function withoutCollections($query)
     {
-        return $query->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', '%تحصيل%'));
+        return $query->where(fn ($q) => $q->whereNull('description')->orWhere(function ($q) {
+            $q->where('description', 'not like', '%تحصيل%');
+            foreach (['اوردر', 'أوردر', 'إوردر', 'اوردرر', 'أوردرر'] as $word) $q->whereRaw('TRIM(description) NOT LIKE ?', [$word.' طلبات%']);
+        }));
     }
 
     /** Buying goods: charged when the goods are sold (cost of goods sold), never again as an expense. */
