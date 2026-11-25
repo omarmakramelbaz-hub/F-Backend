@@ -13,7 +13,7 @@
         'expenses': ['المصروفات', 'المصاريف', 'عدد المصروفات'],
         'pending-expenses': ['مصروفات منتظره', 'المصروفات المنتظره', 'المصروفات المعلقه', 'مصروفات بانتظار الاعتماد'],
         'drawer': ['تقفيل الورديه', 'القفله', 'رصيد الفروع', 'رصيد ادراج الفروع', 'ارصده الفروع', 'رصيد الادراج'],
-        'stock': ['مخزون البضاعه', 'المخزون', 'مخزون', 'البضاعه', 'الاصناف الناقصه']
+        'stock': ['مخزون البضاعه', 'المخزون', 'مخزون', 'المخزن', 'البضاعه', 'الاصناف الناقصه']
     };
     function normalize(text) {
         return String(text || '').toLowerCase().replace(/[\u064b-\u065f\u0670\u0640]/g, '')
@@ -45,8 +45,10 @@
         var note = node('p', Recognition ? 'قد يستخدم المتصفح خدمة إنترنت للتعرّف على كلامك. الميكروفون يعمل عند الضغط فقط.' : (desktop ? 'في البرنامج اكتب الأمر واضغط Enter. الأوامر بالصوت شغالة لما تفتح GO من Chrome.' : 'التعرّف الصوتي غير متاح في المتصفح ده. اكتب الأمر، أو افتح GO من Chrome.'), 'hud-command-note');
         if (!Recognition) { mic.disabled = true; mic.textContent = 'الصوت غير متاح'; }
         var form = node('form', '', 'hud-command-form'), input = node('input', '', 'hud-command-input'), send = node('button', 'نفّذ', 'hud-command-send');
-        input.type = 'text'; input.maxLength = 160; input.autocomplete = 'off'; input.placeholder = 'اكتب الأمر هنا…'; input.setAttribute('aria-label', 'اكتب أمر لـ GO'); send.type = 'submit';
+        input.type = 'text'; input.maxLength = 160; input.autocomplete = 'off'; input.placeholder = 'اكتب الأمر هنا…'; input.setAttribute('aria-label', 'اكتب أمر لـ GO'); send.type = 'button';
         form.append(input, send);
+        // Not a submit button: the footer's jQuery turns every form's submit button into a spinner that never resets.
+        on(send, 'click', function () { form.requestSubmit(); });
         if (!Recognition) mic.hidden = true;
         panel.append(header, hint, controls, form, status, note); root.append(toggle, panel);
         function on(target, event, fn) { target.addEventListener(event, fn); remove.push(function () { target.removeEventListener(event, fn); }); }
@@ -143,7 +145,7 @@
             if (!command || raw.length > 120) { help(); return false; }
             if (/^(اسكت|وقف|توقف|وقف الصوت|اوقف الصوت|ايقاف الصوت|الغاء|الغاء الامر)$/.test(command)) { stop(); reply('تمام، وقفت الصوت والميكروفون.', false); return true; }
             if (/^(مساعده|الاوامر|الاوامر المتاحه|تقدر تعمل ايه)$/.test(command)) { help(); return true; }
-            if (/^(افتح الرئيسيه|افتح الصفحه الرئيسيه|الرئيسيه|الدخول للرئيسيه|ادخل للرئيسيه)$/.test(command)) {
+            if (/^(افتح الرئيسيه|افتح الصفحه الرئيسيه|الرئيسيه|الدخول للرئيسيه|ادخل للرئيسيه|ادخل الرئيسيه|ادخل علي الرئيسيه|ادخل)$/.test(command)) {
                 var enter = root.querySelector('[data-hud-enter]'); if (!enter || enter.disabled || enter.hidden) { reply('الدخول للرئيسية غير متاح الآن.'); return false; }
                 reply('تمام، بفتح الرئيسية.', false); enter.click(); return true;
             }
@@ -154,12 +156,20 @@
                 if (match) { intent = 'read'; term = match[1]; }
                 else { match = command.match(/^(.+?) (?:كام|كم|قد ايه)$/); if (match) { intent = 'read'; term = match[1]; } }
             }
-            if (!intent) { help(); return false; }
+            // Order lines are added on an order page, not on the home screen.
+            if (!intent && /^(زود|زوّد|ضيف|اضف|هات|عايز|عاوز|حط|شيل|امسح|احذف) /.test(command)) { reply('الطلبات بتتعمل من صفحتها: قول افتح تيك أواي أو الدليفري أو الصالة، وبعدين قول زود كيلو فسيخ مثلًا.'); return false; }
+            // A section's name alone («العملاء») means open it.
+            var bare = !intent;
+            if (bare) { intent = 'open'; term = command; }
             // A redundant question suffix is accepted, but compound requests are not.
-            term = term.replace(/ (?:كام|كم|قد ايه)$/, '');
+            term = term.replace(/ (?:كام|كم|قد ايه)$/, '').replace(/ (?:النهارده|انهارده|اليوم|دلوقتي)$/, '');
+            // «كام طلب تيك أواي» reads the takeaway card.
+            if (intent === 'read') term = term.replace(/^(?:عدد )?(?:طلب|طلبات|اوردر|اوردرات) /, '');
             var matches = targetCards(term);
             // Sections without a home card open from the sidebar menu (go-voice.js).
-            if (intent === 'open' && matches.length !== 1 && window.GoVoice && window.GoVoice.openSection(term)) { reply('تمام، بفتح القسم.', false); return true; }
+            var section = intent === 'open' && matches.length !== 1 && window.GoVoice ? window.GoVoice.openSection(term) : false;
+            if (section) { reply('تمام، بفتح ' + (typeof section === 'string' ? section : 'القسم') + '.', false); return true; }
+            if (bare && !matches.length) { help(); return false; }
             if (matches.length !== 1) { reply(matches.length ? 'الأمر يحتمل أكثر من قسم. قول اسم القسم كما يظهر على الكارت.' : 'القسم أو الأمر ده مش متاح ضمن الأقسام الظاهرة لحسابك.'); return false; }
             var card = matches[0], label = clean((card.querySelector('.hud-card-label') || {}).textContent);
             if (intent === 'open') {
