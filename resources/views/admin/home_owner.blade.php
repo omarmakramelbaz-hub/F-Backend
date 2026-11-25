@@ -4,33 +4,33 @@
         <div class="ho-cc-assistant">
             <div class="ho-cc-assistant-glow" aria-hidden="true"></div>
             <canvas data-ho-owner-hologram aria-label="المساعد الهولوجرامي التفاعلي GO"></canvas>
-            <span class="ho-cc-assistant-status"><i></i> GO · مساعدك الذكي</span>
+            <span class="ho-cc-assistant-status"><i></i> {{ __('home_overview.assistant_tag') }}</span>
         </div>
         <div class="ho-cc-top-content">
             <div class="ho-cc-toolbar">
                 <form class="ho-cc-ask" data-ho-command-form>
                     <i class="fas fa-wave-square" aria-hidden="true"></i>
-                    <input type="text" data-ho-command-input autocomplete="off" placeholder="اسأل GO أو نفّذ أمرًا صوتيًا" aria-label="اسأل GO أو نفّذ أمرًا صوتيًا">
+                    <input type="text" data-ho-command-input autocomplete="off" placeholder="{{ __('home_overview.command_placeholder') }}" aria-label="اسأل GO أو نفّذ أمرًا صوتيًا">
                     <button type="button" data-ho-voice aria-label="ابدأ الإملاء الصوتي" title="تحدث إلى GO"><i class="fas fa-microphone" aria-hidden="true"></i></button>
                     <button type="submit" class="ho-cc-send" aria-label="إرسال السؤال" title="إرسال السؤال"><i class="fas fa-arrow-left" aria-hidden="true"></i></button>
                 </form>
                 <div class="ho-cc-user">
-                    <div><strong>{{ auth('admin')->user()->name }}</strong><small>{{ $financial ? 'المالك' : 'الإدارة' }}</small></div>
+                    <div><strong>{{ auth('admin')->user()->name }}</strong><small>{{ $financial ? __('home_overview.owner_role') : __('home_overview.admin_role') }}</small></div>
                     <span class="ho-cc-user-avatar"><i class="far fa-user" aria-hidden="true"></i></span>
                     <div class="ho-cc-date"><strong>{{ now('Africa/Cairo')->translatedFormat('l d F Y') }}</strong><small>{{ now('Africa/Cairo')->format('h:i A') }}</small></div>
                     <span class="ho-cc-live" data-ho-updated></span>
                     <button type="button" class="ho-cc-refresh" data-ho-refresh aria-label="{{ __('home_overview.refresh') }}" title="{{ __('home_overview.refresh') }}"><i class="fas fa-sync-alt" aria-hidden="true"></i></button>
                 </div>
             </div>
-            <p class="ho-cc-command-status" data-ho-command-status aria-live="polite">تحدث إلى GO أو اكتب سؤالك</p>
+            <p class="ho-cc-command-status" data-ho-command-status aria-live="polite">{{ __('home_overview.command_status') }}</p>
             <div class="ho-cc-primary-kpis" data-ho-owner-kpis></div>
         </div>
     </section>
 
     <section class="ho-cc-operations" aria-labelledby="ho-operations-title">
         <header class="ho-cc-section-heading">
-            <div><h2 id="ho-operations-title">مؤشرات التشغيل</h2><p>ملخص مباشر للموظفين والعملاء والطلبات والوردية والمخزون</p></div>
-            <span data-ho-ops-updated>تتحدث تلقائيًا</span>
+            <div><h2 id="ho-operations-title">{{ __('home_overview.operations_title') }}</h2><p>{{ __('home_overview.operations_description') }}</p></div>
+            <span data-ho-ops-updated>{{ __('home_overview.operations_updated') }}</span>
         </header>
         <div class="ho-cc-ops-grid" data-ho-owner-metrics>
             <p class="ho-cc-loading">جار تحميل مؤشرات التشغيل…</p>
@@ -39,7 +39,7 @@
 
     <section class="ho-cc-platform" aria-labelledby="ho-platform-title">
         <header class="ho-cc-section-heading">
-            <div><h2 id="ho-platform-title">أرقام المنصة</h2><p>{{ __('home_overview.platform_scope') }}</p></div>
+            <div><h2 id="ho-platform-title">{{ __('home_overview.platform_title') }}</h2><p>{{ __('home_overview.platform_scope') }}</p></div>
         </header>
         <div class="ho-platform-grid" data-ho-platform></div>
     </section>
