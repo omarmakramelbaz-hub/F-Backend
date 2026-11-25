@@ -1,5 +1,9 @@
 <?php
 return [
+    'assistant_unknown'=>'I can answer dashboard questions or open a section. Try today’s sales, top branch, stock, or open employees.',
+    'assistant_speech_unavailable'=>'The answer is shown as text, but speech output is unavailable in this browser.',
+    'assistant_opening'=>'Opening the requested section…',
+    'assistant_no_financial_access'=>'This account is not allowed to view financial amounts.',
     'top_products_unavailable'=>'No inventory-linked sales snapshots are available for this period.',
     'no_top_products'=>'No inventory-linked sales invoices are available for this period.',
     'sales_tickets'=>'invoices',
