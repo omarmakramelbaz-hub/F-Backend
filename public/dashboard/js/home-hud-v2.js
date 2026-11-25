@@ -41,20 +41,34 @@
     function renderToday(data) {
         if (!data || !data.sales) return;
         today = data; var s = data.sales, profit = data.profit, prev = data.previous || {};
-        kpi('orders', number.format(s.count), yesterday(prev.count, true));
-        kpi('sales', pounds(s.gross_cents), yesterday(prev.gross_cents));
+        // Today, yesterday and the day before; the week's daily points end with today.
+        var ordersNote = [el('span', yesterday(prev.count, true), 'hv2-today')];
+        var days = week && Array.isArray(week.trend) ? week.trend : [], before = days.length >= 3 ? days[days.length - 3] : null;
+        if (before && typeof before.count === 'number') ordersNote.push(el('span', 'قبل أمس: ' + number.format(before.count), 'hv2-today'));
+        kpi('orders', number.format(s.count), ordersNote);
+        // Today in the big figure, yesterday under it, then the month so far on its own row.
+        var salesNote = [el('span', yesterday(prev.gross_cents), 'hv2-today')];
+        if (month && month.sales) salesNote.push(monthRow(month.sales.gross_cents, null, false));
+        kpi('sales', pounds(s.gross_cents), salesNote);
         kpi('expenses', pounds(s.expenses_cents), yesterday(prev.expenses_cents));
         if (profit && profit.total) {
             var net = profit.total.net_cents;
-            var note = [s.gross_cents > 0 ? el('span', Math.round(net / s.gross_cents * 100) + '% من المبيعات', net >= 0 ? 'up' : 'down') : ''];
-            if (profit.goods_coverage != null && profit.goods_coverage < 95) note.push(el('span', 'تكلفة البضاعة متسجلة لـ ' + Math.round(profit.goods_coverage) + '% بس من المبيع', 'hv2-month down'));
-            var mp = monthProfit(); if (mp) note.push(el('span', 'من أول الشهر ' + pounds(mp.net) + (mp.pct === null ? '' : ' · ' + mp.pct + '%'), 'hv2-month' + (mp.net < 0 ? ' down' : '')));
+            // Today in the big figure, the month so far on its own row underneath.
+            var note = [el('span', 'النهارده' + (s.gross_cents > 0 ? ' · ' + Math.round(net / s.gross_cents * 100) + '% من المبيعات' : ''), 'hv2-today ' + (net >= 0 ? 'up' : 'down'))];
+            var mp = monthProfit();
+            if (mp) note.push(monthRow(mp.net, mp.pct, mp.net < 0));
             kpi('profit', pounds(net), note, net < 0 ? 'negative' : '');
         } else kpi('profit', '—', branch ? 'لكل الفروع بس' : 'محتاج تحديث السيرفر');
         renderBranches(); renderAlerts(); renderStock(); renderSummary(); renderDrawers();
     }
 
     // Month to date, from the first of the month through today, on the same sales and costs as today's figure.
+    function monthRow(cents, pct, down) {
+        var row = el('span', undefined, 'hv2-month' + (down ? ' is-down' : ''));
+        row.append(el('em', 'الشهر'), el('strong', pounds(cents)));
+        if (pct !== null && pct !== undefined) row.append(el('em', pct + '%'));
+        return row;
+    }
     function monthProfit() {
         if (!month || !month.profit || !month.profit.total || !month.sales) return null;
         var net = month.profit.total.net_cents, gross = month.sales.gross_cents;
@@ -63,7 +77,13 @@
     function renderSummary() {
         var list = $('[data-hv3-summary]'); if (!list || !today || !today.sales) return;
         var s = today.sales, rows = [[number.format(s.count) + ' طلبًا حتى الآن'], ['مبيعات ' + pounds(s.gross_cents)]];
-        if (today.profit && today.profit.total) { var mp = monthProfit(); rows.push(['صافي الربح ' + pounds(today.profit.total.net_cents) + (mp ? ' · من أول الشهر ' + pounds(mp.net) : '')]); }
+        if (today.profit && today.profit.total) {
+            var dayNet = today.profit.total.net_cents, mp = monthProfit();
+            rows.push(['صافي ربح النهارده ' + pounds(dayNet) + (s.gross_cents > 0 ? ' (' + Math.round(dayNet / s.gross_cents * 100) + '%)' : '')]);
+            if (mp) rows.push(['صافي ربح الشهر لحد النهارده ' + pounds(mp.net) + (mp.pct === null ? '' : ' (' + mp.pct + '%)')]);
+            var cover = today.profit.goods_coverage;
+            if (cover != null && cover < 95) rows.push(['تكلفة البضاعة متسجلة لـ ' + Math.round(cover) + '% بس من المبيع', 'is-warn']);
+        }
         else rows.push(['مصروفات ' + pounds(s.expenses_cents)]);
         var cash = cashCents(); if (cash !== null) rows.push(['رصيد النقدية ' + pounds(cash)]);
         rows.push(alertTotal ? [alertTotal + (alertTotal > 10 ? ' تنبيه' : alertTotal > 2 ? ' تنبيهات' : ' تنبيه') + ' تحتاج مراجعة', 'is-warn'] : ['مفيش تنبيهات محتاجة مراجعة']);

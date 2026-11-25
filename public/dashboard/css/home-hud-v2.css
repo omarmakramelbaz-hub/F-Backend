@@ -282,4 +282,11 @@ body>.select2-container--open,body>.select2-container--open .select2-dropdown{z-
 .hv3-branch-list .select2-results__option--highlighted[aria-selected],.hv3-branch-list .select2-results__option.select2-results__option--highlighted{background:linear-gradient(90deg,#c46f10,#7a3e06)!important;color:#fff!important;box-shadow:0 0 12px rgba(255,155,34,.45)}
 .hv3-branch-list .select2-results__message{color:#9cc8d8!important}
 
-#go-hud.hud-v2 .hv2-kpi small .hv2-month{display:block;margin-top:2px;color:#cfe6ff;font-weight:700}#go-hud.hud-v2 .hv2-kpi small .hv2-month.down{color:#ff8a8a}
+/* Net profit card: today under the big figure, the month so far on its own row. */
+#go-hud.hud-v2 .hv2-kpi[data-hv2-kpi="profit"] small,#go-hud.hud-v2 .hv2-kpi[data-hv2-kpi="sales"] small,#go-hud.hud-v2 .hv2-kpi[data-hv2-kpi="orders"] small{display:grid;justify-items:center;gap:6px;width:100%;max-width:100%}
+#go-hud.hud-v2 .hv2-kpi small span{font-size:15px;font-weight:700}
+#go-hud.hud-v2 .hv2-kpi small .hv2-today{white-space:nowrap;color:#d8ecf4}#go-hud.hud-v2 .hv2-kpi small .hv2-today.up{color:var(--v2-green)}#go-hud.hud-v2 .hv2-kpi small .hv2-today.down{color:var(--v2-red)}
+#go-hud.hud-v2 .hv2-kpi small .hv2-month{display:flex;align-items:baseline;justify-content:center;gap:8px;max-width:100%;padding:4px 12px;border:1px solid rgba(95,233,255,.45);border-radius:10px;background:rgba(4,30,52,.55);white-space:nowrap;overflow:hidden}
+#go-hud.hud-v2 .hv2-kpi small .hv2-month em{font-style:normal;font-size:13px;color:#9fd8ea}
+#go-hud.hud-v2 .hv2-kpi small .hv2-month strong{font-size:18px;font-weight:800;color:#fff;unicode-bidi:isolate}
+#go-hud.hud-v2 .hv2-kpi small .hv2-month.is-down strong{color:#ff8b7d}
