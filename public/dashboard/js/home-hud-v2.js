@@ -57,6 +57,7 @@
         var s = today.sales, rows = [[number.format(s.count) + ' طلبًا حتى الآن'], ['مبيعات ' + pounds(s.gross_cents)]];
         if (today.profit && today.profit.total) rows.push(['صافي الربح ' + pounds(today.profit.total.net_cents)]);
         else rows.push(['مصروفات ' + pounds(s.expenses_cents)]);
+        var cash = cashCents(); if (cash !== null) rows.push(['رصيد النقدية ' + pounds(cash)]);
         rows.push(alertTotal ? [alertTotal + (alertTotal > 10 ? ' تنبيه' : alertTotal > 2 ? ' تنبيهات' : ' تنبيه') + ' تحتاج مراجعة', 'is-warn'] : ['مفيش تنبيهات محتاجة مراجعة']);
         list.replaceChildren.apply(list, rows.map(function (r) { var li = el('li', undefined, r[1]); li.append(el('i'), el('span', r[0])); return li; }));
     }
@@ -183,6 +184,17 @@
         wrap.append(rows, donut); box.replaceChildren(wrap);
     }
 
+    // Cash in the drawers: the chosen branch's drawer, or all drawers together.
+    function cashCents() {
+        if (!drawers || !drawers.ready) return null;
+        if (!branch) return typeof drawers.total_cents === 'number' ? drawers.total_cents : null;
+        var row = (drawers.branches || {})[branch];
+        if (row && typeof row.expected_cents === 'number') return row.expected_cents;
+        var names = {}; ((today && today.branch_cards) || (boot.initial && boot.initial.branches) || []).forEach(function (b) { names[b.value] = b.name; });
+        var key = Object.keys(drawers.branches || {}).filter(function (k) { return names[k] === names[branch]; })[0];
+        return key && typeof drawers.branches[key].expected_cents === 'number' ? drawers.branches[key].expected_cents : null;
+    }
+
     function renderDrawers() {
         var box = $('[data-hv3-drawers]'); if (!box) return;
         if (!drawers) return;
@@ -251,7 +263,7 @@
     }
     async function loadDrawers() {
         if (disposed || root.hidden || document.hidden || !boot.initial || !('owner_drawer' in boot.initial)) return;
-        try { var d = await get({section: 'drawers'}); if (!disposed && d.owner_drawer) { drawers = d.owner_drawer; renderDrawers(); } } catch (_) {}
+        try { var d = await get({section: 'drawers'}); if (!disposed && d.owner_drawer) { drawers = d.owner_drawer; renderDrawers(); renderSummary(); } } catch (_) {}
     }
     async function loadSummary() {
         if (disposed || root.hidden || document.hidden) return; var mine = epoch;
