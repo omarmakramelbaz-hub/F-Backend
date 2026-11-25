@@ -516,8 +516,12 @@
         this.render(this.reduced ? 6 : this.elapsed); wake();
     };
     Hologram.prototype.pose = function (time) {
-        // The V5 face always looks forward; particles and speech carry the motion.
-        this.headYaw = 0; this.bodyYaw = 0; this.pitch = 0;
+        // Subtle idle motion plus cursor-directed gaze keeps the assistant present without
+        // distracting from the dashboard data.
+        var motion = this.reduced ? 0 : 1;
+        this.headYaw = motion ? clamp(this.gazeX * .105 + Math.sin(time * .42) * .012, -.12, .12) : 0;
+        this.bodyYaw = motion ? clamp(this.gazeX * .026 + Math.sin(time * .24) * .006, -.035, .035) : 0;
+        this.pitch = motion ? clamp(this.gazeY * .055 + Math.sin(time * .31) * .008, -.07, .07) : 0;
         var level = this.explicitVoice ? this.voiceLevel : this.speaking ? .36 + .24 * Math.sin(time * 12.7) + .18 * Math.sin(time * 19.1) : 0;
         this.level = this.reduced ? 0 : clamp(level, 0, 1); this.mouthOpen = this.level * .095;
     };
@@ -769,7 +773,7 @@
                 setSpeaking: function (value) { item.speaking = !!value; if (!value) { item.voiceLevel = 0; item.explicitVoice = false; } wake(); },
                 setVoiceLevel: function (value) { item.voiceLevel = clamp(Number(value) || 0, 0, 1); item.explicitVoice = true; wake(); },
                 setAlert: function (value) { item.alert = !!value; wake(); },
-                setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); },
+                setGaze: function (x, y) { item.gazeX = clamp(Number(x) || 0, -1, 1); item.gazeY = clamp(Number(y) || 0, -1, 1); wake(); },
                 setVisible: function (value) { item.visible = !!value; item.last = 0; if (active(item)) item.render(item.reduced ? 6 : item.elapsed); wake(); },
                 assembly: function (time) { return item.assembly(time); },
                 energy: function (time) { return item.internalFlow(time); },
