@@ -17,11 +17,23 @@ class PhoneDeliveryBoard
     {
         abort_unless(Schema::hasTable('phone_delivery_batch_items') && Schema::hasTable('phone_delivery_dispatches'),503,'متابعة الدليفري تحتاج تحديث قاعدة البيانات.');
     }
+    /** Leaves out the delivery tickets that are website orders (they live on the app orders board). */
+    public static function withoutWebsite($query,string $alias): void
+    {
+        if(!Schema::hasTable('web_storefront_orders'))return;
+        $branch=DB::connection()->getDriverName()==='sqlite'?"('f:' || delivery_web.branch_id)":"CONCAT('f:', delivery_web.branch_id)";
+        $query->whereNotExists(function($web)use($alias,$branch){
+            $web->selectRaw('1')->from('web_storefront_orders as delivery_web')->whereColumn('delivery_web.ticket_id',$alias.'.id')->whereRaw($alias.'.branch = '.$branch);
+        });
+    }
+
     public function listing(array $values,$actor): array
     {
         $v=Validator::make($values,['branch'=>['nullable','regex:/^(all|(f|gs):[1-9][0-9]{0,18})$/D'],'delivery_company_id'=>'nullable|integer|min:1','preparing_page'=>'nullable|integer|min:1','courier_page'=>'nullable|integer|min:1','finished_page'=>'nullable|integer|min:1'])->validate();
         $this->ready(); $scope=$v['branch']??'all';$branches=$this->ops->branches($scope,$actor);$branchValues=array_column($branches,'value');$columns=[];
         $base=DB::table('pos_service_tickets as t')->leftJoin('phone_delivery_dispatches as d','d.ticket_id','=','t.id')->whereIn('t.branch',$branchValues)->where('t.channel','phone');
+        // Website orders are handled on the app orders board only.
+        self::withoutWebsite($base,'t');
         if(!empty($v['delivery_company_id'])) $base->whereRaw('COALESCE(d.company_id,t.delivery_company_id) = ?',[$v['delivery_company_id']]);
         foreach(['preparing','courier','finished'] as $stage) {
             $q=clone $base;

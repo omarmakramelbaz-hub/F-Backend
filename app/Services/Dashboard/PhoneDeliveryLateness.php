@@ -43,8 +43,17 @@ class PhoneDeliveryLateness
                     ->orWhere(fn ($q) => $q->whereIn('status', ['out_for_delivery', 'finished'])->where('created_at', '<=', $now->copy()->subMinutes(self::COURIER_MINUTES)->toDateTimeString()));
             })->orderBy('created_at')->limit(50)->get();
         $orders = [];
+        // Website orders are worked on the app orders board, so their warning reads and opens as an app order.
+        $website = $rows->isNotEmpty() && Schema::hasTable('web_storefront_orders')
+            ? array_flip(DB::table('web_storefront_orders')->whereIn('ticket_id', $rows->pluck('id'))->pluck('ticket_id')->map(fn ($id) => (int) $id)->all()) : [];
         foreach ($rows as $row) {
             $created = Carbon::parse($row->created_at, 'UTC');
+            if (isset($website[(int) $row->id])) {
+                $orders[] = ['id'=>(int) $row->id, 'key'=>'web:'.(int) $row->id, 'kind'=>'app', 'number'=>'WEB-'.(int) $row->id, 'branch'=>$names[$row->branch] ?? $row->branch,
+                    'stage'=>in_array($row->status, ['new', 'preparing'], true) ? 'preparing' : 'courier',
+                    'minutes'=>(int) floor($created->diffInSeconds($now) / 60), 'created_at'=>$created->toIso8601String()];
+                continue;
+            }
             $orders[] = ['id'=>(int) $row->id, 'number'=>$this->number($row), 'branch'=>$names[$row->branch] ?? $row->branch,
                 'stage'=>in_array($row->status, ['new', 'preparing'], true) ? 'preparing' : 'courier',
                 'minutes'=>(int) floor($created->diffInSeconds($now) / 60), 'created_at'=>$created->toIso8601String()];
