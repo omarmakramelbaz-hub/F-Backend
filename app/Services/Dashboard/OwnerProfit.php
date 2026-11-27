@@ -8,7 +8,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Net profit for the primary owner, as he set it: sales (less the delivery service, which is the courier's) less the
- * branches' salaries, rent, expenses and packaging per order. Goods are bought through expenses, so they count there.
+ * cost of the goods sold (recipes × cost prices) and the branches' salaries, rent, expenses and packaging per order.
  * Taxes are not deducted: the restaurants are exempt. The figures are kept on the goods page.
  */
 class OwnerProfit
@@ -17,6 +17,7 @@ class OwnerProfit
     private const EXPENSE_RULES = 'expense_included';
     private TakeawayAccess $access;
     private ?bool $ready = null;
+    private ?array $costed = null;
 
     public function __construct(TakeawayAccess $access) { $this->access = $access; }
 
@@ -80,9 +81,21 @@ class OwnerProfit
         return (bool) preg_match('/ايجار|إيجار/u', $name);
     }
 
-    public static function goodsPurchase(string $key, string $name): bool
+    /**
+     * Buying goods the recipes already charge: a stock purchase item whose ingredient has a cost price is costed when
+     * the dish is sold (cost of goods sold), so it is never an expense too. Items no recipe costs (oil, vinegar and
+     * tahini for frying, garnish and keeping the goods) are ordinary expenses the owner ticks like any other.
+     */
+    public function goodsPurchase(string $key): bool
     {
-        return str_starts_with($key, 'purchase_') || (bool) preg_match('/^\s*مشتريات/u', $name);
+        if (!isset(ExpenseStockPurchases::CATEGORIES[$key])) return false;
+        if ($this->costed === null) {
+            $this->costed = Schema::hasTable('stock_ingredients') && Schema::hasTable('stock_ingredient_prices')
+                ? DB::table('stock_ingredients as i')->join('stock_ingredient_prices as p', 'p.ingredient_id', '=', 'i.id')
+                    ->where('p.cost_cents', '>', 0)->pluck('i.name')->map(fn ($n) => trim((string) $n))->all()
+                : [];
+        }
+        return in_array(ExpenseStockPurchases::CATEGORIES[$key], $this->costed, true);
     }
 
     /** Expense categories that are sales transfers. */
@@ -112,7 +125,7 @@ class OwnerProfit
             ->groupBy('category')->get();
         $items = [];
         foreach ($totals as $row) {
-            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name); $goods = !$transfer && self::goodsPurchase($key, $name); $rentPaid = !$transfer && !$goods && self::rentPaid($name);
+            $key = (string) $row->category; $name = $names[$key] ?? $key; $default = !self::excludedByDefault($key, $name); $transfer = self::salesTransfer($name); $goods = !$transfer && $this->goodsPurchase($key); $rentPaid = !$transfer && !$goods && self::rentPaid($name);
             $items[] = ['key'=>$key, 'name'=>$name, 'month'=>Money::decimal((int) $row->month_cents), 'month_cents'=>(int) $row->month_cents,
                 'default_included'=>$default, 'sales_transfer'=>$transfer, 'goods_purchase'=>$goods, 'rent_paid'=>$rentPaid, 'included'=>!$transfer && !$goods && !$rentPaid && (array_key_exists($key, $rules) ? (bool) $rules[$key] : $default)];
         }
@@ -215,7 +228,7 @@ class OwnerProfit
             ->whereBetween('occurred_on', [$fromDate, $toDate])->select('branch', 'category')->selectRaw('SUM(amount_cents) AS amount')->groupBy('branch', 'category')->get();
         foreach ($expenses as $x) {
             $key = (string) $x->category;
-            $counts = !self::salesTransfer($names[$key] ?? '') && !self::goodsPurchase($key, $names[$key] ?? '') && !self::rentPaid($names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
+            $counts = !self::salesTransfer($names[$key] ?? '') && !$this->goodsPurchase($key) && !self::rentPaid($names[$key] ?? '') && (array_key_exists($key, $rules) ? (bool) $rules[$key] : !self::excludedByDefault($key, $names[$key] ?? ''));
             if ($counts) $rows[$x->branch]['expenses_cents'] += (int) $x->amount;
         }
         $total = $empty;
