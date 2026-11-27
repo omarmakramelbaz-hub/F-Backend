@@ -292,9 +292,24 @@
         root.querySelectorAll('[data-expense-metric]').forEach(function (node) { var key = node.dataset.expenseMetric; node.textContent = key === 'top_category' ? (data.summary.top_category ? categoryName(data.summary.top_category) : '—') : data.summary[key]; });
         root.querySelector('[data-expense-top-amount]').textContent = data.summary.top_amount + ' ' + t('currency');
         root.querySelector('[data-expense-period]').textContent = t('period') + ': ' + data.summary.period + ' ' + t('currency') + ' · ' + t('pending') + ': ' + data.summary.pending;
+        renderSelection(data);
         root.querySelector('[data-expense-page]').textContent = data.pagination.page + ' / ' + data.pagination.last_page + ' · ' + data.pagination.total;
         var users = root.querySelector('[data-expense-actors]'), selected = users.value; users.replaceChildren(el('option', t('all_users'))); users.firstChild.value = ''; data.actors.forEach(function (actor) { var option = el('option', actor.name); option.value = actor.id; users.appendChild(option); }); users.value = selected;
         root.querySelector('[data-expense-export]').href = url(boot.urls.export, values()); lock();
+    }
+    // Several items chosen: their approved total for the chosen days, then what each one adds.
+    function renderSelection(data) {
+        var box = root.querySelector('[data-expense-selection]'), sel = data.summary.selection;
+        if (!box) { var bar = root.querySelector('.ex-toolbar'); if (!bar) return; box = el('section', undefined, 'ex-selection'); box.dataset.expenseSelection = ''; box.setAttribute('aria-live', 'polite'); bar.parentNode.insertBefore(box, bar.nextSibling); }
+        box.hidden = !sel; box.replaceChildren(); if (!sel) return;
+        var day = function (d) { var p = String(d || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d; };
+        var head = el('div', undefined, 'ex-selection-head'), title = el('div');
+        title.appendChild(el('span', 'إجمالي ' + (sel.items.length === 1 ? 'البند المختار' : 'البنود المختارة'), 'ex-selection-label'));
+        title.appendChild(el('small', 'من ' + day(data.filters.from) + ' لـ ' + day(data.filters.to) + ' · ' + sel.count + ' مصروف معتمد'));
+        head.appendChild(title); head.appendChild(el('strong', sel.total + ' ' + t('currency'), 'ex-selection-total'));
+        box.appendChild(head);
+        if (sel.items.length > 1) { var list = el('div', undefined, 'ex-selection-items'); sel.items.forEach(function (item) { var chip = el('span', undefined, 'ex-selection-item'); chip.appendChild(el('b', categoryName(item.key))); chip.appendChild(el('em', item.amount + ' ' + t('currency'))); list.appendChild(chip); }); box.appendChild(list); }
+        if (Number(sel.pending) > 0) box.appendChild(el('p', 'غير كده ' + sel.pending + ' ' + t('currency') + ' لسه بانتظار الاعتماد ومش داخلين في الإجمالي.', 'ex-selection-note'));
     }
     async function load(page) {
         var token = ++generation; if (controller) controller.abort(); controller = new AbortController();

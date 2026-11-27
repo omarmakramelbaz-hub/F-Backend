@@ -84,7 +84,13 @@ class BranchExpenses
             $key=$categoryCatalog[$group->category]['canonical_key']??$group->category;
             $categoryTotals[$key]=($categoryTotals[$key]??0)+(int)$group->amount;
         }
-        arsort($categoryTotals);$topCategory=array_key_first($categoryTotals);$topAmount=$topCategory===null?0:$categoryTotals[$topCategory];
+        arsort($categoryTotals);
+        $selection=null;
+        if(!empty($v['category_keys'])){
+            $selection=['total'=>Money::decimal($sum),'count'=>(clone $approvedPeriod)->count(),'pending'=>Money::decimal((int)(clone $query)->where('status','pending')->sum('amount_cents')),'items'=>[]];
+            foreach($categoryTotals as $key=>$cents)$selection['items'][]=['key'=>(string)$key,'amount'=>Money::decimal($cents)];
+        }
+        $topCategory=array_key_first($categoryTotals);$topAmount=$topCategory===null?0:$categoryTotals[$topCategory];
         $names=DB::table('users')->whereIn('id',$rows->pluck('actor_id')->merge($rows->pluck('reviewer_id'))->filter()->unique())->pluck('name','id');
         $namesByBranch=array_column($branches,'name','value');
         $this->stockPurchases()->prime($rows->pluck('id')->all());
@@ -92,7 +98,7 @@ class BranchExpenses
         $actors=DB::table('users')->whereIn('id',(clone $base)->select('actor_id'))->orderBy('name')->get(['id','name']);
         return ['success'=>true,'operating_day'=>OperatingDay::metadata(),'items'=>$items,'filters'=>$v,'branches'=>$branches,'permissions'=>$permissions,'actors'=>$actors,'branch_categories'=>$branchCategories,'category_scope'=>$v['branch'],
             'pagination'=>['page'=>$page,'last_page'=>$last,'total'=>$total],
-            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$topCategory,'top_amount'=>Money::decimal($topAmount)]]+$choices;
+            'summary'=>['today'=>Money::decimal((int)(clone $approved)->where('occurred_on',$today)->sum('amount_cents')),'month'=>Money::decimal((int)(clone $approved)->whereBetween('occurred_on',[$month,$today])->sum('amount_cents')),'period'=>Money::decimal($sum),'average'=>Money::decimal((int)round($sum/$days)),'count'=>(clone $approvedPeriod)->count(),'pending'=>(clone $base)->where('status','pending')->count(),'top_category'=>$topCategory,'top_amount'=>Money::decimal($topAmount),'selection'=>$selection]]+$choices;
     }
     public function show(int $id,$actor): array
     {
