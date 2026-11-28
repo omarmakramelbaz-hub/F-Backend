@@ -84,6 +84,17 @@ class WhatsAppReplyService
         return $this->submit($fresh, $conversation, $request, null);
     }
 
+    /** «إرسال المنيو»: the text with a «اطلب من المنيو» button (cta_url) that opens the menu over the chat. */
+    public function sendButton($actor, int $conversation, array $input, string $label, string $url): array
+    {
+        if (!str_starts_with($url, 'https://') || strlen($url) > 2000 || mb_strlen($label, 'UTF-8') > 20) throw new HttpException(422);
+        $fresh = $this->actor($actor);
+        $request = $this->input($input, false);
+        if (mb_strlen($request['text'], 'UTF-8') > 1024) throw new HttpException(422);
+        $request['cta'] = ['label' => $label, 'url' => $url];
+        return $this->submit($fresh, $conversation, $request, null);
+    }
+
     /** Internal automation only; manual HTTP inputs still use the unchanged send validator. */
     public function sendOrderFollowup($actor, int $conversation, array $input, callable $guard): array
     {
@@ -381,6 +392,10 @@ class WhatsAppReplyService
                     $payload[$request['kind']]['caption'] = $request['text'];
                 if ($request['kind'] === 'document' && isset($request['media']['filename']))
                     $payload['document']['filename'] = $request['media']['filename'];
+            } elseif (isset($request['cta'])) {
+                $payload['type'] = 'interactive';
+                $payload['interactive'] = ['type' => 'cta_url', 'body' => ['text' => $request['text']],
+                    'action' => ['name' => 'cta_url', 'parameters' => ['display_text' => $request['cta']['label'], 'url' => $request['cta']['url']]]];
             } else {
                 $payload['text'] = ['preview_url' => false, 'body' => $request['text']];
             }

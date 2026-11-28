@@ -26,7 +26,7 @@
             setTimeout(attempt, 250);
         }());
     }
-    // «إرسال المنيو»: a personal menu link for this chat goes into the reply box; the employee presses send.
+    // «إرسال المنيو»: sends this chat's customer a message with a «اطلب من المنيو» button that opens the menu.
     function sendMenu(event) {
         var button = event.target.closest && event.target.closest('[data-chat-menu-send]');
         if (!button || button.disabled) return;
@@ -34,8 +34,9 @@
         var inbox = meta ? window.DashboardMetaInbox : window.DashboardWhatsAppInbox;
         var conversation = inbox && typeof inbox.selection === 'function' ? inbox.selection() : 0;
         var replies = button.closest('section, form, [data-wa-replies]') || document;
-        var box = replies.querySelector('[data-wa-reply-text]') || document.querySelector('[data-wa-reply-text]');
-        if (!conversation || !box) return;
+        var status = replies.querySelector('[data-wa-reply-status]');
+        function say(text) { if (status) { status.hidden = false; status.textContent = text; } else button.title = text; }
+        if (!conversation) return;
         var token = document.querySelector('meta[name="csrf-token"]');
         button.disabled = true;
         fetch(button.getAttribute('data-chat-menu-url'), {method: 'POST', credentials: 'same-origin',
@@ -43,18 +44,11 @@
                 'X-CSRF-TOKEN': token ? token.content : ''},
             body: JSON.stringify({channel: meta ? 'meta' : 'whatsapp', conversation: conversation})})
             .then(function (response) { return response.json().catch(function () { return {}; }).then(function (data) {
-                if (!response.ok || !data.text) throw new Error(data.message || 'تعذر تجهيز رابط المنيو');
+                if (!response.ok || data.success !== true) throw new Error(data.message || 'معرفناش نبعت المنيو، جرّب تاني.');
                 return data;
             }); })
-            .then(function (data) {
-                box.value = box.value.trim() ? box.value.trim() + '\n' + data.text : data.text;
-                box.dispatchEvent(new Event('input', {bubbles: true}));
-                box.focus();
-            })
-            .catch(function (error) {
-                var status = replies.querySelector('[data-wa-reply-status]');
-                if (status) { status.hidden = false; status.textContent = error.message; } else button.title = error.message;
-            })
+            .then(function (data) { say(data.message || 'اتبعت المنيو للعميل ✓'); })
+            .catch(function (error) { say(error.message); })
             .finally(function () { button.disabled = false; });
     }
     document.addEventListener('click', click);

@@ -34,8 +34,19 @@ class ChatMenu extends WebStorefront
             'conversation_id' => $conversation, 'actor_id' => (int) $actor->id,
             'expires_at' => now()->addHours(self::TTL_HOURS), 'created_at' => now(), 'updated_at' => now()]);
         $url = route('chat-menu.show', $token);
-        return ['success' => true, 'url' => $url,
-            'text' => "اتفضل منيو فسخانستا 🐟\nاختار الأصناف والكميات بنفسك من هنا، وبعد التأكيد هيوصلك ملخص الطلب هنا في الشات:\n".$url];
+        // The customer sees a button, not a raw link; it opens the menu over the chat.
+        $title = 'منيو فسخانستا 🐟'; $subtitle = 'اختار أصنافك والكميات بنفسك، وبعد التأكيد هيوصلك ملخص الطلب هنا في الشات.';
+        $button = '🛒 اطلب من المنيو';
+        abort_unless(($state['can_reply'] ?? false) === true && $state['latest_inbound_id'], 409, 'مهلة الرد على العميل ده انتهت (٢٤ ساعة من آخر رسالة ليه).');
+        if ($channel === 'whatsapp') {
+            $sent = app(WhatsAppReplyService::class)->sendButton($actor, $conversation, ['client_request_id' => (string) Str::uuid(),
+                'expected_inbound_id' => (int) $state['latest_inbound_id'], 'text' => $title."\n".$subtitle], $button, $url);
+            abort_unless(($sent['success'] ?? false) === true, 502, 'واتساب مقبلش رسالة المنيو، جرّب تاني.');
+        } else {
+            app(MetaReplyService::class)->sendMenuCard($actor, $conversation, ['title' => $title, 'subtitle' => $subtitle,
+                'button' => $button, 'url' => $url, 'image' => url('/dashboard/branding/fasakhansta-logo-transparent.png')]);
+        }
+        return ['success' => true, 'message' => 'اتبعت المنيو للعميل ✓'];
     }
 
     public function link(string $token): object
@@ -128,8 +139,9 @@ class ChatMenu extends WebStorefront
             if (($state['can_reply'] ?? false) !== true || !$state['latest_inbound_id']) {
                 throw new HttpException(409, 'مهلة المحادثة انتهت. ابعتلنا أي رسالة في الشات وبعدها اضغط تأكيد تاني.');
             }
-            $service->send($employee, (int) $link->conversation_id, ['client_request_id' => (string) Str::uuid(),
+            $sent = $service->send($employee, (int) $link->conversation_id, ['client_request_id' => (string) Str::uuid(),
                 'expected_inbound_id' => (int) $state['latest_inbound_id'], 'text' => $text]);
+            if (($sent['success'] ?? false) !== true) throw new \RuntimeException('CHAT_MENU_SUMMARY_'.($sent['state'] ?? 'FAILED'));
         } catch (\Throwable $error) {
             DB::table('chat_menu_links')->where('id', $link->id)->update(['submitted_at' => null, 'updated_at' => now()]);
             if ($error instanceof HttpException && preg_match('/\p{Arabic}/u', $error->getMessage())) throw $error;

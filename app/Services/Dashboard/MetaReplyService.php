@@ -115,6 +115,29 @@ class MetaReplyService
         return $this->sendText($actor,$conversation,$input);
     }
 
+    /**
+     * «إرسال المنيو»: one card with a button that opens the menu over the chat. It is sent directly (not as a text
+     * reply), so Meta's echo is stored like any message the Page sends from its own inbox.
+     */
+    public function sendMenuCard($actor,int $conversation,array $card): array
+    {
+        app(MetaInboxAccess::class)->actor($actor);
+        $thread=$this->thread($conversation); $snapshot=$this->snapshot($thread);
+        $account=MetaInboxAccess::account($thread->waba_id,$thread->phone_number_id);
+        abort_unless($this->configured($account),503,'REPLIES_UNAVAILABLE');
+        abort_unless($snapshot['reason']===null&&is_string($snapshot['recipient']),409,'REPLY_WINDOW_CLOSED');
+        abort_unless(is_string($card['url']??null)&&str_starts_with($card['url'],'https://'),422);
+        $element=['title'=>mb_substr((string)$card['title'],0,80),'subtitle'=>mb_substr((string)$card['subtitle'],0,80),
+            'buttons'=>[['type'=>'web_url','url'=>$card['url'],'title'=>mb_substr((string)$card['button'],0,20),'webview_height_ratio'=>'tall']]];
+        if (is_string($card['image']??null)&&str_starts_with($card['image'],'https://')) $element['image_url']=$card['image'];
+        $payload=['recipient'=>['id'=>$snapshot['recipient']],'message'=>['attachment'=>['type'=>'template',
+            'payload'=>['template_type'=>'generic','elements'=>[$element]]]]];
+        if ($thread->waba_id==='messenger') $payload['messaging_type']='RESPONSE';
+        $response=$this->call($account,$payload); $body=json_decode($response['body'],true);
+        abort_unless($response['status']===200&&is_array($body)&&!isset($body['error'])&&is_string($body['message_id']??null),502,'META_REJECTED');
+        return ['success'=>true];
+    }
+
     /** Internal automation reserves its durable receipt before spending an AI call. */
     public function sendOrderFollowup($actor,int $conversation,array $input,callable $guard): array
     {
