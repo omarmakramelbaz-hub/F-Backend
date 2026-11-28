@@ -473,6 +473,8 @@ class WhatsAppOrderWorkflow
             $floor=$bounded ? $this->automaticFloor($conversation,$scan,true) : $this->dispatchedCeiling($conversation);
             if ($bounded) abort_unless($ceiling>$floor,409,'STALE_TRANSCRIPT');
             $floor=$this->customerReceiptFloor($conversation,$floor,$ceiling);
+            // An employee's analysis of a long chat reads its latest part instead of refusing the whole history.
+            if (!$automatic&&!$bounded) $floor=$this->recentWindowFloor($conversation,$floor,$ceiling);
             $baselined=$bounded && ($scan->auto_floor===null || ($this->controlInstalled()
                 ? (int)$scan->auto_floor!==$activation : (int)$scan->auto_floor<$activation));
             $staleBounded=$bounded && $existing && (int)$existing->evidence_floor<$floor;
@@ -2644,6 +2646,19 @@ class WhatsAppOrderWorkflow
         // A legacy larger scan watermark is not another activation and cannot hide it.
         return max($activation,$this->controlInstalled()?0:(int)($scan->auto_floor??0),$this->dispatchedCeiling($conversation,$lock));
     }
+    /** Newest messages that fit the analysis limits (count and characters); the employee reviews the result. */
+    private function recentWindowFloor(int $conversation,int $floor,int $ceiling): int
+    {
+        for ($size=self::MAX_MESSAGES; $size>=10; $size-=10) {
+            $ids=DB::table($this->table('whatsapp_inbox_messages'))->where('conversation_id',$conversation)
+                ->where('id','>',$floor)->where('id','<=',$ceiling)->orderByDesc('id')->limit($size+1)->pluck('id')->all();
+            if (count($ids)<=$size&&$size===self::MAX_MESSAGES) return $floor;
+            $candidate=count($ids)>$size?(int)end($ids):$floor;
+            if (($this->snapshot($conversation,$candidate,$ceiling)['complete']??false)===true) return $candidate;
+        }
+        return $floor;
+    }
+
     private function dispatchedCeiling(int $conversation,bool $lock=false): int
     {
         $query=DB::table(static::DRAFTS)->where('conversation_id',$conversation)->where('status','DISPATCHED');
