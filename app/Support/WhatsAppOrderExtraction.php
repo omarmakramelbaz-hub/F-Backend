@@ -196,6 +196,12 @@ final class WhatsAppOrderExtraction
         return array_values(array_unique($ids));
     }
 
+    /**
+     * Set only around an employee's manual analysis: a customer field or item the AI did not quote exactly is
+     * left empty for the employee to fill instead of discarding the whole draft. Automatic analysis stays strict.
+     */
+    public static bool $employeeReview = false;
+
     public static function validate(array $data, array $transcript): array
     {
         $result = self::validateDetailed($data, $transcript);
@@ -304,6 +310,7 @@ final class WhatsAppOrderExtraction
         $texts = array_map(static fn ($id) => self::rowText($rows[$id]), $evidenceIds);
         foreach (['name', 'address', 'area', 'notes'] as $field) {
             if ($data['customer'][$field] !== null && !self::backed($data['customer'][$field], $texts)) {
+                if (self::$employeeReview) { $data['customer'][$field] = null; continue; }
                 $diagnosticField = ['name'=>'CUSTOMER_NAME', 'address'=>'CUSTOMER_ADDRESS',
                     'area'=>'CUSTOMER_AREA', 'notes'=>'CUSTOMER_NOTES'][$field];
                 return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', $diagnosticField);
@@ -311,14 +318,18 @@ final class WhatsAppOrderExtraction
         }
         if ($data['customer']['phone'] !== null) {
             $phone = self::digits($data['customer']['phone']);
-            if (!preg_match('/\A[0-9]{8,15}\z/', $phone))
+            if (self::$employeeReview && (!preg_match('/\A[0-9]{8,15}\z/', $phone) || !self::phoneBacked($phone, $texts))) $data['customer']['phone'] = null;
+            elseif (!preg_match('/\A[0-9]{8,15}\z/', $phone))
                 return self::invalid('INVALID_EVIDENCE', 'PHONE_FORMAT', 'CUSTOMER_PHONE');
-            if (!self::phoneBacked($phone, $texts))
+            elseif (!self::phoneBacked($phone, $texts))
                 return self::invalid('INVALID_EVIDENCE', 'PHONE_NOT_CITED', 'CUSTOMER_PHONE');
         }
+        if (self::$employeeReview && $data['branch_hint'] !== null && !self::backed($data['branch_hint'], $texts)) $data['branch_hint'] = null;
         if ($data['branch_hint'] !== null && !self::backed($data['branch_hint'], $texts)) {
             return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', 'BRANCH_HINT');
         }
+        if (self::$employeeReview) $data['items'] = array_values(array_filter($data['items'], static fn ($item) =>
+            self::backed($item['name'], $texts) && ($item['option_hint'] === null || self::backed($item['option_hint'], $texts))));
         foreach ($data['items'] as $item) {
             if (!self::backed($item['name'], $texts))
                 return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', 'ITEM_NAME');
@@ -326,6 +337,7 @@ final class WhatsAppOrderExtraction
                 return self::invalid('INVALID_EVIDENCE', 'LITERAL_NOT_CITED', 'ITEM_OPTION');
         }
         $confirmationTexts = array_map(static fn ($id) => self::rowText($rows[$id]), $data['evidence']['confirmation_ids']);
+        if (self::$employeeReview && $data['approximate_total'] !== null && !self::priceBacked($data['approximate_total'], $confirmationTexts)) $data['approximate_total'] = null;
         if ($data['approximate_total'] !== null && !self::priceBacked($data['approximate_total'], $confirmationTexts)) {
             return self::invalid('INVALID_EVIDENCE', 'PRICE_NOT_CITED', 'APPROXIMATE_TOTAL');
         }

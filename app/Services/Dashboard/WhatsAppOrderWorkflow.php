@@ -563,7 +563,8 @@ class WhatsAppOrderWorkflow
             // wrote no summary; the employee reviews every field before sending. Automatic analysis is unchanged.
             $manualFallback=$receiptOnly&&!$automatic&&$snapshot['complete']&&($receipt['ok']??false)!==true
                 &&!is_array($data['analysis_failure']??null);
-            if (!$receiptOnly||$manualFallback) {
+            if (!$receiptOnly||$manualFallback) try {
+                WhatsAppOrderExtraction::$employeeReview=$manualFallback;
                 $result = $snapshot['complete']
                     ?$this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
                     : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
@@ -580,7 +581,7 @@ class WhatsAppOrderWorkflow
                     if (($data['decision'] ?? '') === 'CANCELLED') { $status='CANCELLED'; $reason='CUSTOMER_CANCELLED'; }
                     if ($manualFallback&&is_array($data)) $data['employee_review']=true;
                 }
-            }
+            } finally { WhatsAppOrderExtraction::$employeeReview=false; }
             // A reply may be accepted while extraction is in flight. Project it before CAS
             // so neither a partial NONE result nor an earlier confirmation can be persisted.
             abort_unless($this->projectAcceptedReplies($conversation,$bounded?$claim['activation_time']:null),409,'ACCEPTED_REPLIES_PENDING');
