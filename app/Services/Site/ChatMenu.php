@@ -67,6 +67,9 @@ class ChatMenu extends WebStorefront
             $result[] = ['id' => (int) $branch->id, 'name' => (string) $branch->name, 'address' => (string) $branch->address,
                 'open' => $branch->effective_status === 'opened'];
         }
+        // The customer sees the branches first, then the stores («… ستور»).
+        $store = fn($item) => preg_match('/ستور/u', $item['name']) ? 1 : 0;
+        usort($result, fn($a, $b) => [$store($a), $a['id']] <=> [$store($b), $b['id']]);
         return $result;
     }
 
