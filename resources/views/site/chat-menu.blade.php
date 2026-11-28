@@ -58,7 +58,7 @@ textarea{min-height:64px;resize:vertical}
 </main>
 <div class="bar" id="bar" hidden><div class="sum"><span id="count"></span><b id="total"></b></div><button type="button" class="cta" id="next" disabled>كمّل الطلب</button></div>
 @if ($state === 'open')
-<script type="application/json" id="boot">@json(['branches' => $branches, 'menu' => route('chat-menu.menu', $token), 'submit' => route('chat-menu.submit', $token)])</script>
+<script type="application/json" id="boot">{!! json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) !!}</script>
 <script>
 (function(){
 'use strict';

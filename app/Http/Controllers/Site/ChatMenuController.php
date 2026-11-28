@@ -16,8 +16,9 @@ class ChatMenuController extends Controller
     {
         $link = $menu->link($token);
         $state = $link->submitted_at !== null ? 'sent' : ($menu->expired($link) ? 'expired' : 'open');
-        return response()->view('site.chat-menu', ['token' => $token, 'state' => $state,
-            'branches' => $state === 'open' ? $menu->branchList() : []])->withHeaders(self::HEADERS);
+        $boot = $state === 'open' ? ['branches' => $menu->branchList(), 'menu' => route('chat-menu.menu', $token),
+            'submit' => route('chat-menu.submit', $token)] : null;
+        return response()->view('site.chat-menu', ['state' => $state, 'boot' => $boot])->withHeaders(self::HEADERS);
     }
 
     public function menu(Request $request, string $token, ChatMenu $menu)
