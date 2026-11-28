@@ -198,13 +198,64 @@
             }
             return holder;
         }
+        var QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+        function threadChannel() { var thread = threadMap.get(chosen); return thread && thread.channel || channel; }
+        function canReact(message) { return !message.receipt && !message.hidden && !message.unavailable && message.direction === 'inbound'; }
+        // Hover bar: quick reactions (Instagram accepts only a heart) and reply, like the real apps.
+        function quickBar(message) {
+            if (message.receipt || message.hidden || message.unavailable) return null;
+            var bar = node('div', 'chat-quick-bar');
+            if (canReact(message)) (threadChannel() === 'instagram' ? ['❤️'] : QUICK).forEach(function (emoji) {
+                var button = node('button', 'chat-quick-emoji', emoji); button.type = 'button';
+                button.dataset.metaReact = emoji; button.dataset.metaMessage = String(message.id);
+                button.setAttribute('aria-label', (rich.react || 'React') + ' ' + emoji); bar.appendChild(button);
+            });
+            var reply = node('button', 'chat-quick-reply'); reply.type = 'button'; reply.innerHTML = '<i class="fas fa-reply" aria-hidden="true"></i>';
+            reply.dataset.metaAction = 'reply'; reply.dataset.metaMessage = String(message.id);
+            reply.title = rich.reply || 'Reply'; reply.setAttribute('aria-label', rich.reply || 'Reply'); bar.appendChild(reply);
+            return bar;
+        }
+        function quoteNode(message) {
+            var quote = message.quote; if (!quote || message.hidden) return null;
+            var block = node('blockquote', 'wa-quoted-message chat-quote'); block.dataset.metaJump = String(quote.id);
+            block.appendChild(node('span', 'wa-quoted-author', quote.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen})));
+            block.appendChild(node('p', '', Array.from(quote.text || typeText(quote.type) || '').slice(0, 300).join('')));
+            return block;
+        }
+        function reactionNode(message) {
+            var marks = message.reactions; if (!marks || message.hidden) return null;
+            var list = [marks.customer, marks.business].filter(function (value) { return typeof value === 'string' && value; });
+            if (!list.length) return null;
+            var pill = node('span', 'wa-message-reaction chat-reactions', list.join(' '));
+            pill.title = (marks.business ? (rich.your_reaction || 'Your reaction') + ' ' + marks.business : '') + (marks.customer ? ' · ' + (rich.customer_reaction || 'Customer') + ' ' + marks.customer : '');
+            return pill;
+        }
+        function quoteMessage(message) {
+            if (!message || message.hidden || message.receipt) return;
+            document.dispatchEvent(new CustomEvent('meta:reply-quote', {detail: {conversation: chosen, message_id: Number(message.id),
+                author: message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen}),
+                text: message.text || typeText(message.type)}}));
+        }
+        function react(message, emoji) {
+            if (!message || actionBusy || !canReact(message)) return;
+            var marks = message.reactions || {}, next = marks.business === emoji ? '' : emoji, selected = chosen, current = generation;
+            actionBusy = true;
+            request(config.messages_base_url + '/' + selected + '/messages/' + message.id + '/react', 'react', {emoji: next}).then(function (data) {
+                if (closed || current !== generation || selected !== chosen) return;
+                if (data.state !== 'ACCEPTED') throw new Error('Unavailable');
+                var fresh = messageMap.get(Number(message.id)); if (!fresh) return;
+                messageMap.set(Number(message.id), Object.assign({}, fresh, {reactions: Object.assign({}, fresh.reactions || {}, {business: data.reaction || null})}));
+                renderMessages(false, false);
+            }).catch(function () { notice(rich.react_failed || 'Meta did not accept the reaction. Replies and reactions work only within 24 hours of the customer\'s last message.', true); })
+                .finally(function () { actionBusy = false; });
+        }
         function messageActions(message) {
             if (message.receipt) return null;
             if (message.hidden || message.unavailable) return null;
             var actions = node('details', 'meta-chat-actions'), summary = node('summary', '', '•••');
             summary.setAttribute('aria-label', rich.actions || 'Message actions'); actions.appendChild(summary);
             var menu = node('div', 'meta-chat-menu');
-            [['copy', rich.copy || 'Copy text'], ['forward', rich.forward || 'Forward'], ['hide', rich.hide || 'Delete from dashboard']].forEach(function (action) {
+            [['reply', rich.reply || 'Reply'], ['copy', rich.copy || 'Copy text'], ['forward', rich.forward || 'Forward'], ['hide', rich.hide || 'Delete from dashboard']].forEach(function (action) {
                 if (action[0] === 'copy' && !message.text) return;
                 var button = node('button', '', action[1]); button.type = 'button';
                 button.dataset.metaAction = action[0]; button.dataset.metaMessage = String(message.id); menu.appendChild(button);
@@ -403,6 +454,7 @@
             }).finally(function () { if (epoch === threadEpoch) { threadLoading = false; if (!closed) more.disabled = false; } });
         }
         function renderMessages(prepend, toBottom) {
+            if (scroll) scroll.dataset.chatSkin = threadChannel() === 'instagram' ? 'instagram' : 'messenger';
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
             var rendered = [], nextRendered = new Map();
             receiptRows().sort(function (a, b) {
@@ -422,6 +474,7 @@
                 var author = node('span', 'wa-inbox-author', message.direction === 'outbound' ? labels.business : displayName(threadMap.get(chosen) || {id: chosen})); author.dataset.metaAuthor = 'true'; bubble.appendChild(author);
                 var actions = messageActions(message); if (actions) bubble.appendChild(actions);
                 if (message.type !== 'text') bubble.appendChild(node('span', 'wa-inbox-message-type', typeText(message.type)));
+                var quote = quoteNode(message); if (quote) bubble.appendChild(quote);
                 var cart = !message.unavailable && message.type === 'order' ? cartNode(message.cart) : null;
                 if (!message.hidden && !message.unavailable && Array.isArray(message.media)) message.media.slice(0, 10).forEach(function (media) { var element = mediaNode(media, message); if (element) bubble.appendChild(element); });
                 if (cart) bubble.appendChild(cart);
@@ -431,7 +484,8 @@
                 var time = node('time', '', dateText(timestamp, true)); if (timestamp) time.dateTime = timestamp;
                 bubble.appendChild(time);
                 if (message.receipt) bubble.appendChild(node('span','meta-receipt-status',document.documentElement.lang === 'ar' ? 'قبلت ميتا الإرسال' : 'Accepted by Meta'));
-                item.appendChild(bubble); rendered.push(item); nextRendered.set(message.id, {node: item, signature: signature});
+                var marks = reactionNode(message); if (marks) { bubble.appendChild(marks); item.classList.add('has-reaction'); }
+                var bar = quickBar(message); if (bar) bubble.appendChild(bar); item.appendChild(bubble); rendered.push(item); nextRendered.set(message.id, {node: item, signature: signature});
             });
             if (typeof messages.insertBefore === 'function' && typeof messages.removeChild === 'function') {
                 var currentNode = messages.firstChild;
@@ -546,9 +600,18 @@
                     var large = node('img', 'meta-lightbox-image'); large.src = imageButton.dataset.metaImage; large.alt = imageButton.dataset.metaImageName || ''; overlayBody.appendChild(large);
                 } return;
             }
+            var reactButton = event.target.closest('[data-meta-react]');
+            if (reactButton && panel.contains(reactButton)) { react(messageMap.get(Number(reactButton.dataset.metaMessage)), reactButton.dataset.metaReact); return; }
+            var jump = event.target.closest('[data-meta-jump]');
+            if (jump && panel.contains(jump)) {
+                var target = messages.querySelector('[data-wa-message-id="' + Number(jump.dataset.metaJump) + '"]');
+                if (target && typeof target.scrollIntoView === 'function') { target.scrollIntoView({block: 'center', behavior: 'smooth'}); target.classList.add('is-flash'); setTimeout(function () { target.classList.remove('is-flash'); }, 1400); }
+                return;
+            }
             var action = event.target.closest('[data-meta-action]');
             if (action && panel.contains(action)) {
                 var message = messageMap.get(Number(action.dataset.metaMessage)); if (!message || message.hidden) return;
+                if (action.dataset.metaAction === 'reply') { var open = action.closest('details'); if (open) open.open = false; quoteMessage(message); return; }
                 if (action.dataset.metaAction === 'copy' && navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(message.text || '').then(function () { if (!closed) notice(rich.copied || 'Copied'); }).catch(function () { notice(rich.copy_failed || 'Copy unavailable', true); });
                 } else if (action.dataset.metaAction === 'forward') openForward(message);
@@ -605,7 +668,12 @@
             if (navigator.onLine === false) { closeOverlay(); emit('whatsapp:private-reset', {reason: 'offline'}); unavailable(); }
             else { if (chosen && !denied) emit('whatsapp:conversation-selected', selectionDetail()); poll(); }
         }
-        panel.addEventListener('click', click);
+        function doubleClick(event) {
+            var item = event.target.closest('[data-wa-message-id]');
+            if (!item || !messages.contains(item) || event.target.closest('a,button,audio,video,summary')) return;
+            quoteMessage(messageMap.get(Number(item.dataset.waMessageId)));
+        }
+        panel.addEventListener('click', click); messages.addEventListener('dblclick', doubleClick);
         document.addEventListener('keydown', keyboard);
         document.addEventListener('meta:accepted-replies', acceptedSnapshot); document.addEventListener('meta:reply-accepted', replyAccepted);
         scroll.addEventListener('scroll', readScroll);
@@ -618,7 +686,7 @@
             clearTimeout(readTimer);
             emit('whatsapp:private-reset', {reason: 'closed'});
             controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
-            panel.removeEventListener('click', click); document.removeEventListener('keydown', keyboard);
+            panel.removeEventListener('click', click); messages.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keyboard);
             document.removeEventListener('meta:accepted-replies', acceptedSnapshot); document.removeEventListener('meta:reply-accepted', replyAccepted); document.removeEventListener('visibilitychange', visibility);
             scroll.removeEventListener('scroll', readScroll);
             window.removeEventListener('offline', online); window.removeEventListener('online', online);

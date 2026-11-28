@@ -14,4 +14,6 @@ Route::group(['prefix' => 'admin/meta', 'middleware' => ['lang', 'IsAdmin']], fu
         ->whereNumber('conversation')->name('meta-replies.attachment');
     Route::post('/conversations/{conversation}/forward', [MetaReplyController::class, 'forward'])
         ->whereNumber('conversation')->name('meta-replies.forward');
+    Route::post('/conversations/{conversation}/messages/{message}/react', [MetaReplyController::class, 'react'])
+        ->whereNumber(['conversation', 'message'])->name('meta-replies.react');
 });

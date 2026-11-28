@@ -58,6 +58,16 @@ class MetaReplyController extends Controller
         });
     }
 
+    public function react(Request $request, string $conversation, string $message, MetaReplyService $replies)
+    {
+        return $this->respond(function () use ($request, $conversation, $message, $replies) {
+            if (array_diff(array_keys($request->except('_token')), ['emoji'])) throw new HttpException(422);
+            $emoji = $request->input('emoji');
+            if ($emoji !== null && !is_string($emoji)) throw new HttpException(422);
+            return $replies->react(auth('admin')->user(), $this->conversation($conversation), $this->conversation($message), $emoji);
+        });
+    }
+
     private function withAcceptedReply(MetaReplyService $replies, int $conversation, array $result): array
     {
         if (($result['state'] ?? null) !== 'ACCEPTED' || !is_int($result['reply_id'] ?? null) || $result['reply_id'] < 1) return $result;

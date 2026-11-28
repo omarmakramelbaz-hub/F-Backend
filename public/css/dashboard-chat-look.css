@@ -1,0 +1,127 @@
+/* The reply screens drawn like the real apps: WhatsApp, Messenger and Instagram.
+   The scroll area carries data-chat-skin (whatsapp | messenger | instagram), set by the inbox scripts. */
+
+/* ── Shared: bubbles, time, author, quote, reactions, hover bar ── */
+[data-chat-skin] .wa-inbox-message-list { gap: 3px; padding-block-start: 30px; }
+[data-chat-skin] .wa-inbox-message { padding-block: 1px; }
+[data-chat-skin] .wa-inbox-message.has-reaction,
+[data-chat-skin] .wa-inbox-message:has(.wa-message-reaction) { margin-block-end: 16px; }
+[data-chat-skin] .wa-inbox-bubble { min-width: 74px; max-width: min(72%, 560px); padding: 6px 9px 4px; border: 0; }
+/* One-to-one chats in the real apps do not print who wrote each bubble; the side says it. */
+[data-chat-skin] .wa-inbox-author { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0; padding: 0; }
+[data-chat-skin] .wa-inbox-message-type { font-size: 11px; opacity: .8; margin-bottom: 2px; }
+[data-chat-skin] .wa-inbox-message-text { font-size: 14.2px; line-height: 1.55; }
+/* Time tucked in the bubble's corner, after the text. */
+[data-chat-skin] .wa-inbox-bubble time { display: inline-block; float: inline-end; margin: 6px 10px -3px 0; margin-inline: 10px 0; font-size: 11px; line-height: 15px; opacity: .85; white-space: nowrap; }
+[data-chat-skin] .wa-inbox-bubble::after { content: ""; display: block; clear: both; }
+
+/* Quoted message inside a bubble. */
+[data-chat-skin] .wa-quoted-message { margin: 2px 0 6px; padding: 6px 10px; border: 0; border-inline-start: 4px solid #06cf9c; border-radius: 7px; background: rgba(11, 20, 26, .05); cursor: pointer; }
+[data-chat-skin] .wa-quoted-message .wa-quoted-author { display: block; font-size: 12.5px; font-weight: 700; color: #06a77d; line-height: 1.5; }
+[data-chat-skin] .wa-quoted-message p { margin: 0; font-size: 12.5px; line-height: 1.45; color: #54656f; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
+
+/* Reaction pill hanging off the bubble's lower edge. */
+[data-chat-skin] .wa-message-reaction { position: absolute; inset-block-end: -15px; inset-inline-start: 8px; z-index: 2; min-width: 0; min-height: 0; margin: 0; padding: 1px 5px; border: 2px solid var(--chat-canvas, #efeae2); border-radius: 12px; background: #fff; font-size: 14px; line-height: 1.25; box-shadow: 0 1px 2px rgba(11, 20, 26, .16); }
+
+/* Hover bar: quick reactions and reply, beside the bubble. */
+/* Above the bubble (as on WhatsApp Web), overlapping its top edge a little so the pointer can reach it. */
+.chat-quick-bar { position: absolute; inset-block-end: calc(100% - 6px); inset-inline-start: -4px; z-index: 6; display: flex; align-items: center; gap: 1px; padding: 3px 5px; border-radius: 999px; background: #fff; box-shadow: 0 2px 8px rgba(11, 20, 26, .18); transform: translateY(4px) scale(.92); transform-origin: bottom; opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; white-space: nowrap; }
+.wa-inbox-message.is-outbound .chat-quick-bar { inset-inline-start: auto; inset-inline-end: -4px; }
+.wa-inbox-message:hover .chat-quick-bar, .wa-inbox-message:focus-within .chat-quick-bar { opacity: 1; transform: none; pointer-events: auto; }
+.chat-quick-emoji, .chat-quick-reply { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; transition: transform .1s ease, background .1s ease; }
+.chat-quick-emoji:hover { transform: scale(1.25); background: #f0f2f5; }
+.chat-quick-emoji.is-chosen { background: #d9fdd3; }
+.chat-quick-reply { font-size: 14px; color: #54656f; }
+.chat-quick-reply:hover { background: #f0f2f5; color: #111b21; }
+/* Phones: a tap gives the bubble hover, which shows the same bar above it. */
+@media (max-width: 720px) { .chat-quick-emoji, .chat-quick-reply { width: 28px; height: 28px; font-size: 16px; } }
+/* A quoted message jumped to flashes once. */
+[data-chat-skin] .wa-inbox-message.is-flash .wa-inbox-bubble { animation: chat-flash 1.3s ease; }
+@keyframes chat-flash { 0%, 60% { box-shadow: 0 0 0 4px rgba(6, 207, 156, .45); } 100% { box-shadow: none; } }
+
+/* Voice notes and media fit the bubble. */
+[data-chat-skin] .wa-inbox-bubble audio { width: min(260px, 62vw); height: 36px; display: block; }
+[data-chat-skin] .wa-inbox-bubble img { border-radius: 6px; }
+[data-chat-skin] .meta-chat-actions, [data-chat-skin] .wa-bubble-action-trigger { opacity: 0; transition: opacity .12s ease; }
+[data-chat-skin] .wa-inbox-message:hover .meta-chat-actions, [data-chat-skin] .meta-chat-actions[open],
+[data-chat-skin] .wa-inbox-message:hover .wa-bubble-action-trigger, [data-chat-skin] .wa-bubble-action-trigger:focus { opacity: 1; }
+@media (pointer: coarse) { [data-chat-skin] .meta-chat-actions, [data-chat-skin] .wa-bubble-action-trigger { opacity: 1; } }
+
+/* ── WhatsApp ── */
+.wa-inbox-message-scroll[data-chat-skin="whatsapp"] {
+    --chat-canvas: #efeae2;
+    background-color: #efeae2;
+    background-image:
+        radial-gradient(circle at 20% 30%, rgba(0, 0, 0, .025) 0 2px, transparent 2.5px),
+        radial-gradient(circle at 70% 65%, rgba(0, 0, 0, .025) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 45% 85%, rgba(0, 0, 0, .02) 0 2.5px, transparent 3px);
+    background-size: 64px 64px, 48px 48px, 80px 80px;
+}
+[data-chat-skin="whatsapp"] .wa-inbox-bubble { background: #fff; color: #111b21; border-radius: 7.5px; box-shadow: 0 1px .5px rgba(11, 20, 26, .13); }
+[data-chat-skin="whatsapp"] .wa-inbox-message.is-outbound .wa-inbox-bubble { background: #d9fdd3; }
+[data-chat-skin="whatsapp"] .wa-inbox-bubble time { color: #667781; }
+/* The little tail on each bubble's top corner. */
+[data-chat-skin="whatsapp"] .wa-inbox-message .wa-inbox-bubble::before { content: ""; position: absolute; inset-block-start: 0; width: 8px; height: 13px; background: inherit; }
+[data-chat-skin="whatsapp"] .wa-inbox-message.is-inbound .wa-inbox-bubble { border-start-start-radius: 0; }
+[data-chat-skin="whatsapp"] .wa-inbox-message.is-inbound .wa-inbox-bubble::before { inset-inline-start: -8px; clip-path: polygon(100% 0, 0 0, 100% 100%); }
+[dir="rtl"] [data-chat-skin="whatsapp"] .wa-inbox-message.is-inbound .wa-inbox-bubble::before { clip-path: polygon(0 0, 100% 0, 0 100%); }
+[data-chat-skin="whatsapp"] .wa-inbox-message.is-outbound .wa-inbox-bubble { border-start-end-radius: 0; }
+[data-chat-skin="whatsapp"] .wa-inbox-message.is-outbound .wa-inbox-bubble::before { inset-inline-end: -8px; clip-path: polygon(0 0, 100% 0, 0 100%); }
+[dir="rtl"] [data-chat-skin="whatsapp"] .wa-inbox-message.is-outbound .wa-inbox-bubble::before { clip-path: polygon(100% 0, 0 0, 100% 100%); }
+
+/* ── Messenger ── */
+.wa-inbox-message-scroll[data-chat-skin="messenger"] { --chat-canvas: #fff; background: #fff; }
+[data-chat-skin="messenger"] .wa-inbox-bubble { padding: 8px 12px 5px; border-radius: 18px; background: #f0f0f0; color: #050505; box-shadow: none; }
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .wa-inbox-bubble { background: linear-gradient(180deg, #0a7cff, #0062e0); color: #fff; }
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .wa-inbox-bubble time,
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .wa-inbox-message-type,
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .meta-receipt-status,
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .meta-chat-actions summary { color: rgba(255, 255, 255, .85); }
+[data-chat-skin="messenger"] .wa-inbox-bubble time { color: #65676b; }
+[data-chat-skin="messenger"] .wa-quoted-message { border-inline-start-color: #0a7cff; }
+[data-chat-skin="messenger"] .wa-quoted-message .wa-quoted-author { color: #0a7cff; }
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .wa-quoted-message { background: rgba(255, 255, 255, .18); border-inline-start-color: #fff; }
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .wa-quoted-message .wa-quoted-author,
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound .wa-quoted-message p { color: #fff; }
+[data-chat-skin="messenger"] .wa-message-reaction { border-color: #fff; }
+[data-chat-skin="messenger"] .wa-inbox-message.is-outbound a { color: #fff; }
+
+/* ── Instagram ── */
+.wa-inbox-message-scroll[data-chat-skin="instagram"] { --chat-canvas: #fff; background: #fff; }
+[data-chat-skin="instagram"] .wa-inbox-bubble { padding: 8px 13px 5px; border-radius: 22px; background: #efefef; color: #000; box-shadow: none; }
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .wa-inbox-bubble { background: linear-gradient(135deg, #a033ff 0%, #6f4bff 55%, #3797f0 100%); color: #fff; }
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .wa-inbox-bubble time,
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .wa-inbox-message-type,
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .meta-receipt-status,
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .meta-chat-actions summary { color: rgba(255, 255, 255, .85); }
+[data-chat-skin="instagram"] .wa-inbox-bubble time { color: #737373; }
+[data-chat-skin="instagram"] .wa-quoted-message { border-inline-start-color: #a033ff; }
+[data-chat-skin="instagram"] .wa-quoted-message .wa-quoted-author { color: #7a2bd6; }
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .wa-quoted-message { background: rgba(255, 255, 255, .2); border-inline-start-color: #fff; }
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .wa-quoted-message .wa-quoted-author,
+[data-chat-skin="instagram"] .wa-inbox-message.is-outbound .wa-quoted-message p { color: #fff; }
+[data-chat-skin="instagram"] .wa-message-reaction { border-color: #fff; }
+
+/* ── Composer: a rounded field with round buttons, as in the apps ── */
+.wa-replies .wa-replies-compose { align-items: flex-end; gap: 6px; }
+.wa-replies .wa-replies-compose textarea { border-radius: 22px; padding: 10px 16px; min-height: 44px; background: #fff; border: 1px solid #e3e6ea; }
+.wa-replies .wa-replies-compose .wa-icon-button { width: 42px; height: 42px; min-height: 42px; flex: 0 0 42px; border-radius: 50%; }
+.wa-replies .wa-replies-compose .wa-replies-send:not(:disabled) { background: #00a884; border-color: #00a884; color: #fff; }
+.meta-hub-pane .wa-replies .wa-replies-compose .wa-replies-send:not(:disabled), .meta-chat .wa-replies .wa-replies-compose .wa-replies-send:not(:disabled) { background: #0a7cff; border-color: #0a7cff; }
+/* Like the apps: the microphone while the box is empty, the send arrow once there is something to send. */
+.wa-replies .wa-replies-compose:has(textarea:placeholder-shown) .wa-replies-send:disabled { display: none; }
+.wa-replies .wa-replies-compose:has(textarea:not(:placeholder-shown)) .wa-replies-mic { display: none; }
+.meta-replies-quote { border-inline-start-color: #0a7cff; }
+.meta-replies-quote strong { color: #0a5bd1; }
+
+/* ── Dark theme ── */
+.dark-mode .wa-inbox-message-scroll[data-chat-skin="whatsapp"], [data-theme="dark"] .wa-inbox-message-scroll[data-chat-skin="whatsapp"] { --chat-canvas: #0b141a; background-color: #0b141a; }
+.dark-mode [data-chat-skin="whatsapp"] .wa-inbox-bubble, [data-theme="dark"] [data-chat-skin="whatsapp"] .wa-inbox-bubble { background: #202c33; color: #e9edef; }
+.dark-mode [data-chat-skin="whatsapp"] .wa-inbox-message.is-outbound .wa-inbox-bubble, [data-theme="dark"] [data-chat-skin="whatsapp"] .wa-inbox-message.is-outbound .wa-inbox-bubble { background: #005c4b; }
+.dark-mode [data-chat-skin="whatsapp"] .wa-inbox-bubble time, [data-theme="dark"] [data-chat-skin="whatsapp"] .wa-inbox-bubble time { color: #8696a0; }
+.dark-mode .wa-inbox-message-scroll[data-chat-skin="messenger"], .dark-mode .wa-inbox-message-scroll[data-chat-skin="instagram"],
+[data-theme="dark"] .wa-inbox-message-scroll[data-chat-skin="messenger"], [data-theme="dark"] .wa-inbox-message-scroll[data-chat-skin="instagram"] { --chat-canvas: #18191a; background: #18191a; }
+.dark-mode [data-chat-skin="messenger"] .wa-inbox-message.is-inbound .wa-inbox-bubble, .dark-mode [data-chat-skin="instagram"] .wa-inbox-message.is-inbound .wa-inbox-bubble,
+[data-theme="dark"] [data-chat-skin="messenger"] .wa-inbox-message.is-inbound .wa-inbox-bubble, [data-theme="dark"] [data-chat-skin="instagram"] .wa-inbox-message.is-inbound .wa-inbox-bubble { background: #303030; color: #e4e6eb; }
+.dark-mode .chat-quick-bar, .dark-mode [data-chat-skin] .wa-message-reaction, [data-theme="dark"] .chat-quick-bar, [data-theme="dark"] [data-chat-skin] .wa-message-reaction { background: #233138; }
+.dark-mode [data-chat-skin] .wa-quoted-message p, [data-theme="dark"] [data-chat-skin] .wa-quoted-message p { color: #aebac1; }

@@ -186,15 +186,16 @@ class MetaReplyService
     {
         $actor=app(MetaInboxAccess::class)->actor($actor);
         $wanted=['client_request_id','expected_inbound_id','text'];
-        abort_unless(!array_diff(array_keys($input),$wanted)&&!array_diff($wanted,array_keys($input))
+        abort_unless(!array_diff(array_keys($input),array_merge($wanted,$marker===null?['reply_to_message_id']:[]))&&!array_diff($wanted,array_keys($input))
             &&$this->uuid($input['client_request_id']??null),422);
+        $quote=$this->quoteTarget($actor,$conversation,$input['reply_to_message_id']??null);
         $inbound=filter_var($input['expected_inbound_id'],FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
         $text=$input['text'];
         abort_unless(is_int($inbound)&&is_string($text)&&mb_check_encoding($text,'UTF-8')&&trim($text)!==''
             &&mb_strlen($text,'UTF-8')<=1000&&!preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$text),422);
         $hash=$this->requestHash((int)$actor->id,$conversation,$input['client_request_id']);
-        $payloadHash=$this->textPayloadHash($inbound,$text,$marker);
-        $claim=DB::transaction(function () use ($actor,$conversation,$input,$inbound,$text,$hash,$payloadHash,$marker,$guard) {
+        $payloadHash=$this->textPayloadHash($inbound,$text,$marker,$quote);
+        $claim=DB::transaction(function () use ($actor,$conversation,$input,$inbound,$text,$hash,$payloadHash,$marker,$guard,$quote) {
             $actor=app(MetaInboxAccess::class)->actor($actor); $thread=$this->thread($conversation,true);
             if($marker!==null){
                 $old=$this->orderFollowupReceipt($thread,$input['client_request_id'],$inbound,true);
@@ -209,6 +210,7 @@ class MetaReplyService
             if ($reason!==null) return ['result'=>$this->result('FAILED',null,$reason)];
             $audit=['client_request_id'=>strtolower($input['client_request_id']),'text'=>$text,'recipient'=>$snapshot['recipient']];
             if($marker!==null)$audit['order_followup']=$marker;
+            if($quote!==null)$audit['reply_to']=$quote;
             $id=DB::table('meta_reply_requests')->insertGetId([
                 'conversation_id'=>$conversation,'actor_id'=>$actor->id,'waba_id'=>$thread->waba_id,'phone_number_id'=>$thread->phone_number_id,
                 'request_hash'=>$hash,'payload_hash'=>$payloadHash,'inbound_message_id'=>$inbound,'kind'=>'text','state'=>'CLAIMED',
@@ -243,6 +245,7 @@ class MetaReplyService
             if ($reason!==null) return $this->finish($id,'FAILED',$reason,['UNKNOWN']);
             $thread=$this->thread($conversation); $account=MetaInboxAccess::account($thread->waba_id,$thread->phone_number_id);
             $payload=['recipient'=>['id'=>$claim['snapshot']['recipient']],'message'=>['text'=>$text]];
+            if($quote!==null)$payload['reply_to']=['mid'=>$quote['mid']];
             if ($thread->waba_id==='messenger') $payload['messaging_type']='RESPONSE';
             $response=$this->call($account,$payload); $body=json_decode($response['body'],true);
             if ($response['status']===200&&is_array($body)&&!isset($body['error'])&&is_string($body['message_id']??null)
@@ -268,8 +271,9 @@ class MetaReplyService
     public function attachment($actor,int $conversation,array $input,$file,bool $voice=false): array
     {
         $actor=app(MetaInboxAccess::class)->actor($actor); $this->thread($conversation);
-        $inbound=$this->richInput($input,['client_request_id','expected_inbound_id']);
+        $inbound=$this->richInput($input,['client_request_id','expected_inbound_id'],['reply_to_message_id']);
         abort_unless($file instanceof \Symfony\Component\HttpFoundation\File\UploadedFile,422);
+        $quote=$this->quoteTarget($actor,$conversation,$input['reply_to_message_id']??null);
         $media=null;
         try {
             $media=$this->media()->prepare($file,$voice);
@@ -277,6 +281,7 @@ class MetaReplyService
             if ($media['type']==='file'&&$thread->waba_id==='instagram') return $this->result('FAILED',null,'MEDIA_UNSUPPORTED');
             $audit=['media'=>['type'=>$media['type'],'name'=>$media['filename'],'mime'=>$media['mime'],
                 'bytes'=>$media['bytes'],'input_sha256'=>$media['input_sha256']]];
+            if ($quote!==null) $audit['reply_to']=$quote;
             return $this->sendRich($actor,$conversation,$input,$inbound,$media['type'],$audit,[],function(array $account) use ($media) {
                 if ($account['channel']==='instagram'&&($account['login']??'facebook')==='instagram') {
                     $url=$this->media()->expose($media);
@@ -324,6 +329,57 @@ class MetaReplyService
         return $this->sendRich($actor,$conversation,$input,$inbound,$media['type'],$audit,[],function(array $account) use ($media) {
             return ['message'=>['attachment'=>['type'=>$media['type'],'payload'=>['url'=>$media['url']]]]];
         },fn()=>$this->forwardSource($actor,(int)$sourceThread->id,$sourceId,$audit['source_evidence_hash']));
+    }
+
+    /** The quoted message must belong to this conversation and be visible to this actor. */
+    private function quoteTarget($actor,int $conversation,$value): ?array
+    {
+        if ($value===null||$value==='') return null;
+        $id=filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]); abort_unless(is_int($id),422);
+        $checked=app(MetaMediaService::class)->message($conversation,$id,$actor);
+        $mid=$checked['dto']['message_id']??null;
+        abort_unless(!$checked['hidden']&&is_string($mid)&&$mid!==''&&strlen($mid)<=512&&!preg_match('/[\x00-\x1f\x7f]/',$mid),422);
+        return ['message_id'=>$id,'mid'=>$mid,'key'=>(string)$checked['message']->message_key];
+    }
+
+    private function linkQuote(int $id,string $mid): void
+    {
+        try {
+            if (!Schema::hasTable('meta_inbox_reply_links')) return;
+            $receipt=DB::table('meta_reply_requests')->where('id',$id)->first(); if (!$receipt) return;
+            $audit=$this->decodeEvidence($receipt->audit,65536); $quoted=$audit['reply_to']['key']??null;
+            if (!is_string($quoted)||!preg_match('/\A[a-f0-9]{64}\z/',$quoted)) return;
+            DB::table('meta_inbox_reply_links')->insertOrIgnore(['conversation_id'=>(int)$receipt->conversation_id,
+                'message_key'=>hash('sha256','whatsapp-message-v1:'.$receipt->waba_id.':'.$receipt->phone_number_id.':'.$mid),
+                'quoted_key'=>$quoted,'created_at'=>now('UTC'),'updated_at'=>now('UTC')]);
+        } catch (\Throwable $error) {} // The reply itself is already accepted; only its quote preview is lost.
+    }
+
+    /** React (or with no emoji, unreact) to one message. Instagram accepts only a heart. */
+    public function react($actor,int $conversation,int $message,$emoji): array
+    {
+        abort_unless($emoji===null||$emoji===''||\App\Support\MetaMessagingProtocol::emoji($emoji),422);
+        $checked=app(MetaMediaService::class)->message($conversation,$message,$actor);
+        $thread=$checked['thread']; $mid=$checked['dto']['message_id']??null;
+        abort_unless(!$checked['hidden']&&is_string($mid)&&$mid!==''&&strlen($mid)<=512&&!preg_match('/[\x00-\x1f\x7f]/',$mid),422);
+        abort_unless(Schema::hasTable('meta_inbox_reactions'),503);
+        $emoji=$emoji===''?null:$emoji;
+        if ($emoji!==null&&$thread->waba_id==='instagram') $emoji='❤️';
+        $account=MetaInboxAccess::account($thread->waba_id,$thread->phone_number_id);
+        if (!$this->configured($account)) return $this->result('FAILED',null,'REPLIES_UNAVAILABLE');
+        $snapshot=$this->snapshot($thread);
+        if ($snapshot['reason']!==null) return $this->result('FAILED',null,$snapshot['reason']);
+        $payload=['recipient'=>['id'=>$snapshot['recipient']],'sender_action'=>$emoji===null?'unreact':'react',
+            'payload'=>['message_id'=>$mid]+($emoji===null?[]:['reaction'=>$thread->waba_id==='instagram'?'love':$emoji])];
+        try { $response=$this->call($account,$payload); }
+        catch (\Throwable $error) { return $this->result('UNKNOWN',null,'DELIVERY_UNKNOWN'); }
+        $body=json_decode($response['body'],true);
+        if ($response['status']!==200||!is_array($body)||isset($body['error'])) return $this->result('FAILED',null,'META_REJECTED');
+        $where=['conversation_id'=>(int)$thread->id,'message_key'=>(string)$checked['message']->message_key,'direction'=>'outbound'];
+        $values=['emoji'=>$emoji,'reacted_at'=>now('UTC'),'updated_at'=>now('UTC')];
+        if (DB::table('meta_inbox_reactions')->where($where)->exists()) DB::table('meta_inbox_reactions')->where($where)->update($values);
+        else DB::table('meta_inbox_reactions')->insert($where+$values+['created_at'=>now('UTC')]);
+        return $this->result('ACCEPTED',null,null)+['reaction'=>$emoji];
     }
 
     private function richInput(array $input,array $wanted,array $optional=[]): int
@@ -374,6 +430,7 @@ class MetaReplyService
             if ($reason!==null) { $sendMarked=false; return $this->finish($id,'FAILED',$reason,['UNKNOWN']); }
             $thread=$this->thread($conversation); $account=MetaInboxAccess::account($thread->waba_id,$thread->phone_number_id);
             $payload=['recipient'=>['id'=>$claim['snapshot']['recipient']],'message'=>$message];
+            if (isset($audit['reply_to']['mid'])) $payload['reply_to']=['mid'=>$audit['reply_to']['mid']];
             if ($thread->waba_id==='messenger') $payload['messaging_type']='RESPONSE';
             // Transfer ownership BEFORE customer-facing I/O: a fatal/timeout cannot let the destructor delete Meta's URL.
             if ($retained!==null) { $this->media()->retain($retained); $retained=null; }
@@ -726,9 +783,9 @@ class MetaReplyService
         $data=json_decode($plain,true,64,JSON_THROW_ON_ERROR);if(!is_array($data))throw new \RuntimeException('INVALID_ACCEPTED_REPLY');return $data;
     }
 
-    private function textPayloadHash(int $inbound,string $text,?array $marker): string
+    private function textPayloadHash(int $inbound,string $text,?array $marker,?array $quote=null): string
     {
-        $values=[$inbound,$text];if($marker!==null)$values[]=$marker;
+        $values=[$inbound,$text];if($marker!==null)$values[]=$marker;if($quote!==null)$values[]=['reply_to'=>$quote['message_id']];
         return hash_hmac('sha256',json_encode($values,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),Crypt::getKey());
     }
 
@@ -762,6 +819,7 @@ class MetaReplyService
             }
         }
         $changed=DB::table('meta_reply_requests')->where('id',$id)->whereIn('state',$from)->update($values);
+        if($changed===1&&$state==='ACCEPTED'&&$mid!==null)$this->linkQuote($id,$mid);
         if($changed===1&&$state==='ACCEPTED'){
             try{$receipt=DB::table('meta_reply_requests')->where('id',$id)->first();if($receipt)$this->projectAcceptedReply($receipt);}
             catch(\Throwable$error){ /* The committed acceptance is retained; bounded workflow projection reports/retries it. */ }

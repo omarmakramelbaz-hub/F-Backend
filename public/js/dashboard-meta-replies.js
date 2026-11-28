@@ -41,13 +41,29 @@
         var controllers = new Map(), conversation = 0, generation = 0, inboxGeneration = null, inboxChannel = '', inboxNamespace = '', closed = false, denied = false;
         var sending = false, checking = false, state = null, attempt = null, uncertain = false;
         var voiceRun = null, voiceBlob = null, voiceUrl = null, openingMicrophone = false, microphoneRequest = 0;
-        var composing = false, enterHeld = false;
+        var composing = false, enterHeld = false, quoted = null;
+        // The «replying to» strip above the box, as in Messenger and Instagram.
+        var quoteBox = document.createElement('div'); quoteBox.className = 'wa-replies-quote meta-replies-quote'; quoteBox.hidden = true;
+        var quoteBody = document.createElement('div'), quoteTitle = document.createElement('strong'), quoteText = document.createElement('p');
+        var quoteCancel = document.createElement('button'); quoteCancel.type = 'button'; quoteCancel.className = 'wa-inbox-button wa-icon-button';
+        quoteCancel.setAttribute('aria-label', labels.remove_quote || 'Remove quote'); quoteCancel.title = labels.remove_quote || 'Remove quote';
+        quoteCancel.innerHTML = '<i class="fas fa-times" aria-hidden="true"></i>';
+        quoteBody.appendChild(quoteTitle); quoteBody.appendChild(quoteText); quoteBox.appendChild(quoteBody); quoteBox.appendChild(quoteCancel);
+        var composeRow = form.querySelector('.wa-replies-compose'); if (composeRow) composeRow.parentNode.insertBefore(quoteBox, composeRow);
+        function removeQuote() { quoted = null; quoteBox.hidden = true; quoteText.textContent = ''; }
+        function quoteMessage(event) {
+            var detail = event && event.detail, id = Number(detail && detail.message_id);
+            if (!detail || Number(detail.conversation) !== conversation || !Number.isSafeInteger(id) || id < 1 || sending || uncertain) return;
+            quoted = {id: id}; quoteTitle.textContent = detail.author || labels.quote_reply || 'Reply';
+            quoteText.textContent = Array.from(String(detail.text || '')).slice(0, 160).join('') || labels.attachment || '';
+            quoteBox.hidden = false; focusText();
+        }
         function note(value, error) { status.textContent = value || ''; status.classList.toggle('is-error', Boolean(error)); }
         function abort() { controllers.forEach(function (controller) { controller.abort(); }); controllers.clear(); }
         function clear(reason) {
             generation++; abort(); conversation = 0; state = null; attempt = null; uncertain = false; sending = false; checking = false;
             inboxGeneration = null; inboxChannel = ''; inboxNamespace = '';
-            clearVoice(); clearAttachment(); clearForward(); closeEmoji(); openingMicrophone = false; composing = false; enterHeld = false;
+            clearVoice(); clearAttachment(); clearForward(); closeEmoji(); removeQuote(); openingMicrophone = false; composing = false; enterHeld = false;
             text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; panel.hidden = true;
             if (audit) { auditList.textContent = ''; audit.hidden = true; audit.open = false; }
             note(reason === 'denied' ? labels.denied : '', reason === 'denied'); controls();
@@ -268,7 +284,9 @@
             if (!id || !Number.isSafeInteger(inbound) || inbound < 1) { note(labels.unavailable, true); return; }
             var selected = conversation, current = generation;
             attempt = {id: id, text: text.value.trim(), inbound: inbound, kind: 'text'};
-            sendRequest(selected, current, 'replies', {client_request_id: attempt.id, text: attempt.text, expected_inbound_id: attempt.inbound}, 'text');
+            var textBody = {client_request_id: attempt.id, text: attempt.text, expected_inbound_id: attempt.inbound};
+            if (quoted) textBody.reply_to_message_id = quoted.id;
+            sendRequest(selected, current, 'replies', textBody, 'text');
         }
         function sendRequest(selected, current, path, body, kind) {
             sending = true; controls(); note(labels.sending);
@@ -279,6 +297,7 @@
                     if (kind === 'text') { text.value = ''; sizeText(); count.textContent = '0 / ' + textLimit; }
                     if (kind === 'attachment') clearAttachment();
                     if (kind === 'forward') clearForward();
+                    removeQuote();
                     attempt = null; uncertain = false; note(labels.accepted);
                     if (window.DashboardMetaInbox) document.dispatchEvent(new CustomEvent(eventPrefix + ':conversation-updated', {detail: {conversation: selected}}));
                 } else if (data.state === 'FAILED') {
@@ -385,7 +404,7 @@
             var body = new FormData(), mime = voiceBlob.type.toLowerCase();
             var extension = mime.indexOf('ogg') !== -1 ? 'ogg' : mime.indexOf('mp4') !== -1 ? 'm4a' : 'webm';
             body.append('audio', voiceBlob, 'reply.' + extension); body.append('client_request_id', id);
-            body.append('expected_inbound_id', String(inbound)); attempt = {id: id, inbound: inbound, kind: 'voice'};
+            body.append('expected_inbound_id', String(inbound)); if (quoted) body.append('reply_to_message_id', String(quoted.id)); attempt = {id: id, inbound: inbound, kind: 'voice'};
             clearVoice(); sendRequest(selected, current, 'voice', body, 'voice');
         }
         function clearAttachment() {
@@ -439,6 +458,7 @@
             if (!id || !Number.isSafeInteger(inbound) || inbound < 1 || typeof FormData === 'undefined') { note(labels.unavailable, true); return; }
             var body = new FormData(); body.append('attachment', attachmentFile, attachmentFile.name || 'attachment');
             body.append('client_request_id', id); body.append('expected_inbound_id', String(inbound));
+            if (quoted) body.append('reply_to_message_id', String(quoted.id));
             attempt = {id: id, inbound: inbound, kind: 'attachment'}; sendRequest(selected, current, 'attachments', body, 'attachment');
         }
         function clearForward() {
@@ -517,7 +537,7 @@
         }
         if (attachmentPick) { attachmentPick.addEventListener('click', pickAttachment); attachmentInput.addEventListener('change', chooseAttachment); attachmentRemove.addEventListener('click', removeAttachment); attachmentSend.addEventListener('click', sendAttachment); }
         if (forwardPanel) { forwardSend.addEventListener('click', sendForward); forwardCancel.addEventListener('click', cancelForward); }
-        document.addEventListener('meta:forward-draft', draftForward);
+        document.addEventListener('meta:forward-draft', draftForward); document.addEventListener('meta:reply-quote', quoteMessage); quoteCancel.addEventListener('click', removeQuote);
         document.addEventListener(eventPrefix + ':conversation-selected', choose);
         document.addEventListener(eventPrefix + ':conversation-updated', updated);
         document.addEventListener(eventPrefix + ':private-reset', reset);
@@ -534,7 +554,8 @@
             }
             if (attachmentPick) { attachmentPick.removeEventListener('click', pickAttachment); attachmentInput.removeEventListener('change', chooseAttachment); attachmentRemove.removeEventListener('click', removeAttachment); attachmentSend.removeEventListener('click', sendAttachment); }
             if (forwardPanel) { forwardSend.removeEventListener('click', sendForward); forwardCancel.removeEventListener('click', cancelForward); }
-            document.removeEventListener('meta:forward-draft', draftForward);
+            document.removeEventListener('meta:forward-draft', draftForward); document.removeEventListener('meta:reply-quote', quoteMessage); quoteCancel.removeEventListener('click', removeQuote);
+            if (quoteBox.parentNode) quoteBox.parentNode.removeChild(quoteBox);
             document.removeEventListener(eventPrefix + ':conversation-selected', choose);
             document.removeEventListener(eventPrefix + ':conversation-updated', updated);
             document.removeEventListener(eventPrefix + ':private-reset', reset);

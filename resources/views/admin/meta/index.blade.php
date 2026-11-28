@@ -5,6 +5,7 @@
 <link rel="stylesheet" href="{{ asset('css/dashboard-whatsapp-replies.css') }}?v={{ filemtime(public_path('css/dashboard-whatsapp-replies.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-inbox.css') }}?v={{ filemtime(public_path('css/dashboard-meta-inbox.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-message-hub.css') }}?v={{ filemtime(public_path('css/dashboard-meta-message-hub.css')) }}">
+<link rel="stylesheet" href="{{ asset('css/dashboard-chat-look.css') }}?v={{ filemtime(public_path('css/dashboard-chat-look.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper wa-inbox-wrapper">
@@ -34,12 +35,16 @@ $metaRichLabels = app()->getLocale() === 'ar' ? [
     'hidden_message'=>'تم مسح هذه الرسالة من الداشبورد.', 'image'=>'صورة', 'document'=>'ملف', 'open_image'=>'عرض الصورة',
     'choose_part'=>'اختر النص أو المرفق المطلوب إعادة توجيهه.', 'text_part'=>'النص', 'forward_unavailable'=>'هذا النوع من الرسائل لا يدعم إعادة التوجيه حاليًا.',
     'choose_recipient'=>'اختر العميل، ثم راجع الرسالة واضغط إرسال داخل محادثته.', 'no_recipients'=>'لا توجد محادثات أخرى من نفس حساب ميتا في القائمة الحالية.',
+    'reply'=>'رد', 'react'=>'تفاعل', 'your_reaction'=>'تفاعلك', 'customer_reaction'=>'العميل',
+    'react_failed'=>'ميتا ما قبلتش التفاعل. الرد والتفاعل متاحين بس خلال 24 ساعة من آخر رسالة للعميل.',
 ] : [
     'media_unavailable'=>'Media unavailable.', 'actions'=>'Message actions', 'copy'=>'Copy text', 'copied'=>'Text copied', 'copy_failed'=>'Copy unavailable',
     'forward'=>'Forward', 'hide'=>'Delete from dashboard', 'hide_note'=>'This only hides the message in your dashboard; the customer and Meta keep the conversation.',
     'hidden_message'=>'This message was deleted from your dashboard.', 'image'=>'Image', 'document'=>'File', 'open_image'=>'Open image',
     'choose_part'=>'Choose the text or attachment to forward.', 'text_part'=>'Text', 'forward_unavailable'=>'Forwarding is unavailable for this message type.',
     'choose_recipient'=>'Choose a customer, then review and send in their conversation.', 'no_recipients'=>'No other conversations from this Meta account are loaded.',
+    'reply'=>'Reply', 'react'=>'React', 'your_reaction'=>'Your reaction', 'customer_reaction'=>'Customer',
+    'react_failed'=>'Meta did not accept the reaction. Replies and reactions work only within 24 hours of the customer\'s last message.',
 ];
 $waInboxBootstrap = array_merge($waInbox, ['meta_chat'=>true, 'hub_chat'=>true, 'rich_labels'=>$metaRichLabels, 'unread_url'=>url('/admin/meta/unread'),
     'read_base_url'=>url('/admin/meta/conversations'), 'csrf'=>csrf_token(),

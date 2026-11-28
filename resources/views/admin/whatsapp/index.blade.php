@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="{{ asset('css/dashboard-whatsapp-orders.css') }}?v={{ filemtime(public_path('css/dashboard-whatsapp-orders.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-whatsapp-replies.css') }}?v={{ filemtime(public_path('css/dashboard-whatsapp-replies.css')) }}">
 <link rel="stylesheet" href="{{ asset('css/dashboard-meta-inbox.css') }}?v={{ filemtime(public_path('css/dashboard-meta-inbox.css')) }}">
+<link rel="stylesheet" href="{{ asset('css/dashboard-chat-look.css') }}?v={{ filemtime(public_path('css/dashboard-chat-look.css')) }}">
 @endpush
 @section('content')
 <div class="content-wrapper wa-inbox-wrapper">

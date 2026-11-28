@@ -309,6 +309,24 @@
             trigger.dataset.waActionMenu = api ? 'api-reply:' + message.id : String(message.id);
             trigger.setAttribute('aria-label', label('message_actions', 'Message actions', 'أدوات الرسالة'));
             trigger.setAttribute('aria-haspopup', 'menu'); bubble.appendChild(trigger);
+            var actions = message.actions || {}, key = trigger.dataset.waActionMenu;
+            if (selectedChannel !== 'whatsapp' || actions.react !== true && actions.reply !== true) return;
+            var bar = node('div', 'chat-quick-bar');
+            if (actions.react === true) ['👍', '❤️', '😂', '😮', '😢', '🙏'].forEach(function (emoji) {
+                var button = actionButton('react-send', emoji, key); button.className = 'chat-quick-emoji'; button.dataset.waEmoji = emoji;
+                if (reaction(message.reaction) && reaction(message.reaction).emoji === emoji) { button.dataset.waEmoji = ''; button.classList.add('is-chosen'); }
+                button.setAttribute('aria-label', label('react', 'React', 'تفاعل') + ' ' + emoji); bar.appendChild(button);
+            });
+            if (actions.reply === true) {
+                var reply = actionButton('reply', '', key); reply.className = 'chat-quick-reply'; reply.innerHTML = '<i class="fas fa-reply" aria-hidden="true"></i>';
+                reply.title = label('reply', 'Reply', 'رد'); reply.setAttribute('aria-label', reply.title); bar.appendChild(reply);
+            }
+            bubble.appendChild(bar);
+        }
+        function doubleClick(event) {
+            var item = event.target.closest('.wa-inbox-message');
+            if (!item || !messages.contains(item) || event.target.closest('a,button,audio,video,input,summary')) return;
+            var reply = item.querySelector('.chat-quick-reply'); if (reply) reply.click();
         }
         function actionContext(key) {
             key = String(key); var api = key.indexOf('api-reply:') === 0, id = Number(api ? key.slice(10) : key);
@@ -690,6 +708,7 @@
             threadJob = job; return job;
         }
         function renderMessages(prepend, toBottom) {
+            if (scroll) scroll.dataset.chatSkin = ['messenger', 'instagram'].indexOf(selectedChannel) !== -1 ? selectedChannel : 'whatsapp';
             var oldHeight = scroll.scrollHeight, oldTop = scroll.scrollTop;
             rememberAnchor();
             var rendered = [], nextRendered = new Map();
@@ -1105,7 +1124,7 @@
             if (navigator.onLine === false) { emit('whatsapp:private-reset', {reason: 'offline'}); unavailable(); }
             else { if (chosen && !denied) emit('whatsapp:conversation-selected', {conversation: chosen, generation: generation, channel: selectedChannel, namespace: namespace}); poll(); }
         }
-        panel.addEventListener('click', click);
+        panel.addEventListener('click', click); messages.addEventListener('dblclick', doubleClick);
         scroll.addEventListener('scroll', readScroll);
         threadScroll.addEventListener('scroll', listScroll);
         if (typeof window.IntersectionObserver === 'function') {
@@ -1134,7 +1153,7 @@
             clearTimeout(readTimer); clearTimeout(edgeTimer); closeActions(); resetSelection(); clearHidden(); renderedMap.clear(); scrollAnchor = null; newMessagesCount = 0; newMessagesIndicator(); observers.forEach(function (observer) { observer.disconnect(); });
             emit('whatsapp:private-reset', {reason: 'closed'});
             controllers.forEach(function (controller) { controller.abort(); }); controllers.clear();
-            panel.removeEventListener('click', click); document.removeEventListener('visibilitychange', visibility);
+            panel.removeEventListener('click', click); messages.removeEventListener('dblclick', doubleClick); document.removeEventListener('visibilitychange', visibility);
             document.removeEventListener('whatsapp:accepted-replies', acceptedReplies);
             document.removeEventListener('whatsapp:reply-accepted', acceptedReplyWake);
             document.removeEventListener('whatsapp:private-reset', resetAcceptedReplies);

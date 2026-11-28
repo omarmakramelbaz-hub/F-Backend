@@ -134,10 +134,12 @@ class MetaInboxController extends Controller
             if (!$newer) $rows = $rows->reverse()->values();
             $media = app(MetaMediaService::class);
             $hiddenIds = $media->hiddenIds($actor, $rows->pluck('id')->all());
-            $items = [];
+            $items = []; $dtos = [];
+            foreach ($rows as $row) if (!in_array((int) $row->id, $hiddenIds, true)) $dtos[(int) $row->id] = $this->decrypt($row->content);
+            [$quotes, $reactions] = $this->chatMarks($actor, $thread, $rows, $dtos);
             foreach ($rows as $row) {
                 $hidden = in_array((int) $row->id, $hiddenIds, true);
-                $dto = $hidden ? null : $this->decrypt($row->content);
+                $dto = $hidden ? null : ($dtos[(int) $row->id] ?? null);
                 $items[] = [
                     'id' => (int) $row->id,
                     'projection_key' => is_string($row->message_key) && preg_match('/\A[a-f0-9]{64}\z/', $row->message_key) ? $row->message_key : null,
@@ -150,6 +152,8 @@ class MetaInboxController extends Controller
                     'sent_at' => $this->timestamp($row->sent_at),
                     'received_at' => $this->timestamp($row->created_at),
                     'unavailable' => !$hidden && $dto === null,
+                    'quote' => $hidden ? null : ($quotes[(int) $row->id] ?? null),
+                    'reactions' => $hidden ? null : ($reactions[(string) $row->message_key] ?? null),
                 ];
             }
             $customer = $this->decrypt($thread->customer);
@@ -182,6 +186,40 @@ class MetaInboxController extends Controller
                 'name' => $this->safeText($customer['name'] ?? null, 100)])->withHeaders($this->privateHeaders());
         } catch (HttpException $error) { return $this->failure($error->getStatusCode()); }
         catch (\Throwable $error) { return $this->failure(503); }
+    }
+
+    /** Quoted messages (from Meta's reply_to, or the dashboard's own record) and reactions, in two scoped lookups. */
+    private function chatMarks($actor, object $thread, $rows, array $dtos): array
+    {
+        $quotes = []; $reactions = [];
+        try {
+            $scope = $thread->waba_id . ':' . $thread->phone_number_id . ':'; $wanted = [];
+            $links = \Illuminate\Support\Facades\Schema::hasTable('meta_inbox_reply_links')
+                ? DB::table('meta_inbox_reply_links')->where('conversation_id', $thread->id)
+                    ->whereIn('message_key', $rows->pluck('message_key')->all())->pluck('quoted_key', 'message_key')->all() : [];
+            foreach ($rows as $row) {
+                $mid = $dtos[(int) $row->id]['content']['message']['meta']['reply_to']['mid'] ?? null;
+                $key = is_string($mid) && $mid !== '' && strlen($mid) <= 512 ? hash('sha256', 'whatsapp-message-v1:' . $scope . $mid) : ($links[$row->message_key] ?? null);
+                if (is_string($key)) $wanted[(int) $row->id] = $key;
+            }
+            if ($wanted) {
+                $found = DB::table('meta_inbox_messages')->where('conversation_id', $thread->id)->whereIn('message_key', array_values(array_unique($wanted)))
+                    ->get(['id', 'message_key', 'content', 'direction', 'type'])->keyBy('message_key');
+                $hidden = app(MetaMediaService::class)->hiddenIds($actor, $found->pluck('id')->all());
+                foreach ($wanted as $id => $key) {
+                    $target = $found->get($key); if (!$target || in_array((int) $target->id, $hidden, true)) continue;
+                    $dto = $this->decrypt($target->content);
+                    $quotes[$id] = ['id' => (int) $target->id, 'direction' => $target->direction === 'outbound' ? 'outbound' : 'inbound',
+                        'type' => $this->messageType($target->type), 'text' => $this->displayText($dto, 300)];
+                }
+            }
+            if (\Illuminate\Support\Facades\Schema::hasTable('meta_inbox_reactions')) {
+                foreach (DB::table('meta_inbox_reactions')->where('conversation_id', $thread->id)->whereNotNull('emoji')
+                    ->whereIn('message_key', $rows->pluck('message_key')->all())->get(['message_key', 'direction', 'emoji']) as $reaction)
+                    $reactions[$reaction->message_key][$reaction->direction === 'outbound' ? 'business' : 'customer'] = $reaction->emoji;
+            }
+        } catch (\Throwable $error) {} // Quotes and reactions are decoration; the messages still load.
+        return [$quotes, $reactions];
     }
 
     private function read(MetaInboxAccess $access, callable $callback)

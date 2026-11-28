@@ -32,6 +32,7 @@ class MetaInboxConsumer
                         $inserted = $this->persist($message);
                         $counts[$inserted ? 'messages_inserted' : 'messages_replayed']++;
                     }
+                    foreach ($report['reactions'] ?? [] as $reaction) $this->react($reaction);
                     DB::table('meta_webhook_events')->where('id', $id)->update(['processed_at'=>now('UTC')]);
                     return $counts;
                 }, 3);
@@ -89,6 +90,24 @@ class MetaInboxConsumer
             'first_message_at'=>min($thread->first_message_at,$m['sent_at']),
             'last_message_at'=>max($thread->last_message_at,$m['sent_at']),'updated_at'=>now('UTC')]);
         return true;
+    }
+
+    /** Reactions on an unknown conversation are dropped: they carry no message of their own. */
+    private function react(array $r): void
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('meta_inbox_reactions')) return;
+        $scope=$r['channel'].':'.$r['account_id'].':';
+        $peer=hash_hmac('sha256','whatsapp-peer-v1:'.$scope.$r['peer_identity'],Crypt::getKey());
+        $thread=DB::table('meta_inbox_conversations')->where('waba_id',$r['channel'])->where('phone_number_id',$r['account_id'])
+            ->where('peer_hash',$peer)->first(['id']);
+        if (!$thread) return;
+        $key=hash('sha256','whatsapp-message-v1:'.$scope.$r['message_id']);
+        $where=['conversation_id'=>$thread->id,'message_key'=>$key,'direction'=>$r['direction']];
+        $old=DB::table('meta_inbox_reactions')->where($where)->lockForUpdate()->first();
+        if ($old && $old->reacted_at!==null && $old->reacted_at>$r['reacted_at']) return; // an older event arriving late
+        $values=['emoji'=>$r['emoji'],'reacted_at'=>$r['reacted_at'],'updated_at'=>now('UTC')];
+        if ($old) DB::table('meta_inbox_reactions')->where('id',$old->id)->update($values);
+        else DB::table('meta_inbox_reactions')->insert($where+$values+['created_at'=>now('UTC')]);
     }
 
     private function encrypt(array $data): string { return Crypt::encryptString(json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE)); }

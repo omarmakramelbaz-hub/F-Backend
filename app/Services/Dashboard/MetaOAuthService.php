@@ -8,7 +8,7 @@ class MetaOAuthService
     private const MAX_BODY = 262144;
     private const MAX_REQUESTS = 25;
     private const MAX_SECONDS = 60;
-    private const REQUIRED_PAGE_FIELDS = ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads'];
+    private const REQUIRED_PAGE_FIELDS = ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_reactions'];
     private MetaOAuthCredentials $credentials;
     private $transport;
     private int $requests = 0;

@@ -30,7 +30,7 @@ final class MetaMessagingProtocol
         $channel = ($payload['object'] ?? null) === 'page' ? 'messenger'
             : (($payload['object'] ?? null) === 'instagram' ? 'instagram' : null);
         if ($channel === null || !is_array($payload['entry'] ?? null)) throw new InvalidArgumentException('ENVELOPE');
-        $messages = []; $ignored = 0;
+        $messages = []; $reactions = []; $ignored = 0;
         foreach ($payload['entry'] as $entry) {
             $id = $entry['id'] ?? null; $allowed = false;
             foreach ($accounts as $a) if (($a['channel'] ?? null) === $channel && ($a['account_id'] ?? null) === $id) $allowed = true;
@@ -40,7 +40,13 @@ final class MetaMessagingProtocol
                 if (!is_array($events) || !array_is_list($events) || count($events) > 1000) throw new InvalidArgumentException('EVENTS');
                 foreach ($events as $event) {
                     if (!is_array($event)) throw new InvalidArgumentException('EVENT');
-                    if (!isset($event['message'])) { $ignored++; continue; } // receipts, reads, reactions, postbacks
+                    if (isset($event['reaction']) && !isset($event['message'])) {
+                        // A malformed reaction is skipped on its own; it never quarantines the messages beside it.
+                        $reaction = self::reaction($event, $channel, (string) $id);
+                        if ($reaction === null) $ignored++; else $reactions[] = $reaction;
+                        continue;
+                    }
+                    if (!isset($event['message'])) { $ignored++; continue; } // receipts, reads, postbacks
                     $raw = $event['message'];
                     $sender = $event['sender']['id'] ?? null; $recipient = $event['recipient']['id'] ?? null;
                     $mid = $raw['mid'] ?? null; $stamp = $event['timestamp'] ?? null;
@@ -90,7 +96,43 @@ final class MetaMessagingProtocol
                 }
             }
         }
-        return ['messages' => $messages, 'ignored_count' => $ignored];
+        return ['messages' => $messages, 'reactions' => $reactions, 'ignored_count' => $ignored];
+    }
+
+    /** Named reactions Meta sends without an emoji. */
+    public const NAMED_REACTIONS = ['love' => '❤️', 'like' => '👍', 'smile' => '😆', 'laugh' => '😆', 'wow' => '😮',
+        'sad' => '😢', 'angry' => '😠', 'dislike' => '👎'];
+
+    /** A customer's (or the business's own) reaction on one message; unreact clears it. */
+    private static function reaction(array $event, string $channel, string $account): ?array
+    {
+        $raw = $event['reaction']; $sender = $event['sender']['id'] ?? null; $recipient = $event['recipient']['id'] ?? null;
+        $stamp = $event['timestamp'] ?? null;
+        if (!is_array($raw) || !self::id($sender) || !self::id($recipient) || $sender === $recipient
+            || !(is_int($stamp) || (is_string($stamp) && ctype_digit($stamp)))) return null;
+        $outbound = $sender === $account;
+        if (($outbound ? $sender : $recipient) !== $account) return null;
+        $mid = $raw['mid'] ?? null; $action = $raw['action'] ?? null;
+        if (!is_string($mid) || $mid === '' || strlen($mid) > 512 || preg_match('/[\x00-\x1f\x7f]/', $mid)
+            || !in_array($action, ['react', 'unreact'], true)) return null;
+        $seconds = (int) floor((float) $stamp / 1000);
+        if ($seconds < 946684800 || $seconds > time() + 86400) return null;
+        $emoji = null;
+        if ($action === 'react') {
+            $emoji = $raw['emoji'] ?? null;
+            if (!self::emoji($emoji)) $emoji = self::NAMED_REACTIONS[$raw['reaction'] ?? ''] ?? null;
+            if ($emoji === null) return null;
+        }
+        $peer = $outbound ? $recipient : $sender;
+        return ['channel' => $channel, 'account_id' => $account, 'peer_identity' => 'user:'.$peer, 'peer_user_id' => $peer,
+            'message_id' => $mid, 'direction' => $outbound ? 'outbound' : 'inbound', 'emoji' => $emoji,
+            'reacted_at' => gmdate('Y-m-d H:i:s', $seconds)];
+    }
+
+    public static function emoji($value): bool
+    {
+        return is_string($value) && $value !== '' && strlen($value) <= 32 && mb_check_encoding($value, 'UTF-8')
+            && mb_strlen($value, 'UTF-8') <= 8 && !preg_match('/[\x00-\x20\x7f]|\p{L}|\p{N}/u', $value);
     }
 
     public static function id($id): bool { return is_string($id) && preg_match('/\A[1-9][0-9]{0,31}\z/', $id) === 1; }

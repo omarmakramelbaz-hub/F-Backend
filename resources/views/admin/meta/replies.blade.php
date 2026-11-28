@@ -1,5 +1,6 @@
 @php
 $waReplyLabels = app()->getLocale() === 'ar' ? [
+    'quote_reply'=>'رد على', 'remove_quote'=>'إلغاء الرد',
     'no_inbound'=>'لم تصل رسالة العميل إلى الداشبورد بعد؛ راجع استقبال الرسائل.',
     'attachment'=>'إرفاق صورة أو ملف', 'attachment_review'=>'راجع المرفق ثم اضغط إرسال.', 'attachment_send'=>'إرسال المرفق',
     'attachment_limit'=>'نوع الملف غير مدعوم أو حجمه أكبر من الحد المتاح: الصور والصوت ٨ ميجابايت، الفيديو والملفات ٢٠ ميجابايت.',
@@ -19,6 +20,7 @@ $waReplyLabels = app()->getLocale() === 'ar' ? [
     'microphone_denied'=>'تعذّر فتح الميكروفون. راجع إذن الميكروفون في المتصفح.',
     'voice_limit'=>'الحد الأقصى للتسجيل ٦٠ ثانية و٨ ميجابايت.', 'audit'=>'ردود الإدارة', 'voice_message'=>'رسالة صوتية',
 ] : [
+    'quote_reply'=>'Replying to', 'remove_quote'=>'Cancel reply',
     'no_inbound'=>'The customer message has not reached the dashboard yet; check message reception.',
     'attachment'=>'Attach image or file', 'attachment_review'=>'Review the attachment, then choose Send.', 'attachment_send'=>'Send attachment',
     'attachment_limit'=>'Unsupported file or size limit exceeded: images/audio 8 MiB; videos/files 20 MiB.',
