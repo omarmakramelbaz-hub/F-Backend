@@ -12,7 +12,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 class CustomerMessagingService
 {
     private const GRAPH = 'https://graph.facebook.com/v25.0/';
-    private const FEEDBACK_TEMPLATE_NAME = 'fasakhansta_order_feedback_v1';
+    private const FEEDBACK_TEMPLATE_NAME = 'fasakhansta_order_thanks_v2';
     private const FEEDBACK_TEMPLATE_LANGUAGE = 'ar';
     private const MARKETING_TEMPLATE_PREFIX = 'fasakhansta_promotion_';
     private $transport;
@@ -88,7 +88,7 @@ class CustomerMessagingService
         $raw = ['name' => self::FEEDBACK_TEMPLATE_NAME, 'language' => self::FEEDBACK_TEMPLATE_LANGUAGE,
             'category' => 'UTILITY', 'status' => 'PENDING',
             'components' => [['type' => 'BODY', 'text' => $this->feedbackBody($cfg),
-                'example' => ['body_text' => [['12345', 'شبرا الخيمة']]]]]];
+                'example' => ['body_text' => [['PH301-S48-0044', 'شبرا الخيمة']]]]]];
         $candidate = $this->validateTemplate($raw, false);
         if ($candidate === null || $candidate['parameters'] !== 2 || trim($candidate['body']) === '') {
             throw new HttpException(422, 'FEEDBACK_TEMPLATE_CONFIGURATION_INVALID');
@@ -307,7 +307,8 @@ class CustomerMessagingService
                     if (!in_array($field, ['source_id', 'branch', 'channel'], true) || trim((string) ($purchase->$field ?? '')) === '') {
                         return $this->stop($id, 'skipped', 'ORDER_CONTEXT_UNAVAILABLE');
                     }
-                    $params[] = $field === 'branch' ? $this->branchLabel((string) $purchase->branch) : (string) $purchase->$field;
+                    $params[] = $field === 'branch' ? $this->branchLabel((string) $purchase->branch)
+                        : ($field === 'source_id' ? $this->receiptNumber($purchase) : (string) $purchase->$field);
                 }
             } else {
                 $campaign = DB::table('crm_whatsapp_campaigns')->where('id', $row->campaign_id)->first();
@@ -504,20 +505,40 @@ class CustomerMessagingService
         return $body;
     }
 
-    private function feedbackMatches(array $template, ?array $cfg = null): bool
+    private function feedbackMatches(array $template, ?array $cfg = null, bool $legacy = true): bool
     {
         $cfg = $cfg ?? $this->cfg();
-        $body = (string) ($cfg['feedback_body'] ?? '');
-        $bodies = [$body, $this->feedbackBody($cfg)];
-        // Keep both earlier exact variants compatible only where they were previously generated.
-        if (preg_match('/\{\{[1-9][0-9]*\}\}\z/', $body)) $bodies[] = $body . '.';
+        $bodies = [];
+        foreach (array_merge([(string) ($cfg['feedback_body'] ?? '')], $legacy ? (array) ($cfg['feedback_legacy_bodies'] ?? []) : []) as $body) {
+            $body = (string) $body; $bodies[] = $body; $bodies[] = $this->feedbackBody(['feedback_body' => $body]);
+            // Keep both earlier exact variants compatible only where they were previously generated.
+            if (preg_match('/\{\{[1-9][0-9]*\}\}\z/', $body)) $bodies[] = $body . '.';
+        }
         return $template['category'] === 'UTILITY' && $template['parameters'] === count($cfg['feedback_parameters'] ?? [])
             && in_array($template['body'], $bodies, true);
+    }
+
+    /** Receipt number (e.g. PH301-S48-0044) for a counter/phone sale; the stored id otherwise. */
+    private function receiptNumber(object $purchase): string
+    {
+        try {
+            if ($purchase->source_type === 'takeaway_orders' && Schema::hasTable('takeaway_orders')) {
+                $row = DB::table('takeaway_orders')->where('id', (int) $purchase->source_id)->first();
+                if ($row) return BranchOrderSequence::display($row, (string) $row->branch, (string) ($row->channel ?? 'takeaway'),
+                    'TA-' . strtoupper(str_replace(':', '-', (string) $row->branch)) . '-' . str_pad((string) $row->id, 7, '0', STR_PAD_LEFT));
+            }
+        } catch (\Throwable $error) {}
+        return (string) $purchase->source_id;
     }
 
     private function feedbackTemplate(): array
     {
         $cfg = $this->cfg();
+        // The current text's template takes over by itself as soon as Meta approves it.
+        try {
+            $current = $this->template(self::FEEDBACK_TEMPLATE_NAME, self::FEEDBACK_TEMPLATE_LANGUAGE, 'UTILITY');
+            if ($this->feedbackMatches($current, $cfg, false)) return $current;
+        } catch (\Throwable $error) {}
         $template = $this->template((string) ($cfg['feedback_template_name'] ?? ''), (string) ($cfg['feedback_language'] ?? 'ar'), 'UTILITY');
         if (!$this->feedbackMatches($template, $cfg)) {
             throw new \RuntimeException('APPROVED_FEEDBACK_TEMPLATE_REQUIRED');
@@ -673,7 +694,7 @@ class CustomerMessagingService
         $fixed = []; $matches = []; $cfg = $this->cfg();
         foreach ($rawTemplates as $raw) {
             $value = $this->validateTemplate($raw, false);
-            $compatible = $value !== null && $this->feedbackMatches($value, $cfg);
+            $compatible = $value !== null && $this->feedbackMatches($value, $cfg, false);
             $isFixed = is_array($raw) && ($raw['name'] ?? null) === self::FEEDBACK_TEMPLATE_NAME
                 && ($raw['language'] ?? null) === self::FEEDBACK_TEMPLATE_LANGUAGE;
             if ($isFixed) {

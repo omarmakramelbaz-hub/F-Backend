@@ -125,3 +125,10 @@
 [data-theme="dark"] [data-chat-skin="messenger"] .wa-inbox-message.is-inbound .wa-inbox-bubble, [data-theme="dark"] [data-chat-skin="instagram"] .wa-inbox-message.is-inbound .wa-inbox-bubble { background: #303030; color: #e4e6eb; }
 .dark-mode .chat-quick-bar, .dark-mode [data-chat-skin] .wa-message-reaction, [data-theme="dark"] .chat-quick-bar, [data-theme="dark"] [data-chat-skin] .wa-message-reaction { background: #233138; }
 .dark-mode [data-chat-skin] .wa-quoted-message p, [data-theme="dark"] [data-chat-skin] .wa-quoted-message p { color: #aebac1; }
+
+/* «Analyze and send the order to the branch» beside the reply box. */
+.wa-replies-heading .chat-order-button { display: inline-flex; align-items: center; gap: 7px; margin-inline-start: auto; padding: 6px 14px; min-height: 34px; border-radius: 999px; border: 1px solid #f0a04a; background: linear-gradient(180deg, #ff9a2e, #e46f10); color: #fff; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.wa-replies-heading .chat-order-button:hover { filter: brightness(1.05); }
+.wa-replies-heading .chat-order-button:disabled { opacity: .6; cursor: wait; }
+.wa-replies-heading { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 520px) { .wa-replies-heading .chat-order-button span { font-size: 12px; } }

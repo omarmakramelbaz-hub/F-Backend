@@ -20,6 +20,7 @@ $waInboxBootstrap = array_merge($waInbox, ['unread_url'=>url('/admin/whatsapp/un
 <script type="application/json" id="whatsapp-inbox-bootstrap">@json($waInboxBootstrap, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
 <script src="{{ asset('js/dashboard-whatsapp-inbox.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-inbox.js')) }}"></script>
 <script src="{{ asset('js/dashboard-whatsapp-orders.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-orders.js')) }}"></script>
+<script src="{{ asset('js/dashboard-chat-order-button.js') }}?v={{ filemtime(public_path('js/dashboard-chat-order-button.js')) }}"></script>
 <script src="{{ asset('js/dashboard-whatsapp-replies.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-replies.js')) }}"></script>
 <script data-dashboard-page-init>
 (function () {

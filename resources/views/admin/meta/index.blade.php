@@ -61,6 +61,7 @@ $whatsAppBootstrap = array_merge($whatsAppInbox, ['hub_chat'=>true, 'unread_url'
 @endif
 <script src="{{ asset('js/dashboard-meta-inbox.js') }}?v={{ filemtime(public_path('js/dashboard-meta-inbox.js')) }}"></script>
 <script src="{{ asset('js/dashboard-whatsapp-orders.js') }}?v={{ filemtime(public_path('js/dashboard-whatsapp-orders.js')) }}"></script>
+<script src="{{ asset('js/dashboard-chat-order-button.js') }}?v={{ filemtime(public_path('js/dashboard-chat-order-button.js')) }}"></script>
 <script src="{{ asset('js/dashboard-meta-replies.js') }}?v={{ filemtime(public_path('js/dashboard-meta-replies.js')) }}"></script>
 <script type="application/json" id="meta-message-hub-bootstrap">@json(['initial_channel'=>$waInbox['initial_channel'], 'labels'=>$waInbox['labels']], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
 <script src="{{ asset('js/dashboard-meta-message-hub.js') }}?v={{ filemtime(public_path('js/dashboard-meta-message-hub.js')) }}"></script>

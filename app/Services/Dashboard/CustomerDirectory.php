@@ -122,7 +122,7 @@ class CustomerDirectory
             $source = ['source_type'=>$sourceType, 'source_id'=>$sourceId];
             DB::table('crm_purchases')->insertOrIgnore($source + [
                 'customer_id'=>$customer->id, 'branch'=>$branch, 'channel'=>$channel,
-                'paid_at'=>$paid, 'feedback_due_at'=>$paid->copy()->addHours(24), 'feedback_status'=>'pending',
+                'paid_at'=>$paid, 'feedback_due_at'=>$paid->copy()->addMinutes((int) round(60 * (float) config('crm_whatsapp.feedback_delay_hours', 2))), 'feedback_status'=>'pending',
                 'created_at'=>now('UTC'), 'updated_at'=>now('UTC'),
             ]);
             // Replays never postpone feedback or create a second message opportunity.
