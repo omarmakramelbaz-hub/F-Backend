@@ -561,9 +561,19 @@ class WhatsAppOrderWorkflow
             }
             // The employee's own analysis («تحليل وإرسال الأوردر للفرع») reads an ordinary chat too when the customer
             // wrote no summary; the employee reviews every field before sending. Automatic analysis is unchanged.
-            $manualFallback=$receiptOnly&&!$automatic&&$snapshot['complete']&&($receipt['ok']??false)!==true
+            // «إرسال المنيو»: the customer's order from the menu page arrives as our summary message; the employee's
+            // analysis fills that exact order (products and branch included) for review, never automatically.
+            $menuOrder=null;
+            if (!$automatic&&$snapshot['complete']&&($receipt['ok']??false)!==true) {
+                try {
+                    $menuOrder=app(\App\Services\Site\ChatMenu::class)->draftFor(
+                        $this->table('whatsapp_inbox_messages')==='whatsapp_inbox_messages'?'whatsapp':'meta',$conversation,$snapshot['transcript']);
+                } catch (\Throwable $error) { report($error); }
+            }
+            if ($menuOrder!==null) { $data=$menuOrder; $reason='REVIEW_REQUIRED'; $status='REVIEW'; }
+            $manualFallback=$menuOrder===null&&$receiptOnly&&!$automatic&&$snapshot['complete']&&($receipt['ok']??false)!==true
                 &&!is_array($data['analysis_failure']??null);
-            if (!$receiptOnly||$manualFallback) try {
+            if ((!$receiptOnly&&$menuOrder===null)||$manualFallback) try {
                 WhatsAppOrderExtraction::$employeeReview=$manualFallback;
                 $result = $snapshot['complete']
                     ?$this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))

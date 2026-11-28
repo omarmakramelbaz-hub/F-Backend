@@ -3,7 +3,7 @@
     // «Analyze and send the order to the branch» beside the reply box: opens this chat's order drawer
     // and runs its analysis, so the employee only reviews the filled order and presses send.
     // The dashboard never reloads between pages: a newer copy replaces an older one already listening.
-    var VERSION = 3, previous = window.DashboardChatOrderButton;
+    var VERSION = 4, previous = window.DashboardChatOrderButton;
     if (previous && previous.version >= VERSION) return;
     if (previous) {
         if (previous.click) document.removeEventListener('click', previous.click);
@@ -16,12 +16,23 @@
         }
         return null;
     }
+    // Scroll only the chat panel that holds the drawer; scrolling the page itself slid the whole dashboard up.
+    function reveal(element) {
+        for (var node = element.parentElement; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+            var overflow = window.getComputedStyle(node).overflowY;
+            if ((overflow === 'auto' || overflow === 'scroll') && node.scrollHeight > node.clientHeight) {
+                var top = element.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop - 8;
+                if (typeof node.scrollTo === 'function') node.scrollTo({top: top, behavior: 'smooth'}); else node.scrollTop = top;
+                return;
+            }
+        }
+    }
     function click(event) {
         var button = event.target.closest && event.target.closest('[data-chat-order-analyze]');
         if (!button || button.disabled) return;
         var drawer = drawerFor(button); if (!drawer) return;
         drawer.open = true;
-        if (typeof drawer.scrollIntoView === 'function') drawer.scrollIntoView({block: 'start', behavior: 'smooth'});
+        reveal(drawer);
         button.disabled = true;
         var started = Date.now();
         // The drawer loads this conversation's order state first; analyze as soon as its button is ready.

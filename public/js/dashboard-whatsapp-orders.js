@@ -360,7 +360,7 @@
                 var key = {customer_name: 'name', customer_phone: 'phone', delivery_notes: 'notes'}[name] || name;
                 fields[name].value = reviewed[name] || customer[key] || '';
             });
-            fields.branch.value = reviewed.branch || '';
+            fields.branch.value = reviewed.branch || (value.data && value.data.branch) || '';
             fields.latitude.value = reviewed.latitude === undefined || reviewed.latitude === null ? '' : String(reviewed.latitude);
             fields.longitude.value = reviewed.longitude === undefined || reviewed.longitude === null ? '' : String(reviewed.longitude);
             fields.location_confirmed.checked = reviewed.location_confirmed === true;
