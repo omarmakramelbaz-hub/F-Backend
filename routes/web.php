@@ -105,6 +105,7 @@ Route::post('/pusher/auth', function (Request $request) {
 Route::get('/',[\App\Http\Controllers\Site\StorefrontController::class,'index'])->name('home');
 require __DIR__.'/web_storefront.php';
 require __DIR__.'/web_storefront_seo.php';
+require __DIR__.'/chat_menu.php';
 // Route::get('/',function(){
 //     return redirect('admin/dashboard');})->name('home');
 Route::get('/term-conditions',[HomeController::class,'terms'])->name('terms');

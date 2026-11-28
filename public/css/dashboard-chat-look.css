@@ -132,3 +132,7 @@
 .wa-replies-heading .chat-order-button:disabled { opacity: .6; cursor: wait; }
 .wa-replies-heading { display: flex; align-items: center; gap: 8px; }
 @media (max-width: 520px) { .wa-replies-heading .chat-order-button span { font-size: 12px; } }
+/* «إرسال المنيو» sits before the analyze button: outlined, so the two actions read apart. */
+.wa-replies-heading .chat-menu-button { background: #fff; color: #d96a0c; border-color: #f0a04a; }
+.wa-replies-heading .chat-menu-button + .chat-order-button { margin-inline-start: 6px; }
+.dark-mode .wa-replies-heading .chat-menu-button, [data-theme="dark"] .wa-replies-heading .chat-menu-button { background: transparent; color: #ffa14d; }

@@ -26,6 +26,38 @@
             setTimeout(attempt, 250);
         }());
     }
+    // «إرسال المنيو»: a personal menu link for this chat goes into the reply box; the employee presses send.
+    function sendMenu(event) {
+        var button = event.target.closest && event.target.closest('[data-chat-menu-send]');
+        if (!button || button.disabled) return;
+        var meta = Boolean(button.closest('#meta-social-inbox'));
+        var inbox = meta ? window.DashboardMetaInbox : window.DashboardWhatsAppInbox;
+        var conversation = inbox && typeof inbox.selection === 'function' ? inbox.selection() : 0;
+        var replies = button.closest('section, form, [data-wa-replies]') || document;
+        var box = replies.querySelector('[data-wa-reply-text]') || document.querySelector('[data-wa-reply-text]');
+        if (!conversation || !box) return;
+        var token = document.querySelector('meta[name="csrf-token"]');
+        button.disabled = true;
+        fetch(button.getAttribute('data-chat-menu-url'), {method: 'POST', credentials: 'same-origin',
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': token ? token.content : ''},
+            body: JSON.stringify({channel: meta ? 'meta' : 'whatsapp', conversation: conversation})})
+            .then(function (response) { return response.json().catch(function () { return {}; }).then(function (data) {
+                if (!response.ok || !data.text) throw new Error(data.message || 'تعذر تجهيز رابط المنيو');
+                return data;
+            }); })
+            .then(function (data) {
+                box.value = box.value.trim() ? box.value.trim() + '\n' + data.text : data.text;
+                box.dispatchEvent(new Event('input', {bubbles: true}));
+                box.focus();
+            })
+            .catch(function (error) {
+                var status = replies.querySelector('[data-wa-reply-status]');
+                if (status) { status.hidden = false; status.textContent = error.message; } else button.title = error.message;
+            })
+            .finally(function () { button.disabled = false; });
+    }
     document.addEventListener('click', click);
-    window.DashboardChatOrderButton = {click: click};
+    document.addEventListener('click', sendMenu);
+    window.DashboardChatOrderButton = {click: click, sendMenu: sendMenu};
 }());
