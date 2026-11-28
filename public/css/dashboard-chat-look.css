@@ -126,16 +126,19 @@
 .dark-mode .chat-quick-bar, .dark-mode [data-chat-skin] .wa-message-reaction, [data-theme="dark"] .chat-quick-bar, [data-theme="dark"] [data-chat-skin] .wa-message-reaction { background: #233138; }
 .dark-mode [data-chat-skin] .wa-quoted-message p, [data-theme="dark"] [data-chat-skin] .wa-quoted-message p { color: #aebac1; }
 
-/* «Analyze and send the order to the branch» beside the reply box. */
-.wa-replies-heading .chat-order-button { display: inline-flex; align-items: center; gap: 7px; margin-inline-start: auto; padding: 6px 14px; min-height: 34px; border-radius: 999px; border: 1px solid #f0a04a; background: linear-gradient(180deg, #ff9a2e, #e46f10); color: #fff; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
-.wa-replies-heading .chat-order-button:hover { filter: brightness(1.05); }
-.wa-replies-heading .chat-order-button:disabled { opacity: .6; cursor: wait; }
-.wa-replies-heading { display: flex; align-items: center; gap: 8px; }
-@media (max-width: 520px) { .wa-replies-heading .chat-order-button span { font-size: 12px; } }
-/* «إرسال المنيو» sits before the analyze button: outlined, so the two actions read apart. */
-.wa-replies-heading .chat-menu-button { background: #fff; color: #d96a0c; border-color: #f0a04a; }
-.wa-replies-heading .chat-menu-button + .chat-order-button { margin-inline-start: 6px; }
-.dark-mode .wa-replies-heading .chat-menu-button, [data-theme="dark"] .wa-replies-heading .chat-menu-button { background: transparent; color: #ffa14d; }
+/* «إرسال المنيو» and «تحليل وإرسال الأوردر للفرع» under the reply box, centered in the row below it. */
+.chat-order-meta { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.chat-order-meta .wa-replies-keyboard { grid-column: 1; justify-self: start; }
+.chat-order-meta [data-wa-reply-count] { grid-column: 3; justify-self: end; }
+.chat-order-actions { grid-column: 2; display: flex; align-items: center; justify-content: center; gap: 8px; margin-block: 6px 2px; }
+.chat-order-actions .chat-order-button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; min-height: 34px; border-radius: 999px; border: 1px solid #f0a04a; background: linear-gradient(180deg, #ff9a2e, #e46f10); color: #fff; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.chat-order-actions .chat-order-button span { color: inherit; font-size: inherit; line-height: inherit; }
+.chat-order-actions .chat-order-button:hover { filter: brightness(1.05); }
+.chat-order-actions .chat-order-button:disabled { opacity: .6; cursor: wait; }
+.chat-order-actions .chat-menu-button { background: #fff; color: #d96a0c; border-color: #f0a04a; }
+.dark-mode .chat-order-actions .chat-menu-button, [data-theme="dark"] .chat-order-actions .chat-menu-button { background: transparent; color: #ffa14d; }
+@media (max-width: 720px) { .chat-order-actions { grid-column: 1 / -1; grid-row: 1; } .chat-order-meta [data-wa-reply-count] { grid-row: 2; } }
+@media (max-width: 520px) { .chat-order-actions .chat-order-button { padding: 6px 10px; } .chat-order-actions .chat-order-button span { font-size: 12px; } }
 /* The «اطلب من المنيو» button under a sent menu message, as WhatsApp shows it to the customer. */
 .chat-menu-chip { display: block; margin-top: 6px; padding: 7px 10px; border-top: 1px solid rgba(0,0,0,.08); text-align: center; color: #0a7cff; font-weight: 600; font-size: 13px; }
 [data-chat-skin="whatsapp"] .chat-menu-chip { color: #00a884; }
