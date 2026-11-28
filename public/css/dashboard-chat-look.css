@@ -136,3 +136,7 @@
 .wa-replies-heading .chat-menu-button { background: #fff; color: #d96a0c; border-color: #f0a04a; }
 .wa-replies-heading .chat-menu-button + .chat-order-button { margin-inline-start: 6px; }
 .dark-mode .wa-replies-heading .chat-menu-button, [data-theme="dark"] .wa-replies-heading .chat-menu-button { background: transparent; color: #ffa14d; }
+/* The «اطلب من المنيو» button under a sent menu message, as WhatsApp shows it to the customer. */
+.chat-menu-chip { display: block; margin-top: 6px; padding: 7px 10px; border-top: 1px solid rgba(0,0,0,.08); text-align: center; color: #0a7cff; font-weight: 600; font-size: 13px; }
+[data-chat-skin="whatsapp"] .chat-menu-chip { color: #00a884; }
+.dark-mode .chat-menu-chip, [data-theme="dark"] .chat-menu-chip { border-top-color: rgba(255,255,255,.12); }

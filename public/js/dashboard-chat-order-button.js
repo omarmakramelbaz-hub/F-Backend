@@ -3,7 +3,7 @@
     // «Analyze and send the order to the branch» beside the reply box: opens this chat's order drawer
     // and runs its analysis, so the employee only reviews the filled order and presses send.
     // The dashboard never reloads between pages: a newer copy replaces an older one already listening.
-    var VERSION = 2, previous = window.DashboardChatOrderButton;
+    var VERSION = 3, previous = window.DashboardChatOrderButton;
     if (previous && previous.version >= VERSION) return;
     if (previous) {
         if (previous.click) document.removeEventListener('click', previous.click);
@@ -57,7 +57,25 @@
             .catch(function (error) { say(error.message); })
             .finally(function () { button.disabled = false; });
     }
+    // The chat stores the menu message as its text; draw the «اطلب من المنيو» button the customer sees under it.
+    var MENU_TITLE = 'منيو فسخانستا 🐟', scheduled = false;
+    function markMenus() {
+        scheduled = false;
+        document.querySelectorAll('.wa-inbox-message-text').forEach(function (text) {
+            if (text.dataset.chatMenuMarked || (text.textContent || '').trim().indexOf(MENU_TITLE) !== 0) return;
+            text.dataset.chatMenuMarked = '1';
+            var chip = document.createElement('span');
+            chip.className = 'chat-menu-chip'; chip.textContent = '🛒 اطلب من المنيو';
+            text.insertAdjacentElement('afterend', chip);
+        });
+    }
+    if (previous && previous.observer) previous.observer.disconnect();
+    var observer = typeof MutationObserver === 'function' ? new MutationObserver(function () {
+        if (!scheduled) { scheduled = true; (window.requestAnimationFrame || setTimeout)(markMenus); }
+    }) : null;
+    if (observer && document.body) observer.observe(document.body, {childList: true, subtree: true});
+    markMenus();
     document.addEventListener('click', click);
     document.addEventListener('click', sendMenu);
-    window.DashboardChatOrderButton = {version: VERSION, click: click, sendMenu: sendMenu};
+    window.DashboardChatOrderButton = {version: VERSION, click: click, sendMenu: sendMenu, observer: observer};
 }());
