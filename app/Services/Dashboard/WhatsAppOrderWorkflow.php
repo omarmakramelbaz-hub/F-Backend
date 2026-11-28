@@ -558,7 +558,12 @@ class WhatsAppOrderWorkflow
                     if ($providerFailure) $data['analysis_failure']=$this->safeAnalysisFailure($receipt);
                     $status=$missing?'NONE':'REVIEW';
                 }
-            } else {
+            }
+            // The employee's own analysis («تحليل وإرسال الأوردر للفرع») reads an ordinary chat too when the customer
+            // wrote no summary; the employee reviews every field before sending. Automatic analysis is unchanged.
+            $manualFallback=$receiptOnly&&!$automatic&&$snapshot['complete']&&($receipt['ok']??false)!==true
+                &&!is_array($data['analysis_failure']??null);
+            if (!$receiptOnly||$manualFallback) {
                 $result = $snapshot['complete']
                     ?$this->automaticProvider($authority)->extract(WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']))
                     : ['ok'=>false, 'reason'=>'CONTEXT_INCOMPLETE', 'data'=>null];
@@ -573,6 +578,7 @@ class WhatsAppOrderWorkflow
                     $reason = $data === null ? 'INVALID_EXTRACTION' : 'REVIEW_REQUIRED'; $status='REVIEW';
                     if (($data['decision'] ?? '') === 'NONE') { $status='NONE'; $reason='NO_ORDER'; }
                     if (($data['decision'] ?? '') === 'CANCELLED') { $status='CANCELLED'; $reason='CUSTOMER_CANCELLED'; }
+                    if ($manualFallback&&is_array($data)) $data['employee_review']=true;
                 }
             }
             // A reply may be accepted while extraction is in flight. Project it before CAS
@@ -2526,7 +2532,8 @@ class WhatsAppOrderWorkflow
             return hash('sha256','whatsapp-customer-confirmation-v1:'.$this->scopeKey($this->conversation((int)$row->conversation_id))
                 .':'.$recap.':'.$approval);
         }
-        abort_if($this->customerReceiptEnabled((int)$row->conversation_id),422,'CUSTOMER_CONFIRMATION_REQUIRED');
+        // Only an employee-reviewed manual draft may be sent without the customer's written summary.
+        abort_if($this->customerReceiptEnabled((int)$row->conversation_id)&&($data['employee_review']??false)!==true,422,'CUSTOMER_CONFIRMATION_REQUIRED');
         foreach (WhatsAppOrderConversationEvidence::episodeTranscript($snapshot['transcript']) as $m) if ($m['speaker']==='business' && (!$ids || in_array($m['id'],$ids,true))) $anchor=$snapshot['keys'][$m['id']];
         abort_unless(is_string($anchor),422,'BUSINESS_CONFIRMATION_REQUIRED');
         return hash('sha256','whatsapp-order-confirmation-v1:'.$this->scopeKey($this->conversation((int)$row->conversation_id)).$anchor);
