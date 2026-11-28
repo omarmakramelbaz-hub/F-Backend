@@ -2,7 +2,13 @@
     'use strict';
     // «Analyze and send the order to the branch» beside the reply box: opens this chat's order drawer
     // and runs its analysis, so the employee only reviews the filled order and presses send.
-    if (window.DashboardChatOrderButton) return;
+    // The dashboard never reloads between pages: a newer copy replaces an older one already listening.
+    var VERSION = 2, previous = window.DashboardChatOrderButton;
+    if (previous && previous.version >= VERSION) return;
+    if (previous) {
+        if (previous.click) document.removeEventListener('click', previous.click);
+        if (previous.sendMenu) document.removeEventListener('click', previous.sendMenu);
+    }
     function drawerFor(button) {
         for (var node = button.parentElement; node; node = node.parentElement) {
             var drawer = node.querySelector('[data-wa-order-drawer]');
@@ -53,5 +59,5 @@
     }
     document.addEventListener('click', click);
     document.addEventListener('click', sendMenu);
-    window.DashboardChatOrderButton = {click: click, sendMenu: sendMenu};
+    window.DashboardChatOrderButton = {version: VERSION, click: click, sendMenu: sendMenu};
 }());
